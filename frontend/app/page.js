@@ -190,7 +190,6 @@ export default function Home() {
   const [cityFilter, setCityFilter] = useState("");
   const [meetingTypeFilter, setMeetingTypeFilter] = useState("");
   const [stats, setStats] = useState(null);
-  const [showFilters, setShowFilters] = useState(true);
 
   // Pilot cities list
   const cities = ["Belmont", "Berkeley", "Cupertino", "Dublin", "Fremont", "Hayward", "Moraga", "Mountain View", "Palo Alto", "San Mateo", "Sunnyvale"];
@@ -269,189 +268,301 @@ export default function Home() {
     setMeetingTypeFilter("");
     setOffset(0);
     setHasMore(false);
-    setShowFilters(false);
   };
 
-  return (
-    <div className="min-h-screen bg-gray-50/50 flex flex-col">
-      {/* Navbar / Header */}
-      {/* Note: 'sticky top-0' keeps the header visible even when you scroll down */}
-      <header className="bg-white border-b border-gray-200 sticky top-0 z-30 shadow-sm">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-4 flex items-center justify-between">
-          <div className="flex items-center gap-8">
-            {/* Logo and Title: Clicking this resets everything back to the start */}
-            <div className="flex items-center gap-2 cursor-pointer group" onClick={resetApp}>
-              <div className="bg-blue-600 p-1.5 rounded-lg shadow-sm group-hover:bg-blue-700 transition-colors">
-                <Database className="w-5 h-5 text-white" />
+    return (
+
+      <div className="min-h-screen bg-gray-50/50 flex flex-col">
+
+        {/* Navbar / Header */}
+
+        {/* Note: 'sticky top-0' keeps the header visible even when you scroll down */}
+
+        <header className="bg-white border-b border-gray-200 sticky top-0 z-30 shadow-sm">
+
+          <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-4 flex items-center justify-between">
+
+            <div className="flex items-center gap-8">
+
+              {/* Logo and Title: Clicking this resets everything back to the start */}
+
+              <div className="flex items-center gap-2 cursor-pointer group" onClick={resetApp}>
+
+                <div className="bg-blue-600 p-1.5 rounded-lg shadow-sm group-hover:bg-blue-700 transition-colors">
+
+                  <Database className="w-5 h-5 text-white" />
+
+                </div>
+
+                <h1 className="text-lg font-bold text-gray-900 tracking-tight">Town Council <span className="text-blue-600 font-medium">Insight</span></h1>
+
               </div>
-              <h1 className="text-lg font-bold text-gray-900 tracking-tight">Town Council <span className="text-blue-600 font-medium">Insight</span></h1>
-            </div>
-            
-            {/* Desktop Navigation Links */}
-            <nav className="hidden md:flex items-center gap-6">
-              {/* Reset the app state locally instead of using an <a> tag to avoid slow page reloads */}
-              <button onClick={resetApp} className="text-sm font-semibold text-blue-600 border-b-2 border-blue-600 pb-1">Search</button>
+
               
-              {/* Links to the project's source code and external standards documentation */}
-              <a href="https://github.com/manumissio/town-council" target="_blank" rel="noopener noreferrer" className="text-sm font-medium text-gray-500 hover:text-blue-600 transition-colors">GitHub</a>
-              <a href="https://open-civic-data.readthedocs.io/en/latest/index.html" target="_blank" rel="noopener noreferrer" className="text-sm font-medium text-gray-500 hover:text-blue-600 transition-colors">Standards</a>
-            </nav>
-          </div>
-          
-          <div className="flex items-center gap-4">
-            {stats && (
-              <div 
-                onClick={() => setShowFilters(true)}
-                className="hidden sm:flex items-center gap-4 text-xs font-semibold text-gray-400 uppercase tracking-wider cursor-pointer hover:text-blue-600 transition-colors"
-                title="Click to manage filters"
-              >
-                <span className="bg-gray-100 px-2 py-1 rounded-md text-gray-600 group-hover:bg-blue-50 transition-colors">{stats.numberOfDocuments} Records</span>
-                <span className="w-1 h-1 bg-gray-300 rounded-full"></span>
-                <span>{cities.length} Cities</span>
-              </div>
-            )}
-            <button 
-              onClick={() => setShowFilters(!showFilters)}
-              className={`p-2 rounded-lg transition-all border ${showFilters ? 'bg-blue-50 border-blue-200 text-blue-600' : 'bg-white border-gray-200 text-gray-500 hover:bg-gray-50'}`}
-              title={showFilters ? "Hide Filters" : "Show Filters"}
-            >
-              <Filter className="w-5 h-5" />
-            </button>
-          </div>
-        </div>
-      </header>
 
-      {/* Hero / Search Section */}
-      {/* UX Heuristic: Hick's Law - Centralizing and widening the search bar to minimize distractions */}
-      <section className="bg-white border-b border-gray-100 py-12 shadow-inner">
-        <div className="max-w-4xl mx-auto px-4 text-center">
-          <div className="relative group max-w-3xl mx-auto">
-            <div className="absolute inset-y-0 left-0 flex items-center pl-6 pointer-events-none">
-              <Search className={`w-6 h-6 transition-colors ${query ? 'text-blue-500' : 'text-gray-400 group-focus-within:text-blue-500'}`} />
+              {/* Desktop Navigation Links */}
+
+              <nav className="hidden md:flex items-center gap-6">
+
+                {/* Reset the app state locally instead of using an <a> tag to avoid slow page reloads */}
+
+                <button onClick={resetApp} className="text-sm font-semibold text-blue-600 border-b-2 border-blue-600 pb-1">Search</button>
+
+                
+
+                {/* Links to the project's source code and external standards documentation */}
+
+                <a href="https://github.com/manumissio/town-council" target="_blank" rel="noopener noreferrer" className="text-sm font-medium text-gray-500 hover:text-blue-600 transition-colors">GitHub</a>
+
+                <a href="https://open-civic-data.readthedocs.io/en/latest/index.html" target="_blank" rel="noopener noreferrer" className="text-sm font-medium text-gray-500 hover:text-blue-600 transition-colors">Standards</a>
+
+              </nav>
+
             </div>
-            <input
-              type="search"
-              autoFocus
-              className="block w-full p-6 pl-14 text-lg text-gray-900 border-2 border-gray-100 rounded-3xl bg-gray-50/30 focus:bg-white focus:ring-8 focus:ring-blue-500/5 focus:border-blue-500 shadow-sm transition-all placeholder:text-gray-400"
-              placeholder="Search local laws, budgets, or meeting notes..."
-              value={query}
-              onChange={(e) => setQuery(e.target.value)}
-            />
-            {isSearching && (
-              <div className="absolute inset-y-0 right-0 flex items-center pr-6">
-                <Loader2 className="w-6 h-6 text-blue-500 animate-spin" />
-              </div>
-            )}
-          </div>
-          
-          {/* Quick Suggestions - Help the user get started */}
-          <div className="mt-6 flex flex-wrap justify-center gap-3">
-            <span className="text-xs font-bold text-gray-400 uppercase tracking-widest py-1">Quick Search:</span>
-            {["Zoning", "Housing", "Budget", "Police", "Environment"].map(tag => (
-              <button 
-                key={tag} 
-                onClick={() => setQuery(tag)}
-                className="px-4 py-1.5 bg-white border border-gray-200 text-gray-600 text-xs font-bold rounded-full hover:border-blue-300 hover:text-blue-600 transition-all shadow-sm active:scale-95"
-              >
-                {tag}
-              </button>
-            ))}
-          </div>
-        </div>
-      </section>
 
-      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 flex-1 py-12 flex gap-12 relative">
-        
-        {/* Sidebar Filters */}
-        <aside className={`${showFilters ? 'block' : 'hidden'} w-full lg:w-[400px] shrink-0 space-y-8 animate-in fade-in slide-in-from-left-4 transition-all duration-300`}>
-          <div className="bg-white p-8 rounded-3xl border border-gray-200 shadow-sm sticky top-28">
-            <div className="flex items-center justify-between mb-8">
-              <div className="flex items-center gap-2">
-                <Filter className="w-4 h-4 text-blue-600" />
-                <h3 className="font-bold text-gray-900 text-lg">Filters</h3>
-              </div>
-              {(cityFilter || meetingTypeFilter) && (
-                 <button 
-                   onClick={() => { setCityFilter(""); setMeetingTypeFilter(""); }}
-                   className="text-[11px] font-bold text-red-500 uppercase hover:text-red-700 transition-colors"
-                 >
-                   Reset All
-                 </button>
+            
+
+            <div className="flex items-center gap-4">
+
+              {stats && (
+
+                <div className="hidden sm:flex items-center gap-4 text-xs font-semibold text-gray-400 uppercase tracking-wider">
+
+                  <span className="bg-gray-100 px-2 py-1 rounded-md text-gray-600 font-mono tracking-tighter">{stats.numberOfDocuments} Records</span>
+
+                  <span className="w-1 h-1 bg-gray-300 rounded-full"></span>
+
+                  <span>{cities.length} Cities</span>
+
+                </div>
+
               )}
+
             </div>
 
-            <div className="space-y-10">
-              {/* City Filter */}
-              <div>
-                <div className="flex items-center justify-between mb-4">
-                  <label className="text-[11px] font-bold text-gray-400 uppercase tracking-widest">Municipality</label>
-                  {cityFilter && (
-                    <button onClick={() => setCityFilter("")} className="text-[11px] font-bold text-blue-600 hover:text-blue-800 uppercase">Clear</button>
-                  )}
-                </div>
-                <select 
-                  value={cityFilter}
-                  onChange={(e) => setCityFilter(e.target.value)}
-                  className="block w-full text-sm border-gray-200 rounded-xl focus:ring-4 focus:ring-blue-500/5 focus:border-blue-500 bg-gray-50/50 py-3.5 px-4 transition-all appearance-none cursor-pointer"
-                >
-                  <option value="">All Bay Area Cities</option>
-                  {cities.map(c => <option key={c} value={c.toLowerCase()}>{c}</option>)}
-                </select>
-              </div>
-
-              {/* Meeting Type */}
-              <div>
-                <div className="flex items-center justify-between mb-4">
-                  <label className="text-[11px] font-bold text-gray-400 uppercase tracking-widest">Meeting Category</label>
-                  {meetingTypeFilter && (
-                    <button onClick={() => setMeetingTypeFilter("")} className="text-[11px] font-bold text-blue-600 hover:text-blue-800 uppercase">Clear</button>
-                  )}
-                </div>
-                <div className="grid grid-cols-1 gap-3">
-                  {["Regular", "Special", "Closed"].map((type) => (
-                    <label key={type} className={`flex items-center justify-between p-4 rounded-2xl border transition-all cursor-pointer group ${meetingTypeFilter === type ? 'bg-blue-50 border-blue-200 ring-1 ring-blue-100' : 'bg-white border-gray-100 hover:border-gray-200'}`}>
-                      <div className="flex items-center gap-3">
-                        <div className={`w-5 h-5 rounded-full border-2 flex items-center justify-center transition-all ${meetingTypeFilter === type ? 'border-blue-600 bg-blue-600 shadow-[0_0_0_4px_rgba(37,99,235,0.1)]' : 'border-gray-200 bg-white group-hover:border-gray-300'}`}>
-                          {meetingTypeFilter === type && <div className="w-2 h-2 bg-white rounded-full shadow-sm" />}
-                        </div>
-                        <span className={`text-sm transition-colors ${meetingTypeFilter === type ? 'text-blue-900 font-bold' : 'text-gray-600 group-hover:text-gray-900 font-medium'}`}>
-                          {type}
-                        </span>
-                      </div>
-                      <input 
-                        type="radio" 
-                        name="meetingType"
-                        checked={meetingTypeFilter === type}
-                        onChange={() => setMeetingTypeFilter(type)}
-                        className="hidden"
-                      />
-                    </label>
-                  ))}
-                </div>
-              </div>
-            </div>
           </div>
-        </aside>
 
-        {/* Main Content Area */}
-        <div className="flex-1 space-y-8">
-          
-          {/* Results Info */}
-          {query && !loading && (
-            <div className="flex items-center gap-2 px-2 text-sm font-bold text-gray-400 uppercase tracking-widest">
-              <Database className="w-4 h-4" /> Found {totalHits} relevant documents for "{query}"
+        </header>
+
+  
+
+        {/* Unified Search Hub Section */}
+
+        {/* This section combines text search and filters into a single visual unit */}
+
+        <section className="bg-white border-b border-gray-100 py-16 shadow-inner relative z-20">
+
+          <div className="max-w-5xl mx-auto px-4">
+
+            <div className="bg-white border-2 border-gray-100 rounded-[2rem] shadow-xl hover:shadow-2xl transition-all duration-300 overflow-hidden flex flex-col md:flex-row items-stretch group focus-within:border-blue-500 focus-within:ring-8 focus-within:ring-blue-500/5">
+
+              
+
+              {/* 1. Keyword Search Segment */}
+
+              <div className="flex-1 flex items-center relative min-w-[300px]">
+
+                <div className="absolute left-6 pointer-events-none">
+
+                  <Search className={`w-5 h-5 transition-colors ${query ? 'text-blue-500' : 'text-gray-400 group-focus-within:text-blue-500'}`} />
+
+                </div>
+
+                <input
+
+                  type="search"
+
+                  autoFocus
+
+                  className="w-full py-6 pl-14 pr-4 text-lg text-gray-900 bg-transparent border-none focus:ring-0 placeholder:text-gray-400 font-medium"
+
+                  placeholder="Search meeting notes..."
+
+                  value={query}
+
+                  onChange={(e) => setQuery(e.target.value)}
+
+                />
+
+              </div>
+
+  
+
+              <div className="hidden md:block w-px bg-gray-100 my-4" />
+
+  
+
+              {/* 2. Municipality Segment */}
+
+              <div className="relative group/segment px-6 py-4 md:py-0 flex items-center min-w-[200px] hover:bg-gray-50 transition-colors cursor-pointer">
+
+                <div className="flex flex-col w-full">
+
+                  <label className="text-[10px] font-bold text-gray-400 uppercase tracking-widest mb-0.5">Where</label>
+
+                  <select 
+
+                    value={cityFilter}
+
+                    onChange={(e) => setCityFilter(e.target.value)}
+
+                    className="bg-transparent border-none p-0 text-sm font-bold text-gray-800 focus:ring-0 cursor-pointer appearance-none w-full"
+
+                  >
+
+                    <option value="">All Bay Area</option>
+
+                    {cities.map(c => <option key={c} value={c.toLowerCase()}>{c}</option>)}
+
+                  </select>
+
+                </div>
+
+                <ChevronDown className="w-4 h-4 text-gray-400 ml-2" />
+
+              </div>
+
+  
+
+              <div className="hidden md:block w-px bg-gray-100 my-4" />
+
+  
+
+              {/* 3. Category Segment */}
+
+              <div className="relative group/segment px-6 py-4 md:py-0 flex items-center min-w-[180px] hover:bg-gray-50 transition-colors cursor-pointer">
+
+                <div className="flex flex-col w-full">
+
+                  <label className="text-[10px] font-bold text-gray-400 uppercase tracking-widest mb-0.5">Type</label>
+
+                  <select 
+
+                    value={meetingTypeFilter}
+
+                    onChange={(e) => setMeetingTypeFilter(e.target.value)}
+
+                    className="bg-transparent border-none p-0 text-sm font-bold text-gray-800 focus:ring-0 cursor-pointer appearance-none w-full"
+
+                  >
+
+                    <option value="">Any Meeting</option>
+
+                    {["Regular", "Special", "Closed"].map(type => (
+
+                      <option key={type} value={type}>{type}</option>
+
+                    ))}
+
+                  </select>
+
+                </div>
+
+                <ChevronDown className="w-4 h-4 text-gray-400 ml-2" />
+
+              </div>
+
+  
+
+              {/* Global Reset (Visible only when filters are active) */}
+
+              {(cityFilter || meetingTypeFilter || query) && (
+
+                <button 
+
+                  onClick={resetApp}
+
+                  className="md:border-l border-gray-100 px-6 py-4 md:py-0 bg-white hover:bg-red-50 text-red-500 transition-colors flex items-center justify-center group/reset"
+
+                  title="Reset Search"
+
+                >
+
+                  <X className="w-5 h-5 group-hover/reset:rotate-90 transition-transform" />
+
+                </button>
+
+              )}
+
             </div>
-          )}
 
-                      {/* Results List */}
+            
 
-                    <div className="space-y-8">
+            {/* Quick Shortcuts */}
 
-                      {results.map((hit) => (
+            <div className="mt-8 flex flex-wrap justify-center gap-3">
 
-                        <ResultCard key={hit.id} hit={hit} />
+              {["Zoning", "Housing", "Budget", "Police"].map(tag => (
 
-                      ))}
+                <button 
+
+                  key={tag} 
+
+                  onClick={() => setQuery(tag)}
+
+                  className="px-5 py-2 bg-white border border-gray-200 text-gray-600 text-[11px] font-bold rounded-full hover:border-blue-400 hover:text-blue-600 transition-all shadow-sm active:scale-95"
+
+                >
+
+                  {tag}
+
+                </button>
+
+              ))}
+
+            </div>
+
+          </div>
+
+        </section>
+
+  
+
+        <div className="max-w-5xl mx-auto px-4 py-12 flex-1 relative">
+
+          <div className="space-y-8">
+
+            
+
+            {/* Results Info */}
+
+            {query && !loading && (
+
+              <div className="flex items-center justify-between mb-2">
+
+                 <div className="flex items-center gap-2 text-sm font-bold text-gray-400 uppercase tracking-widest">
+
+                  <Database className="w-4 h-4" /> Found {totalHits} relevant records
+
+                </div>
+
+                {/* Display active filter chips for quick feedback */}
+
+                <div className="flex gap-2">
+
+                  {cityFilter && <span className="text-[10px] font-bold bg-blue-50 text-blue-600 px-2 py-1 rounded uppercase">{cityFilter}</span>}
+
+                  {meetingTypeFilter && <span className="text-[10px] font-bold bg-purple-50 text-purple-600 px-2 py-1 rounded uppercase">{meetingTypeFilter}</span>}
+
+                </div>
+
+              </div>
+
+            )}
+
+  
+
+            {/* Results List */}
+
+            <div className="space-y-8">
+
+              {results.map((hit) => (
+
+                <ResultCard key={hit.id} hit={hit} />
+
+              ))}
+
+  
 
           
 
