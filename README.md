@@ -50,18 +50,18 @@ docker-compose run extractor python extractor.py
 docker-compose run pipeline python indexer.py
 ```
 
-### 5. Use the API
-Access the **FastAPI** backend to search the indexed data:
-- **Search:** `http://localhost:8000/search?q=zoning`
-- **Stats:** `http://localhost:8000/stats`
-- **Interactive Docs:** `http://localhost:8000/docs` (Swagger UI)
+### 5. Access the API and UI
+- **Search UI (Web):** `http://localhost:3000`
+- **Search API (Backend):** `http://localhost:8000/search?q=zoning`
+- **Interactive API Docs:** `http://localhost:8000/docs`
 
 ## Architecture
 - **`crawler`**: Scrapy spiders that extract meeting schedules and document links.
 - **`pipeline`**: Handles database records and secure, parallelized PDF downloading.
 - **`extractor`**: Uses Apache Tika to turn raw documents into searchable text.
 - **`indexer`**: Synchronizes the processed text into Meilisearch.
-- **`api`**: Modern backend serving data to users and frontends.
+- **`api`**: Modern FastAPI backend serving data to users.
+- **`frontend`**: Next.js 14 web interface with typo-tolerant search and highlights.
 
 ## Development & Contributing
 

@@ -84,6 +84,18 @@ services:
       - meilisearch
       - postgres
 
+  # Next.js Frontend: The user interface for searching and viewing results.
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    ports:
+      - "3000:3000"
+    environment:
+      - NEXT_PUBLIC_API_URL=http://localhost:8000
+    depends_on:
+      - api
+
 volumes:
   # Persistent data storage for the SQLite DB and downloaded PDFs
   data:
