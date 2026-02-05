@@ -195,15 +195,22 @@ export default function Home() {
   const cities = ["Belmont", "Berkeley", "Cupertino", "Dublin", "Fremont", "Hayward", "Moraga", "Mountain View", "Palo Alto", "San Mateo", "Sunnyvale"];
 
   const performSearch = useCallback(async (isLoadMore = false) => {
+    /**
+     * The heart of the search UI.
+     * It talks to our FastAPI backend and handles both new searches 
+     * and "Load More" requests.
+     */
     if (!query.trim()) return;
     
     setLoading(true);
     if (!isLoadMore) setIsSearching(true);
 
     try {
+      // Offset tells the API which "page" of results we want (0, 20, 40, etc.)
       const currentOffset = isLoadMore ? offset + 20 : 0;
       const apiUrl = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
       
+      // Build the URL with our search query and any active filters
       let url = `${apiUrl}/search?q=${encodeURIComponent(query)}&limit=20&offset=${currentOffset}`;
       if (cityFilter) url += `&city=${encodeURIComponent(cityFilter)}`;
       if (meetingTypeFilter) url += `&meeting_type=${encodeURIComponent(meetingTypeFilter)}`;
@@ -212,9 +219,13 @@ export default function Home() {
       const data = await res.json();
       
       const newHits = data.hits || [];
+      
+      // If loading more, append results. Otherwise, replace them.
       setResults(prev => isLoadMore ? [...prev, ...newHits] : newHits);
       setOffset(currentOffset);
-      setHasMore(newHits.length === 20); // If we got a full page, there might be more
+      
+      // If we got exactly 20 results, there's likely more data to load.
+      setHasMore(newHits.length === 20); 
     } catch (error) {
       console.error("Search failed:", error);
     } finally {
@@ -223,10 +234,11 @@ export default function Home() {
     }
   }, [query, cityFilter, meetingTypeFilter, offset]);
 
-  // Handle auto-search when query or filters change
+  // Debouncing: This prevents the app from searching on EVERY single keypress.
+  // It waits for you to stop typing for 400ms before asking the server for data.
   useEffect(() => {
     const delayDebounceFn = setTimeout(() => {
-      setOffset(0);
+      setOffset(0); // Reset to first page when query/filters change
       performSearch(false);
     }, 400);
 

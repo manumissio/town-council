@@ -50,27 +50,35 @@ def search_documents(
 ):
     """
     Search for text within meeting minutes using Meilisearch.
-    Supports advanced filtering and pagination.
+    
+    How this works for a developer:
+    1. It connects to Meilisearch (our high-speed search engine).
+    2. It builds a 'filter' list based on the city, type, and date you picked in the UI.
+    3. It asks Meilisearch to find the most relevant 20 documents (limit).
+    4. It returns the results along with 'highlights' (snippets showing where the words were found).
     """
     try:
         index = client.index('documents')
         
+        # Configuration for Meilisearch
         search_params = {
             'limit': limit,
             'offset': offset,
-            'attributesToHighlight': ['content'],  # Return snippets with <em>query</em>
+            'attributesToHighlight': ['content'],  # This tells the engine to return snippets of text
             'highlightPreTag': '<em class="bg-yellow-200 not-italic font-semibold px-0.5 rounded">',
             'highlightPostTag': '</em>',
             'filter': []
         }
         
-        # Build filter array for Meilisearch
+        # 1. City Filter: Narrow results to a specific city like 'Berkeley'
         if city:
             search_params['filter'].append(f'city = "{city}"')
         
+        # 2. Meeting Type Filter: Only show 'Regular' or 'Special' meetings
         if meeting_type:
             search_params['filter'].append(f'meeting_type = "{meeting_type}"')
 
+        # 3. Date Range Filter: Find meetings between two specific days
         if date_from and date_to:
             search_params['filter'].append(f'date >= "{date_from}" AND date <= "{date_to}"')
         elif date_from:
@@ -78,14 +86,16 @@ def search_documents(
         elif date_to:
             search_params['filter'].append(f'date <= "{date_to}"')
 
-        # If no filters, remove the key to avoid empty filter error
+        # Cleanup: If the user didn't pick any filters, we must remove the empty list
         if not search_params['filter']:
             del search_params['filter']
 
+        # Perform the actual search
         results = index.search(q, search_params)
         print(f"Search for '{q}' (offset {offset}) returned {len(results['hits'])} hits")
         return results
     except Exception as e:
+        # If something goes wrong (like Meilisearch is down), return a 500 error
         raise HTTPException(status_code=500, detail=str(e))
 
 @app.get("/stats")

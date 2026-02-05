@@ -15,23 +15,33 @@ class BerkeleyCustom(scrapy.Spider):
         yield scrapy.Request(url=url, callback=self.parse)
 
     def parse(self, response):
-        # Look for the meeting table rows
+        """
+        Extracts meeting details from the Berkeley Agendas table.
+        
+        How it works:
+        1. It finds all the rows (<tr>) in the meeting table.
+        2. For each row, it pulls out the meeting name and date.
+        3. It scans the row for any PDF links (Agendas or Packets).
+        4. It creates an 'Event' object for our pipeline to process.
+        """
+        # Look for the meeting table rows using CSS classes found on berkeleyca.gov
         rows = response.xpath('//table[contains(@class, "stack")]/tbody/tr')
         self.logger.info(f"Found {len(rows)} meeting rows")
 
         for row in rows:
-            # 1. Meeting Type/Title
+            # 1. Meeting Title: e.g., "City Council Regular Meeting"
             meeting_type = row.xpath('.//td[contains(@class, "council-meeting-name")]//text()[normalize-space()]').extract_first()
-            # 2. Date
+            # 2. Date: e.g., "02/10/2026"
             date_str = row.xpath('.//td[contains(@class, "views-field-field-daterange")]//text()[normalize-space()]').extract_first()
             
             if not meeting_type or not date_str:
                 continue
 
+            # Turn the text date into a standard Python date object
             record_date = parse_date_string(date_str)
             
             # 3. Documents
-            # We look for PDF links in the Agenda, Packet, and Download columns
+            # We look for links pointing to .pdf files in the table columns
             doc_links = row.xpath('.//td[contains(@class, "views-field")]//a[contains(@href, ".pdf")]')
             
             documents = []
@@ -39,11 +49,10 @@ class BerkeleyCustom(scrapy.Spider):
                 url = response.urljoin(link.xpath('./@href').extract_first())
                 text = "".join(link.xpath('.//text()').extract()).lower()
                 
+                # Determine if the PDF is an Agenda or a Minutes/Packet
                 category = 'agenda'
-                if 'packet' in text:
-                    category = 'minutes' # We treat packets as high-value docs
-                elif 'minutes' in text:
-                    category = 'minutes'
+                if 'packet' in text or 'minutes' in text:
+                    category = 'minutes' # We treat 'Packets' as high-value docs like minutes
 
                 documents.append({
                     'url': url,
