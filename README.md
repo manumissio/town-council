@@ -24,9 +24,13 @@ docker-compose up -d
 ```
 
 ### 2. Scrape a City
-Gather meeting metadata and PDF links (e.g., Berkeley, CA):
+Gather meeting metadata and PDF links from supported municipalities:
 ```bash
+# Scrape Berkeley, CA
 docker-compose run crawler scrapy crawl berkeley
+
+# Scrape Dublin, CA
+docker-compose run crawler scrapy crawl dublin
 ```
 
 ### 3. Process Data

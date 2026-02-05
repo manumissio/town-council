@@ -73,8 +73,11 @@ graph TD
 
 ## Key Components & Design Principles
 
-### 1. Orchestrated Pipeline
-The system utilizes a central orchestrator (`run_pipeline.py`) that sequences 7 distinct data stages. It is designed to be **fault-tolerant**; non-critical failures in complex PDF table extraction or NLP entity recognition will not halt the indexing of the document for search.
+### 1. Ingestion Layer (Scrapy)
+The system utilizes city-specific spiders to handle municipal website volatility. It supports multiple portal architectures:
+*   **Table-Centric (Berkeley):** Directly parses modern city websites using high-precision XPaths.
+*   **CivicPlus/Folder-Centric (Dublin):** Navigates standard government platforms that use metadata attributes (like `data-th`) for accessibility.
+*   **Delta Crawling:** All spiders implement a "look-back" check against the database to only fetch meetings that haven't been processed yet, saving bandwidth and compute.
 
 ### 2. Security Model
 *   **Non-Root Execution:** All Docker containers run as a restricted `appuser` to minimize impact in case of a service breach.
