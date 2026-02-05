@@ -49,16 +49,16 @@ class Fremont(scrapy.spiders.CrawlSpider):
                 event = Event(
                     _type='event',
                     ocd_division_id=self.ocd_division_id,
-                    name='Fremont, CA City Council {}'.format(meeting_type),
-                    scraped_datetime=datetime.datetime.utcnow(),
+                    name=f'Fremont, CA City Council {meeting_type}',
+                    # Use timezone-aware UTC for the scraping timestamp
+                    scraped_datetime=datetime.datetime.now(datetime.timezone.utc),
                     record_date=record_date,
                     source=self.name,
                     source_url=response.url,
                     meeting_type=meeting_type,
                     )
 
-                # This block should be cleaned up later
-                # create nested JSON obj for each doc related to meeting
+                # Build the list of documents (agendas, minutes) for this meeting
                 documents = []
                 if agenda_urls is not None:
                     for url in agenda_urls:
@@ -70,15 +70,14 @@ class Fremont(scrapy.spiders.CrawlSpider):
                         documents.append(agenda_doc)
 
                 if minutes_url is not None:
-                    if self.base_url not in minutes_url:
-                        minutes_url = urljoin(self.base_url, minutes_url)
+                    # Resolve relative URL to an absolute link
+                    minutes_url = response.urljoin(minutes_url)
                     minutes_doc = {
-                        'url': url,
+                        'url': minutes_url,
                         'url_hash': url_to_md5(minutes_url),
                         'category': 'minutes'
                     }
                     documents.append(minutes_doc)
 
                 event['documents'] = documents
-
                 yield event

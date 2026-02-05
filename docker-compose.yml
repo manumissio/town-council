@@ -1,0 +1,26 @@
+version: '3.8'
+
+services:
+  # Service for running the Scrapy spiders
+  # Example: docker-compose run crawler scrapy crawl belmont
+  crawler:
+    build: .
+    volumes:
+      - .:/app
+    working_dir: /app/council_crawler
+    environment:
+      - PYTHONUNBUFFERED=1
+
+  # Service for running the downloader pipeline
+  # Example: docker-compose run pipeline python downloader.py
+  pipeline:
+    build: .
+    volumes:
+      - .:/app
+    working_dir: /app/pipeline
+    environment:
+      - PYTHONUNBUFFERED=1
+
+volumes:
+  # Persistent data storage for the SQLite DB and downloaded PDFs
+  data:

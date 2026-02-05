@@ -1,30 +1,21 @@
 import datetime
+import os
 
 from sqlalchemy import create_engine
 from sqlalchemy import Column, Integer, Date, DateTime, MetaData, Table, String, Boolean
 from sqlalchemy import ForeignKey
 from sqlalchemy import sql
 
-STORAGE_ENGINE = {
-    'drivername': 'postgresql',
-    'host': 'localhost',
-    # 'port': '5432',
-    'username': 'Username',
-    # 'password': 'YOUR_PASSWORD',
-    'database': 'town_council'
-}
-
-
 def setup_db():
-    driver = STORAGE_ENGINE['drivername']
-    host = STORAGE_ENGINE['host']
-    username = STORAGE_ENGINE['username']
-    # port = STORAGE_ENGINE['port']
-    database = STORAGE_ENGINE['database']
-
-    db = f'{driver}://{username}@{host}/{database}'
-    engine = create_engine(db)
-    metadata = MetaData(db)
+    # Dynamically resolve path to ensure consistency with models.py
+    current_dir = os.path.dirname(os.path.abspath(__file__))
+    project_root = os.path.dirname(current_dir)
+    db_path = os.path.join(project_root, 'test_db.sqlite')
+    
+    db_url = f'sqlite:///{db_path}'
+    engine = create_engine(db_url)
+    metadata = MetaData()
+    metadata.bind = engine
 
     return engine, metadata
 

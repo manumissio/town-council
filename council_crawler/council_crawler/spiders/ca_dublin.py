@@ -44,16 +44,16 @@ class Dublin(scrapy.spiders.CrawlSpider):
             event = Event(
                 _type='event',
                 ocd_division_id=self.ocd_division_id,
-                name='Dublin, CA City Council {}'.format(meeting_type).strip(),
-                scraped_datetime=datetime.datetime.utcnow(),
+                name=f'Dublin, CA City Council {meeting_type}'.strip(),
+                # Use timezone-aware UTC for the scraping timestamp
+                scraped_datetime=datetime.datetime.now(datetime.timezone.utc),
                 record_date=record_date,
                 source=self.name.strip(),
                 source_url=response.url.strip(),
                 meeting_type=meeting_type.strip(),
                 )
 
-            # This block should be cleaned up later
-            # create nested JSON obj for each doc related to meeting
+            # Build the list of documents (agendas, minutes) for this meeting
             documents = []
             for url in agenda_urls:
                 agenda_doc = {
@@ -64,13 +64,14 @@ class Dublin(scrapy.spiders.CrawlSpider):
                 documents.append(agenda_doc)
 
             if minutes_url:
+                # Resolve relative URL to an absolute link
+                minutes_url = response.urljoin(minutes_url)
                 minutes_doc = {
                     'url': minutes_url,
-                    'url_hash': url_to_md5(url),
+                    'url_hash': url_to_md5(minutes_url),
                     'category': 'minutes'
                 }
                 documents.append(minutes_doc)
 
             event['documents'] = documents
-
             yield event

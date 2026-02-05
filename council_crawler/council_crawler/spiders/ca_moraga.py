@@ -46,16 +46,16 @@ class Moraga(scrapy.spiders.CrawlSpider):
             event = Event(
                 _type='event',
                 ocd_division_id=self.ocd_division_id,
-                name='Moraga, CA City Council {}'.format(meeting_type),
-                scraped_datetime=datetime.datetime.utcnow(),
+                name=f'Moraga, CA City Council {meeting_type}',
+                # Use timezone-aware UTC for the scraping timestamp
+                scraped_datetime=datetime.datetime.now(datetime.timezone.utc),
                 record_date=record_date,
                 source=self.name,
                 source_url=response.url,
                 meeting_type=meeting_type,
             )
 
-            # This block should be cleaned up later
-            # create nested JSON obj for each doc related to meeting
+            # Build the list of documents (agendas, minutes) for this meeting
             documents = []
             if agenda_urls is not None:
                 for url in agenda_urls:
@@ -68,10 +68,8 @@ class Moraga(scrapy.spiders.CrawlSpider):
                     documents.append(agenda_doc)
 
             if minutes_url is not None:
-                if self.base_url not in minutes_url:
-                    # encoding url because several paths have spaces in this crawler
-                    minutes_url = quote(minutes_url)
-                    minutes_url = urljoin(self.base_url, minutes_url)                
+                # response.urljoin handles relative links and encoding automatically
+                minutes_url = response.urljoin(minutes_url)
                 minutes_doc = {
                     'media_type': 'application/pdf',
                     'url': minutes_url,
@@ -81,5 +79,4 @@ class Moraga(scrapy.spiders.CrawlSpider):
                 documents.append(minutes_doc)
 
             event['documents'] = documents
-
             yield event

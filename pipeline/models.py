@@ -14,7 +14,7 @@ DeclarativeBase = declarative_base()
 def db_connect():
     """
     Connect using SQLite database in the project root.
-    Returns sqlalchemy engine
+    Dynamically resolves the path to ensure portability.
     """
     # Get the directory of the current file (town-council/pipeline/)
     current_dir = os.path.dirname(os.path.abspath(__file__))

@@ -1,2 +1,2 @@
-sqlalchemy
-requests
+sqlalchemy==2.0.25
+requests==2.31.0

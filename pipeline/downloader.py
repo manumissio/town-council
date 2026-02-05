@@ -1,5 +1,7 @@
+import os
 import requests
 import db_utils
+from concurrent.futures import ThreadPoolExecutor
 from sqlalchemy.orm import sessionmaker
 from models import Place, UrlStage, Event, Catalog, Document, EventStage
 from models import db_connect, create_tables
@@ -54,23 +56,42 @@ class Media():
     def _store_document(self, content, content_type, url_hash):
         extension = content_type.split(';')[0].split('/')[-1]
         file_path = self._create_fp_from_ocd_id(self.doc.ocd_division_id)
-        print(extension)
+        
+        # Determine extension and validate
         if extension == 'pdf':
-            with open(f'{file_path}/{url_hash}.pdf', 'wb') as f:
+            ext = '.pdf'
+        elif extension == 'html':
+            ext = '.html'
+        else:
+            print(f"Skipping unsupported content type: {content_type}")
+            return None
+
+        full_path = os.path.join(file_path, f'{url_hash}{ext}')
+
+        if extension == 'pdf':
+            with open(full_path, 'wb') as f:
                 f.write(content.content)
-                return f.name
+                return full_path
         if extension == 'html':
-            with open (f'{file_path}/{url_hash}.html', 'w') as f:
+            with open(full_path, 'w') as f:
                 f.write(content.text)
-                return f.name
+                return full_path
 
     def _create_fp_from_ocd_id(self, ocd_id):
         elements = ocd_id.split('/')
-        country = elements[1].split(':')[-1]
-        state = elements[2].split(':')[-1]
-        place = elements[3].split(':')[-1]
+        # Extract and sanitize components
+        country = os.path.basename(elements[1].split(':')[-1])
+        state = os.path.basename(elements[2].split(':')[-1])
+        place = os.path.basename(elements[3].split(':')[-1])
 
-        return (f'./data/{country}/{state}/{place}')
+        # Construct safe path
+        base_dir = os.path.join('.', 'data')
+        safe_path = os.path.join(base_dir, country, state, place)
+        
+        # Ensure the directory exists
+        os.makedirs(safe_path, exist_ok=True)
+
+        return safe_path
 
 
 def map_document(url_record, place_id, event_id, catalog_id):
@@ -125,19 +146,12 @@ def copy_event_from_stage(staged_event):
     return event
 
 
-def process_staged_urls():
-    """Query download all staged URLs, Update Catalog and Document"""
-
-    engine = db_connect()
-    create_tables(engine)
-    Session = sessionmaker(bind=engine)
-    session = Session()
-
-    # for event in session.query(EventStage).all():
-    #     copy_event_from_stage(event)
-
-    for url_record in session.query(UrlStage).all():
-        # print(url_record.url)
+def process_single_url(url_record):
+    """Process a single URL record - helper for ThreadPoolExecutor"""
+    try:
+        engine = db_connect()
+        Session = sessionmaker(bind=engine)
+        session = Session()
 
         place_record = session.query(Place). \
             filter(Place.ocd_division_id == url_record.ocd_division_id).first()
@@ -145,7 +159,10 @@ def process_staged_urls():
             filter(Event.ocd_division_id == url_record.ocd_division_id,
                    Event.record_date == url_record.event_date,
                    Event.name == url_record.event).first()
-        print(f'place id: {place_record.id}\n event_id:{event_record.id}')
+        
+        if not place_record or not event_record:
+            print(f"Missing Place or Event for URL: {url_record.url}")
+            return
 
         catalog_entry = session.query(Catalog). \
             filter(Catalog.url_hash == url_record.url_hash).first()
@@ -153,15 +170,12 @@ def process_staged_urls():
         # Document already exists in catalog
         if catalog_entry:
             catalog_id = catalog_entry.id
-            print(f'catalog_id---------{catalog_id}')
             document = map_document(
                 url_record, place_record.id, event_record.id, catalog_id)
             save_record(document)
-            print("existing in catalog adding reference to document")
+            print(f"Linked existing document: {url_record.url_hash}")
 
         else:
-            print("Does not exist")
-
             # Download and save document
             catalog = Catalog(
                 url=url_record.url,
@@ -184,10 +198,29 @@ def process_staged_urls():
                     url_record, place_record.id, event_record.id, catalog_id)
                 doc_id = save_record(document)
 
-                print(f'Added {url_record.url_hash} doc_id: {doc_id}')
+                print(f'Downloaded and added {url_record.url_hash}')
+            else:
+                print(f"Failed to download: {url_record.url}")
 
-    # # cleanup
-    # archive_url_stage()
+    except Exception as e:
+        print(f"Error processing {url_record.url}: {e}")
+    finally:
+        session.close()
+
+def process_staged_urls():
+    """Query download all staged URLs, Update Catalog and Document using parallel threads"""
+
+    engine = db_connect()
+    create_tables(engine)
+    Session = sessionmaker(bind=engine)
+    session = Session()
+
+    url_records = session.query(UrlStage).all()
+    session.close() # Close main session, threads will open their own
+    
+    # Use 5 worker threads for parallel downloading
+    with ThreadPoolExecutor(max_workers=5) as executor:
+        executor.map(process_single_url, url_records)
 
 
 def archive_url_stage():

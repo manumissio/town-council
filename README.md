@@ -1,58 +1,64 @@
-# town-council
+# Town Council
 Tools to scrape and centralize the text of meeting agendas & minutes from local city governments.
 
-**Slack:** [#p-town-council](http://datafordemocracy.slack.com/messages/p-town-council)
+## Project Description
+Engagement in local government is limited by physical access and electronic barriers, including difficult-to-navigate portals and scanned, non-searchable PDF documents. This project aims to provide a **publicly available database that automatically scrapes and aggregates the text from city council agendas and minutes**, promoting transparency and enabling trend analysis across municipalities.
 
-**Project Description:**
-Engagement in local government is limited not only by physical access to city council meetings, but also electronic barriers including difficult-to-navigate web portals and the frequent use of scanned (non-text searchable) .pdf documents. That is, council meetings and their outcomes are not easily tracked by local constituents, journalists, and policy advocates.
+## Project Status (Modernized 2026)
+This project was originally a Data4Democracy pilot (2017). It has since been **modernized and secured** to run on modern infrastructure.
 
-Moreover, no tools exist to support the comparison of local government issues between cities.
+**Key Updates:**
+- **Modern Stack:** Upgraded to Python 3.12+, Scrapy 2.11+, and SQLAlchemy 2.0+.
+- **Containerized:** Full Docker and Docker Compose support for easy setup.
+- **Performance:** Parallelized document downloading using multi-threading.
+- **Security:** Protected against path traversal and implemented bot etiquette (rate limiting, descriptive User-Agents).
+- **Portability:** Dynamic database path resolution for shared SQLite storage.
 
-We aim to provide a **publicly available database that automatically scrapes and aggregates the text from city council agendas and minutes**, towards the goals of: (1) promoting local government accessibility/transparency and (2) establishing open-source data/software resources to track and analyze trends in local governments.
+## Getting Started
 
+The easiest way to run the project is using **Docker**.
 
-## Project Status / Scope
+### 1. Build the environment
+```bash
+docker-compose build
+```
 
-**As of August 2017, this project is on hold -- new co-leads needed.** While the existing project members feel that this database is extremely valuable, we unfortunately don't have the time to maintain it at present. **We're currently looking for new leads interested in picking up the project.**
+### 2. Run a Scraper
+To scrape a specific city (e.g., Belmont, CA), use the `crawler` service:
+```bash
+docker-compose run crawler scrapy crawl belmont
+```
+*The metadata will be stored in the shared `test_db.sqlite` database.*
 
-A rough draft of our infrastructure is shown [here](./design_doc.png). Stack: Python 3, [Scrapy 1.4](https://scrapy.org), postgresql.
+### 3. Download Documents
+Once metadata is scraped, use the `pipeline` service to download the PDFs:
+```bash
+docker-compose run pipeline python downloader.py
+```
+*Documents are saved to the `./data` directory, organized by country/state/city.*
 
-We have completed scrapers for approximately a dozen cities in the San Francisco Bay Area as initial case study (selected in partnership with activists researching the Bay Area housing crisis; see [list of cities](./city_metadata/)), including some general scrapers that work with common content management systems used by cities (e.g., see our [Legistar scraper](./council_crawler/templates)).
+## Architecture
+A visualization of the original infrastructure is shown [here](./design_doc.png).
 
-We have also successfully automated the document retrieval process (i.e., downloading the agenda and minutes .pdf files; code in [pipeline](./pipeline/) folder).
+- **`council_crawler/`**: Scrapy project containing city-specific spiders and generic templates (e.g., Legistar).
+- **`pipeline/`**: Downloader module that processes staged URLs, handles deduplication (via MD5 hashes), and stores files.
+- **`city_metadata/`**: Curated metadata for pilot cities.
 
-Work-in-progress included investigating tools to extract the text from the said documents, as well as publicly setting up the database (AWS/Azure). Long-term goals include a front-end interface / search for users with less technical background.
+## Development & Contributing
 
+### Manual Setup (No Docker)
+If you prefer to run locally, ensure you have Python 3.12+ installed:
+1. Install dependencies:
+   ```bash
+   pip install -r council_crawler/requirements.txt
+   pip install -r pipeline/requirements.txt
+   ```
+2. Run commands from their respective directories.
 
-## Contributing
-
-**Project Co-Leads:**
-[@chooliu](https://datafordemocracy.slack.com/messages/@chooliu/) / [@bstarling](https://datafordemocracy.slack.com/messages/@bstarling/) / TBD
-
-_Again, this project is on hold due to limited availability of the current co-leads: please let us know if you'd like to help lead #p-town-council!_
-
-To join, just post in the Slack channel ([#p-town-council](http://datafordemocracy.slack.com/messages/p-town-council)) or contact one of the leads following general [D4D onboarding](https://github.com/Data4Democracy/read-this-first).
-
-For volunteers interested in writing scrapers/helping out with initial development, as a first step install , then try to run one of our scrapers using our "council crawler" [readme.md](./council_crawler/readme.md). 
-
-**Skills:**
-
-Volunteers with backgrounds in and/or interest in learning the following are highly desired:
-
-* web scraping
-* .pdf scraping / OCR
-* database management
-* natural language processing / text wranglers
-
-At present, our focus is to develop the database infrastructure (folks with web scraping experience highly desired!), but also welcome researchers/analysts interested in local politics and downstream analyses with the data.
-
-Future analyses enabled with this database may include:
-
-* Counting mentions of large organizations (lobbyist, think-tanks, corporations) in local meetings.
-* Mapping concern for state/national issues (e.g., Affordable Health Care for America Act) at high resolution by pairing with local demographic metadata (e.g., political affiliation, median income).
+### Project History
+Originally led by @chooliu and @bstarling in 2017. For historical context, see the original [Project Status](./README.md#legacy-status).
 
 ## Related Work
-
-While there are attempts to do this at the state and federal level (shoutout to organizations like [4US](https://4us.com/), [Digital Democracy](https://www.digitaldemocracy.org/), [GovTrack](https://www.govtrack.us/) and the [Open States Project](https://openstates.org/)), no similar resource yet exists for local governments.
-
-However, we encourage those interested in learning more about local government / data science tools for civic tech to explore the great foundational work of [Open Civic Data](http://opencivicdata.readthedocs.io/en/latest/) and [Councilmatic](https://www.councilmatic.org/).
+- [Open Civic Data](http://opencivicdata.readthedocs.io/en/latest/)
+- [Councilmatic](https://www.councilmatic.org/)
+- [Open States Project](https://openstates.org/)
