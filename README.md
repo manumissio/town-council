@@ -58,15 +58,18 @@ docker-compose run pipeline python indexer.py
 ### 5. Access the API and UI
 - **Search UI (Web):** `http://localhost:3000`
 - **Search API (Backend):** `http://localhost:8000/search?q=zoning`
-- **Interactive API Docs:** `http://localhost:8000/docs`
+- **Prometheus (Metrics):** `http://localhost:9090`
+- **Grafana (Dashboards):** `http://localhost:3001` (admin/admin)
 
 ## Architecture
 - **`crawler`**: Scrapy spiders that extract meeting schedules and document links.
 - **`pipeline`**: Handles database records and secure, parallelized PDF downloading.
 - **`extractor`**: Uses Apache Tika to turn raw documents into searchable text.
+- **`summarizer`**: Uses Google Gemini to generate 3-bullet point AI summaries.
 - **`indexer`**: Synchronizes the processed text into Meilisearch.
 - **`api`**: Modern FastAPI backend serving data to users.
 - **`frontend`**: Next.js 14 web interface with typo-tolerant search and highlights.
+- **`monitor`**: Exposes application health and performance metrics to Prometheus.
 
 ## Development & Contributing
 

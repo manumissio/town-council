@@ -109,6 +109,38 @@ services:
     depends_on:
       - api
 
+  # Prometheus: FOSS monitoring system and time series database.
+  prometheus:
+    image: prom/prometheus:latest
+    volumes:
+      - ./monitoring/prometheus.yml:/etc/prometheus/prometheus.yml
+      - prometheus_data:/prometheus
+    ports:
+      - "9090:9090"
+
+  # Grafana: FOSS analytics and interactive visualization web application.
+  grafana:
+    image: grafana/grafana:latest
+    volumes:
+      - grafana_data:/var/lib/grafana
+    ports:
+      - "3001:3000" # Mapped to 3001 to avoid conflict with frontend
+    depends_on:
+      - prometheus
+
+  # Monitor: Custom Python service to export application metrics to Prometheus.
+  monitor:
+    build: .
+    volumes:
+      - .:/app
+    working_dir: /app/pipeline
+    command: python monitor.py
+    environment:
+      - PYTHONUNBUFFERED=1
+      - DATABASE_URL=postgresql://town_council:secure_dev_password@postgres:5432/town_council_db
+    depends_on:
+      - postgres
+
 volumes:
   # Persistent data storage for the SQLite DB and downloaded PDFs
   data:
@@ -116,3 +148,6 @@ volumes:
   meili_data:
   # Persistent storage for the Postgres database
   postgres_data:
+  # Persistent storage for monitoring data
+  prometheus_data:
+  grafana_data:

@@ -1,0 +1,7 @@
+global:
+  scrape_interval: 15s
+
+scrape_configs:
+  - job_name: 'town_council_monitor'
+    static_configs:
+      - targets: ['monitor:8000']
