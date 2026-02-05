@@ -7,13 +7,17 @@ from sqlalchemy import ForeignKey
 from sqlalchemy import sql
 
 def setup_db():
-    # Dynamically resolve path to ensure consistency with models.py
-    current_dir = os.path.dirname(os.path.abspath(__file__))
-    project_root = os.path.dirname(current_dir)
-    db_path = os.path.join(project_root, 'test_db.sqlite')
+    # Use environment variable for Postgres, or fallback to local SQLite
+    database_url = os.getenv('DATABASE_URL')
     
-    db_url = f'sqlite:///{db_path}'
-    engine = create_engine(db_url)
+    if not database_url:
+        # Dynamically resolve path to ensure consistency with models.py
+        current_dir = os.path.dirname(os.path.abspath(__file__))
+        project_root = os.path.dirname(current_dir)
+        db_path = os.path.join(project_root, 'test_db.sqlite')
+        database_url = f'sqlite:///{db_path}'
+    
+    engine = create_engine(database_url)
     metadata = MetaData()
     metadata.bind = engine
 

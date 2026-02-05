@@ -2,3 +2,4 @@ sqlalchemy==2.0.25
 requests==2.31.0
 tika==2.6.0
 meilisearch==0.30.0
+psycopg2-binary==2.9.9

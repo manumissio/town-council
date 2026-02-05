@@ -13,15 +13,29 @@ DeclarativeBase = declarative_base()
 
 def db_connect():
     """
-    Connect using SQLite database in the project root.
-    Dynamically resolves the path to ensure portability.
+    Connect to the database using the DATABASE_URL environment variable.
+    Defaults to a local SQLite file if the variable is not set.
     """
-    # Get the directory of the current file (town-council/pipeline/)
-    current_dir = os.path.dirname(os.path.abspath(__file__))
-    # Project root is one level up (town-council/)
-    project_root = os.path.dirname(current_dir)
-    db_path = os.path.join(project_root, 'test_db.sqlite')
-    return create_engine(f'sqlite:///{db_path}')
+    database_url = os.getenv('DATABASE_URL')
+    
+    if database_url:
+        # Use PostgreSQL with connection pooling for performance
+        return create_engine(
+            database_url,
+            pool_size=10,         # Maintain 10 open connections
+            max_overflow=20,      # Allow up to 20 overflow connections
+            pool_timeout=30,      # Wait 30s for a connection before failing
+            pool_recycle=1800     # Recycle connections every 30 mins
+        )
+    else:
+        # Fallback to local SQLite for manual testing without Docker
+        # Get the directory of the current file (town-council/pipeline/)
+        current_dir = os.path.dirname(os.path.abspath(__file__))
+        # Project root is one level up (town-council/)
+        project_root = os.path.dirname(current_dir)
+        db_path = os.path.join(project_root, 'test_db.sqlite')
+        print("WARNING: DATABASE_URL not set. Using local SQLite.")
+        return create_engine(f'sqlite:///{db_path}')
 
 
 def create_tables(engine):

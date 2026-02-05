@@ -1,8 +1,20 @@
 version: '3.8'
 
 services:
+  # PostgreSQL Database: Replaces SQLite for production-grade concurrency and performance.
+  postgres:
+    image: postgres:15
+    restart: always
+    environment:
+      POSTGRES_USER: town_council
+      POSTGRES_PASSWORD: secure_dev_password
+      POSTGRES_DB: town_council_db
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+
   # Service for running the Scrapy spiders
-  # Example: docker-compose run crawler scrapy crawl belmont
   crawler:
     build: .
     volumes:
@@ -10,9 +22,11 @@ services:
     working_dir: /app/council_crawler
     environment:
       - PYTHONUNBUFFERED=1
+      - DATABASE_URL=postgresql://town_council:secure_dev_password@postgres:5432/town_council_db
+    depends_on:
+      - postgres
 
   # Service for running the downloader pipeline
-  # Example: docker-compose run pipeline python downloader.py
   pipeline:
     build: .
     volumes:
@@ -20,15 +34,16 @@ services:
     working_dir: /app/pipeline
     environment:
       - PYTHONUNBUFFERED=1
+      - DATABASE_URL=postgresql://town_council:secure_dev_password@postgres:5432/town_council_db
+    depends_on:
+      - postgres
 
   # Apache Tika Server for high-performance text extraction and OCR.
-  # Using the 'full' image to ensure OCR capabilities (Tesseract) are included.
   tika:
     image: apache/tika:latest-full
     restart: always
 
   # Service for extracting text from downloaded documents.
-  # Uses the Tika server to process PDFs and HTML files.
   extractor:
     build: .
     volumes:
@@ -37,11 +52,12 @@ services:
     environment:
       - PYTHONUNBUFFERED=1
       - TIKA_SERVER_ENDPOINT=http://tika:9998
+      - DATABASE_URL=postgresql://town_council:secure_dev_password@postgres:5432/town_council_db
     depends_on:
       - tika
+      - postgres
 
   # Meilisearch: A fast, typo-tolerant search engine (FOSS).
-  # We use this to index the extracted text for instant searching.
   meilisearch:
     image: getmeili/meilisearch:v1.6
     ports:
@@ -63,11 +79,15 @@ services:
     environment:
       - MEILI_HOST=http://meilisearch:7700
       - MEILI_MASTER_KEY=masterKey
+      - DATABASE_URL=postgresql://town_council:secure_dev_password@postgres:5432/town_council_db
     depends_on:
       - meilisearch
+      - postgres
 
 volumes:
   # Persistent data storage for the SQLite DB and downloaded PDFs
   data:
   # Persistent storage for the search index
   meili_data:
+  # Persistent storage for the Postgres database
+  postgres_data:

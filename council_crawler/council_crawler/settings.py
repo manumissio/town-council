@@ -112,5 +112,5 @@ _db_path = os.path.join(_project_root, 'test_db.sqlite')
 
 # Standard sqlalchemy resource identifier
 # http://docs.sqlalchemy.org/en/latest/core/engines.html
-# STORAGE_ENGINE = 'postgresql://cc@localhost/town_council'
-STORAGE_ENGINE = f'sqlite:///{_db_path}'
+# Use the environment variable if set (Docker), otherwise fallback to local SQLite
+STORAGE_ENGINE = os.getenv('DATABASE_URL', f'sqlite:///{_db_path}')
