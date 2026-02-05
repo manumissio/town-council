@@ -255,6 +255,8 @@ export default function Home() {
   }, []);
 
   // Function to reset the application to its initial state
+  // Why: This allows the user to go back to the "Start Search" screen without
+  // having to reload the whole website in their browser.
   const resetApp = () => {
     setQuery("");
     setResults([]);
@@ -268,11 +270,13 @@ export default function Home() {
   return (
     <div className="min-h-screen bg-gray-50/50 flex flex-col">
       {/* Navbar / Header */}
+      {/* Note: 'sticky top-0' keeps the header visible even when you scroll down */}
       <header className="bg-white border-b border-gray-200 sticky top-0 z-30 shadow-sm">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-4 flex items-center justify-between">
           <div className="flex items-center gap-8">
-            <div className="flex items-center gap-2 cursor-pointer" onClick={resetApp}>
-              <div className="bg-blue-600 p-1.5 rounded-lg shadow-sm">
+            {/* Logo and Title: Clicking this resets everything back to the start */}
+            <div className="flex items-center gap-2 cursor-pointer group" onClick={resetApp}>
+              <div className="bg-blue-600 p-1.5 rounded-lg shadow-sm group-hover:bg-blue-700 transition-colors">
                 <Database className="w-5 h-5 text-white" />
               </div>
               <h1 className="text-lg font-bold text-gray-900 tracking-tight">Town Council <span className="text-blue-600 font-medium">Insight</span></h1>
@@ -280,7 +284,10 @@ export default function Home() {
             
             {/* Desktop Navigation Links */}
             <nav className="hidden md:flex items-center gap-6">
+              {/* Reset the app state locally instead of using an <a> tag to avoid slow page reloads */}
               <button onClick={resetApp} className="text-sm font-semibold text-blue-600 border-b-2 border-blue-600 pb-1">Search</button>
+              
+              {/* Links to the project's source code and external standards documentation */}
               <a href="https://github.com/manumissio/town-council" target="_blank" rel="noopener noreferrer" className="text-sm font-medium text-gray-500 hover:text-blue-600 transition-colors">GitHub</a>
               <a href="https://open-civic-data.readthedocs.io/en/latest/index.html" target="_blank" rel="noopener noreferrer" className="text-sm font-medium text-gray-500 hover:text-blue-600 transition-colors">Standards</a>
             </nav>
