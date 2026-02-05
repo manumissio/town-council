@@ -74,9 +74,10 @@ def search_documents(
         if city:
             search_params['filter'].append(f'city = "{city}"')
         
-        # 2. Meeting Type Filter: Only show 'Regular' or 'Special' meetings
+        # 2. Meeting Type Filter: Only show 'Regular', 'Special' or 'Closed' meetings.
+        # We use the 'meeting_category' field which is normalized in indexer.py.
         if meeting_type:
-            search_params['filter'].append(f'meeting_type = "{meeting_type}"')
+            search_params['filter'].append(f'meeting_category = "{meeting_type}"')
 
         # 3. Date Range Filter: Find meetings between two specific days
         if date_from and date_to:

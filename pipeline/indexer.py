@@ -23,12 +23,12 @@ def index_documents():
     # The 'id' field is used to uniquely identify each search result.
     index = client.index('documents')
     
-    # Configure Filters: These fields can be used to narrow down results (e.g., "Show me meetings in Belmont").
-    index.update_filterable_attributes(['city', 'meeting_type', 'date', 'organizations'])
+    # Configure Filters: These fields can be used to narrow down results.
+    # Added 'meeting_category' for normalized radio-button filtering.
+    index.update_filterable_attributes(['city', 'meeting_type', 'meeting_category', 'date', 'organizations'])
     
-    # Configure Searchable Fields: These are the fields the engine checks when you type a query.
-    # Order matters! Matches in 'content' or 'event_name' are prioritized.
-    index.update_searchable_attributes(['content', 'event_name', 'filename', 'summary', 'organizations', 'locations'])
+    # Configure Searchable Fields
+    index.update_searchable_attributes(['content', 'event_name', 'filename', 'summary', 'organizations', 'locations', 'meeting_category'])
 
     engine = db_connect()
     Session = sessionmaker(bind=engine)
@@ -36,8 +36,7 @@ def index_documents():
 
     print("Fetching documents with extracted content from database...")
     
-    # Join tables to create a "flat" document.
-    # We combine the Document info + File Content (Catalog) + Meeting Details (Event) + City Name (Place).
+    # Join tables to create a "flat" document for Meilisearch.
     query = session.query(Document, Catalog, Event, Place).join(
         Catalog, Document.catalog_id == Catalog.id
     ).join(
@@ -45,7 +44,7 @@ def index_documents():
     ).join(
         Place, Document.place_id == Place.id
     ).filter(
-        Catalog.content != None,  # Only index documents that actually have text.
+        Catalog.content != None,
         Catalog.content != ""
     )
 
@@ -59,8 +58,18 @@ def index_documents():
         orgs = entities.get('orgs', [])
         locs = entities.get('locs', [])
 
+        # Normalize Meeting Type into a Category for the UI radio buttons.
+        # e.g. "City Council Regular Meeting" -> "Regular"
+        raw_type = (event.meeting_type or "").lower()
+        category = "Other"
+        if "regular" in raw_type:
+            category = "Regular"
+        elif "special" in raw_type:
+            category = "Special"
+        elif "closed" in raw_type:
+            category = "Closed"
+
         # Build the search object.
-        # This JSON structure is what gets sent to Meilisearch.
         search_doc = {
             'id': doc.id,
             'filename': catalog.filename,
@@ -68,12 +77,13 @@ def index_documents():
             'content': catalog.content, 
             'summary': catalog.summary,
             'entities': entities,
-            'topics': catalog.topics, # Include the discovered topic keywords (e.g., "Budget")
+            'topics': catalog.topics,
             'tables': catalog.tables,
             'organizations': orgs,
             'locations': locs,
             'event_name': event.name,
             'meeting_type': event.meeting_type,
+            'meeting_category': category,
             'date': event.record_date.isoformat() if event.record_date else None,
             'city': place.display_name or place.name,
             'state': place.state
