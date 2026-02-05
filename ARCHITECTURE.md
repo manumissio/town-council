@@ -44,17 +44,10 @@ graph TD
         UI[Next.js 14 Web Interface]
     end
 
-    subgraph "Infrastructure (Docker Compose)"
-        Postgres[(PostgreSQL 15)]
-        Meili[[Meilisearch 1.6]]
-        TikaServer[Apache Tika Server]
-        
-        subgraph "Application Containers (Non-Root Users)"
-            Crawler[Crawler Service]
-            Pipeline[Pipeline Worker]
-            API[FastAPI Service]
-            Frontend[Next.js Service]
-        end
+    subgraph "Observability & Monitoring"
+        Prom[Prometheus]
+        Graf[Grafana]
+        Mon[Monitor Worker]
     end
 
     %% Connections
@@ -70,6 +63,11 @@ graph TD
     
     Meili <--> API
     API <--> Frontend
+
+    %% Monitoring flow
+    Postgres -.-> Mon
+    Mon -- "tc_metrics" --> Prom
+    Prom --> Graf
 ```
 
 ## Key Components
@@ -78,4 +76,5 @@ graph TD
 2.  **Container Security:** All services run as **non-root users** within minimal Docker images, utilizing multi-stage builds to reduce attack surface and image size.
 3.  **AI Accuracy:** The Summarization worker uses the modern `google-genai` SDK (Gemini 2.0 Flash) with deterministic settings (temp 0.0) and grounding instructions.
 4.  **Search Performance:** Meilisearch provides instant, typo-tolerant search, offloading complex text queries from the primary Postgres database.
-5.  **Robust Data Flow:** The pipeline implements race-condition handling and absolute path management to ensure reliable file processing across containers.
+5.  **Real-time Monitoring:** A dedicated `Monitor` worker tracks data freshness and processing counts, exporting them to **Prometheus** and **Grafana** for dashboarding and alerts.
+6.  **Robust Data Flow:** The pipeline implements race-condition handling and absolute path management to ensure reliable file processing across containers.

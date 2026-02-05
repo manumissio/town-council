@@ -49,6 +49,8 @@ docker-compose run pipeline python run_pipeline.py
 - **Search UI (Web):** `http://localhost:3000`
 - **Search API (Backend):** `http://localhost:8000/search?q=zoning`
 - **Meilisearch Dashboard:** `http://localhost:7700` (Key: masterKey)
+- **Prometheus Metrics:** `http://localhost:9090`
+- **Grafana Dashboard:** `http://localhost:3001` (admin/admin)
 
 ## Architecture
 A detailed overview of the system design, including data flow diagrams and component descriptions, can be found in [ARCHITECTURE.md](ARCHITECTURE.md).
