@@ -77,9 +77,9 @@ def main():
     # Find names of people, organizations, and locations in the text.
     run_step("NLP Entity Extraction", ["python", "nlp_worker.py"])
 
-    # 6. AI SUMMARIZATION
-    # Use Google Gemini to generate a short 3-bullet summary of the meeting.
-    run_step("AI Summarization", ["python", "summarizer.py"])
+    # 6. AI SUMMARIZATION (NOW ON-DEMAND)
+    # Note: We no longer run 'summarizer.py' in the pipeline to save on API costs and avoid 429 errors.
+    # Summaries are now generated instantly when a user clicks 'Generate' in the UI.
 
     # 7. INDEX TO MEILISEARCH
     # Finally, upload the processed data to the search engine so it can be searched.

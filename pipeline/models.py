@@ -95,6 +95,55 @@ class Organization(Base):
     # Relationships
     place = relationship("Place", back_populates="organizations")
     events = relationship("Event", back_populates="organization")
+    memberships = relationship("Membership", back_populates="organization")
+
+
+class Person(Base):
+    """
+    Represents an Individual (e.g., an elected official or staff member).
+    
+    Why this is needed:
+    To track accountability, we need to move from simple text names 
+    to unique 'Person' records that can be tracked across multiple years and cities.
+    """
+    __tablename__ = 'person'
+
+    id = Column(Integer, primary_key=True)
+    name = Column(String, nullable=False, index=True)
+    image_url = Column(String, nullable=True)
+    biography = Column(String, nullable=True)
+    current_role = Column(String, nullable=True)
+    
+    # Metadata for disambiguation
+    created_at = Column(DateTime, default=datetime.datetime.now)
+
+    # Relationships
+    memberships = relationship("Membership", back_populates="person")
+
+
+class Membership(Base):
+    """
+    A 'Bridge' table that links a Person to an Organization.
+    
+    Why this is needed:
+    In the OCD standard, we don't just say 'John is a person'. 
+    We track that 'John' is a 'Member' of the 'City Council'.
+    """
+    __tablename__ = 'membership'
+
+    id = Column(Integer, primary_key=True)
+    person_id = Column(Integer, ForeignKey('person.id'), nullable=False, index=True)
+    organization_id = Column(Integer, ForeignKey('organization.id'), nullable=False, index=True)
+    
+    # Role details
+    label = Column(String) # e.g. "Chair", "Member", "Mayor"
+    role = Column(String, default="member")
+    start_date = Column(Date, nullable=True)
+    end_date = Column(Date, nullable=True)
+
+    # Relationships
+    person = relationship("Person", back_populates="memberships")
+    organization = relationship("Organization", back_populates="memberships")
 
 
 class UrlStage(Base):

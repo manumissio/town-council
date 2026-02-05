@@ -1,22 +1,31 @@
 import sys
 import os
 import meilisearch
-from fastapi import FastAPI, HTTPException, Query
+from google import genai
+from fastapi import FastAPI, HTTPException, Query, Path
 from fastapi.middleware.cors import CORSMiddleware
 from typing import List, Optional
+from sqlalchemy.orm import sessionmaker
 
 # Add the project root to the python path so we can import from pipeline
 # In Docker, this maps to /app
 sys.path.append(os.path.join(os.path.dirname(__file__), '..'))
 
 try:
-    from pipeline.models import db_connect, Document, Event, Place
-    from sqlalchemy.orm import sessionmaker
+    from pipeline.models import db_connect, Document, Event, Place, Catalog
+    # Set up database session
+    engine = db_connect()
+    Session = sessionmaker(bind=engine)
 except ImportError:
     # Fallback for local development if not running in Docker or root context
     print("Warning: Could not import pipeline models. Database features may be limited.")
 
 app = FastAPI(title="Town Council Search API", description="Search and retrieve local government meeting minutes.")
+
+# AI Configuration
+# We use 'gemini-2.0-flash' for high-speed, reliable summaries.
+api_key = os.getenv('GEMINI_API_KEY')
+ai_client = genai.Client(api_key=api_key) if api_key else None
 
 # SECURITY: Enable CORS (Cross-Origin Resource Sharing)
 # This allows the frontend (running on a different port like 3000) to 
@@ -145,3 +154,76 @@ def get_stats():
         return stats
     except Exception as e:
         return {"error": "Could not connect to search index", "details": str(e)}
+
+@app.post("/summarize/{catalog_id}")
+def generate_summary(catalog_id: int = Path(..., description="The ID of the document file")):
+    """
+    Requests an AI-generated summary for a specific document.
+    
+    How this works for a developer:
+    1. It checks the database to see if we already have a summary (Caching).
+    2. If not, it sends the full document text to Google Gemini.
+    3. It saves the AI's response back to the 'Catalog' table.
+    4. Future requests for this document will be instant and free!
+    """
+    if not ai_client:
+        raise HTTPException(status_code=503, detail="Gemini API is not configured on the server.")
+
+    session = Session()
+    try:
+        # 1. Look up the document in the library
+        catalog = session.get(Catalog, catalog_id)
+        if not catalog:
+            raise HTTPException(status_code=404, detail="Document not found in library.")
+
+        # 2. Return cached summary if it exists
+        if catalog.summary:
+            return {"summary": catalog.summary, "cached": True}
+
+        # 3. Check if document has text to read
+        if not catalog.content:
+            raise HTTPException(status_code=400, detail="Document has no extracted text to summarize.")
+
+        # 4. Ask Gemini to read and summarize (On-Demand)
+        prompt = (
+            "You are a helpful assistant for civic transparency. "
+            "Read the following town council meeting minutes and provide a summary. "
+            "IMPORTANT: ONLY use information explicitly stated in the provided text. "
+            "Format your response as 3 clear, concise bullet points highlighting the most important decisions. "
+            "Do not include preamble or fluff.\n\n"
+            f"TEXT: {catalog.content[:100000]}..." # 100k char limit for safety
+        )
+
+        response = ai_client.models.generate_content(
+            model='gemini-2.0-flash',
+            contents=prompt,
+            config={"temperature": 0.0, "max_output_tokens": 500}
+        )
+
+        if response and response.text:
+            # 5. Save the summary back to the permanent library
+            catalog.summary = response.text.strip()
+            session.commit()
+            
+            # 6. Also update the Search Index so it's searchable immediately
+            try:
+                meili_index = client.index('documents')
+                # Find all documents linked to this catalog ID
+                docs_to_update = session.query(Document).filter_by(catalog_id=catalog_id).all()
+                for d in docs_to_update:
+                    meili_index.update_documents([{
+                        "id": d.id,
+                        "summary": catalog.summary
+                    }])
+            except Exception as e:
+                print(f"Meilisearch update failed: {e}")
+
+            return {"summary": catalog.summary, "cached": False}
+        else:
+            raise HTTPException(status_code=500, detail="AI returned an empty response.")
+
+    except Exception as e:
+        session.rollback()
+        raise HTTPException(status_code=500, detail=str(e))
+    finally:
+        session.close()

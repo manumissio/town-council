@@ -75,6 +75,7 @@ def index_documents():
         # Build the search object.
         search_doc = {
             'id': doc.id,
+            'catalog_id': catalog.id, # New field for on-demand AI
             'filename': catalog.filename,
             'url': catalog.url,
             'content': catalog.content, 
