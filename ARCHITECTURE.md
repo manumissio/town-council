@@ -1,80 +1,92 @@
 # Modernized Town Council Architecture (2026)
 
-This document provides a visual and technical overview of the current system architecture.
+This document provides a technical overview of the system design, focusing on the high-performance data pipeline and security model.
 
 ## System Diagram
 
 ```mermaid
 graph TD
-    subgraph "External Data Sources"
-        Web[City Meeting Portals]
-        Legi[Legistar / Granicus]
+    subgraph "External World"
+        Web[City Portals]
+        Legi[Legistar/Granicus]
+        Gemini[Google Gemini 2.0 API]
     end
 
-    subgraph "Crawler Layer (Scrapy)"
-        Spiders[City-Specific Spiders]
+    subgraph "Ingestion Layer (Scrapy)"
+        Crawler[Crawler Service]
         Delta[Delta Crawling Logic]
-        CModels[Crawler Models]
     end
 
     subgraph "Persistent Storage"
-        DB[(PostgreSQL 15)]
-        subgraph "Database Tables"
-            Stage[Staging: Event/Url]
-            Prod[Production: Event/Place]
+        Postgres[(PostgreSQL 15)]
+        subgraph "Tables"
+            Stage[Staging: URLs/Events]
+            Prod[Production: Places/Events]
             Cat[Catalog: Text/AI Metadata]
         end
     end
 
-    subgraph "Automated Pipeline (run_pipeline.py)"
-        Down[Downloader: Parallel Streaming]
-        Tika[Apache Tika: OCR & Text]
-        Tables[Camelot: Budget Tables]
-        Topics[Scikit-Learn: LDA Themes]
-        NLP[SpaCy: Entity Recognition]
-        Gemini[Google GenAI: AI Summaries]
+    subgraph "Processing Pipeline (Python 3.12)"
+        Downloader[Downloader: Parallel Streaming]
+        Tika[Apache Tika: OCR/Text]
+        Workers[NLP/Topic/Table Workers]
+        Summarizer[AI Summarizer]
     end
 
-    subgraph "Search & API Layer"
-        Meili[[Meilisearch Engine]]
+    subgraph "Search & Presentation"
+        Meili[[Meilisearch 1.6]]
         FastAPI[FastAPI Backend]
+        NextJS[Next.js 16 UI]
     end
 
-    subgraph "Presentation Layer"
-        UI[Next.js 14 Web Interface]
-    end
-
-    subgraph "Observability & Monitoring"
+    subgraph "Observability"
+        Mon[Monitor Service]
         Prom[Prometheus]
         Graf[Grafana]
-        Mon[Monitor Worker]
     end
 
-    %% Connections
+    %% Flow: Ingestion
     Web & Legi --> Crawler
-    Crawler -- "Staging Data" --> Postgres
-    
-    Pipeline -- "Reads Staged" --> Postgres
-    Pipeline -- "Downloads" --> Web
-    Pipeline -- "OCR Requests" --> TikaServer
-    Pipeline -- "AI Requests" --> Gemini
-    Pipeline -- "Writes Metadata" --> Postgres
-    Pipeline -- "Syncs Index" --> Meili
-    
-    Meili <--> API
-    API <--> Frontend
+    Crawler --> Delta
+    Delta --> Stage
+    Stage -- "promote_stage.py" --> Prod
 
-    %% Monitoring flow
+    %% Flow: Processing
+    Prod --> Downloader
+    Downloader -- "Absolute Paths" --> Postgres
+    Downloader --> Tika
+    Tika --> Workers
+    Workers --> Summarizer
+    Summarizer --> Gemini
+    Summarizer --> Cat
+
+    %% Flow: Indexing & Access
+    Cat --> Meili
+    Meili <--> FastAPI
+    FastAPI -- "CORS Enabled" --> NextJS
+
+    %% Flow: Metrics
     Postgres -.-> Mon
     Mon -- "tc_metrics" --> Prom
     Prom --> Graf
 ```
 
-## Key Components
+## Key Components & Design Principles
 
-1.  **Orchestrated Pipeline:** Instead of manual steps, `run_pipeline.py` coordinates all workers, ensuring data flows logically from raw PDF to searchable index.
-2.  **Container Security:** All services run as **non-root users** within minimal Docker images, utilizing multi-stage builds to reduce attack surface and image size.
-3.  **AI Accuracy:** The Summarization worker uses the modern `google-genai` SDK (Gemini 2.0 Flash) with deterministic settings (temp 0.0) and grounding instructions.
-4.  **Search Performance:** Meilisearch provides instant, typo-tolerant search, offloading complex text queries from the primary Postgres database.
-5.  **Real-time Monitoring:** A dedicated `Monitor` worker tracks data freshness and processing counts, exporting them to **Prometheus** and **Grafana** for dashboarding and alerts.
-6.  **Robust Data Flow:** The pipeline implements race-condition handling and absolute path management to ensure reliable file processing across containers.
+### 1. Orchestrated Pipeline
+The system utilizes a central orchestrator (`run_pipeline.py`) that sequences 7 distinct data stages. It is designed to be **fault-tolerant**; non-critical failures in complex PDF table extraction or NLP entity recognition will not halt the indexing of the document for search.
+
+### 2. Security Model
+*   **Non-Root Execution:** All Docker containers run as a restricted `appuser` to minimize impact in case of a service breach.
+*   **Path Traversal Protection:** The `is_safe_path` validator ensures that file processing workers only interact with authorized directories within the `DATA_DIR` scope.
+*   **Credential Safety:** The system strictly uses environment variables for API keys and database credentials, with `trust_env=False` set on all network sessions to prevent accidental leakage.
+
+### 3. High-Performance Search
+Full-text search is decoupled from the primary relational database. **Meilisearch** provides instant, typo-tolerant results and search highlighting, allowing Postgres to focus on consistent metadata storage.
+
+### 4. AI & NLP Strategy
+*   **Grounding:** AI summaries use **Gemini 2.0 Flash** with a 100k character context window and a deterministic temperature of 0.0 to eliminate hallucinations.
+*   **Entity Extraction:** **SpaCy** (en_core_web_sm) identifies Organizations and Locations to enable advanced filtering in the UI.
+
+### 5. Deployment & Build
+The system uses **Multi-stage Docker builds**. Heavy build-time dependencies (compilers, headers) are discarded after the compilation phase, resulting in a lean, production-ready runtime image.

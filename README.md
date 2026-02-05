@@ -5,76 +5,64 @@ Tools to scrape and centralize the text of meeting agendas & minutes from local 
 Engagement in local government is limited by physical access and electronic barriers, including difficult-to-navigate portals and non-searchable scanned PDF documents. This project provides a **publicly available database that automatically scrapes, extracts text (OCR), and indexes city council agendas and minutes** for transparency and cross-city trend analysis.
 
 ## Project Status (Modernized 2026)
-This project was originally a Data4Democracy pilot (2017). It has since been **extensively modernized, secured, and scaled**.
+This project has been modernized from its 2017 pilot into a production-ready platform.
 
 **Key Updates:**
-- **Production Stack:** Upgraded to Python 3.12+, Scrapy 2.11+, and SQLAlchemy 2.0+.
-- **Containerization:** Fully Dockerized with **multi-stage builds** and **non-root user** security best practices.
-- **PostgreSQL Migration:** Migrated from SQLite to PostgreSQL for high-performance concurrent data access.
-- **Full-Text Search:** Integrated **Meilisearch** for instant, typo-tolerant search across extracted text.
-- **AI Summarization:** Uses **Google Gemini 2.0 Flash** via the modern GenAI SDK to automatically generate 3-bullet point summaries. Implements **hallucination mitigation** via deterministic output (temp 0.0) and strict grounding instructions.
-- **NLP Entity Extraction:** Integrated **SpaCy** to automatically identify Organizations and Locations within meeting minutes.
-- **Robust Pipeline:** Consolidated the entire data flow (Download -> OCR -> NLP -> Summarize -> Index) into a fault-tolerant pipeline that handles PDF parsing errors gracefully.
-- **Security Hardening:** 
-    - Protected against **Path Traversal** vulnerabilities via absolute path validation.
-    - Patched **Requests .netrc credential leakage** (CVE-2024-3651).
-    - Implemented **CORS** protection on the API.
-    - Implemented **Bot Etiquette** (Rate limiting, descriptive User-Agents).
+- **Modern Stack:** Python 3.12, Next.js 16, FastAPI, and PostgreSQL 15.
+- **AI-Powered:** Automatic 3-bullet summaries using **Gemini 2.0 Flash** with hallucination mitigation.
+- **Search:** Instant, typo-tolerant search powered by **Meilisearch**.
+- **Security:** Hardened Docker containers (non-root), Path Traversal protection, and CORS-secured API.
+- **Automated Pipeline:** Single-command orchestration for the entire data flow.
 
 ## Getting Started
 
-The easiest way to run the project is using **Docker Compose**.
-
-### 1. Build and Start Infrastructure
+### 1. Build and Start
+Ensure you have Docker installed, then build the optimized multi-stage images:
 ```bash
 docker-compose build
 docker-compose up -d
 ```
 
-### 2. Run a Scraper
-Scrape meeting metadata for a city (e.g., Berkeley, CA):
+### 2. Scrape a City
+Gather meeting metadata and PDF links (e.g., Berkeley, CA):
 ```bash
 docker-compose run crawler scrapy crawl berkeley
 ```
 
-### 3. Run the Automated Pipeline
-This single command handles downloading, OCR, AI analysis, and indexing.
-*Note: To enable AI summaries, export your Gemini API key first.*
+### 3. Process Data
+Run the processing pipeline (Downloads, OCR, AI Summaries, Indexing). 
+*Tip: Set your [Gemini API Key](https://aistudio.google.com/) first to enable summaries.*
 ```bash
 export GEMINI_API_KEY=your_key_here
 docker-compose run pipeline python run_pipeline.py
 ```
 
-### 4. Access the API and UI
-- **Search UI (Web):** `http://localhost:3000`
-- **Search API (Backend):** `http://localhost:8000/search?q=zoning`
-- **Meilisearch Dashboard:** `http://localhost:7700` (Key: masterKey)
-- **Prometheus Metrics:** `http://localhost:9090`
-- **Grafana Dashboard:** `http://localhost:3001` (admin/admin)
+## Access Links
+| Service | URL | Credentials |
+| :--- | :--- | :--- |
+| **Search UI** | [http://localhost:3000](http://localhost:3000) | N/A |
+| **Backend API** | [http://localhost:8000/docs](http://localhost:8000/docs) | N/A |
+| **Meilisearch** | [http://localhost:7700](http://localhost:7700) | `masterKey` |
+| **Prometheus** | [http://localhost:9090](http://localhost:9090) | N/A |
+| **Grafana** | [http://localhost:3001](http://localhost:3001) | `admin` / `admin` |
 
-## Architecture
-A detailed overview of the system design, including data flow diagrams and component descriptions, can be found in [ARCHITECTURE.md](ARCHITECTURE.md).
+## Troubleshooting
+
+### AI Summaries are missing?
+The Gemini Free Tier allows ~15 requests per minute. If you scrape hundreds of meetings at once, you will hit a `429 Rate Limit` error. 
+**Solution:** Wait a few minutes and re-run the summarizer:
+```bash
+docker-compose run -e GEMINI_API_KEY=your_key pipeline python summarizer.py
+```
+
+### Scraper returns 0 results?
+Some city portals (like Legistar) use anti-bot protection. We have implemented modern User-Agents and rate-limiting, but if results are empty, check the `council_crawler/spiders` logs for 403 Forbidden errors.
+
+## Architecture & Security
+For a detailed deep-dive into the system flow and security model, see [ARCHITECTURE.md](ARCHITECTURE.md).
 
 ## Testing
-The project includes a comprehensive suite of unit and integration tests to ensure data integrity and AI reliability.
-
-Run the tests using **Docker Compose**:
+Run the comprehensive suite of 14+ unit tests:
 ```bash
 docker-compose run pipeline pytest tests/
 ```
-
-Test coverage includes:
-- **Security:** Path traversal protection and credential safety.
-- **Data:** Date parsing, URL hashing, and database promotion logic.
-- **AI/NLP:** Mocked verification of summarization and entity extraction.
-
-## Development & Contributing
-
-### Security First
-When adding new scrapers or modules, always prioritize security:
-- Use `is_safe_path()` when handling file paths.
-- Ensure all `Requests` sessions use `trust_env=False`.
-- Mimic existing bot etiquette settings in `settings.py`.
-
-### Project History
-Originally led by @chooliu and @bstarling in 2017. Modernized in 2026 to ensure the project remains a viable tool for civic transparency.
