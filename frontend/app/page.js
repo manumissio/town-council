@@ -2,7 +2,7 @@
 
 import { useState, useEffect } from "react";
 import DOMPurify from "isomorphic-dompurify";
-import { Search, FileText, Calendar, MapPin } from "lucide-react";
+import { Search, FileText, Calendar, MapPin, Sparkles } from "lucide-react";
 
 export default function Home() {
   const [query, setQuery] = useState("");
@@ -105,18 +105,32 @@ export default function Home() {
             </div>
 
             {/* 
+              AI SUMMARY SECTION
+              Display the Gemini-generated summary if available.
+            */}
+            {hit.summary && (
+              <div className="mb-4 p-3 bg-purple-50 border border-purple-100 rounded-md">
+                <div className="flex items-center gap-2 mb-1 text-purple-700 font-medium text-xs uppercase tracking-wide">
+                  <Sparkles className="w-3 h-3" />
+                  AI Summary
+                </div>
+                <p className="text-gray-800 text-sm whitespace-pre-line">{hit.summary}</p>
+              </div>
+            )}
+
+            {/* 
               SECURITY: Display search highlights safely.
               DOMPurify sanitizes the HTML to prevent XSS attacks from malicious indexed content.
             */}
             {hit._formatted && hit._formatted.content ? (
               <p 
-                className="text-gray-700 text-sm leading-relaxed"
+                className="text-gray-600 text-sm leading-relaxed"
                 dangerouslySetInnerHTML={{
                   __html: DOMPurify.sanitize(hit._formatted.content)
                 }}
               />
             ) : (
-              <p className="text-gray-700 text-sm line-clamp-3">{hit.content}</p>
+              <p className="text-gray-600 text-sm line-clamp-3">{hit.content}</p>
             )}
             
             <div className="mt-4 pt-4 border-t border-gray-100">

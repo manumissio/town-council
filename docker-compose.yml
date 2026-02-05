@@ -57,6 +57,19 @@ services:
       - tika
       - postgres
 
+  # AI Summarizer: Uses Google Gemini API to summarize meeting minutes.
+  summarizer:
+    build: .
+    volumes:
+      - .:/app
+    working_dir: /app/pipeline
+    environment:
+      - PYTHONUNBUFFERED=1
+      - DATABASE_URL=postgresql://town_council:secure_dev_password@postgres:5432/town_council_db
+      - GEMINI_API_KEY=${GEMINI_API_KEY} # Injected from host environment
+    depends_on:
+      - postgres
+
   # Meilisearch: A fast, typo-tolerant search engine (FOSS).
   meilisearch:
     image: getmeili/meilisearch:v1.6

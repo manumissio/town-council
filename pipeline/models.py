@@ -132,6 +132,8 @@ class Catalog(DeclarativeBase):
     filename = Column(String)
     # Extracted text content from the document
     content = Column(String, nullable=True)
+    # AI-generated summary of the content
+    summary = Column(String, nullable=True)
     uploaded_at = Column(DateTime, default=datetime.datetime.now)
 
 

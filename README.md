@@ -11,6 +11,7 @@ This project was originally a Data4Democracy pilot (2017). It has since been **e
 - **Production Stack:** Upgraded to Python 3.12+, Scrapy 2.11+, and SQLAlchemy 2.0+.
 - **PostgreSQL Migration:** Migrated from SQLite to PostgreSQL for high-performance concurrent data access.
 - **Full-Text Search:** Integrated **Meilisearch** for instant, typo-tolerant search across extracted text.
+- **AI Summarization:** Uses **Google Gemini** to automatically generate 3-bullet point summaries for meeting minutes.
 - **Automated Extraction & OCR:** Integrated **Apache Tika** to automatically extract text and perform OCR on downloaded PDFs.
 - **Security Hardening:** 
     - Protected against **Path Traversal** vulnerabilities.
@@ -40,11 +41,14 @@ Download the associated PDFs (parallelized):
 docker-compose run pipeline python downloader.py
 ```
 
-### 4. Extract Text and Index for Search
-Process the PDFs through OCR/extraction and sync them to the search engine:
+### 4. Extract, Summarize, and Index
+Process the PDFs through OCR, generate AI summaries, and sync to search:
 ```bash
 # Extract text (requires 'tika' service)
 docker-compose run extractor python extractor.py
+
+# Generate AI Summaries (requires GEMINI_API_KEY env var)
+docker-compose run summarizer python summarizer.py
 
 # Index into Meilisearch
 docker-compose run pipeline python indexer.py

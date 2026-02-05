@@ -22,7 +22,7 @@ def index_documents():
     # Define which attributes can be filtered/faceted in the UI (e.g., "Show me only Belmont")
     index.update_filterable_attributes(['city', 'meeting_type', 'date'])
     # Define which attributes we can search text within
-    index.update_searchable_attributes(['content', 'event_name', 'filename'])
+    index.update_searchable_attributes(['content', 'event_name', 'filename', 'summary'])
 
     engine = db_connect()
     Session = sessionmaker(bind=engine)
@@ -31,7 +31,7 @@ def index_documents():
     print("Fetching documents with extracted content from database...")
     
     # We join across tables to create a "flat" document for search.
-    # We want: Text Content + Metadata (City Name, Date, Event Name)
+    # We want: Text Content + Metadata + AI Summary
     query = session.query(Document, Catalog, Event, Place).join(
         Catalog, Document.catalog_id == Catalog.id
     ).join(
@@ -53,8 +53,8 @@ def index_documents():
             'id': doc.id,
             'filename': catalog.filename,
             'url': catalog.url,
-            # Truncate content slightly if too massive, though Meili handles large text well
             'content': catalog.content, 
+            'summary': catalog.summary, # Include the AI-generated summary
             'event_name': event.name,
             'meeting_type': event.meeting_type,
             'date': event.record_date.isoformat() if event.record_date else None,
