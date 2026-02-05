@@ -55,96 +55,171 @@ function DataTable({ data }) {
  */
 function ResultCard({ hit }) {
   const [isExpanded, setIsExpanded] = useState(false);
+  const [showSummary, setShowSummary] = useState(false);
 
   return (
-    <div className="group bg-white border border-gray-200 rounded-xl shadow-sm hover:shadow-md transition-all duration-200 overflow-hidden">
-      <div className="p-5">
-        <div className="flex justify-between items-start mb-3">
-          <div>
-            <h2 className="text-lg font-bold text-gray-900 group-hover:text-blue-600 transition-colors leading-tight mb-1">
+    <div className="group bg-white border border-gray-200 rounded-2xl shadow-sm hover:shadow-md transition-all duration-200 overflow-hidden">
+      <div className="p-6">
+        <div className="flex justify-between items-start mb-4">
+          <div className="space-y-1.5">
+            <h2 className="text-xl font-bold text-gray-900 group-hover:text-blue-600 transition-colors leading-tight">
               {hit.event_name || "Untitled Meeting"}
             </h2>
-            <div className="flex flex-wrap items-center gap-x-4 gap-y-2 text-xs text-gray-500">
-              <span className="inline-flex items-center gap-1 font-medium text-blue-700 bg-blue-50 px-2 py-0.5 rounded-full">
+            <div className="flex flex-wrap items-center gap-x-4 gap-y-2 text-[13px] text-gray-500">
+              <span className="inline-flex items-center gap-1.5 font-bold text-blue-700 bg-blue-50 px-2.5 py-0.5 rounded-lg uppercase tracking-wider text-[10px]">
                 <MapPin className="w-3 h-3" /> {hit.city}, {hit.state}
               </span>
-              <span className="inline-flex items-center gap-1">
-                <Calendar className="w-3.5 h-3.5" /> {hit.date ? new Date(hit.date).toLocaleDateString(undefined, { dateStyle: 'long' }) : "Unknown Date"}
+              <span className="inline-flex items-center gap-1.5">
+                <Calendar className="w-4 h-4 text-gray-400" /> {hit.date ? new Date(hit.date).toLocaleDateString(undefined, { dateStyle: 'long' }) : "Unknown Date"}
               </span>
-              <span className="inline-flex items-center gap-1 italic opacity-75">
-                <FileText className="w-3.5 h-3.5" /> {hit.filename}
+              <span className="inline-flex items-center gap-1.5 opacity-75">
+                <FileText className="w-4 h-4 text-gray-400" /> {hit.filename}
               </span>
             </div>
           </div>
-          <button 
-            onClick={() => setIsExpanded(!isExpanded)}
-            className={`p-2 rounded-lg transition-colors ${isExpanded ? 'bg-blue-100 text-blue-600' : 'bg-gray-50 text-gray-400 hover:bg-gray-100 hover:text-gray-600'}`}
-            title={isExpanded ? "Collapse Insights" : "Show AI Insights"}
-          >
-            {isExpanded ? <ChevronUp className="w-5 h-5" /> : <Sparkles className="w-5 h-5" />}
-          </button>
+          
+          <div className="flex gap-2">
+            <a 
+              href={hit.url} 
+              target="_blank" 
+              rel="noopener noreferrer"
+              className="p-2.5 bg-gray-50 text-gray-400 hover:bg-blue-50 hover:text-blue-600 rounded-xl transition-all border border-transparent hover:border-blue-100"
+              title="Open Original PDF"
+            >
+              <ExternalLink className="w-5 h-5" />
+            </a>
+            <button 
+              onClick={() => setIsExpanded(!isExpanded)}
+              className={`p-2.5 rounded-xl transition-all border ${isExpanded ? 'bg-blue-600 text-white border-blue-600 shadow-lg shadow-blue-200' : 'bg-gray-50 text-gray-400 hover:bg-gray-100 hover:text-gray-600 border-transparent'}`}
+              title={isExpanded ? "Collapse Document" : "Expand Document Text"}
+            >
+              {isExpanded ? <ChevronUp className="w-5 h-5" /> : <ChevronDown className="w-5 h-5" />}
+            </button>
+          </div>
         </div>
 
-        {/* Search Snippet */}
-        <div className="mb-4">
-          {hit._formatted && hit._formatted.content ? (
-            <p 
-              className="text-gray-600 text-[13px] leading-relaxed line-clamp-3 transition-all"
-              dangerouslySetInnerHTML={{
-                __html: DOMPurify.sanitize(hit._formatted.content)
-              }}
-            />
-          ) : (
-            <p className="text-gray-600 text-[13px] line-clamp-3">{hit.content}</p>
-          )}
-        </div>
+        {/* Tier 1: Search Snippet (Always visible) */}
+        {!isExpanded && (
+          <div className="mb-2">
+            {hit._formatted && hit._formatted.content ? (
+              <p 
+                className="text-gray-600 text-sm leading-relaxed line-clamp-3"
+                dangerouslySetInnerHTML={{
+                  __html: DOMPurify.sanitize(hit._formatted.content)
+                }}
+              />
+            ) : (
+              <p className="text-gray-600 text-sm line-clamp-3">{hit.content}</p>
+            )}
+          </div>
+        )}
 
-        {/* Collapsible Insights Section */}
+        {/* Tier 2: Expanded Full Text View */}
         {isExpanded && (
-          <div className="mt-4 pt-4 border-t border-gray-100 space-y-5 animate-in fade-in slide-in-from-top-2 duration-300">
-            {/* AI Summary */}
-            <div className="space-y-2">
-              <div className="flex items-center gap-2 text-purple-700 font-bold text-[10px] uppercase tracking-widest">
-                <Sparkles className="w-3 h-3 text-purple-500" />
-                AI-Generated Summary
+          <div className="mt-6 space-y-6 animate-in fade-in slide-in-from-top-2 duration-300">
+            
+            {/* Action Bar for Expanded View */}
+            <div className="flex items-center justify-between p-2 bg-gray-50 rounded-2xl border border-gray-100">
+              <div className="flex gap-1 p-1 bg-white rounded-xl border border-gray-100 shadow-sm">
+                <button 
+                  onClick={() => setShowSummary(false)}
+                  className={`px-4 py-2 text-xs font-bold rounded-lg transition-all ${!showSummary ? 'bg-blue-600 text-white shadow-sm' : 'text-gray-500 hover:bg-gray-50'}`}
+                >
+                  Full Document Text
+                </button>
+                <button 
+                  onClick={() => setShowSummary(true)}
+                  className={`px-4 py-2 text-xs font-bold rounded-lg transition-all flex items-center gap-2 ${showSummary ? 'bg-purple-600 text-white shadow-sm' : 'text-gray-500 hover:bg-gray-50'}`}
+                >
+                  <Sparkles className={`w-3.5 h-3.5 ${showSummary ? 'text-white' : 'text-purple-500'}`} />
+                  AI Insights
+                </button>
               </div>
-              <div className="p-4 bg-purple-50/50 border border-purple-100/50 rounded-xl">
-                {hit.summary ? (
-                  <p className="text-gray-800 text-[13px] whitespace-pre-line leading-relaxed italic">
-                    {hit.summary}
-                  </p>
-                ) : (
-                  <div className="flex items-center gap-2 text-gray-400 text-xs py-2">
-                    <Info className="w-4 h-4" /> AI Summary is pending processing.
-                  </div>
-                )}
-              </div>
+              <span className="px-4 text-[10px] font-bold text-gray-400 uppercase tracking-widest">
+                {showSummary ? "Gemini 2.0 Flash" : "OCR Extraction"}
+              </span>
             </div>
 
-            {/* Entities (NLP) */}
-            {hit.entities && (
-              <div className="space-y-2">
-                <div className="text-[10px] font-bold text-gray-400 uppercase tracking-widest">Entities Mentioned</div>
-                <div className="flex flex-wrap gap-2">
-                  {(hit.entities.orgs || []).slice(0, 5).map((org, i) => (
-                    <span key={`org-${i}`} className="inline-flex items-center gap-1 px-2 py-1 bg-white border border-gray-200 text-gray-700 text-[11px] rounded-lg shadow-sm">
-                      <Building2 className="w-3 h-3 text-gray-400" /> {org}
-                    </span>
-                  ))}
-                  {(hit.entities.locs || []).slice(0, 5).map((loc, i) => (
-                    <span key={`loc-${i}`} className="inline-flex items-center gap-1 px-2 py-1 bg-white border border-gray-200 text-gray-700 text-[11px] rounded-lg shadow-sm">
-                      <MapPin className="w-3 h-3 text-gray-400" /> {loc}
-                    </span>
-                  ))}
-                </div>
-              </div>
-            )}
+            {/* Content Display Area */}
+            <div className="relative">
+              {showSummary ? (
+                /* AI Summary View */
+                <div className="p-8 bg-purple-50/30 border border-purple-100 rounded-3xl space-y-6">
+                  <div className="space-y-3">
+                    <div className="flex items-center gap-2 text-purple-700 font-bold text-[11px] uppercase tracking-widest">
+                      <Sparkles className="w-4 h-4" />
+                      Executive Summary
+                    </div>
+                    {hit.summary ? (
+                      <p className="text-gray-800 text-[15px] whitespace-pre-line leading-relaxed italic">
+                        {hit.summary}
+                      </p>
+                    ) : (
+                      <div className="flex items-center gap-3 text-gray-400 text-sm py-4">
+                        <Info className="w-5 h-5" /> Summary is being generated by the pipeline.
+                      </div>
+                    )}
+                  </div>
 
-            {/* Tables */}
+                  {/* Entities (NLP) and Topics */}
+                  <div className="grid md:grid-cols-2 gap-6 pt-6 border-t border-purple-100">
+                    {hit.entities && (
+                      <div className="space-y-3">
+                        <div className="text-[10px] font-bold text-purple-400 uppercase tracking-widest">Entities Mentioned</div>
+                        <div className="flex flex-wrap gap-2">
+                          {(hit.entities.orgs || []).slice(0, 8).map((org, i) => (
+                            <span key={`org-${i}`} className="inline-flex items-center gap-1.5 px-2.5 py-1.5 bg-white border border-purple-100 text-gray-700 text-[11px] rounded-xl shadow-sm font-medium">
+                              <Building2 className="w-3.5 h-3.5 text-purple-400" /> {org}
+                            </span>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+                    {hit.topics && hit.topics.length > 0 && (
+                      <div className="space-y-3">
+                        <div className="text-[10px] font-bold text-purple-400 uppercase tracking-widest">Discovered Topics</div>
+                        <div className="flex flex-wrap gap-2">
+                          {hit.topics.map((topic, i) => (
+                            <span key={i} className="px-3 py-1.5 bg-purple-100/50 text-purple-700 text-[11px] font-bold rounded-xl border border-purple-200 uppercase tracking-tight">
+                              #{topic}
+                            </span>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                </div>
+              ) : (
+                /* Full Text View */
+                <div className="p-8 bg-gray-50/50 border border-gray-100 rounded-3xl">
+                  <div className="prose prose-sm max-w-none text-gray-700 max-h-[500px] overflow-y-auto pr-4 scrollbar-thin scrollbar-thumb-gray-200">
+                    <div className="flex items-center gap-2 mb-6 text-gray-400 font-bold text-[10px] uppercase tracking-widest">
+                      <FileText className="w-4 h-4" />
+                      OCR Extracted Content
+                    </div>
+                    {hit._formatted && hit._formatted.content ? (
+                      <div 
+                        className="whitespace-pre-line leading-relaxed text-[14px]"
+                        dangerouslySetInnerHTML={{
+                          __html: DOMPurify.sanitize(hit._formatted.content)
+                        }}
+                      />
+                    ) : (
+                      <p className="whitespace-pre-line leading-relaxed text-[14px]">{hit.content}</p>
+                    )}
+                  </div>
+                </div>
+              )}
+            </div>
+
+            {/* Tables (Always shown at bottom if present) */}
             {hit.tables && hit.tables.length > 0 && (
-              <div className="space-y-2">
-                <div className="text-[10px] font-bold text-gray-400 uppercase tracking-widest">Data Extractions</div>
-                {hit.tables.slice(0, 2).map((table, i) => (
+              <div className="space-y-4 pt-4 border-t border-gray-100">
+                <div className="flex items-center gap-2 text-gray-400 font-bold text-[10px] uppercase tracking-widest">
+                  <TableIcon className="w-4 h-4" />
+                  Structured Data Tables ({hit.tables.length})
+                </div>
+                {hit.tables.slice(0, 3).map((table, i) => (
                   <DataTable key={i} data={table} />
                 ))}
               </div>
@@ -152,25 +227,17 @@ function ResultCard({ hit }) {
           </div>
         )}
 
-        {/* Footer Actions */}
-        <div className="mt-5 flex items-center justify-between">
-          <a 
-            href={hit.url} 
-            target="_blank" 
-            rel="noopener noreferrer"
-            className="inline-flex items-center gap-1 text-xs font-semibold text-blue-600 hover:text-blue-800 transition-colors"
-          >
-            Source PDF <ExternalLink className="w-3 h-3" />
-          </a>
-          {!isExpanded && (
+        {/* Footer Toggle (Only show if not expanded) */}
+        {!isExpanded && (
+          <div className="mt-4 pt-4 border-t border-gray-50 flex justify-end">
             <button 
               onClick={() => setIsExpanded(true)}
-              className="text-[10px] font-bold text-gray-400 hover:text-gray-600 transition-colors uppercase tracking-tight"
+              className="text-[11px] font-bold text-blue-600 hover:text-blue-800 transition-colors uppercase tracking-widest flex items-center gap-1 group/btn"
             >
-              Analyze Result &rarr;
+              View Full Text <ChevronDown className="w-3.5 h-3.5 group-hover/btn:translate-y-0.5 transition-transform" />
             </button>
-          )}
-        </div>
+          </div>
+        )}
       </div>
     </div>
   );
@@ -189,7 +256,6 @@ export default function Home() {
   // Filter State
   const [cityFilter, setCityFilter] = useState("");
   const [meetingTypeFilter, setMeetingTypeFilter] = useState("");
-  const [stats, setStats] = useState(null);
 
   // Pilot cities list
   const cities = ["Belmont", "Berkeley", "Cupertino", "Dublin", "Fremont", "Hayward", "Moraga", "Mountain View", "Palo Alto", "San Mateo", "Sunnyvale"];
@@ -249,15 +315,6 @@ export default function Home() {
     return () => clearTimeout(delayDebounceFn);
   }, [query, cityFilter, meetingTypeFilter]);
 
-  // Initial stats fetch
-  useEffect(() => {
-    const apiUrl = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
-    fetch(`${apiUrl}/stats`)
-      .then(res => res.json())
-      .then(data => setStats(data))
-      .catch(err => console.error("Stats fetch failed", err));
-  }, []);
-
   // Function to reset the application to its initial state
   // Why: This allows the user to go back to the "Start Search" screen without
   // having to reload the whole website in their browser.
@@ -314,35 +371,17 @@ export default function Home() {
 
                 <a href="https://github.com/manumissio/town-council" target="_blank" rel="noopener noreferrer" className="text-sm font-medium text-gray-500 hover:text-blue-600 transition-colors">GitHub</a>
 
-                <a href="https://open-civic-data.readthedocs.io/en/latest/index.html" target="_blank" rel="noopener noreferrer" className="text-sm font-medium text-gray-500 hover:text-blue-600 transition-colors">Standards</a>
+                              <a href="https://open-civic-data.readthedocs.io/en/latest/index.html" target="_blank" rel="noopener noreferrer" className="text-sm font-medium text-gray-500 hover:text-blue-600 transition-colors">Standards</a>
 
-              </nav>
+                            </nav>
 
-            </div>
+                          </div>
 
-            
+                        </div>
 
-            <div className="flex items-center gap-4">
+                      </header>
 
-              {stats && (
-
-                <div className="hidden sm:flex items-center gap-4 text-xs font-semibold text-gray-400 uppercase tracking-wider">
-
-                  <span className="bg-gray-100 px-2 py-1 rounded-md text-gray-600 font-mono tracking-tighter">{stats.numberOfDocuments} Records</span>
-
-                  <span className="w-1 h-1 bg-gray-300 rounded-full"></span>
-
-                  <span>{cities.length} Cities</span>
-
-                </div>
-
-              )}
-
-            </div>
-
-          </div>
-
-        </header>
+                
 
   
 
