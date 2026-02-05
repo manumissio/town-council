@@ -62,13 +62,9 @@ Some city portals (like Legistar) use anti-bot protection. We have implemented m
 For a detailed deep-dive into the system flow and security model, see [ARCHITECTURE.md](ARCHITECTURE.md).
 
 ## Testing
-
-Run the comprehensive suite of 14+ unit tests:
-
+Run the comprehensive suite of 18+ unit tests:
 ```bash
-
 docker-compose run pipeline pytest tests/
-
 ```
 
 

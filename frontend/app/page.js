@@ -51,11 +51,17 @@ function DataTable({ data }) {
 }
 
 /**
- * Individual Search Result Card
+ * ResultCard Component
+ * 
+ * How it works for a developer:
+ * 1. Tier 1 (Initial View): Shows only basic info and a short 3-line preview.
+ * 2. Tier 2 (Expanded View): When you click 'View Full Text', it reveals the full OCR content.
+ * 3. Tier 3 (AI View): Within the expanded card, you can toggle the 'AI Insights' 
+ *    button to switch from the raw text to the Gemini-generated summary.
  */
 function ResultCard({ hit }) {
-  const [isExpanded, setIsExpanded] = useState(false);
-  const [showSummary, setShowSummary] = useState(false);
+  const [isExpanded, setIsExpanded] = useState(false); // Controls if the card is open or closed
+  const [showSummary, setShowSummary] = useState(false); // Controls if we show OCR text or the AI Summary
 
   return (
     <div className="group bg-white border border-gray-200 rounded-2xl shadow-sm hover:shadow-md transition-all duration-200 overflow-hidden">
@@ -385,11 +391,61 @@ export default function Home() {
 
   
 
-        {/* Unified Search Hub Section */}
+              {/* Unified Search Hub Section */}
 
-        {/* This section combines text search and filters into a single visual unit */}
+                
 
-        <section className="bg-white border-b border-gray-100 py-16 shadow-inner relative z-20">
+  
+
+              {/* 
+
+                
+
+  
+
+                This is the main interaction area. 
+
+                
+
+  
+
+                Instead of a separate sidebar, we use a 'Segmented' design:
+
+                
+
+  
+
+                Segment 1: The text you want to find.
+
+                
+
+  
+
+                Segment 2: The City ('Where').
+
+                
+
+  
+
+                Segment 3: The Meeting Type ('Type').
+
+                
+
+  
+
+              */}
+
+                
+
+  
+
+              <section className="bg-white border-b border-gray-100 py-16 shadow-inner relative z-20">
+
+                
+
+  
+
+        
 
           <div className="max-w-5xl mx-auto px-4">
 

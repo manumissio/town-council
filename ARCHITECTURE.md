@@ -81,8 +81,13 @@ The system utilizes a central orchestrator (`run_pipeline.py`) that sequences 7 
 *   **Path Traversal Protection:** The `is_safe_path` validator ensures that file processing workers only interact with authorized directories within the `DATA_DIR` scope.
 *   **Credential Safety:** The system strictly uses environment variables for API keys and database credentials, with `trust_env=False` set on all network sessions to prevent accidental leakage.
 
-### 3. High-Performance Search
-Full-text search is decoupled from the primary relational database. **Meilisearch** provides instant, typo-tolerant results and search highlighting, allowing Postgres to focus on consistent metadata storage.
+### 3. High-Performance Search & UX
+*   **Unified Search Hub:** The interface utilizes a segmented search bar pattern (Airbnb-style), integrating Keyword, Municipality, and Meeting Type filters into a single visual component.
+*   **Tiered Inspection:** To manage large document volumes, the UI implements a 3-tier inspection flow:
+    1.  **Snippet:** Initial search match preview.
+    2.  **Full Text:** On-demand expansion of complete OCR extraction.
+    3.  **AI Insights:** Contextual toggle for Gemini-generated executive summaries.
+*   **Decoupled Search:** Meilisearch 1.6 provides instant, typo-tolerant results, allowing the PostgreSQL database to focus on transactional consistency.
 
 ### 4. AI & NLP Strategy
 *   **Grounding:** AI summaries use **Gemini 2.0 Flash** with a 100k character context window and a deterministic temperature of 0.0 to eliminate hallucinations.
