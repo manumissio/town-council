@@ -1,0 +1,13 @@
+.git
+**/*.pyc
+**/__pycache__
+.pytest_cache
+*.sqlite
+data/
+pipeline/data/
+frontend/node_modules
+frontend/.next
+archive/
+*.log
+.env
+.DS_Store
