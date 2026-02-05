@@ -321,71 +321,86 @@ export default function Home() {
         </div>
       </header>
 
-      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 flex-1 py-10 flex gap-10 relative">
+      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 flex-1 py-10 flex gap-12 relative">
         
         {/* Sidebar Filters (Desktop) / Dropdown (Mobile) */}
-        {/* UX: Widened from lg:w-64 to lg:w-80 to prevent cramped filters */}
-        <aside className={`${showFilters ? 'block' : 'hidden'} w-full lg:w-80 space-y-8 animate-in fade-in slide-in-from-left-4`}>
-          <div className="bg-white p-6 rounded-2xl border border-gray-200 shadow-sm sticky top-24">
-            <div className="flex items-center justify-between mb-6">
-              <h3 className="font-bold text-gray-900">Filters</h3>
+        {/* UX Overhaul: Widened to 400px (lg:w-[400px]) to provide a more robust research sidebar */}
+        <aside className={`${showFilters ? 'block' : 'hidden'} w-full lg:w-[400px] shrink-0 space-y-8 animate-in fade-in slide-in-from-left-4 transition-all duration-300`}>
+          <div className="bg-white p-8 rounded-3xl border border-gray-200 shadow-sm sticky top-28">
+            <div className="flex items-center justify-between mb-8">
+              <div className="flex items-center gap-2">
+                <Filter className="w-4 h-4 text-blue-600" />
+                <h3 className="font-bold text-gray-900 text-lg">Search Filters</h3>
+              </div>
               {(cityFilter || meetingTypeFilter) && (
                  <button 
                    onClick={() => { setCityFilter(""); setMeetingTypeFilter(""); }}
-                   className="text-[10px] font-bold text-red-500 uppercase hover:underline"
+                   className="text-[11px] font-bold text-red-500 uppercase hover:text-red-700 transition-colors"
                  >
                    Reset All
                  </button>
               )}
             </div>
 
-            <div className="space-y-8">
+            <div className="space-y-10">
               {/* City Filter */}
               <div>
-                <div className="flex items-center justify-between mb-3">
-                  <label className="text-[10px] font-bold text-gray-400 uppercase tracking-widest">Filter by City</label>
+                <div className="flex items-center justify-between mb-4">
+                  <label className="text-[11px] font-bold text-gray-400 uppercase tracking-widest">Municipality</label>
                   {cityFilter && (
-                    <button onClick={() => setCityFilter("")} className="text-[10px] font-bold text-blue-600 hover:text-blue-800 uppercase">Clear</button>
+                    <button onClick={() => setCityFilter("")} className="text-[11px] font-bold text-blue-600 hover:text-blue-800 uppercase">Clear</button>
                   )}
                 </div>
                 <select 
                   value={cityFilter}
                   onChange={(e) => setCityFilter(e.target.value)}
-                  className="block w-full text-sm border-gray-200 rounded-xl focus:ring-blue-500 focus:border-blue-500 bg-gray-50 py-2.5 px-3 transition-all"
+                  className="block w-full text-sm border-gray-200 rounded-xl focus:ring-4 focus:ring-blue-500/5 focus:border-blue-500 bg-gray-50/50 py-3 px-4 transition-all appearance-none cursor-pointer"
                 >
-                  <option value="">All Municipalities</option>
+                  <option value="">All Bay Area Cities</option>
                   {cities.map(c => <option key={c} value={c.toLowerCase()}>{c}</option>)}
                 </select>
               </div>
 
-              {/* Meeting Type (Common ones) */}
+              {/* Meeting Type */}
               <div>
-                <div className="flex items-center justify-between mb-3">
-                  <label className="text-[10px] font-bold text-gray-400 uppercase tracking-widest">Meeting Type</label>
+                <div className="flex items-center justify-between mb-4">
+                  <label className="text-[11px] font-bold text-gray-400 uppercase tracking-widest">Meeting Category</label>
                   {meetingTypeFilter && (
-                    <button onClick={() => setMeetingTypeFilter("")} className="text-[10px] font-bold text-blue-600 hover:text-blue-800 uppercase">Clear</button>
+                    <button onClick={() => setMeetingTypeFilter("")} className="text-[11px] font-bold text-blue-600 hover:text-blue-800 uppercase">Clear</button>
                   )}
                 </div>
-                <div className="space-y-3">
+                <div className="grid grid-cols-1 gap-3">
                   {["Regular", "Special", "Closed"].map((type) => (
-                    <label key={type} className="flex items-center gap-3 cursor-pointer group">
-                      <div className={`w-4 h-4 rounded-full border flex items-center justify-center transition-colors ${meetingTypeFilter === type ? 'border-blue-600 bg-blue-600' : 'border-gray-300 bg-white group-hover:border-blue-400'}`}>
-                        {meetingTypeFilter === type && <div className="w-1.5 h-1.5 bg-white rounded-full" />}
+                    <label key={type} className={`flex items-center justify-between p-3.5 rounded-2xl border transition-all cursor-pointer group ${meetingTypeFilter === type ? 'bg-blue-50 border-blue-200 ring-1 ring-blue-100' : 'bg-white border-gray-100 hover:border-gray-200'}`}>
+                      <div className="flex items-center gap-3">
+                        <div className={`w-5 h-5 rounded-full border-2 flex items-center justify-center transition-all ${meetingTypeFilter === type ? 'border-blue-600 bg-blue-600 shadow-[0_0_0_4px_rgba(37,99,235,0.1)]' : 'border-gray-200 bg-white group-hover:border-gray-300'}`}>
+                          {meetingTypeFilter === type && <div className="w-2 h-2 bg-white rounded-full shadow-sm" />}
+                        </div>
+                        <span className={`text-sm transition-colors ${meetingTypeFilter === type ? 'text-blue-900 font-bold' : 'text-gray-600 group-hover:text-gray-900 font-medium'}`}>
+                          {type}
+                        </span>
                       </div>
                       <input 
                         type="radio" 
                         name="meetingType"
                         checked={meetingTypeFilter === type}
                         onChange={() => setMeetingTypeFilter(type)}
-                        className="hidden" // Hide default radio for custom UI
+                        className="hidden"
                       />
-                      <span className={`text-sm transition-colors ${meetingTypeFilter === type ? 'text-gray-900 font-semibold' : 'text-gray-500 group-hover:text-gray-700'}`}>
-                        {type}
-                      </span>
                     </label>
                   ))}
                 </div>
               </div>
+            </div>
+            
+            {/* Contextual Help for novice developers */}
+            <div className="mt-10 p-4 bg-gray-50 rounded-2xl border border-dashed border-gray-200">
+               <div className="flex items-start gap-2">
+                 <Info className="w-4 h-4 text-gray-400 shrink-0 mt-0.5" />
+                 <p className="text-[11px] text-gray-500 leading-relaxed italic">
+                   Filters are applied instantly. Meilisearch handles the logic to ensure results are always accurate.
+                 </p>
+               </div>
             </div>
           </div>
         </aside>
