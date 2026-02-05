@@ -89,7 +89,7 @@ function ResultCard({ hit }) {
         <div className="mb-4">
           {hit._formatted && hit._formatted.content ? (
             <p 
-              className="text-gray-600 text-[13px] leading-relaxed line-clamp-3 group-hover:line-clamp-none transition-all"
+              className="text-gray-600 text-[13px] leading-relaxed line-clamp-3 transition-all"
               dangerouslySetInnerHTML={{
                 __html: DOMPurify.sanitize(hit._formatted.content)
               }}
