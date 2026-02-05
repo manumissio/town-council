@@ -254,13 +254,24 @@ export default function Home() {
       .catch(err => console.error("Stats fetch failed", err));
   }, []);
 
+  // Function to reset the application to its initial state
+  const resetApp = () => {
+    setQuery("");
+    setResults([]);
+    setCityFilter("");
+    setMeetingTypeFilter("");
+    setOffset(0);
+    setHasMore(false);
+    setShowFilters(false);
+  };
+
   return (
     <div className="min-h-screen bg-gray-50/50 flex flex-col">
       {/* Navbar / Header */}
       <header className="bg-white border-b border-gray-200 sticky top-0 z-30 shadow-sm">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-4 flex items-center justify-between">
           <div className="flex items-center gap-8">
-            <div className="flex items-center gap-2 cursor-pointer" onClick={() => window.location.reload()}>
+            <div className="flex items-center gap-2 cursor-pointer" onClick={resetApp}>
               <div className="bg-blue-600 p-1.5 rounded-lg shadow-sm">
                 <Database className="w-5 h-5 text-white" />
               </div>
@@ -269,8 +280,8 @@ export default function Home() {
             
             {/* Desktop Navigation Links */}
             <nav className="hidden md:flex items-center gap-6">
-              <a href="/" className="text-sm font-semibold text-blue-600 border-b-2 border-blue-600 pb-1">Search</a>
-              <a href="https://github.com/Data4Democracy/town-council" target="_blank" rel="noopener noreferrer" className="text-sm font-medium text-gray-500 hover:text-blue-600 transition-colors">GitHub</a>
+              <button onClick={resetApp} className="text-sm font-semibold text-blue-600 border-b-2 border-blue-600 pb-1">Search</button>
+              <a href="https://github.com/manumissio/town-council" target="_blank" rel="noopener noreferrer" className="text-sm font-medium text-gray-500 hover:text-blue-600 transition-colors">GitHub</a>
               <a href="https://open-civic-data.readthedocs.io/en/latest/index.html" target="_blank" rel="noopener noreferrer" className="text-sm font-medium text-gray-500 hover:text-blue-600 transition-colors">Standards</a>
             </nav>
           </div>
