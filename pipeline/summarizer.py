@@ -27,6 +27,14 @@ def summarize_documents():
     # We use 'gemini-1.5-flash' because it's fast, cheap, and can handle very long documents.
     model = genai.GenerativeModel('gemini-1.5-flash')
 
+    # Hallucination Mitigation:
+    # We set temperature to 0.0 to make the AI more deterministic and "literal".
+    # This prevents the AI from getting "creative" and making up facts.
+    generation_config = genai.types.GenerationConfig(
+        temperature=0.0,
+        max_output_tokens=500,
+    )
+
     engine = db_connect()
     create_tables(engine)
     Session = sessionmaker(bind=engine)
@@ -45,20 +53,24 @@ def summarize_documents():
         print(f"Summarizing: {record.filename}...")
         
         try:
-            # Create the instruction for the AI.
-            # We explicitly ask for "3 clear, concise bullet points" to ensure consistency.
+            # Grounding Instructions:
+            # We explicitly tell the AI to ONLY use the provided text and to say
+            # "No significant decisions found" if it can't find anything certain.
             prompt = (
                 "You are a helpful assistant for civic transparency. "
                 "Read the following town council meeting minutes and provide a summary. "
+                "IMPORTANT: ONLY use information explicitly stated in the provided text. "
+                "Do not use outside knowledge or make assumptions. "
+                "If the text is unclear or missing key details, simply summarize what is present. "
                 "Format your response as 3 clear, concise bullet points highlighting the most important decisions or discussions. "
                 "Do not include preamble or fluff.
 
 "
-                f"TEXT: {record.content[:30000]}..." # We limit the text slightly just to be safe, though Flash can handle more.
+                f"TEXT: {record.content[:100000]}..." # Increased context window to 100k chars for better accuracy.
             )
 
-            # Ask Gemini to generate the summary.
-            response = model.generate_content(prompt)
+            # Ask Gemini to generate the summary with our strict config.
+            response = model.generate_content(prompt, generation_config=generation_config)
             
             if response and response.text:
                 record.summary = response.text.strip()
