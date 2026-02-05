@@ -180,6 +180,7 @@ export default function Home() {
   // Search State
   const [query, setQuery] = useState("");
   const [results, setResults] = useState([]);
+  const [totalHits, setTotalHits] = useState(0); // Track the total results found by the engine
   const [offset, setOffset] = useState(0);
   const [hasMore, setHasMore] = useState(false);
   const [loading, setLoading] = useState(false);
@@ -220,8 +221,12 @@ export default function Home() {
       
       const newHits = data.hits || [];
       
-      // If loading more, append results. Otherwise, replace them.
+      // Update results: append if loading more, otherwise replace
       setResults(prev => isLoadMore ? [...prev, ...newHits] : newHits);
+      
+      // Store the total number of hits so the user knows how many documents match in total
+      setTotalHits(data.estimatedTotalHits || 0);
+      
       setOffset(currentOffset);
       
       // If we got exactly 20 results, there's likely more data to load.
@@ -406,7 +411,7 @@ export default function Home() {
           {/* Results Info */}
           {query && !loading && (
             <div className="flex items-center gap-2 px-2 text-xs font-medium text-gray-400 uppercase tracking-tight">
-              Found {results.length} relevant results for "{query}"
+              Found {totalHits} relevant documents for "{query}"
             </div>
           )}
 
