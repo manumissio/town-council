@@ -324,18 +324,30 @@ export default function Home() {
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 flex-1 py-10 flex gap-10 relative">
         
         {/* Sidebar Filters (Desktop) / Dropdown (Mobile) */}
-        {/* UX: Removed 'lg:block' so the filter toggle button works on desktop too */}
+        {/* UX: Widened from lg:w-64 to lg:w-80 to prevent cramped filters */}
         <aside className={`${showFilters ? 'block' : 'hidden'} w-full lg:w-80 space-y-8 animate-in fade-in slide-in-from-left-4`}>
           <div className="bg-white p-6 rounded-2xl border border-gray-200 shadow-sm sticky top-24">
-            <div className="flex items-center justify-between mb-6 lg:hidden">
+            <div className="flex items-center justify-between mb-6">
               <h3 className="font-bold text-gray-900">Filters</h3>
-              <button onClick={() => setShowFilters(false)}><X className="w-5 h-5 text-gray-400" /></button>
+              {(cityFilter || meetingTypeFilter) && (
+                 <button 
+                   onClick={() => { setCityFilter(""); setMeetingTypeFilter(""); }}
+                   className="text-[10px] font-bold text-red-500 uppercase hover:underline"
+                 >
+                   Reset All
+                 </button>
+              )}
             </div>
 
-            <div className="space-y-6">
+            <div className="space-y-8">
               {/* City Filter */}
               <div>
-                <label className="block text-[10px] font-bold text-gray-400 uppercase tracking-widest mb-3">Filter by City</label>
+                <div className="flex items-center justify-between mb-3">
+                  <label className="text-[10px] font-bold text-gray-400 uppercase tracking-widest">Filter by City</label>
+                  {cityFilter && (
+                    <button onClick={() => setCityFilter("")} className="text-[10px] font-bold text-blue-600 hover:text-blue-800 uppercase">Clear</button>
+                  )}
+                </div>
                 <select 
                   value={cityFilter}
                   onChange={(e) => setCityFilter(e.target.value)}
@@ -348,44 +360,32 @@ export default function Home() {
 
               {/* Meeting Type (Common ones) */}
               <div>
-                <label className="block text-[10px] font-bold text-gray-400 uppercase tracking-widest mb-3">Meeting Type</label>
-                <div className="space-y-2">
+                <div className="flex items-center justify-between mb-3">
+                  <label className="text-[10px] font-bold text-gray-400 uppercase tracking-widest">Meeting Type</label>
+                  {meetingTypeFilter && (
+                    <button onClick={() => setMeetingTypeFilter("")} className="text-[10px] font-bold text-blue-600 hover:text-blue-800 uppercase">Clear</button>
+                  )}
+                </div>
+                <div className="space-y-3">
                   {["Regular", "Special", "Closed"].map((type) => (
                     <label key={type} className="flex items-center gap-3 cursor-pointer group">
+                      <div className={`w-4 h-4 rounded-full border flex items-center justify-center transition-colors ${meetingTypeFilter === type ? 'border-blue-600 bg-blue-600' : 'border-gray-300 bg-white group-hover:border-blue-400'}`}>
+                        {meetingTypeFilter === type && <div className="w-1.5 h-1.5 bg-white rounded-full" />}
+                      </div>
                       <input 
                         type="radio" 
                         name="meetingType"
                         checked={meetingTypeFilter === type}
                         onChange={() => setMeetingTypeFilter(type)}
-                        className="w-4 h-4 text-blue-600 border-gray-300 focus:ring-blue-500"
+                        className="hidden" // Hide default radio for custom UI
                       />
                       <span className={`text-sm transition-colors ${meetingTypeFilter === type ? 'text-gray-900 font-semibold' : 'text-gray-500 group-hover:text-gray-700'}`}>
                         {type}
                       </span>
                     </label>
                   ))}
-                  {meetingTypeFilter && (
-                    <button 
-                      onClick={() => setMeetingTypeFilter("")}
-                      className="text-[10px] font-bold text-blue-600 uppercase hover:underline pt-2"
-                    >
-                      Clear Selection
-                    </button>
-                  )}
                 </div>
               </div>
-
-              {/* Reset All */}
-              {(cityFilter || meetingTypeFilter) && (
-                <div className="pt-4 border-t border-gray-100">
-                  <button 
-                    onClick={() => { setCityFilter(""); setMeetingTypeFilter(""); }}
-                    className="w-full py-2 bg-gray-100 hover:bg-gray-200 text-gray-600 text-xs font-bold rounded-xl transition-colors"
-                  >
-                    Reset All Filters
-                  </button>
-                </div>
-              )}
             </div>
           </div>
         </aside>
