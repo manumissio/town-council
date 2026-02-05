@@ -1,16 +1,49 @@
 import datetime
+import sys
+import os
 from urllib.parse import urljoin
+from sqlalchemy.orm import sessionmaker
 
 import scrapy
 
 from council_crawler.items import Event
 from council_crawler.utils import url_to_md5
 
+# Ensure we can import from the pipeline module (parent directory)
+sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '../../..')))
+from pipeline.models import db_connect, Event as EventModel
+
 
 class Fremont(scrapy.spiders.CrawlSpider):
+    """
+    Spider for Fremont, CA city council meetings.
+    Implements delta crawling to fetch only new meetings.
+    """
     name = 'fremont'
     base_url = 'https://fremont.gov/AgendaCenter/'
     ocd_division_id = 'ocd-division/country:us/state:ca/place:fremont'
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.last_meeting_date = self._get_last_meeting_date()
+        if self.last_meeting_date:
+            self.logger.info(f"Delta crawling enabled. Last meeting recorded: {self.last_meeting_date}")
+
+    def _get_last_meeting_date(self):
+        """Retrieve the most recent meeting date from the database for this city."""
+        try:
+            engine = db_connect()
+            Session = sessionmaker(bind=engine)
+            session = Session()
+            result = session.query(EventModel.record_date)\
+                .filter(EventModel.ocd_division_id == self.ocd_division_id)\
+                .order_by(EventModel.record_date.desc())\
+                .first()
+            session.close()
+            return result[0] if result else None
+        except Exception as e:
+            self.logger.warning(f"Database connection failed ({e}). Defaulting to full crawl.")
+            return None
 
     def start_requests(self):
 
@@ -38,9 +71,19 @@ class Fremont(scrapy.spiders.CrawlSpider):
             table_body = table.xpath('.//table/tbody/tr')
             meeting_type = table.xpath('.//h2/text()').extract_first()
             for row in table_body:
-                record_date = row.xpath('.//td[1]/h4/a[2]/strong/abbr/text()').extract_first() + \
+                record_date_str = row.xpath('.//td[1]/h4/a[2]/strong/abbr/text()').extract_first() + \
                     " " + row.xpath('.//td[1]/h4/a[2]/strong/text()').extract_first()
-                record_date = datetime.datetime.strptime(record_date, '%b %d, %Y').date()
+                
+                try:
+                    record_date = datetime.datetime.strptime(record_date_str, '%b %d, %Y').date()
+                except (ValueError, TypeError):
+                    self.logger.warning(f"Could not parse date: {record_date_str}")
+                    continue
+
+                # DELTA CRAWL CHECK
+                if self.last_meeting_date and record_date <= self.last_meeting_date:
+                    continue
+
                 agenda_urls = row.xpath(
                     './/td[@class="downloads"]/div/div/div/div/ol/li/a/@href').extract()
                 agenda_urls = get_agenda_url(agenda_urls)

@@ -1,16 +1,49 @@
 import datetime
+import sys
+import os
 from urllib.parse import urljoin, quote
+from sqlalchemy.orm import sessionmaker
 
 import scrapy
 
 from council_crawler.items import Event
 from council_crawler.utils import url_to_md5, parse_date_string
 
+# Ensure we can import from the pipeline module (parent directory)
+sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '../../..')))
+from pipeline.models import db_connect, Event as EventModel
+
 
 class Moraga(scrapy.spiders.CrawlSpider):
+    """
+    Spider for Town of Moraga, CA meetings.
+    Implements delta crawling to fetch only new meetings.
+    """
     name = 'moraga'
     base_url = 'http://www.moraga.ca.us/council/meetings/2017'
     ocd_division_id = 'ocd-division/country:us/state:ca/place:moraga'
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.last_meeting_date = self._get_last_meeting_date()
+        if self.last_meeting_date:
+            self.logger.info(f"Delta crawling enabled. Last meeting recorded: {self.last_meeting_date}")
+
+    def _get_last_meeting_date(self):
+        """Retrieve the most recent meeting date from the database for this city."""
+        try:
+            engine = db_connect()
+            Session = sessionmaker(bind=engine)
+            session = Session()
+            result = session.query(EventModel.record_date)\
+                .filter(EventModel.ocd_division_id == self.ocd_division_id)\
+                .order_by(EventModel.record_date.desc())\
+                .first()
+            session.close()
+            return result[0] if result else None
+        except Exception as e:
+            self.logger.warning(f"Database connection failed ({e}). Defaulting to full crawl.")
+            return None
 
     def start_requests(self):
         urls = [self.base_url]
@@ -37,6 +70,11 @@ class Moraga(scrapy.spiders.CrawlSpider):
         for row in table_body:
             record_date = row.xpath('.//td[1]/text()').extract_first()
             record_date = parse_date_string(record_date)
+
+            # DELTA CRAWL CHECK
+            if self.last_meeting_date and record_date and record_date <= self.last_meeting_date:
+                continue
+
             agenda_urls = row.xpath('.//td[1]/a/@href').extract()
             agenda_urls = get_agenda_url(agenda_urls)
             meeting_type = row.xpath('.//td[1]/a/text()').extract_first()

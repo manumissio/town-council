@@ -1,14 +1,23 @@
 import datetime
+import sys
+import os
 from urllib.parse import urljoin
+from sqlalchemy.orm import sessionmaker
 
 import scrapy
 
 from council_crawler.items import Event
 from council_crawler.utils import url_to_md5, parse_date_string
 
+# Ensure we can import from the pipeline module (parent directory)
+sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '../../..')))
+from pipeline.models import db_connect, Event as EventModel
+
+
 class LegistarCms(scrapy.spiders.CrawlSpider):
     """
     Generic spider template for cities using the Legistar content management system.
+    Implements delta crawling to fetch only new meetings.
     """
     name = 'legistar_cms'
     ocd_division_id = ''
@@ -35,6 +44,27 @@ class LegistarCms(scrapy.spiders.CrawlSpider):
         self.formatted_city_name = f'{self.city_name.capitalize()}, {state.upper()}'
         self.ocd_division_id = f'ocd-division/country:us/state:{state.lower()}/place:{self.city_name.replace(" ", "_")}'
 
+        # Initialize delta crawling
+        self.last_meeting_date = self._get_last_meeting_date()
+        if self.last_meeting_date:
+            self.logger.info(f"Delta crawling enabled. Last meeting recorded: {self.last_meeting_date}")
+
+    def _get_last_meeting_date(self):
+        """Retrieve the most recent meeting date from the database for this city."""
+        try:
+            engine = db_connect()
+            Session = sessionmaker(bind=engine)
+            session = Session()
+            result = session.query(EventModel.record_date)\
+                .filter(EventModel.ocd_division_id == self.ocd_division_id)\
+                .order_by(EventModel.record_date.desc())\
+                .first()
+            session.close()
+            return result[0] if result else None
+        except Exception as e:
+            self.logger.warning(f"Database connection failed ({e}). Defaulting to full crawl.")
+            return None
+
     def start_requests(self):
         for url in self.urls:
             yield scrapy.Request(url=url, callback=self.parse_archive)
@@ -47,6 +77,13 @@ class LegistarCms(scrapy.spiders.CrawlSpider):
             date = row.xpath('.//td[2]/font/text()').extract_first()
             time = row.xpath('.//td[4]/font/span/font/text()').extract_first()
             date_time = f'{date} {time}'
+            
+            record_date = parse_date_string(date_time)
+
+            # DELTA CRAWL CHECK
+            if self.last_meeting_date and record_date and record_date <= self.last_meeting_date:
+                continue
+
             agenda_url = row.xpath('.//td[7]/font/span/a/@href').extract_first()
             event_minutes_url = row.xpath('.//td[8]/font/span/a/font/text()').extract_first()
 
