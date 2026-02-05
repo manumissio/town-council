@@ -13,11 +13,12 @@ This project was originally a Data4Democracy pilot (2017). It has since been **e
 - **Full-Text Search:** Integrated **Meilisearch** for instant, typo-tolerant search across extracted text.
 - **AI Summarization:** Uses **Google Gemini** to automatically generate 3-bullet point summaries for meeting minutes.
 - **Automated Extraction & OCR:** Integrated **Apache Tika** to automatically extract text and perform OCR on downloaded PDFs.
+- **Delta Crawling:** Optimized spiders to automatically skip meetings already in the database, reducing server load and scraping time.
 - **Security Hardening:** 
     - Protected against **Path Traversal** vulnerabilities.
     - Patched **Requests .netrc credential leakage** (CVE-2024-3651).
     - Implemented **Bot Etiquette** (Rate limiting, descriptive User-Agents, and robots.txt compliance).
-- **Performance:** Parallelized document downloading and text extraction using multi-threading.
+- **Performance:** Parallelized document downloading and text extraction using multi-threading. Combined with **Delta Crawling**, the system only processes new data after the initial run.
 
 ## Getting Started
 
