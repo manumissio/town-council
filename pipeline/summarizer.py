@@ -4,24 +4,27 @@ import google.generativeai as genai
 from sqlalchemy.orm import sessionmaker
 from models import Catalog, db_connect, create_tables
 
-# Configure the Gemini API using the environment variable
-# SECURITY: Never hardcode API keys. Rely on Docker/Env injection.
+# Get the API key securely from the environment variables.
+# Never hardcode API keys in the source code!
 GEMINI_API_KEY = os.getenv('GEMINI_API_KEY')
 
 def summarize_documents():
     """
-    Finds documents that have extracted text but no summary,
-    and uses Google Gemini to generate a concise summary.
+    Uses Google's Gemini AI to read meeting minutes and write short summaries.
+    
+    How it works:
+    1. It finds documents in the database that have text but no summary yet.
+    2. It sends the text to Gemini with a specific instruction to write 3 bullet points.
+    3. It saves the AI-generated summary back to the database.
     """
     if not GEMINI_API_KEY:
         print("Error: GEMINI_API_KEY environment variable not set. Skipping summarization.")
         return
 
-    # Configure the Gemini client
+    # Set up the connection to Google's AI service.
     genai.configure(api_key=GEMINI_API_KEY)
     
-    # Use Gemini 1.5 Flash for speed and efficiency
-    # It has a massive context window (1M tokens) perfect for long minutes
+    # We use 'gemini-1.5-flash' because it's fast, cheap, and can handle very long documents.
     model = genai.GenerativeModel('gemini-1.5-flash')
 
     engine = db_connect()
@@ -29,7 +32,7 @@ def summarize_documents():
     Session = sessionmaker(bind=engine)
     session = Session()
 
-    # Find documents that have text content but no summary yet
+    # Find valid documents that haven't been summarized yet.
     to_process = session.query(Catalog).filter(
         Catalog.content != None,
         Catalog.content != "",
@@ -42,7 +45,8 @@ def summarize_documents():
         print(f"Summarizing: {record.filename}...")
         
         try:
-            # We construct a prompt that asks for specific, structured output
+            # Create the instruction for the AI.
+            # We explicitly ask for "3 clear, concise bullet points" to ensure consistency.
             prompt = (
                 "You are a helpful assistant for civic transparency. "
                 "Read the following town council meeting minutes and provide a summary. "
@@ -50,10 +54,10 @@ def summarize_documents():
                 "Do not include preamble or fluff.
 
 "
-                f"TEXT: {record.content[:30000]}..." # Send first 30k chars to be safe, though Flash can handle much more
+                f"TEXT: {record.content[:30000]}..." # We limit the text slightly just to be safe, though Flash can handle more.
             )
 
-            # Generate content
+            # Ask Gemini to generate the summary.
             response = model.generate_content(prompt)
             
             if response and response.text:
@@ -63,7 +67,8 @@ def summarize_documents():
             else:
                 print("Gemini returned empty response.")
 
-            # Performance/Etiquette: Sleep briefly to respect API rate limits (Free tier is ~15 RPM)
+            # Pause for 4 seconds between requests.
+            # This is "Rate Limiting" - it prevents us from hitting the API too fast and getting blocked.
             time.sleep(4)
 
         except Exception as e:

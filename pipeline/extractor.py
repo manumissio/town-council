@@ -4,13 +4,16 @@ from tika import parser
 from sqlalchemy.orm import sessionmaker
 from models import Catalog, db_connect, create_tables
 
-# Define where the Tika server is located
+# Define where the Tika server is located (usually a separate Docker container)
 TIKA_SERVER_ENDPOINT = os.getenv('TIKA_SERVER_ENDPOINT', 'http://tika:9998')
 
 def is_safe_path(path):
     """
-    Ensures the file path is actually inside our designated data directory.
-    This is a safety check to prevent reading files from other parts of the system.
+    Checks if a file path is safe to open.
+    
+    Why this is needed:
+    To prevent security vulnerabilities where a malicious path could trick the system
+    into reading sensitive files outside the project directory (Path Traversal).
     """
     base_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', 'data'))
     target_path = os.path.abspath(path)
@@ -18,15 +21,20 @@ def is_safe_path(path):
 
 def extract_content():
     """
-    Scans the database for downloaded documents that haven't had their text extracted yet.
-    Sends them to Apache Tika for processing and saves the results.
+    Finds downloaded documents (PDFs) that haven't been processed yet and
+    extracts the raw text from them.
+    
+    How it works:
+    1. It queries the database for files with no text content.
+    2. It sends each file to the Apache Tika server (OCR/Extraction service).
+    3. It saves the returned text back into the database.
     """
     engine = db_connect()
     create_tables(engine)
     Session = sessionmaker(bind=engine)
     session = Session()
 
-    # Select records that have a file location but no content yet
+    # Find documents that have been downloaded but don't have text extracted yet.
     to_process = session.query(Catalog).filter(
         Catalog.location != 'placeholder',
         Catalog.content == None
@@ -38,22 +46,22 @@ def extract_content():
     processed_count = 0
 
     for record in to_process:
-        # Verify the file exists and is in a safe location before reading
+        # Safety Check: Ensure the file actually exists and is in the allowed folder.
         if not os.path.exists(record.location) or not is_safe_path(record.location):
             print(f"Skipping unsafe or missing file: {record.location}")
-            # Mark as processed with empty string so we don't keep retrying it
+            # Mark it as "empty" so we don't keep trying to process a broken file forever.
             record.content = ""
             continue
 
         print(f"Extracting text from: {record.filename}")
         
         try:
-            # Request text extraction. serverEndpoint must be passed as a keyword argument.
+            # Send the file to Tika for processing.
             parsed = parser.from_file(record.location, serverEndpoint=TIKA_SERVER_ENDPOINT)
             
             if parsed and 'content' in parsed:
                 text = parsed['content']
-                # Store the text, or an empty string if nothing was found
+                # Save the extracted text (trimming extra whitespace).
                 record.content = text.strip() if text else ""
                 print(f"Successfully processed {record.filename}")
             else:
@@ -62,7 +70,7 @@ def extract_content():
 
             processed_count += 1
             
-            # Commit changes in batches to improve database performance
+            # Save progress every 10 files to avoid losing work if the script crashes.
             if processed_count % batch_size == 0:
                 session.commit()
                 print(f"Committed batch of {batch_size} records.")
@@ -71,7 +79,7 @@ def extract_content():
             print(f"Unexpected error with {record.filename}: {e}")
             session.rollback()
 
-    # Final commit for any remaining records
+    # Final save for any remaining records.
     try:
         session.commit()
     except:
@@ -81,6 +89,5 @@ def extract_content():
     print("Text extraction process complete.")
 
 if __name__ == "__main__":
-    # Small delay to ensure the Tika container has fully initialized if starting together
     print(f"Connecting to Tika server at {TIKA_SERVER_ENDPOINT}...")
     extract_content()

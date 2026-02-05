@@ -21,7 +21,10 @@ def create_tables(engine):
 
 
 class Place(DeclarativeBase):
-    """Place table"""
+    """
+    Represents a City or Town (e.g., "Belmont, CA").
+    This table tells the crawler which cities to look for.
+    """
     __tablename__ = 'place'
 
     id = Column(Integer, primary_key=True)
@@ -30,17 +33,20 @@ class Place(DeclarativeBase):
     state = Column(String)
     country = Column(String)
     display_name = Column(String)
-    ocd_division_id = Column(String, index=True)
-    seed_url = Column(String)
+    ocd_division_id = Column(String, index=True) # Unique ID for the city
+    seed_url = Column(String) # Starting URL for the crawler
     hosting_service = Column(String)
     crawler = Column(Boolean, default=False)
-    craler_name = Column(String)
+    crawler_name = Column(String)
     crawler_type = Column(String)
     crawler_owner = Column(String)
 
 
 class UrlStage(DeclarativeBase):
-    """Url Staging Table"""
+    """
+    A temporary staging area where the crawler saves links to PDF files.
+    The downloader pipeline reads from here later.
+    """
     __tablename__ = 'url_stage'
 
     id = Column(Integer, primary_key=True)
@@ -49,19 +55,22 @@ class UrlStage(DeclarativeBase):
     event_date = Column(Date)
     url = Column(String)
     url_hash = Column(String)
-    category = Column(String)
+    category = Column(String) # "agenda" or "minutes"
     created_at = Column(DateTime, default=datetime.datetime.now)
 
 
 class EventStage(DeclarativeBase):
-    """Event table"""
+    """
+    A temporary staging area where the crawler saves meeting details.
+    These are later "promoted" to the main Event table after checking for duplicates.
+    """
     __tablename__ = 'event_stage'
 
     id = Column(Integer, primary_key=True)
     ocd_division_id = Column(String)
-    name = Column(String)
+    name = Column(String) # e.g. "City Council Regular Meeting"
     scraped_datetime = Column(DateTime, default=datetime.datetime.now)
-    record_date = Column(Date)
+    record_date = Column(Date) # Date of the meeting
     source = Column(String)
     source_url = Column(String)
     meeting_type = Column(String)

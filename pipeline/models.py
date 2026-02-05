@@ -44,7 +44,10 @@ def create_tables(engine):
 
 
 class Place(DeclarativeBase):
-    """Place table"""
+    """
+    Represents a City or Town (e.g., "Belmont, CA").
+    Stores metadata like the city name, state, and where to find its meetings.
+    """
     __tablename__ = 'place'
 
     id = Column(Integer, primary_key=True)
@@ -52,48 +55,55 @@ class Place(DeclarativeBase):
     type_ = Column(String)
     state = Column(String)
     country = Column(String)
-    display_name = Column(String)
-    ocd_division_id = Column(String, index=True)
-    seed_url = Column(String)
-    hosting_service = Column(String)
+    display_name = Column(String) # e.g. "Belmont, CA"
+    ocd_division_id = Column(String, index=True) # Unique ID for the city
+    seed_url = Column(String) # The main URL for the city council's website
+    hosting_service = Column(String) # Does it use Granicus, Legistar, etc?
     crawler = Column(Boolean, default=False)
-    craler_name = Column(String)
+    crawler_name = Column(String)
     crawler_type = Column(String)
     crawler_owner = Column(String)
 
 
 class UrlStage(DeclarativeBase):
-    """Url Staging Table"""
+    """
+    A temporary staging area for URLs found by the crawler.
+    The downloader reads from here to know what files to fetch.
+    """
     __tablename__ = 'url_stage'
 
     id = Column(Integer, primary_key=True)
     ocd_division_id = Column(String)
     event = Column(String)
     event_date = Column(Date)
-    url = Column(String)
-    url_hash = Column(String)
-    category = Column(String)
+    url = Column(String) # The direct link to the PDF
+    url_hash = Column(String) # Unique fingerprint of the URL
+    category = Column(String) # "agenda" or "minutes"
     created_at = Column(DateTime, default=datetime.datetime.now)
 
 
 class EventStage(DeclarativeBase):
-    """Event table"""
+    """
+    A temporary staging area for meeting events found by the crawler.
+    Used to check for duplicates before adding to the main Event table.
+    """
     __tablename__ = 'event_stage'
 
     id = Column(Integer, primary_key=True)
     ocd_division_id = Column(String)
-    name = Column(String)
+    name = Column(String) # e.g. "City Council Regular Meeting"
     scraped_datetime = Column(DateTime, default=datetime.datetime.now)
-    record_date = Column(Date)
+    record_date = Column(Date) # When the meeting happened
     source = Column(String)
     source_url = Column(String)
     meeting_type = Column(String)
 
 
-#####
-
 class Event(DeclarativeBase):
-    """Event table"""
+    """
+    Represents a specific City Council Meeting.
+    Links a Place (City) to a Date and a Name.
+    """
     __tablename__ = 'event'
 
     id = Column(Integer, primary_key=True)
@@ -108,7 +118,10 @@ class Event(DeclarativeBase):
 
 
 class UrlStageHist(DeclarativeBase):
-    """Url Staging History Table"""
+    """
+    History log of all URLs we have ever processed.
+    Keeps the main staging table clean and small.
+    """
     __tablename__ = 'url_stage_hist'
 
     id = Column(Integer, primary_key=True)
@@ -122,30 +135,42 @@ class UrlStageHist(DeclarativeBase):
 
 
 class Catalog(DeclarativeBase):
-    """Document catalog table"""
+    """
+    The main library of all downloaded files.
+    Stores the file path, raw text content, and AI-generated metadata.
+    """
     __tablename__ = 'catalog'
 
     id = Column(Integer, primary_key=True)
     url = Column(String)
     url_hash = Column(String, unique=True, index=True)
-    location = Column(String)
+    location = Column(String) # Local file path (e.g., data/us/ca/belmont/hash.pdf)
     filename = Column(String)
-    # Extracted text content from the document
+    
+    # The full text extracted from the PDF (OCR)
     content = Column(String, nullable=True)
-    # AI-generated summary of the content
+    
+    # AI-generated 3-bullet summary
     summary = Column(String, nullable=True)
-    # NLP-extracted entities (Organizations, Locations, etc.)
-    # Stored as JSON: {"orgs": [], "locs": [], "persons": []}
+    
+    # Names of People, Orgs, and Places found in the text (JSON)
+    # Format: {"orgs": ["Police Dept"], "locs": ["Main St"], "persons": ["Mayor Smith"]}
     entities = Column(JSON, nullable=True)
-    # Extracted structured tables (JSON list of lists)
+    
+    # Structured data tables extracted from the PDF (JSON)
     tables = Column(JSON, nullable=True)
-    # Automatically discovered topics (list of keywords)
+    
+    # AI-discovered topics/themes (e.g. ["Housing", "Zoning"]) (JSON)
     topics = Column(JSON, nullable=True)
+    
     uploaded_at = Column(DateTime, default=datetime.datetime.now)
 
 
 class Document(DeclarativeBase):
-    """Document table"""
+    """
+    Links a File (Catalog) to a Meeting (Event).
+    Allows us to say "This PDF belongs to the meeting on Feb 10th".
+    """
     __tablename__ = 'document'
 
     id = Column(Integer, primary_key=True)
@@ -155,8 +180,10 @@ class Document(DeclarativeBase):
     url = Column(String)
     url_hash = Column(String)
     media_type = Column(String)
-    category = Column(String)
+    category = Column(String) # "agenda" or "minutes"
     created_at = Column(DateTime, default=datetime.datetime.now)
+    
+    # Relationships allow us to easily access related data in code
     place = relationship('Place')
     event = relationship('Event')
     catalog = relationship('Catalog')

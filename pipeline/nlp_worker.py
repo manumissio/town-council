@@ -5,12 +5,19 @@ from models import Catalog, db_connect, create_tables
 
 def run_nlp_pipeline():
     """
-    Scans for documents that have text content but no extracted entities.
-    Uses SpaCy (NER) to identify Organizations and Locations within the text.
+    Scans meeting minutes to automatically identify important names.
+    
+    How it works (Named Entity Recognition):
+    1. It loads a pre-trained language model (SpaCy).
+    2. It reads documents that haven't been analyzed yet.
+    3. It finds and categorizes names of Organizations (ORG) and Locations (GPE/LOC).
+    4. It saves these lists to the database so they can be used for search filters.
     """
     print("Loading SpaCy NLP model (en_core_web_sm)...")
     try:
-        # Disable components we don't need (parser, lemmatizer) for speed
+        # Load the English language model.
+        # We disable 'parser' and 'lemmatizer' because we only need Entity Recognition (NER),
+        # and disabling the others makes it run much faster.
         nlp = spacy.load("en_core_web_sm", disable=["parser", "lemmatizer"])
     except OSError:
         print("Error: SpaCy model 'en_core_web_sm' not found. Ensure it is installed.")
@@ -21,7 +28,7 @@ def run_nlp_pipeline():
     Session = sessionmaker(bind=engine)
     session = Session()
 
-    # Find documents with text but no entities extracted yet
+    # Find documents that have text content but haven't been processed for entities yet.
     to_process = session.query(Catalog).filter(
         Catalog.content != None,
         Catalog.content != "",
@@ -30,11 +37,11 @@ def run_nlp_pipeline():
 
     print(f"Found {len(to_process)} documents for NLP processing.")
 
-    # Process in batches using SpaCy's efficient pipe
-    # We yield (doc_id, text) pairs so we can map results back to records
-    # Limit text length to 100k chars to prevent memory issues with massive PDFs
+    # Process documents in batches for better performance.
+    # We limit text to the first 100k characters to prevent running out of memory on huge PDFs.
     doc_tuples = [(record, record.content[:100000]) for record in to_process]
     
+    # nlp.pipe processes multiple texts in parallel, which is much faster than a loop.
     for record, spacy_doc in zip([r for r, t in doc_tuples], 
                                  nlp.pipe([t for r, t in doc_tuples], batch_size=20)):
         
@@ -44,27 +51,31 @@ def run_nlp_pipeline():
             "persons": []
         }
 
-        # Extract and categorize entities
+        # Loop through all the "entities" (names/places) the model found.
         for ent in spacy_doc.ents:
-            # Clean up the entity text
-            text = ent.text.strip().replace('
-', ' ')
+            # Clean up the text (remove extra spaces or newlines).
+            text = ent.text.strip().replace('\n', ' ')
             
+            # Skip very short or very long garbage results.
             if len(text) < 2 or len(text) > 100:
                 continue
 
+            # Categorize the entity.
+            # ORG = Companies, Agencies, Institutions (e.g., "Police Department", "PG&E")
             if ent.label_ == "ORG" and text not in entities["orgs"]:
                 entities["orgs"].append(text)
+            # GPE/LOC = Countries, Cities, States (e.g., "Belmont", "California")
             elif ent.label_ in ["GPE", "LOC"] and text not in entities["locs"]:
                 entities["locs"].append(text)
+            # PERSON = People's names (e.g., "Mayor Smith")
             elif ent.label_ == "PERSON" and text not in entities["persons"]:
                 entities["persons"].append(text)
 
-        # Store result as JSON
+        # Save the results as a JSON object in the database.
         record.entities = entities
         print(f"Processed {record.filename}: Found {len(entities['orgs'])} Orgs, {len(entities['locs'])} Locs")
 
-    # Commit all changes
+    # Save all changes to the database.
     try:
         session.commit()
         print("NLP processing complete and saved to database.")

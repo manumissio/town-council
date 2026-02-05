@@ -1,24 +1,34 @@
 import os
 import requests
-import db_utils
 from concurrent.futures import ThreadPoolExecutor
+from sqlalchemy import text
 from sqlalchemy.orm import sessionmaker
-from models import Place, UrlStage, Event, Catalog, Document, EventStage
+from models import Place, UrlStage, Event, Catalog, Document, UrlStageHist
 from models import db_connect, create_tables
 
 
 class Media():
+    """
+    Handles the downloading of documents (PDFs, HTML) from the web.
+    """
     def __init__(self, doc):
         self.working_dir = './data'
         self.doc = doc
-        # Security: Disable trust_env to prevent .netrc credential leakage (CVE-2024-3651)
+        # Security: Disable trust_env. This prevents the request from accidentally
+        # using credentials stored in a local .netrc file, which is a security risk (CVE-2024-3651).
         self.session = requests.Session()
         self.session.trust_env = False
 
     def gather(self):
-        # Check if exists
+        """
+        Main method to fetch and save the document.
+        Returns the local file path if successful, or None if failed.
+        """
+        # Fetch the document from the URL
         self.response = self._get_document(self.doc.url)
-        if self.response:
+        
+        # Check if we got a valid response (not an error code or None)
+        if self.response and not isinstance(self.response, int):
             content_type = self._parse_content_type(self.response.headers)
             file_location = self._store_document(
                     self.response, content_type, self.doc.url_hash)
@@ -26,31 +36,27 @@ class Media():
         else:
             return None
 
-    def validate(self):
-        pass
-
-    def store(self):
-        pass
-
-    def cleanup(self):
-        pass
-
     def _parse_content_type(self, headers):
-        """Parse response headers to get Content-Type"""
-        content_type = None
-        content_type = headers.get('Content-Type', None)
-        if content_type:
-            content_type = content_type.split(';')[0]  # 'text/html; charset=utf-8'
-            content_type = content_type.split('/')[-1]  # text/html
+        """
+        Reads the 'Content-Type' header to determine if the file is a PDF or HTML.
+        Defaults to PDF if not specified.
+        """
+        content_type = headers.get('Content-Type', 'application/pdf')
+        content_type = content_type.split(';')[0]  # Remove charset if present (e.g., "text/html; charset=utf-8")
         return content_type
 
     def _get_document(self, document_url):
+        """
+        Downloads the file from the given URL.
+        Includes safety checks for file size.
+        """
         try:
-            # Security: Use stream=True to check content length before downloading full body
+            # Security: Use stream=True. This allows us to inspect the headers (like file size)
+            # *before* downloading the entire huge file into memory.
             r = self.session.get(document_url, stream=True, timeout=30)
             
             if r.ok:
-                # Check file size (100MB limit)
+                # Check file size (limit to 100MB) to prevent crashing the server with massive files.
                 content_length = r.headers.get('Content-Length')
                 if content_length and int(content_length) > 104857600:
                     print(f"Skipping file: {document_url} is too large ({content_length} bytes)")
@@ -58,42 +64,47 @@ class Media():
                 return r
             else:
                 return r.status_code
-        except requests.exceptions.MissingSchema as e:
-            print(e)
+        except Exception as e:
+            print(f"Request failed for {document_url}: {e}")
             return None
 
-    def _store_document(self, content, content_type, url_hash):
-        extension = content_type.split(';')[0].split('/')[-1]
+    def _store_document(self, response, content_type, url_hash):
+        """
+        Saves the downloaded content to the local disk.
+        """
         file_path = self._create_fp_from_ocd_id(self.doc.ocd_division_id)
         
-        # Determine extension and validate
-        if extension == 'pdf':
+        # Determine the correct file extension
+        if 'pdf' in content_type:
             ext = '.pdf'
-        elif extension == 'html':
+        elif 'html' in content_type:
             ext = '.html'
         else:
-            print(f"Skipping unsupported content type: {content_type}")
-            return None
+            # Default to .pdf if unknown as most meeting docs are PDFs
+            ext = '.pdf'
 
         full_path = os.path.join(file_path, f'{url_hash}{ext}')
 
-        if extension == 'pdf':
-            with open(full_path, 'wb') as f:
-                f.write(content.content)
-                return full_path
-        if extension == 'html':
-            with open(full_path, 'w') as f:
-                f.write(content.text)
-                return full_path
+        # Write the file in chunks (8KB at a time).
+        # This is much more memory efficient than loading the whole file into RAM at once.
+        with open(full_path, 'wb') as f:
+            for chunk in response.iter_content(chunk_size=8192):
+                f.write(chunk)
+        
+        return full_path
 
     def _create_fp_from_ocd_id(self, ocd_id):
+        """
+        Creates a directory structure based on the location ID.
+        Example: data/us/ca/belmont/
+        """
         elements = ocd_id.split('/')
-        # Extract and sanitize components
-        country = os.path.basename(elements[1].split(':')[-1])
-        state = os.path.basename(elements[2].split(':')[-1])
-        place = os.path.basename(elements[3].split(':')[-1])
+        # Extract and sanitize components (e.g., "country:us" -> "us")
+        country = elements[1].split(':')[-1]
+        state = elements[2].split(':')[-1]
+        place = elements[3].split(':')[-1]
 
-        # Construct safe path
+        # Construct safe path within the data directory
         base_dir = os.path.join('.', 'data')
         safe_path = os.path.join(base_dir, country, state, place)
         
@@ -103,185 +114,123 @@ class Media():
         return safe_path
 
 
-def map_document(url_record, place_id, event_id, catalog_id):
-    document = Document(
-        place_id=place_id,
-        event_id=event_id,
-        catalog_id=catalog_id,
-        url=url_record.url,
-        url_hash=url_record.url_hash,
-        media_type='',
-        category=url_record.category
-        )
-    return document
-
-
-def save_record(record):
+def process_single_url(url_record_id):
+    """
+    Processes a single URL from the staging table.
+    Downloads the file, creates a Catalog entry, and links it to a Document.
+    """
     engine = db_connect()
     Session = sessionmaker(bind=engine)
     session = Session()
 
     try:
-        session.add(record)
-        session.commit()
-        return record.id
-    except:
-        session.rollback()
-        raise
-    finally:
-        session.close()
-        print('Session closed')
-
-
-def copy_event_from_stage(staged_event):
-    engine = db_connect()
-    Session = sessionmaker(bind=engine)
-    session = Session()
-
-    place = session.query(Place) \
-        .filter(Place.ocd_division_id == staged_event.ocd_division_id).first()
-
-    event = Event(
-        ocd_division_id=staged_event.ocd_division_id,
-        place_id=place.id,
-        name=staged_event.name,
-        scraped_datetime=staged_event.scraped_datetime,
-        record_date=staged_event.record_date,
-        source=staged_event.source,
-        source_url=staged_event.source_url,
-        meeting_type=staged_event.meeting_type
-    )
-    event = save_record(event)
-    return event
-
-
-def process_single_url(url_record):
-    """Process a single URL record - helper for ThreadPoolExecutor"""
-    try:
-        engine = db_connect()
-        Session = sessionmaker(bind=engine)
-        session = Session()
-
-        place_record = session.query(Place). \
-            filter(Place.ocd_division_id == url_record.ocd_division_id).first()
-        event_record = session.query(Event). \
-            filter(Event.ocd_division_id == url_record.ocd_division_id,
-                   Event.record_date == url_record.event_date,
-                   Event.name == url_record.event).first()
-        
-        if not place_record or not event_record:
-            print(f"Missing Place or Event for URL: {url_record.url}")
+        url_record = session.query(UrlStage).get(url_record_id)
+        if not url_record:
             return
 
-        catalog_entry = session.query(Catalog). \
-            filter(Catalog.url_hash == url_record.url_hash).first()
+        # Check if the meeting event exists in the main table.
+        # We need an Event to link the document to.
+        event_record = session.query(Event).filter(
+            Event.ocd_division_id == url_record.ocd_division_id,
+            Event.record_date == url_record.event_date,
+            Event.name == url_record.event
+        ).first()
+        
+        if not event_record:
+            # If the event isn't found, we can't link the doc, so we skip it.
+            print(f"Skipping: Event not found for {url_record.event} ({url_record.event_date})")
+            return
 
-        # Document already exists in catalog
-        if catalog_entry:
-            catalog_id = catalog_entry.id
-            document = map_document(
-                url_record, place_record.id, event_record.id, catalog_id)
-            save_record(document)
-            print(f"Linked existing document: {url_record.url_hash}")
+        # Check if we have already downloaded this file (by checking its hash).
+        catalog_entry = session.query(Catalog).filter(
+            Catalog.url_hash == url_record.url_hash
+        ).first()
 
-        else:
-            # Download and save document
-            catalog = Catalog(
-                url=url_record.url,
-                url_hash=url_record.url_hash,
-                location='placeholder',
-                filename=f'{url_record.url_hash}.pdf'
+        if not catalog_entry:
+            # It's a new file: Download it and add it to the Catalog.
+            print(f"Downloading new document: {url_record.url}")
+            downloader = Media(url_record)
+            file_location = downloader.gather()
+
+            if file_location:
+                catalog_entry = Catalog(
+                    url=url_record.url,
+                    url_hash=url_record.url_hash,
+                    location=file_location,
+                    filename=os.path.basename(file_location)
                 )
-
-            doc = Media(url_record)
-
-            # download
-            result = doc.gather()
-
-            # Add to doc catalog
-            if result:
-                catalog.location = result
-                catalog_id = save_record(catalog)
-                # Add document reference
-                document = map_document(
-                    url_record, place_record.id, event_record.id, catalog_id)
-                doc_id = save_record(document)
-
-                print(f'Downloaded and added {url_record.url_hash}')
+                session.add(catalog_entry)
+                session.flush() # Save immediately to get the ID
             else:
                 print(f"Failed to download: {url_record.url}")
+                return
+
+        # Link the Document to the Event and the Catalog file.
+        # Check if this link already exists to avoid duplicates.
+        existing_doc = session.query(Document).filter(
+            Document.event_id == event_record.id,
+            Document.catalog_id == catalog_entry.id
+        ).first()
+
+        if not existing_doc:
+            document = Document(
+                place_id=event_record.place_id,
+                event_id=event_record.id,
+                catalog_id=catalog_entry.id,
+                url=url_record.url,
+                url_hash=url_record.url_hash,
+                category=url_record.category
+            )
+            session.add(document)
+        
+        session.commit()
 
     except Exception as e:
-        print(f"Error processing {url_record.url}: {e}")
+        print(f"Error processing URL record {url_record_id}: {e}")
+        session.rollback()
     finally:
         session.close()
 
-def process_staged_urls():
-    """Query download all staged URLs, Update Catalog and Document using parallel threads"""
 
+def process_staged_urls():
+    """
+    Main entry point for the downloader.
+    Processes all URLs in the 'url_stage' table in parallel.
+    """
     engine = db_connect()
     create_tables(engine)
     Session = sessionmaker(bind=engine)
     session = Session()
 
-    url_records = session.query(UrlStage).all()
-    session.close() # Close main session, threads will open their own
+    # Get a list of all file IDs waiting to be downloaded.
+    url_ids = [r.id for r in session.query(UrlStage.id).all()]
+    session.close()
+
+    if not url_ids:
+        print("No URLs in staging table to process.")
+        return
+
+    print(f"Processing {len(url_ids)} staged URLs using 5 threads...")
     
-    # Use 5 worker threads for parallel downloading
+    # Use 5 parallel threads to speed up downloading multiple files at once.
     with ThreadPoolExecutor(max_workers=5) as executor:
-        executor.map(process_single_url, url_records)
+        executor.map(process_single_url, url_ids)
+
+    # After processing, move the records to the 'history' table so we don't process them again.
+    archive_url_stage()
 
 
 def archive_url_stage():
-    """Copy staging records to history table and clear staging table"""
-    engine, _ = db_utils.setup_db()
-    conn = engine.connect()
-
-    conn.execute("insert into url_stage_hist (select * from url_stage)")
-    conn.execute("delete from url_stage")
-
-
-def create_document_metadata(url_record, catalog_id, place_id, event_id):
-    metadata = dict(
-        place_id=place_id,
-        event_id=event_id,
-        catalog_id=catalog_id,
-        url=url_record.url,
-        url_hash=url_record.url_hash,
-        media_type='',
-        category=url_record.category,
-
-        )
-    return metadata
+    """Moves processed records to the history table and clears staging."""
+    engine = db_connect()
+    with engine.begin() as conn:
+        print("Archiving processed URLs to history...")
+        # Move data
+        conn.execute(text("INSERT INTO url_stage_hist (ocd_division_id, event, event_date, url, url_hash, category, created_at) SELECT ocd_division_id, event, event_date, url, url_hash, category, created_at FROM url_stage"))
+        # Clear staging
+        conn.execute(text("DELETE FROM url_stage"))
+        print("Staging table cleared.")
 
 
-def add_document_metadata(conn, document_db, metadata):
-    # TODO Add media type
-    # TODO prevent dupes
-    metadata_id = conn.execute(
-        document_db.insert().returning(document_db.c.id),
-        place_id=metadata['place_id'],
-        event_id=metadata['event_id'],
-        catalog_id=metadata['catalog_id'],
-        url=metadata['url'],
-        url_hash=metadata['url_hash'],
-        media_type='placeholder',
-        category=metadata['category'],
-        ).first().id
-    return metadata_id
-
-
-def add_catalog_entry(conn, catalog, entry):
-    catalog_id = conn.execute(
-        catalog.insert().returning(catalog.c.id),
-        url=entry['url'],
-        url_hash=entry['url_hash'],
-        location=entry['location'],
-        filename=entry['filename'],
-        ).first().id
-    return catalog_id
-
-process_staged_urls()
-
-
-# db_utils.create_tables()
+if __name__ == "__main__":
+    process_staged_urls()
