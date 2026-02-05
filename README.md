@@ -31,6 +31,9 @@ docker-compose run crawler scrapy crawl berkeley
 
 # Scrape Dublin, CA
 docker-compose run crawler scrapy crawl dublin
+
+# Scrape Cupertino, CA (Legistar API)
+docker-compose run crawler scrapy crawl cupertino
 ```
 
 ### 3. Process Data
