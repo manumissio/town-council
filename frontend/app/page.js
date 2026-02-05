@@ -262,9 +262,11 @@ export default function Home() {
   // Filter State
   const [cityFilter, setCityFilter] = useState("");
   const [meetingTypeFilter, setMeetingTypeFilter] = useState("");
+  const [orgFilter, setOrgFilter] = useState("");
 
   // Pilot cities list
   const cities = ["Belmont", "Berkeley", "Cupertino", "Dublin", "Fremont", "Hayward", "Moraga", "Mountain View", "Palo Alto", "San Mateo", "Sunnyvale"];
+  const organizations = ["City Council", "Planning Commission", "Parks & Recreation Commission"];
 
   const performSearch = useCallback(async (isLoadMore = false) => {
     /**
@@ -286,6 +288,7 @@ export default function Home() {
       let url = `${apiUrl}/search?q=${encodeURIComponent(query)}&limit=20&offset=${currentOffset}`;
       if (cityFilter) url += `&city=${encodeURIComponent(cityFilter)}`;
       if (meetingTypeFilter) url += `&meeting_type=${encodeURIComponent(meetingTypeFilter)}`;
+      if (orgFilter) url += `&org=${encodeURIComponent(orgFilter)}`;
 
       const res = await fetch(url);
       const data = await res.json();
@@ -308,7 +311,7 @@ export default function Home() {
       setLoading(false);
       setIsSearching(false);
     }
-  }, [query, cityFilter, meetingTypeFilter, offset]);
+  }, [query, cityFilter, meetingTypeFilter, orgFilter, offset]);
 
   // Debouncing: This prevents the app from searching on EVERY single keypress.
   // It waits for you to stop typing for 400ms before asking the server for data.
@@ -319,7 +322,7 @@ export default function Home() {
     }, 400);
 
     return () => clearTimeout(delayDebounceFn);
-  }, [query, cityFilter, meetingTypeFilter]);
+  }, [query, cityFilter, meetingTypeFilter, orgFilter]);
 
   // Function to reset the application to its initial state
   // Why: This allows the user to go back to the "Start Search" screen without
@@ -329,6 +332,7 @@ export default function Home() {
     setResults([]);
     setCityFilter("");
     setMeetingTypeFilter("");
+    setOrgFilter("");
     setOffset(0);
     setHasMore(false);
   };
@@ -523,127 +527,327 @@ export default function Home() {
 
   
 
-              {/* 3. Category Segment */}
-
-              <div className="relative group/segment px-6 py-4 md:py-0 flex items-center min-w-[180px] hover:bg-gray-50 transition-colors cursor-pointer">
-
-                <div className="flex flex-col w-full">
-
-                  <label className="text-[10px] font-bold text-gray-400 uppercase tracking-widest mb-0.5">Type</label>
-
-                  <select 
-
-                    value={meetingTypeFilter}
-
-                    onChange={(e) => setMeetingTypeFilter(e.target.value)}
-
-                    className="bg-transparent border-none p-0 text-sm font-bold text-gray-800 focus:ring-0 cursor-pointer appearance-none w-full"
-
-                  >
-
-                    <option value="">Any Meeting</option>
-
-                    {["Regular", "Special", "Closed"].map(type => (
-
-                      <option key={type} value={type}>{type}</option>
-
-                    ))}
-
-                  </select>
-
-                </div>
-
-                <ChevronDown className="w-4 h-4 text-gray-400 ml-2" />
-
-              </div>
+                          {/* 3. Organization Segment */}
 
   
 
-              {/* Global Reset (Visible only when filters are active) */}
-
-              {(cityFilter || meetingTypeFilter || query) && (
-
-                <button 
-
-                  onClick={resetApp}
-
-                  className="md:border-l border-gray-100 px-6 py-4 md:py-0 bg-white hover:bg-red-50 text-red-500 transition-colors flex items-center justify-center group/reset"
-
-                  title="Reset Search"
-
-                >
-
-                  <X className="w-5 h-5 group-hover/reset:rotate-90 transition-transform" />
-
-                </button>
-
-              )}
-
-            </div>
-
-            
-
-            {/* Quick Shortcuts */}
-
-            <div className="mt-8 flex flex-wrap justify-center gap-3">
-
-              {["Zoning", "Housing", "Budget", "Police"].map(tag => (
-
-                <button 
-
-                  key={tag} 
-
-                  onClick={() => setQuery(tag)}
-
-                  className="px-5 py-2 bg-white border border-gray-200 text-gray-600 text-[11px] font-bold rounded-full hover:border-blue-400 hover:text-blue-600 transition-all shadow-sm active:scale-95"
-
-                >
-
-                  {tag}
-
-                </button>
-
-              ))}
-
-            </div>
-
-          </div>
-
-        </section>
+                          <div className="relative group/segment px-6 py-4 md:py-0 flex items-center min-w-[200px] hover:bg-gray-50 transition-colors cursor-pointer">
 
   
 
-        <div className="max-w-5xl mx-auto px-4 py-12 flex-1 relative">
+                            <div className="flex flex-col w-full">
 
-          <div className="space-y-8">
+  
 
-            
+                              <label className="text-[10px] font-bold text-gray-400 uppercase tracking-widest mb-0.5">Body</label>
 
-            {/* Results Info */}
+  
 
-            {query && !loading && (
+                              <select 
 
-              <div className="flex items-center justify-between mb-2">
+  
 
-                 <div className="flex items-center gap-2 text-sm font-bold text-gray-400 uppercase tracking-widest">
+                                value={orgFilter}
 
-                  <Database className="w-4 h-4" /> Found {totalHits} relevant records
+  
 
-                </div>
+                                onChange={(e) => setOrgFilter(e.target.value)}
 
-                {/* Display active filter chips for quick feedback */}
+  
 
-                <div className="flex gap-2">
+                                className="bg-transparent border-none p-0 text-sm font-bold text-gray-800 focus:ring-0 cursor-pointer appearance-none w-full"
 
-                  {cityFilter && <span className="text-[10px] font-bold bg-blue-50 text-blue-600 px-2 py-1 rounded uppercase">{cityFilter}</span>}
+  
 
-                  {meetingTypeFilter && <span className="text-[10px] font-bold bg-purple-50 text-purple-600 px-2 py-1 rounded uppercase">{meetingTypeFilter}</span>}
+                              >
 
-                </div>
+  
 
-              </div>
+                                <option value="">All Bodies</option>
 
-            )}
+  
+
+                                {organizations.map(o => <option key={o} value={o}>{o}</option>)}
+
+  
+
+                              </select>
+
+  
+
+                            </div>
+
+  
+
+                            <ChevronDown className="w-4 h-4 text-gray-400 ml-2" />
+
+  
+
+                          </div>
+
+  
+
+              
+
+  
+
+                          <div className="hidden md:block w-px bg-gray-100 my-4" />
+
+  
+
+              
+
+  
+
+                          {/* 4. Category Segment */}
+
+  
+
+                          <div className="relative group/segment px-6 py-4 md:py-0 flex items-center min-w-[160px] hover:bg-gray-50 transition-colors cursor-pointer">
+
+  
+
+                            <div className="flex flex-col w-full">
+
+  
+
+                              <label className="text-[10px] font-bold text-gray-400 uppercase tracking-widest mb-0.5">Type</label>
+
+  
+
+                              <select 
+
+  
+
+                                value={meetingTypeFilter}
+
+  
+
+                                onChange={(e) => setMeetingTypeFilter(e.target.value)}
+
+  
+
+                                className="bg-transparent border-none p-0 text-sm font-bold text-gray-800 focus:ring-0 cursor-pointer appearance-none w-full"
+
+  
+
+                              >
+
+  
+
+                                <option value="">Any Type</option>
+
+  
+
+                                {["Regular", "Special", "Closed"].map(type => (
+
+  
+
+                                  <option key={type} value={type}>{type}</option>
+
+  
+
+                                ))}
+
+  
+
+                              </select>
+
+  
+
+                            </div>
+
+  
+
+                            <ChevronDown className="w-4 h-4 text-gray-400 ml-2" />
+
+  
+
+                          </div>
+
+  
+
+              
+
+  
+
+                          {/* Global Reset (Visible only when filters are active) */}
+
+  
+
+                          {(cityFilter || meetingTypeFilter || orgFilter || query) && (
+
+  
+
+                            <button 
+
+  
+
+                              onClick={resetApp}
+
+  
+
+                              className="md:border-l border-gray-100 px-6 py-4 md:py-0 bg-white hover:bg-red-50 text-red-500 transition-colors flex items-center justify-center group/reset"
+
+  
+
+                              title="Reset Search"
+
+  
+
+                            >
+
+  
+
+                              <X className="w-5 h-5 group-hover/reset:rotate-90 transition-transform" />
+
+  
+
+                            </button>
+
+  
+
+                          )}
+
+  
+
+                        </div>
+
+  
+
+                        
+
+  
+
+                        {/* Quick Shortcuts */}
+
+  
+
+                        <div className="mt-8 flex flex-wrap justify-center gap-3">
+
+  
+
+                          {["Zoning", "Housing", "Budget", "Police"].map(tag => (
+
+  
+
+                            <button 
+
+  
+
+                              key={tag} 
+
+  
+
+                              onClick={() => setQuery(tag)}
+
+  
+
+                              className="px-5 py-2 bg-white border border-gray-200 text-gray-600 text-[11px] font-bold rounded-full hover:border-blue-400 hover:text-blue-600 transition-all shadow-sm active:scale-95"
+
+  
+
+                            >
+
+  
+
+                              {tag}
+
+  
+
+                            </button>
+
+  
+
+                          ))}
+
+  
+
+                        </div>
+
+  
+
+                      </div>
+
+  
+
+                    </section>
+
+  
+
+              
+
+  
+
+                    <div className="max-w-5xl mx-auto px-4 py-12 flex-1 relative">
+
+  
+
+                      <div className="space-y-8">
+
+  
+
+                        
+
+  
+
+                        {/* Results Info */}
+
+  
+
+                        {query && !loading && (
+
+  
+
+                          <div className="flex items-center justify-between mb-2">
+
+  
+
+                             <div className="flex items-center gap-2 text-sm font-bold text-gray-400 uppercase tracking-widest">
+
+  
+
+                              <Database className="w-4 h-4" /> Found {totalHits} relevant records
+
+  
+
+                            </div>
+
+  
+
+                            {/* Display active filter chips for quick feedback */}
+
+  
+
+                            <div className="flex gap-2">
+
+  
+
+                              {cityFilter && <span className="text-[10px] font-bold bg-blue-50 text-blue-600 px-2 py-1 rounded uppercase">{cityFilter}</span>}
+
+  
+
+                              {orgFilter && <span className="text-[10px] font-bold bg-purple-50 text-purple-600 px-2 py-1 rounded uppercase">{orgFilter}</span>}
+
+  
+
+                              {meetingTypeFilter && <span className="text-[10px] font-bold bg-gray-100 text-gray-600 px-2 py-1 rounded uppercase">{meetingTypeFilter}</span>}
+
+  
+
+                            </div>
+
+  
+
+                          </div>
+
+  
+
+                        )}
+
+  
+
+              
 
   
 

@@ -1,7 +1,7 @@
 import os
 import meilisearch
 from sqlalchemy.orm import sessionmaker
-from models import Document, Catalog, Event, Place, db_connect
+from models import Document, Catalog, Event, Place, Organization, db_connect
 
 # Configuration for connecting to the Meilisearch search engine.
 MEILI_HOST = os.getenv('MEILI_HOST', 'http://meilisearch:7700')
@@ -24,25 +24,28 @@ def index_documents():
     index = client.index('documents')
     
     # Configure Filters: These fields can be used to narrow down results.
-    # Added 'meeting_category' for normalized radio-button filtering.
-    index.update_filterable_attributes(['city', 'meeting_type', 'meeting_category', 'date', 'organizations'])
+    # Added 'organization' to allow filtering by bodies like 'Planning Commission'.
+    index.update_filterable_attributes(['city', 'meeting_type', 'meeting_category', 'organization', 'date', 'organizations'])
     
-    # Configure Searchable Fields
-    index.update_searchable_attributes(['content', 'event_name', 'filename', 'summary', 'organizations', 'locations', 'meeting_category'])
+    # Configure Searchable Fields: These are the fields the engine checks when you type a query.
+    index.update_searchable_attributes(['content', 'event_name', 'filename', 'summary', 'organizations', 'locations', 'meeting_category', 'organization'])
 
     engine = db_connect()
     Session = sessionmaker(bind=engine)
     session = Session()
 
-    print("Fetching documents with extracted content from database...")
+    print("Fetching documents with extracted content and organization data...")
     
     # Join tables to create a "flat" document for Meilisearch.
-    query = session.query(Document, Catalog, Event, Place).join(
+    # We now join the new 'Organization' table to get the name of the legislative body.
+    query = session.query(Document, Catalog, Event, Place, Organization).join(
         Catalog, Document.catalog_id == Catalog.id
     ).join(
         Event, Document.event_id == Event.id
     ).join(
         Place, Document.place_id == Place.id
+    ).outerjoin(
+        Organization, Event.organization_id == Organization.id
     ).filter(
         Catalog.content != None,
         Catalog.content != ""
@@ -52,7 +55,7 @@ def index_documents():
     documents_batch = []
     count = 0
 
-    for doc, catalog, event, place in query:
+    for doc, catalog, event, place, organization in query:
         # Extract helpful lists for filtering.
         entities = catalog.entities or {}
         orgs = entities.get('orgs', [])
@@ -84,6 +87,7 @@ def index_documents():
             'event_name': event.name,
             'meeting_type': event.meeting_type,
             'meeting_category': category,
+            'organization': organization.name if organization else "City Council",
             'date': event.record_date.isoformat() if event.record_date else None,
             'city': place.display_name or place.name,
             'state': place.state

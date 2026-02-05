@@ -42,7 +42,8 @@ def read_root():
 def search_documents(
     q: str = Query(..., description="The search query (e.g., 'zoning', 'police budget')"),
     city: Optional[str] = Query(None, description="Filter results by city name"),
-    meeting_type: Optional[str] = Query(None, description="Filter results by meeting type"),
+    meeting_type: Optional[str] = Query(None, description="Filter results by meeting type (Regular, Special, etc.)"),
+    org: Optional[str] = Query(None, description="Filter results by legislative body (e.g., 'Planning Commission')"),
     date_from: Optional[str] = Query(None, description="Filter results from date (YYYY-MM-DD)"),
     date_to: Optional[str] = Query(None, description="Filter results to date (YYYY-MM-DD)"),
     limit: int = 20,
@@ -53,7 +54,7 @@ def search_documents(
     
     How this works for a developer:
     1. It connects to Meilisearch (our high-speed search engine).
-    2. It builds a 'filter' list based on the city, type, and date you picked in the UI.
+    2. It builds a 'filter' list based on the city, type, body, and date you picked in the UI.
     3. It asks Meilisearch to find the most relevant 20 documents (limit).
     4. It returns the results along with 'highlights' (snippets showing where the words were found).
     """
@@ -79,7 +80,11 @@ def search_documents(
         if meeting_type:
             search_params['filter'].append(f'meeting_category = "{meeting_type}"')
 
-        # 3. Date Range Filter: Find meetings between two specific days
+        # 3. Organization Filter: Narrow results to a specific body like 'Planning Commission'
+        if org:
+            search_params['filter'].append(f'organization = "{org}"')
+
+        # 4. Date Range Filter: Find meetings between two specific days
         if date_from and date_to:
             search_params['filter'].append(f'date >= "{date_from}" AND date <= "{date_to}"')
         elif date_from:
