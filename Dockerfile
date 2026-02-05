@@ -18,11 +18,13 @@ COPY council_crawler/requirements.txt ./council_crawler_requirements.txt
 COPY pipeline/requirements.txt ./pipeline_requirements.txt
 
 # Install all dependencies
-RUN pip install --no-cache-dir -r council_crawler_requirements.txt
-RUN pip install --no-cache-dir -r pipeline_requirements.txt
+RUN pip install --no-cache-dir --upgrade pip && \
+    pip install --no-cache-dir -r council_crawler_requirements.txt && \
+    pip install --no-cache-dir -r pipeline_requirements.txt
 
 # Download the SpaCy language model for NLP tasks
-RUN python -m spacy download en_core_web_sm
+# We use a direct URL to ensure a reliable build and avoid version resolution errors
+RUN pip install --no-cache-dir https://github.com/explosion/spacy-models/releases/download/en_core_web_sm-3.7.0/en_core_web_sm-3.7.0.tar.gz
 
 # Copy the rest of the application
 COPY . .
