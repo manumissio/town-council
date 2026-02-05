@@ -443,41 +443,21 @@ export default function Home() {
             </div>
           )}
 
-          {/* Results List */}
-          <div className="space-y-8">
-            {results.map((hit) => (
-              <ResultCard key={hit.id} hit={hit} />
-            ))}
+                      {/* Results List */}
 
-            {/* Empty State */}
-            {!query && !loading && (
-              <div className="text-center py-20 bg-white border border-gray-100 rounded-3xl shadow-sm">
-                <div className="max-w-xs mx-auto space-y-4">
-                  <div className="bg-gray-50 w-16 h-16 rounded-full flex items-center justify-center mx-auto">
-                    <Search className="w-8 h-8 text-gray-300" />
-                  </div>
-                  <div>
-                    <h3 className="text-base font-bold text-gray-900">Start your search</h3>
-                    <p className="text-sm text-gray-500 leading-relaxed mt-1">
-                      Search for zoning changes, housing updates, or environmental policies across the Bay Area.
-                    </p>
-                  </div>
-                  <div className="flex flex-wrap justify-center gap-2 pt-2">
-                    {["Zoning", "Rent Control", "Bike Lanes", "Parks"].map(tag => (
-                      <button 
-                        key={tag} 
-                        onClick={() => setQuery(tag)}
-                        className="px-3 py-1 bg-white border border-gray-200 text-gray-600 text-[11px] font-bold rounded-full hover:border-blue-300 hover:text-blue-600 transition-all shadow-sm"
-                      >
-                        {tag}
-                      </button>
-                    ))}
-                  </div>
-                </div>
-              </div>
-            )}
+                    <div className="space-y-8">
 
-            {query && !loading && results.length === 0 && (
+                      {results.map((hit) => (
+
+                        <ResultCard key={hit.id} hit={hit} />
+
+                      ))}
+
+          
+
+                      {query && !loading && results.length === 0 && (
+
+          
               <div className="text-center py-20 bg-white border border-gray-100 rounded-3xl shadow-sm">
                 <div className="max-w-xs mx-auto space-y-2">
                   <div className="text-4xl">🔍</div>
