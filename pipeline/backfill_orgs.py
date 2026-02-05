@@ -12,55 +12,47 @@ def backfill_organizations():
     Migration Script: Populates the new 'organization' table based on existing meetings.
     
     How it works:
-    1. It looks at every meeting (Event) we currently have.
-    2. It tries to guess the organization name (e.g., "City Council").
-    3. It creates an Organization record for that city if it doesn't exist.
-    4. It links the Meeting to that Organization.
+    1. It ensures every City (Place) has at least a 'City Council' Organization.
+    2. It loops through all meetings (Event).
+    3. It guesses the body name (Planning Commission, etc.) or defaults to 'City Council'.
+    4. It links the meeting to the correct body ID.
     """
     print("Connecting to database for organization backfill...")
     engine = db_connect()
     Session = sessionmaker(bind=engine)
     session = Session()
 
+    # 1. Ensure 'City Council' exists for EVERY city
+    places = session.query(Place).all()
+    print(f"Ensuring base organizations for {len(places)} cities...")
+    for place in places:
+        council = session.query(Organization).filter_by(place_id=place.id, name="City Council").first()
+        if not council:
+            session.add(Organization(name="City Council", classification="legislature", place_id=place.id))
+    session.flush()
+
+    # 2. Link events
     events = session.query(Event).all()
     print(f"Found {len(events)} events to process.")
 
-    org_cache = {} # (place_id, org_name) -> Organization object
-
     count = 0
     for event in events:
-        # Default to "City Council" if we can't determine it, as most pilot data is council meetings.
+        # Determine the Organization name
         org_name = "City Council"
         raw_name = (event.meeting_type or "").lower()
-        
-        if "planning commission" in raw_name:
+        if "planning commission" in raw_name or "planning board" in raw_name:
             org_name = "Planning Commission"
         elif "parks" in raw_name:
             org_name = "Parks & Recreation Commission"
         
-        cache_key = (event.place_id, org_name)
+        # Find or Create the body for this specific city
+        org = session.query(Organization).filter_by(place_id=event.place_id, name=org_name).first()
+        if not org:
+            org = Organization(name=org_name, classification="committee", place_id=event.place_id)
+            session.add(org)
+            session.flush()
         
-        if cache_key not in org_cache:
-            # Check if this org already exists in the DB for this city
-            org = session.query(Organization).filter_by(
-                place_id=event.place_id, 
-                name=org_name
-            ).first()
-            
-            if not org:
-                print(f"Creating new Organization: '{org_name}' for Place ID {event.place_id}")
-                org = Organization(
-                    place_id=event.place_id,
-                    name=org_name,
-                    classification="legislature" if org_name == "City Council" else "committee"
-                )
-                session.add(org)
-                session.flush() # Get the ID immediately
-            
-            org_cache[cache_key] = org
-        
-        # Link the event to the organization
-        event.organization_id = org_cache[cache_key].id
+        event.organization_id = org.id
         count += 1
 
     session.commit()

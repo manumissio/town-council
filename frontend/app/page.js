@@ -263,10 +263,12 @@ export default function Home() {
   const [cityFilter, setCityFilter] = useState("");
   const [meetingTypeFilter, setMeetingTypeFilter] = useState("");
   const [orgFilter, setOrgFilter] = useState("");
-
-  // Pilot cities list
-  const cities = ["Belmont", "Berkeley", "Cupertino", "Dublin", "Fremont", "Hayward", "Moraga", "Mountain View", "Palo Alto", "San Mateo", "Sunnyvale"];
-  const organizations = ["City Council", "Planning Commission", "Parks & Recreation Commission"];
+  
+  // Metadata State (Loaded from API)
+  // Why: We fetch these from the database so we only show cities/bodies 
+  // that actually have meetings saved. No more 'empty' dropdown options!
+  const [availableCities, setAvailableCities] = useState([]);
+  const [availableOrgs, setAvailableOrgs] = useState([]);
 
   const performSearch = useCallback(async (isLoadMore = false) => {
     /**
@@ -323,6 +325,18 @@ export default function Home() {
 
     return () => clearTimeout(delayDebounceFn);
   }, [query, cityFilter, meetingTypeFilter, orgFilter]);
+
+  // Initial Load: Fetch valid cities and organizations from the search engine
+  useEffect(() => {
+    const apiUrl = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
+    fetch(`${apiUrl}/metadata`)
+      .then(res => res.json())
+      .then(data => {
+        setAvailableCities(data.cities || []);
+        setAvailableOrgs(data.organizations || []);
+      })
+      .catch(err => console.error("Metadata fetch failed", err));
+  }, []);
 
   // Function to reset the application to its initial state
   // Why: This allows the user to go back to the "Start Search" screen without
@@ -499,79 +513,59 @@ export default function Home() {
 
                   <label className="text-[10px] font-bold text-gray-400 uppercase tracking-widest mb-0.5">Where</label>
 
-                  <select 
+                                  <select 
 
-                    value={cityFilter}
+                                    value={cityFilter}
 
-                    onChange={(e) => setCityFilter(e.target.value)}
+                                    onChange={(e) => setCityFilter(e.target.value)}
 
-                    className="bg-transparent border-none p-0 text-sm font-bold text-gray-800 focus:ring-0 cursor-pointer appearance-none w-full"
+                                    className="bg-transparent border-none p-0 text-sm font-bold text-gray-800 focus:ring-0 cursor-pointer appearance-none w-full"
 
-                  >
+                                  >
 
-                    <option value="">All Bay Area</option>
+                                    <option value="">All Bay Area</option>
 
-                    {cities.map(c => <option key={c} value={c.toLowerCase()}>{c}</option>)}
+                                    {availableCities.map(c => <option key={c} value={c.toLowerCase()}>{c}</option>)}
 
-                  </select>
+                                  </select>
 
-                </div>
+                                </div>
 
-                <ChevronDown className="w-4 h-4 text-gray-400 ml-2" />
+                                <ChevronDown className="w-4 h-4 text-gray-400 ml-2" />
 
-              </div>
+                              </div>
 
-  
+                  
 
-              <div className="hidden md:block w-px bg-gray-100 my-4" />
+                              <div className="hidden md:block w-px bg-gray-100 my-4" />
 
-  
+                  
 
-                          {/* 3. Organization Segment */}
+                              {/* 3. Organization Segment */}
 
-  
+                              <div className="relative group/segment px-6 py-4 md:py-0 flex items-center min-w-[200px] hover:bg-gray-50 transition-colors cursor-pointer">
 
-                          <div className="relative group/segment px-6 py-4 md:py-0 flex items-center min-w-[200px] hover:bg-gray-50 transition-colors cursor-pointer">
+                                <div className="flex flex-col w-full">
 
-  
+                                  <label className="text-[10px] font-bold text-gray-400 uppercase tracking-widest mb-0.5">Body</label>
 
-                            <div className="flex flex-col w-full">
+                                  <select 
 
-  
+                                    value={orgFilter}
 
-                              <label className="text-[10px] font-bold text-gray-400 uppercase tracking-widest mb-0.5">Body</label>
+                                    onChange={(e) => setOrgFilter(e.target.value)}
 
-  
+                                    className="bg-transparent border-none p-0 text-sm font-bold text-gray-800 focus:ring-0 cursor-pointer appearance-none w-full"
 
-                              <select 
+                                  >
 
-  
+                                    <option value="">All Bodies</option>
 
-                                value={orgFilter}
+                                    {availableOrgs.map(o => <option key={o} value={o}>{o}</option>)}
 
-  
+                                  </select>
 
-                                onChange={(e) => setOrgFilter(e.target.value)}
-
-  
-
-                                className="bg-transparent border-none p-0 text-sm font-bold text-gray-800 focus:ring-0 cursor-pointer appearance-none w-full"
-
-  
-
-                              >
-
-  
-
-                                <option value="">All Bodies</option>
-
-  
-
-                                {organizations.map(o => <option key={o} value={o}>{o}</option>)}
-
-  
-
-                              </select>
+                  
 
   
 
@@ -865,19 +859,121 @@ export default function Home() {
 
           
 
-                      {query && !loading && results.length === 0 && (
+                                  {query && !loading && results.length === 0 && (
+
+  
 
           
-              <div className="text-center py-20 bg-white border border-gray-100 rounded-3xl shadow-sm">
-                <div className="max-w-xs mx-auto space-y-2">
-                  <div className="text-4xl">🔍</div>
-                  <h3 className="text-base font-bold text-gray-900">No matches found</h3>
-                  <p className="text-sm text-gray-500 leading-relaxed">
-                    Try broadening your search terms or adjusting the filters in the sidebar.
-                  </p>
-                </div>
-              </div>
-            )}
+
+                                    <div className="text-center py-24 bg-white border border-gray-100 rounded-[3rem] shadow-sm">
+
+  
+
+          
+
+                                      <div className="max-w-sm mx-auto space-y-6">
+
+  
+
+          
+
+                                        <div className="text-5xl bg-gray-50 w-20 h-20 rounded-full flex items-center justify-center mx-auto mb-4">🔍</div>
+
+  
+
+          
+
+                                        <div>
+
+  
+
+          
+
+                                          <h3 className="text-xl font-bold text-gray-900">No matches found</h3>
+
+  
+
+          
+
+                                          <p className="text-gray-500 leading-relaxed mt-2 text-sm px-4">
+
+  
+
+          
+
+                                            We couldn't find any documents matching your search with the current filters.
+
+  
+
+          
+
+                                          </p>
+
+  
+
+          
+
+                                        </div>
+
+  
+
+          
+
+                                        <button 
+
+  
+
+          
+
+                                          onClick={resetApp}
+
+  
+
+          
+
+                                          className="px-8 py-3 bg-blue-600 text-white font-bold rounded-2xl hover:bg-blue-700 transition-all shadow-lg shadow-blue-100 active:scale-95"
+
+  
+
+          
+
+                                        >
+
+  
+
+          
+
+                                          Clear all filters
+
+  
+
+          
+
+                                        </button>
+
+  
+
+          
+
+                                      </div>
+
+  
+
+          
+
+                                    </div>
+
+  
+
+          
+
+                                  )}
+
+  
+
+          
+
+                      
 
             {/* Load More Button */}
             {hasMore && (

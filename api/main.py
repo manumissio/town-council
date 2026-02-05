@@ -104,6 +104,30 @@ def search_documents(
         # If something goes wrong (like Meilisearch is down), return a 500 error
         raise HTTPException(status_code=500, detail=str(e))
 
+@app.get("/metadata")
+def get_metadata():
+    """
+    Returns unique cities and organizations present in the search index.
+    This ensures the UI dropdowns only show values that will actually return results.
+    """
+    try:
+        index = client.index('documents')
+        # We perform an empty search to get the facet distribution
+        res = index.search("*", {
+            'facets': ['city', 'organization']
+        })
+        
+        facet_dist = res.get('facetDistribution', {})
+        cities = sorted(list(facet_dist.get('city', {}).keys()))
+        orgs = sorted(list(facet_dist.get('organization', {}).keys()))
+        
+        return {
+            "cities": [c.title() for c in cities], # Capitalize for UI
+            "organizations": orgs
+        }
+    except Exception as e:
+        return {"cities": [], "organizations": []}
+
 @app.get("/stats")
 def get_stats():
     """
