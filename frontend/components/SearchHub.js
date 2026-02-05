@@ -1,17 +1,16 @@
 import { useState, useRef, useEffect } from "react";
-import { Search, ChevronDown, X, Loader2, MapPin, Building2, Tag } from "lucide-react";
+import { Search, ChevronDown, X, Loader2, MapPin, Building2, Tag, Filter } from "lucide-react";
 
 /**
- * CustomDropdown Component
+ * FilterPill Component
  * 
- * A polished, accessible replacement for the standard <select> tag.
- * It ensures the 'Search Hub' segments look consistent and premium.
+ * A clean, rounded dropdown button that sits underneath the main search bar.
+ * This keeps the search bar wide and 'nice' while incorporating filters into the hub.
  */
-function CustomDropdown({ label, value, options, onChange, placeholder, icon: Icon }) {
+function FilterPill({ label, value, options, onChange, placeholder, icon: Icon }) {
   const [isOpen, setIsOpen] = useState(false);
   const dropdownRef = useRef(null);
 
-  // Close dropdown when clicking outside
   useEffect(() => {
     const handleClickOutside = (event) => {
       if (dropdownRef.current && !dropdownRef.current.contains(event.target)) {
@@ -23,28 +22,25 @@ function CustomDropdown({ label, value, options, onChange, placeholder, icon: Ic
   }, []);
 
   return (
-    <div className="relative flex-1 min-w-0" ref={dropdownRef}>
+    <div className="relative" ref={dropdownRef}>
       <button
         onClick={() => setIsOpen(!isOpen)}
-        className={`w-full flex items-center gap-3 px-6 py-4 lg:py-0 h-full text-left transition-all hover:bg-gray-50/80 group ${isOpen ? 'bg-gray-50' : ''}`}
+        className={`flex items-center gap-2 px-5 py-2.5 rounded-full border-2 transition-all text-xs font-bold uppercase tracking-wider shadow-sm ${
+          value 
+            ? 'bg-blue-600 border-blue-600 text-white shadow-blue-100' 
+            : 'bg-white border-gray-100 text-gray-500 hover:border-blue-200 hover:text-blue-600'
+        }`}
       >
-        <div className="flex flex-col min-w-0 flex-1">
-          <span className="text-[10px] font-black text-gray-400 uppercase tracking-widest mb-0.5">{label}</span>
-          <div className="flex items-center gap-2">
-            {Icon && <Icon className={`w-3.5 h-3.5 shrink-0 ${value ? 'text-blue-500' : 'text-gray-300'}`} />}
-            <span className={`text-[13px] font-bold truncate ${value ? 'text-gray-900' : 'text-gray-400'}`}>
-              {value ? options.find(o => o.value.toLowerCase() === value.toLowerCase())?.label || value : placeholder}
-            </span>
-          </div>
-        </div>
-        <ChevronDown className={`w-4 h-4 text-gray-300 transition-transform duration-200 ${isOpen ? 'rotate-180' : ''}`} />
+        {Icon && <Icon className={`w-3.5 h-3.5 ${value ? 'text-blue-100' : ''}`} />}
+        <span>{value ? options.find(o => o.value.toLowerCase() === value.toLowerCase())?.label || value : placeholder}</span>
+        <ChevronDown className={`w-3.5 h-3.5 transition-transform duration-200 ${isOpen ? 'rotate-180' : ''}`} />
       </button>
 
       {isOpen && (
-        <div className="absolute top-full left-0 w-full mt-2 bg-white border border-gray-100 rounded-2xl shadow-2xl z-50 py-2 animate-in fade-in slide-in-from-top-2 duration-200 max-h-60 overflow-y-auto overflow-x-hidden">
+        <div className="absolute top-full left-0 mt-2 min-w-[200px] bg-white border border-gray-100 rounded-2xl shadow-2xl z-50 py-2 animate-in fade-in slide-in-from-top-2 duration-200">
           <div 
             onClick={() => { onChange(""); setIsOpen(false); }}
-            className="px-4 py-2 text-xs font-bold text-gray-400 hover:bg-gray-50 cursor-pointer uppercase tracking-tight"
+            className="px-4 py-2 text-[10px] font-black text-gray-400 hover:bg-gray-50 cursor-pointer uppercase tracking-widest border-b border-gray-50 mb-1"
           >
             All {label}s
           </div>
@@ -64,10 +60,10 @@ function CustomDropdown({ label, value, options, onChange, placeholder, icon: Ic
 }
 
 /**
- * SearchHub Component
+ * SearchHub Component (Refined)
  * 
- * This is the primary search interface.
- * It uses a single, high-impact bar to house both keywords and filters.
+ * This design restores the wide, elegant search bar from the earlier version
+ * and integrates the filters as a row of premium interactive pills underneath.
  */
 export default function SearchHub({ 
   query, setQuery, 
@@ -78,63 +74,65 @@ export default function SearchHub({
   isSearching, resetApp
 }) {
   return (
-    <section className="bg-white border-b border-gray-100 py-12 lg:py-20 shadow-inner relative z-20">
-      <div className="max-w-6xl mx-auto px-4">
+    <section className="bg-white border-b border-gray-100 py-16 lg:py-24 shadow-inner relative z-20">
+      <div className="max-w-4xl mx-auto px-4">
         
-        {/* Main Search Bar Container */}
-        <div className="bg-white border border-gray-200 rounded-[2.5rem] shadow-2xl hover:shadow-[0_20px_50px_rgba(0,0,0,0.1)] transition-all duration-500 overflow-hidden flex flex-col lg:flex-row items-stretch group focus-within:ring-8 focus-within:ring-blue-500/5 focus-within:border-blue-400">
-          
-          {/* 1. Keyword Segment */}
-          <div className="flex-[2] flex items-center relative min-w-0 border-b lg:border-b-0 border-gray-50">
-            <div className="absolute left-8 pointer-events-none">
-              <Search className={`w-6 h-6 transition-colors duration-300 ${query ? 'text-blue-500' : 'text-gray-300 group-focus-within:text-blue-500'}`} />
-            </div>
-            <input
-              type="search"
-              autoFocus
-              className="w-full py-8 pl-18 pr-6 text-xl text-gray-900 bg-transparent border-none focus:ring-0 placeholder:text-gray-300 font-bold tracking-tight"
-              placeholder="Search meeting records..."
-              value={query}
-              onChange={(e) => setQuery(e.target.value)}
-            />
-            {isSearching && (
-              <div className="absolute right-6 flex items-center">
-                <Loader2 className="w-6 h-6 text-blue-500 animate-spin" />
-              </div>
+        {/* Row 1: The Main Hero Search Bar */}
+        <div className="relative group mb-8">
+          <div className="absolute inset-y-0 left-0 flex items-center pl-8 pointer-events-none text-gray-300 group-focus-within:text-blue-500 transition-colors">
+            <Search className="w-7 h-7" />
+          </div>
+          <input
+            type="search"
+            autoFocus
+            className="block w-full py-8 pl-20 pr-20 text-2xl font-bold tracking-tight text-gray-900 border-2 border-gray-100 rounded-[3rem] bg-gray-50/30 focus:bg-white focus:ring-8 focus:ring-blue-500/5 focus:border-blue-500 shadow-xl transition-all placeholder:text-gray-300"
+            placeholder="Search meeting records..."
+            value={query}
+            onChange={(e) => setQuery(e.target.value)}
+          />
+          <div className="absolute inset-y-0 right-0 flex items-center pr-6">
+            {isSearching ? (
+              <Loader2 className="w-6 h-6 text-blue-500 animate-spin" />
+            ) : (query || cityFilter || orgFilter || meetingTypeFilter) && (
+              <button 
+                onClick={resetApp}
+                className="p-3 bg-white hover:bg-red-50 text-red-400 hover:text-red-600 rounded-full transition-all group/reset"
+                title="Reset all"
+              >
+                <X className="w-6 h-6 group-hover/reset:rotate-90 transition-transform" />
+              </button>
             )}
           </div>
+        </div>
 
-          {/* Segment Dividers (Desktop Only) */}
-          <div className="hidden lg:block w-px bg-gray-100 my-8" />
-
-          {/* 2. City Segment */}
-          <CustomDropdown 
-            label="Where"
-            placeholder="All Cities"
+        {/* Row 2: Integrated Filter Pills */}
+        <div className="flex flex-wrap items-center justify-center gap-3">
+          <div className="flex items-center gap-2 mr-2">
+            <Filter className="w-4 h-4 text-gray-400" />
+            <span className="text-[10px] font-black text-gray-400 uppercase tracking-widest">Filter By</span>
+          </div>
+          
+          <FilterPill 
+            label="City"
+            placeholder="Municipality"
             value={cityFilter}
             options={availableCities.map(c => ({ label: c, value: c.toLowerCase() }))}
             onChange={setCityFilter}
             icon={MapPin}
           />
 
-          <div className="hidden lg:block w-px bg-gray-100 my-8" />
-
-          {/* 3. Body Segment */}
-          <CustomDropdown 
+          <FilterPill 
             label="Body"
-            placeholder="All Bodies"
+            placeholder="Legislative Body"
             value={orgFilter}
             options={availableOrgs.map(o => ({ label: o, value: o }))}
             onChange={setOrgFilter}
             icon={Building2}
           />
 
-          <div className="hidden lg:block w-px bg-gray-100 my-8" />
-
-          {/* 4. Type Segment */}
-          <CustomDropdown 
+          <FilterPill 
             label="Type"
-            placeholder="Any Type"
+            placeholder="Meeting Type"
             value={meetingTypeFilter}
             options={[
               { label: "Regular", value: "Regular" },
@@ -144,28 +142,16 @@ export default function SearchHub({
             onChange={setMeetingTypeFilter}
             icon={Tag}
           />
-
-          {/* Global Reset Segment */}
-          {(cityFilter || meetingTypeFilter || orgFilter || query) && (
-            <div className="flex items-center border-t lg:border-t-0 lg:border-l border-gray-100">
-              <button 
-                onClick={resetApp}
-                className="w-full lg:w-20 py-6 lg:py-0 h-full bg-white hover:bg-red-50 text-red-400 hover:text-red-600 transition-all flex items-center justify-center group/reset"
-                title="Clear all"
-              >
-                <X className="w-6 h-6 group-hover/reset:rotate-90 transition-transform duration-300" />
-              </button>
-            </div>
-          )}
         </div>
 
         {/* Quick Search Tags */}
-        <div className="mt-10 flex flex-wrap justify-center gap-3">
-          {["Zoning", "Housing", "Budget", "Police"].map(tag => (
+        <div className="mt-12 flex flex-wrap justify-center gap-2 pt-8 border-t border-gray-50">
+          <span className="w-full text-center text-[10px] font-bold text-gray-300 uppercase tracking-[0.2em] mb-4">Common Topics</span>
+          {["Zoning", "Housing", "Budget", "Police", "Environment", "Bike Lanes"].map(tag => (
             <button 
               key={tag} 
               onClick={() => setQuery(tag)}
-              className="px-6 py-2.5 bg-white border border-gray-200 text-gray-500 text-[11px] font-black uppercase tracking-widest rounded-full hover:border-blue-400 hover:text-blue-600 hover:shadow-lg hover:shadow-blue-500/5 transition-all active:scale-95"
+              className="px-5 py-2 bg-white border border-gray-100 text-gray-500 text-[11px] font-black uppercase tracking-widest rounded-full hover:border-blue-400 hover:text-blue-600 hover:shadow-lg transition-all"
             >
               {tag}
             </button>
