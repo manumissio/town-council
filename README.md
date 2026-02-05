@@ -11,7 +11,7 @@ This project was originally a Data4Democracy pilot (2017). It has since been **e
 - **Production Stack:** Upgraded to Python 3.12+, Scrapy 2.11+, and SQLAlchemy 2.0+.
 - **PostgreSQL Migration:** Migrated from SQLite to PostgreSQL for high-performance concurrent data access.
 - **Full-Text Search:** Integrated **Meilisearch** for instant, typo-tolerant search across extracted text.
-- **AI Summarization:** Uses **Google Gemini** to automatically generate 3-bullet point summaries for meeting minutes.
+- **AI Summarization:** Uses **Google Gemini** to automatically generate 3-bullet point summaries. Implements **hallucination mitigation** via deterministic output (temp 0.0), strict grounding instructions, and expanded 100k character context.
 - **NLP Entity Extraction:** Integrated **SpaCy** to automatically identify Organizations and Locations within meeting minutes.
 - **Topic Modeling:** Integrated **Scikit-Learn** to automatically discover recurring themes (e.g., "Zoning," "Budget," "Safety") across all documents.
 - **Structured Table Extraction:** Integrated **Camelot** to detect and extract tabular data (budgets, schedules) into searchable JSON.
@@ -21,7 +21,7 @@ This project was originally a Data4Democracy pilot (2017). It has since been **e
     - Protected against **Path Traversal** vulnerabilities.
     - Patched **Requests .netrc credential leakage** (CVE-2024-3651).
     - Implemented **Bot Etiquette** (Rate limiting, descriptive User-Agents, and robots.txt compliance).
-- **Performance:** Parallelized document downloading and text extraction using multi-threading. Combined with **Delta Crawling**, the system only processes new data after the initial run.
+- **Automation:** Consolidated the entire data processing flow (Download -> Extract -> NLP -> Summarize -> Index) into a **single automated pipeline**.
 
 ## Getting Started
 
@@ -34,40 +34,18 @@ docker-compose up -d postgres tika meilisearch
 ```
 
 ### 2. Run a Scraper
-Scrape meeting metadata for a city (e.g., Belmont, CA):
+Scrape meeting metadata for a city (e.g., Belmont or Berkeley, CA):
 ```bash
-docker-compose run crawler scrapy crawl belmont
+docker-compose run crawler scrapy crawl berkeley
 ```
 
-### 3. Download Documents
-Download the associated PDFs (parallelized):
+### 3. Run the Automated Pipeline
+This single command handles everything: seeding city metadata, downloading PDFs, performing OCR, extracting entities/tables, generating AI summaries, and syncing to the search engine.
 ```bash
-docker-compose run pipeline python downloader.py
+docker-compose run pipeline python run_pipeline.py
 ```
 
-### 4. Extract, Summarize, and Index
-Process the PDFs through OCR, generate AI summaries, extract entities, structured tables, and sync to search:
-```bash
-# Extract text (requires 'tika' service)
-docker-compose run extractor python extractor.py
-
-# Extract Structured Tables using Camelot
-docker-compose run tables
-
-# Discover recurring Themes/Topics using LDA (Scikit-Learn)
-docker-compose run topics
-
-# Generate AI Summaries (requires GEMINI_API_KEY env var)
-docker-compose run summarizer python summarizer.py
-
-# Extract Entities (NLP) using SpaCy
-docker-compose run nlp
-
-# Index into Meilisearch
-docker-compose run pipeline python indexer.py
-```
-
-### 5. Access the API and UI
+### 4. Access the API and UI
 - **Search UI (Web):** `http://localhost:3000`
 - **Search API (Backend):** `http://localhost:8000/search?q=zoning`
 - **Prometheus (Metrics):** `http://localhost:9090`
