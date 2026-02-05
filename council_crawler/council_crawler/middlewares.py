@@ -41,6 +41,10 @@ class CouncilCrawlerSpiderMiddleware(object):
 
         # Should return either None or an iterable of Response, dict
         # or Item objects.
+        
+        # We 'pass' here to allow the exception to bubble up. 
+        # This is the default Scrapy behavior when you don't want to 
+        # perform custom error handling at this middleware level.
         pass
 
     def process_start_requests(start_requests, spider):

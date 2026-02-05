@@ -63,8 +63,9 @@ def summarize_documents():
             )
 
             # Ask Gemini to generate the summary with our strict config.
+            # Using 'gemini-2.0-flash' for high-speed, reliable summaries.
             response = client.models.generate_content(
-                model='gemini-1.5-flash',
+                model='gemini-2.0-flash',
                 contents=prompt,
                 config=generate_config
             )

@@ -9,14 +9,14 @@ root_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))
 sys.path.append(root_dir)
 sys.path.append(os.path.join(root_dir, 'pipeline'))
 
-from pipeline.models import DeclarativeBase, Catalog
+from pipeline.models import Base, Catalog
 from pipeline.summarizer import summarize_documents
 
 @pytest.fixture
 def db_session():
     """Setup: Creates an empty in-memory database for AI testing."""
     engine = create_engine('sqlite:///:memory:')
-    DeclarativeBase.metadata.create_all(engine)
+    Base.metadata.create_all(engine)
     Session = sessionmaker(bind=engine)
     session = Session()
     yield session

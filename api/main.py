@@ -2,6 +2,7 @@ import sys
 import os
 import meilisearch
 from fastapi import FastAPI, HTTPException, Query
+from fastapi.middleware.cors import CORSMiddleware
 from typing import List, Optional
 
 # Add the project root to the python path so we can import from pipeline
@@ -16,6 +17,17 @@ except ImportError:
     print("Warning: Could not import pipeline models. Database features may be limited.")
 
 app = FastAPI(title="Town Council Search API", description="Search and retrieve local government meeting minutes.")
+
+# SECURITY: Enable CORS (Cross-Origin Resource Sharing)
+# This allows the frontend (running on a different port like 3000) to 
+# securely make requests to this API.
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"], # In production, you would list your specific domains here
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 
 # Meilisearch Config
 MEILI_HOST = os.getenv('MEILI_HOST', 'http://meilisearch:7700')
@@ -50,6 +62,7 @@ def search_documents(
             search_params['filter'] = f'city = "{city}"'
 
         results = index.search(q, search_params)
+        print(f"Search for '{q}' returned {len(results['hits'])} hits")
         return results
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))

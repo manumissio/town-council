@@ -66,23 +66,20 @@ def main():
 
     # 3. EXTRACT TABLES
     # Identify and extract data tables (like budgets) from the PDFs.
-    if not run_step("Table Extraction", ["python", "table_worker.py"]):
-        sys.exit(1)
+    # Note: This is non-fatal because some PDFs have complex layouts that can't be parsed.
+    run_step("Table Extraction", ["python", "table_worker.py"])
 
     # 4. TOPIC MODELING
     # Analyze the text to find common themes (e.g., "Housing", "Traffic").
-    if not run_step("Topic Modeling", ["python", "topic_worker.py"]):
-        sys.exit(1)
+    run_step("Topic Modeling", ["python", "topic_worker.py"])
 
     # 5. NLP ENTITIES
     # Find names of people, organizations, and locations in the text.
-    if not run_step("NLP Entity Extraction", ["python", "nlp_worker.py"]):
-        sys.exit(1)
+    run_step("NLP Entity Extraction", ["python", "nlp_worker.py"])
 
     # 6. AI SUMMARIZATION
     # Use Google Gemini to generate a short 3-bullet summary of the meeting.
-    if not run_step("AI Summarization", ["python", "summarizer.py"]):
-        sys.exit(1)
+    run_step("AI Summarization", ["python", "summarizer.py"])
 
     # 7. INDEX TO MEILISEARCH
     # Finally, upload the processed data to the search engine so it can be searched.

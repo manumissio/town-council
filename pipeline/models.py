@@ -4,33 +4,39 @@ import os
 from sqlalchemy import create_engine
 from sqlalchemy import Column, Boolean, String, Integer, Date, DateTime, JSON
 from sqlalchemy import ForeignKey
-from sqlalchemy.orm import relationship, declarative_base
+from sqlalchemy.orm import relationship, DeclarativeBase
 from sqlalchemy.schema import Index
 
-DeclarativeBase = declarative_base()
+# Modern SQLAlchemy 2.0 style: Subclassing DeclarativeBase instead of calling a function.
+# This makes the code more robust and compatible with modern Python tools.
+class Base(DeclarativeBase):
+    pass
 
 
 def db_connect():
     """
-    Connect to the database using the DATABASE_URL environment variable.
-    Defaults to a local SQLite file if the variable is not set.
+    Connects to the database (PostgreSQL in production, SQLite for local testing).
+    
+    Why this is needed:
+    It handles the secure connection details and ensures we can talk to the database.
+    It automatically switches between 'real' database mode (Docker) and 'test' mode.
     """
     database_url = os.getenv('DATABASE_URL')
     
     if database_url:
-        # Use PostgreSQL with connection pooling for performance
+        # Use PostgreSQL with connection pooling for high performance.
+        # This keeps a few connections open and ready so we don't have to reconnect every time.
         return create_engine(
             database_url,
             pool_size=10,         # Maintain 10 open connections
-            max_overflow=20,      # Allow up to 20 overflow connections
-            pool_timeout=30,      # Wait 30s for a connection before failing
-            pool_recycle=1800     # Recycle connections every 30 mins
+            max_overflow=20,      # Allow up to 20 extra connections if busy
+            pool_timeout=30,      # Wait 30s for a connection before giving up
+            pool_recycle=1800     # Refresh connections every 30 mins to keep them healthy
         )
     else:
-        # Fallback to local SQLite for manual testing without Docker
-        # Get the directory of the current file (town-council/pipeline/)
+        # Fallback to a local SQLite file for simple testing without Docker.
+        # This makes it easy to run scripts on your own laptop.
         current_dir = os.path.dirname(os.path.abspath(__file__))
-        # Project root is one level up (town-council/)
         project_root = os.path.dirname(current_dir)
         db_path = os.path.join(project_root, 'test_db.sqlite')
         print("WARNING: DATABASE_URL not set. Using local SQLite.")
@@ -38,11 +44,15 @@ def db_connect():
 
 
 def create_tables(engine):
+    """
+    Creates all the tables defined below if they don't already exist.
+    Also creates an index on the city ID to make lookups faster.
+    """
     Index("place_ocd_id_idx", Place.ocd_division_id)
-    DeclarativeBase.metadata.create_all(engine)
+    Base.metadata.create_all(engine)
 
 
-class Place(DeclarativeBase):
+class Place(Base):
     """
     Represents a City or Town (e.g., "Belmont, CA").
     Stores metadata like the city name, state, and where to find its meetings.
@@ -64,7 +74,7 @@ class Place(DeclarativeBase):
     crawler_owner = Column(String)
 
 
-class UrlStage(DeclarativeBase):
+class UrlStage(Base):
     """
     A temporary staging area for URLs found by the crawler.
     The downloader reads from here to know what files to fetch.
@@ -81,7 +91,7 @@ class UrlStage(DeclarativeBase):
     created_at = Column(DateTime, default=datetime.datetime.now)
 
 
-class EventStage(DeclarativeBase):
+class EventStage(Base):
     """
     A temporary staging area for meeting events found by the crawler.
     Used to check for duplicates before adding to the main Event table.
@@ -98,7 +108,7 @@ class EventStage(DeclarativeBase):
     meeting_type = Column(String)
 
 
-class Event(DeclarativeBase):
+class Event(Base):
     """
     Represents a specific City Council Meeting.
     Links a Place (City) to a Date and a Name.
@@ -116,7 +126,7 @@ class Event(DeclarativeBase):
     meeting_type = Column(String)
 
 
-class UrlStageHist(DeclarativeBase):
+class UrlStageHist(Base):
     """
     History log of all URLs we have ever processed.
     Keeps the main staging table clean and small.
@@ -133,7 +143,7 @@ class UrlStageHist(DeclarativeBase):
     created_at = Column(DateTime, default=datetime.datetime.now)
 
 
-class Catalog(DeclarativeBase):
+class Catalog(Base):
     """
     The main library of all downloaded files.
     Stores the file path, raw text content, and AI-generated metadata.
@@ -165,7 +175,7 @@ class Catalog(DeclarativeBase):
     uploaded_at = Column(DateTime, default=datetime.datetime.now)
 
 
-class Document(DeclarativeBase):
+class Document(Base):
     """
     Links a File (Catalog) to a Meeting (Event).
     Allows us to say "This PDF belongs to the meeting on Feb 10th".

@@ -127,7 +127,8 @@ def process_single_url(url_record_id):
     session = Session()
 
     try:
-        url_record = session.query(UrlStage).get(url_record_id)
+        # Modern SQLAlchemy 2.0 way to fetch a record by its unique ID.
+        url_record = session.get(UrlStage, url_record_id)
         if not url_record:
             return
 

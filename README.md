@@ -9,19 +9,17 @@ This project was originally a Data4Democracy pilot (2017). It has since been **e
 
 **Key Updates:**
 - **Production Stack:** Upgraded to Python 3.12+, Scrapy 2.11+, and SQLAlchemy 2.0+.
+- **Containerization:** Fully Dockerized with **multi-stage builds** and **non-root user** security best practices.
 - **PostgreSQL Migration:** Migrated from SQLite to PostgreSQL for high-performance concurrent data access.
 - **Full-Text Search:** Integrated **Meilisearch** for instant, typo-tolerant search across extracted text.
-- **AI Summarization:** Uses the modern **Google GenAI SDK** to automatically generate 3-bullet point summaries. Implements **hallucination mitigation** via deterministic output (temp 0.0), strict grounding instructions, and expanded 100k character context.
+- **AI Summarization:** Uses **Google Gemini 2.0 Flash** via the modern GenAI SDK to automatically generate 3-bullet point summaries. Implements **hallucination mitigation** via deterministic output (temp 0.0) and strict grounding instructions.
 - **NLP Entity Extraction:** Integrated **SpaCy** to automatically identify Organizations and Locations within meeting minutes.
-- **Topic Modeling:** Integrated **Scikit-Learn** to automatically discover recurring themes (e.g., "Zoning," "Budget," "Safety") across all documents.
-- **Structured Table Extraction:** Integrated **Camelot** to detect and extract tabular data (budgets, schedules) into searchable JSON.
-- **Automated Extraction & OCR:** Integrated **Apache Tika** to automatically extract text and perform OCR on downloaded PDFs.
-- **Delta Crawling:** Optimized spiders to automatically skip meetings already in the database, reducing server load and scraping time.
+- **Robust Pipeline:** Consolidated the entire data flow (Download -> OCR -> NLP -> Summarize -> Index) into a fault-tolerant pipeline that handles PDF parsing errors gracefully.
 - **Security Hardening:** 
-    - Protected against **Path Traversal** vulnerabilities.
+    - Protected against **Path Traversal** vulnerabilities via absolute path validation.
     - Patched **Requests .netrc credential leakage** (CVE-2024-3651).
-    - Implemented **Bot Etiquette** (Rate limiting, descriptive User-Agents, and robots.txt compliance).
-- **Automation:** Consolidated the entire data processing flow (Download -> Extract -> NLP -> Summarize -> Index) into a **single automated pipeline**.
+    - Implemented **CORS** protection on the API.
+    - Implemented **Bot Etiquette** (Rate limiting, descriptive User-Agents).
 
 ## Getting Started
 
@@ -30,26 +28,27 @@ The easiest way to run the project is using **Docker Compose**.
 ### 1. Build and Start Infrastructure
 ```bash
 docker-compose build
-docker-compose up -d postgres tika meilisearch
+docker-compose up -d
 ```
 
 ### 2. Run a Scraper
-Scrape meeting metadata for a city (e.g., Belmont or Berkeley, CA):
+Scrape meeting metadata for a city (e.g., Berkeley, CA):
 ```bash
 docker-compose run crawler scrapy crawl berkeley
 ```
 
 ### 3. Run the Automated Pipeline
-This single command handles everything: seeding city metadata, downloading PDFs, performing OCR, extracting entities/tables, generating AI summaries, and syncing to the search engine.
+This single command handles downloading, OCR, AI analysis, and indexing.
+*Note: To enable AI summaries, export your Gemini API key first.*
 ```bash
+export GEMINI_API_KEY=your_key_here
 docker-compose run pipeline python run_pipeline.py
 ```
 
 ### 4. Access the API and UI
 - **Search UI (Web):** `http://localhost:3000`
 - **Search API (Backend):** `http://localhost:8000/search?q=zoning`
-- **Prometheus (Metrics):** `http://localhost:9090`
-- **Grafana (Dashboards):** `http://localhost:3001` (admin/admin)
+- **Meilisearch Dashboard:** `http://localhost:7700` (Key: masterKey)
 
 ## Architecture
 A detailed overview of the system design, including data flow diagrams and component descriptions, can be found in [ARCHITECTURE.md](ARCHITECTURE.md).

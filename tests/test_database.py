@@ -9,7 +9,7 @@ root_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))
 sys.path.append(root_dir)
 sys.path.append(os.path.join(root_dir, 'pipeline'))
 
-from pipeline.models import DeclarativeBase, Place, Event, EventStage
+from pipeline.models import Base, Place, Event, EventStage
 from pipeline.promote_stage import promote_stage
 
 @pytest.fixture
@@ -21,7 +21,7 @@ def db_session():
     # ':memory:' means the database exists only in RAM and disappears after the test.
     engine = create_engine('sqlite:///:memory:')
     # Create all the tables (Place, Event, etc.) in this temporary DB.
-    DeclarativeBase.metadata.create_all(engine)
+    Base.metadata.create_all(engine)
     Session = sessionmaker(bind=engine)
     session = Session()
     yield session # This provides the 'session' to the test function.

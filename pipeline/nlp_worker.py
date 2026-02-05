@@ -29,6 +29,8 @@ def run_nlp_pipeline():
     session = Session()
 
     # Find documents that have text content but haven't been processed for entities yet.
+    # Scalability Note: For very large datasets (10k+ documents), we should use 
+    # .yield_per(100) or a generator here to avoid loading everything into RAM at once.
     to_process = session.query(Catalog).filter(
         Catalog.content != None,
         Catalog.content != "",

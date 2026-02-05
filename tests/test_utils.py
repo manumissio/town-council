@@ -43,21 +43,22 @@ def test_parse_date_string_invalid():
     assert parse_date_string("Not a date") is None
     assert parse_date_string("") is None
 
-def test_is_safe_path():
+def test_is_safe_path(monkeypatch):
     """
     Test: Does our security check block "Path Traversal" attacks?
     We must ensure the script only reads files inside the 'data' folder.
     """
-    # 1. Identify where the 'data' folder is.
-    root = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))
-    data_dir = os.path.join(root, 'data')
+    # 1. Setup: Fix the DATA_DIR to a known location for the test.
+    test_data_dir = os.path.abspath("/app/data")
+    monkeypatch.setenv("DATA_DIR", test_data_dir)
     
     # 2. Test a "Safe" path: a file that is actually inside the data folder.
-    safe = os.path.join(data_dir, 'us', 'ca', 'belmont', 'file.pdf')
+    safe = os.path.join(test_data_dir, 'us', 'ca', 'belmont', 'file.pdf')
     assert is_safe_path(safe) is True
     
     # 3. Test an "Unsafe" path: trying to use "../.." to peek at system files.
-    unsafe = os.path.join(data_dir, '..', '..', 'etc', 'passwd')
+    # Note: We must use the absolute path because the function uses os.path.abspath.
+    unsafe = os.path.abspath(os.path.join(test_data_dir, '..', '..', 'etc', 'passwd'))
     assert is_safe_path(unsafe) is False
     
     # 4. Test a completely outside path.

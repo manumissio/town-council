@@ -45,13 +45,16 @@ class ValidateRecordDatePipeline(object):
 class CreateEventPipeline(object):
     """Store events in staging table"""
     def __init__(self):
+        # Connect to the database
         engine = models.db_connect()
-        models.create_tables(engine)
+        # Note: Tables are now created automatically in models.py, 
+        # so we don't need to call models.create_tables(engine) here.
         self.Session = sessionmaker(bind=engine)
 
     def process_item(self, event, spider):
         if isinstance(event, Event):
-            # Create event
+            # Create a staging record for the meeting.
+            # We use a staging table to allow for validation before promotion to production.
             event_record = models.EventStage(
                 ocd_division_id=event['ocd_division_id'],
                 name=event['name'],
@@ -66,8 +69,10 @@ class CreateEventPipeline(object):
             try:
                 session.add(event_record)
                 session.commit()
-            except:
+            except Exception as e:
+                # If the save fails, rollback the transaction to keep the DB clean.
                 session.rollback()
+                spider.logger.error(f"Error saving event to staging: {e}")
                 raise
             finally:
                 session.close()
@@ -75,15 +80,14 @@ class CreateEventPipeline(object):
 
 
 class StageDocumentLinkPipeline(object):
-    """Store links to media"""
+    """Store links to PDFs in the staging table"""
     def __init__(self):
         engine = models.db_connect()
-        models.create_tables(engine)
         self.Session = sessionmaker(bind=engine)
 
     def process_item(self, event, spider):
         if isinstance(event, Event):
-            # Save each document link attached to event
+            # Save each document link (Agenda, Minutes, Packets) attached to the event.
             for doc in event.get('documents', []):
                 doc_record = models.UrlStage(
                     ocd_division_id=event['ocd_division_id'],
@@ -98,8 +102,10 @@ class StageDocumentLinkPipeline(object):
                 try:
                     session.add(doc_record)
                     session.commit()
-                except:
-                    raise
+                except Exception as e:
+                    session.rollback()
+                    spider.logger.error(f"Error saving document link to staging: {e}")
+                    # We don't raise here because one bad link shouldn't drop the whole event.
                 finally:
                     session.close()
         return event

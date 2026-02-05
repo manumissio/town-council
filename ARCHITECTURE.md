@@ -44,42 +44,38 @@ graph TD
         UI[Next.js 14 Web Interface]
     end
 
-    subgraph "Verification & Observability"
-        Tests[Pytest Suite: 11+ Cases]
-        Prom[Prometheus Metrics]
-        Graf[Grafana Dashboards]
+    subgraph "Infrastructure (Docker Compose)"
+        Postgres[(PostgreSQL 15)]
+        Meili[[Meilisearch 1.6]]
+        TikaServer[Apache Tika Server]
+        
+        subgraph "Application Containers (Non-Root Users)"
+            Crawler[Crawler Service]
+            Pipeline[Pipeline Worker]
+            API[FastAPI Service]
+            Frontend[Next.js Service]
+        end
     end
 
     %% Connections
-    Web & Legi --> Spiders
-    Spiders --> Delta
-    Delta --> Stage
-    Stage -- "promote_stage.py" --> Prod
+    Web & Legi --> Crawler
+    Crawler -- "Staging Data" --> Postgres
     
-    Prod --> Down
-    Down --> Tika
-    Tika --> Tables
-    Tables --> Topics
-    Topics --> NLP
-    NLP --> Gemini
+    Pipeline -- "Reads Staged" --> Postgres
+    Pipeline -- "Downloads" --> Web
+    Pipeline -- "OCR Requests" --> TikaServer
+    Pipeline -- "AI Requests" --> Gemini
+    Pipeline -- "Writes Metadata" --> Postgres
+    Pipeline -- "Syncs Index" --> Meili
     
-    %% Indexing flow
-    Gemini & NLP & Tables & Topics --> Cat
-    Cat & Prod --> Meili
-    
-    %% User Access
-    Meili <--> FastAPI
-    FastAPI <--> UI
-    
-    %% Reliability
-    Tests -.-> Spiders & Down & Gemini & NLP
-    Cat & Prod -.-> Prom --> Graf
+    Meili <--> API
+    API <--> Frontend
 ```
 
 ## Key Components
 
 1.  **Orchestrated Pipeline:** Instead of manual steps, `run_pipeline.py` coordinates all workers, ensuring data flows logically from raw PDF to searchable index.
-2.  **AI Accuracy:** The Summarization worker uses the modern `google-genai` SDK with deterministic settings (temp 0.0) and grounding instructions to prevent hallucinations.
-3.  **Search Performance:** Meilisearch provides instant, typo-tolerant search, offloading complex text queries from the primary Postgres database.
-4.  **Security First:** The system includes path-traversal protection, secure dependency management, and safe credential handling via environment variables.
-5.  **Self-Verifying:** A `pytest` suite covers critical logic including date parsing, URL hashing, security checks, and AI mocking.
+2.  **Container Security:** All services run as **non-root users** within minimal Docker images, utilizing multi-stage builds to reduce attack surface and image size.
+3.  **AI Accuracy:** The Summarization worker uses the modern `google-genai` SDK (Gemini 2.0 Flash) with deterministic settings (temp 0.0) and grounding instructions.
+4.  **Search Performance:** Meilisearch provides instant, typo-tolerant search, offloading complex text queries from the primary Postgres database.
+5.  **Robust Data Flow:** The pipeline implements race-condition handling and absolute path management to ensure reliable file processing across containers.

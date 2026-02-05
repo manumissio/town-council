@@ -1,5 +1,3 @@
-version: '3.8'
-
 services:
   # PostgreSQL Database: Replaces SQLite for production-grade concurrency and performance.
   postgres:

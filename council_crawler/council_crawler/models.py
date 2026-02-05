@@ -2,10 +2,12 @@ import datetime
 
 from sqlalchemy import create_engine
 from sqlalchemy import Column, Boolean, String, Integer, Date, DateTime
-from sqlalchemy.orm import declarative_base
+from sqlalchemy.orm import DeclarativeBase
 from council_crawler import settings
 
-DeclarativeBase = declarative_base()
+# Modern SQLAlchemy 2.0 style: Subclassing DeclarativeBase.
+class Base(DeclarativeBase):
+    pass
 
 
 def db_connect():
@@ -17,10 +19,13 @@ def db_connect():
 
 
 def create_tables(engine):
-    DeclarativeBase.metadata.create_all(engine)
+    """
+    Creates all tables defined in this file.
+    """
+    Base.metadata.create_all(engine)
 
 
-class Place(DeclarativeBase):
+class Place(Base):
     """
     Represents a City or Town (e.g., "Belmont, CA").
     This table tells the crawler which cities to look for.
@@ -42,7 +47,7 @@ class Place(DeclarativeBase):
     crawler_owner = Column(String)
 
 
-class UrlStage(DeclarativeBase):
+class UrlStage(Base):
     """
     A temporary staging area where the crawler saves links to PDF files.
     The downloader pipeline reads from here later.
@@ -59,7 +64,7 @@ class UrlStage(DeclarativeBase):
     created_at = Column(DateTime, default=datetime.datetime.now)
 
 
-class EventStage(DeclarativeBase):
+class EventStage(Base):
     """
     A temporary staging area where the crawler saves meeting details.
     These are later "promoted" to the main Event table after checking for duplicates.

@@ -12,7 +12,41 @@ sys.path.append(os.path.join(root_dir, 'council_crawler'))
 
 # Import the actual scraper classes.
 from council_crawler.spiders.ca_belmont import Belmont
+from council_crawler.spiders.ca_berkeley import BerkeleyCustom
 from templates.legistar_cms import LegistarCms
+
+def test_berkeley_custom_parsing():
+    """
+    Test: Does the new Berkeley portal spider extract data correctly?
+    The Berkeley website uses a specific table structure with 'stack' classes.
+    """
+    spider = BerkeleyCustom()
+    
+    url = "https://berkeleyca.gov/your-government/city-council/city-council-agendas"
+    body = """
+    <table class="stack">
+      <tbody>
+        <tr>
+          <td class="council-meeting-name">Regular City Council Meeting</td>
+          <td class="views-field-field-daterange">02/10/2026</td>
+          <td class="views-field-field-agenda"><a href="agenda_link.pdf">Agenda</a></td>
+          <td class="views-field-field-minutes"><a href="packet_link.pdf">Agenda Packet</a></td>
+        </tr>
+      </tbody>
+    </table>
+    """
+    response = HtmlResponse(url=url, body=body, encoding='utf-8')
+    
+    items = list(spider.parse(response))
+    
+    assert len(items) == 1
+    event = items[0]
+    assert "Berkeley, CA City Council Regular City Council Meeting" == event['name']
+    assert event['record_date'].day == 10
+    assert len(event['documents']) == 2
+    # Ensure the 'Packet' is correctly categorized as a minutes/high-value doc
+    packet_doc = next(d for d in event['documents'] if 'packet' in d['url'])
+    assert packet_doc['category'] == 'minutes'
 
 def test_belmont_spider_parsing(mocker):
     """
