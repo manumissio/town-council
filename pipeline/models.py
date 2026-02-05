@@ -116,6 +116,8 @@ class Catalog(DeclarativeBase):
     url_hash = Column(String, unique=True, index=True)
     location = Column(String)
     filename = Column(String)
+    # Extracted text content from the document
+    content = Column(String, nullable=True)
     uploaded_at = Column(DateTime, default=datetime.datetime.now)
 
 

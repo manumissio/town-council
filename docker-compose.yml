@@ -21,6 +21,25 @@ services:
     environment:
       - PYTHONUNBUFFERED=1
 
+  # Apache Tika Server for high-performance text extraction and OCR.
+  # Using the 'full' image to ensure OCR capabilities (Tesseract) are included.
+  tika:
+    image: apache/tika:latest-full
+    restart: always
+
+  # Service for extracting text from downloaded documents.
+  # Uses the Tika server to process PDFs and HTML files.
+  extractor:
+    build: .
+    volumes:
+      - .:/app
+    working_dir: /app/pipeline
+    environment:
+      - PYTHONUNBUFFERED=1
+      - TIKA_SERVER_ENDPOINT=http://tika:9998
+    depends_on:
+      - tika
+
 volumes:
   # Persistent data storage for the SQLite DB and downloaded PDFs
   data:
