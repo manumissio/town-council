@@ -46,15 +46,15 @@ def test_summarization_mocked(db_session, mocker):
     # We trick the code into thinking there is a valid API key.
     mocker.patch('os.getenv', return_value="fake_api_key_123")
     
-    # We create a 'fake' AI model and a 'fake' response.
-    mock_model = mocker.Mock()
+    # We create a 'fake' AI client and a 'fake' response.
+    mock_client = mocker.Mock()
     mock_response = mocker.Mock()
     # This is the text we WANT the AI to 'return' for this test.
     mock_response.text = "1. Zoning discussed\n2. Taxes raised\n3. Meeting adjourned"
-    mock_model.generate_content.return_value = mock_response
+    mock_client.models.generate_content.return_value = mock_response
     
-    # Inject our fake model into the GenerativeModel class.
-    mocker.patch('google.generativeai.GenerativeModel', return_value=mock_model)
+    # Inject our fake client into the genai.Client class.
+    mocker.patch('google.genai.Client', return_value=mock_client)
     # Inject our temporary database connection.
     mocker.patch('pipeline.summarizer.db_connect', return_value=db_session.get_bind())
     # Mock 'time.sleep' so the test doesn't wait 4 seconds between files.

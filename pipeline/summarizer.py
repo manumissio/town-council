@@ -1,6 +1,6 @@
 import os
 import time
-import google.generativeai as genai
+from google import genai
 from sqlalchemy.orm import sessionmaker
 from models import Catalog, db_connect, create_tables
 
@@ -19,19 +19,16 @@ def summarize_documents():
         print("Error: GEMINI_API_KEY environment variable not set. Skipping summarization.")
         return
 
-    # Set up the connection to Google's AI service.
-    genai.configure(api_key=api_key)
+    # Set up the connection to the modern Google GenAI SDK.
+    client = genai.Client(api_key=api_key)
     
-    # We use 'gemini-1.5-flash' because it's fast, cheap, and can handle very long documents.
-    model = genai.GenerativeModel('gemini-1.5-flash')
-
     # Hallucination Mitigation:
     # We set temperature to 0.0 to make the AI more deterministic and "literal".
     # This prevents the AI from getting "creative" and making up facts.
-    generation_config = genai.types.GenerationConfig(
-        temperature=0.0,
-        max_output_tokens=500,
-    )
+    generate_config = {
+        "temperature": 0.0,
+        "max_output_tokens": 500,
+    }
 
     engine = db_connect()
     create_tables(engine)
@@ -66,7 +63,11 @@ def summarize_documents():
             )
 
             # Ask Gemini to generate the summary with our strict config.
-            response = model.generate_content(prompt, generation_config=generation_config)
+            response = client.models.generate_content(
+                model='gemini-1.5-flash',
+                contents=prompt,
+                config=generate_config
+            )
             
             if response and response.text:
                 record.summary = response.text.strip()

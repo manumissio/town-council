@@ -4,8 +4,7 @@ import os
 from sqlalchemy import create_engine
 from sqlalchemy import Column, Boolean, String, Integer, Date, DateTime, JSON
 from sqlalchemy import ForeignKey
-from sqlalchemy.orm import relationship
-from sqlalchemy.ext.declarative import declarative_base
+from sqlalchemy.orm import relationship, declarative_base
 from sqlalchemy.schema import Index
 
 DeclarativeBase = declarative_base()

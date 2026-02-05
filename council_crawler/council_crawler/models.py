@@ -2,7 +2,7 @@ import datetime
 
 from sqlalchemy import create_engine
 from sqlalchemy import Column, Boolean, String, Integer, Date, DateTime
-from sqlalchemy.ext.declarative import declarative_base
+from sqlalchemy.orm import declarative_base
 from council_crawler import settings
 
 DeclarativeBase = declarative_base()
