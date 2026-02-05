@@ -94,7 +94,14 @@ ITEM_PIPELINES = {
 #HTTPCACHE_STORAGE = 'scrapy.extensions.httpcache.FilesystemCacheStorage'
 
 
+import os
+# Get the directory of the current file (town-council/council_crawler/council_crawler/)
+_current_dir = os.path.dirname(os.path.abspath(__file__))
+# Project root is two levels up (town-council/)
+_project_root = os.path.dirname(os.path.dirname(_current_dir))
+_db_path = os.path.join(_project_root, 'test_db.sqlite')
+
 # Standard sqlalchemy resource identifier
 # http://docs.sqlalchemy.org/en/latest/core/engines.html
 # STORAGE_ENGINE = 'postgresql://cc@localhost/town_council'
-STORAGE_ENGINE = 'sqlite:///test_db.sqlite'
+STORAGE_ENGINE = f'sqlite:///{_db_path}'

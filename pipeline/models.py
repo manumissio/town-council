@@ -1,4 +1,5 @@
 import datetime
+import os
 
 from sqlalchemy import create_engine
 from sqlalchemy import Column, Boolean, String, Integer, Date, DateTime
@@ -12,10 +13,15 @@ DeclarativeBase = declarative_base()
 
 def db_connect():
     """
-    Connect using STORAGE_ENGINE from settings.py
+    Connect using SQLite database in the project root.
     Returns sqlalchemy engine
     """
-    return create_engine('sqlite:////Users/cc/projects/town-council/test_db.sqlite')
+    # Get the directory of the current file (town-council/pipeline/)
+    current_dir = os.path.dirname(os.path.abspath(__file__))
+    # Project root is one level up (town-council/)
+    project_root = os.path.dirname(current_dir)
+    db_path = os.path.join(project_root, 'test_db.sqlite')
+    return create_engine(f'sqlite:///{db_path}')
 
 
 def create_tables(engine):
