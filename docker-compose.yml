@@ -40,6 +40,34 @@ services:
     depends_on:
       - tika
 
+  # Meilisearch: A fast, typo-tolerant search engine (FOSS).
+  # We use this to index the extracted text for instant searching.
+  meilisearch:
+    image: getmeili/meilisearch:v1.6
+    ports:
+      - "7700:7700"
+    environment:
+      - MEILI_MASTER_KEY=masterKey
+    volumes:
+      - meili_data:/meili_data
+
+  # FastAPI Backend: Serves the search API and data to users.
+  api:
+    build: .
+    volumes:
+      - .:/app
+    working_dir: /app/api
+    command: uvicorn main:app --host 0.0.0.0 --port 8000 --reload
+    ports:
+      - "8000:8000"
+    environment:
+      - MEILI_HOST=http://meilisearch:7700
+      - MEILI_MASTER_KEY=masterKey
+    depends_on:
+      - meilisearch
+
 volumes:
   # Persistent data storage for the SQLite DB and downloaded PDFs
   data:
+  # Persistent storage for the search index
+  meili_data:

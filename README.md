@@ -37,6 +37,21 @@ docker-compose run pipeline python downloader.py
 ```
 *Documents are saved to the `./data` directory, organized by country/state/city.*
 
+### 4. Extract and Search
+After downloading, extract the text and index it for searching:
+```bash
+# Extract text (requires 'tika' service to be running: docker-compose up -d tika)
+docker-compose run extractor python extractor.py
+
+# Sync data to the search engine
+docker-compose run pipeline python indexer.py
+```
+
+### 5. Access the API
+The API is available at `http://localhost:8000`. 
+- **Search:** `http://localhost:8000/search?q=zoning`
+- **Documentation:** `http://localhost:8000/docs` (interactive Swagger UI)
+
 ## Architecture
 A visualization of the original infrastructure is shown [here](./design_doc.png).
 
