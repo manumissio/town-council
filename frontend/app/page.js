@@ -190,7 +190,7 @@ export default function Home() {
   const [cityFilter, setCityFilter] = useState("");
   const [meetingTypeFilter, setMeetingTypeFilter] = useState("");
   const [stats, setStats] = useState(null);
-  const [showFilters, setShowFilters] = useState(false);
+  const [showFilters, setShowFilters] = useState(true);
 
   // Pilot cities list
   const cities = ["Belmont", "Berkeley", "Cupertino", "Dublin", "Fremont", "Hayward", "Moraga", "Mountain View", "Palo Alto", "San Mateo", "Sunnyvale"];
@@ -300,8 +300,12 @@ export default function Home() {
           
           <div className="flex items-center gap-4">
             {stats && (
-              <div className="hidden sm:flex items-center gap-4 text-xs font-semibold text-gray-400 uppercase tracking-wider">
-                <span className="bg-gray-100 px-2 py-1 rounded-md text-gray-600">{stats.numberOfDocuments} Records</span>
+              <div 
+                onClick={() => setShowFilters(true)}
+                className="hidden sm:flex items-center gap-4 text-xs font-semibold text-gray-400 uppercase tracking-wider cursor-pointer hover:text-blue-600 transition-colors"
+                title="Click to manage filters"
+              >
+                <span className="bg-gray-100 px-2 py-1 rounded-md text-gray-600 group-hover:bg-blue-50 transition-colors">{stats.numberOfDocuments} Records</span>
                 <span className="w-1 h-1 bg-gray-300 rounded-full"></span>
                 <span>{cities.length} Cities</span>
               </div>
@@ -309,7 +313,7 @@ export default function Home() {
             <button 
               onClick={() => setShowFilters(!showFilters)}
               className={`p-2 rounded-lg transition-all border ${showFilters ? 'bg-blue-50 border-blue-200 text-blue-600' : 'bg-white border-gray-200 text-gray-500 hover:bg-gray-50'}`}
-              title="Toggle Filters"
+              title={showFilters ? "Hide Filters" : "Show Filters"}
             >
               <Filter className="w-5 h-5" />
             </button>
@@ -320,8 +324,8 @@ export default function Home() {
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 flex-1 py-10 flex gap-10 relative">
         
         {/* Sidebar Filters (Desktop) / Dropdown (Mobile) */}
-        {/* UX: Widened from lg:w-64 to lg:w-80 to prevent cramped filters */}
-        <aside className={`${showFilters ? 'block' : 'hidden'} lg:block w-full lg:w-80 space-y-8 animate-in fade-in slide-in-from-left-4`}>
+        {/* UX: Removed 'lg:block' so the filter toggle button works on desktop too */}
+        <aside className={`${showFilters ? 'block' : 'hidden'} w-full lg:w-80 space-y-8 animate-in fade-in slide-in-from-left-4`}>
           <div className="bg-white p-6 rounded-2xl border border-gray-200 shadow-sm sticky top-24">
             <div className="flex items-center justify-between mb-6 lg:hidden">
               <h3 className="font-bold text-gray-900">Filters</h3>
