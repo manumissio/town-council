@@ -13,6 +13,7 @@ This project was originally a Data4Democracy pilot (2017). It has since been **e
 - **Full-Text Search:** Integrated **Meilisearch** for instant, typo-tolerant search across extracted text.
 - **AI Summarization:** Uses **Google Gemini** to automatically generate 3-bullet point summaries for meeting minutes.
 - **NLP Entity Extraction:** Integrated **SpaCy** to automatically identify Organizations and Locations within meeting minutes.
+- **Structured Table Extraction:** Integrated **Camelot** to detect and extract tabular data (budgets, schedules) into searchable JSON.
 - **Automated Extraction & OCR:** Integrated **Apache Tika** to automatically extract text and perform OCR on downloaded PDFs.
 - **Delta Crawling:** Optimized spiders to automatically skip meetings already in the database, reducing server load and scraping time.
 - **Security Hardening:** 
@@ -44,10 +45,13 @@ docker-compose run pipeline python downloader.py
 ```
 
 ### 4. Extract, Summarize, and Index
-Process the PDFs through OCR, generate AI summaries, extract entities, and sync to search:
+Process the PDFs through OCR, generate AI summaries, extract entities, structured tables, and sync to search:
 ```bash
 # Extract text (requires 'tika' service)
 docker-compose run extractor python extractor.py
+
+# Extract Structured Tables using Camelot
+docker-compose run tables
 
 # Generate AI Summaries (requires GEMINI_API_KEY env var)
 docker-compose run summarizer python summarizer.py

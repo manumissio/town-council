@@ -61,6 +61,7 @@ def index_documents():
             'content': catalog.content, 
             'summary': catalog.summary,
             'entities': entities,     # Store full object for display
+            'tables': catalog.tables, # Include extracted structured tables
             'organizations': orgs,    # Store flat list for filtering/search
             'locations': locs,        # Store flat list for search
             'event_name': event.name,

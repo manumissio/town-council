@@ -2,7 +2,50 @@
 
 import { useState, useEffect } from "react";
 import DOMPurify from "isomorphic-dompurify";
-import { Search, FileText, Calendar, MapPin, Sparkles, Building2, Tag } from "lucide-react";
+import { Search, FileText, Calendar, MapPin, Sparkles, Building2, Tag, Table as TableIcon } from "lucide-react";
+
+/**
+ * Renders a structured JSON table as an HTML table.
+ */
+function DataTable({ data }) {
+  if (!data || data.length === 0) return null;
+  
+  // Use first row as header if it exists
+  const headers = data[0];
+  const rows = data.slice(1, 6); // Only show first 5 rows for performance
+
+  return (
+    <div className="mt-4 overflow-x-auto border border-gray-200 rounded-lg">
+      <table className="min-w-full divide-y divide-gray-200">
+        <thead className="bg-gray-50">
+          <tr>
+            {headers.map((cell, i) => (
+              <th key={i} className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                {cell}
+              </th>
+            ))}
+          </tr>
+        </thead>
+        <tbody className="bg-white divide-y divide-gray-200">
+          {rows.map((row, i) => (
+            <tr key={i}>
+              {row.map((cell, j) => (
+                <td key={j} className="px-4 py-2 whitespace-nowrap text-xs text-gray-700">
+                  {cell}
+                </td>
+              ))}
+            </tr>
+          ))}
+        </tbody>
+      </table>
+      {data.length > 6 && (
+        <div className="px-4 py-1 text-center text-[10px] text-gray-400 bg-gray-50 italic">
+          Showing 5 of {data.length} rows
+        </div>
+      )}
+    </div>
+  );
+}
 
 export default function Home() {
   const [query, setQuery] = useState("");
@@ -160,6 +203,22 @@ export default function Home() {
               />
             ) : (
               <p className="text-gray-600 text-sm line-clamp-3">{hit.content}</p>
+            )}
+
+            {/* 
+              TABLES SECTION
+              Render high-confidence tables if they were extracted from the PDF.
+            */}
+            {hit.tables && hit.tables.length > 0 && (
+              <div className="mt-6">
+                <div className="flex items-center gap-2 mb-2 text-gray-500 font-medium text-xs uppercase tracking-wide">
+                  <TableIcon className="w-3 h-3" />
+                  Extracted Tables ({hit.tables.length})
+                </div>
+                {hit.tables.slice(0, 2).map((table, i) => (
+                  <DataTable key={i} data={table} />
+                ))}
+              </div>
             )}
             
             <div className="mt-4 pt-4 border-t border-gray-100">

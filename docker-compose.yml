@@ -83,6 +83,19 @@ services:
     depends_on:
       - postgres
 
+  # Table Worker: Uses Camelot to extract structured tables from PDFs.
+  tables:
+    build: .
+    volumes:
+      - .:/app
+    working_dir: /app/pipeline
+    command: python table_worker.py
+    environment:
+      - PYTHONUNBUFFERED=1
+      - DATABASE_URL=postgresql://town_council:secure_dev_password@postgres:5432/town_council_db
+    depends_on:
+      - postgres
+
   # Meilisearch: A fast, typo-tolerant search engine (FOSS).
   meilisearch:
     image: getmeili/meilisearch:v1.6

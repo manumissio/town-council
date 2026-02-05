@@ -1,10 +1,13 @@
 # Use a modern, slim Python image
 FROM python:3.12-slim
 
-# Install system dependencies for Scrapy and SQLAlchemy
-RUN apt-get update && apt-get install -y --no-install-recommends 
-    build-essential 
-    libpq-dev 
+# Install system dependencies for Scrapy, SQLAlchemy, and Camelot (Ghostscript)
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    build-essential \
+    libpq-dev \
+    ghostscript \
+    libgl1 \
+    libglib2.0-0 \
     && rm -rf /var/lib/apt/lists/*
 
 # Set working directory

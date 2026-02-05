@@ -137,6 +137,8 @@ class Catalog(DeclarativeBase):
     # NLP-extracted entities (Organizations, Locations, etc.)
     # Stored as JSON: {"orgs": [], "locs": [], "persons": []}
     entities = Column(JSON, nullable=True)
+    # Extracted structured tables (JSON list of lists)
+    tables = Column(JSON, nullable=True)
     uploaded_at = Column(DateTime, default=datetime.datetime.now)
 
 
