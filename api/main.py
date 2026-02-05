@@ -1,40 +1,51 @@
 import sys
 import os
+import sys
+import logging
 import meilisearch
 from google import genai
-from fastapi import FastAPI, HTTPException, Query, Path
+from fastapi import FastAPI, HTTPException, Query, Path, Depends
 from fastapi.middleware.cors import CORSMiddleware
 from typing import List, Optional
-from sqlalchemy.orm import sessionmaker
+from sqlalchemy.orm import Session as SQLAlchemySession, sessionmaker
 
-# Add the project root to the python path so we can import from pipeline
-# In Docker, this maps to /app
+# Set up structured logging for production observability
+logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
+logger = logging.getLogger("town-council-api")
+
+# Add the project root to the python path
 sys.path.append(os.path.join(os.path.dirname(__file__), '..'))
 
 try:
-    from pipeline.models import db_connect, Document, Event, Place, Catalog
-    # Set up database session
+    from pipeline.models import db_connect, Document, Event, Place, Catalog, Person
     engine = db_connect()
-    Session = sessionmaker(bind=engine)
+    SessionLocal = sessionmaker(bind=engine, autoflush=False, autocommit=False)
 except ImportError:
-    # Fallback for local development if not running in Docker or root context
-    print("Warning: Could not import pipeline models. Database features may be limited.")
+    logger.error("Could not import pipeline models. Database features will be unavailable.")
+
+# Security & Reliability: Dependency Injection for database sessions.
+# This ensures that EVERY connection is properly closed after the request,
+# preventing 'Too many connections' errors.
+def get_db():
+    db = SessionLocal()
+    try:
+        yield db
+    finally:
+        db.close()
 
 app = FastAPI(title="Town Council Search API", description="Search and retrieve local government meeting minutes.")
 
 # AI Configuration
-# We use 'gemini-2.0-flash' for high-speed, reliable summaries.
 api_key = os.getenv('GEMINI_API_KEY')
 ai_client = genai.Client(api_key=api_key) if api_key else None
 
-# SECURITY: Enable CORS (Cross-Origin Resource Sharing)
-# This allows the frontend (running on a different port like 3000) to 
-# securely make requests to this API.
+# SECURITY: Restrict CORS (Cross-Origin Resource Sharing)
+# Why: Standard '*' is unsafe for production. We restrict to the expected frontend port.
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"], # In production, you would list your specific domains here
+    allow_origins=["http://localhost:3000"], # Restrict to the Next.js app
     allow_credentials=True,
-    allow_methods=["*"],
+    allow_methods=["GET", "POST", "OPTIONS"],
     allow_headers=["*"],
 )
 
@@ -49,51 +60,34 @@ def read_root():
 
 @app.get("/search")
 def search_documents(
-    q: str = Query(..., description="The search query (e.g., 'zoning', 'police budget')"),
-    city: Optional[str] = Query(None, description="Filter results by city name"),
-    meeting_type: Optional[str] = Query(None, description="Filter results by meeting type (Regular, Special, etc.)"),
-    org: Optional[str] = Query(None, description="Filter results by legislative body (e.g., 'Planning Commission')"),
-    date_from: Optional[str] = Query(None, description="Filter results from date (YYYY-MM-DD)"),
-    date_to: Optional[str] = Query(None, description="Filter results to date (YYYY-MM-DD)"),
-    limit: int = 20,
-    offset: int = 0
+    q: str = Query(..., min_length=1, description="The search query (e.g., 'zoning')"),
+    city: Optional[str] = Query(None),
+    meeting_type: Optional[str] = Query(None),
+    org: Optional[str] = Query(None),
+    date_from: Optional[str] = Query(None),
+    date_to: Optional[str] = Query(None),
+    limit: int = Query(20, ge=1, le=100), # Security: Enforce min/max limits
+    offset: int = Query(0, ge=0)
 ):
     """
     Search for text within meeting minutes using Meilisearch.
-    
-    How this works for a developer:
-    1. It connects to Meilisearch (our high-speed search engine).
-    2. It builds a 'filter' list based on the city, type, body, and date you picked in the UI.
-    3. It asks Meilisearch to find the most relevant 20 documents (limit).
-    4. It returns the results along with 'highlights' (snippets showing where the words were found).
     """
     try:
         index = client.index('documents')
         
-        # Configuration for Meilisearch
         search_params = {
             'limit': limit,
             'offset': offset,
-            'attributesToHighlight': ['content'],  # This tells the engine to return snippets of text
+            'attributesToHighlight': ['content'],
             'highlightPreTag': '<em class="bg-yellow-200 not-italic font-semibold px-0.5 rounded">',
             'highlightPostTag': '</em>',
             'filter': []
         }
         
-        # 1. City Filter: Narrow results to a specific city like 'Berkeley'
-        if city:
-            search_params['filter'].append(f'city = "{city}"')
-        
-        # 2. Meeting Type Filter: Only show 'Regular', 'Special' or 'Closed' meetings.
-        # We use the 'meeting_category' field which is normalized in indexer.py.
-        if meeting_type:
-            search_params['filter'].append(f'meeting_category = "{meeting_type}"')
+        if city: search_params['filter'].append(f'city = "{city}"')
+        if meeting_type: search_params['filter'].append(f'meeting_category = "{meeting_type}"')
+        if org: search_params['filter'].append(f'organization = "{org}"')
 
-        # 3. Organization Filter: Narrow results to a specific body like 'Planning Commission'
-        if org:
-            search_params['filter'].append(f'organization = "{org}"')
-
-        # 4. Date Range Filter: Find meetings between two specific days
         if date_from and date_to:
             search_params['filter'].append(f'date >= "{date_from}" AND date <= "{date_to}"')
         elif date_from:
@@ -101,143 +95,102 @@ def search_documents(
         elif date_to:
             search_params['filter'].append(f'date <= "{date_to}"')
 
-        # Cleanup: If the user didn't pick any filters, we must remove the empty list
         if not search_params['filter']:
             del search_params['filter']
 
-        # Perform the actual search
         results = index.search(q, search_params)
-        print(f"Search for '{q}' (offset {offset}) returned {len(results['hits'])} hits")
+        logger.info(f"Search query='{q}' city='{city}' returned {len(results['hits'])} hits")
         return results
     except Exception as e:
-        # If something goes wrong (like Meilisearch is down), return a 500 error
-        raise HTTPException(status_code=500, detail=str(e))
+        logger.error(f"Search failed: {e}")
+        raise HTTPException(status_code=500, detail="Internal search engine error")
 
 @app.get("/metadata")
 def get_metadata():
     """
     Returns unique cities and organizations present in the search index.
-    
-    How this works for a developer:
-    1. It asks Meilisearch for 'facets' (counts of all unique values).
-    2. It extracts just the names of the cities and bodies that actually have data.
-    3. This ensures the frontend dropdowns always stay up-to-date automatically!
     """
     try:
         index = client.index('documents')
-        # We perform an empty search (*) to get the list of all available filters (facets)
-        res = index.search("*", {
-            'facets': ['city', 'organization']
-        })
+        res = index.search("*", {'facets': ['city', 'organization']})
         
-        # Pull the specific list of keys (names) from the search engine's response
         facet_dist = res.get('facetDistribution', {})
         cities = sorted(list(facet_dist.get('city', {}).keys()))
         orgs = sorted(list(facet_dist.get('organization', {}).keys()))
         
         return {
-            "cities": [c.title() for c in cities], # We capitalize 'berkeley' to 'Berkeley' for the UI
+            "cities": [c.title() for c in cities],
             "organizations": orgs
         }
     except Exception as e:
-        # Return empty lists if the search engine is unreachable
+        logger.error(f"Metadata retrieval failed: {e}")
         return {"cities": [], "organizations": []}
 
 @app.get("/people")
-def list_people(limit: int = 50):
+def list_people(limit: int = 50, db: SQLAlchemySession = Depends(get_db)):
     """
-    Returns a list of all identified officials in the system.
+    Returns a list of identified officials.
     """
-    session = Session()
     try:
-        people = session.query(Person).order_by(Person.name).limit(limit).all()
-        return people
-    finally:
-        session.close()
+        return db.query(Person).order_by(Person.name).limit(limit).all()
+    except Exception as e:
+        logger.error(f"Failed to list people: {e}")
+        raise HTTPException(status_code=500, detail="Database error")
 
 @app.get("/person/{person_id}")
-def get_person_history(person_id: int = Path(..., description="The ID of the person")):
+def get_person_history(
+    person_id: int = Path(..., ge=1), 
+    db: SQLAlchemySession = Depends(get_db)
+):
     """
-    Returns a person's full profile, including every committee they serve on.
+    Returns a person's full profile and roles.
+    """
+    person = db.get(Person, person_id)
+    if not person:
+        raise HTTPException(status_code=404, detail="Official not found")
     
-    How this works:
-    1. It finds the Person by ID.
-    2. It follows the 'Memberships' link to find their Organizations.
-    3. This builds a structured 'Legislative Resume' for that official.
-    """
-    session = Session()
-    try:
-        person = session.get(Person, person_id)
-        if not person:
-            raise HTTPException(status_code=404, detail="Person not found")
+    history = []
+    # Optimization: Use joined loading in production for memberships
+    for membership in person.memberships:
+        history.append({
+            "body": membership.organization.name,
+            "city": membership.organization.place.name.title(),
+            "role": membership.label or "Member"
+        })
         
-        # Build a list of their roles
-        history = []
-        for membership in person.memberships:
-            history.append({
-                "body": membership.organization.name,
-                "city": membership.organization.place.name.title(),
-                "role": membership.label or "Member"
-            })
-            
-        return {
-            "name": person.name,
-            "bio": person.biography,
-            "current_role": person.current_role,
-            "roles": history
-        }
-    finally:
-        session.close()
-
-@app.get("/stats")
-def get_stats():
-    """
-    Returns basic statistics about the indexed data.
-    """
-    try:
-        index = client.index('documents')
-        stats = index.get_stats()
-        return stats
-    except Exception as e:
-        return {"error": "Could not connect to search index", "details": str(e)}
+    return {
+        "name": person.name,
+        "bio": person.biography,
+        "current_role": person.current_role,
+        "roles": history
+    }
 
 @app.post("/summarize/{catalog_id}")
-def generate_summary(catalog_id: int = Path(..., description="The ID of the document file")):
+def generate_summary(
+    catalog_id: int = Path(..., ge=1),
+    db: SQLAlchemySession = Depends(get_db)
+):
     """
     Requests an AI-generated summary for a specific document.
-    
-    How this works for a developer:
-    1. It checks the database to see if we already have a summary (Caching).
-    2. If not, it sends the full document text to Google Gemini.
-    3. It saves the AI's response back to the 'Catalog' table.
-    4. Future requests for this document will be instant and free!
     """
     if not ai_client:
-        raise HTTPException(status_code=503, detail="Gemini API is not configured on the server.")
+        raise HTTPException(status_code=503, detail="Gemini AI is not configured")
 
-    session = Session()
+    catalog = db.get(Catalog, catalog_id)
+    if not catalog:
+        raise HTTPException(status_code=404, detail="Document not found")
+
+    if catalog.summary:
+        return {"summary": catalog.summary, "cached": True}
+
+    if not catalog.content:
+        raise HTTPException(status_code=400, detail="Document has no text to summarize")
+
     try:
-        # 1. Look up the document in the library
-        catalog = session.get(Catalog, catalog_id)
-        if not catalog:
-            raise HTTPException(status_code=404, detail="Document not found in library.")
-
-        # 2. Return cached summary if it exists
-        if catalog.summary:
-            return {"summary": catalog.summary, "cached": True}
-
-        # 3. Check if document has text to read
-        if not catalog.content:
-            raise HTTPException(status_code=400, detail="Document has no extracted text to summarize.")
-
-        # 4. Ask Gemini to read and summarize (On-Demand)
         prompt = (
-            "You are a helpful assistant for civic transparency. "
-            "Read the following town council meeting minutes and provide a summary. "
-            "IMPORTANT: ONLY use information explicitly stated in the provided text. "
-            "Format your response as 3 clear, concise bullet points highlighting the most important decisions. "
-            "Do not include preamble or fluff.\n\n"
-            f"TEXT: {catalog.content[:100000]}..." # 100k char limit for safety
+            "Summarize the following civic meeting notes in 3 clear bullet points. "
+            "ONLY use the provided text.\n\n"
+            f"TEXT: {catalog.content[:100000]}"
         )
 
         response = ai_client.models.generate_content(
@@ -247,29 +200,34 @@ def generate_summary(catalog_id: int = Path(..., description="The ID of the docu
         )
 
         if response and response.text:
-            # 5. Save the summary back to the permanent library
             catalog.summary = response.text.strip()
-            session.commit()
+            db.commit()
             
-            # 6. Also update the Search Index so it's searchable immediately
+            # Async Index Update
             try:
                 meili_index = client.index('documents')
-                # Find all documents linked to this catalog ID
-                docs_to_update = session.query(Document).filter_by(catalog_id=catalog_id).all()
+                docs_to_update = db.query(Document).filter_by(catalog_id=catalog_id).all()
                 for d in docs_to_update:
-                    meili_index.update_documents([{
-                        "id": d.id,
-                        "summary": catalog.summary
-                    }])
+                    meili_index.update_documents([{"id": d.id, "summary": catalog.summary}])
             except Exception as e:
-                print(f"Meilisearch update failed: {e}")
+                logger.error(f"Search sync failed: {e}")
 
             return {"summary": catalog.summary, "cached": False}
-        else:
-            raise HTTPException(status_code=500, detail="AI returned an empty response.")
+        
+        raise HTTPException(status_code=500, detail="AI generation failed")
 
     except Exception as e:
-        session.rollback()
-        raise HTTPException(status_code=500, detail=str(e))
-    finally:
-        session.close()
+        db.rollback()
+        logger.error(f"Summarization error: {e}")
+        raise HTTPException(status_code=500, detail="Internal server error")
+
+@app.get("/stats")
+def get_stats():
+    """
+    Returns basic statistics about the search index.
+    """
+    try:
+        return client.index('documents').get_stats()
+    except Exception as e:
+        logger.error(f"Stats check failed: {e}")
+        raise HTTPException(status_code=503, detail="Search engine unreachable")

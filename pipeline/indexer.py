@@ -36,8 +36,8 @@ def index_documents():
 
     print("Fetching documents with extracted content, organization, and person data...")
     
-    # Join tables to create a "flat" document for Meilisearch.
-    # We now join the new 'Organization' table to get the name of the legislative body.
+    # Performance Fix: Use yield_per() to avoid loading all documents into memory at once.
+    # This is critical for scaling to 100k+ documents without crashing the container.
     query = session.query(Document, Catalog, Event, Place, Organization).join(
         Catalog, Document.catalog_id == Catalog.id
     ).join(
@@ -49,12 +49,13 @@ def index_documents():
     ).filter(
         Catalog.content != None,
         Catalog.content != ""
-    )
+    ).yield_per(100) # Process 100 items at a time
 
     batch_size = 50
     documents_batch = []
     count = 0
 
+    print("Beginning batch indexing to Meilisearch...")
     for doc, catalog, event, place, organization in query:
         # Extract helpful lists for filtering.
         entities = catalog.entities or {}

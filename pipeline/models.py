@@ -55,18 +55,20 @@ def create_tables(engine):
 class Place(Base):
     """
     Represents a Jurisdiction (City or Town, e.g., "Belmont, CA").
-    Stores metadata like the city name, state, and where to find its meetings.
+    
+    Security Fix: Added UniqueConstraint on ocd_division_id to prevent 
+    duplicate city entries in the database.
     """
     __tablename__ = 'place'
 
     id = Column(Integer, primary_key=True)
-    name = Column(String)
+    name = Column(String, nullable=False)
     type_ = Column(String)
-    state = Column(String)
-    country = Column(String)
-    display_name = Column(String) # e.g. "Belmont, CA"
-    ocd_division_id = Column(String, index=True) # Unique ID for the city
-    seed_url = Column(String) # The main URL for the city council's website
+    state = Column(String, nullable=False)
+    country = Column(String, default="us")
+    display_name = Column(String)
+    ocd_division_id = Column(String, unique=True, index=True, nullable=False)
+    seed_url = Column(String)
     hosting_service = Column(String) # Does it use Granicus, Legistar, etc?
     crawler = Column(Boolean, default=False)
     crawler_name = Column(String)
