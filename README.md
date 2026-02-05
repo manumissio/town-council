@@ -11,7 +11,7 @@ This project was originally a Data4Democracy pilot (2017). It has since been **e
 - **Production Stack:** Upgraded to Python 3.12+, Scrapy 2.11+, and SQLAlchemy 2.0+.
 - **PostgreSQL Migration:** Migrated from SQLite to PostgreSQL for high-performance concurrent data access.
 - **Full-Text Search:** Integrated **Meilisearch** for instant, typo-tolerant search across extracted text.
-- **AI Summarization:** Uses **Google Gemini** to automatically generate 3-bullet point summaries. Implements **hallucination mitigation** via deterministic output (temp 0.0), strict grounding instructions, and expanded 100k character context.
+- **AI Summarization:** Uses the modern **Google GenAI SDK** to automatically generate 3-bullet point summaries. Implements **hallucination mitigation** via deterministic output (temp 0.0), strict grounding instructions, and expanded 100k character context.
 - **NLP Entity Extraction:** Integrated **SpaCy** to automatically identify Organizations and Locations within meeting minutes.
 - **Topic Modeling:** Integrated **Scikit-Learn** to automatically discover recurring themes (e.g., "Zoning," "Budget," "Safety") across all documents.
 - **Structured Table Extraction:** Integrated **Camelot** to detect and extract tabular data (budgets, schedules) into searchable JSON.
@@ -52,14 +52,20 @@ docker-compose run pipeline python run_pipeline.py
 - **Grafana (Dashboards):** `http://localhost:3001` (admin/admin)
 
 ## Architecture
-- **`crawler`**: Scrapy spiders that extract meeting schedules and document links.
-- **`pipeline`**: Handles database records and secure, parallelized PDF downloading.
-- **`extractor`**: Uses Apache Tika to turn raw documents into searchable text.
-- **`summarizer`**: Uses Google Gemini to generate 3-bullet point AI summaries.
-- **`indexer`**: Synchronizes the processed text into Meilisearch.
-- **`api`**: Modern FastAPI backend serving data to users.
-- **`frontend`**: Next.js 14 web interface with typo-tolerant search and highlights.
-- **`monitor`**: Exposes application health and performance metrics to Prometheus.
+A detailed overview of the system design, including data flow diagrams and component descriptions, can be found in [ARCHITECTURE.md](ARCHITECTURE.md).
+
+## Testing
+The project includes a comprehensive suite of unit and integration tests to ensure data integrity and AI reliability.
+
+Run the tests using **Docker Compose**:
+```bash
+docker-compose run pipeline pytest tests/
+```
+
+Test coverage includes:
+- **Security:** Path traversal protection and credential safety.
+- **Data:** Date parsing, URL hashing, and database promotion logic.
+- **AI/NLP:** Mocked verification of summarization and entity extraction.
 
 ## Development & Contributing
 
