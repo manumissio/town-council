@@ -4,24 +4,27 @@ import pytest
 from scrapy.http import HtmlResponse
 import datetime
 
-# Setup paths
+# Setup: Add all necessary folders to the Python path.
 root_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))
 sys.path.append(root_dir)
 sys.path.append(os.path.join(root_dir, 'pipeline'))
 sys.path.append(os.path.join(root_dir, 'council_crawler'))
 
-# Import spiders
+# Import the actual scraper classes.
 from council_crawler.spiders.ca_belmont import Belmont
 from templates.legistar_cms import LegistarCms
 
 def test_belmont_spider_parsing(mocker):
-    """Verify that the Belmont spider correctly parses meeting rows."""
-    # 1. Mock _get_last_meeting_date to return None (full crawl)
+    """
+    Test: Can the Belmont spider read a meeting row from HTML?
+    We provide a snippet of HTML and check if the spider extracts the right fields.
+    """
+    # 1. Mock: Prevent the spider from trying to talk to the real database during startup.
     mocker.patch('council_crawler.spiders.ca_belmont.Belmont._get_last_meeting_date', return_value=None)
     
     spider = Belmont()
     
-    # 2. Create a mock HTML response
+    # 2. Mock Data: This is what the Belmont website HTML looks like.
     url = "http://www.belmont.gov/meetings"
     body = """
     <table>
@@ -35,25 +38,32 @@ def test_belmont_spider_parsing(mocker):
       </tbody>
     </table>
     """
+    # Wrap the HTML in a Scrapy 'Response' object.
     response = HtmlResponse(url=url, body=body, encoding='utf-8')
     
-    # 3. Call parse_archive
+    # 3. Action: Run the spider's 'parse' logic on our mock HTML.
     items = list(spider.parse_archive(response))
     
-    # 4. Verify
+    # 4. Verify: Did it find the meeting?
     assert len(items) == 1
     event = items[0]
     assert event['name'] == "Belmont, CA City Council Regular Meeting"
     assert event['meeting_type'] == "Regular Meeting"
-    assert len(event['documents']) == 2
+    assert len(event['documents']) == 2 # 1 Agenda + 1 Minutes
 
 def test_legistar_template_parsing(mocker):
-    """Verify that the Legistar template correctly parses meetings."""
-    # 1. Mock _get_last_meeting_date
+    """
+    Test: Does our generic 'Legistar' template work for other cities?
+    Many cities use the same 'Legistar' software. We test if our generic parser
+    can handle their specific (and messy) HTML structure.
+    """
+    # 1. Mock: Disable database check.
     mocker.patch('templates.legistar_cms.LegistarCms._get_last_meeting_date', return_value=None)
     
+    # Initialize the spider for a dummy city.
     spider = LegistarCms(legistar_url='https://test.legistar.com', city='testcity', state='ca')
     
+    # 2. Mock Data: Legistar uses specific table classes and nested tags.
     url = "https://test.legistar.com/Calendar.aspx"
     body = """
     <table class="rgMasterTable">
@@ -72,24 +82,29 @@ def test_legistar_template_parsing(mocker):
     """
     response = HtmlResponse(url=url, body=body, encoding='utf-8')
     
+    # 3. Action: Parse the HTML.
     items = list(spider.parse_archive(response))
     
+    # 4. Verify: Check if the generic template extracted the date and title correctly.
     assert len(items) == 1
     event = items[0]
     assert "Testcity, CA" in event['name']
     assert event['meeting_type'] == "Regular Meeting"
 
 def test_belmont_delta_crawl(mocker):
-    """Verify that the delta crawl logic skips old meetings."""
+    """
+    Test: Does 'Delta Crawling' skip meetings we already have?
+    This is critical for performance—we don't want to re-download the same files daily.
+    """
+    # 1. Mock Setup: Assume the database already has meetings up to Feb 5th.
     last_date = datetime.date(2026, 2, 5)
-    
-    # 1. Mock last meeting date to Feb 5th
     mocker.patch('council_crawler.spiders.ca_belmont.Belmont._get_last_meeting_date', return_value=last_date)
     
     spider = Belmont()
+    # Ensure the spider 'knows' the last date.
     assert spider.last_meeting_date == last_date
     
-    # 2. Mock response with an OLD meeting (Feb 1st) and a NEW meeting (Feb 10th)
+    # 2. Mock Response: We provide 1 OLD meeting (Feb 1st) and 1 NEW meeting (Feb 10th).
     url = "http://www.belmont.gov/meetings"
     body = """
     <table>
@@ -111,9 +126,10 @@ def test_belmont_delta_crawl(mocker):
     """
     response = HtmlResponse(url=url, body=body, encoding='utf-8')
     
-    # 3. Parse
+    # 3. Action: Parse both meetings.
     items = list(spider.parse_archive(response))
     
-    # 4. Verify - Only the NEW meeting should be yielded (date > Feb 5th)
+    # 4. Verify: Only the NEW meeting should be returned. 
+    # The Feb 1st meeting is older than our Feb 5th cut-off, so it should be skipped.
     assert len(items) == 1
     assert items[0]['meeting_type'] == "New Meeting"

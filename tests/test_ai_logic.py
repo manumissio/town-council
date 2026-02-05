@@ -4,7 +4,7 @@ import pytest
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 
-# Add project root and pipeline dir to path
+# Setup: Add the project and pipeline folders to the path.
 root_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))
 sys.path.append(root_dir)
 sys.path.append(os.path.join(root_dir, 'pipeline'))
@@ -14,7 +14,7 @@ from pipeline.summarizer import summarize_documents
 
 @pytest.fixture
 def db_session():
-    """Sets up an in-memory SQLite database."""
+    """Setup: Creates an empty in-memory database for AI testing."""
     engine = create_engine('sqlite:///:memory:')
     DeclarativeBase.metadata.create_all(engine)
     Session = sessionmaker(bind=engine)
@@ -24,9 +24,16 @@ def db_session():
 
 def test_summarization_mocked(db_session, mocker):
     """
-    Verify the summarizer logic without hitting the real Gemini API.
+    Test: Does the AI summarizer correctly update the database?
+    
+    Why we 'Mock':
+    We don't want to call the real Gemini API during a test because:
+    1. It costs money.
+    2. It requires a real API key.
+    3. It is slow and might fail if the internet is down.
+    So, we 'fake' (mock) the API response.
     """
-    # 1. Add a document that needs summarization
+    # 1. Setup: Add a document to our fake DB that needs a summary.
     doc = Catalog(
         url_hash="test_hash",
         content="This is a long meeting text about zoning and taxes.",
@@ -35,22 +42,29 @@ def test_summarization_mocked(db_session, mocker):
     db_session.add(doc)
     db_session.commit()
 
-    # 2. Mock environment variable and Gemini client
-    mocker.patch('os.getenv', return_value="fake_key")
+    # 2. Mocking the API: 
+    # We trick the code into thinking there is a valid API key.
+    mocker.patch('os.getenv', return_value="fake_api_key_123")
+    
+    # We create a 'fake' AI model and a 'fake' response.
     mock_model = mocker.Mock()
     mock_response = mocker.Mock()
+    # This is the text we WANT the AI to 'return' for this test.
     mock_response.text = "1. Zoning discussed\n2. Taxes raised\n3. Meeting adjourned"
     mock_model.generate_content.return_value = mock_response
     
+    # Inject our fake model into the GenerativeModel class.
     mocker.patch('google.generativeai.GenerativeModel', return_value=mock_model)
+    # Inject our temporary database connection.
     mocker.patch('pipeline.summarizer.db_connect', return_value=db_session.get_bind())
-    # Mock sleep to speed up test
+    # Mock 'time.sleep' so the test doesn't wait 4 seconds between files.
     mocker.patch('time.sleep', return_value=None)
 
-    # 3. Run summarizer
+    # 3. Action: Run the summarizer logic.
     summarize_documents()
 
-    # 4. Verify results
+    # 4. Verify: Did the 'summary' column in the DB get updated with our fake text?
     db_session.refresh(doc)
+    assert doc.summary is not None
     assert "Zoning discussed" in doc.summary
     assert "Taxes raised" in doc.summary
