@@ -39,6 +39,11 @@ RETRY_ENABLED = True
 RETRY_TIMES = 3
 RETRY_HTTP_CODES = [500, 502, 503, 504, 522, 524, 408, 429]
 
+# Security: Limit the maximum size of a response to prevent memory exhaustion (DoS)
+# 100MB limit for meeting documents (plenty for even large PDFs)
+DOWNLOAD_MAXSIZE = 104857600
+DOWNLOAD_WARNSIZE = 52428800  # Warn if a file is over 50MB
+
 # Disable cookies (enabled by default)
 #COOKIES_ENABLED = False
 

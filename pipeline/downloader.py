@@ -46,8 +46,15 @@ class Media():
 
     def _get_document(self, document_url):
         try:
-            r = self.session.get(document_url)
+            # Security: Use stream=True to check content length before downloading full body
+            r = self.session.get(document_url, stream=True, timeout=30)
+            
             if r.ok:
+                # Check file size (100MB limit)
+                content_length = r.headers.get('Content-Length')
+                if content_length and int(content_length) > 104857600:
+                    print(f"Skipping file: {document_url} is too large ({content_length} bytes)")
+                    return None
                 return r
             else:
                 return r.status_code

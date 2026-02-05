@@ -3,7 +3,7 @@
 * Each municipality will have a custom spider `council_crawler/spiders/<state>_<muni.municipality>.py` which contains rules specific to collecting links, documents and parsing information contained in that site.
 * Our first goal is to write a spider to return an `Event` [item](https://doc.scrapy.org/en/latest/topics/items.html) (see `items.py`) which will be be validated and saved by shared logic in `pipeline.py`.
 
-For now spider just returns a json object which can be output to a file by running the below command in `town-council/council_crawler` directory (requires environment with scrapy v1.4 installed -- `pip install scrapy`):
+For now spider just returns a json object which can be output to a file by running the below command in `town-council/council_crawler` directory (requires environment with scrapy installed):
 
 `scrapy crawl dublin -o test.json`
 
