@@ -18,6 +18,9 @@ COPY pipeline/requirements.txt ./pipeline_requirements.txt
 RUN pip install --no-cache-dir -r council_crawler_requirements.txt
 RUN pip install --no-cache-dir -r pipeline_requirements.txt
 
+# Download the SpaCy language model for NLP tasks
+RUN python -m spacy download en_core_web_sm
+
 # Copy the rest of the application
 COPY . .
 

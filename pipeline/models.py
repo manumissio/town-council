@@ -2,7 +2,7 @@ import datetime
 import os
 
 from sqlalchemy import create_engine
-from sqlalchemy import Column, Boolean, String, Integer, Date, DateTime
+from sqlalchemy import Column, Boolean, String, Integer, Date, DateTime, JSON
 from sqlalchemy import ForeignKey
 from sqlalchemy.orm import relationship
 from sqlalchemy.ext.declarative import declarative_base
@@ -134,6 +134,9 @@ class Catalog(DeclarativeBase):
     content = Column(String, nullable=True)
     # AI-generated summary of the content
     summary = Column(String, nullable=True)
+    # NLP-extracted entities (Organizations, Locations, etc.)
+    # Stored as JSON: {"orgs": [], "locs": [], "persons": []}
+    entities = Column(JSON, nullable=True)
     uploaded_at = Column(DateTime, default=datetime.datetime.now)
 
 

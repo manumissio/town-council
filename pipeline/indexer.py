@@ -19,10 +19,10 @@ def index_documents():
     # We set 'id' as the primary key
     index = client.index('documents')
     
-    # Define which attributes can be filtered/faceted in the UI (e.g., "Show me only Belmont")
-    index.update_filterable_attributes(['city', 'meeting_type', 'date'])
+    # Define which attributes can be filtered/faceted in the UI
+    index.update_filterable_attributes(['city', 'meeting_type', 'date', 'organizations'])
     # Define which attributes we can search text within
-    index.update_searchable_attributes(['content', 'event_name', 'filename', 'summary'])
+    index.update_searchable_attributes(['content', 'event_name', 'filename', 'summary', 'organizations', 'locations'])
 
     engine = db_connect()
     Session = sessionmaker(bind=engine)
@@ -31,7 +31,7 @@ def index_documents():
     print("Fetching documents with extracted content from database...")
     
     # We join across tables to create a "flat" document for search.
-    # We want: Text Content + Metadata + AI Summary
+    # We want: Text Content + Metadata + AI Summary + NLP Entities
     query = session.query(Document, Catalog, Event, Place).join(
         Catalog, Document.catalog_id == Catalog.id
     ).join(
@@ -48,13 +48,21 @@ def index_documents():
     count = 0
 
     for doc, catalog, event, place in query:
+        # Extract lists for faceting
+        entities = catalog.entities or {}
+        orgs = entities.get('orgs', [])
+        locs = entities.get('locs', [])
+
         # Construct the search document
         search_doc = {
             'id': doc.id,
             'filename': catalog.filename,
             'url': catalog.url,
             'content': catalog.content, 
-            'summary': catalog.summary, # Include the AI-generated summary
+            'summary': catalog.summary,
+            'entities': entities,     # Store full object for display
+            'organizations': orgs,    # Store flat list for filtering/search
+            'locations': locs,        # Store flat list for search
             'event_name': event.name,
             'meeting_type': event.meeting_type,
             'date': event.record_date.isoformat() if event.record_date else None,

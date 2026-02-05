@@ -2,7 +2,7 @@
 
 import { useState, useEffect } from "react";
 import DOMPurify from "isomorphic-dompurify";
-import { Search, FileText, Calendar, MapPin, Sparkles } from "lucide-react";
+import { Search, FileText, Calendar, MapPin, Sparkles, Building2, Tag } from "lucide-react";
 
 export default function Home() {
   const [query, setQuery] = useState("");
@@ -115,6 +115,35 @@ export default function Home() {
                   AI Summary
                 </div>
                 <p className="text-gray-800 text-sm whitespace-pre-line">{hit.summary}</p>
+              </div>
+            )}
+
+            {/* 
+              NLP ENTITIES SECTION
+              Display top organizations and locations mentioned in the document.
+            */}
+            {hit.entities && (
+              <div className="mb-3 flex flex-wrap gap-2">
+                {/* Organizations */}
+                {(hit.entities.orgs || []).slice(0, 3).map((org, i) => (
+                  <span key={`org-${i}`} className="inline-flex items-center gap-1 px-2 py-1 bg-gray-100 text-gray-600 text-xs rounded-md border border-gray-200">
+                    <Building2 className="w-3 h-3" />
+                    {org}
+                  </span>
+                ))}
+                {/* Locations */}
+                {(hit.entities.locs || []).slice(0, 3).map((loc, i) => (
+                  <span key={`loc-${i}`} className="inline-flex items-center gap-1 px-2 py-1 bg-gray-100 text-gray-600 text-xs rounded-md border border-gray-200">
+                    <MapPin className="w-3 h-3" />
+                    {loc}
+                  </span>
+                ))}
+                {/* overflow indicator */}
+                {((hit.entities.orgs?.length || 0) + (hit.entities.locs?.length || 0)) > 6 && (
+                  <span className="inline-flex items-center gap-1 px-2 py-1 text-gray-400 text-xs">
+                    + more
+                  </span>
+                )}
               </div>
             )}
 
