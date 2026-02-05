@@ -42,27 +42,48 @@ def read_root():
 def search_documents(
     q: str = Query(..., description="The search query (e.g., 'zoning', 'police budget')"),
     city: Optional[str] = Query(None, description="Filter results by city name"),
-    limit: int = 20
+    meeting_type: Optional[str] = Query(None, description="Filter results by meeting type"),
+    date_from: Optional[str] = Query(None, description="Filter results from date (YYYY-MM-DD)"),
+    date_to: Optional[str] = Query(None, description="Filter results to date (YYYY-MM-DD)"),
+    limit: int = 20,
+    offset: int = 0
 ):
     """
     Search for text within meeting minutes using Meilisearch.
-    Returns ranked documents containing the query terms.
+    Supports advanced filtering and pagination.
     """
     try:
         index = client.index('documents')
         
         search_params = {
             'limit': limit,
+            'offset': offset,
             'attributesToHighlight': ['content'],  # Return snippets with <em>query</em>
-            'highlightPreTag': '<em>',
-            'highlightPostTag': '</em>'
+            'highlightPreTag': '<em class="bg-yellow-200 not-italic font-semibold px-0.5 rounded">',
+            'highlightPostTag': '</em>',
+            'filter': []
         }
         
+        # Build filter array for Meilisearch
         if city:
-            search_params['filter'] = f'city = "{city}"'
+            search_params['filter'].append(f'city = "{city}"')
+        
+        if meeting_type:
+            search_params['filter'].append(f'meeting_type = "{meeting_type}"')
+
+        if date_from and date_to:
+            search_params['filter'].append(f'date >= "{date_from}" AND date <= "{date_to}"')
+        elif date_from:
+            search_params['filter'].append(f'date >= "{date_from}"')
+        elif date_to:
+            search_params['filter'].append(f'date <= "{date_to}"')
+
+        # If no filters, remove the key to avoid empty filter error
+        if not search_params['filter']:
+            del search_params['filter']
 
         results = index.search(q, search_params)
-        print(f"Search for '{q}' returned {len(results['hits'])} hits")
+        print(f"Search for '{q}' (offset {offset}) returned {len(results['hits'])} hits")
         return results
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
