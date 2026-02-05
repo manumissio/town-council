@@ -257,19 +257,28 @@ export default function Home() {
   return (
     <div className="min-h-screen bg-gray-50/50 flex flex-col">
       {/* Navbar / Header */}
-      <header className="bg-white border-b border-gray-200 sticky top-0 z-30">
+      <header className="bg-white border-b border-gray-200 sticky top-0 z-30 shadow-sm">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-4 flex items-center justify-between">
-          <div className="flex items-center gap-2">
-            <div className="bg-blue-600 p-1.5 rounded-lg shadow-sm">
-              <Database className="w-5 h-5 text-white" />
+          <div className="flex items-center gap-8">
+            <div className="flex items-center gap-2 cursor-pointer" onClick={() => window.location.reload()}>
+              <div className="bg-blue-600 p-1.5 rounded-lg shadow-sm">
+                <Database className="w-5 h-5 text-white" />
+              </div>
+              <h1 className="text-lg font-bold text-gray-900 tracking-tight">Town Council <span className="text-blue-600 font-medium">Insight</span></h1>
             </div>
-            <h1 className="text-lg font-bold text-gray-900 tracking-tight">Town Council <span className="text-blue-600 font-medium">Insight</span></h1>
+            
+            {/* Desktop Navigation Links */}
+            <nav className="hidden md:flex items-center gap-6">
+              <a href="/" className="text-sm font-semibold text-blue-600 border-b-2 border-blue-600 pb-1">Search</a>
+              <a href="https://github.com/Data4Democracy/town-council" target="_blank" rel="noopener noreferrer" className="text-sm font-medium text-gray-500 hover:text-blue-600 transition-colors">GitHub</a>
+              <a href="https://open-civic-data.readthedocs.io/en/latest/index.html" target="_blank" rel="noopener noreferrer" className="text-sm font-medium text-gray-500 hover:text-blue-600 transition-colors">Standards</a>
+            </nav>
           </div>
           
           <div className="flex items-center gap-4">
             {stats && (
               <div className="hidden sm:flex items-center gap-4 text-xs font-semibold text-gray-400 uppercase tracking-wider">
-                <span>{stats.numberOfDocuments} Records</span>
+                <span className="bg-gray-100 px-2 py-1 rounded-md text-gray-600">{stats.numberOfDocuments} Records</span>
                 <span className="w-1 h-1 bg-gray-300 rounded-full"></span>
                 <span>{cities.length} Cities</span>
               </div>
@@ -277,6 +286,7 @@ export default function Home() {
             <button 
               onClick={() => setShowFilters(!showFilters)}
               className={`p-2 rounded-lg transition-all border ${showFilters ? 'bg-blue-50 border-blue-200 text-blue-600' : 'bg-white border-gray-200 text-gray-500 hover:bg-gray-50'}`}
+              title="Toggle Filters"
             >
               <Filter className="w-5 h-5" />
             </button>
@@ -284,10 +294,11 @@ export default function Home() {
         </div>
       </header>
 
-      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 flex-1 py-8 flex gap-8 relative">
+      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 flex-1 py-10 flex gap-10 relative">
         
         {/* Sidebar Filters (Desktop) / Dropdown (Mobile) */}
-        <aside className={`${showFilters ? 'block' : 'hidden'} lg:block w-full lg:w-64 space-y-8 animate-in fade-in slide-in-from-left-4`}>
+        {/* UX: Widened from lg:w-64 to lg:w-80 to prevent cramped filters */}
+        <aside className={`${showFilters ? 'block' : 'hidden'} lg:block w-full lg:w-80 space-y-8 animate-in fade-in slide-in-from-left-4`}>
           <div className="bg-white p-6 rounded-2xl border border-gray-200 shadow-sm sticky top-24">
             <div className="flex items-center justify-between mb-6 lg:hidden">
               <h3 className="font-bold text-gray-900">Filters</h3>
