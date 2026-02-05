@@ -11,7 +11,9 @@ class Media():
     def __init__(self, doc):
         self.working_dir = './data'
         self.doc = doc
+        # Security: Disable trust_env to prevent .netrc credential leakage (CVE-2024-3651)
         self.session = requests.Session()
+        self.session.trust_env = False
 
     def gather(self):
         # Check if exists
