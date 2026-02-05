@@ -16,11 +16,13 @@ WORKDIR /app
 # Copy requirement files first to leverage Docker cache
 COPY council_crawler/requirements.txt ./council_crawler_requirements.txt
 COPY pipeline/requirements.txt ./pipeline_requirements.txt
+COPY api/requirements.txt ./api_requirements.txt
 
 # Install all dependencies
 RUN pip install --no-cache-dir --upgrade pip && \
     pip install --no-cache-dir -r council_crawler_requirements.txt && \
-    pip install --no-cache-dir -r pipeline_requirements.txt
+    pip install --no-cache-dir -r pipeline_requirements.txt && \
+    pip install --no-cache-dir -r api_requirements.txt
 
 # Download the SpaCy language model for NLP tasks
 # We use a direct URL to ensure a reliable build and avoid version resolution errors
