@@ -11,7 +11,7 @@ submitting their own municipalities of interest / scrapers for addition to the d
 The metadata collected on each city is limited at present:
 in practice other fields aren't necesary for our web/document scraping infrastructure at present.
 
-We may consider more detailed fields (developed in accordance with [Open Civic Data](http://opencivicdata.readthedocs.io/en/latest/)
+We may consider more detailed fields (developed in accordance with [Open Civic Data](https://open-civic-data.readthedocs.io/en/latest/index.html)
 standards in the future with more manpower + interest. (let us know if there's anything else you'd like to see here!)
 
 * `city` : name of city/municipality.
