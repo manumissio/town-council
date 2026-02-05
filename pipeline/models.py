@@ -54,7 +54,7 @@ def create_tables(engine):
 
 class Place(Base):
     """
-    Represents a City or Town (e.g., "Belmont, CA").
+    Represents a Jurisdiction (City or Town, e.g., "Belmont, CA").
     Stores metadata like the city name, state, and where to find its meetings.
     """
     __tablename__ = 'place'
@@ -72,6 +72,29 @@ class Place(Base):
     crawler_name = Column(String)
     crawler_type = Column(String)
     crawler_owner = Column(String)
+
+    # Relationship to organizations within this city
+    organizations = relationship("Organization", back_populates="place")
+
+
+class Organization(Base):
+    """
+    Represents a Legislative Body or Committee (e.g., "City Council" or "Planning Commission").
+    
+    Why this is needed:
+    Following the Open Civic Data (OCD) standard, we need to distinguish 
+    which specific group within a city held a meeting.
+    """
+    __tablename__ = 'organization'
+
+    id = Column(Integer, primary_key=True)
+    place_id = Column(Integer, ForeignKey('place.id'), nullable=False, index=True)
+    name = Column(String, nullable=False) # e.g. "Planning Commission"
+    classification = Column(String) # e.g. "legislature", "committee"
+    
+    # Relationships
+    place = relationship("Place", back_populates="organizations")
+    events = relationship("Event", back_populates="organization")
 
 
 class UrlStage(Base):
@@ -100,6 +123,7 @@ class EventStage(Base):
 
     id = Column(Integer, primary_key=True)
     ocd_division_id = Column(String)
+    organization_name = Column(String) # The name of the body (e.g. "City Council")
     name = Column(String) # e.g. "City Council Regular Meeting"
     scraped_datetime = Column(DateTime, default=datetime.datetime.now)
     record_date = Column(Date) # When the meeting happened
@@ -110,20 +134,27 @@ class EventStage(Base):
 
 class Event(Base):
     """
-    Represents a specific City Council Meeting.
-    Links a Place (City) to a Date and a Name.
+    Represents a specific Meeting held by an Organization.
+    
+    Why this is needed:
+    It links a specific City group (Organization) to a Date and a Name.
     """
     __tablename__ = 'event'
 
     id = Column(Integer, primary_key=True)
     ocd_division_id = Column(String)
     place_id = Column(Integer, ForeignKey('place.id'), nullable=False)
+    organization_id = Column(Integer, ForeignKey('organization.id'), nullable=True, index=True)
     name = Column(String)
     scraped_datetime = Column(DateTime, default=datetime.datetime.now)
     record_date = Column(Date)
     source = Column(String)
     source_url = Column(String)
     meeting_type = Column(String)
+
+    # Relationships
+    place = relationship('Place')
+    organization = relationship('Organization', back_populates='events')
 
 
 class UrlStageHist(Base):
