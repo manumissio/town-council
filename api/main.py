@@ -143,6 +143,52 @@ def get_metadata():
         # Return empty lists if the search engine is unreachable
         return {"cities": [], "organizations": []}
 
+@app.get("/people")
+def list_people(limit: int = 50):
+    """
+    Returns a list of all identified officials in the system.
+    """
+    session = Session()
+    try:
+        people = session.query(Person).order_by(Person.name).limit(limit).all()
+        return people
+    finally:
+        session.close()
+
+@app.get("/person/{person_id}")
+def get_person_history(person_id: int = Path(..., description="The ID of the person")):
+    """
+    Returns a person's full profile, including every committee they serve on.
+    
+    How this works:
+    1. It finds the Person by ID.
+    2. It follows the 'Memberships' link to find their Organizations.
+    3. This builds a structured 'Legislative Resume' for that official.
+    """
+    session = Session()
+    try:
+        person = session.get(Person, person_id)
+        if not person:
+            raise HTTPException(status_code=404, detail="Person not found")
+        
+        # Build a list of their roles
+        history = []
+        for membership in person.memberships:
+            history.append({
+                "body": membership.organization.name,
+                "city": membership.organization.place.name.title(),
+                "role": membership.label or "Member"
+            })
+            
+        return {
+            "name": person.name,
+            "bio": person.biography,
+            "current_role": person.current_role,
+            "roles": history
+        }
+    finally:
+        session.close()
+
 @app.get("/stats")
 def get_stats():
     """

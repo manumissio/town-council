@@ -77,7 +77,11 @@ def main():
     # Find names of people, organizations, and locations in the text.
     run_step("NLP Entity Extraction", ["python", "nlp_worker.py"])
 
-    # 6. AI SUMMARIZATION (NOW ON-DEMAND)
+    # 6. PERSON & MEMBERSHIP LINKING (OCD Alignment)
+    # Promote the text strings found by NLP into first-class Person/Membership records.
+    run_step("People Linking", ["python", "person_linker.py"])
+
+    # 7. AI SUMMARIZATION (NOW ON-DEMAND)
     # Note: We no longer run 'summarizer.py' in the pipeline to save on API costs and avoid 429 errors.
     # Summaries are now generated instantly when a user clicks 'Generate' in the UI.
 

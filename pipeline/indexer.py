@@ -24,17 +24,17 @@ def index_documents():
     index = client.index('documents')
     
     # Configure Filters: These fields can be used to narrow down results.
-    # Added 'organization' to allow filtering by bodies like 'Planning Commission'.
-    index.update_filterable_attributes(['city', 'meeting_type', 'meeting_category', 'organization', 'date', 'organizations'])
+    # Added 'organization' and 'people' to allow deep filtering.
+    index.update_filterable_attributes(['city', 'meeting_type', 'meeting_category', 'organization', 'people', 'date', 'organizations'])
     
     # Configure Searchable Fields: These are the fields the engine checks when you type a query.
-    index.update_searchable_attributes(['content', 'event_name', 'filename', 'summary', 'organizations', 'locations', 'meeting_category', 'organization'])
+    index.update_searchable_attributes(['content', 'event_name', 'filename', 'summary', 'organizations', 'locations', 'meeting_category', 'organization', 'people'])
 
     engine = db_connect()
     Session = sessionmaker(bind=engine)
     session = Session()
 
-    print("Fetching documents with extracted content and organization data...")
+    print("Fetching documents with extracted content, organization, and person data...")
     
     # Join tables to create a "flat" document for Meilisearch.
     # We now join the new 'Organization' table to get the name of the legislative body.
@@ -61,6 +61,16 @@ def index_documents():
         orgs = entities.get('orgs', [])
         locs = entities.get('locs', [])
 
+        # 1. Fetch structured People linked to this organization
+        # Why: This allows the frontend to show a list of people 
+        # involved in the meeting and make their names clickable.
+        people_list = []
+        if organization:
+            people_list = [
+                {"id": m.person.id, "name": m.person.name} 
+                for m in organization.memberships
+            ]
+
         # Normalize Meeting Type into a Category for the UI radio buttons.
         # e.g. "City Council Regular Meeting" -> "Regular"
         raw_type = (event.meeting_type or "").lower()
@@ -81,6 +91,8 @@ def index_documents():
             'content': catalog.content, 
             'summary': catalog.summary,
             'entities': entities,
+            'people_metadata': people_list, # List of objects with ID and Name for the UI
+            'people': [p['name'] for p in people_list], # Simple list for filtering
             'topics': catalog.topics,
             'tables': catalog.tables,
             'organizations': orgs,
