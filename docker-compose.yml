@@ -22,6 +22,7 @@ services:
     working_dir: /app/council_crawler
     environment:
       - PYTHONUNBUFFERED=1
+      - PYTHONPATH=/app
       - DATABASE_URL=postgresql://town_council:secure_dev_password@postgres:5432/town_council_db
     depends_on:
       - postgres
@@ -34,6 +35,7 @@ services:
     working_dir: /app/pipeline
     environment:
       - PYTHONUNBUFFERED=1
+      - PYTHONPATH=/app
       - DATABASE_URL=postgresql://town_council:secure_dev_password@postgres:5432/town_council_db
     depends_on:
       - postgres
@@ -51,6 +53,7 @@ services:
     working_dir: /app/pipeline
     environment:
       - PYTHONUNBUFFERED=1
+      - PYTHONPATH=/app
       - TIKA_SERVER_ENDPOINT=http://tika:9998
       - DATABASE_URL=postgresql://town_council:secure_dev_password@postgres:5432/town_council_db
     depends_on:
@@ -65,6 +68,7 @@ services:
     working_dir: /app/pipeline
     environment:
       - PYTHONUNBUFFERED=1
+      - PYTHONPATH=/app
       - DATABASE_URL=postgresql://town_council:secure_dev_password@postgres:5432/town_council_db
       - GEMINI_API_KEY=${GEMINI_API_KEY} # Injected from host environment
     depends_on:
@@ -79,6 +83,7 @@ services:
     command: python nlp_worker.py
     environment:
       - PYTHONUNBUFFERED=1
+      - PYTHONPATH=/app
       - DATABASE_URL=postgresql://town_council:secure_dev_password@postgres:5432/town_council_db
     depends_on:
       - postgres
@@ -92,6 +97,7 @@ services:
     command: python table_worker.py
     environment:
       - PYTHONUNBUFFERED=1
+      - PYTHONPATH=/app
       - DATABASE_URL=postgresql://town_council:secure_dev_password@postgres:5432/town_council_db
     depends_on:
       - postgres
@@ -105,6 +111,7 @@ services:
     command: python topic_worker.py
     environment:
       - PYTHONUNBUFFERED=1
+      - PYTHONPATH=/app
       - DATABASE_URL=postgresql://town_council:secure_dev_password@postgres:5432/town_council_db
     depends_on:
       - postgres
@@ -132,6 +139,7 @@ services:
       - MEILI_HOST=http://meilisearch:7700
       - MEILI_MASTER_KEY=masterKey
       - DATABASE_URL=postgresql://town_council:secure_dev_password@postgres:5432/town_council_db
+      - PYTHONPATH=/app
     depends_on:
       - meilisearch
       - postgres
@@ -177,6 +185,7 @@ services:
     environment:
       - PYTHONUNBUFFERED=1
       - DATABASE_URL=postgresql://town_council:secure_dev_password@postgres:5432/town_council_db
+      - PYTHONPATH=/app
     depends_on:
       - postgres
 
