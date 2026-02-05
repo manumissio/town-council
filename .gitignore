@@ -107,10 +107,29 @@ test.json
 *.sqlite
 *.db
 
-# Debug files
-council_crawler/council_crawler/scrapy_debug.py
-council_crawler/council_crawler/tests.py
-
-# test data directory
+# Data and Downloads
+# Ignore the local data folder where PDFs are stored
+data/
 */data/
+cookies.txt
+debug_*.html
+
+# Frontend (Next.js)
+frontend/node_modules/
+frontend/.next/
+frontend/out/
+frontend/build/
+.env*.local
+
+# Unit test / coverage reports
+.pytest_cache/
+htmlcov/
+.tox/
+.coverage
+.coverage.*
+.cache
+nosetests.xml
+coverage.xml
+*,cover
+.hypothesis/
 
