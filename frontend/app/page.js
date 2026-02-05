@@ -321,16 +321,54 @@ export default function Home() {
         </div>
       </header>
 
-      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 flex-1 py-10 flex gap-12 relative">
+      {/* Hero / Search Section */}
+      {/* UX Heuristic: Hick's Law - Centralizing and widening the search bar to minimize distractions */}
+      <section className="bg-white border-b border-gray-100 py-12 shadow-inner">
+        <div className="max-w-4xl mx-auto px-4 text-center">
+          <div className="relative group max-w-3xl mx-auto">
+            <div className="absolute inset-y-0 left-0 flex items-center pl-6 pointer-events-none">
+              <Search className={`w-6 h-6 transition-colors ${query ? 'text-blue-500' : 'text-gray-400 group-focus-within:text-blue-500'}`} />
+            </div>
+            <input
+              type="search"
+              autoFocus
+              className="block w-full p-6 pl-14 text-lg text-gray-900 border-2 border-gray-100 rounded-3xl bg-gray-50/30 focus:bg-white focus:ring-8 focus:ring-blue-500/5 focus:border-blue-500 shadow-sm transition-all placeholder:text-gray-400"
+              placeholder="Search local laws, budgets, or meeting notes..."
+              value={query}
+              onChange={(e) => setQuery(e.target.value)}
+            />
+            {isSearching && (
+              <div className="absolute inset-y-0 right-0 flex items-center pr-6">
+                <Loader2 className="w-6 h-6 text-blue-500 animate-spin" />
+              </div>
+            )}
+          </div>
+          
+          {/* Quick Suggestions - Help the user get started */}
+          <div className="mt-6 flex flex-wrap justify-center gap-3">
+            <span className="text-xs font-bold text-gray-400 uppercase tracking-widest py-1">Quick Search:</span>
+            {["Zoning", "Housing", "Budget", "Police", "Environment"].map(tag => (
+              <button 
+                key={tag} 
+                onClick={() => setQuery(tag)}
+                className="px-4 py-1.5 bg-white border border-gray-200 text-gray-600 text-xs font-bold rounded-full hover:border-blue-300 hover:text-blue-600 transition-all shadow-sm active:scale-95"
+              >
+                {tag}
+              </button>
+            ))}
+          </div>
+        </div>
+      </section>
+
+      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 flex-1 py-12 flex gap-12 relative">
         
-        {/* Sidebar Filters (Desktop) / Dropdown (Mobile) */}
-        {/* UX Overhaul: Widened to 400px (lg:w-[400px]) to provide a more robust research sidebar */}
+        {/* Sidebar Filters */}
         <aside className={`${showFilters ? 'block' : 'hidden'} w-full lg:w-[400px] shrink-0 space-y-8 animate-in fade-in slide-in-from-left-4 transition-all duration-300`}>
           <div className="bg-white p-8 rounded-3xl border border-gray-200 shadow-sm sticky top-28">
             <div className="flex items-center justify-between mb-8">
               <div className="flex items-center gap-2">
                 <Filter className="w-4 h-4 text-blue-600" />
-                <h3 className="font-bold text-gray-900 text-lg">Search Filters</h3>
+                <h3 className="font-bold text-gray-900 text-lg">Filters</h3>
               </div>
               {(cityFilter || meetingTypeFilter) && (
                  <button 
@@ -354,7 +392,7 @@ export default function Home() {
                 <select 
                   value={cityFilter}
                   onChange={(e) => setCityFilter(e.target.value)}
-                  className="block w-full text-sm border-gray-200 rounded-xl focus:ring-4 focus:ring-blue-500/5 focus:border-blue-500 bg-gray-50/50 py-3 px-4 transition-all appearance-none cursor-pointer"
+                  className="block w-full text-sm border-gray-200 rounded-xl focus:ring-4 focus:ring-blue-500/5 focus:border-blue-500 bg-gray-50/50 py-3.5 px-4 transition-all appearance-none cursor-pointer"
                 >
                   <option value="">All Bay Area Cities</option>
                   {cities.map(c => <option key={c} value={c.toLowerCase()}>{c}</option>)}
@@ -371,7 +409,7 @@ export default function Home() {
                 </div>
                 <div className="grid grid-cols-1 gap-3">
                   {["Regular", "Special", "Closed"].map((type) => (
-                    <label key={type} className={`flex items-center justify-between p-3.5 rounded-2xl border transition-all cursor-pointer group ${meetingTypeFilter === type ? 'bg-blue-50 border-blue-200 ring-1 ring-blue-100' : 'bg-white border-gray-100 hover:border-gray-200'}`}>
+                    <label key={type} className={`flex items-center justify-between p-4 rounded-2xl border transition-all cursor-pointer group ${meetingTypeFilter === type ? 'bg-blue-50 border-blue-200 ring-1 ring-blue-100' : 'bg-white border-gray-100 hover:border-gray-200'}`}>
                       <div className="flex items-center gap-3">
                         <div className={`w-5 h-5 rounded-full border-2 flex items-center justify-center transition-all ${meetingTypeFilter === type ? 'border-blue-600 bg-blue-600 shadow-[0_0_0_4px_rgba(37,99,235,0.1)]' : 'border-gray-200 bg-white group-hover:border-gray-300'}`}>
                           {meetingTypeFilter === type && <div className="w-2 h-2 bg-white rounded-full shadow-sm" />}
@@ -392,50 +430,21 @@ export default function Home() {
                 </div>
               </div>
             </div>
-            
-            {/* Contextual Help for novice developers */}
-            <div className="mt-10 p-4 bg-gray-50 rounded-2xl border border-dashed border-gray-200">
-               <div className="flex items-start gap-2">
-                 <Info className="w-4 h-4 text-gray-400 shrink-0 mt-0.5" />
-                 <p className="text-[11px] text-gray-500 leading-relaxed italic">
-                   Filters are applied instantly. Meilisearch handles the logic to ensure results are always accurate.
-                 </p>
-               </div>
-            </div>
           </div>
         </aside>
 
         {/* Main Content Area */}
-        <div className="flex-1 space-y-6">
+        <div className="flex-1 space-y-8">
           
-          {/* Main Search Bar */}
-          <div className="relative group">
-            <div className="absolute inset-y-0 left-0 flex items-center pl-4 pointer-events-none">
-              <Search className={`w-5 h-5 transition-colors ${query ? 'text-blue-500' : 'text-gray-400 group-focus-within:text-blue-500'}`} />
-            </div>
-            <input
-              type="search"
-              className="block w-full p-5 pl-12 text-base text-gray-900 border border-gray-200 rounded-2xl bg-white focus:ring-4 focus:ring-blue-500/10 focus:border-blue-500 shadow-sm transition-all placeholder:text-gray-400"
-              placeholder="Search policies, budget items, or local laws..."
-              value={query}
-              onChange={(e) => setQuery(e.target.value)}
-            />
-            {isSearching && (
-              <div className="absolute inset-y-0 right-0 flex items-center pr-4">
-                <Loader2 className="w-5 h-5 text-blue-500 animate-spin" />
-              </div>
-            )}
-          </div>
-
           {/* Results Info */}
           {query && !loading && (
-            <div className="flex items-center gap-2 px-2 text-xs font-medium text-gray-400 uppercase tracking-tight">
-              Found {totalHits} relevant documents for "{query}"
+            <div className="flex items-center gap-2 px-2 text-sm font-bold text-gray-400 uppercase tracking-widest">
+              <Database className="w-4 h-4" /> Found {totalHits} relevant documents for "{query}"
             </div>
           )}
 
           {/* Results List */}
-          <div className="space-y-6">
+          <div className="space-y-8">
             {results.map((hit) => (
               <ResultCard key={hit.id} hit={hit} />
             ))}
