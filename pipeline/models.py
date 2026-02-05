@@ -139,6 +139,8 @@ class Catalog(DeclarativeBase):
     entities = Column(JSON, nullable=True)
     # Extracted structured tables (JSON list of lists)
     tables = Column(JSON, nullable=True)
+    # Automatically discovered topics (list of keywords)
+    topics = Column(JSON, nullable=True)
     uploaded_at = Column(DateTime, default=datetime.datetime.now)
 
 

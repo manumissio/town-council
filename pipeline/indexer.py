@@ -60,10 +60,11 @@ def index_documents():
             'url': catalog.url,
             'content': catalog.content, 
             'summary': catalog.summary,
-            'entities': entities,     # Store full object for display
-            'tables': catalog.tables, # Include extracted structured tables
-            'organizations': orgs,    # Store flat list for filtering/search
-            'locations': locs,        # Store flat list for search
+            'entities': entities,
+            'topics': catalog.topics, # Include the discovered topic keywords
+            'tables': catalog.tables,
+            'organizations': orgs,
+            'locations': locs,
             'event_name': event.name,
             'meeting_type': event.meeting_type,
             'date': event.record_date.isoformat() if event.record_date else None,

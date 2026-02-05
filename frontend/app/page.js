@@ -2,7 +2,7 @@
 
 import { useState, useEffect } from "react";
 import DOMPurify from "isomorphic-dompurify";
-import { Search, FileText, Calendar, MapPin, Sparkles, Building2, Tag, Table as TableIcon } from "lucide-react";
+import { Search, FileText, Calendar, MapPin, Sparkles, Building2, Tag, Table as TableIcon, Layout } from "lucide-react";
 
 /**
  * Renders a structured JSON table as an HTML table.
@@ -153,9 +153,21 @@ export default function Home() {
             */}
             {hit.summary && (
               <div className="mb-4 p-3 bg-purple-50 border border-purple-100 rounded-md">
-                <div className="flex items-center gap-2 mb-1 text-purple-700 font-medium text-xs uppercase tracking-wide">
-                  <Sparkles className="w-3 h-3" />
-                  AI Summary
+                <div className="flex items-center justify-between mb-1">
+                  <div className="flex items-center gap-2 text-purple-700 font-medium text-xs uppercase tracking-wide">
+                    <Sparkles className="w-3 h-3" />
+                    AI Summary
+                  </div>
+                  {/* Render Topics if available */}
+                  {hit.topics && (
+                    <div className="flex gap-1">
+                      {hit.topics.map((topic, i) => (
+                        <span key={i} className="px-1.5 py-0.5 bg-purple-100 text-purple-600 text-[10px] font-bold rounded-full uppercase">
+                          {topic}
+                        </span>
+                      ))}
+                    </div>
+                  )}
                 </div>
                 <p className="text-gray-800 text-sm whitespace-pre-line">{hit.summary}</p>
               </div>
