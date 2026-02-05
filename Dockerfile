@@ -22,7 +22,8 @@ COPY api/requirements.txt ./api_requirements.txt
 RUN pip install --no-cache-dir --upgrade pip && \
     pip install --no-cache-dir -r council_crawler_requirements.txt && \
     pip install --no-cache-dir -r pipeline_requirements.txt && \
-    pip install --no-cache-dir -r api_requirements.txt
+    pip install --no-cache-dir -r api_requirements.txt && \
+    pip install --no-cache-dir ghostscript
 
 # Download the SpaCy language model for NLP tasks
 # We use a direct URL to ensure a reliable build and avoid version resolution errors

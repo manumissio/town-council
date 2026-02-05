@@ -12,7 +12,8 @@ class Media():
     Handles the downloading of documents (PDFs, HTML) from the web.
     """
     def __init__(self, doc):
-        self.working_dir = './data'
+        # Use DATA_DIR from environment or default to local data folder
+        self.working_dir = os.getenv('DATA_DIR', './data')
         self.doc = doc
         # Security: Disable trust_env. This prevents the request from accidentally
         # using credentials stored in a local .netrc file, which is a security risk (CVE-2024-3651).
@@ -84,14 +85,16 @@ class Media():
             ext = '.pdf'
 
         full_path = os.path.join(file_path, f'{url_hash}{ext}')
+        # Ensure we store the absolute path in the database
+        abs_path = os.path.abspath(full_path)
 
         # Write the file in chunks (8KB at a time).
         # This is much more memory efficient than loading the whole file into RAM at once.
-        with open(full_path, 'wb') as f:
+        with open(abs_path, 'wb') as f:
             for chunk in response.iter_content(chunk_size=8192):
                 f.write(chunk)
         
-        return full_path
+        return abs_path
 
     def _create_fp_from_ocd_id(self, ocd_id):
         """
@@ -105,7 +108,7 @@ class Media():
         place = elements[3].split(':')[-1]
 
         # Construct safe path within the data directory
-        base_dir = os.path.join('.', 'data')
+        base_dir = self.working_dir
         safe_path = os.path.join(base_dir, country, state, place)
         
         # Ensure the directory exists
@@ -153,14 +156,21 @@ def process_single_url(url_record_id):
             file_location = downloader.gather()
 
             if file_location:
-                catalog_entry = Catalog(
-                    url=url_record.url,
-                    url_hash=url_record.url_hash,
-                    location=file_location,
-                    filename=os.path.basename(file_location)
-                )
-                session.add(catalog_entry)
-                session.flush() # Save immediately to get the ID
+                try:
+                    catalog_entry = Catalog(
+                        url=url_record.url,
+                        url_hash=url_record.url_hash,
+                        location=file_location,
+                        filename=os.path.basename(file_location)
+                    )
+                    session.add(catalog_entry)
+                    session.flush() # Save immediately to get the ID
+                except Exception:
+                    # If someone else inserted it while we were downloading, re-fetch it
+                    session.rollback()
+                    catalog_entry = session.query(Catalog).filter(
+                        Catalog.url_hash == url_record.url_hash
+                    ).first()
             else:
                 print(f"Failed to download: {url_record.url}")
                 return

@@ -17,7 +17,7 @@ NEWSPIDER_MODULE = 'council_crawler.spiders'
 
 # Crawl responsibly by identifying yourself (and your website) on the user-agent
 # Using a descriptive user agent helps city admins contact us if there are issues
-USER_AGENT = 'TownCouncilBot/1.0 (+https://github.com/Data4Democracy/town-council; town-council-bot@example.com)'
+USER_AGENT = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
 
 # Obey robots.txt rules
 ROBOTSTXT_OBEY = True

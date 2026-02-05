@@ -70,57 +70,63 @@ class LegistarCms(scrapy.spiders.CrawlSpider):
             yield scrapy.Request(url=url, callback=self.parse_archive)
 
     def parse_archive(self, response):
-        table_body = response.xpath('//table[@class="rgMasterTable"]/tbody/tr')
+        # Look for the main results table. Legistar standard uses 'rgMasterTable' class.
+        table_body = response.xpath('//table[contains(@class, "rgMasterTable")]/tbody/tr')
+        
+        if not table_body:
+            self.logger.warning(f"No meeting rows found on {response.url}. The table might be empty or require a search action.")
+            return
+
         for row in table_body:
-            # Legistar tables often wrap text in <font> tags which must be accounted for in XPaths
-            meeting_type = row.xpath('.//td[1]/font/a/font/text()').extract_first()
-            date = row.xpath('.//td[2]/font/text()').extract_first()
-            time = row.xpath('.//td[4]/font/span/font/text()').extract_first()
-            date_time = f'{date} {time}'
+            # We use more flexible XPaths that look for text within the cell, 
+            # ignoring fragile <font> or <span> tags.
+            meeting_type = row.xpath('.//td[1]//text()[normalize-space()]').extract_first()
+            date = row.xpath('.//td[2]//text()[normalize-space()]').extract_first()
+            time = row.xpath('.//td[4]//text()[normalize-space()]').extract_first()
             
+            if not meeting_type or not date:
+                continue
+
+            date_time = f'{date} {time}'
             record_date = parse_date_string(date_time)
 
-            # DELTA CRAWL CHECK
+            # DELTA CRAWL CHECK: Skip if we already have this meeting in the database.
             if self.last_meeting_date and record_date and record_date <= self.last_meeting_date:
                 continue
 
-            agenda_url = row.xpath('.//td[7]/font/span/a/@href').extract_first()
-            event_minutes_url = row.xpath('.//td[8]/font/span/a/font/text()').extract_first()
-
-            # Filter out placeholder text for unavailable minutes
-            if event_minutes_url == 'Not\xa0available':
-                event_minutes_url = None
+            # Look for Agenda and Minutes links. We look for any <a> tag in the respective columns.
+            agenda_url = row.xpath('.//td[7]//a/@href').extract_first()
+            # For minutes, we check for a link. Some cities display 'Not available' as text.
+            event_minutes_url = row.xpath('.//td[8]//a/@href').extract_first()
 
             event = Event(
                 _type='event',
                 ocd_division_id=self.ocd_division_id,
-                name=f'{self.formatted_city_name} City Council {meeting_type}',
+                name=f'{self.formatted_city_name} City Council {meeting_type.strip()}',
                 scraped_datetime=datetime.datetime.now(datetime.timezone.utc),
-                record_date=parse_date_string(date_time),
+                record_date=record_date,
                 source=self.city_name,
                 source_url=response.url,
-                meeting_type=meeting_type
+                meeting_type=meeting_type.strip()
                 )
 
             documents = []
-            if agenda_url is not None:
-                # response.urljoin handles relative links and <base> tags automatically
+            if agenda_url:
                 agenda_url = response.urljoin(agenda_url)
-                agenda_doc = {
+                documents.append({
                     'url': agenda_url,
                     'url_hash': url_to_md5(agenda_url),
                     'category': 'agenda'
-                }
-                documents.append(agenda_doc)
+                })
 
-            if event_minutes_url is not None:
+            if event_minutes_url:
                 event_minutes_url = response.urljoin(event_minutes_url)
-                minutes_doc = {
+                documents.append({
                     'url': event_minutes_url,
                     'url_hash': url_to_md5(event_minutes_url),
                     'category': 'minutes'
-                }
-                documents.append(minutes_doc)
+                })
 
             event['documents'] = documents
+            self.logger.info(f"Scraped meeting: {event['name']} on {record_date}")
             yield event

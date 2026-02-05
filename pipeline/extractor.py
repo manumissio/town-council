@@ -15,7 +15,8 @@ def is_safe_path(path):
     To prevent security vulnerabilities where a malicious path could trick the system
     into reading sensitive files outside the project directory (Path Traversal).
     """
-    base_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', 'data'))
+    # Use DATA_DIR from environment or default to local data folder
+    base_dir = os.path.abspath(os.getenv('DATA_DIR', './data'))
     target_path = os.path.abspath(path)
     return target_path.startswith(base_dir)
 

@@ -24,6 +24,7 @@ services:
       - PYTHONUNBUFFERED=1
       - PYTHONPATH=/app
       - DATABASE_URL=postgresql://town_council:secure_dev_password@postgres:5432/town_council_db
+      - DATA_DIR=/app/data
     depends_on:
       - postgres
 
@@ -37,6 +38,7 @@ services:
       - PYTHONUNBUFFERED=1
       - PYTHONPATH=/app
       - DATABASE_URL=postgresql://town_council:secure_dev_password@postgres:5432/town_council_db
+      - DATA_DIR=/app/data
     depends_on:
       - postgres
 
@@ -56,6 +58,7 @@ services:
       - PYTHONPATH=/app
       - TIKA_SERVER_ENDPOINT=http://tika:9998
       - DATABASE_URL=postgresql://town_council:secure_dev_password@postgres:5432/town_council_db
+      - DATA_DIR=/app/data
     depends_on:
       - tika
       - postgres
@@ -71,6 +74,7 @@ services:
       - PYTHONPATH=/app
       - DATABASE_URL=postgresql://town_council:secure_dev_password@postgres:5432/town_council_db
       - GEMINI_API_KEY=${GEMINI_API_KEY} # Injected from host environment
+      - DATA_DIR=/app/data
     depends_on:
       - postgres
 
@@ -85,6 +89,7 @@ services:
       - PYTHONUNBUFFERED=1
       - PYTHONPATH=/app
       - DATABASE_URL=postgresql://town_council:secure_dev_password@postgres:5432/town_council_db
+      - DATA_DIR=/app/data
     depends_on:
       - postgres
 
@@ -99,6 +104,7 @@ services:
       - PYTHONUNBUFFERED=1
       - PYTHONPATH=/app
       - DATABASE_URL=postgresql://town_council:secure_dev_password@postgres:5432/town_council_db
+      - DATA_DIR=/app/data
     depends_on:
       - postgres
 
@@ -113,6 +119,7 @@ services:
       - PYTHONUNBUFFERED=1
       - PYTHONPATH=/app
       - DATABASE_URL=postgresql://town_council:secure_dev_password@postgres:5432/town_council_db
+      - DATA_DIR=/app/data
     depends_on:
       - postgres
 
