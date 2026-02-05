@@ -6,8 +6,9 @@ import pytest
 root_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))
 sys.path.append(root_dir)
 sys.path.append(os.path.join(root_dir, 'pipeline'))
+sys.path.append(os.path.join(root_dir, 'council_crawler'))
 
-from council_crawler.council_crawler.utils import url_to_md5, parse_date_string
+from council_crawler.utils import url_to_md5, parse_date_string
 from pipeline.extractor import is_safe_path
 
 def test_url_to_md5():
