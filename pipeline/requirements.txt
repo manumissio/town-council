@@ -1,5 +1,5 @@
-sqlalchemy==2.0.25
+sqlalchemy==2.0.38
 requests==2.32.3
 tika==2.6.0
-meilisearch==0.30.0
-psycopg2-binary==2.9.9
+meilisearch==0.31.0
+psycopg2-binary==2.9.10
