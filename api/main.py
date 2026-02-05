@@ -108,24 +108,30 @@ def search_documents(
 def get_metadata():
     """
     Returns unique cities and organizations present in the search index.
-    This ensures the UI dropdowns only show values that will actually return results.
+    
+    How this works for a developer:
+    1. It asks Meilisearch for 'facets' (counts of all unique values).
+    2. It extracts just the names of the cities and bodies that actually have data.
+    3. This ensures the frontend dropdowns always stay up-to-date automatically!
     """
     try:
         index = client.index('documents')
-        # We perform an empty search to get the facet distribution
+        # We perform an empty search (*) to get the list of all available filters (facets)
         res = index.search("*", {
             'facets': ['city', 'organization']
         })
         
+        # Pull the specific list of keys (names) from the search engine's response
         facet_dist = res.get('facetDistribution', {})
         cities = sorted(list(facet_dist.get('city', {}).keys()))
         orgs = sorted(list(facet_dist.get('organization', {}).keys()))
         
         return {
-            "cities": [c.title() for c in cities], # Capitalize for UI
+            "cities": [c.title() for c in cities], # We capitalize 'berkeley' to 'Berkeley' for the UI
             "organizations": orgs
         }
     except Exception as e:
+        # Return empty lists if the search engine is unreachable
         return {"cities": [], "organizations": []}
 
 @app.get("/stats")

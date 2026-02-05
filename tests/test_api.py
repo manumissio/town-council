@@ -66,3 +66,23 @@ def test_search_date_filters(mocker):
     search_params = mock_index.search.call_args[0][1]
     
     assert 'date >= "2026-01-01" AND date <= "2026-02-01"' in search_params['filter']
+
+def test_metadata_endpoint(mocker):
+    """Test the /metadata endpoint correctly parses search engine facets."""
+    mock_index = mocker.Mock()
+    mock_index.search.return_value = {
+        "facetDistribution": {
+            "city": {"berkeley": 10, "dublin": 5},
+            "organization": {"City Council": 15}
+        }
+    }
+    mocker.patch("api.main.client.index", return_value=mock_index)
+    
+    response = client.get("/metadata")
+    assert response.status_code == 200
+    data = response.json()
+    
+    # Check if cities are capitalized for the UI
+    assert "Berkeley" in data["cities"]
+    assert "Dublin" in data["cities"]
+    assert "City Council" in data["organizations"]

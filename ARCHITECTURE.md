@@ -83,6 +83,7 @@ The system utilizes a central orchestrator (`run_pipeline.py`) that sequences 7 
 
 ### 3. High-Performance Search & UX
 *   **Unified Search Hub:** The interface utilizes a segmented search bar pattern (Airbnb-style), integrating Keyword, Municipality, and Meeting Type filters into a single visual component.
+*   **Dynamic Metadata Flow:** The API provides a `/metadata` endpoint that retrieves 'Facets' directly from Meilisearch. This ensures the UI dropdowns only show Cities and Bodies that actually have documents, making the system "self-healing" as new scrapers are added.
 *   **Tiered Inspection:** To manage large document volumes, the UI implements a 3-tier inspection flow:
     1.  **Snippet:** Initial search match preview.
     2.  **Full Text:** On-demand expansion of complete OCR extraction.
