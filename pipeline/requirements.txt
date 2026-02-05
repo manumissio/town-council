@@ -10,3 +10,5 @@ camelot-py==0.11.0
 opencv-python-headless==4.9.0.80
 pypdf==6.6.2
 scikit-learn==1.5.0
+pytest==8.0.0
+pytest-mock==3.12.0

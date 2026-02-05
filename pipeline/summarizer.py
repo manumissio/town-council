@@ -4,10 +4,6 @@ import google.generativeai as genai
 from sqlalchemy.orm import sessionmaker
 from models import Catalog, db_connect, create_tables
 
-# Get the API key securely from the environment variables.
-# Never hardcode API keys in the source code!
-GEMINI_API_KEY = os.getenv('GEMINI_API_KEY')
-
 def summarize_documents():
     """
     Uses Google's Gemini AI to read meeting minutes and write short summaries.
@@ -17,12 +13,14 @@ def summarize_documents():
     2. It sends the text to Gemini with a specific instruction to write 3 bullet points.
     3. It saves the AI-generated summary back to the database.
     """
-    if not GEMINI_API_KEY:
+    # Get the API key securely from the environment variables.
+    api_key = os.getenv('GEMINI_API_KEY')
+    if not api_key:
         print("Error: GEMINI_API_KEY environment variable not set. Skipping summarization.")
         return
 
     # Set up the connection to Google's AI service.
-    genai.configure(api_key=GEMINI_API_KEY)
+    genai.configure(api_key=api_key)
     
     # We use 'gemini-1.5-flash' because it's fast, cheap, and can handle very long documents.
     model = genai.GenerativeModel('gemini-1.5-flash')
@@ -63,9 +61,7 @@ def summarize_documents():
                 "Do not use outside knowledge or make assumptions. "
                 "If the text is unclear or missing key details, simply summarize what is present. "
                 "Format your response as 3 clear, concise bullet points highlighting the most important decisions or discussions. "
-                "Do not include preamble or fluff.
-
-"
+                "Do not include preamble or fluff.\n\n"
                 f"TEXT: {record.content[:100000]}..." # Increased context window to 100k chars for better accuracy.
             )
 
