@@ -1,12 +1,12 @@
 import { useState, useRef, useEffect } from "react";
-import { Search, ChevronDown, X, Loader2, MapPin, Building2, Tag, Filter } from "lucide-react";
+import { Search, ChevronDown, X, Loader2, MapPin, Building2, Tag } from "lucide-react";
 
 /**
- * FilterDropdown Component
+ * SegmentedDropdown Component
  * 
- * A sleek, minimal dropdown that sits INSIDE the search bar unit.
+ * A sleek, borderless segment within the search bar that acts as a filter.
  */
-function FilterDropdown({ label, value, options, onChange, placeholder, icon: Icon }) {
+function SegmentedDropdown({ label, value, options, onChange, placeholder, icon: Icon }) {
   const [isOpen, setIsOpen] = useState(false);
   const dropdownRef = useRef(null);
 
@@ -21,38 +21,42 @@ function FilterDropdown({ label, value, options, onChange, placeholder, icon: Ic
   }, []);
 
   return (
-    <div className="relative flex-1 min-w-0" ref={dropdownRef}>
+    <div className="relative flex-1 min-w-[120px] hidden md:flex" ref={dropdownRef}>
+      {/* Vertical Divider */}
+      <div className="w-px h-8 bg-gray-100 self-center" />
+      
       <button
         onClick={() => setIsOpen(!isOpen)}
-        className={`w-full flex flex-col px-6 py-3 text-left transition-all hover:bg-gray-50 group border-l border-gray-100 first:border-l-0 ${isOpen ? 'bg-gray-50' : ''}`}
+        className={`flex-1 flex flex-col px-5 py-3 text-left transition-all hover:bg-gray-50 group ${isOpen ? 'bg-gray-50' : ''}`}
       >
-        <span className="text-[10px] font-black text-gray-400 uppercase tracking-widest mb-1">{label}</span>
-        <div className="flex items-center gap-2">
-          {Icon && <Icon className={`w-3.5 h-3.5 shrink-0 ${value ? 'text-blue-600' : 'text-gray-300'}`} />}
-          <span className={`text-[13px] font-bold truncate ${value ? 'text-gray-900' : 'text-gray-400'}`}>
+        <span className="text-[9px] font-black text-gray-400 uppercase tracking-widest mb-0.5">{label}</span>
+        <div className="flex items-center gap-1.5">
+          <span className={`text-[12px] font-bold truncate ${value ? 'text-blue-600' : 'text-gray-500'}`}>
             {value ? options.find(o => o.value.toLowerCase() === value.toLowerCase())?.label || value : placeholder}
           </span>
-          <ChevronDown className={`w-3.5 h-3.5 text-gray-300 ml-auto transition-transform duration-200 ${isOpen ? 'rotate-180' : ''}`} />
+          <ChevronDown className={`w-3 h-3 text-gray-300 transition-transform duration-200 ${isOpen ? 'rotate-180' : ''}`} />
         </div>
       </button>
 
       {isOpen && (
-        <div className="absolute top-full left-0 w-full mt-1 bg-white border border-gray-100 rounded-2xl shadow-2xl z-50 py-2 animate-in fade-in slide-in-from-top-1 duration-200 max-h-64 overflow-y-auto">
+        <div className="absolute top-full right-0 w-64 mt-2 bg-white border border-gray-100 rounded-2xl shadow-2xl z-50 py-2 animate-in fade-in slide-in-from-top-1 duration-200 overflow-hidden">
           <div 
             onClick={() => { onChange(""); setIsOpen(false); }}
-            className="px-4 py-2 text-[10px] font-black text-gray-400 hover:bg-gray-50 cursor-pointer uppercase tracking-widest border-b border-gray-50 mb-1"
+            className="px-4 py-2 text-[10px] font-black text-gray-300 hover:bg-gray-50 cursor-pointer uppercase tracking-widest border-b border-gray-50 mb-1"
           >
-            All {label}s
+            Clear {label}
           </div>
-          {options.map((opt) => (
-            <div
-              key={opt.value}
-              onClick={() => { onChange(opt.value); setIsOpen(false); }}
-              className={`px-4 py-3 text-[13px] font-medium cursor-pointer transition-colors ${value?.toLowerCase() === opt.value.toLowerCase() ? 'bg-blue-50 text-blue-700 font-bold' : 'text-gray-700 hover:bg-gray-50'}`}
-            >
-              {opt.label}
-            </div>
-          ))}
+          <div className="max-h-60 overflow-y-auto">
+            {options.map((opt) => (
+              <div
+                key={opt.value}
+                onClick={() => { onChange(opt.value); setIsOpen(false); }}
+                className={`px-4 py-2.5 text-[13px] font-medium cursor-pointer transition-colors ${value?.toLowerCase() === opt.value.toLowerCase() ? 'bg-blue-50 text-blue-700 font-bold' : 'text-gray-600 hover:bg-gray-50'}`}
+              >
+                {opt.label}
+              </div>
+            ))}
+          </div>
         </div>
       )}
     </div>
@@ -62,8 +66,8 @@ function FilterDropdown({ label, value, options, onChange, placeholder, icon: Ic
 /**
  * SearchHub Component
  * 
- * Restores the 'Original' sleek search bar look but embeds filters directly into it.
- * This satisfies both 'Resemble what it used to be' and 'Incorporate filters'.
+ * DESIGN GOAL: Restore the 'Original' wide, sleek search bar look but
+ * embed the filters as segments on the RIGHT side of the same row.
  */
 export default function SearchHub({ 
   query, setQuery, 
@@ -75,69 +79,81 @@ export default function SearchHub({
 }) {
   return (
     <section className="bg-white border-b border-gray-100 py-16 lg:py-24 shadow-inner relative z-20">
-      <div className="max-w-5xl mx-auto px-4">
+      <div className="max-w-6xl mx-auto px-4">
         
-        {/* The Unified Search Bar (Resembling the original sleek look) */}
-        <div className="bg-white border-2 border-gray-100 rounded-[3rem] shadow-2xl hover:shadow-[0_20px_60px_rgba(0,0,0,0.08)] transition-all duration-500 overflow-hidden group focus-within:ring-8 focus-within:ring-blue-500/5 focus-within:border-blue-400">
+        {/* The Unified Search Bar (SINGLE ROW DESIGN) */}
+        <div className="bg-white border-2 border-gray-100 rounded-full shadow-2xl hover:shadow-[0_20px_60px_rgba(0,0,0,0.1)] transition-all duration-500 flex items-stretch group focus-within:ring-8 focus-within:ring-blue-500/5 focus-within:border-blue-400">
           
-          {/* Main Input Row */}
-          <div className="flex items-center relative border-b border-gray-50">
+          {/* Main Keyword Search Segment */}
+          <div className="flex-[2] flex items-center relative min-w-0">
             <div className="absolute left-8 pointer-events-none text-gray-300 group-focus-within:text-blue-500 transition-colors">
-              <Search className="w-7 h-7" />
+              <Search className="w-6 h-6" />
             </div>
             <input
               type="search"
               autoFocus
-              className="w-full py-8 pl-20 pr-20 text-2xl font-bold tracking-tight text-gray-900 bg-transparent border-none focus:ring-0 placeholder:text-gray-300"
+              className="w-full py-7 pl-18 pr-4 text-lg font-bold tracking-tight text-gray-900 bg-transparent border-none focus:ring-0 placeholder:text-gray-300"
               placeholder="Search meeting records..."
               value={query}
               onChange={(e) => setQuery(e.target.value)}
             />
-            <div className="absolute right-6 flex items-center gap-4">
-              {isSearching && <Loader2 className="w-6 h-6 text-blue-500 animate-spin" />}
-              {(query || cityFilter || orgFilter || meetingTypeFilter) && (
-                <button 
-                  onClick={resetApp}
-                  className="p-3 bg-gray-50 hover:bg-red-50 text-red-400 hover:text-red-600 rounded-full transition-all group/reset"
-                  title="Clear all"
-                >
-                  <X className="w-5 h-5 group-hover/reset:rotate-90 transition-transform" />
-                </button>
-              )}
-            </div>
           </div>
 
-          {/* Filter Row (Integrated directly into the bottom of the bar) */}
-          <div className="flex flex-col lg:flex-row items-stretch bg-gray-50/30">
-            <FilterDropdown 
-              label="Where"
-              placeholder="All Cities"
-              value={cityFilter}
-              options={availableCities.map(c => ({ label: c, value: c.toLowerCase() }))}
-              onChange={setCityFilter}
-              icon={MapPin}
-            />
-            <FilterDropdown 
-              label="Body"
-              placeholder="All Bodies"
-              value={orgFilter}
-              options={availableOrgs.map(o => ({ label: o, value: o }))}
-              onChange={setOrgFilter}
-              icon={Building2}
-            />
-            <FilterDropdown 
-              label="Type"
-              placeholder="Any Type"
-              value={meetingTypeFilter}
-              options={[
-                { label: "Regular", value: "Regular" },
-                { label: "Special", value: "Special" },
-                { label: "Closed", value: "Closed" }
-              ]}
-              onChange={setMeetingTypeFilter}
-              icon={Tag}
-            />
+          {/* Integrated Filter Segments (Only shown on Desktop/Tablet) */}
+          <SegmentedDropdown 
+            label="Where"
+            placeholder="Municipality"
+            value={cityFilter}
+            options={availableCities.map(c => ({ label: c, value: c.toLowerCase() }))}
+            onChange={setCityFilter}
+          />
+
+          <SegmentedDropdown 
+            label="Body"
+            placeholder="Legislative Body"
+            value={orgFilter}
+            options={availableOrgs.map(o => ({ label: o, value: o }))}
+            onChange={setOrgFilter}
+          />
+
+          {/* Reset Button (Integrated at the end) */}
+          <div className="flex items-center pr-2 pl-2">
+            {isSearching ? (
+              <div className="p-4"><Loader2 className="w-5 h-5 text-blue-500 animate-spin" /></div>
+            ) : (query || cityFilter || orgFilter || meetingTypeFilter) ? (
+              <button 
+                onClick={resetApp}
+                className="p-4 bg-gray-50 hover:bg-red-50 text-red-400 hover:text-red-600 rounded-full transition-all group/reset"
+                title="Reset Search"
+              >
+                <X className="w-5 h-5 group-hover/reset:rotate-90 transition-transform" />
+              </button>
+            ) : (
+              <div className="w-12 h-12" /> // Spacer
+            )}
           </div>
+        </div>
+
+        {/* Mobile Filter Row (Only visible when stacked) */}
+        <div className="flex md:hidden mt-4 gap-2 overflow-x-auto pb-2 scrollbar-hide">
+           {availableCities.length > 0 && (
+             <select 
+               value={cityFilter} 
+               onChange={(e) => setCityFilter(e.target.value)}
+               className="bg-white border border-gray-200 rounded-xl px-4 py-2 text-xs font-bold text-gray-600"
+             >
+               <option value="">All Cities</option>
+               {availableCities.map(c => <option key={c} value={c.toLowerCase()}>{c}</option>)}
+             </select>
+           )}
+           <select 
+             value={meetingTypeFilter} 
+             onChange={(e) => setMeetingTypeFilter(e.target.value)}
+             className="bg-white border border-gray-200 rounded-xl px-4 py-2 text-xs font-bold text-gray-600"
+           >
+             <option value="">All Types</option>
+             {["Regular", "Special", "Closed"].map(t => <option key={t} value={t}>{t}</option>)}
+           </select>
         </div>
 
         {/* Quick Search Tags */}
@@ -146,7 +162,7 @@ export default function SearchHub({
             <button 
               key={tag} 
               onClick={() => setQuery(tag)}
-              className="px-6 py-2 bg-white border border-gray-200 text-gray-500 text-[11px] font-black uppercase tracking-widest rounded-full hover:border-blue-400 hover:text-blue-600 hover:shadow-lg transition-all active:scale-95"
+              className="px-6 py-2.5 bg-white border border-gray-200 text-gray-500 text-[11px] font-black uppercase tracking-widest rounded-full hover:border-blue-400 hover:text-blue-600 hover:shadow-lg transition-all"
             >
               {tag}
             </button>
