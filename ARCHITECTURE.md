@@ -1,6 +1,6 @@
 # Modernized Town Council Architecture (2026)
 
-This document provides a technical overview of the system design, focusing on the high-performance data pipeline and security model.
+This document provides a technical overview of the system design, focusing on the high-performance data pipeline, structured civic data modeling, and security model.
 
 ## System Diagram
 
@@ -17,11 +17,16 @@ graph TD
         Delta[Delta Crawling Logic]
     end
 
-    subgraph "Persistent Storage"
-        Postgres[(PostgreSQL 15)]
-        subgraph "Tables"
+    subgraph "Persistent Storage (PostgreSQL 15)"
+        subgraph "OCD Hierarchy"
+            Place[Place: Jurisdictions]
+            Org[Organization: Bodies]
+            Mem[Membership: Roles]
+            Person[Person: Officials]
+        end
+        subgraph "Data Tables"
             Stage[Staging: URLs/Events]
-            Prod[Production: Places/Events]
+            Prod[Production: Events]
             Cat[Catalog: Text/AI Metadata]
         end
     end
@@ -29,11 +34,11 @@ graph TD
     subgraph "Processing Pipeline (Python 3.12)"
         Downloader[Downloader: Parallel Streaming]
         Tika[Apache Tika: OCR/Text]
+        Linker[Person Linker: Entity Disambiguation]
         Workers[NLP/Topic/Table Workers]
-        Summarizer[AI Summarizer]
-    end
+    </div>
 
-    subgraph "Search & Presentation"
+    subgraph "Search & Access"
         Meili[[Meilisearch 1.6]]
         FastAPI[FastAPI Backend]
         NextJS[Next.js 16 UI]
@@ -56,14 +61,15 @@ graph TD
     Downloader -- "Absolute Paths" --> Postgres
     Downloader --> Tika
     Tika --> Workers
-    Workers --> Summarizer
-    Summarizer --> Gemini
-    Summarizer --> Cat
+    Workers --> Linker
+    Linker --> Mem & Person
 
-    %% Flow: Indexing & Access
+    %% Flow: Access & On-Demand AI
     Cat --> Meili
     Meili <--> FastAPI
-    FastAPI -- "CORS Enabled" --> NextJS
+    NextJS -- "POST /summarize" --> FastAPI
+    FastAPI -- "On-Demand" --> Gemini
+    FastAPI -- "CORS Restricted" --> NextJS
 
     %% Flow: Metrics
     Postgres -.-> Mon
@@ -78,26 +84,27 @@ The system utilizes city-specific spiders to handle municipal website volatility
 *   **Table-Centric (Berkeley):** Directly parses modern city websites using high-precision XPaths.
 *   **CivicPlus/Folder-Centric (Dublin):** Navigates standard government platforms that use metadata attributes (like `data-th`) for accessibility.
 *   **API-Centric (Cupertino):** Communicates directly with modern platforms like **Legistar Web API**. This provides the highest reliability as it bypasses HTML complexity and bot detection.
-*   **Delta Crawling:** All spiders implement a "look-back" check against the database to only fetch meetings that haven't been processed yet, saving bandwidth and compute.
+*   **Delta Crawling:** All spiders implement a "look-back" check against the database to only fetch meetings that haven't been processed yet.
 
-### 2. Security Model
-*   **Non-Root Execution:** All Docker containers run as a restricted `appuser` to minimize impact in case of a service breach.
-*   **Path Traversal Protection:** The `is_safe_path` validator ensures that file processing workers only interact with authorized directories within the `DATA_DIR` scope.
-*   **Credential Safety:** The system strictly uses environment variables for API keys and database credentials, with `trust_env=False` set on all network sessions to prevent accidental leakage.
+### 2. Structured Data Modeling (OCD Alignment)
+The system follows the **Open Civic Data (OCD)** standard to ensure interoperability and accountability:
+*   **Jurisdiction (Place):** The geographical scope (e.g., Berkeley, CA).
+*   **Organization:** The legislative body or committee (e.g., Planning Commission).
+*   **Membership:** The specific role an official holds within an organization.
+*   **Person:** A unique identity for an official, tracked across different roles and cities.
 
-### 3. High-Performance Search & UX
-*   **Unified Search Hub:** The interface utilizes a segmented search bar pattern (Airbnb-style), integrating Keyword, Municipality, and Meeting Type filters into a single visual component.
-*   **Dynamic Metadata Flow:** The API provides a `/metadata` endpoint that retrieves 'Facets' directly from Meilisearch. This ensures the UI dropdowns only show Cities and Bodies that actually have documents, making the system "self-healing" as new scrapers are added.
-*   **Tiered Inspection:** To manage large document volumes, the UI implements a 3-tier inspection flow:
-    1.  **Snippet:** Initial search match preview.
-    2.  **Full Text:** On-demand expansion of complete OCR extraction.
-    3.  **AI Insights:** Contextual toggle for Gemini-generated executive summaries.
-*   **Decoupled Search:** Meilisearch 1.6 provides instant, typo-tolerant results, allowing the PostgreSQL database to focus on transactional consistency.
+### 3. Security Model
+*   **CORS Restriction:** The API is hardened to only accept requests from the authorized frontend origin (`localhost:3000`).
+*   **Dependency Injection:** Database sessions are managed via FastAPI's dependency system, ensuring every connection is strictly closed after a request to prevent connection leaks.
+*   **Non-Root Execution:** All Docker containers run as a restricted `appuser`.
+*   **Path Traversal Protection:** The `is_safe_path` validator ensures workers only interact with authorized data directories.
 
-### 4. AI & NLP Strategy
-*   **On-Demand Summarization:** To prevent `429 Rate Limit` errors and manage costs, the system uses a **Lazy Generation** pattern. Summaries are only generated when requested by a user in the UI via the `/summarize` API endpoint.
-*   **Caching:** Once a summary is generated by **Gemini 2.0 Flash**, it is permanently saved to the `catalog` table and synced back to the Search Index. Subsequent requests for the same document are instant and cost-free.
-*   **Grounding:** AI models use a deterministic temperature of 0.0 and strict instructional grounding to eliminate hallucinations.
+### 4. High-Performance Search & UX
+*   **Unified Search Hub:** A segmented search bar integrating Keyword, Municipality, Body, and Type filters.
+*   **Yield-Based Indexing:** The Meilisearch indexer uses Python's `yield_per` pattern to stream hundreds of thousands of documents with minimal memory footprint.
+*   **Tiered Inspection:** A 3-tier UI flow (Snippet -> Full Text -> AI Insights) manages cognitive load.
 
-### 5. Deployment & Build
-The system uses **Multi-stage Docker builds**. Heavy build-time dependencies (compilers, headers) are discarded after the compilation phase, resulting in a lean, production-ready runtime image.
+### 5. AI Strategy
+*   **On-Demand Summarization:** To prevent `429 Rate Limit` errors, summaries are only generated when requested by a user in the UI.
+*   **Caching:** AI responses are permanently saved to the `catalog` table, making subsequent views instant and cost-free.
+*   **Grounding:** Models use a temperature of 0.0 and strict instructional grounding to eliminate hallucinations.
