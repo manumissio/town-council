@@ -636,10 +636,13 @@ export default function Home() {
       </div>
 
       {/* Footer */}
-      <footer className="bg-white border-t border-gray-200 py-10 mt-12">
-        <div className="max-w-7xl mx-auto px-4 text-center">
-          <p className="text-xs text-gray-400 font-medium tracking-tight uppercase">
-            Data provided by Data4Democracy Town Council Insight &copy; 2026
+      <footer className="bg-white border-t border-gray-200 py-12 mt-12">
+        <div className="max-w-5xl mx-auto px-4 text-center">
+          <p className="text-[11px] text-gray-400 font-bold tracking-widest uppercase mb-2">
+            Town Council Insight
+          </p>
+          <p className="text-sm text-gray-500 max-w-2xl mx-auto leading-relaxed">
+            An open-source initiative originally launched in 2017 by Data for Democracy to improve civic transparency and provide public access to local government records.
           </p>
         </div>
       </footer>
