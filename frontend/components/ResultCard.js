@@ -75,6 +75,11 @@ export default function ResultCard({ hit, onPersonClick }) {
               <span className="inline-flex items-center gap-1.5">
                 <Calendar className="w-4 h-4 text-gray-400" /> {hit.date ? new Date(hit.date).toLocaleDateString(undefined, { dateStyle: 'long' }) : "Unknown Date"}
               </span>
+              {!isAgendaItem && (
+                <span className="inline-flex items-center gap-1.5 opacity-75">
+                  <FileText className="w-4 h-4 text-gray-400" /> {hit.filename}
+                </span>
+              )}
             </div>
           </div>
           
@@ -98,7 +103,24 @@ export default function ResultCard({ hit, onPersonClick }) {
           </div>
         </div>
 
-        {/* ... (Officials section remains same) */}
+        {hit.people_metadata && hit.people_metadata.length > 0 && (
+          <div className="mb-4 flex flex-wrap items-center gap-2">
+            <span className="text-[10px] font-bold text-gray-400 uppercase tracking-widest mr-1">Officials:</span>
+            {hit.people_metadata.slice(0, 5).map((person) => (
+              <button 
+                key={person.id}
+                onClick={() => onPersonClick(person.id)}
+                className="inline-flex items-center gap-1 px-2.5 py-1 bg-white border border-gray-200 text-gray-600 text-[11px] font-bold rounded-lg hover:border-blue-300 hover:text-blue-600 hover:bg-blue-50 transition-all shadow-sm"
+              >
+                <UserCircle className="w-3.5 h-3.5" />
+                {person.name}
+              </button>
+            ))}
+            {hit.people_metadata.length > 5 && (
+              <span className="text-[10px] text-gray-400 italic">+{hit.people_metadata.length - 5} more</span>
+            )}
+          </div>
+        )}
         
         {!isExpanded && (
           <div className="mb-2">
