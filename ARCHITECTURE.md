@@ -27,6 +27,7 @@ graph TD
         subgraph "Data Tables"
             Stage[Staging: URLs/Events]
             Prod[Production: Events]
+            Items[Agenda Items: Deep-Links]
             Cat[Catalog: Text/AI Metadata]
         end
     end
@@ -34,9 +35,10 @@ graph TD
     subgraph "Processing Pipeline (Python 3.12)"
         Downloader[Downloader: Parallel Streaming]
         Tika[Apache Tika: OCR/Text]
+        Segmenter[Agenda Segmenter: AI Splitting]
         Linker[Person Linker: Entity Disambiguation]
         Workers[NLP/Topic/Table Workers]
-    </div>
+    end
 
     subgraph "Search & Access"
         Meili[[Meilisearch 1.6]]
@@ -60,7 +62,9 @@ graph TD
     Prod --> Downloader
     Downloader -- "Absolute Paths" --> Postgres
     Downloader --> Tika
-    Tika --> Workers
+    Tika --> Segmenter
+    Segmenter --> Items
+    Items --> Workers
     Workers --> Linker
     Linker --> Mem & Person
 
@@ -93,7 +97,18 @@ The system follows the **Open Civic Data (OCD)** standard to ensure interoperabi
 *   **Membership:** The specific role an official holds within an organization.
 *   **Person:** A unique identity for an official, tracked across different roles and cities.
 
-### 3. Security Model
+### 3. Agenda Item Segmentation (Deep-Linking)
+To solve the "Needle in a Haystack" problem, the system uses an AI-driven segmentation worker:
+*   **Splitting Logic:** Gemini 2.0 Flash reads the full OCR text and identifies individual agenda items, extracting titles, descriptions, and results (e.g., "Passed").
+*   **Granular Indexing:** These items are indexed in Meilisearch as separate, first-class entities.
+*   **Benefit:** Search results can point users directly to the specific 1-page section of a 500-page packet, significantly improving accessibility.
+
+### 4. Interoperable Identifiers (OCD-ID)
+The system implements a standardized identifier generator (`ocd-[type]/[uuid]`) for all core entities:
+*   **Avoids IDOR Attacks:** Random UUIDs prevent malicious enumeration of records.
+*   **Federation Ready:** By following the OCD standard, the database is interoperable with other civic data projects like *Open States* or *Councilmatic*.
+
+### 5. Security Model
 *   **CORS Restriction:** The API is hardened to only accept requests from the authorized frontend origin (`localhost:3000`).
 *   **Dependency Injection:** Database sessions are managed via FastAPI's dependency system, ensuring every connection is strictly closed after a request to prevent connection leaks.
 *   **Non-Root Execution:** All Docker containers run as a restricted `appuser`.

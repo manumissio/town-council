@@ -4,13 +4,8 @@ import { X, User, Loader2, Building2, Info } from "lucide-react";
 /**
  * PersonProfile Component
  * 
- * Displays a detailed view of an official, including all committees 
- * and boards they serve on across the system.
- * 
- * How it works: 
- * 1. It takes a 'personId'.
- * 2. It fetches that person's specific roles and city history from the API.
- * 3. It shows them in a beautiful, easy-to-read overlay (modal).
+ * RESTORED: This version brings back the original 'Sleek' modal design.
+ * It uses a bold blue header, deep rounded corners, and a clean backdrop blur.
  */
 export default function PersonProfile({ personId, onClose }) {
   const [data, setData] = useState(null);

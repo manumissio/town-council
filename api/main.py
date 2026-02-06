@@ -1,6 +1,5 @@
 import sys
 import os
-import sys
 import logging
 import meilisearch
 from google import genai
@@ -78,13 +77,14 @@ def search_documents(
         search_params = {
             'limit': limit,
             'offset': offset,
-            'attributesToHighlight': ['content'],
+            'attributesToHighlight': ['content', 'title', 'description'],
             'highlightPreTag': '<em class="bg-yellow-200 not-italic font-semibold px-0.5 rounded">',
             'highlightPostTag': '</em>',
             'filter': []
         }
         
-        if city: search_params['filter'].append(f'city = "{city}"')
+        # Normalize city to lowercase to match the indexed display_name (e.g., 'ca_berkeley')
+        if city: search_params['filter'].append(f'city = "{city.lower()}"')
         if meeting_type: search_params['filter'].append(f'meeting_category = "{meeting_type}"')
         if org: search_params['filter'].append(f'organization = "{org}"')
 

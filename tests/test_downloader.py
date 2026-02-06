@@ -33,7 +33,7 @@ def test_downloader_absolute_path(db_session, mocker, monkeypatch):
     monkeypatch.setenv("DATA_DIR", test_data_dir)
     
     # 2. Seed Data
-    place = Place(name="Test City", ocd_division_id="ocd-division/country:us/state:ca/place:test")
+    place = Place(name="Test City", ocd_division_id="ocd-division/country:us/state:ca/place:test", state="CA")
     db_session.add(place)
     db_session.flush()
     
@@ -83,7 +83,7 @@ def test_downloader_race_condition(db_session, mocker):
     )
     db_session.add(existing_file)
     
-    place = Place(name="City", ocd_division_id="ocd-city")
+    place = Place(name="City", ocd_division_id="ocd-city", state="CA")
     db_session.add(place)
     db_session.flush()
     

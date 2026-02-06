@@ -25,7 +25,7 @@ def test_organization_hierarchy(db_session):
     Place (City) -> Organization (Body) -> Event (Meeting)
     """
     # 1. Create a City
-    berkeley = Place(name="Berkeley", ocd_division_id="ocd-berkeley")
+    berkeley = Place(name="Berkeley", ocd_division_id="ocd-berkeley", state="CA")
     db_session.add(berkeley)
     db_session.flush()
 
@@ -60,7 +60,7 @@ def test_organization_deduplication(db_session):
     """
     Test: Does the system correctly link multiple meetings to the SAME organization?
     """
-    place = Place(name="Dublin", ocd_division_id="ocd-dublin")
+    place = Place(name="Dublin", ocd_division_id="ocd-dublin", state="CA")
     db_session.add(place)
     db_session.flush()
 

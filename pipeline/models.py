@@ -90,6 +90,7 @@ class Organization(Base):
     __tablename__ = 'organization'
 
     id = Column(Integer, primary_key=True)
+    ocd_id = Column(String, unique=True, index=True) # e.g. ocd-organization/uuid
     place_id = Column(Integer, ForeignKey('place.id'), nullable=False, index=True)
     name = Column(String, nullable=False) # e.g. "Planning Commission"
     classification = Column(String) # e.g. "legislature", "committee"
@@ -111,6 +112,7 @@ class Person(Base):
     __tablename__ = 'person'
 
     id = Column(Integer, primary_key=True)
+    ocd_id = Column(String, unique=True, index=True) # e.g. ocd-person/uuid
     name = Column(String, nullable=False, index=True)
     image_url = Column(String, nullable=True)
     biography = Column(String, nullable=True)
@@ -193,6 +195,7 @@ class Event(Base):
     __tablename__ = 'event'
 
     id = Column(Integer, primary_key=True)
+    ocd_id = Column(String, unique=True, index=True) # e.g. ocd-event/uuid
     ocd_division_id = Column(String)
     place_id = Column(Integer, ForeignKey('place.id'), nullable=False)
     organization_id = Column(Integer, ForeignKey('organization.id'), nullable=True, index=True)
@@ -206,6 +209,36 @@ class Event(Base):
     # Relationships
     place = relationship('Place')
     organization = relationship('Organization', back_populates='events')
+    agenda_items = relationship('AgendaItem', back_populates='event', cascade="all, delete-orphan")
+
+
+class AgendaItem(Base):
+    """
+    Represents a single segment or item from a meeting agenda.
+    
+    Why this is needed:
+    Meeting minutes are often huge. By splitting them into individual items,
+    we can take a user directly to the relevant part of a 100-page document.
+    """
+    __tablename__ = 'agenda_item'
+
+    id = Column(Integer, primary_key=True)
+    ocd_id = Column(String, unique=True, index=True) # e.g. ocd-agendaitem/uuid
+    event_id = Column(Integer, ForeignKey('event.id'), nullable=False, index=True)
+    
+    # Content extracted by AI
+    order = Column(Integer) # The 1st, 2nd, 3rd item in the agenda
+    title = Column(String, nullable=False)
+    description = Column(String)
+    classification = Column(String) # e.g. "Action", "Discussion", "Consent"
+    result = Column(String) # e.g. "Passed", "Failed", "Deferred"
+    
+    # Link back to the raw text source
+    catalog_id = Column(Integer, ForeignKey('catalog.id'), nullable=True)
+
+    # Relationships
+    event = relationship('Event', back_populates='agenda_items')
+    catalog = relationship('Catalog')
 
 
 class UrlStageHist(Base):

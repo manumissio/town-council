@@ -52,7 +52,7 @@ def test_promotion_logic(db_session, mocker):
     We want to ensure that a meeting in 'EventStage' moves to the 'Event' table.
     """
     # 1. Setup: Create a city first (needed for the foreign key link).
-    place = Place(name="Belmont", ocd_division_id="ocd-belmont")
+    place = Place(name="Belmont", ocd_division_id="ocd-belmont", state="CA")
     db_session.add(place)
     
     # 2. Add a meeting to the 'Staging' area (EventStage).

@@ -6,6 +6,7 @@ from sqlalchemy.orm import sessionmaker
 sys.path.append(os.path.join(os.path.dirname(__file__), '..'))
 
 from pipeline.models import db_connect, Place, Organization, Event
+from pipeline.utils import generate_ocd_id
 
 def backfill_organizations():
     """
@@ -28,7 +29,12 @@ def backfill_organizations():
     for place in places:
         council = session.query(Organization).filter_by(place_id=place.id, name="City Council").first()
         if not council:
-            session.add(Organization(name="City Council", classification="legislature", place_id=place.id))
+            session.add(Organization(
+                name="City Council", 
+                classification="legislature", 
+                place_id=place.id,
+                ocd_id=generate_ocd_id('organization')
+            ))
     session.flush()
 
     # 2. Link events
@@ -48,7 +54,12 @@ def backfill_organizations():
         # Find or Create the body for this specific city
         org = session.query(Organization).filter_by(place_id=event.place_id, name=org_name).first()
         if not org:
-            org = Organization(name=org_name, classification="committee", place_id=event.place_id)
+            org = Organization(
+                name=org_name, 
+                classification="committee", 
+                place_id=event.place_id,
+                ocd_id=generate_ocd_id('organization')
+            )
             session.add(org)
             session.flush()
         

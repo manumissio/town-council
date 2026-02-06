@@ -10,6 +10,22 @@ sys.path.append(os.path.join(root_dir, 'council_crawler'))
 
 from council_crawler.utils import url_to_md5, parse_date_string
 from pipeline.extractor import is_safe_path
+from pipeline.utils import generate_ocd_id
+import re
+
+def test_ocd_id_format():
+    """
+    Test: Ensure generated OCD-IDs follow the standard format.
+    Format: ocd-[type]/[uuid4]
+    """
+    item_id = generate_ocd_id('agendaitem')
+    assert item_id.startswith('ocd-agendaitem/')
+    
+    # Extract UUID part
+    uuid_part = item_id.split('/')[-1]
+    # Simple regex for UUID v4
+    uuid_regex = r'^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$'
+    assert re.match(uuid_regex, uuid_part)
 
 def test_url_to_md5():
     """

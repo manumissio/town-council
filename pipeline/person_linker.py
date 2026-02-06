@@ -7,6 +7,7 @@ from sqlalchemy import func
 sys.path.append(os.path.join(os.path.dirname(__file__), '..'))
 
 from pipeline.models import db_connect, Catalog, Document, Event, Organization, Person, Membership
+from pipeline.utils import generate_ocd_id
 
 def link_people():
     """
@@ -64,7 +65,11 @@ def link_people():
                 # Check DB first
                 person = session.query(Person).filter(func.lower(Person.name) == name.lower()).first()
                 if not person:
-                    person = Person(name=name, current_role=f"Official in {event.place.name}")
+                    person = Person(
+                        name=name, 
+                        current_role=f"Official in {event.place.name}",
+                        ocd_id=generate_ocd_id('person')
+                    )
                     session.add(person)
                     session.flush()
                     person_count += 1

@@ -1,6 +1,7 @@
 from sqlalchemy import text
 from sqlalchemy.orm import sessionmaker
 from models import Event, EventStage, Place, db_connect, create_tables
+from utils import generate_ocd_id
 
 def promote_stage():
     """
@@ -48,6 +49,7 @@ def promote_stage():
             # 3. Create the Production Record.
             # Copy valid data from staging to the live Event table.
             event = Event(
+                ocd_id=generate_ocd_id('event'),
                 ocd_division_id=staged.ocd_division_id,
                 place_id=place.id,
                 name=staged.name,

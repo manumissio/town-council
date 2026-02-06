@@ -9,6 +9,8 @@ This project has been modernized from its 2017 pilot into a high-performance acc
 
 **Key Updates:**
 - **Accountability Hub:** Clickable **Official Profiles** showing full legislative history and committee assignments.
+- **Deep-Linking:** AI-segmented **Agenda Items** that take you directly to specific discussions within large documents.
+- **Interoperability:** Standardized **OCD-IDs** for all entities, allowing data federation with other civic platforms.
 - **Unified Search:** A segmented "Airbnb-style" Search Hub integrating Municipality, Body, and Meeting Type filters.
 - **On-Demand AI:** Instant 3-bullet summaries using **Gemini 2.0 Flash** with automatic database caching.
 - **Scalable Search:** Instant, typo-tolerant search powered by **Meilisearch** using yield-based indexing.
