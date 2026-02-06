@@ -40,7 +40,7 @@ def index_documents():
     Session = sessionmaker(bind=engine)
     session = Session()
 
-    batch_size = 100
+    batch_size = 20
     documents_batch = []
     count = 0
 
@@ -57,7 +57,7 @@ def index_documents():
     ).filter(
         Catalog.content != None,
         Catalog.content != ""
-    ).yield_per(100)
+    ).yield_per(20)
 
     for doc, catalog, event, place, organization in doc_query:
         entities = catalog.entities or {}
@@ -84,9 +84,13 @@ def index_documents():
             'catalog_id': catalog.id,
             'filename': catalog.filename,
             'url': catalog.url,
-            'content': catalog.content, 
+            # PERFORMANCE: Truncate content to avoid payload limits. 
+            # 50k chars is enough for search relevance.
+            'content': catalog.content[:50000], 
             'summary': catalog.summary,
             'summary_extractive': catalog.summary_extractive,
+            'topics': catalog.topics,
+            'related_ids': catalog.related_ids,
             'entities': entities,
             'people_metadata': people_list,
             'people': [p['name'] for p in people_list],

@@ -287,6 +287,9 @@ class Catalog(Base):
     
     # AI-discovered topics/themes (e.g. ["Housing", "Zoning"]) (JSON)
     topics = Column(JSON, nullable=True)
+
+    # Pre-calculated references to similar meetings (JSON list of Catalog IDs)
+    related_ids = Column(JSON, nullable=True)
     
     uploaded_at = Column(DateTime, default=datetime.datetime.now)
 

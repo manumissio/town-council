@@ -114,6 +114,7 @@ To balance performance and cost, the system utilizes a **Hybrid Strategy**:
     *   **Entity Resolution:** Uses the **Levenshtein Distance** algorithm (via RapidFuzz) to resolve similar names.
     *   **Summarization:** Uses **TextRank** (via SpaCy/PyTextRank) to identify the 3 most central sentences in a document.
     *   **Topic Discovery:** Uses **TF-IDF** (Term Frequency-Inverse Document Frequency) via Scikit-learn. This identifies words that are statistically unique to a document (e.g., 'ADU', 'Cannabis') compared to the rest of the database, providing automated tagging at $0 cost.
+    *   **Semantic Linking:** Uses **Cosine Similarity** on document embeddings. The system pre-calculates the "mathematical distance" between all meetings to identify the top 3 most related discussions, creating a relational knowledge graph of civic history.
 *   **Tier 2 (Cloud/Generative):** 
     *   Complex tasks like high-quality bulleted summarization and agenda segmentation use **Gemini 2.0 Flash**. These are triggered on-demand by the user to minimize token usage and avoid rate limits.
 *   **Blocking:** Name comparisons are "blocked" by city to ensure the algorithm scales without slowing down.

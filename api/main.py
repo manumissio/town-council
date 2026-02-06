@@ -166,6 +166,34 @@ def get_person_history(
         "roles": history
     }
 
+@app.get("/catalog/batch")
+def get_catalogs_batch(
+    ids: List[int] = Query(...),
+    db: SQLAlchemySession = Depends(get_db)
+):
+    """
+    Returns a list of meeting summaries for multiple IDs.
+    Used to display 'Related Meetings' links.
+    """
+    records = db.query(Catalog, Document, Event, Place).join(
+        Document, Document.catalog_id == Catalog.id
+    ).join(
+        Event, Document.event_id == Event.id
+    ).join(
+        Place, Document.place_id == Place.id
+    ).filter(Catalog.id.in_(ids)).all()
+    
+    results = []
+    for cat, doc, event, place in records:
+        results.append({
+            "id": cat.id,
+            "filename": cat.filename,
+            "title": event.name,
+            "date": event.record_date.isoformat() if event.record_date else None,
+            "city": place.display_name or place.name
+        })
+    return results
+
 @app.post("/summarize/{catalog_id}")
 def generate_summary(
     catalog_id: int = Path(..., ge=1),

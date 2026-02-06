@@ -1,8 +1,8 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import DOMPurify from "isomorphic-dompurify";
 import { 
   MapPin, Calendar, FileText, ExternalLink, ChevronUp, ChevronDown, 
-  Sparkles, Building2, UserCircle, Table as TableIcon, Loader2
+  Sparkles, Building2, UserCircle, Table as TableIcon, Loader2, Link2
 } from "lucide-react";
 import DataTable from "./DataTable";
 
@@ -18,10 +18,36 @@ export default function ResultCard({ hit, onPersonClick }) {
   
   const [summary, setSummary] = useState(hit.summary);
   const [agendaItems, setAgendaItems] = useState(null);
+  const [relatedMeetings, setRelatedMeetings] = useState(null);
   const [isGenerating, setIsGenerating] = useState(false);
   const [isSegmenting, setIsSegmenting] = useState(false);
+  const [isLoadingRelated, setIsLoadingRelated] = useState(false);
 
   const isAgendaItem = hit.result_type === 'agenda_item';
+
+  // Fetch related meetings when expanded
+  useEffect(() => {
+    if (isExpanded && hit.related_ids && hit.related_ids.length > 0 && !relatedMeetings) {
+      fetchRelatedMeetings();
+    }
+  }, [isExpanded, hit.related_ids]);
+
+  const fetchRelatedMeetings = async () => {
+    setIsLoadingRelated(true);
+    try {
+      const apiUrl = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
+      const params = new URLSearchParams();
+      hit.related_ids.forEach(id => params.append('ids', id));
+      
+      const res = await fetch(`${apiUrl}/catalog/batch?${params.toString()}`);
+      const data = await res.json();
+      setRelatedMeetings(data);
+    } catch (err) {
+      console.error("Failed to fetch related meetings", err);
+    } finally {
+      setIsLoadingRelated(false);
+    }
+  };
 
   const handleGenerateSummary = async () => {
     if (!hit.catalog_id) return;
@@ -362,6 +388,34 @@ export default function ResultCard({ hit, onPersonClick }) {
                 {hit.tables.slice(0, 3).map((table, i) => (
                   <DataTable key={i} data={table} />
                 ))}
+              </div>
+            )}
+
+            {hit.related_ids && hit.related_ids.length > 0 && (
+              <div className="space-y-4 pt-6 border-t border-gray-100">
+                <div className="flex items-center gap-2 text-gray-400 font-bold text-[10px] uppercase tracking-widest">
+                  <Link2 className="w-4 h-4" />
+                  Related Discussions
+                </div>
+                {isLoadingRelated ? (
+                  <div className="flex items-center gap-2 text-xs text-gray-400 italic">
+                    <Loader2 className="w-3 h-3 animate-spin" /> Finding similar meetings...
+                  </div>
+                ) : relatedMeetings && (
+                  <div className="grid gap-3">
+                    {relatedMeetings.map((related) => (
+                      <div key={related.id} className="flex items-center justify-between p-3 bg-gray-50/50 hover:bg-blue-50/50 rounded-xl border border-gray-100 transition-colors group/rel">
+                        <div className="flex flex-col gap-0.5">
+                          <span className="text-[13px] font-bold text-gray-800 group-hover/rel:text-blue-700 transition-colors">{related.title}</span>
+                          <span className="text-[11px] text-gray-500 font-medium">{related.city} • {new Date(related.date).toLocaleDateString(undefined, { dateStyle: 'medium' })}</span>
+                        </div>
+                        <button className="text-[10px] font-black uppercase text-blue-600 opacity-0 group-hover/rel:opacity-100 transition-opacity flex items-center gap-1">
+                          View <ChevronDown className="w-3 h-3 -rotate-90" />
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+                )}
               </div>
             )}
           </div>
