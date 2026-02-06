@@ -9,16 +9,17 @@ import DataTable from "./DataTable";
 /**
  * ResultCard Component
  * 
- * RESTORED: This version brings back the original 'Sleek' design.
- * It uses high-contrast badges, clean white cards with deep radius,
- * and a clear distinction between raw text and AI insights.
+ * DESIGN: Uses a tabbed interface for Full Text, AI Summary, and Structured Agenda.
+ * All AI features are "On-Demand" to minimize API costs and respect rate limits.
  */
 export default function ResultCard({ hit, onPersonClick }) {
   const [isExpanded, setIsExpanded] = useState(false);
-  const [showSummary, setShowSummary] = useState(false);
+  const [viewMode, setViewMode] = useState("text"); // 'text', 'summary', 'agenda'
   
   const [summary, setSummary] = useState(hit.summary);
+  const [agendaItems, setAgendaItems] = useState(null);
   const [isGenerating, setIsGenerating] = useState(false);
+  const [isSegmenting, setIsSegmenting] = useState(false);
 
   const isAgendaItem = hit.result_type === 'agenda_item';
 
@@ -38,6 +39,25 @@ export default function ResultCard({ hit, onPersonClick }) {
       console.error("AI Generation failed", err);
     } finally {
       setIsGenerating(false);
+    }
+  };
+
+  const handleGenerateAgenda = async () => {
+    if (!hit.catalog_id) return;
+    
+    setIsSegmenting(true);
+    try {
+      const apiUrl = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
+      const res = await fetch(`${apiUrl}/segment/${hit.catalog_id}`, { method: "POST" });
+      const data = await res.json();
+      
+      if (data.items) {
+        setAgendaItems(data.items);
+      }
+    } catch (err) {
+      console.error("Agenda segmentation failed", err);
+    } finally {
+      setIsSegmenting(false);
     }
   };
 
@@ -121,7 +141,7 @@ export default function ResultCard({ hit, onPersonClick }) {
             )}
           </div>
         )}
-        
+
         {!isExpanded && (
           <div className="mb-2">
             {isAgendaItem ? (
@@ -149,28 +169,37 @@ export default function ResultCard({ hit, onPersonClick }) {
         {isExpanded && (
           <div className="mt-6 space-y-6 animate-in fade-in slide-in-from-top-2 duration-300">
             <div className="flex items-center justify-between p-2 bg-gray-50 rounded-2xl border border-gray-100">
-              <div className="flex gap-1 p-1 bg-white rounded-xl border border-gray-100 shadow-sm">
+              <div className="flex gap-1 p-1 bg-white rounded-xl border border-gray-100 shadow-sm overflow-x-auto">
                 <button 
-                  onClick={() => setShowSummary(false)}
-                  className={`px-4 py-2 text-xs font-bold rounded-lg transition-all ${!showSummary ? 'bg-blue-600 text-white shadow-sm' : 'text-gray-500 hover:bg-gray-50'}`}
+                  onClick={() => setViewMode("text")}
+                  className={`px-4 py-2 text-xs font-bold rounded-lg transition-all whitespace-nowrap ${viewMode === "text" ? 'bg-blue-600 text-white shadow-sm' : 'text-gray-500 hover:bg-gray-50'}`}
                 >
-                  Full Document Text
+                  Full Text
                 </button>
                 <button 
-                  onClick={() => setShowSummary(true)}
-                  className={`px-4 py-2 text-xs font-bold rounded-lg transition-all flex items-center gap-2 ${showSummary ? 'bg-purple-600 text-white shadow-sm' : 'text-gray-500 hover:bg-gray-50'}`}
+                  onClick={() => setViewMode("summary")}
+                  className={`px-4 py-2 text-xs font-bold rounded-lg transition-all flex items-center gap-2 whitespace-nowrap ${viewMode === "summary" ? 'bg-purple-600 text-white shadow-sm' : 'text-gray-500 hover:bg-gray-50'}`}
                 >
-                  <Sparkles className={`w-3.5 h-3.5 ${showSummary ? 'text-white' : 'text-purple-500'}`} />
-                  AI Insights
+                  <Sparkles className={`w-3.5 h-3.5 ${viewMode === "summary" ? 'text-white' : 'text-purple-500'}`} />
+                  AI Summary
                 </button>
+                {!isAgendaItem && (
+                  <button 
+                    onClick={() => setViewMode("agenda")}
+                    className={`px-4 py-2 text-xs font-bold rounded-lg transition-all flex items-center gap-2 whitespace-nowrap ${viewMode === "agenda" ? 'bg-indigo-600 text-white shadow-sm' : 'text-gray-500 hover:bg-gray-50'}`}
+                  >
+                    <TableIcon className={`w-3.5 h-3.5 ${viewMode === "agenda" ? 'text-white' : 'text-indigo-500'}`} />
+                    Structured Agenda
+                  </button>
+                )}
               </div>
-              <span className="px-4 text-[10px] font-bold text-gray-400 uppercase tracking-widest">
-                {showSummary ? "Gemini 2.0 AI" : "OCR Extraction"}
+              <span className="hidden sm:block px-4 text-[10px] font-bold text-gray-400 uppercase tracking-widest">
+                {viewMode === "text" ? "OCR Extraction" : "Gemini AI"}
               </span>
             </div>
 
             <div className="relative">
-              {showSummary ? (
+              {viewMode === "summary" ? (
                 <div className="p-8 bg-purple-50/30 border border-purple-100 rounded-3xl space-y-6">
                   <div className="space-y-3">
                     <div className="flex items-center gap-2 text-purple-700 font-bold text-[11px] uppercase tracking-widest">
@@ -196,15 +225,9 @@ export default function ResultCard({ hit, onPersonClick }) {
                           className="px-6 py-2.5 bg-purple-600 text-white text-xs font-bold rounded-xl shadow-lg shadow-purple-200 hover:bg-purple-700 transition-all active:scale-95 disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2"
                         >
                           {isGenerating ? (
-                            <>
-                              <Loader2 className="w-4 h-4 animate-spin" />
-                              Gemini is reading...
-                            </>
+                            <><Loader2 className="w-4 h-4 animate-spin" /> Reading...</>
                           ) : (
-                            <>
-                              <Sparkles className="w-3.5 h-3.5" />
-                              Generate AI Summary
-                            </>
+                            <><Sparkles className="w-3.5 h-3.5" /> Generate Summary</>
                           )}
                         </button>
                       </div>
@@ -239,6 +262,55 @@ export default function ResultCard({ hit, onPersonClick }) {
                       )}
                     </div>
                   )}
+                </div>
+              ) : viewMode === "agenda" ? (
+                <div className="p-8 bg-indigo-50/30 border border-indigo-100 rounded-3xl space-y-6">
+                  <div className="space-y-3">
+                    <div className="flex items-center gap-2 text-indigo-700 font-bold text-[11px] uppercase tracking-widest">
+                      <TableIcon className="w-4 h-4" />
+                      Segmented Agenda Items
+                    </div>
+                    {agendaItems ? (
+                      <div className="grid gap-4">
+                        {agendaItems.map((item, i) => (
+                          <div key={i} className="p-4 bg-white border border-indigo-100 rounded-2xl shadow-sm">
+                            <div className="flex items-start gap-3">
+                              <span className="bg-indigo-100 text-indigo-700 w-6 h-6 rounded-full flex items-center justify-center text-[10px] font-bold shrink-0">{item.order || i+1}</span>
+                              <div className="space-y-1">
+                                <h5 className="font-bold text-gray-900 text-sm">{item.title}</h5>
+                                <p className="text-xs text-gray-600 leading-relaxed">{item.description}</p>
+                                <div className="flex gap-2 pt-1">
+                                  {item.classification && <span className="text-[9px] font-black uppercase text-indigo-400">{item.classification}</span>}
+                                  {item.result && <span className="text-[9px] font-black uppercase text-green-500">• {item.result}</span>}
+                                </div>
+                              </div>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    ) : (
+                      <div className="py-12 flex flex-col items-center justify-center border-2 border-dashed border-indigo-200 rounded-3xl bg-white/50">
+                        <div className="mb-4 bg-indigo-100 p-3 rounded-full">
+                          <TableIcon className="w-6 h-6 text-indigo-600" />
+                        </div>
+                        <h4 className="font-bold text-indigo-900 mb-1">Agenda not segmented</h4>
+                        <p className="text-indigo-600/60 text-xs mb-6 max-w-[240px] text-center">
+                          Use AI to split this document into individual, searchable agenda items.
+                        </p>
+                        <button 
+                          onClick={handleGenerateAgenda}
+                          disabled={isSegmenting}
+                          className="px-6 py-2.5 bg-indigo-600 text-white text-xs font-bold rounded-xl shadow-lg shadow-indigo-200 hover:bg-indigo-700 transition-all active:scale-95 disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2"
+                        >
+                          {isSegmenting ? (
+                            <><Loader2 className="w-4 h-4 animate-spin" /> Splitting...</>
+                          ) : (
+                            <><Sparkles className="w-3.5 h-3.5" /> Segment Agenda Items</>
+                          )}
+                        </button>
+                      </div>
+                    )}
+                  </div>
                 </div>
               ) : (
                 <div className="p-8 bg-gray-50/50 border border-gray-100 rounded-3xl">

@@ -16,7 +16,8 @@ logger = logging.getLogger("town-council-api")
 sys.path.append(os.path.join(os.path.dirname(__file__), '..'))
 
 try:
-    from pipeline.models import db_connect, Document, Event, Place, Catalog, Person
+    from pipeline.models import db_connect, Document, Event, Place, Catalog, Person, AgendaItem
+    from pipeline.utils import generate_ocd_id
     engine = db_connect()
     SessionLocal = sessionmaker(bind=engine, autoflush=False, autocommit=False)
 except ImportError:
@@ -219,6 +220,87 @@ def generate_summary(
     except Exception as e:
         db.rollback()
         logger.error(f"Summarization error: {e}")
+        raise HTTPException(status_code=500, detail="Internal server error")
+
+@app.post("/segment/{catalog_id}")
+def segment_agenda(
+    catalog_id: int = Path(..., ge=1),
+    db: SQLAlchemySession = Depends(get_db)
+):
+    """
+    On-Demand AI Worker: Splits a large document into structured agenda items.
+    
+    Why: To avoid rate limits, we only process documents when a user 
+    explicitly clicks 'View Agenda' in the UI.
+    """
+    if not ai_client:
+        raise HTTPException(status_code=503, detail="Gemini AI is not configured")
+
+    catalog = db.get(Catalog, catalog_id)
+    if not catalog:
+        raise HTTPException(status_code=404, detail="Document not found")
+
+    # 1. Check if we already have these items saved (Caching)
+    existing_items = db.query(AgendaItem).filter_by(catalog_id=catalog_id).order_by(AgendaItem.order).all()
+    if existing_items:
+        return {"items": [
+            {
+                "title": i.title, 
+                "description": i.description, 
+                "classification": i.classification, 
+                "result": i.result,
+                "order": i.order
+            } for i in existing_items
+        ], "cached": True}
+
+    if not catalog.content:
+        raise HTTPException(status_code=400, detail="Document has no text to segment")
+
+    # 2. Get the associated meeting so we can link the items correctly
+    doc_link = db.query(Document).filter_by(catalog_id=catalog_id).first()
+    if not doc_link:
+        raise HTTPException(status_code=400, detail="Document is not linked to a meeting")
+
+    try:
+        # 3. Call Gemini AI with a optimized "Token-Safe" slice
+        prompt = (
+            "Extract individual agenda items from these city meeting minutes. "
+            "For each item, provide: order, title, description (1 sentence), classification, and result. "
+            "Return ONLY a JSON array of objects. \n\n"
+            f"TEXT: {catalog.content[:50000]}"
+        )
+
+        response = ai_client.models.generate_content(
+            model='gemini-2.0-flash',
+            contents=prompt,
+            config={"temperature": 0.0, "response_mime_type": "application/json"}
+        )
+
+        if response and response.text:
+            import json
+            items_data = json.loads(response.text)
+            
+            for data in items_data:
+                item = AgendaItem(
+                    ocd_id=generate_ocd_id('agendaitem'),
+                    event_id=doc_link.event_id,
+                    catalog_id=catalog_id,
+                    order=data.get('order'),
+                    title=data.get('title', 'Untitled Item'),
+                    description=data.get('description'),
+                    classification=data.get('classification'),
+                    result=data.get('result')
+                )
+                db.add(item)
+            
+            db.commit()
+            return {"items": items_data, "cached": False}
+        
+        raise HTTPException(status_code=500, detail="AI segmentation failed")
+
+    except Exception as e:
+        db.rollback()
+        logger.error(f"Segmentation error: {e}")
         raise HTTPException(status_code=500, detail="Internal server error")
 
 @app.get("/stats")
