@@ -54,3 +54,41 @@ def find_best_person_match(name, existing_people, threshold=85):
             return choices[match_name]
             
     return None
+
+def is_likely_human_name(name):
+    """
+    Quality Control: Filters out noise that is definitely not a person.
+    
+    Why this is needed:
+    NLP models often mistake 'City Clerk' or 'Exhibit A' for a person's name.
+    This function uses a 'Blacklist' of common municipal terms to ensure
+    our Person table stays clean.
+    """
+    if not name or len(name) < 3:
+        return False
+        
+    # Blacklist of non-human terms commonly found in city documents
+    blacklist = [
+        'http', 'mailto', 'location', 'teleconference', 'clerk', 
+        'ordinance', 'item', 'page', 'appendix', 'section', 
+        'exhibit', 'table', 'bid', 'solicitation', 'text box',
+        'supplemental', 'communications', 'rev -', 'shx text',
+        'ayes', 'noes', 'absent', 'abstain', 'floor', 'suite', 'ave'
+    ]
+    
+    name_lower = name.lower()
+    
+    # 1. Check blacklist
+    for word in blacklist:
+        if word in name_lower:
+            return False
+            
+    # 2. Check for numeric noise (e.g. 'Page 2')
+    if any(char.isdigit() for char in name):
+        return False
+        
+    # 3. Names usually have at least one space (First Last)
+    if ' ' not in name:
+        return False
+        
+    return True

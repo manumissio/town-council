@@ -7,7 +7,7 @@ from sqlalchemy import func
 sys.path.append(os.path.join(os.path.dirname(__file__), '..'))
 
 from pipeline.models import db_connect, Catalog, Document, Event, Organization, Person, Membership
-from pipeline.utils import generate_ocd_id, find_best_person_match
+from pipeline.utils import generate_ocd_id, find_best_person_match, is_likely_human_name
 
 def link_people():
     """
@@ -66,8 +66,10 @@ def link_people():
         for raw_name in people_names:
             # Basic cleanup: Remove titles and extra whitespace
             name = raw_name.replace("Mayor ", "").replace("Councilmember ", "").strip()
-            if len(name) < 3 or " " not in name:
-                continue 
+            
+            # QUALITY CONTROL: Ensure this string is actually a human name
+            if not is_likely_human_name(name):
+                continue
 
             # 1. Fuzzy Entity Resolution
             # Check if this name is "close enough" to someone we already know in this city.
