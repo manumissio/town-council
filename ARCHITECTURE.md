@@ -111,8 +111,9 @@ The system implements a standardized identifier generator (`ocd-[type]/[uuid]`) 
 ### 5. Hybrid AI/ML Strategy (Entity Resolution & Summarization)
 To balance performance and cost, the system utilizes a **Hybrid Strategy**:
 *   **Tier 1 (Local/Extractive):** 
-    *   **Entity Resolution:** Uses the **Levenshtein Distance** algorithm (via RapidFuzz) to resolve similar names (e.g., "John Smith" vs "John A. Smith").
-    *   **Summarization:** Uses **TextRank** (via SpaCy/PyTextRank) to identify the 3 most central sentences in a document. This provides instant summaries for 100% of the database at $0 cost.
+    *   **Entity Resolution:** Uses the **Levenshtein Distance** algorithm (via RapidFuzz) to resolve similar names.
+    *   **Summarization:** Uses **TextRank** (via SpaCy/PyTextRank) to identify the 3 most central sentences in a document.
+    *   **Topic Discovery:** Uses **TF-IDF** (Term Frequency-Inverse Document Frequency) via Scikit-learn. This identifies words that are statistically unique to a document (e.g., 'ADU', 'Cannabis') compared to the rest of the database, providing automated tagging at $0 cost.
 *   **Tier 2 (Cloud/Generative):** 
     *   Complex tasks like high-quality bulleted summarization and agenda segmentation use **Gemini 2.0 Flash**. These are triggered on-demand by the user to minimize token usage and avoid rate limits.
 *   **Blocking:** Name comparisons are "blocked" by city to ensure the algorithm scales without slowing down.
