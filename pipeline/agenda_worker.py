@@ -29,7 +29,7 @@ def segment_agendas():
     session = Session()
 
     # Find documents that have text content but no segmented agenda items yet.
-    # We join with 'Document' to ensure we only process records linked to a 'Meeting' (Event).
+    # CAP: Only process 10 documents per run to avoid 429 errors on free tiers.
     to_process = session.query(Catalog).join(
         Document, Catalog.id == Document.catalog_id
     ).outerjoin(
@@ -37,79 +37,86 @@ def segment_agendas():
     ).filter(
         Catalog.content != None,
         Catalog.content != "",
-        AgendaItem.id == None # Only process if it has no items yet
-    ).all()
+        AgendaItem.id == None
+    ).limit(10).all()
 
-    print(f"Found {len(to_process)} documents to segment into agenda items.")
+    print(f"Found {len(to_process)} documents to segment (Processing batch of 10)...")
+    
+    # Safety: Wait 10s before starting to ensure a fresh Rate Limit bucket
+    if to_process:
+        print("Waiting 10s for API warm-up...")
+        time.sleep(10)
 
     for catalog in to_process:
-        # Get the associated Event (Meeting) so we can link the items correctly.
-        # Note: A Catalog entry can be linked to multiple Documents (e.g., same PDF in different cities),
-        # but usually it's 1:1. We pick the first associated event.
         doc = session.query(Document).filter_by(catalog_id=catalog.id).first()
         if not doc or not doc.event_id:
             continue
 
         print(f"Segmenting: {catalog.filename}...")
         
-        try:
-            prompt = (
-                "You are an expert civic data analyst. Your task is to extract individual agenda items "
-                "from the following town council meeting minutes. "
-                "For each distinct agenda item or discussion topic, extract: "
-                "1. Title: The short name of the item (e.g., 'Zoning Change for Main St'). "
-                "2. Description: A 1-2 sentence summary of the discussion. "
-                "3. Classification: One of [Action, Discussion, Consent, Public Hearing, Presentation]. "
-                "4. Result: If a vote happened, what was the outcome? (e.g., 'Passed', 'Failed'). \n"
-                "Leave empty if no result is clear.\n\n"
-                "Return the data ONLY as a valid JSON array of objects with the keys: \n"
-                "'order', 'title', 'description', 'classification', 'result'. \n"
-                "Be extremely precise and do not include any text before or after the JSON.\n\n"
-                f"TEXT: {catalog.content[:150000]}"
-            )
+        # Retry logic for Rate Limits (429)
+        max_retries = 3
+        retry_delay = 20
+        
+        for attempt in range(max_retries):
+            try:
+                # TOKEN OPTIMIZATION: Reduced to 50k chars to stay under TPM (Tokens Per Minute) limits.
+                # Most agendas have their meat in the first 20-30 pages.
+                text_snippet = (catalog.content or "")[:50000]
 
-            # Using 'gemini-2.0-flash' for efficient extraction.
-            # We use a deterministic config (temperature 0.0).
-            response = client.models.generate_content(
-                model='gemini-2.0-flash',
-                contents=prompt,
-                config={
-                    "temperature": 0.0,
-                    "response_mime_type": "application/json"
-                }
-            )
-            
-            if response and response.text:
-                items_data = json.loads(response.text)
+                prompt = (
+                    "Extract individual agenda items from these city meeting minutes. "
+                    "For each item, provide: order, title, description (1 sentence), classification, and result. "
+                    "Return ONLY a JSON array. \n\n"
+                    f"TEXT: {text_snippet}"
+                )
+
+                response = client.models.generate_content(
+                    model='gemini-2.0-flash',
+                    contents=prompt,
+                    config={
+                        "temperature": 0.0,
+                        "response_mime_type": "application/json"
+                    }
+                )
                 
-                # Create the structured AgendaItem records in the database.
-                for data in items_data:
-                    item = AgendaItem(
-                        ocd_id=generate_ocd_id('agendaitem'),
-                        event_id=doc.event_id,
-                        catalog_id=catalog.id,
-                        order=data.get('order'),
-                        title=data.get('title', 'Untitled Item'),
-                        description=data.get('description'),
-                        classification=data.get('classification'),
-                        result=data.get('result')
-                    )
-                    session.add(item)
-                
-                session.commit()
-                print(f"Successfully extracted {len(items_data)} agenda items.")
-            else:
-                print("Gemini returned empty response.")
+                if response and response.text:
+                    items_data = json.loads(response.text)
+                    for data in items_data:
+                        item = AgendaItem(
+                            ocd_id=generate_ocd_id('agendaitem'),
+                            event_id=doc.event_id,
+                            catalog_id=catalog.id,
+                            order=data.get('order'),
+                            title=data.get('title', 'Untitled Item'),
+                            description=data.get('description'),
+                            classification=data.get('classification'),
+                            result=data.get('result')
+                        )
+                        session.add(item)
+                    
+                    session.commit()
+                    print(f"Successfully extracted {len(items_data)} agenda items.")
+                    break
+                else:
+                    print("Gemini returned empty response.")
+                    break
 
-            # Respect rate limits
-            time.sleep(3)
+            except Exception as e:
+                if "429" in str(e) or "Resource exhausted" in str(e):
+                    print(f"Rate limit hit. Retrying in {retry_delay}s... (Attempt {attempt+1}/{max_retries})")
+                    time.sleep(retry_delay)
+                    retry_delay *= 2
+                else:
+                    print(f"Error segmenting {catalog.filename}: {e}")
+                    session.rollback()
+                    break
 
-        except Exception as e:
-            print(f"Error segmenting {catalog.filename}: {e}")
-            session.rollback()
+        # Respect RPM (Requests Per Minute) limits
+        time.sleep(10)
 
     session.close()
-    print("Agenda segmentation process complete.")
+    print("Agenda segmentation batch complete.")
 
 if __name__ == "__main__":
     segment_agendas()

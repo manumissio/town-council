@@ -108,7 +108,13 @@ The system implements a standardized identifier generator (`ocd-[type]/[uuid]`) 
 *   **Avoids IDOR Attacks:** Random UUIDs prevent malicious enumeration of records.
 *   **Federation Ready:** By following the OCD standard, the database is interoperable with other civic data projects like *Open States* or *Councilmatic*.
 
-### 5. Security Model
+### 5. Hybrid AI/ML Strategy (Entity Resolution)
+To balance performance and cost, the system utilizes a **Hybrid Strategy**:
+*   **Traditional AI (Fuzzy Matching):** The system uses the **Levenshtein Distance** algorithm (via RapidFuzz) to resolve similar names (e.g., "John Smith" vs "John A. Smith") to the same unique official. This runs locally in milliseconds and is 100% free.
+*   **Blocking:** Comparisons are "blocked" by city to ensure the algorithm scales to thousands of records without slowing down.
+*   **LLM Fallback:** Complex tasks like summarization and agenda segmentation use **Gemini 2.0 Flash**, but are only triggered on-demand to minimize token usage.
+
+### 6. Security Model
 *   **CORS Restriction:** The API is hardened to only accept requests from the authorized frontend origin (`localhost:3000`).
 *   **Dependency Injection:** Database sessions are managed via FastAPI's dependency system, ensuring every connection is strictly closed after a request to prevent connection leaks.
 *   **Non-Root Execution:** All Docker containers run as a restricted `appuser`.

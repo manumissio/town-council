@@ -36,6 +36,7 @@ services:
       - PYTHONUNBUFFERED=1
       - PYTHONPATH=/app
       - DATABASE_URL=postgresql://town_council:secure_dev_password@postgres:5432/town_council_db
+      - GEMINI_API_KEY=${GEMINI_API_KEY}
       - DATA_DIR=/app/data
     depends_on:
       - postgres

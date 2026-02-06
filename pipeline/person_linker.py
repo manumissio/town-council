@@ -7,7 +7,7 @@ from sqlalchemy import func
 sys.path.append(os.path.join(os.path.dirname(__file__), '..'))
 
 from pipeline.models import db_connect, Catalog, Document, Event, Organization, Person, Membership
-from pipeline.utils import generate_ocd_id
+from pipeline.utils import generate_ocd_id, find_best_person_match
 
 def link_people():
     """
@@ -16,8 +16,9 @@ def link_people():
     How it works for a developer:
     1. It looks at the AI-extracted names in the 'Catalog' (the entities JSON).
     2. It finds which Meeting (Event) and Body (Organization) that document belongs to.
-    3. It creates a unique 'Person' record if one doesn't exist for that name.
-    4. It creates a 'Membership' record linking the person to the legislative body.
+    3. It uses Traditional AI (Fuzzy Matching) to see if this person already exists.
+    4. It creates a unique 'Person' record if no close match is found.
+    5. It creates a 'Membership' record linking the person to the legislative body.
     """
     print("Connecting to database for People & Membership linking...")
     engine = db_connect()
@@ -25,7 +26,6 @@ def link_people():
     session = Session()
 
     # Find all documents that have NLP entities (people names)
-    # We join Document and Event to know WHICH Organization to link them to.
     query = session.query(Catalog, Event).join(
         Document, Catalog.id == Document.catalog_id
     ).join(
@@ -34,7 +34,9 @@ def link_people():
 
     print(f"Processing {query.count()} documents for people...")
 
-    person_cache = {} # (city_id, name.lower()) -> Person ID
+    # Performance: Pre-fetch all people grouped by city (Blocking)
+    # This prevents the "O(N^2)" problem where matching gets slower as the DB grows.
+    city_people_cache = {} # city_id -> list of Person objects
     membership_cache = set() # (person_id, org_id)
 
     person_count = 0
@@ -50,32 +52,41 @@ def link_people():
         # We need the organization for this event
         org_id = event.organization_id
         if not org_id:
-            continue # Skip if we don't know the body
+            continue 
+
+        # BLOCKING: Ensure we have the list of people for THIS city only.
+        # We don't compare a Berkeley official against a Belmont official.
+        if event.place_id not in city_people_cache:
+            # We fetch all people who have at least one membership in any organization in this city
+            city_people = session.query(Person).join(Membership).join(Organization).filter(
+                Organization.place_id == event.place_id
+            ).all()
+            city_people_cache[event.place_id] = city_people
 
         for raw_name in people_names:
             # Basic cleanup: Remove titles and extra whitespace
             name = raw_name.replace("Mayor ", "").replace("Councilmember ", "").strip()
             if len(name) < 3 or " " not in name:
-                continue # Skip suspicious or single-word names (likely errors)
+                continue 
 
-            name_key = (event.place_id, name.lower())
-
-            # 1. Find or Create Person
-            if name_key not in person_cache:
-                # Check DB first
-                person = session.query(Person).filter(func.lower(Person.name) == name.lower()).first()
-                if not person:
-                    person = Person(
-                        name=name, 
-                        current_role=f"Official in {event.place.name}",
-                        ocd_id=generate_ocd_id('person')
-                    )
-                    session.add(person)
-                    session.flush()
-                    person_count += 1
-                person_cache[name_key] = person.id
+            # 1. Fuzzy Entity Resolution
+            # Check if this name is "close enough" to someone we already know in this city.
+            existing_person = find_best_person_match(name, city_people_cache[event.place_id])
             
-            person_id = person_cache[name_key]
+            if not existing_person:
+                # No fuzzy match? Create a new person.
+                existing_person = Person(
+                    name=name, 
+                    current_role=f"Official in {event.place.name}",
+                    ocd_id=generate_ocd_id('person')
+                )
+                session.add(existing_person)
+                session.flush()
+                # Update our blocking cache immediately so the next doc can find them
+                city_people_cache[event.place_id].append(existing_person)
+                person_count += 1
+            
+            person_id = existing_person.id
 
             # 2. Find or Create Membership
             mem_key = (person_id, org_id)
@@ -92,6 +103,10 @@ def link_people():
                     session.add(membership)
                     membership_count += 1
                 membership_cache.add(mem_key)
+
+    session.commit()
+    session.close()
+    print(f"Linking complete. Created {person_count} new People and {membership_count} new Memberships.")
 
     session.commit()
     session.close()
