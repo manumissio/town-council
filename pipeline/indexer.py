@@ -86,6 +86,7 @@ def index_documents():
             'url': catalog.url,
             'content': catalog.content, 
             'summary': catalog.summary,
+            'summary_extractive': catalog.summary_extractive,
             'entities': entities,
             'people_metadata': people_list,
             'people': [p['name'] for p in people_list],

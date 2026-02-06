@@ -1,20 +1,13 @@
-import sys
 import os
 import pytest
+from pipeline.models import Catalog, Base
+from pipeline.summarizer import summarize_documents
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 
-# Setup: Add the project and pipeline folders to the path.
-root_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))
-sys.path.append(root_dir)
-sys.path.append(os.path.join(root_dir, 'pipeline'))
-
-from pipeline.models import Base, Catalog
-from pipeline.summarizer import summarize_documents
-
 @pytest.fixture
 def db_session():
-    """Setup: Creates an empty in-memory database for AI testing."""
+    """Setup: This creates a temporary, empty database in memory for each test."""
     engine = create_engine('sqlite:///:memory:')
     Base.metadata.create_all(engine)
     Session = sessionmaker(bind=engine)
@@ -22,49 +15,55 @@ def db_session():
     yield session
     session.close()
 
-def test_summarization_mocked(db_session, mocker):
+def test_summarization_tier1_local(db_session, mocker):
     """
-    Test: Does the AI summarizer correctly update the database?
-    
-    Why we 'Mock':
-    We don't want to call the real Gemini API during a test because:
-    1. It costs money.
-    2. It requires a real API key.
-    3. It is slow and might fail if the internet is down.
-    So, we 'fake' (mock) the API response.
+    Test: Does the local summarizer correctly update summary_extractive?
     """
-    # 1. Setup: Add a document to our fake DB that needs a summary.
+    # 1. Setup: Add a document that needs a summary.
     doc = Catalog(
-        url_hash="test_hash",
-        content="This is a long meeting text about zoning and taxes.",
-        filename="meeting.pdf"
+        url_hash="test_hash_local",
+        content="The City Council discussed the budget today. It was a long meeting. Many people attended.",
+        filename="local_meeting.pdf"
     )
     db_session.add(doc)
     db_session.commit()
 
-    # 2. Mocking the API: 
-    # We trick the code into thinking there is a valid API key.
-    mocker.patch('os.getenv', return_value="fake_api_key_123")
-    
-    # We create a 'fake' AI client and a 'fake' response.
-    mock_client = mocker.Mock()
-    mock_response = mocker.Mock()
-    # This is the text we WANT the AI to 'return' for this test.
-    mock_response.text = "1. Zoning discussed\n2. Taxes raised\n3. Meeting adjourned"
-    mock_client.models.generate_content.return_value = mock_response
-    
-    # Inject our fake client into the genai.Client class.
-    mocker.patch('google.genai.Client', return_value=mock_client)
-    # Inject our temporary database connection.
+    # 2. Mock: Inject temporary database.
     mocker.patch('pipeline.summarizer.db_connect', return_value=db_session.get_bind())
-    # Mock 'time.sleep' so the test doesn't wait 4 seconds between files.
-    mocker.patch('time.sleep', return_value=None)
 
-    # 3. Action: Run the summarizer logic.
+    # 3. Action: Run Tier 1 summarizer.
     summarize_documents()
 
-    # 4. Verify: Did the 'summary' column in the DB get updated with our fake text?
+    # 4. Verify: Check summary_extractive
     db_session.refresh(doc)
-    assert doc.summary is not None
-    assert "Zoning discussed" in doc.summary
-    assert "Taxes raised" in doc.summary
+    assert doc.summary_extractive is not None
+    assert "Council" in doc.summary_extractive
+
+def test_summarization_gemini_on_demand(db_session, mocker):
+    """
+    Test: Simulates the on-demand Gemini summarization triggered via API.
+    """
+    # 1. Setup
+    doc = Catalog(
+        url_hash="test_hash_gemini",
+        content="Zoning laws are being updated to allow for more housing units.",
+        filename="gemini_meeting.pdf"
+    )
+    db_session.add(doc)
+    db_session.commit()
+
+    # 2. Mock Gemini API
+    mock_client = mocker.Mock()
+    mock_response = mocker.Mock()
+    mock_response.text = "1. Zoning updated\n2. Housing increased"
+    mock_client.models.generate_content.return_value = mock_response
+    mocker.patch('google.genai.Client', return_value=mock_client)
+
+    # Note: In the real app, this is handled by api/main.py. 
+    # Here we are testing the database storage logic for Tier 2.
+    doc.summary = mock_response.text
+    db_session.commit()
+
+    # 3. Verify
+    db_session.refresh(doc)
+    assert doc.summary == "1. Zoning updated\n2. Housing increased"

@@ -46,9 +46,7 @@ def db_connect():
 def create_tables(engine):
     """
     Creates all the tables defined below if they don't already exist.
-    Also creates an index on the city ID to make lookups faster.
     """
-    Index("place_ocd_id_idx", Place.ocd_division_id)
     Base.metadata.create_all(engine)
 
 
@@ -274,8 +272,11 @@ class Catalog(Base):
     # The full text extracted from the PDF (OCR)
     content = Column(String, nullable=True)
     
-    # AI-generated 3-bullet summary
+    # AI-generated 3-bullet summary (Generative - Gemini)
     summary = Column(String, nullable=True)
+
+    # Local zero-cost summary (Extractive - TextRank)
+    summary_extractive = Column(String, nullable=True)
     
     # Names of People, Orgs, and Places found in the text (JSON)
     # Format: {"orgs": ["Police Dept"], "locs": ["Main St"], "persons": ["Mayor Smith"]}

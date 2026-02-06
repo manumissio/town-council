@@ -207,9 +207,28 @@ export default function ResultCard({ hit, onPersonClick }) {
                       Executive Summary
                     </div>
                     {summary ? (
-                      <p className="text-gray-800 text-[15px] whitespace-pre-line leading-relaxed italic">
-                        {summary}
-                      </p>
+                      <div className="space-y-4">
+                        <span className="bg-purple-100 text-purple-700 text-[9px] font-black uppercase px-1.5 py-0.5 rounded shadow-sm">Gemini 2.0 AI</span>
+                        <p className="text-gray-800 text-[15px] whitespace-pre-line leading-relaxed italic">
+                          {summary}
+                        </p>
+                      </div>
+                    ) : hit.summary_extractive ? (
+                      <div className="space-y-4">
+                        <div className="flex items-center justify-between">
+                          <span className="bg-indigo-100 text-indigo-700 text-[9px] font-black uppercase px-1.5 py-0.5 rounded shadow-sm">Local Fast-Pass AI</span>
+                          <button 
+                            onClick={handleGenerateSummary}
+                            disabled={isGenerating}
+                            className="text-[10px] font-bold text-purple-600 hover:text-purple-800 flex items-center gap-1 transition-colors"
+                          >
+                            <Sparkles className="w-3 h-3" /> Upgrade to Gemini AI
+                          </button>
+                        </div>
+                        <p className="text-gray-700 text-[14px] leading-relaxed line-clamp-6">
+                          {hit.summary_extractive}
+                        </p>
+                      </div>
                     ) : (
                       <div className="py-6 flex flex-col items-center justify-center border-2 border-dashed border-purple-200 rounded-3xl bg-white/50">
                         <div className="mb-4 bg-purple-100 p-3 rounded-full">
@@ -217,7 +236,7 @@ export default function ResultCard({ hit, onPersonClick }) {
                         </div>
                         <h4 className="font-bold text-purple-900 mb-1">No summary yet</h4>
                         <p className="text-purple-600/60 text-xs mb-6 max-w-[240px] text-center">
-                          Generate a 3-bullet executive summary using Gemini AI.
+                          Generate an executive summary using local or cloud AI.
                         </p>
                         <button 
                           onClick={handleGenerateSummary}
@@ -227,7 +246,7 @@ export default function ResultCard({ hit, onPersonClick }) {
                           {isGenerating ? (
                             <><Loader2 className="w-4 h-4 animate-spin" /> Reading...</>
                           ) : (
-                            <><Sparkles className="w-3.5 h-3.5" /> Generate Summary</>
+                            <><Sparkles className="w-3.5 h-3.5" /> Generate Gemini Summary</>
                           )}
                         </button>
                       </div>

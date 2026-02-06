@@ -12,6 +12,7 @@ This project has been modernized from its 2017 pilot into a high-performance acc
 - **Fuzzy Matching:** Traditional AI (string math) to automatically merge similar names (e.g., "J. Smith" and "John Smith") into a single official profile.
 - **Deep-Linking:** AI-segmented **Agenda Items** that take you directly to specific discussions within large documents.
 - **Interoperability:** Standardized **OCD-IDs** for all entities, allowing data federation with other civic platforms.
+- **Multi-Tier Summaries:** Instant, **zero-cost extractive summaries** for every document (Local AI), with optional on-demand generative upgrades (Cloud AI).
 - **Unified Search:** A segmented "Airbnb-style" Search Hub integrating Municipality, Body, and Meeting Type filters.
 - **On-Demand AI:** Instant 3-bullet summaries using **Gemini 2.0 Flash** with automatic database caching.
 - **Scalable Search:** Instant, typo-tolerant search powered by **Meilisearch** using yield-based indexing.
