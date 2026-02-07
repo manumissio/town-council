@@ -103,9 +103,10 @@ def run_parallel_processing():
 
     logger.info(f"Starting parallel processing for {len(catalog_ids)} documents in {len(chunks)} chunks...")
     
-    # Use 75% of CPUs, but cap at 5 to avoid Tika server crashes
+    # Use 75% of CPUs, but cap at 2 to avoid Tika server crashes
+    # Note: OCR is extremely heavy; high concurrency on massive PDFs causes OOM.
     cpu_limit = int(cpu_count() * 0.75)
-    workers = max(1, min(cpu_limit, 5))
+    workers = max(1, min(cpu_limit, 2))
     
     with ProcessPoolExecutor(max_workers=workers) as executor:
         futures = {executor.submit(process_document_chunk, chunk): chunk for chunk in chunks}
