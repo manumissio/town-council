@@ -28,7 +28,7 @@ def generate_ocd_id(entity_type):
     # OCD-IDs are lowercase and use hyphens
     return f"ocd-{entity_type.lower()}/{unique_id}"
 
-def find_best_person_match(name, existing_people, threshold=85):
+def find_best_person_match(name, existing_people, threshold=90):
     """
     Traditional AI/ML approach: Fuzzy Entity Resolution.
     
@@ -40,7 +40,7 @@ def find_best_person_match(name, existing_people, threshold=85):
     Args:
         name (str): The name we just found in a document.
         existing_people (list): A list of Person objects already in our database for this city.
-        threshold (int): Similarity score (0-100). 85 is usually safe for names.
+        threshold (int): Similarity score (0-100). 90 is stricter to avoid false matches.
         
     Returns:
         Person: The matching Person object if found, otherwise None.
@@ -115,15 +115,35 @@ def is_likely_human_name(name, allow_single_word=False):
         'public', 'meeting', 'policy', 'update', 'staff', 'manager',
         'dept', 'department', 'center',
         'location', 'marriott', 'granicus', 'teleconference', 'mailto',
-        'city of', 'county of', 'state of', 'incorporated', 'district'
+        'city of', 'county of', 'state of', 'incorporated', 'district',
+        'fund', 'reserve', 'tax', 'budget', 'audit', 'financial', 'vendor',
+        'typewritten', 'text', 'attachment', 'packet', 'closed session',
+        'infestation', 'corridor', 'meter', 'neighborhood', 'avenue', 'street'
     ]
     
     for word in blacklist:
         if word in name_lower:
             return False
             
-    # 5. Check for numeric noise (e.g. 'Meeting 2024')
+    # 6. Check for numeric noise (e.g. 'Meeting 2024')
     if any(char.isdigit() for char in name_clean):
+        return False
+
+    # 7. Vowel Density Check (Heuristic for OCR Noise)
+    # Real names like 'Jesse' or 'Arreguin' have high vowel density.
+    # Noise like 'Spl Tax Bds' or 'XF-20' has very low density.
+    vowels = set('aeiouy')
+    vowel_count = sum(1 for char in name_lower if char in vowels)
+    # If the string is long enough, it must have at least one vowel
+    if len(name_clean) > 5 and vowel_count == 0:
+        return False
+    # If it's very long, check density (at least 10% vowels)
+    if len(name_clean) > 10 and (vowel_count / len(name_clean)) < 0.10:
+        return False
+
+    # 8. End-of-String Cleanup
+    # Discard strings ending in weird punctuation like 'Fields Reserve -'
+    if not name_clean[-1].isalnum():
         return False
         
     return True

@@ -77,8 +77,18 @@ def link_people():
 
         for raw_name in people_names:
             # Basic cleanup: Remove titles and extra whitespace
-            name = raw_name.replace("Mayor ", "").replace("Councilmember ", "").strip()
+            name = raw_name.strip()
             
+            # Remove common prefixes found in meeting documents
+            prefixes = [
+                "Mayor ", "Councilmember ", "Vice Mayor ", "Chair ", "Director ",
+                "Commissioner ", "Moved by ", "Seconded by ", "Ayes: ", "Noes: ",
+                "Ayes : ", "Noes : ", "Ayes:  ", "Noes:  "
+            ]
+            for prefix in prefixes:
+                if name.startswith(prefix):
+                    name = name[len(prefix):].strip()
+
             # QUALITY CONTROL: Ensure this string is actually a human name
             if not is_likely_human_name(name):
                 continue
