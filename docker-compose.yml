@@ -18,6 +18,7 @@ services:
     build: .
     volumes:
       - .:/app
+      - data:/app/data
     working_dir: /app/council_crawler
     environment:
       - PYTHONUNBUFFERED=1
@@ -32,6 +33,7 @@ services:
     build: .
     volumes:
       - .:/app
+      - data:/app/data
     working_dir: /app/pipeline
     environment:
       - PYTHONUNBUFFERED=1
@@ -60,6 +62,7 @@ services:
     build: .
     volumes:
       - .:/app
+      - data:/app/data
     working_dir: /app/pipeline
     environment:
       - PYTHONUNBUFFERED=1
@@ -77,6 +80,7 @@ services:
     build: .
     volumes:
       - .:/app
+      - data:/app/data
     working_dir: /app
     command: celery -A pipeline.tasks worker --loglevel=info --concurrency=1
     environment:
@@ -98,6 +102,7 @@ services:
     build: .
     volumes:
       - .:/app
+      - data:/app/data
     working_dir: /app/pipeline
     command: python nlp_worker.py
     environment:
@@ -113,6 +118,7 @@ services:
     build: .
     volumes:
       - .:/app
+      - data:/app/data
     working_dir: /app/pipeline
     command: python table_worker.py
     environment:
@@ -128,6 +134,7 @@ services:
     build: .
     volumes:
       - .:/app
+      - data:/app/data
     working_dir: /app/pipeline
     command: python topic_worker.py
     environment:
@@ -165,6 +172,7 @@ services:
     build: .
     volumes:
       - .:/app
+      - data:/app/data
     working_dir: /app/api
     command: uvicorn main:app --host 0.0.0.0 --port 8000 --reload
     ports:
@@ -222,6 +230,7 @@ services:
     build: .
     volumes:
       - .:/app
+      - data:/app/data
     working_dir: /app/pipeline
     command: python monitor.py
     environment:
