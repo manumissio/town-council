@@ -114,14 +114,12 @@ class Media():
                 raise ValueError("Missing '/' separator")
                 
             parts = ocd_id_str.split('/')
-            if len(parts) < 2:
-                raise ValueError("Incomplete OCD-ID")
-                
-            loc_part = parts[1] # "country:us/state:ca/place:belmont"
+            # Parts[0] is 'ocd-division', the rest are location segments
+            # like ['country:us', 'state:ca', 'place:berkeley']
+            location_segments = parts[1:]
             
-            # We want to extract 'us', 'ca', 'belmont'
             segments = []
-            for token in loc_part.split('/'):
+            for token in location_segments:
                 if ':' in token:
                     segments.append(token.split(':')[1])
             
