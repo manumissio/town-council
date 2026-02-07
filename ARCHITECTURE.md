@@ -108,7 +108,8 @@ The system follows the **Open Civic Data (OCD)** standard to ensure interoperabi
 
 ### 3. Agenda Item Segmentation (Deep-Linking)
 To solve the "Needle in a Haystack" problem, the system uses an AI-driven segmentation worker:
-*   **Splitting Logic:** Local **Gemma 3 270M** reads the OCR text and identifies individual agenda items, extracting titles and descriptions.
+*   **Splitting Logic:** Local **Gemma 3 270M** reads the OCR text and identifies individual agenda items. 
+*   **Robustness:** The system uses a **Regex-based parser** to extract items from structured AI text, with a **fail-soft fallback** that splits by paragraph if the AI fails to find topics.
 *   **Granular Indexing:** These items are indexed in Meilisearch as separate, first-class entities.
 *   **Benefit:** Search results can point users directly to the specific 1-page section of a 500-page packet, significantly improving accessibility.
 
@@ -121,13 +122,13 @@ The system implements a standardized identifier generator (`ocd-[type]/[uuid]`) 
 To ensure privacy, zero cost, and resilience, the system uses a **100% Local AI** stack. No data is ever sent to the cloud.
 
 *   **The Brain (Gemma 3 270M):** We use a 4-bit quantized version of Google's state-of-the-art "micro-model".
-    *   **Context Window:** 8,192 tokens (approx. 15 pages of text).
+    *   **Context Window:** 2,048 tokens (optimized for stability in Docker).
     *   **Size:** ~150MB (Embedded directly in the Docker image).
-    *   **Inference Engine:** `llama-cpp-python` compiled with AVX2 support for high-speed CPU processing.
+    *   **Inference Engine:** `llama-cpp-python` compiled with NEON support for high-speed processing on Apple Silicon and AVX2 on x86.
 *   **Tasks:**
     *   **Summarization:** Generates 3-bullet executive summaries.
-    *   **Agenda Segmentation:** Extracts structured JSON data (titles, votes) from unstructured text.
-*   **Memory Management:** The AI model is loaded as a **Singleton** on startup (warmed RAM) and explicitly reset after every request to prevent memory leaks.
+    *   **Agenda Segmentation:** Extracts structured topics and descriptions.
+*   **Memory Management:** The AI model is managed by a singleton instance to prevent redundant loads while maintaining thread-safety via locks.
 
 ### 6. Concurrency Model
 To ensure stability on consumer-grade hardware, the local AI execution is **Serialized**:

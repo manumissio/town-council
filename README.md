@@ -35,7 +35,7 @@ This project has been modernized from its 2017 pilot into a high-performance acc
 
 ## System Requirements
 *   **CPU:** Any modern processor (AVX2 support recommended for speed).
-*   **RAM:** 4GB minimum (8GB recommended). The AI model uses ~200MB of RAM.
+*   **RAM:** 4GB minimum (8GB recommended). The AI model uses ~2GB of RAM.
 *   **Storage:** 2GB free space for the Docker image and database.
 
 ## Getting Started
