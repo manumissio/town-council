@@ -210,8 +210,11 @@ To prevent "Speed Regressions" during development, the system implements automat
 To ensure high precision in identifying officials, the system uses a 3-layer NLP filtering strategy:
 1.  **Boilerplate Pre-emptor (Pre-NER):** An `EntityRuler` explicitly tags common municipal noise ("Item 1", "City Clerk") *before* the AI runs, preventing misidentification.
 2.  **Title-Aware Confidence:** Patterns like "Mayor [Name]" or "Moved by [Name]" are used to identify people even if the statistical model is uncertain.
-3.  **Heuristic Bouncer (Post-NER):** A custom component scrubs every `PERSON` entity against human-name heuristics:
-    *   **Entropy Check:** Discards strings with web-symbols (`@`, `://`).
-    *   **Case Check:** Discards long ALL-CAPS headers.
+3.  **Heuristic Bouncer (Post-NER):** A custom component scrubs every `PERSON` entity against "Nuclear Precision" human-name heuristics:
+    *   **Tech-Character Block:** Discards strings with web-symbols (`@`, `://`).
+    *   **Smart Blacklisting:**
+        *   **Total Noise:** Uses word-boundary regex (`\bca\b`, `\bclerk\b`) to block municipal boilerplate without filtering legitimate names like "Catherine".
+        *   **Contextual Noise:** Blocks common municipal words like "Park", "Staff", or "Street" only if they appear as single words without a trusted title. This preserves names like "Linda Park" or "Michael Staff".
+    *   **Vowel Density Check:** Discards OCR fragments (e.g., "Spl Tax Bds") by enforcing a minimum vowel density (10-25%).
     *   **Linguistic Check:** Discards entities without a Proper Noun (`PROPN`) signal.
 

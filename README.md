@@ -96,12 +96,15 @@ The platform is built using a modular component architecture:
 - **Frontend:** Next.js with specialized components in `frontend/components/` (SearchHub, ResultCard, PersonProfile).
 - **Indexing:** Python stream-based batch processing for scalability.
 
-### Data Quality & Official Resolution
+### Data Quality & Official Resolution (The Smart Bouncer)
 To ensure the 'Person' table remains 100% human, the pipeline implements strict automated guardrails:
 1. **Tech-Character Block:** Any string containing `@`, `://`, or `.php` is automatically discarded.
-2. **Header Suppression:** ALL-CAPS strings longer than 15 characters (boilerplate document headers) are ignored.
-3. **Proper Noun Enforcement:** Every official name MUST contain at least one Proper Noun (PROPN) as identified by the NLP model.
-4. **Length Limits:** Names must be between 2 and 4 words long (unless preceded by a trusted title like "Mayor").
+2. **Smart Blacklisting:**
+   - **Total Noise:** Blocks municipal boilerplate (ordinances, departments, abbreviations like "ca") using word boundaries to protect names like "Catherine".
+   - **Contextual Noise:** Blocks ambiguous words like "Park" or "Staff" when they appear as single words, but allows them in multi-word names (e.g., "Linda Park") or when preceded by a title (e.g., "Mayor Park").
+3. **Vowel Density Check:** Heuristic for OCR noise. Real names have high vowel density; fragments like "Spl Tax Bds" are blocked.
+4. **Header Suppression:** ALL-CAPS strings longer than 15 characters (boilerplate document headers) are ignored.
+5. **Proper Noun Enforcement:** Every official name MUST contain at least one Proper Noun (PROPN) as identified by the NLP model.
 
 ## Testing
 Run the comprehensive suite of 70+ unit, integration, and benchmark tests:

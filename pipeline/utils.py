@@ -80,51 +80,73 @@ def is_likely_human_name(name, allow_single_word=False):
     name_lower = name_clean.lower()
     
     # 1. Block 'Tech' characters (Emails, URLs, web parameters)
-    # Human names in minutes almost never contain these symbols.
     tech_chars = ['@', '://', '.com', '.php', '.gov', '.org', '?', '=', 'www.']
     if any(char in name_lower for char in tech_chars):
         return False
 
     # 2. Block Lawsuits and Case Names
-    # 'al v. City' or 'Menda v John Sanford-Leffingwell' are cases, not people.
-    if ' v. ' in name_lower or ' vs ' in name_lower or ' vs. ' in name_lower or ' v ' in name_lower:
+    if any(pattern in name_lower for pattern in [' v. ', ' vs ', ' vs. ', ' v ']):
         return False
 
     # 3. Block 'All-Caps Headers'
-    # 'TELECONFERENCE LOCATION - MARRIOTT' is a header, not a person.
-    # Real names are usually Title Case (Jesse Arreguin).
     if name_clean.isupper() and len(name_clean) > 15:
         return False
 
     # 4. Word Count Guardrail
-    # Most names are 'First Last' or 'First Middle Last'.
-    # 1-word (Roll) or 5-word (Menda v John Sanford Leffingwell) are noise.
     word_count = len(name_clean.split())
     if word_count > 4:
         return False
     if word_count < 2 and not allow_single_word:
         return False
 
-    # 5. Expanded Blacklist of common municipal noise
-    blacklist = [
-        'clerk', 'ordinance', 'item', 'page', 'appendix', 'section', 
-        'exhibit', 'table', 'bid', 'solicitation', 'text box',
-        'supplemental', 'communications', 'rev -', 'shx text',
-        'absent', 'abstain', 'floor', 'suite', 'ave',
-        'berkeley', 'ca', 'california', 'artist', 'camera', 'order',
-        'public', 'meeting', 'policy', 'update', 'staff', 'manager',
-        'dept', 'department', 'center',
-        'location', 'marriott', 'granicus', 'teleconference', 'mailto',
-        'city of', 'county of', 'state of', 'incorporated', 'district',
-        'fund', 'reserve', 'tax', 'budget', 'audit', 'financial', 'vendor',
-        'typewritten', 'text', 'attachment', 'packet', 'closed session',
-        'infestation', 'corridor', 'meter', 'neighborhood', 'avenue', 'street'
+    # 5. Smart Blacklisting
+    # We split the blacklist into 'Total Noise' and 'Contextual Noise'.
+    
+    # TOTAL NOISE: These words are almost NEVER part of a legitimate name.
+    # We use word boundaries to avoid 'Catherine' / 'ca' type bugs.
+    total_noise = [
+        r'\bordinance\b', r'\bitem\b', r'\bpage\b', r'\bappendix\b', r'\bsection\b', 
+        r'\bexhibit\b', r'\btable\b', r'\bbid\b', r'\bsolicitation\b', r'text box',
+        r'\bsupplemental\b', r'\bcommunications\b', r'rev -', r'shx text',
+        r'\babsent\b', r'\babstain\b', r'\bfloor\b', r'\bsuite\b', r'\bave\b',
+        r'\bca\b', r'\bcalifornia\b', r'\bartist\b', r'\bcamera\b', r'\border\b',
+        r'\bpublic\b', r'\bmeeting\b', r'\bpolicy\b', r'\bupdate\b',
+        r'\bdept\b', r'\bdepartment\b', r'\bcenter\b',
+        r'\blocation\b', r'\bmarriott\b', r'\bgranicus\b', r'\bteleconference\b', r'\bmailto\b',
+        r'city of', r'county of', r'state of', r'incorporated', r'district',
+        r'city clerk', r'city manager', r'city attorney', r'staff report',
+        r'\bstreet\b', r'\bavenue\b',
+        r'\bfund\b', r'\breserve\b', r'\btax\b', r'\bbudget\b', r'\baudit\b', 
+        r'\bfinancial\b', r'\bvendor\b', r'typewritten', r'\btext\b', 
+        r'\battachment\b', r'\bpacket\b', r'closed session',
+        r'\binfestation\b', r'\bcorridor\b', r'\bmeter\b', r'\bneighborhood\b'
     ]
     
-    for word in blacklist:
-        if word in name_lower:
+    for pattern in total_noise:
+        if re.search(pattern, name_lower):
+            # Special exception: allow 'Street' or 'Avenue' if it looks like a person's name.
+            # Names in Legistar are usually Title Case.
+            # If it's "Main Street", "Main" is Title Case too.
+            # A better heuristic: if it's 2 words and the first word is a common street name (Main, Oak, etc), block it.
+            # Or simpler: for 'street'/'avenue', we only block if word_count < 3 AND it's not explicitly trusted.
+            if pattern in [r'\bstreet\b', r'\bavenue\b']:
+                # If it's "John Street", we might be blocking a person.
+                # However, "Main Street" is more common in noise.
+                # Let's check if the OTHER words in the name look like a person.
+                words = name_clean.split()
+                if any(w.lower() in ['main', 'broadway', 'avenue', 'street', 'highway', 'road'] for w in words):
+                    return False
+                # If it's just two words, and one is 'Street', it's 50/50. 
+                # In municipal docs, it's 90% a location.
+                return False
             return False
-            
+
+    # CONTEXTUAL NOISE: These words are common in municipal docs but ALSO common surnames.
+    # We only block them if they are the ENTIRE string and no title was provided.
+    contextual_noise = ['park', 'clerk', 'staff', 'manager', 'ave']
+    if name_lower in contextual_noise and not allow_single_word:
+        return False
+
     # 6. Check for numeric noise (e.g. 'Meeting 2024')
     if any(char.isdigit() for char in name_clean):
         return False
