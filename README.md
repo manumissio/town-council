@@ -56,10 +56,10 @@ This project uses **Docker** to ensure the database, AI models, and search engin
 *   **Verify:** Open your terminal and run `docker compose version`. You should see a version number (e.g., v2.x.x).
 
 ### 2. Initialize and Start
-Once Docker is running, build the images and initialize the database schema:
+Once Docker is running, build the images and initialize the database schema. **Note:** We wait 10 seconds for the database to "wake up" before creating tables.
 ```bash
-docker-compose build
-docker-compose up -d postgres
+docker-compose up -d --build postgres redis
+sleep 10
 docker-compose run --rm pipeline python db_init.py
 docker-compose up -d
 ```
