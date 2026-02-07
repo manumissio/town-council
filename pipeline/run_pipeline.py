@@ -70,7 +70,7 @@ def run_parallel_processing():
     # Find documents needing work (missing content OR missing entities)
     unprocessed = db.query(Catalog).filter(
         (Catalog.content.is_(None)) | (Catalog.entities.is_(None))
-    ).limit(100).all()
+    ).all()
     
     catalog_ids = [c.id for c in unprocessed]
     db.close()
