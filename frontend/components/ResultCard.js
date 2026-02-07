@@ -13,7 +13,7 @@ import DataTable from "./DataTable";
  * DESIGN: Uses a tabbed interface for Full Text, AI Summary, and Structured Agenda.
  * All AI features are "On-Demand" to minimize API costs and respect rate limits.
  */
-export export default function ResultCard({ hit, onPersonClick }) {
+export default function ResultCard({ hit, onPersonClick }) {
   const [isExpanded, setIsExpanded] = useState(false);
   const [showAllOfficials, setShowAllOfficials] = useState(false);
   const [viewMode, setViewMode] = useState("text"); // 'text', 'summary', 'agenda'
