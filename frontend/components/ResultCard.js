@@ -460,7 +460,7 @@ export default function ResultCard({ hit, onPersonClick }) {
                       <TableIcon className="w-4 h-4" />
                       Segmented Agenda Items
                     </div>
-                    {agendaItems ? (
+                    {agendaItems && agendaItems.length > 0 ? (
                       <div className="grid gap-4">
                         {agendaItems.map((item, i) => (
                           <div key={i} className="p-4 bg-white border border-indigo-100 rounded-2xl shadow-sm">
@@ -483,9 +483,13 @@ export default function ResultCard({ hit, onPersonClick }) {
                         <div className="mb-4 bg-indigo-100 p-3 rounded-full">
                           <TableIcon className="w-6 h-6 text-indigo-600" />
                         </div>
-                        <h4 className="font-bold text-indigo-900 mb-1">Agenda not segmented</h4>
+                        <h4 className="font-bold text-indigo-900 mb-1">
+                          {agendaItems && agendaItems.length === 0 ? "No items found" : "Agenda not segmented"}
+                        </h4>
                         <p className="text-indigo-600/60 text-xs mb-6 max-w-[240px] text-center">
-                          Use AI to split this document into individual, searchable agenda items.
+                          {agendaItems && agendaItems.length === 0 
+                            ? "The AI was unable to find specific agenda items in this document." 
+                            : "Use AI to split this document into individual, searchable agenda items."}
                         </p>
                         <button 
                           onClick={handleGenerateAgenda}
@@ -495,7 +499,7 @@ export default function ResultCard({ hit, onPersonClick }) {
                           {isSegmenting ? (
                             <><Loader2 className="w-4 h-4 animate-spin" /> Splitting...</>
                           ) : (
-                            <><Sparkles className="w-3.5 h-3.5" /> Segment Agenda Items</>
+                            <><Sparkles className="w-3.5 h-3.5" /> {agendaItems && agendaItems.length === 0 ? "Retry Segmentation" : "Segment Agenda Items"}</>
                           )}
                         </button>
                       </div>
