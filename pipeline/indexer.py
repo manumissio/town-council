@@ -91,7 +91,6 @@ def index_documents():
             'summary_extractive': catalog.summary_extractive,
             'topics': catalog.topics,
             'related_ids': catalog.related_ids,
-            'entities': entities,
             'people_metadata': people_list,
             'people': [p['name'] for p in people_list],
             'event_name': event.name,
