@@ -2,6 +2,7 @@ services:
   # PostgreSQL Database: Replaces SQLite for production-grade concurrency and performance.
   postgres:
     image: postgres:15
+    command: postgres -c 'max_connections=200'
     restart: always
     environment:
       POSTGRES_USER: ${POSTGRES_USER:-town_council}
@@ -44,6 +45,15 @@ services:
   tika:
     image: apache/tika:latest-full
     restart: always
+    mem_limit: 4G
+    environment:
+      - TIKA_CHILD_JVM_OPTS=-Xmx3g
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:9998/tika"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 60s
 
   # Service for extracting text from downloaded documents.
   extractor:

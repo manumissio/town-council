@@ -19,19 +19,27 @@ def is_safe_path(path):
 def extract_text(file_path):
     """
     Extracts text from a single file using Tika.
-    Used by the parallel processor.
+    Includes a 3-attempt retry loop for stability.
     """
     if not os.path.exists(file_path) or not is_safe_path(file_path):
         return ""
         
-    try:
-        parsed = parser.from_file(file_path, serverEndpoint=TIKA_SERVER_ENDPOINT)
-        if parsed and 'content' in parsed:
-            return (parsed['content'] or "").strip()
-        return ""
-    except Exception as e:
-        print(f"Error extracting {file_path}: {e}")
-        return ""
+    for attempt in range(3):
+        try:
+            # We add a 60-second timeout to handle large PDFs
+            parsed = parser.from_file(file_path, serverEndpoint=TIKA_SERVER_ENDPOINT, requestOptions={'timeout': 60})
+            if parsed and 'content' in parsed:
+                return (parsed['content'] or "").strip()
+            return ""
+        except Exception as e:
+            if attempt < 2:
+                wait_time = (attempt + 1) * 5
+                print(f"Tika error on {file_path}, retrying in {wait_time}s... (Attempt {attempt+1}/3)")
+                time.sleep(wait_time)
+            else:
+                print(f"Error extracting {file_path} after 3 attempts: {e}")
+                return ""
+    return ""
 
 def extract_content():
     """
