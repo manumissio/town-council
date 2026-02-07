@@ -1,11 +1,15 @@
 import os
 import requests
+import logging
 from concurrent.futures import ThreadPoolExecutor
 from sqlalchemy import text
 from sqlalchemy.orm import sessionmaker
-from models import Place, UrlStage, Event, Catalog, Document, UrlStageHist
-from models import db_connect, create_tables
+from pipeline.models import Place, UrlStage, Event, Catalog, Document, UrlStageHist
+from pipeline.models import db_connect, create_tables
 
+# Setup logging
+logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
+logger = logging.getLogger(__name__)
 
 class Media():
     """
@@ -60,13 +64,13 @@ class Media():
                 # Check file size (limit to 100MB) to prevent crashing the server with massive files.
                 content_length = r.headers.get('Content-Length')
                 if content_length and int(content_length) > 104857600:
-                    print(f"Skipping file: {document_url} is too large ({content_length} bytes)")
+                    logger.warning(f"Skipping file: {document_url} is too large ({content_length} bytes)")
                     return None
                 return r
             else:
                 return r.status_code
         except Exception as e:
-            print(f"Request failed for {document_url}: {e}")
+            logger.error(f"Request failed for {document_url}: {e}")
             return None
 
     def _store_document(self, response, content_type, url_hash):
@@ -90,31 +94,49 @@ class Media():
 
         # Write the file in chunks (8KB at a time).
         # This is much more memory efficient than loading the whole file into RAM at once.
-        with open(abs_path, 'wb') as f:
-            for chunk in response.iter_content(chunk_size=8192):
-                f.write(chunk)
-        
-        return abs_path
+        try:
+            with open(abs_path, 'wb') as f:
+                for chunk in response.iter_content(chunk_size=8192):
+                    f.write(chunk)
+            return abs_path
+        except Exception as e:
+            logger.error(f"Failed to write file {abs_path}: {e}")
+            return None
 
-    def _create_fp_from_ocd_id(self, ocd_id):
+    def _create_fp_from_ocd_id(self, ocd_id_str):
         """
         Creates a directory structure based on the location ID.
         Example: data/us/ca/belmont/
         """
-        elements = ocd_id.split('/')
-        # Extract and sanitize components (e.g., "country:us" -> "us")
-        country = elements[1].split(':')[-1]
-        state = elements[2].split(':')[-1]
-        place = elements[3].split(':')[-1]
-
-        # Construct safe path within the data directory
-        base_dir = self.working_dir
-        safe_path = os.path.join(base_dir, country, state, place)
-        
-        # Ensure the directory exists
-        os.makedirs(safe_path, exist_ok=True)
-
-        return safe_path
+        try:
+            # Expected format: ocd-division/country:us/state:ca/place:belmont
+            if not ocd_id_str or '/' not in ocd_id_str:
+                raise ValueError("Missing '/' separator")
+                
+            parts = ocd_id_str.split('/')
+            if len(parts) < 2:
+                raise ValueError("Incomplete OCD-ID")
+                
+            loc_part = parts[1] # "country:us/state:ca/place:belmont"
+            
+            # We want to extract 'us', 'ca', 'belmont'
+            segments = []
+            for token in loc_part.split('/'):
+                if ':' in token:
+                    segments.append(token.split(':')[1])
+            
+            if not segments:
+                raise ValueError("No valid location segments found")
+                
+            safe_path = os.path.join(self.working_dir, *segments)
+            os.makedirs(safe_path, exist_ok=True)
+            return safe_path
+            
+        except Exception as e:
+            logger.warning(f"Malformed OCD-ID '{ocd_id_str}': {e}. Using fallback 'misc'.")
+            fallback_path = os.path.join(self.working_dir, "misc")
+            os.makedirs(fallback_path, exist_ok=True)
+            return fallback_path
 
 
 def process_single_url(url_record_id):
@@ -142,7 +164,7 @@ def process_single_url(url_record_id):
         
         if not event_record:
             # If the event isn't found, we can't link the doc, so we skip it.
-            print(f"Skipping: Event not found for {url_record.event} ({url_record.event_date})")
+            logger.info(f"Skipping: Event not found for {url_record.event} ({url_record.event_date})")
             return
 
         # Check if we have already downloaded this file (by checking its hash).
@@ -152,7 +174,7 @@ def process_single_url(url_record_id):
 
         if not catalog_entry:
             # It's a new file: Download it and add it to the Catalog.
-            print(f"Downloading new document: {url_record.url}")
+            logger.info(f"Downloading new document: {url_record.url}")
             downloader = Media(url_record)
             file_location = downloader.gather()
 
@@ -173,7 +195,7 @@ def process_single_url(url_record_id):
                         Catalog.url_hash == url_record.url_hash
                     ).first()
             else:
-                print(f"Failed to download: {url_record.url}")
+                logger.error(f"Failed to download: {url_record.url}")
                 return
 
         # Link the Document to the Event and the Catalog file.
@@ -197,7 +219,7 @@ def process_single_url(url_record_id):
         session.commit()
 
     except Exception as e:
-        print(f"Error processing URL record {url_record_id}: {e}")
+        logger.error(f"Error processing URL record {url_record_id}: {e}")
         session.rollback()
     finally:
         session.close()
@@ -209,7 +231,7 @@ def process_staged_urls():
     Processes all URLs in the 'url_stage' table in parallel.
     """
     engine = db_connect()
-    create_tables(engine)
+    # Note: create_tables removed here as we expect DB to be initialized via db_init.py
     Session = sessionmaker(bind=engine)
     session = Session()
 
@@ -218,10 +240,10 @@ def process_staged_urls():
     session.close()
 
     if not url_ids:
-        print("No URLs in staging table to process.")
+        logger.info("No URLs in staging table to process.")
         return
 
-    print(f"Processing {len(url_ids)} staged URLs using 5 threads...")
+    logger.info(f"Processing {len(url_ids)} staged URLs using 5 threads...")
     
     # Use 5 parallel threads to speed up downloading multiple files at once.
     with ThreadPoolExecutor(max_workers=5) as executor:
@@ -235,12 +257,12 @@ def archive_url_stage():
     """Moves processed records to the history table and clears staging."""
     engine = db_connect()
     with engine.begin() as conn:
-        print("Archiving processed URLs to history...")
+        logger.info("Archiving processed URLs to history...")
         # Move data
         conn.execute(text("INSERT INTO url_stage_hist (ocd_division_id, event, event_date, url, url_hash, category, created_at) SELECT ocd_division_id, event, event_date, url, url_hash, category, created_at FROM url_stage"))
         # Clear staging
         conn.execute(text("DELETE FROM url_stage"))
-        print("Staging table cleared.")
+        logger.info("Staging table cleared.")
 
 
 if __name__ == "__main__":

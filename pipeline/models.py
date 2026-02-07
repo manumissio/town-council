@@ -283,4 +283,5 @@ class Document(Base):
 
 
 engine = db_connect()
-create_tables(engine)
+# create_tables(engine) is removed to avoid import side-effects. 
+# Use pipeline/db_init.py to create tables explicitly.

@@ -67,6 +67,14 @@ app = FastAPI(
     default_response_class=ORJSONResponse
 )
 
+# SECURITY: Startup Guardrail
+# Warn the administrator if they forgot to change the default secret.
+@app.on_event("startup")
+async def check_security_config():
+    key = os.getenv("API_AUTH_KEY", "dev_secret_key_change_me")
+    if key == "dev_secret_key_change_me":
+        logger.critical("SECURITY WARNING: You are using the default API Key. Please set API_AUTH_KEY in production.")
+
 
 # Add Rate Limit handler to the app
 app.state.limiter = limiter
