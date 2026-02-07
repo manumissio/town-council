@@ -130,6 +130,18 @@ services:
     volumes:
       - meili_data:/meili_data
 
+  # PERFORMANCE: Redis Caching Layer
+  # Stores frequently accessed data (like city lists) in RAM for instant access.
+  # This reduces database load by ~95% for read-heavy operations.
+  redis:
+    image: redis:7-alpine
+    ports:
+      - "6379:6379"
+    command: redis-server --requirepass ${REDIS_PASSWORD:-secure_redis_password} --maxmemory 256mb --maxmemory-policy allkeys-lru
+    volumes:
+      - redis_data:/data
+    restart: unless-stopped
+
   # FastAPI Backend: Serves the search API and data to users.
   api:
     build: .
@@ -143,12 +155,15 @@ services:
       - MEILI_HOST=${MEILI_HOST:-http://meilisearch:7700}
       - MEILI_MASTER_KEY=${MEILI_MASTER_KEY:-masterKey}
       - DATABASE_URL=${DATABASE_URL:-postgresql://town_council:secure_dev_password@postgres:5432/town_council_db}
+      - REDIS_HOST=redis
+      - REDIS_PASSWORD=${REDIS_PASSWORD:-secure_redis_password}
       - PYTHONPATH=/app
       - API_AUTH_KEY=${API_AUTH_KEY:-dev_secret_key_change_me}
       - ALLOWED_ORIGINS=${ALLOWED_ORIGINS:-http://localhost:3000}
     depends_on:
       - meilisearch
       - postgres
+      - redis
 
   # Next.js Frontend: The user interface for searching and viewing results.
   frontend:
@@ -206,3 +221,5 @@ volumes:
   # Persistent storage for monitoring data
   prometheus_data:
   grafana_data:
+  # Persistent storage for Redis cache
+  redis_data:

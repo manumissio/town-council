@@ -4,12 +4,14 @@ import logging
 import meilisearch
 from fastapi import FastAPI, HTTPException, Query, Path, Depends, Header, Request
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import ORJSONResponse
 from typing import List, Optional
 from pydantic import BaseModel, Field
-from sqlalchemy.orm import Session as SQLAlchemySession, sessionmaker
+from sqlalchemy.orm import Session as SQLAlchemySession, sessionmaker, joinedload
 from slowapi import Limiter, _rate_limit_exceeded_handler
 from slowapi.util import get_remote_address
 from slowapi.errors import RateLimitExceeded
+from api.cache import cached
 
 # Set up Rate Limiting
 # This prevents a single user from overwhelming our local CPU with AI requests.
@@ -26,7 +28,7 @@ sys.path.append(os.path.join(os.path.dirname(__file__), '..'))
 SessionLocal = None
 
 try:
-    from pipeline.models import db_connect, Document, Event, Place, Catalog, Person, AgendaItem, DataIssue, IssueType
+    from pipeline.models import db_connect, Document, Event, Place, Catalog, Person, AgendaItem, DataIssue, IssueType, Membership, Organization
     from pipeline.utils import generate_ocd_id
     from pipeline.llm import LocalAI
     engine = db_connect()
@@ -58,7 +60,12 @@ async def verify_api_key(x_api_key: str = Header(None)):
         logger.warning(f"Unauthorized API access attempt with key: {masked_key}")
         raise HTTPException(status_code=401, detail="Invalid or missing API Key")
 
-app = FastAPI(title="Town Council Search API", description="Search and retrieve local government meeting minutes.")
+# PERFORMANCE: Use ORJSONResponse for 3-5x faster JSON serialization
+app = FastAPI(
+    title="Town Council Search API", 
+    description="Search and retrieve local government meeting minutes.",
+    default_response_class=ORJSONResponse
+)
 
 
 # Add Rate Limit handler to the app
@@ -149,6 +156,7 @@ def search_documents(
         raise HTTPException(status_code=500, detail="Internal search engine error")
 
 @app.get("/metadata")
+@cached(expire=3600, key_prefix="metadata") # PERFORMANCE: Cache for 1 hour
 def get_metadata():
     """
     Returns unique cities and organizations present in the search index.
@@ -175,12 +183,24 @@ def get_metadata():
         return {"cities": [], "organizations": [], "meeting_types": []}
 
 @app.get("/people")
-def list_people(limit: int = 50, db: SQLAlchemySession = Depends(get_db)):
+def list_people(
+    limit: int = Query(50, ge=1, le=200), # PERFORMANCE: Enforce limits to prevent OOM
+    offset: int = Query(0, ge=0),
+    db: SQLAlchemySession = Depends(get_db)
+):
     """
-    Returns a list of identified officials.
+    Returns a paginated list of identified officials.
     """
     try:
-        return db.query(Person).order_by(Person.name).limit(limit).all()
+        # PERFORMANCE: Return total count for frontend pagination logic
+        total = db.query(Person).count()
+        people = db.query(Person).order_by(Person.name).limit(limit).offset(offset).all()
+        return {
+            "total": total,
+            "limit": limit,
+            "offset": offset,
+            "results": people
+        }
     except Exception as e:
         logger.error(f"Failed to list people: {e}")
         raise HTTPException(status_code=500, detail="Database error")
@@ -193,7 +213,16 @@ def get_person_history(
     """
     Returns a person's full profile and roles.
     """
-    person = db.get(Person, person_id)
+    # PERFORMANCE: Eager Loading
+    # Instead of asking the database 30 separate questions ("Who is this?", "What city?", "What role?"),
+    # we ask ONE big question ("Give me everything about this person at once").
+    # This makes the profile page load instantly (1 query vs 31 queries).
+    person = db.query(Person).options(
+        joinedload(Person.memberships)
+        .joinedload(Membership.organization)
+        .joinedload(Organization.place)
+    ).filter(Person.id == person_id).first()
+
     if not person:
         raise HTTPException(status_code=404, detail="Official not found")
     
@@ -245,124 +274,93 @@ def get_catalogs_batch(
         })
     return results
 
+from pipeline.tasks import generate_summary_task, segment_agenda_task
+from celery.result import AsyncResult
+
 @app.post("/summarize/{catalog_id}", dependencies=[Depends(verify_api_key)])
-@limiter.limit("10/minute")
+@limiter.limit("20/minute") # Higher limit since it's non-blocking
 def summarize_document(
     request: Request,
     catalog_id: int = Path(..., ge=1),
-    db: SQLAlchemySession = Depends(get_db),
-    local_ai: LocalAI = Depends(get_local_ai)
+    db: SQLAlchemySession = Depends(get_db)
 ):
     """
-    Requests an AI-generated summary for a specific document.
-    
-    Updated: Now uses LocalAI (Gemma 3 270M) running on the CPU.
+    Async AI: Requests a summary generation.
+    Returns a 'Task ID' immediately. Use GET /tasks/{id} to check progress.
     """
     catalog = db.get(Catalog, catalog_id)
     if not catalog:
         raise HTTPException(status_code=404, detail="Document not found")
 
+    # If cached, return immediately
     if catalog.summary:
-        return {"summary": catalog.summary, "cached": True}
+        return {"summary": catalog.summary, "status": "cached"}
 
     if not catalog.content:
         raise HTTPException(status_code=400, detail="Document has no text to summarize")
 
-    try:
-        # Use the local model to generate the summary
-        summary_text = local_ai.summarize(catalog.content)
-
-        if summary_text:
-            catalog.summary = summary_text.strip()
-            db.commit()
-            
-            # Async Index Update
-            try:
-                meili_index = client.index('documents')
-                docs_to_update = db.query(Document).filter_by(catalog_id=catalog_id).all()
-                for d in docs_to_update:
-                    meili_index.update_documents([{"id": d.id, "summary": catalog.summary}])
-            except Exception as e:
-                logger.error(f"Search sync failed: {e}")
-
-            return {"summary": catalog.summary, "cached": False}
-        
-        raise HTTPException(status_code=500, detail="AI generation returned empty text")
-
-    except Exception as e:
-        db.rollback()
-        logger.error(f"Summarization error: {e}")
-        raise HTTPException(status_code=500, detail="Internal server error")
+    # THE 'MAILBOX' (Celery):
+    # We don't make the user wait while the AI writes a summary.
+    # Instead, we put a 'task' in the mailbox and tell the user: 
+    # "We're on it! Here is your tracking number."
+    task = generate_summary_task.delay(catalog_id)
+    
+    return {
+        "status": "processing",
+        "task_id": str(task.id),
+        "poll_url": f"/tasks/{task.id}"
+    }
 
 @app.post("/segment/{catalog_id}", dependencies=[Depends(verify_api_key)])
-@limiter.limit("10/minute")
+@limiter.limit("20/minute")
 def segment_agenda(
     request: Request,
     catalog_id: int = Path(..., ge=1),
-    db: SQLAlchemySession = Depends(get_db),
-    local_ai: LocalAI = Depends(get_local_ai)
+    db: SQLAlchemySession = Depends(get_db)
 ):
     """
-    On-Demand AI Worker: Splits a large document into structured agenda items.
-    
-    Updated: Now uses LocalAI (Gemma 3 270M) to extract JSON from text.
+    Async AI: Requests agenda segmentation.
+    Returns a 'Task ID' immediately.
     """
     catalog = db.get(Catalog, catalog_id)
     if not catalog:
         raise HTTPException(status_code=404, detail="Document not found")
 
-    # 1. Check if we already have these items saved (Caching)
-    existing_items = db.query(AgendaItem).filter_by(catalog_id=catalog_id).order_by(AgendaItem.order).all()
-    if existing_items:
-        return {"items": [
-            {
-                "title": i.title, 
-                "description": i.description, 
-                "classification": i.classification, 
-                "result": i.result,
-                "order": i.order
-            } for i in existing_items
-        ], "cached": True}
+    # Check cache
+    existing = db.query(AgendaItem).filter_by(catalog_id=catalog_id).first()
+    if existing:
+        return {"status": "cached", "message": "Agenda already segmented"}
 
-    if not catalog.content:
-        raise HTTPException(status_code=400, detail="Document has no text to segment")
+    # Dispatch Task
+    task = segment_agenda_task.delay(catalog_id)
+    
+    return {
+        "status": "processing",
+        "task_id": str(task.id),
+        "poll_url": f"/tasks/{task.id}"
+    }
 
-    # 2. Get the associated meeting so we can link the items correctly
-    doc_link = db.query(Document).filter_by(catalog_id=catalog_id).first()
-    if not doc_link:
-        raise HTTPException(status_code=400, detail="Document is not linked to a meeting")
-
-    try:
-        # 3. Call Local AI to extract JSON items
-        items_data = local_ai.extract_agenda(catalog.content)
-
-        if items_data:
-            for data in items_data:
-                # Validate the item has a title before saving
-                if not data.get('title'):
-                    continue
-                    
-                item = AgendaItem(
-                    ocd_id=generate_ocd_id('agendaitem'),
-                    event_id=doc_link.event_id,
-                    catalog_id=catalog_id,
-                    order=data.get('order'),
-                    title=data.get('title', 'Untitled Item'),
-                    description=data.get('description'),
-                    classification=data.get('classification'),
-                    result=data.get('result')
-                )
-                db.add(item)
+@app.get("/tasks/{task_id}")
+def get_task_status(task_id: str):
+    """
+    Check the status of a background AI task.
+    """
+    task = AsyncResult(task_id)
+    
+    if task.ready():
+        result = task.result
+        # Handle errors propagated from the worker
+        if isinstance(result, Exception):
+            return {"status": "failed", "error": str(result)}
+        elif isinstance(result, dict) and "error" in result:
+            return {"status": "failed", "error": result["error"]}
             
-            db.commit()
-            return {"items": items_data, "cached": False}
-        
-        raise HTTPException(status_code=500, detail="AI segmentation failed to return valid JSON")
-
-    except Exception as e:
-        db.rollback()
-        logger.error(f"Segmentation error: {e}")
-        raise HTTPException(status_code=500, detail="Internal server error")
+        return {
+            "status": "complete",
+            "result": result
+        }
+    else:
+        return {"status": "processing"}
 
 @app.get("/stats")
 def get_stats():

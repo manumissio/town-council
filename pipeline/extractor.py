@@ -2,7 +2,7 @@ import os
 import time
 from tika import parser
 from sqlalchemy.orm import sessionmaker
-from models import Catalog, db_connect, create_tables
+from pipeline.models import Catalog, db_connect, create_tables
 
 # Define where the Tika server is located (usually a separate Docker container)
 TIKA_SERVER_ENDPOINT = os.getenv('TIKA_SERVER_ENDPOINT', 'http://tika:9998')
@@ -10,25 +10,32 @@ TIKA_SERVER_ENDPOINT = os.getenv('TIKA_SERVER_ENDPOINT', 'http://tika:9998')
 def is_safe_path(path):
     """
     Checks if a file path is safe to open.
-    
-    Why this is needed:
-    To prevent security vulnerabilities where a malicious path could trick the system
-    into reading sensitive files outside the project directory (Path Traversal).
     """
     # Use DATA_DIR from environment or default to local data folder
     base_dir = os.path.abspath(os.getenv('DATA_DIR', './data'))
     target_path = os.path.abspath(path)
     return target_path.startswith(base_dir)
 
+def extract_text(file_path):
+    """
+    Extracts text from a single file using Tika.
+    Used by the parallel processor.
+    """
+    if not os.path.exists(file_path) or not is_safe_path(file_path):
+        return ""
+        
+    try:
+        parsed = parser.from_file(file_path, serverEndpoint=TIKA_SERVER_ENDPOINT)
+        if parsed and 'content' in parsed:
+            return (parsed['content'] or "").strip()
+        return ""
+    except Exception as e:
+        print(f"Error extracting {file_path}: {e}")
+        return ""
+
 def extract_content():
     """
-    Finds downloaded documents (PDFs) that haven't been processed yet and
-    extracts the raw text from them.
-    
-    How it works:
-    1. It queries the database for files with no text content.
-    2. It sends each file to the Apache Tika server (OCR/Extraction service).
-    3. It saves the returned text back into the database.
+    Legacy batch function. Consider using run_pipeline.py instead.
     """
     engine = db_connect()
     create_tables(engine)
@@ -47,45 +54,16 @@ def extract_content():
     processed_count = 0
 
     for record in to_process:
-        # Safety Check: Ensure the file actually exists and is in the allowed folder.
-        if not os.path.exists(record.location) or not is_safe_path(record.location):
-            print(f"Skipping unsafe or missing file: {record.location}")
-            # Mark it as "empty" so we don't keep trying to process a broken file forever.
-            record.content = ""
-            continue
-
         print(f"Extracting text from: {record.filename}")
         
-        try:
-            # Send the file to Tika for processing.
-            parsed = parser.from_file(record.location, serverEndpoint=TIKA_SERVER_ENDPOINT)
+        record.content = extract_text(record.location)
+        processed_count += 1
             
-            if parsed and 'content' in parsed:
-                text = parsed['content']
-                # Save the extracted text (trimming extra whitespace).
-                record.content = text.strip() if text else ""
-                print(f"Successfully processed {record.filename}")
-            else:
-                print(f"Extraction failed for {record.filename}")
-                record.content = ""
+        if processed_count % batch_size == 0:
+            session.commit()
+            print(f"Committed batch of {batch_size} records.")
 
-            processed_count += 1
-            
-            # Save progress every 10 files to avoid losing work if the script crashes.
-            if processed_count % batch_size == 0:
-                session.commit()
-                print(f"Committed batch of {batch_size} records.")
-
-        except Exception as e:
-            print(f"Unexpected error with {record.filename}: {e}")
-            session.rollback()
-
-    # Final save for any remaining records.
-    try:
-        session.commit()
-    except:
-        session.rollback()
-    
+    session.commit()
     session.close()
     print("Text extraction process complete.")
 

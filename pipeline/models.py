@@ -45,7 +45,7 @@ def db_connect():
 
 def create_tables(engine):
     """
-    Creates all the tables defined below if they don't already exist.
+    Creates all the tables defined below if they't already exist.
     """
     Base.metadata.create_all(engine)
 
@@ -243,6 +243,13 @@ class Event(Base):
     place = relationship('Place')
     organization = relationship('Organization', back_populates='events')
     agenda_items = relationship('AgendaItem', back_populates='event', cascade="all, delete-orphan")
+    data_issues = relationship('DataIssue', back_populates='event')
+
+    # PERFORMANCE: Indexes for date-range queries
+    __table_args__ = (
+        Index('idx_event_date_place', 'record_date', 'place_id'),
+        Index('idx_event_org', 'organization_id', 'record_date'),
+    )
 
 
 class AgendaItem(Base):
@@ -328,6 +335,15 @@ class Catalog(Base):
     
     uploaded_at = Column(DateTime, default=datetime.datetime.now)
 
+    # Relationships
+    document = relationship("Document", back_populates="catalog", uselist=False)
+    agenda_items = relationship("AgendaItem", back_populates="catalog")
+
+    # PERFORMANCE: Index for faster lookups
+    __table_args__ = (
+        Index('idx_catalog_hash', 'url_hash'),
+    )
+
 
 class Document(Base):
     """
@@ -347,9 +363,16 @@ class Document(Base):
     created_at = Column(DateTime, default=datetime.datetime.now)
     
     # Relationships allow us to easily access related data in code
-    place = relationship('Place')
-    event = relationship('Event')
-    catalog = relationship('Catalog')
+    place = relationship('Place', back_populates='documents')
+    event = relationship('Event', back_populates='documents')
+    catalog = relationship('Catalog', back_populates='document')
+
+    # PERFORMANCE: Indexes for fast filtering
+    __table_args__ = (
+        Index('idx_doc_place_event', 'place_id', 'event_id'),
+        Index('idx_doc_category', 'category', 'created_at'),
+        Index('idx_doc_catalog', 'catalog_id'),
+    )
 
 
 engine = db_connect()
