@@ -163,8 +163,8 @@ To ensure the platform feels "instant" even on consumer hardware, we use a multi
 ### 10. Data Integrity & Validation
 To prevent "garbage data" from corrupting the system, we enforce strict schemas at multiple layers:
 *   **API Layer (Pydantic):** Strict type checking for all JSON inputs.
-*   **Logic Layer (Regex):** Custom validators ensure Dates (ISO-8601) and Identifiers (OCD-ID) follow strict formats.
-*   **Database Layer (Schema):** All text columns have explicit length limits (e.g., `VARCHAR(255)`) to prevent buffer stuffing attacks.
+*   **Logic Layer (Regex):** Custom validators ensure Dates (ISO-8601) and Identifiers (OCD-ID follow strict formats.
+*   **Database Layer (Schema):** Metadata columns have explicit length limits (e.g., `VARCHAR(255)`) to prevent buffer stuffing. **High-volume text columns** (Meeting Content, Summaries, Biographies) use the `TEXT` type to ensure zero truncation during ingestion.
 
 ### 11. Container Optimization & Performance
 To ensure fast developer iteration and secure production deployments, the system uses an optimized Docker architecture:
@@ -187,4 +187,6 @@ To ensure fast developer iteration and secure production deployments, the system
 To ensure 24/7 availability in production, the system implements **Graceful Degradation**:
 *   **Dependency Checking:** The API uses a `is_db_ready()` helper to verify the database connection before handling requests. If the database is down, it returns a `503 Service Unavailable` error instead of crashing.
 *   **Lazy AI Loading:** Local AI models are loaded only when first requested. If the model files are missing or corrupt, the API continues to serve search results while disabling only the summarization and segmentation features.
-*   **Robust JSON Extraction:** The AI parser uses defensive string-stripping logic to extract valid JSON blocks even if the model includes conversational text in its response.
+*   **Robust Segment Extraction:** The system uses a multi-layered approach for agenda splitting:
+    1.  **Direct AI Extraction:** High-precision bulleted list from the local model.
+    2.  **Paragraph Fallback:** If the AI output is malformed, the system automatically segments by paragraph to ensure the UI remains functional.

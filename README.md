@@ -47,10 +47,12 @@ This project uses **Docker** to ensure the database, AI models, and search engin
 *   **Linux:** Follow the [official engine installation guide](https://docs.docker.com/engine/install/).
 *   **Verify:** Open your terminal and run `docker compose version`. You should see a version number (e.g., v2.x.x).
 
-### 2. Build and Start
-Once Docker is running, build the optimized multi-stage images:
+### 2. Initialize and Start
+Once Docker is running, build the images and initialize the database schema:
 ```bash
 docker-compose build
+docker-compose up -d postgres
+docker-compose run --rm pipeline python db_init.py
 docker-compose up -d
 ```
 
@@ -64,7 +66,7 @@ docker-compose run crawler scrapy crawl berkeley
 docker-compose run crawler scrapy crawl cupertino
 ```
 
-### 3. Process Data
+### 4. Process Data
 Run the processing pipeline (Downloads, OCR, Entity Linking, Indexing). 
 ```bash
 docker-compose run --rm pipeline python run_pipeline.py
@@ -87,9 +89,9 @@ The platform is built using a modular component architecture:
 - **Indexing:** Python stream-based batch processing for scalability.
 
 ## Testing
-Run the comprehensive suite of 25+ unit tests:
+Run the comprehensive suite of 65+ unit and integration tests:
 ```bash
-docker-compose run pipeline pytest /app/tests/
+docker-compose run --rm pipeline pytest /app/tests/
 ```
 
 ## Scaling Up (Enterprise Mode)
