@@ -18,7 +18,10 @@ export default function PersonProfile({ personId, onClose }) {
       setLoading(true);
       try {
         const apiUrl = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
-        const res = await fetch(`${apiUrl}/person/${personId}`);
+        const apiAuthKey = process.env.NEXT_PUBLIC_API_AUTH_KEY || "dev_secret_key_change_me";
+        const res = await fetch(`${apiUrl}/person/${personId}`, {
+          headers: { "X-API-Key": apiAuthKey }
+        });
         const json = await res.json();
         setData(json);
       } catch (err) {

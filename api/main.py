@@ -2,11 +2,18 @@ import sys
 import os
 import logging
 import meilisearch
-from fastapi import FastAPI, HTTPException, Query, Path, Depends
+from fastapi import FastAPI, HTTPException, Query, Path, Depends, Header, Request
 from fastapi.middleware.cors import CORSMiddleware
 from typing import List, Optional
 from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session as SQLAlchemySession, sessionmaker
+from slowapi import Limiter, _rate_limit_exceeded_handler
+from slowapi.util import get_remote_address
+from slowapi.errors import RateLimitExceeded
+
+# Set up Rate Limiting
+# This prevents a single user from overwhelming our local CPU with AI requests.
+limiter = Limiter(key_func=get_remote_address)
 
 # Set up structured logging for production observability
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
@@ -15,45 +22,70 @@ logger = logging.getLogger("town-council-api")
 # Add the project root to the python path
 sys.path.append(os.path.join(os.path.dirname(__file__), '..'))
 
+# We initialize these as None first. If the import works, we fill them.
+SessionLocal = None
+
 try:
     from pipeline.models import db_connect, Document, Event, Place, Catalog, Person, AgendaItem, DataIssue, IssueType
     from pipeline.utils import generate_ocd_id
     from pipeline.llm import LocalAI
     engine = db_connect()
     SessionLocal = sessionmaker(bind=engine, autoflush=False, autocommit=False)
-except ImportError:
-    logger.error("Could not import pipeline models. Database features will be unavailable.")
+except Exception as e:
+    logger.error(f"CRITICAL: Could not load database models: {e}")
+
+def is_db_ready():
+    return SessionLocal is not None
 
 # Security & Reliability: Dependency Injection for database sessions.
-# This ensures that EVERY connection is properly closed after the request,
-# preventing 'Too many connections' errors.
 def get_db():
+    if not is_db_ready():
+        raise HTTPException(status_code=503, detail="Database service is unavailable")
     db = SessionLocal()
     try:
         yield db
     finally:
         db.close()
 
+# SECURITY: API Key Verification
+# This ensures that only authorized users (like our frontend) can 
+# trigger expensive AI tasks or report issues.
+async def verify_api_key(x_api_key: str = Header(None)):
+    expected_key = os.getenv("API_AUTH_KEY", "dev_secret_key_change_me")
+    if x_api_key != expected_key:
+        logger.warning(f"Unauthorized API access attempt with key: {x_api_key}")
+        raise HTTPException(status_code=401, detail="Invalid or missing API Key")
+
 app = FastAPI(title="Town Council Search API", description="Search and retrieve local government meeting minutes.")
 
+# Add Rate Limit handler to the app
+app.state.limiter = limiter
+app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
+
 # Initialize Local AI (Singleton)
-# This loads the model into RAM once when the API starts.
-local_ai = LocalAI()
+# This wrapper function allows us to 'inject' the AI model into endpoints.
+def get_local_ai():
+    return LocalAI()
 
 # SECURITY: Restrict CORS (Cross-Origin Resource Sharing)
-# Why: Standard '*' is unsafe for production. We restrict to the expected frontend port.
+# We load the allowed domains from the environment.
+allowed_origins = os.getenv("ALLOWED_ORIGINS", "http://localhost:3000").split(",")
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:3000"], # Restrict to the Next.js app
+    allow_origins=allowed_origins,
     allow_credentials=True,
     allow_methods=["GET", "POST", "OPTIONS"],
-    allow_headers=["*"],
+    allow_headers=["Content-Type", "Authorization", "X-API-Key"],
 )
 
 # Meilisearch Config
 MEILI_HOST = os.getenv('MEILI_HOST', 'http://meilisearch:7700')
 MEILI_MASTER_KEY = os.getenv('MEILI_MASTER_KEY', 'masterKey')
-client = meilisearch.Client(MEILI_HOST, MEILI_MASTER_KEY)
+
+# SECURITY: We add a timeout to prevent 'Hanging Requests' from 
+# locking up our server if Meilisearch is slow or down.
+client = meilisearch.Client(MEILI_HOST, MEILI_MASTER_KEY, timeout=5)
 
 @app.get("/")
 def read_root():
@@ -85,17 +117,23 @@ def search_documents(
             'filter': []
         }
         
+        # SECURITY: We sanitize inputs by escaping double quotes.
+        # This prevents 'Filter Injection' attacks where a user might try to 
+        # bypass search logic using malicious query strings.
+        def sanitize_filter(val):
+            return str(val).replace('"', '\\"')
+
         # Normalize city to lowercase to match the indexed display_name (e.g., 'ca_berkeley')
-        if city: search_params['filter'].append(f'city = "{city.lower()}"')
-        if meeting_type: search_params['filter'].append(f'meeting_category = "{meeting_type}"')
-        if org: search_params['filter'].append(f'organization = "{org}"')
+        if city: search_params['filter'].append(f'city = "{sanitize_filter(city.lower())}"')
+        if meeting_type: search_params['filter'].append(f'meeting_category = "{sanitize_filter(meeting_type)}"')
+        if org: search_params['filter'].append(f'organization = "{sanitize_filter(org)}"')
 
         if date_from and date_to:
-            search_params['filter'].append(f'date >= "{date_from}" AND date <= "{date_to}"')
+            search_params['filter'].append(f'date >= "{sanitize_filter(date_from)}" AND date <= "{sanitize_filter(date_to)}"')
         elif date_from:
-            search_params['filter'].append(f'date >= "{date_from}"')
+            search_params['filter'].append(f'date >= "{sanitize_filter(date_from)}"')
         elif date_to:
-            search_params['filter'].append(f'date <= "{date_to}"')
+            search_params['filter'].append(f'date <= "{sanitize_filter(date_to)}"')
 
         if not search_params['filter']:
             del search_params['filter']
@@ -199,10 +237,13 @@ def get_catalogs_batch(
         })
     return results
 
-@app.post("/summarize/{catalog_id}")
-def generate_summary(
+@app.post("/summarize/{catalog_id}", dependencies=[Depends(verify_api_key)])
+@limiter.limit("10/minute")
+def summarize_document(
+    request: Request,
     catalog_id: int = Path(..., ge=1),
-    db: SQLAlchemySession = Depends(get_db)
+    db: SQLAlchemySession = Depends(get_db),
+    local_ai: LocalAI = Depends(get_local_ai)
 ):
     """
     Requests an AI-generated summary for a specific document.
@@ -245,10 +286,13 @@ def generate_summary(
         logger.error(f"Summarization error: {e}")
         raise HTTPException(status_code=500, detail="Internal server error")
 
-@app.post("/segment/{catalog_id}")
+@app.post("/segment/{catalog_id}", dependencies=[Depends(verify_api_key)])
+@limiter.limit("10/minute")
 def segment_agenda(
+    request: Request,
     catalog_id: int = Path(..., ge=1),
-    db: SQLAlchemySession = Depends(get_db)
+    db: SQLAlchemySession = Depends(get_db),
+    local_ai: LocalAI = Depends(get_local_ai)
 ):
     """
     On-Demand AI Worker: Splits a large document into structured agenda items.
@@ -335,8 +379,9 @@ class IssueReport(BaseModel):
     issue_type: str = Field(..., description="The type of problem (e.g., 'broken_link')")
     description: Optional[str] = Field(None, max_length=500, description="Optional details about the issue")
 
-@app.post("/report-issue")
-def report_data_issue(report: IssueReport, db: SQLAlchemySession = Depends(get_db)):
+@app.post("/report-issue", dependencies=[Depends(verify_api_key)])
+@limiter.limit("5/minute")
+def report_data_issue(request: Request, report: IssueReport, db: SQLAlchemySession = Depends(get_db)):
     """
     Allows users to report errors in the data (e.g., broken links, OCR errors).
     

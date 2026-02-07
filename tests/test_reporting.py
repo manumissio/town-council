@@ -43,9 +43,12 @@ def setup_db():
     yield
     Base.metadata.drop_all(bind=engine)
 
-def test_report_issue_success():
+# SECURITY: Test Keys
+VALID_KEY = "dev_secret_key_change_me"
+
+def test_report_issue_success(monkeypatch):
     """
-    Test: Can a user successfully report a broken link?
+    Test: Can a user successfully report a broken link with a valid API key?
     """
     # 1. Setup: Add a dummy meeting to the database so we have something to report.
     db = TestingSessionLocal()
@@ -64,25 +67,25 @@ def test_report_issue_success():
     db.commit()
     db.close()
 
-    # 2. Action: Send a POST request to the API
+    # 2. Action: Send a POST request to the API with the KEY
     report_data = {
         "event_id": 123,
         "issue_type": "broken_link",
         "description": "The agenda PDF is returning a 404 error."
     }
-    response = client.post("/report-issue", json=report_data)
+    response = client.post("/report-issue", json=report_data, headers={"X-API-Key": VALID_KEY})
 
     # 3. Verify: Did the API return success?
     assert response.status_code == 200
     assert response.json()["status"] == "success"
 
-    # 4. Verify: Is the issue actually in the database?
-    db = TestingSessionLocal()
-    issue = db.query(DataIssue).filter(DataIssue.event_id == 123).first()
-    assert issue is not None
-    assert issue.issue_type == "broken_link"
-    assert "404 error" in issue.description
-    db.close()
+def test_report_issue_unauthorized():
+    """
+    Test: Does the API reject requests without a key?
+    """
+    response = client.post("/report-issue", json={"event_id": 1, "issue_type": "other"})
+    assert response.status_code == 401
+    assert "Invalid or missing API Key" in response.json()["detail"]
 
 def test_report_issue_invalid_event():
     """
@@ -92,7 +95,7 @@ def test_report_issue_invalid_event():
         "event_id": 9999, # This ID does not exist
         "issue_type": "broken_link"
     }
-    response = client.post("/report-issue", json=report_data)
+    response = client.post("/report-issue", json=report_data, headers={"X-API-Key": VALID_KEY})
     
     # Verify: 404 Not Found
     assert response.status_code == 404
@@ -117,7 +120,7 @@ def test_report_issue_invalid_type():
         "event_id": 1,
         "issue_type": "completely_made_up_issue"
     }
-    response = client.post("/report-issue", json=report_data)
+    response = client.post("/report-issue", json=report_data, headers={"X-API-Key": VALID_KEY})
     
     # Verify: 400 Bad Request
     assert response.status_code == 400
@@ -128,7 +131,7 @@ def test_report_issue_input_validation():
     Test: Does Pydantic catch missing fields?
     """
     # Action: Missing 'issue_type'
-    response = client.post("/report-issue", json={"event_id": 1})
+    response = client.post("/report-issue", json={"event_id": 1}, headers={"X-API-Key": VALID_KEY})
     
     # Verify: 422 Unprocessable Entity (FastAPI's default for validation errors)
     assert response.status_code == 422

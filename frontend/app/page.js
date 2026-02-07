@@ -10,6 +10,7 @@ import { TooltipProvider } from "@/components/ui/tooltip";
 
 // Performance & Security: Centralize API configuration
 const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
+const API_AUTH_KEY = process.env.NEXT_PUBLIC_API_AUTH_KEY || "dev_secret_key_change_me";
 
 export default function Home() {
   // Search State
@@ -60,7 +61,11 @@ export default function Home() {
       if (meetingTypeFilter && meetingTypeFilter !== "all") url += `&meeting_type=${encodeURIComponent(meetingTypeFilter)}`;
       if (orgFilter && orgFilter !== "all") url += `&org=${encodeURIComponent(orgFilter)}`;
 
-      const res = await fetch(url);
+      const res = await fetch(url, {
+        headers: {
+          "X-API-Key": API_AUTH_KEY
+        }
+      });
       const data = await res.json();
       
       const newHits = data.hits || [];
@@ -90,7 +95,9 @@ export default function Home() {
 
   // Initial Load: Fetch valid filter options from the search engine
   useEffect(() => {
-    fetch(`${API_BASE_URL}/metadata`)
+    fetch(`${API_BASE_URL}/metadata`, {
+      headers: { "X-API-Key": API_AUTH_KEY }
+    })
       .then(res => res.json())
       .then(data => {
         setAvailableCities(data.cities || []);

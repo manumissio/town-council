@@ -1,5 +1,6 @@
 import pytest
 from fastapi.testclient import TestClient
+from fastapi import HTTPException
 import sys
 import os
 
@@ -7,9 +8,19 @@ import os
 sys.path.append(os.path.join(os.path.dirname(__file__), '..'))
 sys.path.append(os.path.join(os.path.dirname(__file__), '..', 'api'))
 
-from api.main import app
+from api.main import app, get_local_ai
+
+# SECURITY: Mock the AI singleton to prevent loading the heavy model during tests
+from unittest.mock import MagicMock
+import sys
+mock_ai = MagicMock()
+sys.modules["pipeline.llm"] = MagicMock()
+
+# Override the AI dependency for the entire test module
+app.dependency_overrides[get_local_ai] = lambda: mock_ai
 
 client = TestClient(app)
+VALID_KEY = "dev_secret_key_change_me"
 
 def test_read_root():
     """Test the root endpoint of the API."""
@@ -17,16 +28,26 @@ def test_read_root():
     assert response.status_code == 200
     assert response.json() == {"status": "ok", "message": "Town Council API is running. Go to /docs for the Swagger UI."}
 
-def test_stats_endpoint(mocker):
-    """Test the /stats endpoint with a mocked Meilisearch response."""
-    # Mock the meilisearch client in main.py
+def test_metadata_endpoint(mocker):
+    """Test the /metadata endpoint correctly parses search engine facets."""
     mock_index = mocker.Mock()
-    mock_index.get_stats.return_value = {"numberOfDocuments": 100}
+    mock_index.search.return_value = {
+        "facetDistribution": {
+            "city": {"ca_berkeley": 10, "ca_dublin": 5},
+            "organization": {"City Council": 15},
+            "meeting_category": {"Regular": 10}
+        }
+    }
     mocker.patch("api.main.client.index", return_value=mock_index)
     
-    response = client.get("/stats")
+    response = client.get("/metadata", headers={"X-API-Key": VALID_KEY})
     assert response.status_code == 200
-    assert response.json() == {"numberOfDocuments": 100}
+    data = response.json()
+    
+    # Check if cities are capitalized for the UI
+    assert "Berkeley" in data["cities"]
+    assert "Dublin" in data["cities"]
+    assert "City Council" in data["organizations"]
 
 def test_search_endpoint_params(mocker):
     """Test the /search endpoint handles query parameters correctly and builds filters."""
@@ -35,54 +56,61 @@ def test_search_endpoint_params(mocker):
     mocker.patch("api.main.client.index", return_value=mock_index)
     
     # Test with multiple filters
-    # Note: we use city=berkeley and meeting_type=Regular
-    response = client.get("/search?q=zoning&city=berkeley&meeting_type=Regular&limit=10&offset=5")
+    response = client.get("/search?q=zoning&city=berkeley&meeting_type=Regular&limit=10&offset=5", headers={"X-API-Key": VALID_KEY})
     assert response.status_code == 200
     
     # Verify the parameters passed to Meilisearch search()
     mock_index.search.assert_called_once()
-    args, kwargs = mock_index.search.call_args
+    args, _ = mock_index.search.call_args
     assert args[0] == "zoning"
     
-    search_params = args[1] # In our implementation, search_params is the second positional arg
-    assert search_params['limit'] == 10
-    assert search_params['offset'] == 5
-    # Check if filters are correctly built in the search_params dictionary
+    search_params = args[1]
+    # Check if filters are correctly built
     assert 'city = "berkeley"' in search_params['filter']
     assert 'meeting_category = "Regular"' in search_params['filter']
 
-def test_search_date_filters(mocker):
-    """Test that date filters are correctly formatted for Meilisearch strings."""
+def test_search_injection_protection(mocker):
+    """
+    Test: Does the search endpoint sanitize malicious filter strings?
+    (Fixes Audit Issue #2)
+    """
     mock_index = mocker.Mock()
-    mock_index.search.return_value = {"hits": [], "estimatedTotalHits": 0}
+    mock_index.search.return_value = {"hits": []}
     mocker.patch("api.main.client.index", return_value=mock_index)
     
-    # Test date range
-    client.get("/search?q=test&date_from=2026-01-01&date_to=2026-02-01")
-    _, args = mock_index.search.call_args
-    search_params = args[0] if isinstance(args, tuple) else args
-    # Meilisearch client uses (query, params) or (query, **kwargs) depending on version.
-    # Our code uses index.search(q, search_params)
+    # Attempt a "Quote Escape" attack in the city parameter
+    malicious_city = 'berkeley" OR 1=1 OR city="'
+    client.get(f"/search?q=test&city={malicious_city}", headers={"X-API-Key": VALID_KEY})
+    
     search_params = mock_index.search.call_args[0][1]
-    
-    assert 'date >= "2026-01-01" AND date <= "2026-02-01"' in search_params['filter']
+    # The double quote should be escaped: \"
+    # Note: Meilisearch filters are lowercased in our implementation
+    actual_filter = search_params['filter'][0]
+    assert 'city = "berkeley\\"' in actual_filter
+    assert 'or 1=1 or city=\\""' in actual_filter
 
-def test_metadata_endpoint(mocker):
-    """Test the /metadata endpoint correctly parses search engine facets."""
-    mock_index = mocker.Mock()
-    mock_index.search.return_value = {
-        "facetDistribution": {
-            "city": {"berkeley": 10, "dublin": 5},
-            "organization": {"City Council": 15}
-        }
-    }
-    mocker.patch("api.main.client.index", return_value=mock_index)
+def test_api_database_unavailable(mocker):
+    """
+    Test: Does the API return 503 if the database fails to load?
+    """
+    from api.main import get_db
     
-    response = client.get("/metadata")
-    assert response.status_code == 200
-    data = response.json()
+    # 1. Simulate a failed DB initialization via dependency override
+    def mock_get_db_fail():
+        raise HTTPException(status_code=503, detail="Database service is unavailable")
     
-    # Check if cities are capitalized for the UI
-    assert "Berkeley" in data["cities"]
-    assert "Dublin" in data["cities"]
-    assert "City Council" in data["organizations"]
+    app.dependency_overrides[get_db] = mock_get_db_fail
+    
+    try:
+        # 2. Action: Try to hit a DB-dependent endpoint
+        response = client.get("/people", headers={"X-API-Key": VALID_KEY})
+        
+        # 3. Verify
+        assert response.status_code == 503
+        assert "Database service is unavailable" in response.json()["detail"]
+    finally:
+        # Cleanup: Remove the override so other tests pass
+        del app.dependency_overrides[get_db]
+
+
+

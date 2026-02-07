@@ -32,9 +32,13 @@ export default function ResultCard({ hit, onPersonClick }) {
     setReportStatus('loading');
     try {
       const apiUrl = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
+      const apiAuthKey = process.env.NEXT_PUBLIC_API_AUTH_KEY || "dev_secret_key_change_me";
       const res = await fetch(`${apiUrl}/report-issue`, {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: { 
+          "Content-Type": "application/json",
+          "X-API-Key": apiAuthKey
+        },
         body: JSON.stringify({
           event_id: hit.event_id || hit.id,
           issue_type: issueType,
@@ -68,10 +72,13 @@ export default function ResultCard({ hit, onPersonClick }) {
     setIsLoadingRelated(true);
     try {
       const apiUrl = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
+      const apiAuthKey = process.env.NEXT_PUBLIC_API_AUTH_KEY || "dev_secret_key_change_me";
       const params = new URLSearchParams();
       hit.related_ids.forEach(id => params.append('ids', id));
       
-      const res = await fetch(`${apiUrl}/catalog/batch?${params.toString()}`);
+      const res = await fetch(`${apiUrl}/catalog/batch?${params.toString()}`, {
+        headers: { "X-API-Key": apiAuthKey }
+      });
       const data = await res.json();
       setRelatedMeetings(data);
     } catch (err) {
@@ -87,7 +94,11 @@ export default function ResultCard({ hit, onPersonClick }) {
     setIsGenerating(true);
     try {
       const apiUrl = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
-      const res = await fetch(`${apiUrl}/summarize/${hit.catalog_id}`, { method: "POST" });
+      const apiAuthKey = process.env.NEXT_PUBLIC_API_AUTH_KEY || "dev_secret_key_change_me";
+      const res = await fetch(`${apiUrl}/summarize/${hit.catalog_id}`, { 
+        method: "POST",
+        headers: { "X-API-Key": apiAuthKey }
+      });
       const data = await res.json();
       
       if (data.summary) {
@@ -106,7 +117,11 @@ export default function ResultCard({ hit, onPersonClick }) {
     setIsSegmenting(true);
     try {
       const apiUrl = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
-      const res = await fetch(`${apiUrl}/segment/${hit.catalog_id}`, { method: "POST" });
+      const apiAuthKey = process.env.NEXT_PUBLIC_API_AUTH_KEY || "dev_secret_key_change_me";
+      const res = await fetch(`${apiUrl}/segment/${hit.catalog_id}`, { 
+        method: "POST",
+        headers: { "X-API-Key": apiAuthKey }
+      });
       const data = await res.json();
       
       if (data.items) {

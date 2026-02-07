@@ -4,9 +4,9 @@ services:
     image: postgres:15
     restart: always
     environment:
-      POSTGRES_USER: town_council
-      POSTGRES_PASSWORD: secure_dev_password
-      POSTGRES_DB: town_council_db
+      POSTGRES_USER: ${POSTGRES_USER:-town_council}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-secure_dev_password}
+      POSTGRES_DB: ${POSTGRES_DB:-town_council_db}
     ports:
       - "5432:5432"
     volumes:
@@ -21,7 +21,7 @@ services:
     environment:
       - PYTHONUNBUFFERED=1
       - PYTHONPATH=/app
-      - DATABASE_URL=postgresql://town_council:secure_dev_password@postgres:5432/town_council_db
+      - DATABASE_URL=${DATABASE_URL:-postgresql://town_council:secure_dev_password@postgres:5432/town_council_db}
       - DATA_DIR=/app/data
     depends_on:
       - postgres
@@ -35,7 +35,7 @@ services:
     environment:
       - PYTHONUNBUFFERED=1
       - PYTHONPATH=/app
-      - DATABASE_URL=postgresql://town_council:secure_dev_password@postgres:5432/town_council_db
+      - DATABASE_URL=${DATABASE_URL:-postgresql://town_council:secure_dev_password@postgres:5432/town_council_db}
       - DATA_DIR=/app/data
     depends_on:
       - postgres
@@ -55,7 +55,7 @@ services:
       - PYTHONUNBUFFERED=1
       - PYTHONPATH=/app
       - TIKA_SERVER_ENDPOINT=http://tika:9998
-      - DATABASE_URL=postgresql://town_council:secure_dev_password@postgres:5432/town_council_db
+      - DATABASE_URL=${DATABASE_URL:-postgresql://town_council:secure_dev_password@postgres:5432/town_council_db}
       - DATA_DIR=/app/data
     depends_on:
       - tika
@@ -70,7 +70,7 @@ services:
     environment:
       - PYTHONUNBUFFERED=1
       - PYTHONPATH=/app
-      - DATABASE_URL=postgresql://town_council:secure_dev_password@postgres:5432/town_council_db
+      - DATABASE_URL=${DATABASE_URL:-postgresql://town_council:secure_dev_password@postgres:5432/town_council_db}
       - DATA_DIR=/app/data
     depends_on:
       - postgres
@@ -85,7 +85,7 @@ services:
     environment:
       - PYTHONUNBUFFERED=1
       - PYTHONPATH=/app
-      - DATABASE_URL=postgresql://town_council:secure_dev_password@postgres:5432/town_council_db
+      - DATABASE_URL=${DATABASE_URL:-postgresql://town_council:secure_dev_password@postgres:5432/town_council_db}
       - DATA_DIR=/app/data
     depends_on:
       - postgres
@@ -100,7 +100,7 @@ services:
     environment:
       - PYTHONUNBUFFERED=1
       - PYTHONPATH=/app
-      - DATABASE_URL=postgresql://town_council:secure_dev_password@postgres:5432/town_council_db
+      - DATABASE_URL=${DATABASE_URL:-postgresql://town_council:secure_dev_password@postgres:5432/town_council_db}
       - DATA_DIR=/app/data
     depends_on:
       - postgres
@@ -115,7 +115,7 @@ services:
     environment:
       - PYTHONUNBUFFERED=1
       - PYTHONPATH=/app
-      - DATABASE_URL=postgresql://town_council:secure_dev_password@postgres:5432/town_council_db
+      - DATABASE_URL=${DATABASE_URL:-postgresql://town_council:secure_dev_password@postgres:5432/town_council_db}
       - DATA_DIR=/app/data
     depends_on:
       - postgres
@@ -126,7 +126,7 @@ services:
     ports:
       - "7700:7700"
     environment:
-      - MEILI_MASTER_KEY=masterKey
+      - MEILI_MASTER_KEY=${MEILI_MASTER_KEY:-masterKey}
     volumes:
       - meili_data:/meili_data
 
@@ -140,10 +140,12 @@ services:
     ports:
       - "8000:8000"
     environment:
-      - MEILI_HOST=http://meilisearch:7700
-      - MEILI_MASTER_KEY=masterKey
-      - DATABASE_URL=postgresql://town_council:secure_dev_password@postgres:5432/town_council_db
+      - MEILI_HOST=${MEILI_HOST:-http://meilisearch:7700}
+      - MEILI_MASTER_KEY=${MEILI_MASTER_KEY:-masterKey}
+      - DATABASE_URL=${DATABASE_URL:-postgresql://town_council:secure_dev_password@postgres:5432/town_council_db}
       - PYTHONPATH=/app
+      - API_AUTH_KEY=${API_AUTH_KEY:-dev_secret_key_change_me}
+      - ALLOWED_ORIGINS=${ALLOWED_ORIGINS:-http://localhost:3000}
     depends_on:
       - meilisearch
       - postgres
@@ -156,7 +158,8 @@ services:
     ports:
       - "3000:3000"
     environment:
-      - NEXT_PUBLIC_API_URL=http://localhost:8000
+      - NEXT_PUBLIC_API_URL=${NEXT_PUBLIC_API_URL:-http://localhost:8000}
+      - API_AUTH_KEY=${API_AUTH_KEY:-dev_secret_key_change_me}
     depends_on:
       - api
 
@@ -188,7 +191,7 @@ services:
     command: python monitor.py
     environment:
       - PYTHONUNBUFFERED=1
-      - DATABASE_URL=postgresql://town_council:secure_dev_password@postgres:5432/town_council_db
+      - DATABASE_URL=${DATABASE_URL:-postgresql://town_council:secure_dev_password@postgres:5432/town_council_db}
       - PYTHONPATH=/app
     depends_on:
       - postgres

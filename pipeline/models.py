@@ -74,9 +74,9 @@ class DataIssue(Base):
 
     id = Column(Integer, primary_key=True)
     event_id = Column(Integer, ForeignKey('event.id'), index=True, nullable=False)
-    issue_type = Column(String, nullable=False) # Maps to IssueType enum
+    issue_type = Column(String(50), nullable=False) # Maps to IssueType enum
     description = Column(String(500)) # Optional details from the user
-    status = Column(String, default="open") # open, resolved, ignored
+    status = Column(String(20), default="open") # open, resolved, ignored
     created_at = Column(DateTime, default=datetime.datetime.utcnow)
 
     # Relationship back to the event being reported
