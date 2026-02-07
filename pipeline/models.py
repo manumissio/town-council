@@ -1,8 +1,8 @@
 import datetime
 import os
 
-from sqlalchemy import create_engine
-from sqlalchemy import Column, Boolean, String, Integer, Date, DateTime, JSON
+from sqlalchemy import create_engine, func
+from sqlalchemy import Column, Boolean, String, Integer, Date, DateTime, JSON, Text
 from sqlalchemy import ForeignKey
 from sqlalchemy.orm import relationship, DeclarativeBase
 from sqlalchemy.schema import Index
@@ -66,186 +66,129 @@ class IssueType(enum.Enum):
     OTHER = "other"                  # Catch-all for unique issues
 
 class DataIssue(Base):
-    """
-    Represents a report filed by a user about a specific meeting or document.
-    
-    Why this is needed:
-    It allows the community to help 'audit' the 10,000+ documents in our system
-    without needing admin access.
-    """
     __tablename__ = 'data_issue'
 
     id = Column(Integer, primary_key=True)
     event_id = Column(Integer, ForeignKey('event.id'), index=True, nullable=False)
-    issue_type = Column(String(50), nullable=False) # Maps to IssueType enum
-    description = Column(String(500)) # Optional details from the user
-    status = Column(String(20), default="open") # open, resolved, ignored
+    issue_type = Column(String(50), nullable=False)
+    description = Column(String(500))
+    status = Column(String(20), default="open")
     created_at = Column(DateTime, default=datetime.datetime.utcnow)
 
-    # Relationship back to the event being reported
     event = relationship("Event")
 
 class Place(Base):
-    """
-    Represents a Jurisdiction (City or Town, e.g., "Belmont, CA").
-    
-    Security Fix: Added UniqueConstraint on ocd_division_id to prevent 
-    duplicate city entries in the database.
-    """
     __tablename__ = 'place'
 
     id = Column(Integer, primary_key=True)
-    name = Column(String, nullable=False)
-    type_ = Column(String)
-    state = Column(String, nullable=False)
-    country = Column(String, default="us")
-    display_name = Column(String)
-    ocd_division_id = Column(String, unique=True, index=True, nullable=False)
-    seed_url = Column(String)
-    hosting_service = Column(String) # Does it use Granicus, Legistar, etc?
+    name = Column(String(255), nullable=False)
+    type_ = Column(String(50))
+    state = Column(String(2), nullable=False)
+    country = Column(String(2), default="us")
+    display_name = Column(String(255))
+    ocd_division_id = Column(String(255), unique=True, index=True, nullable=False)
+    seed_url = Column(String(500))
+    hosting_service = Column(String(100))
     crawler = Column(Boolean, default=False)
-    crawler_name = Column(String)
-    crawler_type = Column(String)
-    crawler_owner = Column(String)
+    crawler_name = Column(String(100))
+    crawler_type = Column(String(50))
+    crawler_owner = Column(String(100))
 
-    # Relationship to organizations within this city
     organizations = relationship("Organization", back_populates="place")
 
 
 class Organization(Base):
-    """
-    Represents a Legislative Body or Committee (e.g., "City Council" or "Planning Commission").
-    
-    Why this is needed:
-    Following the Open Civic Data (OCD) standard, we need to distinguish 
-    which specific group within a city held a meeting.
-    """
     __tablename__ = 'organization'
 
     id = Column(Integer, primary_key=True)
-    ocd_id = Column(String, unique=True, index=True) # e.g. ocd-organization/uuid
+    ocd_id = Column(String(255), unique=True, index=True)
     place_id = Column(Integer, ForeignKey('place.id'), nullable=False, index=True)
-    name = Column(String, nullable=False) # e.g. "Planning Commission"
-    classification = Column(String) # e.g. "legislature", "committee"
+    name = Column(String(255), nullable=False)
+    classification = Column(String(100))
     
-    # Relationships
     place = relationship("Place", back_populates="organizations")
     events = relationship("Event", back_populates="organization")
     memberships = relationship("Membership", back_populates="organization")
 
 
 class Person(Base):
-    """
-    Represents an Individual (e.g., an elected official or staff member).
-    
-    Why this is needed:
-    To track accountability, we need to move from simple text names 
-    to unique 'Person' records that can be tracked across multiple years and cities.
-    """
     __tablename__ = 'person'
 
     id = Column(Integer, primary_key=True)
-    ocd_id = Column(String, unique=True, index=True) # e.g. ocd-person/uuid
-    name = Column(String, nullable=False, index=True)
-    image_url = Column(String, nullable=True)
-    biography = Column(String, nullable=True)
-    current_role = Column(String, nullable=True)
+    ocd_id = Column(String(255), unique=True, index=True)
+    name = Column(String(255), nullable=False, index=True)
+    image_url = Column(String(500), nullable=True)
+    biography = Column(String(5000), nullable=True)
+    current_role = Column(String(255), nullable=True)
     
-    # Metadata for disambiguation
     created_at = Column(DateTime, default=datetime.datetime.now)
 
-    # Relationships
     memberships = relationship("Membership", back_populates="person")
 
 
 class Membership(Base):
-    """
-    A 'Bridge' table that links a Person to an Organization.
-    
-    Why this is needed:
-    In the OCD standard, we don't just say 'John is a person'. 
-    We track that 'John' is a 'Member' of the 'City Council'.
-    """
     __tablename__ = 'membership'
 
     id = Column(Integer, primary_key=True)
     person_id = Column(Integer, ForeignKey('person.id'), nullable=False, index=True)
     organization_id = Column(Integer, ForeignKey('organization.id'), nullable=False, index=True)
     
-    # Role details
-    label = Column(String) # e.g. "Chair", "Member", "Mayor"
-    role = Column(String, default="member")
+    label = Column(String(255))
+    role = Column(String(100), default="member")
     start_date = Column(Date, nullable=True)
     end_date = Column(Date, nullable=True)
 
-    # Relationships
     person = relationship("Person", back_populates="memberships")
     organization = relationship("Organization", back_populates="memberships")
 
 
 class UrlStage(Base):
-    """
-    A temporary staging area for URLs found by the crawler.
-    The downloader reads from here to know what files to fetch.
-    """
     __tablename__ = 'url_stage'
 
     id = Column(Integer, primary_key=True)
-    ocd_division_id = Column(String)
-    event = Column(String)
+    ocd_division_id = Column(String(255))
+    event = Column(String(255))
     event_date = Column(Date)
-    url = Column(String) # The direct link to the PDF
-    url_hash = Column(String) # Unique fingerprint of the URL
-    category = Column(String) # "agenda" or "minutes"
+    url = Column(String(500))
+    url_hash = Column(String(64))
+    category = Column(String(50))
     created_at = Column(DateTime, default=datetime.datetime.now)
 
 
 class EventStage(Base):
-    """
-    A temporary staging area for meeting events found by the crawler.
-    Used to check for duplicates before adding to the main Event table.
-    """
     __tablename__ = 'event_stage'
 
     id = Column(Integer, primary_key=True)
-    ocd_division_id = Column(String)
-    organization_name = Column(String) # The name of the body (e.g. "City Council")
-    name = Column(String) # e.g. "City Council Regular Meeting"
+    ocd_division_id = Column(String(255))
+    organization_name = Column(String(255))
+    name = Column(String(255))
     scraped_datetime = Column(DateTime, default=datetime.datetime.now)
-    record_date = Column(Date) # When the meeting happened
-    source = Column(String)
-    source_url = Column(String)
-    meeting_type = Column(String)
+    record_date = Column(Date)
+    source = Column(String(500))
+    source_url = Column(String(500))
+    meeting_type = Column(String(100))
 
 
 class Event(Base):
-    """
-    Represents a specific Meeting held by an Organization.
-    
-    Why this is needed:
-    It links a specific City group (Organization) to a Date and a Name.
-    """
     __tablename__ = 'event'
 
     id = Column(Integer, primary_key=True)
-    ocd_id = Column(String, unique=True, index=True) # e.g. ocd-event/uuid
-    ocd_division_id = Column(String)
+    ocd_id = Column(String(255), unique=True, index=True)
+    ocd_division_id = Column(String(255))
     place_id = Column(Integer, ForeignKey('place.id'), nullable=False)
     organization_id = Column(Integer, ForeignKey('organization.id'), nullable=True, index=True)
-    name = Column(String)
+    name = Column(String(255))
     scraped_datetime = Column(DateTime, default=datetime.datetime.now)
     record_date = Column(Date)
-    source = Column(String)
-    source_url = Column(String)
-    meeting_type = Column(String)
+    source = Column(String(500))
+    source_url = Column(String(500))
+    meeting_type = Column(String(100))
 
-    # Relationships
     place = relationship('Place')
     organization = relationship('Organization', back_populates='events')
     agenda_items = relationship('AgendaItem', back_populates='event', cascade="all, delete-orphan")
     data_issues = relationship('DataIssue', back_populates='event')
 
-    # PERFORMANCE: Indexes for date-range queries
     __table_args__ = (
         Index('idx_event_date_place', 'record_date', 'place_id'),
         Index('idx_event_org', 'organization_id', 'record_date'),
@@ -253,121 +196,85 @@ class Event(Base):
 
 
 class AgendaItem(Base):
-    """
-    Represents a single segment or item from a meeting agenda.
-    
-    Why this is needed:
-    Meeting minutes are often huge. By splitting them into individual items,
-    we can take a user directly to the relevant part of a 100-page document.
-    """
     __tablename__ = 'agenda_item'
 
     id = Column(Integer, primary_key=True)
-    ocd_id = Column(String, unique=True, index=True) # e.g. ocd-agendaitem/uuid
+    ocd_id = Column(String(255), unique=True, index=True)
     event_id = Column(Integer, ForeignKey('event.id'), nullable=False, index=True)
     
-    # Content extracted by AI
-    order = Column(Integer) # The 1st, 2nd, 3rd item in the agenda
-    title = Column(String, nullable=False)
-    description = Column(String)
-    classification = Column(String) # e.g. "Action", "Discussion", "Consent"
-    result = Column(String) # e.g. "Passed", "Failed", "Deferred"
+    order = Column(Integer)
+    title = Column(String(1000), nullable=False)
+    description = Column(String(5000))
+    classification = Column(String(100))
+    result = Column(String(100))
     
-    # Link back to the raw text source
     catalog_id = Column(Integer, ForeignKey('catalog.id'), nullable=True)
 
-    # Relationships
     event = relationship('Event', back_populates='agenda_items')
     catalog = relationship('Catalog')
 
 
 class UrlStageHist(Base):
-    """
-    History log of all URLs we have ever processed.
-    Keeps the main staging table clean and small.
-    """
     __tablename__ = 'url_stage_hist'
 
     id = Column(Integer, primary_key=True)
-    ocd_division_id = Column(String)
-    event = Column(String)
+    ocd_division_id = Column(String(255))
+    event = Column(String(255))
     event_date = Column(Date)
-    url = Column(String)
-    url_hash = Column(String)
-    category = Column(String)
+    url = Column(String(500))
+    url_hash = Column(String(64))
+    category = Column(String(50))
     created_at = Column(DateTime, default=datetime.datetime.now)
 
 
 class Catalog(Base):
-    """
-    The main library of all downloaded files.
-    Stores the file path, raw text content, and AI-generated metadata.
-    """
     __tablename__ = 'catalog'
 
     id = Column(Integer, primary_key=True)
-    url = Column(String)
-    url_hash = Column(String, unique=True, index=True)
-    location = Column(String) # Local file path (e.g., data/us/ca/belmont/hash.pdf)
-    filename = Column(String)
+    url = Column(String(500))
+    url_hash = Column(String(64), unique=True, nullable=False)
+    location = Column(String(500))
+    filename = Column(String(255))
     
-    # The full text extracted from the PDF (OCR)
-    content = Column(String, nullable=True)
+    content = Column(Text)
+    summary = Column(Text)
+    summary_extractive = Column(Text)
     
-    # AI-generated 3-bullet summary (Generative - Local AI)
-    summary = Column(String, nullable=True)
-
-    # Local zero-cost summary (Extractive - TextRank)
-    summary_extractive = Column(String, nullable=True)
-    
-    # Names of People, Orgs, and Places found in the text (JSON)
-    # Format: {"orgs": ["Police Dept"], "locs": ["Main St"], "persons": ["Mayor Smith"]}
     entities = Column(JSON, nullable=True)
-    
-    # Structured data tables extracted from the PDF (JSON)
     tables = Column(JSON, nullable=True)
-    
-    # AI-discovered topics/themes (e.g. ["Housing", "Zoning"]) (JSON)
     topics = Column(JSON, nullable=True)
-
-    # Pre-calculated references to similar meetings (JSON list of Catalog IDs)
     related_ids = Column(JSON, nullable=True)
     
+    processed = Column(Boolean, default=False)
+    created_at = Column(DateTime, default=func.now())
     uploaded_at = Column(DateTime, default=datetime.datetime.now)
 
-    # Relationships
     document = relationship("Document", back_populates="catalog", uselist=False)
     agenda_items = relationship("AgendaItem", back_populates="catalog")
 
-    # PERFORMANCE: Index for faster lookups
     __table_args__ = (
         Index('idx_catalog_hash', 'url_hash'),
     )
 
 
 class Document(Base):
-    """
-    Links a File (Catalog) to a Meeting (Event).
-    Allows us to say "This PDF belongs to the meeting on Feb 10th".
-    """
     __tablename__ = 'document'
 
     id = Column(Integer, primary_key=True)
-    place_id = Column(Integer, ForeignKey('place.id'), nullable=False, index=True)
-    event_id = Column(Integer, ForeignKey('event.id'), nullable=False, index=True)
-    catalog_id = Column(Integer, ForeignKey('catalog.id'), nullable=True, index=True)
-    url = Column(String)
-    url_hash = Column(String)
-    media_type = Column(String)
-    category = Column(String) # "agenda" or "minutes"
+    place_id = Column(Integer, ForeignKey('place.id'), nullable=False)
+    event_id = Column(Integer, ForeignKey('event.id'), nullable=False)
+    catalog_id = Column(Integer, ForeignKey('catalog.id'), nullable=True)
+    url = Column(String(500))
+    url_hash = Column(String(64))
+    media_type = Column(String(100))
+    category = Column(String(50))
     created_at = Column(DateTime, default=datetime.datetime.now)
+    page_count = Column(Integer)
     
-    # Relationships allow us to easily access related data in code
-    place = relationship('Place', back_populates='documents')
+    place = relationship('Place')
     event = relationship('Event', back_populates='documents')
     catalog = relationship('Catalog', back_populates='document')
 
-    # PERFORMANCE: Indexes for fast filtering
     __table_args__ = (
         Index('idx_doc_place_event', 'place_id', 'event_id'),
         Index('idx_doc_category', 'category', 'created_at'),

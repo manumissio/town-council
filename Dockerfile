@@ -99,6 +99,6 @@ RUN python -c "from huggingface_hub import hf_hub_download; hf_hub_download(repo
 # We check the actual API endpoint to prove the server is listening and ready.
 # Note: We use 'wget' as it is often pre-installed in 'slim' images.
 HEALTHCHECK --interval=30s --timeout=10s --start-period=5s --retries=3 \
-  CMD wget --no-verbose --tries=1 --spider http://localhost:8000/ || exit 1
+  CMD wget --no-verbose --tries=1 --spider http://localhost:8000/health || exit 1
 
 CMD ["python"]

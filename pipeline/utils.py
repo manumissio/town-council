@@ -1,5 +1,14 @@
 import uuid
+import re
 from rapidfuzz import fuzz, process
+
+def validate_ocd_id(ocd_id):
+    """
+    Strict Validation: Checks if an ID follows the OCD standard.
+    Format: ocd-[type]/[uuid]
+    """
+    pattern = r'^ocd-[a-z]+/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$'
+    return bool(re.match(pattern, ocd_id))
 
 def generate_ocd_id(entity_type):
     """

@@ -157,8 +157,15 @@ To ensure the platform feels "instant" even on consumer hardware, we use a multi
 *   **Dependency Injection:** Database sessions are managed via FastAPI's dependency system, ensuring every connection is strictly closed after a request to prevent connection leaks.
 *   **Non-Root Execution:** All Docker containers run as a restricted `appuser`.
 *   **Path Traversal Protection:** The `is_safe_path` validator ensures workers only interact with authorized data directories.
+*   **Deep Health Checks:** The container orchestrator monitors the `/health` endpoint, which proactively probes the database connection. If the database locks up, the container is automatically restarted.
 
-### 10. Container Optimization & Performance
+### 10. Data Integrity & Validation
+To prevent "garbage data" from corrupting the system, we enforce strict schemas at multiple layers:
+*   **API Layer (Pydantic):** Strict type checking for all JSON inputs.
+*   **Logic Layer (Regex):** Custom validators ensure Dates (ISO-8601) and Identifiers (OCD-ID) follow strict formats.
+*   **Database Layer (Schema):** All text columns have explicit length limits (e.g., `VARCHAR(255)`) to prevent buffer stuffing attacks.
+
+### 11. Container Optimization & Performance
 To ensure fast developer iteration and secure production deployments, the system uses an optimized Docker architecture:
 *   **Multi-Stage Builds:** Separates build-time dependencies (compilers, headers) from the final runtime image, reducing the attack surface and image size.
 *   **BuildKit Cache Mounts:** Utilizes `--mount=type=cache` for both Python (pip) and Node.js (npm). This allows the system to cache package downloads across builds, making repeated installs up to 10x faster.

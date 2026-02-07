@@ -22,7 +22,7 @@ This project has been modernized from its 2017 pilot into a high-performance acc
 - **High-Performance Data Layer:** Sub-100ms response times powered by **Redis caching**, **orjson**, and database query optimization.
 - **Production Resilience:** Optimized for 24/7 availability with **fail-soft logic** that handles database or AI outages gracefully without crashing the server.
 - **Scalable Search:** Instant, typo-tolerant search powered by **Meilisearch** using yield-based indexing.
-- **Security:** Hardened CORS, Dependency Injection for DB safety, and non-root Docker execution.
+- **Security:** Hardened CORS, Dependency Injection for DB safety, non-root Docker execution, **Proactive Health Probes**, and **Strict Schema Validation**.
 
 ## Performance Metrics (2026 Benchmarks)
 

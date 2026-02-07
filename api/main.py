@@ -72,6 +72,20 @@ app = FastAPI(
 app.state.limiter = limiter
 app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
 
+# SECURITY: Global Error Interceptor
+# This catches any crash (500 error) and hides the stack trace from the user.
+# The user gets "Internal Server Error", but we get the full details in the secure server logs.
+@app.middleware("http")
+async def catch_exceptions_middleware(request: Request, call_next):
+    try:
+        return await call_next(request)
+    except Exception as e:
+        logger.error(f"Unhandled Exception: {str(e)}", exc_info=True)
+        return ORJSONResponse(
+            status_code=500,
+            content={"detail": "Internal Server Error. Our team has been notified."}
+        )
+
 # Initialize Local AI (Singleton)
 # This wrapper function allows us to 'inject' the AI model into endpoints.
 def get_local_ai():
@@ -101,6 +115,31 @@ client = meilisearch.Client(MEILI_HOST, MEILI_MASTER_KEY, timeout=5)
 def read_root():
     return {"status": "ok", "message": "Town Council API is running. Go to /docs for the Swagger UI."}
 
+from sqlalchemy import text
+import re
+
+# ... existing imports ...
+
+# Add Date Validation Helper
+def validate_date_format(date_str: str):
+    """Ensures date is YYYY-MM-DD"""
+    if not re.match(r'^\d{4}-\d{2}-\d{2}$', date_str):
+        raise HTTPException(status_code=400, detail="Invalid date format. Use YYYY-MM-DD.")
+
+@app.get("/health")
+def health_check(db: SQLAlchemySession = Depends(get_db)):
+    """
+    Deep Health Check: Verifies DB connectivity.
+    Used by Docker/Kubernetes to restart the container if it hangs.
+    """
+    try:
+        # 1. Check Database
+        db.execute(text("SELECT 1"))
+        return {"status": "healthy", "database": "connected"}
+    except Exception as e:
+        logger.error(f"Health check failed: {e}")
+        raise HTTPException(status_code=503, detail="Database unreachable")
+
 @app.get("/search")
 def search_documents(
     q: str = Query(..., min_length=1, description="The search query (e.g., 'zoning')"),
@@ -115,6 +154,10 @@ def search_documents(
     """
     Search for text within meeting minutes using Meilisearch.
     """
+    # VALIDATION: Strict Date Checks
+    if date_from: validate_date_format(date_from)
+    if date_to: validate_date_format(date_to)
+
     try:
         index = client.index('documents')
         
