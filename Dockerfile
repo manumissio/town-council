@@ -66,6 +66,17 @@ COPY --chown=appuser:appgroup . .
 
 RUN mkdir -p /app/data && chown -R appuser:appgroup /app/data
 
+# --------------------------------------------------------------------------------
+# PERFORMANCE & SECURITY: Model Baking
+# --------------------------------------------------------------------------------
+# 1. We store models in /models to prevent them from being hidden by the /app volume.
+# 2. We download them now (Build Time) so the container starts instantly (Runtime).
+ENV HF_HOME=/models
+RUN mkdir -p /models && chown -R appuser:appgroup /models
+
 USER appuser
+
+# Download the specific AI brain used by our Similarity Engine.
+RUN python -c "from sentence_transformers import SentenceTransformer; SentenceTransformer('all-MiniLM-L6-v2')"
 
 CMD ["python"]
