@@ -21,7 +21,13 @@ def index_documents():
     
     # Create the 'documents' index if it doesn't exist.
     # Explicitly set the primary key to 'id' to avoid ambiguity errors.
-    index = client.index('documents', {'primaryKey': 'id'})
+    try:
+        client.create_index('documents', {'primaryKey': 'id'})
+    except Exception:
+        # Index likely already exists
+        pass
+        
+    index = client.index('documents')
     
     # Configure Filters: These fields can be used to narrow down results.
     index.update_filterable_attributes([
