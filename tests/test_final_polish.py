@@ -3,10 +3,6 @@ from unittest.mock import MagicMock
 import sys
 import os
 
-# Setup mocks
-sys.modules["llama_cpp"] = MagicMock()
-sys.modules["redis"] = MagicMock()
-
 from pipeline.llm import LocalAI
 
 def test_local_ai_missing_model_returns_none(mocker):
@@ -25,22 +21,14 @@ def test_local_ai_missing_model_returns_none(mocker):
 
 def test_ai_prompt_schema():
     """
-    Test: Does the prompt ask for the new schema fields?
+    Test: Does the prompt ask for structured topics?
     """
     LocalAI._instance = None
     ai = LocalAI()
     
-    # We inspect the code or mock the LLM call to see the prompt
-    # Since we can't easily inspect the local variable 'prompt' inside the method,
-    # we will mock self.llm and check the arguments passed to it.
-    
     mock_llm = MagicMock()
-    mock_llm.return_value = {"choices": [{"text": "{}"}]} # Prevent crash on json load
+    mock_llm.return_value = {"choices": [{"text": "* Topic - Desc"}]} 
     ai.llm = mock_llm
-    
-    # Correct mocking approach
-    # We patch os.path.exists globally for this test
-    # Actually, if we set ai.llm manually, _load_model returns early.
     
     ai.extract_agenda("meeting text")
     
@@ -48,6 +36,6 @@ def test_ai_prompt_schema():
     args, _ = mock_llm.call_args
     prompt_text = args[0]
     
-    assert "classification" in prompt_text
-    assert "result" in prompt_text
-    assert "Action" in prompt_text
+    # Updated to match the new topic-based prompt
+    assert "topics" in prompt_text.lower()
+    assert "*" in prompt_text

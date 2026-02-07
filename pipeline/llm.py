@@ -48,10 +48,10 @@ class LocalAI:
 
     def summarize(self, text):
         self._load_model()
-        if not self.llm: return "Summarization unavailable."
+        if not self.llm: return None
 
         safe_text = text[:4000]
-        prompt = f"<start_of_turn>user\nSummarize: {safe_text}<end_of_turn>\n<start_of_turn>model\n"
+        prompt = f"<start_of_turn>user\nSummarize these meeting minutes into 3 bullet points. No chat, just bullets:\n{safe_text}<end_of_turn>\n<start_of_turn>model\n"
 
         with self._lock:
             try:
@@ -59,7 +59,7 @@ class LocalAI:
                 return response["choices"][0]["text"].strip()
             except Exception as e:
                 logger.error(f"AI Summarization failed: {e}")
-                return "Failed to generate summary."
+                return None
             finally:
                 if self.llm: self.llm.reset()
 
@@ -82,6 +82,9 @@ class LocalAI:
                             clean_line = line.replace("**", "").replace("__", "")
                             parts = clean_line[1:].split("-", 1)
                             title = parts[0].strip()
+                            # Extra cleaning for the '*' if it was caught in the split
+                            if title.startswith("*"): title = title[1:].strip()
+                            
                             desc = parts[1].strip() if len(parts) > 1 else ""
                             if len(title) > 5:
                                 items.append({

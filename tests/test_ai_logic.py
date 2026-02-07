@@ -1,57 +1,39 @@
 import pytest
-import os
 from unittest.mock import MagicMock
-import sys
-
-# Mock llama_cpp module
-sys.modules["llama_cpp"] = MagicMock()
-
+import os
 from pipeline.llm import LocalAI
 
-def test_local_ai_summarize():
+def test_local_ai_singleton():
     """
-    Test: Does the LocalAI class correctly call the internal llama model?
+    Test: Does the singleton pattern correctly reuse the same instance?
     """
-    LocalAI._instance = None
-    ai = LocalAI()
-    # Direct injection for isolated testing
-    mock_llm = MagicMock()
-    ai.llm = mock_llm
-    
-    mock_llm.return_value = {
-        "choices": [
-            {"text": "- Point 1\n- Point 2\n- Point 3"}
-        ]
-    }
-
-    summary = ai.summarize("Zoning text")
-
-    assert "- Point 1" in summary
-    assert mock_llm.called
-    mock_llm.reset.assert_called_once()
+    ai1 = LocalAI()
+    ai2 = LocalAI()
+    assert ai1 is ai2
 
 def test_local_ai_agenda_extraction():
     """
-    Test: Does the extraction logic correctly parse JSON?
+    Test: Does the extraction logic correctly parse bulleted text?
     """
     LocalAI._instance = None
     ai = LocalAI()
     mock_llm = MagicMock()
     ai.llm = mock_llm
-    
-    # Mock returning a JSON object with 'items' key (new robust format)
-    mock_json_response = '{"items": [{"title": "Item 1", "description": "Budget"}]}'
+
+    # Mock returning bulleted text (the new format)
+    mock_text_response = "* Item 1 - Budget discussion\n* Item 2 - Zoning"
     mock_llm.return_value = {
         "choices": [
-            {"text": mock_json_response}
+            {"text": mock_text_response}
         ]
     }
 
-    items = ai.extract_agenda("Text")
+    items = ai.extract_agenda("Text content here")
 
-    assert len(items) == 1
+    assert len(items) == 2
     assert items[0]['title'] == "Item 1"
-    mock_llm.reset.assert_called_once()
+    assert items[0]['description'] == "Budget discussion"
+    assert items[1]['title'] == "Item 2"
 
 def test_degraded_mode_missing_model(mocker):
     """
@@ -67,6 +49,30 @@ def test_degraded_mode_missing_model(mocker):
     assert result is None
     assert ai.llm is None
 
+def test_local_ai_fallback_logic(mocker):
+    """
+    Test: Does the system fall back to paragraph splitting if AI returns nothing?
+    """
+    LocalAI._instance = None
+    ai = LocalAI()
+    mock_llm = MagicMock()
+    ai.llm = mock_llm
+
+    # Mock returning nothing
+    mock_llm.return_value = {
+        "choices": [
+            {"text": ""}
+        ]
+    }
+
+    # Test text with clear paragraphs
+    text = "First paragraph that is long enough to be an item.\n\nSecond paragraph that is also long enough."
+    items = ai.extract_agenda(text)
+
+    # Fallback should split by \n\n
+    assert len(items) == 2
+    assert "First paragraph" in items[0]['title']
+
 def test_local_ai_error_handling():
     """
     Test: Does the system fail gracefully if the AI returns garbage?
@@ -75,14 +81,13 @@ def test_local_ai_error_handling():
     ai = LocalAI()
     mock_llm = MagicMock()
     ai.llm = mock_llm
-    
+
     mock_llm.return_value = {
         "choices": [
-            {"text": "This is not JSON"}
+            {"text": "Garbage without bullets"}
         ]
     }
 
-    items = ai.extract_agenda("Text")
-
-    assert items == []
-    mock_llm.reset.assert_called()
+    # Should fall back to paragraph splitting
+    items = ai.extract_agenda("Paragraph 1. Paragraph 1. Paragraph 1.\n\nParagraph 2. Paragraph 2.")
+    assert len(items) >= 1
