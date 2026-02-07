@@ -1,5 +1,6 @@
 import pytest
 from pipeline.nlp_worker import get_municipal_nlp_model, extract_entities
+from pipeline.utils import is_likely_human_name
 
 @pytest.fixture
 def nlp():
@@ -17,15 +18,17 @@ def test_noise_reduction_specific_cases():
         "Body Worn Cameras",
         "Page 2",
         "City Manager",
-        "Exhibit A"
+        "Exhibit A",
+        "TELECONFERENCE LOCATION - MARRIOTT",
+        "mailto:council@berkeleyca.gov",
+        "http://berkeley.granicus.com/MediaPlayer.php?publish_id=1244"
     ]
     
-    text = "Presented by " + ". Also ".join(noise)
-    entities = extract_entities(text)
-    
-    # None of these should be in the persons list
     for item in noise:
-        assert item not in entities["persons"], f"Noise '{item}' should have been filtered!"
+        # We test both the raw extraction and the utility function
+        entities = extract_entities(f"Presented by {item}.")
+        assert item not in entities["persons"], f"Noise '{item}' should have been filtered from entities!"
+        assert not is_likely_human_name(item), f"Utility should have blocked '{item}'!"
 
 def test_legitimate_names_preserved():
     """

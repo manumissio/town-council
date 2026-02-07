@@ -22,38 +22,32 @@ def scrub_municipal_noise(doc):
     We look at every 'PERSON' found by the AI and apply common-sense rules.
     """
     new_ents = []
-    # Known titles that we trust even if the name is just one word (e.g. 'Mayor Arreguin')
-    trust_titles = ['mayor', 'councilmember', 'commissioner', 'chair', 'director', 'ayes', 'noes']
+    # Known titles that we trust
+    trust_titles = [
+        'mayor', 'councilmember', 'commissioner', 'chair', 'director', 
+        'ayes', 'noes', 'moved', 'seconded', 'vice mayor'
+    ]
     
     for ent in doc.ents:
         if ent.label_ == "PERSON":
-            text = ent.text.strip().lower()
+            text = ent.text.strip()
+            text_lower = text.lower()
             
-            # RULE 1: If it starts with a trusted title, we KEEP it regardless of spaces.
-            # This handles 'Mayor Arreguin' or 'Ayes: Harrison' correctly.
-            is_trusted = any(text.startswith(t) for t in trust_titles)
+            # RULE 1: Trusted Title Exception
+            # If it starts with a trusted title, we allow it to bypass some checks.
+            is_trusted = any(text_lower.startswith(t) for t in trust_titles)
             
-            if not is_trusted:
-                # If NOT trusted, apply strict human-name checks:
-                
-                # RULE 2: Proper Noun Check. 
-                # Legitimate names should contain at least one Proper Noun (PROPN).
-                # This filters out generic roles like 'Local Artist' (ADJ NOUN).
-                if not any(token.pos_ == "PROPN" for token in ent):
-                    continue
+            # RULE 2: Character & Blacklist Guardrail
+            # We use the centralized bouncer. 
+            # We allow single words if trusted (e.g. 'Ayes: Harrison').
+            if not is_likely_human_name(text, allow_single_word=is_trusted):
+                continue
 
-                # Names usually have a space (First Last).
-                if ' ' not in text:
-                    continue
-                    
-                # Names don't contain digits.
-                if any(char.isdigit() for char in text):
-                    continue
-                
-                # Non-human root words.
-                root_lemma = ent.root.lemma_.lower()
-                if root_lemma in ['ordinance', 'resolution', 'item', 'page', 'exhibit', 'section', 'table', 'bid']:
-                    continue
+            # RULE 3: Proper Noun Check. 
+            # Legitimate names should contain at least one Proper Noun (PROPN).
+            # This filters out generic roles like 'Local Artist'.
+            if not any(token.pos_ == "PROPN" for token in ent):
+                continue
         
         new_ents.append(ent)
     
@@ -99,10 +93,16 @@ def get_municipal_nlp_model():
         
         # Title-based Person Triggers (Positive Bias)
         # We catch 'Mayor [Name]' or 'Councilmember [Name]' explicitly.
+        # Both single-word and double-word names are supported.
+        {"label": "PERSON", "pattern": [{"LOWER": "mayor"}, {"IS_TITLE": True}]},
         {"label": "PERSON", "pattern": [{"LOWER": "mayor"}, {"IS_TITLE": True}, {"IS_TITLE": True}]},
+        {"label": "PERSON", "pattern": [{"LOWER": "councilmember"}, {"IS_TITLE": True}]},
         {"label": "PERSON", "pattern": [{"LOWER": "councilmember"}, {"IS_TITLE": True}, {"IS_TITLE": True}]},
+        {"label": "PERSON", "pattern": [{"LOWER": "vice"}, {"LOWER": "mayor"}, {"IS_TITLE": True}]},
         {"label": "PERSON", "pattern": [{"LOWER": "vice"}, {"LOWER": "mayor"}, {"IS_TITLE": True}, {"IS_TITLE": True}]},
+        {"label": "PERSON", "pattern": [{"LOWER": "moved"}, {"LOWER": "by"}, {"IS_TITLE": True}]},
         {"label": "PERSON", "pattern": [{"LOWER": "moved"}, {"LOWER": "by"}, {"IS_TITLE": True}, {"IS_TITLE": True}]},
+        {"label": "PERSON", "pattern": [{"LOWER": "seconded"}, {"LOWER": "by"}, {"IS_TITLE": True}]},
         {"label": "PERSON", "pattern": [{"LOWER": "seconded"}, {"LOWER": "by"}, {"IS_TITLE": True}, {"IS_TITLE": True}]},
         {"label": "PERSON", "pattern": [{"LOWER": "ayes"}, {"ORTH": ":"}, {"IS_TITLE": True}]},
         {"label": "PERSON", "pattern": [{"LOWER": "noes"}, {"ORTH": ":"}, {"IS_TITLE": True}]},
@@ -142,17 +142,20 @@ def extract_entities(text):
         name = ent.text.strip().replace('\n', ' ')
         
         # Clean up titles from names (e.g. 'Mayor Jesse Arreguin' -> 'Jesse Arreguin')
-        prefixes = ["moved by", "seconded by", "mayor", "councilmember", "vice mayor", "chair", "director"]
+        prefixes = ["moved by", "seconded by", "mayor", "councilmember", "vice mayor", "chair", "director", "ayes :", "noes :"]
+        has_prefix = False
         for prefix in prefixes:
             if name.lower().startswith(prefix):
                 name = name[len(prefix):].strip()
+                has_prefix = True
         
         if len(name) < 2 or len(name) > 100:
             continue
 
         if ent.label_ == "PERSON":
             # SECURITY: Final check against the expanded blacklist
-            if not is_likely_human_name(name):
+            # If we stripped a title, we allow single-word names (e.g. 'Mayor Arreguin')
+            if not is_likely_human_name(name, allow_single_word=has_prefix):
                 continue
             if name not in entities["persons"]:
                 entities["persons"].append(name)

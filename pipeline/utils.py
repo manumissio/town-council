@@ -64,46 +64,60 @@ def find_best_person_match(name, existing_people, threshold=85):
             
     return None
 
-def is_likely_human_name(name):
+def is_likely_human_name(name, allow_single_word=False):
     """
     Quality Control: Filters out noise that is definitely not a person.
     
     Why this is needed:
-    NLP models often mistake 'City Clerk' or 'Exhibit A' for a person's name.
-    This function uses a 'Blacklist' of common municipal terms to ensure
-    our Person table stays clean.
+    NLP models often mistake 'City Clerk', 'Exhibit A', or URLs for a person's name.
+    This function uses a 'Bouncer' strategy: if it doesn't look like a name, 
+    it doesn't get into the database.
     """
-    if not name or len(name) < 3:
+    if not name:
         return False
         
-    # Blacklist of non-human terms commonly found in city documents
+    name_clean = name.strip()
+    name_lower = name_clean.lower()
+    
+    # 1. Block 'Tech' characters (Emails, URLs, web parameters)
+    # Human names in minutes almost never contain these symbols.
+    tech_chars = ['@', '://', '.com', '.php', '.gov', '.org', '?', '=', 'www.']
+    if any(char in name_lower for char in tech_chars):
+        return False
+
+    # 2. Block 'All-Caps Headers'
+    # 'TELECONFERENCE LOCATION - MARRIOTT' is a header, not a person.
+    # Real names are usually Title Case (Jesse Arreguin).
+    if name_clean.isupper() and len(name_clean) > 15:
+        return False
+
+    # 3. Word Count Guardrail
+    # Most names are 'First Last' or 'First Middle Last'.
+    # 1-word (Roll) or 5-word (The Council Meeting Minutes Update) are noise.
+    word_count = len(name_clean.split())
+    if word_count > 4:
+        return False
+    if word_count < 2 and not allow_single_word:
+        return False
+
+    # 4. Expanded Blacklist of common municipal noise
     blacklist = [
-        'http', 'mailto', 'location', 'teleconference', 'clerk', 
-        'ordinance', 'item', 'page', 'appendix', 'section', 
+        'clerk', 'ordinance', 'item', 'page', 'appendix', 'section', 
         'exhibit', 'table', 'bid', 'solicitation', 'text box',
         'supplemental', 'communications', 'rev -', 'shx text',
-        'ayes', 'noes', 'absent', 'abstain', 'floor', 'suite', 'ave',
+        'absent', 'abstain', 'floor', 'suite', 'ave',
         'berkeley', 'ca', 'california', 'artist', 'camera', 'order',
         'public', 'meeting', 'policy', 'update', 'staff', 'manager',
-        'commission', 'council', 'dept', 'department', 'center'
+        'dept', 'department', 'center',
+        'location', 'marriott', 'granicus', 'teleconference', 'mailto'
     ]
     
-    name_lower = name.lower()
-    
-    # 1. Check blacklist
     for word in blacklist:
         if word in name_lower:
             return False
             
-    # 2. Check for numeric noise (e.g. 'Page 2')
-    if any(char.isdigit() for char in name):
-        return False
-        
-    # 3. Names usually have at least one space (First Last)
-    # but not MORE than 3 spaces (5 words). Names like
-    # 'Body Worn Cameras Policy Update' are too long.
-    spaces = name.strip().count(' ')
-    if spaces < 1 or spaces > 3:
+    # 5. Check for numeric noise (e.g. 'Meeting 2024')
+    if any(char.isdigit() for char in name_clean):
         return False
         
     return True
