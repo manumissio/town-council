@@ -13,8 +13,9 @@ import DataTable from "./DataTable";
  * DESIGN: Uses a tabbed interface for Full Text, AI Summary, and Structured Agenda.
  * All AI features are "On-Demand" to minimize API costs and respect rate limits.
  */
-export default function ResultCard({ hit, onPersonClick }) {
+export export default function ResultCard({ hit, onPersonClick }) {
   const [isExpanded, setIsExpanded] = useState(false);
+  const [showAllOfficials, setShowAllOfficials] = useState(false);
   const [viewMode, setViewMode] = useState("text"); // 'text', 'summary', 'agenda'
   
   const [summary, setSummary] = useState(hit.summary);
@@ -297,7 +298,7 @@ export default function ResultCard({ hit, onPersonClick }) {
         {hit.people_metadata && hit.people_metadata.length > 0 && (
           <div className="mb-4 flex flex-wrap items-center gap-2">
             <span className="text-[10px] font-bold text-gray-400 uppercase tracking-widest mr-1">Officials:</span>
-            {hit.people_metadata.slice(0, 5).map((person) => (
+            {(showAllOfficials ? hit.people_metadata : hit.people_metadata.slice(0, 5)).map((person) => (
               <button 
                 key={person.id}
                 onClick={() => onPersonClick(person.id)}
@@ -308,7 +309,12 @@ export default function ResultCard({ hit, onPersonClick }) {
               </button>
             ))}
             {hit.people_metadata.length > 5 && (
-              <span className="text-[10px] text-gray-400 italic">+{hit.people_metadata.length - 5} more</span>
+              <button 
+                onClick={() => setShowAllOfficials(!showAllOfficials)}
+                className="text-[10px] text-blue-600 font-bold hover:underline transition-all"
+              >
+                {showAllOfficials ? "Show Less" : `+${hit.people_metadata.length - 5} more`}
+              </button>
             )}
           </div>
         )}

@@ -26,13 +26,25 @@ def link_people():
     session = Session()
 
     # Find all documents that have NLP entities (people names)
+    # We use a join to find who the document belongs to.
     query = session.query(Catalog, Event).join(
         Document, Catalog.id == Document.catalog_id
     ).join(
         Event, Document.event_id == Event.id
     ).filter(Catalog.entities != None)
 
-    print(f"Processing {query.count()} documents for people...")
+    total_ready = query.count()
+    print(f"Processing {total_ready} documents for people...")
+    
+    if total_ready == 0:
+        # DIAGNOSTIC: Why is it zero?
+        cat_count = session.query(Catalog).filter(Catalog.entities != None).count()
+        doc_count = session.query(Document).count()
+        event_count = session.query(Event).count()
+        print(f"DIAGNOSTIC: Catalog with entities: {cat_count}")
+        print(f"DIAGNOSTIC: Documents in DB: {doc_count}")
+        print(f"DIAGNOSTIC: Events in DB: {event_count}")
+        print("DIAGNOSTIC: If counts are > 0 but ready is 0, the 'joins' are failing (Disconnected data).")
 
     # Performance: Pre-fetch all people grouped by city (Blocking)
     # This prevents the "O(N^2)" problem where matching gets slower as the DB grows.

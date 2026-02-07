@@ -85,22 +85,27 @@ def is_likely_human_name(name, allow_single_word=False):
     if any(char in name_lower for char in tech_chars):
         return False
 
-    # 2. Block 'All-Caps Headers'
+    # 2. Block Lawsuits and Case Names
+    # 'al v. City' or 'Menda v John Sanford-Leffingwell' are cases, not people.
+    if ' v. ' in name_lower or ' vs ' in name_lower or ' vs. ' in name_lower or ' v ' in name_lower:
+        return False
+
+    # 3. Block 'All-Caps Headers'
     # 'TELECONFERENCE LOCATION - MARRIOTT' is a header, not a person.
     # Real names are usually Title Case (Jesse Arreguin).
     if name_clean.isupper() and len(name_clean) > 15:
         return False
 
-    # 3. Word Count Guardrail
+    # 4. Word Count Guardrail
     # Most names are 'First Last' or 'First Middle Last'.
-    # 1-word (Roll) or 5-word (The Council Meeting Minutes Update) are noise.
+    # 1-word (Roll) or 5-word (Menda v John Sanford Leffingwell) are noise.
     word_count = len(name_clean.split())
     if word_count > 4:
         return False
     if word_count < 2 and not allow_single_word:
         return False
 
-    # 4. Expanded Blacklist of common municipal noise
+    # 5. Expanded Blacklist of common municipal noise
     blacklist = [
         'clerk', 'ordinance', 'item', 'page', 'appendix', 'section', 
         'exhibit', 'table', 'bid', 'solicitation', 'text box',
@@ -109,7 +114,8 @@ def is_likely_human_name(name, allow_single_word=False):
         'berkeley', 'ca', 'california', 'artist', 'camera', 'order',
         'public', 'meeting', 'policy', 'update', 'staff', 'manager',
         'dept', 'department', 'center',
-        'location', 'marriott', 'granicus', 'teleconference', 'mailto'
+        'location', 'marriott', 'granicus', 'teleconference', 'mailto',
+        'city of', 'county of', 'state of', 'incorporated', 'district'
     ]
     
     for word in blacklist:

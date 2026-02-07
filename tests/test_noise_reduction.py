@@ -21,7 +21,11 @@ def test_noise_reduction_specific_cases():
         "Exhibit A",
         "TELECONFERENCE LOCATION - MARRIOTT",
         "mailto:council@berkeleyca.gov",
-        "http://berkeley.granicus.com/MediaPlayer.php?publish_id=1244"
+        "http://berkeley.granicus.com/MediaPlayer.php?publish_id=1244",
+        "al v. City",
+        "Menda v John Sanford-Leffingwell",
+        "City of Berkeley",
+        "County of Alameda"
     ]
     
     for item in noise:
