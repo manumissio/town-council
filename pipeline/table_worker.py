@@ -1,78 +1,105 @@
 import os
 import camelot
 import json
+import logging
+from concurrent.futures import ProcessPoolExecutor, as_completed
+from multiprocessing import cpu_count
 from sqlalchemy.orm import sessionmaker
 from pipeline.models import Catalog, db_connect, create_tables
 
-def extract_tables():
+# Setup logging
+logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
+logger = logging.getLogger(__name__)
+
+def process_single_pdf(catalog_id):
     """
-    Finds tables (like budgets or schedules) inside PDF documents.
+    Worker function: Processes a single PDF for table extraction.
+    Runs in a separate process to bypass GIL and improve speed.
+    """
+    engine = db_connect()
+    Session = sessionmaker(bind=engine)
+    session = Session()
     
-    How it works (Camelot):
-    1. It looks for PDFs that haven't been scanned for tables yet.
-    2. It uses the 'Camelot' library to detect grid lines and table structures.
-    3. It extracts the data into a clean, structured format (JSON) that we can search and display.
+    try:
+        record = session.get(Catalog, catalog_id)
+        if not record or not os.path.exists(record.location):
+            return 0
+
+        # Only PDFs can contain structured tables.
+        if not record.filename.lower().endswith('.pdf'):
+            record.tables = []
+            session.commit()
+            return 1
+
+        logger.info(f"Extracting tables from: {record.filename}")
+        
+        # DUAL-FLAVOR FALLBACK STRATEGY (Optimized for speed)
+        # We only check the first 5 pages, as municipal tables usually appear early.
+        try:
+            try:
+                tables = camelot.read_pdf(record.location, pages='1-5', flavor='lattice')
+            except Exception:
+                tables = camelot.read_pdf(record.location, pages='1-5', flavor='stream')
+            
+            extracted_data = []
+            for table in tables:
+                if table.accuracy > 70:
+                    df = table.df
+                    clean_data = df.fillna("").values.tolist()
+                    extracted_data.append(clean_data)
+
+            record.tables = extracted_data
+            session.commit()
+            return 1
+        except Exception as e:
+            logger.error(f"Final failure for {record.filename}: {e}")
+            record.tables = []
+            session.commit()
+            return 1
+            
+    except Exception as e:
+        logger.error(f"DB Error for {catalog_id}: {e}")
+        session.rollback()
+        return 0
+    finally:
+        session.close()
+
+def run_table_pipeline():
+    """
+    Orchestrates parallel table extraction.
     """
     engine = db_connect()
     create_tables(engine)
     Session = sessionmaker(bind=engine)
     session = Session()
 
-    # Find documents that have been downloaded but haven't been checked for tables.
-    # We check if the 'tables' column is NULL.
+    # Find documents needing table extraction
     to_process = session.query(Catalog).filter(
         Catalog.location != 'placeholder',
         Catalog.tables == None
     ).all()
-
-    print(f"Found {len(to_process)} documents for table extraction.")
-
-    for record in to_process:
-        # Skip if the file is missing.
-        if not os.path.exists(record.location):
-            print(f"Skipping missing file: {record.location}")
-            record.tables = [] # Mark as processed (empty) so we don't try again.
-            continue
-
-        # Only PDFs can contain structured tables we can extract.
-        if not record.filename.lower().endswith('.pdf'):
-            record.tables = []
-            continue
-
-        print(f"Extracting tables from: {record.filename}")
-        
-        try:
-            # use Camelot to read the PDF.
-            # - pages='1-20': We only check the first 20 pages to keep it fast.
-            # - flavor='lattice': This mode works best for tables that have visible grid lines (common in government docs).
-            tables = camelot.read_pdf(record.location, pages='1-20', flavor='lattice')
-            
-            extracted_data = []
-            for table in tables:
-                # Only keep tables where Camelot is at least 80% sure it found a real table.
-                if table.accuracy > 80:
-                    df = table.df
-                    # Clean up the data: Turn 'NaN' (Not a Number) into empty strings for cleaner display.
-                    clean_data = df.fillna("").values.tolist()
-                    extracted_data.append(clean_data)
-
-            # Save the list of tables back to the database.
-            record.tables = extracted_data
-            print(f"Found {len(extracted_data)} high-confidence tables.")
-            
-            session.commit()
-
-        except Exception as e:
-            print(f"Error extracting tables from {record.filename}: {e}")
-            # If it fails, mark as empty so we don't get stuck in a loop.
-            record.tables = []
-            try:
-                session.commit()
-            except:
-                session.rollback()
-
+    
+    ids = [r.id for r in to_process]
     session.close()
-    print("Table extraction complete.")
+
+    if not ids:
+        logger.info("No documents need table extraction.")
+        return
+
+    logger.info(f"Starting parallel table extraction for {len(ids)} documents...")
+    
+    # Camelot is CPU-intensive. Use 50% of cores to keep system responsive.
+    workers = max(1, int(cpu_count() * 0.5))
+    
+    processed = 0
+    with ProcessPoolExecutor(max_workers=workers) as executor:
+        futures = {executor.submit(process_single_pdf, cid): cid for cid in ids}
+        
+        for future in as_completed(futures):
+            if future.result():
+                processed += 1
+                if processed % 10 == 0:
+                    logger.info(f"Table Progress: {processed}/{len(ids)}")
 
 if __name__ == "__main__":
-    extract_tables()
+    run_table_pipeline()
