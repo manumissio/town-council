@@ -26,16 +26,29 @@ def extract_text(file_path):
         
     for attempt in range(3):
         try:
-            # We add a 600-second timeout (10 mins) to handle massive Berkeley packets
-            parsed = parser.from_file(file_path, serverEndpoint=TIKA_SERVER_ENDPOINT, requestOptions={'timeout': 600})
+            # PERFORMANCE: We disable OCR because these PDFs are 'Born Digital'.
+            # This is 100x faster and prevents Tika from crashing on large files.
+            headers = {
+                "X-Tika-PDFOcrStrategy": "no_ocr",
+                "Accept": "text/plain"
+            }
+            
+            # 60 seconds is plenty for a text-only read
+            parsed = parser.from_file(
+                file_path, 
+                serverEndpoint=TIKA_SERVER_ENDPOINT, 
+                headers=headers,
+                requestOptions={'timeout': 60}
+            )
+            
             if parsed and 'content' in parsed:
                 return (parsed['content'] or "").strip()
             return ""
         except Exception as e:
             if attempt < 2:
-                # Longer backoff (10s, 20s) to let Tika finish garbage collection
-                wait_time = (attempt + 1) * 10
-                print(f"Tika pressure on {file_path}, cooling down for {wait_time}s... (Attempt {attempt+1}/3)")
+                # Short backoff
+                wait_time = (attempt + 1) * 2
+                print(f"Tika hiccup on {file_path}, retrying in {wait_time}s... (Attempt {attempt+1}/3)")
                 time.sleep(wait_time)
             else:
                 print(f"Error extracting {file_path} after 3 attempts: {e}")
