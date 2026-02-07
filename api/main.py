@@ -172,6 +172,9 @@ def search_documents(
         search_params = {
             'limit': limit,
             'offset': offset,
+            'attributesToRetrieve': ['id', 'title', 'event_name', 'city', 'date', 'filename', 'url', 'result_type', 'event_id', 'catalog_id', 'classification', 'result', 'topics', 'people_metadata'],
+            'attributesToCrop': ['content', 'description'],
+            'cropLength': 50,
             'attributesToHighlight': ['content', 'title', 'description'],
             'highlightPreTag': '<em class="bg-yellow-200 not-italic font-semibold px-0.5 rounded">',
             'highlightPostTag': '</em>',
@@ -200,6 +203,14 @@ def search_documents(
             del search_params['filter']
 
         results = index.search(q, search_params)
+        
+        # Performance: Truncate people_metadata to top 10 to keep response size under control
+        for hit in results['hits']:
+            if 'people_metadata' in hit and isinstance(hit['people_metadata'], list):
+                hit['people_metadata'] = hit['people_metadata'][:10]
+            if '_formatted' in hit and 'people_metadata' in hit['_formatted'] and isinstance(hit['_formatted']['people_metadata'], list):
+                hit['_formatted']['people_metadata'] = hit['_formatted']['people_metadata'][:10]
+                
         logger.info(f"Search query='{q}' city='{city}' returned {len(results['hits'])} hits")
         return results
     except Exception as e:

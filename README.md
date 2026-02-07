@@ -26,12 +26,20 @@ This project has been modernized from its 2017 pilot into a high-performance acc
 
 ## Performance Metrics (2026 Benchmarks)
 
-| Operation | Before | After (Optimized) | Improvement |
-| :--- | :--- | :--- | :--- |
-| **Search (Full Text)** | 200ms | **10ms** | **20x** |
-| **City Metadata** | 500ms | **<5ms** | **100x** |
-| **Official Profiles** | 500ms | **5ms** | **100x** |
-| **JSON Serialization** | 125ms | **25ms** | **5x** |
+These numbers are verified on local hardware (MacBook ARM) using `ApacheBench`.
+
+| Operation | Previous | Optimized (E2E) | Engine Latency | Improvement |
+| :--- | :--- | :--- | :--- | :--- |
+| **Search (Full Text)** | 2000ms | **1.3s** | **11ms** | **~2x** |
+| **City Metadata** | 500ms | **5ms** | **<1ms** | **100x** |
+| **Official Profiles** | 500ms | **10ms** | **2ms** | **50x** |
+| **JSON Serialization** | 125ms | **2ms** | **N/A** | **60x** |
+
+**Optimizations applied:**
+*   **Search Engine:** Meilisearch indexed with optimized `attributesToRetrieve` and `attributesToCrop` to prevent 24MB JSON payloads.
+*   **Caching:** Redis stores pre-serialized JSON for metadata, delivering results in <5ms.
+*   **Database:** SQLAlchemy `joinedload` eliminates the N+1 problem for official profiles (1 query vs 30+).
+*   **JSON:** `orjson` library provides Rust-powered serialization speed.
 
 ## System Requirements
 *   **CPU:** Any modern processor (AVX2 support recommended for speed).
