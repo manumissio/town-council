@@ -9,7 +9,7 @@ graph TD
     subgraph "External World"
         Web[City Portals]
         Legi[Legistar/Granicus]
-        Gemini[Google Gemini 2.0 API]
+        HF[HuggingFace Hub]
     end
 
     subgraph "Ingestion Layer (Scrapy)"
@@ -35,7 +35,7 @@ graph TD
     subgraph "Processing Pipeline (Python 3.12)"
         Downloader[Downloader: Parallel Streaming]
         Tika[Apache Tika: OCR/Text]
-        Segmenter[Agenda Segmenter: AI Splitting]
+        Segmenter[Agenda Segmenter: Local AI]
         Linker[Person Linker: Entity Disambiguation]
         Workers[NLP/Topic/Table Workers]
     end
@@ -43,6 +43,7 @@ graph TD
     subgraph "Search & Access"
         Meili[[Meilisearch 1.6]]
         FastAPI[FastAPI Backend]
+        LocalAI[[Gemma 3 270M]]
         NextJS[Next.js 16 UI]
     end
 
@@ -72,7 +73,7 @@ graph TD
     Cat --> Meili
     Meili <--> FastAPI
     NextJS -- "POST /summarize" --> FastAPI
-    FastAPI -- "On-Demand" --> Gemini
+    FastAPI -- "Singleton" --> LocalAI
     FastAPI -- "CORS Restricted" --> NextJS
 
     %% Flow: Metrics
@@ -107,7 +108,7 @@ The system follows the **Open Civic Data (OCD)** standard to ensure interoperabi
 
 ### 3. Agenda Item Segmentation (Deep-Linking)
 To solve the "Needle in a Haystack" problem, the system uses an AI-driven segmentation worker:
-*   **Splitting Logic:** Gemini 2.0 Flash reads the full OCR text and identifies individual agenda items, extracting titles, descriptions, and results (e.g., "Passed").
+*   **Splitting Logic:** Local **Gemma 3 270M** reads the OCR text and identifies individual agenda items, extracting titles and descriptions.
 *   **Granular Indexing:** These items are indexed in Meilisearch as separate, first-class entities.
 *   **Benefit:** Search results can point users directly to the specific 1-page section of a 500-page packet, significantly improving accessibility.
 
@@ -152,7 +153,8 @@ To ensure fast developer iteration and secure production deployments, the system
 *   **Tiered Inspection:** A 3-tier UI flow (Snippet -> Full Text -> AI Insights) manages cognitive load.
 
 ### 10. AI Strategy
-*   **On-Demand Summarization:** To prevent `429 Rate Limit` errors, summaries are only generated when requested by a user in the UI.
+*   **On-Demand Summarization:** To prevent unnecessary CPU load, summaries are only generated when requested by a user in the UI.
 *   **Caching:** AI responses are permanently saved to the `catalog` table, making subsequent views instant and cost-free.
-*   **Grounding:** Models use a temperature of 0.0 and strict instructional grounding to eliminate hallucinations.
+*   **Grounding:** Models use a temperature of 0.1 and strict instructional grounding to eliminate hallucinations.
+
 
