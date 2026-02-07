@@ -136,6 +136,7 @@ def main():
     # 3. Post-Processing
     # These steps depend on the global dataset, so they run sequentially after processing.
     run_step("Table Extraction", ["python", "table_worker.py"]) # Can fail safely
+    run_step("Backfill Organizations", ["python", "backfill_orgs.py"])
     run_step("Topic Modeling", ["python", "topic_worker.py"])
     run_step("People Linking", ["python", "person_linker.py"])
     run_step("Search Indexing", ["python", "indexer.py"])
