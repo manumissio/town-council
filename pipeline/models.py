@@ -49,6 +49,9 @@ def create_tables(engine):
     """
     Base.metadata.create_all(engine)
 
+# Removed: create_tables(engine) from global scope to avoid import-side effects
+
+
 
 import enum
 

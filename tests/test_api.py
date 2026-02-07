@@ -10,13 +10,13 @@ sys.path.append(os.path.join(os.path.dirname(__file__), '..', 'api'))
 
 from api.main import app, get_local_ai
 
-# SECURITY: Mock the AI singleton to prevent loading the heavy model during tests
+# SECURITY: Mock the heavy AI module to prevent library loading during tests
 from unittest.mock import MagicMock
 import sys
-mock_ai = MagicMock()
-sys.modules["pipeline.llm"] = MagicMock()
+sys.modules["llama_cpp"] = MagicMock()
 
 # Override the AI dependency for the entire test module
+mock_ai = MagicMock()
 app.dependency_overrides[get_local_ai] = lambda: mock_ai
 
 client = TestClient(app)

@@ -64,20 +64,24 @@ class LocalAI:
         safe_text = text[:30000]
         prompt = f"<start_of_turn>user\nSummarize these meeting minutes into exactly 3 bullet points:\n{safe_text}<end_of_turn>\n<start_of_turn>model\n"
 
-        try:
-            # We use the raw __call__ for maximum compatibility
-            response = self.llm(
-                prompt,
-                max_tokens=256,
-                temperature=0.2,
-                stop=["<end_of_turn>", "<eos>"]
-            )
-            return response["choices"][0]["text"].strip()
-        except Exception as e:
-            logger.error(f"AI Summarization failed: {e}")
-            return "Error generating summary."
-        finally:
-            self.llm.reset()
+        # CONCURRENCY LOCK:
+        # The AI brain can only think about one thing at a time.
+        # We use this lock to make sure requests wait their turn in a polite line.
+        with self._lock:
+            try:
+                # We use the raw __call__ for maximum compatibility
+                response = self.llm(
+                    prompt,
+                    max_tokens=256,
+                    temperature=0.2,
+                    stop=["<end_of_turn>", "<eos>"]
+                )
+                return response["choices"][0]["text"].strip()
+            except Exception as e:
+                logger.error(f"AI Summarization failed: {e}")
+                return "Error generating summary."
+            finally:
+                self.llm.reset()
 
     def extract_agenda(self, text):
         """
@@ -92,29 +96,32 @@ class LocalAI:
         # This matches the 'json_object' grammar constraint of the AI engine.
         prompt = f"<start_of_turn>user\nExtract agenda items from this text. Return a JSON object with a key 'items' containing a list of {{'title', 'description'}} objects:\n{safe_text}<end_of_turn>\n<start_of_turn>model\n"
 
-        try:
-            # We call the model and expect a valid JSON block back.
-            response = self.llm(
-                prompt,
-                max_tokens=1024,
-                temperature=0.1,
-                stop=["<end_of_turn>", "<eos>"]
-            )
-            content = response["choices"][0]["text"].strip()
-            
-            # Cleaning: We find the first '{' and last '}' to strip any AI chatter
-            start = content.find('{')
-            end = content.rfind('}') + 1
-            if start != -1 and end != 0:
-                data = json.loads(content[start:end])
-                # Return the inner list: data['items']
-                return data.get("items", [])
-            
-            return []
-        except Exception as e:
-            logger.error(f"AI Segmentation failed to parse JSON: {e}")
-            return []
-        finally:
-            # Wipe the AI's short term memory
-            if self.llm:
-                self.llm.reset()
+        # CONCURRENCY LOCK: 
+        # Prevents two users from clobbering the AI's memory at the same time.
+        with self._lock:
+            try:
+                # We call the model and expect a valid JSON block back.
+                response = self.llm(
+                    prompt,
+                    max_tokens=1024,
+                    temperature=0.1,
+                    stop=["<end_of_turn>", "<eos>"]
+                )
+                content = response["choices"][0]["text"].strip()
+                
+                # Cleaning: We find the first '{' and last '}' to strip any AI chatter
+                start = content.find('{')
+                end = content.rfind('}') + 1
+                if start != -1 and end != 0:
+                    data = json.loads(content[start:end])
+                    # Return the inner list: data['items']
+                    return data.get("items", [])
+                
+                return []
+            except Exception as e:
+                logger.error(f"AI Segmentation failed to parse JSON: {e}")
+                return []
+            finally:
+                # Wipe the AI's short term memory
+                if self.llm:
+                    self.llm.reset()

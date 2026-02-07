@@ -96,8 +96,9 @@ RUN python -c "from sentence_transformers import SentenceTransformer; SentenceTr
 RUN python -c "from huggingface_hub import hf_hub_download; hf_hub_download(repo_id='unsloth/gemma-3-270m-it-GGUF', filename='gemma-3-270m-it-Q4_K_M.gguf', local_dir='/models', local_dir_use_symlinks=False)"
 
 # SECURITY: Add a health check to ensure the container is running correctly.
-# This helps orchestrators like Docker Compose detect if the API has crashed.
+# We check the actual API endpoint to prove the server is listening and ready.
+# Note: We use 'wget' as it is often pre-installed in 'slim' images.
 HEALTHCHECK --interval=30s --timeout=10s --start-period=5s --retries=3 \
-  CMD python -c "import sys; sys.exit(0)"
+  CMD wget --no-verbose --tries=1 --spider http://localhost:8000/ || exit 1
 
 CMD ["python"]

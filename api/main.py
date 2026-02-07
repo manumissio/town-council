@@ -53,10 +53,13 @@ def get_db():
 async def verify_api_key(x_api_key: str = Header(None)):
     expected_key = os.getenv("API_AUTH_KEY", "dev_secret_key_change_me")
     if x_api_key != expected_key:
-        logger.warning(f"Unauthorized API access attempt with key: {x_api_key}")
+        # Mask the key in logs to prevent secret leakage (e.g. 'abc***')
+        masked_key = f"{x_api_key[:3]}***" if x_api_key else "None"
+        logger.warning(f"Unauthorized API access attempt with key: {masked_key}")
         raise HTTPException(status_code=401, detail="Invalid or missing API Key")
 
 app = FastAPI(title="Town Council Search API", description="Search and retrieve local government meeting minutes.")
+
 
 # Add Rate Limit handler to the app
 app.state.limiter = limiter
@@ -218,6 +221,10 @@ def get_catalogs_batch(
     Returns a list of meeting summaries for multiple IDs.
     Used to display 'Related Meetings' links.
     """
+    # SECURITY: Limit the number of IDs requested to prevent database exhaustion.
+    if len(ids) > 50:
+        raise HTTPException(status_code=400, detail="Batch request too large. Limit is 50 IDs.")
+
     records = db.query(Catalog, Document, Event, Place).join(
         Document, Document.catalog_id == Catalog.id
     ).join(
@@ -225,6 +232,7 @@ def get_catalogs_batch(
     ).join(
         Place, Document.place_id == Place.id
     ).filter(Catalog.id.in_(ids)).all()
+
     
     results = []
     for cat, doc, event, place in records:

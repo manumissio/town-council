@@ -129,7 +129,12 @@ To ensure privacy, zero cost, and resilience, the system uses a **100% Local AI*
     *   **Agenda Segmentation:** Extracts structured JSON data (titles, votes) from unstructured text.
 *   **Memory Management:** The AI model is loaded as a **Singleton** on startup (warmed RAM) and explicitly reset after every request to prevent memory leaks.
 
-### 6. Data Quality Loop (Feedback Mechanism)
+### 6. Concurrency Model
+To ensure stability on consumer-grade hardware, the local AI execution is **Serialized**:
+*   **Thread Safety:** Since the `llama.cpp` engine shares a single memory buffer, the `LocalAI` class utilizes a `threading.Lock`.
+*   **Queueing Logic:** If multiple users trigger AI summaries simultaneously, their requests wait in a thread-safe queue. This prevents RAM exhaustion and "Race Conditions" while maintaining high throughput for search and metadata queries.
+
+### 7. Data Quality Loop (Feedback Mechanism)
 To maintain a high-quality dataset at scale, the system implements a **Crowdsourced Audit Loop**:
 *   **Reporting API:** A dedicated `POST /report-issue` endpoint allows users to flag problems (e.g., broken PDF links or OCR errors) directly from the UI.
 *   **Issue Tracking:** Reported issues are saved to the `data_issue` table, linked to the specific meeting. This allows administrators to prioritize fixes for the most critical data gaps without manually checking thousands of records.
