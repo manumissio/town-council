@@ -17,48 +17,66 @@ def run_step(name, command):
         logger.error(f"Step {name} failed.")
         sys.exit(1)
 
-def process_single_document(catalog_id):
+def process_document_chunk(catalog_ids):
     """
-    Worker function: Processes a single document (OCR -> NLP).
-    Runs in a separate process to bypass GIL.
+    Worker function: Processes a CHUNK of documents using a single DB connection.
+    This significantly reduces connection churn on Postgres.
     """
-    # Import inside worker to avoid DB connection sharing issues
     from pipeline.models import db_connect, Catalog
     from pipeline.extractor import extract_text
     from pipeline.nlp_worker import extract_entities
     from sqlalchemy.orm import sessionmaker
+    from sqlalchemy import text
+    import time
+    import random
+    import sys
     
-    engine = db_connect()
-    Session = sessionmaker(bind=engine)
-    db = Session()
+    # 1. Open connection ONCE for the entire batch
+    db = None
+    for attempt in range(3):
+        try:
+            engine = db_connect()
+            Session = sessionmaker(bind=engine)
+            db = Session()
+            db.execute(text("SELECT 1"))
+            break
+        except Exception:
+            if db: db.close()
+            time.sleep(random.uniform(1, 3))
+            continue
+            
+    if not db:
+        print(f"Error: Could not connect to database for chunk {catalog_ids[:2]}...", file=sys.stderr)
+        return 0
     
+    processed_count = 0
     try:
-        catalog = db.get(Catalog, catalog_id)
-        if not catalog:
-            return None
-            
-        # 1. OCR (if missing)
-        if not catalog.content and catalog.location:
-            catalog.content = extract_text(catalog.location)
-            
-        # 2. NLP (if missing)
-        if catalog.content and not catalog.entities:
-            catalog.entities = extract_entities(catalog.content)
-            
-        db.commit()
-        return catalog_id
+        for cid in catalog_ids:
+            catalog = db.get(Catalog, cid)
+            if not catalog:
+                continue
+                
+            # OCR (if missing)
+            if not catalog.content and catalog.location:
+                catalog.content = extract_text(catalog.location)
+                
+            # NLP (if missing)
+            if catalog.content and not catalog.entities:
+                catalog.entities = extract_entities(catalog.content)
+                
+            db.commit()
+            processed_count += 1
+        return processed_count
     except Exception as e:
         db.rollback()
-        # Log to stderr so parent process can capture if needed
-        # (Logging in multiprocessing is tricky, simple print works for now)
-        print(f"Error processing {catalog_id}: {e}", file=sys.stderr)
-        return None
+        print(f"Error processing batch: {e}", file=sys.stderr)
+        return processed_count
     finally:
         db.close()
 
 def run_parallel_processing():
     """
-    Orchestrates the parallel processing of documents.
+    Orchestrates the parallel processing of documents in chunks.
     """
     from pipeline.models import db_connect, Catalog
     from sqlalchemy.orm import sessionmaker
@@ -79,20 +97,25 @@ def run_parallel_processing():
         logger.info("No documents need processing.")
         return
 
-    logger.info(f"Starting parallel processing for {len(catalog_ids)} documents...")
+    # Split into chunks of 20
+    chunk_size = 20
+    chunks = [catalog_ids[i:i + chunk_size] for i in range(0, len(catalog_ids), chunk_size)]
+
+    logger.info(f"Starting parallel processing for {len(catalog_ids)} documents in {len(chunks)} chunks...")
     
-    # Use 75% of CPUs to leave room for DB/System
-    workers = max(1, int(cpu_count() * 0.75))
+    # Use 75% of CPUs, but cap at 10 to avoid 'Too many clients' DB errors
+    cpu_limit = int(cpu_count() * 0.75)
+    workers = max(1, min(cpu_limit, 10))
     
     with ProcessPoolExecutor(max_workers=workers) as executor:
-        futures = {executor.submit(process_single_document, cid): cid for cid in catalog_ids}
+        futures = {executor.submit(process_document_chunk, chunk): chunk for chunk in chunks}
         
-        completed = 0
+        completed_docs = 0
         for future in as_completed(futures):
-            if future.result():
-                completed += 1
-                if completed % 10 == 0:
-                    logger.info(f"Progress: {completed}/{len(catalog_ids)}")
+            count = future.result()
+            if count:
+                completed_docs += count
+                logger.info(f"Progress: {completed_docs}/{len(catalog_ids)}")
 
 def main():
     """
