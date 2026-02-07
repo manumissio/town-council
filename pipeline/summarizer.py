@@ -3,7 +3,6 @@ import sys
 import time
 import spacy
 import pytextrank
-from google import genai
 from sqlalchemy.orm import sessionmaker
 
 # Add project root to path

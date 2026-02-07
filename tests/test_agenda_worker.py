@@ -24,13 +24,11 @@ def db_session():
     yield session
     session.close()
 
-def test_agenda_segmentation_logic(db_session, mocker, monkeypatch):
+def test_agenda_segmentation_logic(db_session, mocker):
     """
     Test: Does the agenda worker correctly parse AI JSON and save items?
     """
     # 1. Setup Data
-    monkeypatch.setenv("GEMINI_API_KEY", "fake_key")
-    
     place = Place(name="Test City", state="CA", ocd_division_id="ocd-city")
     db_session.add(place)
     db_session.flush()
@@ -51,19 +49,17 @@ def test_agenda_segmentation_logic(db_session, mocker, monkeypatch):
     db_session.add(doc)
     db_session.commit()
 
-    # 2. Mock Gemini Response
+    # 2. Mock LocalAI Response
     mock_items = [
         {"order": 1, "title": "Zoning Change", "description": "Discussion about Main St", "classification": "Action", "result": "Passed"},
         {"order": 2, "title": "Budget 2026", "description": "Reviewing fiscal goals", "classification": "Discussion", "result": ""}
     ]
     
-    mock_response = MagicMock()
-    mock_response.text = json.dumps(mock_items)
+    mock_local_ai = MagicMock()
+    mock_local_ai.extract_agenda.return_value = mock_items
     
-    # Mock the GenAI client
-    mock_client = MagicMock()
-    mock_client.models.generate_content.return_value = mock_response
-    mocker.patch('pipeline.agenda_worker.genai.Client', return_value=mock_client)
+    # Patch the LocalAI class constructor to return our mock instance
+    mocker.patch('pipeline.agenda_worker.LocalAI', return_value=mock_local_ai)
     mocker.patch('pipeline.agenda_worker.db_connect', return_value=db_session.get_bind())
 
     # 3. Action

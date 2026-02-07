@@ -18,9 +18,14 @@ This project has been modernized from its 2017 pilot into a high-performance acc
 - **Unified Search:** A segmented "Airbnb-style" Search Hub integrating Municipality, Body, and Meeting Type filters.
 - **Robust Ingestion:** Refactored **BaseCitySpider** architecture that simplifies adding new cities and ensures resilient "Delta Crawling" (skipping duplicates).
 - **Data Quality:** Integrated **Crowdsourced Error Reporting** allowing users to flag broken links or OCR errors directly to administrators.
-- **On-Demand AI:** Instant 3-bullet summaries using **Gemini 2.0 Flash** with automatic database caching.
+- **Local-First AI:** Zero-cost, private AI summaries using **Gemma 3 270M** running entirely on your CPU. No API keys required.
 - **Scalable Search:** Instant, typo-tolerant search powered by **Meilisearch** using yield-based indexing.
 - **Security:** Hardened CORS, Dependency Injection for DB safety, and non-root Docker execution.
+
+## System Requirements
+*   **CPU:** Any modern processor (AVX2 support recommended for speed).
+*   **RAM:** 4GB minimum (8GB recommended). The AI model uses ~200MB of RAM.
+*   **Storage:** 2GB free space for the Docker image and database.
 
 ## Getting Started
 

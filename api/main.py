@@ -2,7 +2,6 @@ import sys
 import os
 import logging
 import meilisearch
-from google import genai
 from fastapi import FastAPI, HTTPException, Query, Path, Depends
 from fastapi.middleware.cors import CORSMiddleware
 from typing import List, Optional
@@ -19,6 +18,7 @@ sys.path.append(os.path.join(os.path.dirname(__file__), '..'))
 try:
     from pipeline.models import db_connect, Document, Event, Place, Catalog, Person, AgendaItem, DataIssue, IssueType
     from pipeline.utils import generate_ocd_id
+    from pipeline.llm import LocalAI
     engine = db_connect()
     SessionLocal = sessionmaker(bind=engine, autoflush=False, autocommit=False)
 except ImportError:
@@ -36,9 +36,9 @@ def get_db():
 
 app = FastAPI(title="Town Council Search API", description="Search and retrieve local government meeting minutes.")
 
-# AI Configuration
-api_key = os.getenv('GEMINI_API_KEY')
-ai_client = genai.Client(api_key=api_key) if api_key else None
+# Initialize Local AI (Singleton)
+# This loads the model into RAM once when the API starts.
+local_ai = LocalAI()
 
 # SECURITY: Restrict CORS (Cross-Origin Resource Sharing)
 # Why: Standard '*' is unsafe for production. We restrict to the expected frontend port.
@@ -259,12 +259,8 @@ def segment_agenda(
     """
     On-Demand AI Worker: Splits a large document into structured agenda items.
     
-    Why: To avoid rate limits, we only process documents when a user 
-    explicitly clicks 'View Agenda' in the UI.
+    Updated: Now uses LocalAI (Gemma 3 270M) to extract JSON from text.
     """
-    if not ai_client:
-        raise HTTPException(status_code=503, detail="Gemini AI is not configured")
-
     catalog = db.get(Catalog, catalog_id)
     if not catalog:
         raise HTTPException(status_code=404, detail="Document not found")
@@ -291,25 +287,15 @@ def segment_agenda(
         raise HTTPException(status_code=400, detail="Document is not linked to a meeting")
 
     try:
-        # 3. Call Gemini AI with a optimized "Token-Safe" slice
-        prompt = (
-            "Extract individual agenda items from these city meeting minutes. "
-            "For each item, provide: order, title, description (1 sentence), classification, and result. "
-            "Return ONLY a JSON array of objects. \n\n"
-            f"TEXT: {catalog.content[:50000]}"
-        )
+        # 3. Call Local AI to extract JSON items
+        items_data = local_ai.extract_agenda(catalog.content)
 
-        response = ai_client.models.generate_content(
-            model='gemini-2.0-flash',
-            contents=prompt,
-            config={"temperature": 0.0, "response_mime_type": "application/json"}
-        )
-
-        if response and response.text:
-            import json
-            items_data = json.loads(response.text)
-            
+        if items_data:
             for data in items_data:
+                # Validate the item has a title before saving
+                if not data.get('title'):
+                    continue
+                    
                 item = AgendaItem(
                     ocd_id=generate_ocd_id('agendaitem'),
                     event_id=doc_link.event_id,
@@ -325,7 +311,7 @@ def segment_agenda(
             db.commit()
             return {"items": items_data, "cached": False}
         
-        raise HTTPException(status_code=500, detail="AI segmentation failed")
+        raise HTTPException(status_code=500, detail="AI segmentation failed to return valid JSON")
 
     except Exception as e:
         db.rollback()

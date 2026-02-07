@@ -10,15 +10,21 @@ ENV PYTHONUNBUFFERED=1
 WORKDIR /app
 
 # Install build dependencies
+# We need 'cmake' to compile the llama.cpp engine, which makes the AI run fast on the CPU.
 RUN apt-get update && apt-get install -y --no-install-recommends \
     build-essential \
     libpq-dev \
+    cmake \
     && rm -rf /var/lib/apt/lists/*
 
 # Copy requirement files
 COPY council_crawler/requirements.txt ./council_crawler_requirements.txt
 COPY pipeline/requirements.txt ./pipeline_requirements.txt
 COPY api/requirements.txt ./api_requirements.txt
+
+# OPTIMIZATION: Compile AI libraries with CPU acceleration (AVX2).
+# This tells the compiler to use special math instructions that modern CPUs support.
+ENV CMAKE_ARGS="-DGGML_AVX2=ON"
 
 # OPTIMIZATION: Unified dependency resolution in a single pip wheel command.
 # This prevents conflicting versions of sub-dependencies (like cloudpathlib).
@@ -47,12 +53,17 @@ ENV PYTHONPATH=/app
 WORKDIR /app
 
 # Install runtime system libraries.
+# libgomp1 is required for llama.cpp multi-threading.
 RUN apt-get update && apt-get install -y --no-install-recommends \
     ghostscript \
     libpq5 \
     libgl1 \
     libglib2.0-0 \
+    libgomp1 \
     && apt-get clean && rm -rf /var/lib/apt/lists/*
+
+# Suppress gitpython warnings since we don't install git
+ENV GIT_PYTHON_REFRESH=quiet
 
 # Copy pre-compiled wheels from the builder.
 COPY --from=builder /app/wheels /wheels
@@ -78,5 +89,10 @@ USER appuser
 
 # Download the specific AI brain used by our Similarity Engine.
 RUN python -c "from sentence_transformers import SentenceTransformer; SentenceTransformer('all-MiniLM-L6-v2')"
+
+# Download the Gemma 3 270M model for local summarization and agenda segmentation.
+# We use 'huggingface_hub' to fetch the single quantized file we need.
+# unsloth/gemma-3-270m-it-GGUF is a trusted community quantization.
+RUN python -c "from huggingface_hub import hf_hub_download; hf_hub_download(repo_id='unsloth/gemma-3-270m-it-GGUF', filename='gemma-3-270m-it-Q4_K_M.gguf', local_dir='/models', local_dir_use_symlinks=False)"
 
 CMD ["python"]

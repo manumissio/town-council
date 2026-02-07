@@ -116,16 +116,17 @@ The system implements a standardized identifier generator (`ocd-[type]/[uuid]`) 
 *   **Avoids IDOR Attacks:** Random UUIDs prevent malicious enumeration of records.
 *   **Federation Ready:** By following the OCD standard, the database is interoperable with other civic data projects like *Open States* or *Councilmatic*.
 
-### 5. Hybrid AI/ML Strategy (Entity Resolution & Summarization)
-To balance performance and cost, the system utilizes a **Hybrid Strategy**:
-*   **Tier 1 (Local/Extractive):** 
-    *   **Entity Resolution:** Uses the **Levenshtein Distance** algorithm (via RapidFuzz) to resolve similar names.
-    *   **Summarization:** Uses **TextRank** (via SpaCy/PyTextRank) to identify the 3 most central sentences in a document.
-    *   **Topic Discovery:** Uses the **all-MiniLM-L6-v2** Transformer model to generate dense vector embeddings. This identifies concepts that are mathematically related (e.g., 'housing' and 'zoning') even if they share no keywords.
-    *   **Semantic Linking:** Utilizes the **FAISS (Facebook AI Similarity Search)** library for high-performance vector retrieval. Instead of a slow $O(N^2)$ matrix, the system builds an optimized index to find related meetings in milliseconds, ensuring scalability to hundreds of thousands of documents.
-*   **Tier 2 (Cloud/Generative):** 
-    *   Complex tasks like high-quality bulleted summarization and agenda segmentation use **Gemini 2.0 Flash**. These are triggered on-demand by the user to minimize token usage and avoid rate limits.
-*   **Blocking:** Name comparisons are "blocked" by city to ensure the algorithm scales without slowing down.
+### 5. Local-First AI Strategy (Air-Gapped)
+To ensure privacy, zero cost, and resilience, the system uses a **100% Local AI** stack. No data is ever sent to the cloud.
+
+*   **The Brain (Gemma 3 270M):** We use a 4-bit quantized version of Google's state-of-the-art "micro-model".
+    *   **Context Window:** 8,192 tokens (approx. 15 pages of text).
+    *   **Size:** ~150MB (Embedded directly in the Docker image).
+    *   **Inference Engine:** `llama-cpp-python` compiled with AVX2 support for high-speed CPU processing.
+*   **Tasks:**
+    *   **Summarization:** Generates 3-bullet executive summaries.
+    *   **Agenda Segmentation:** Extracts structured JSON data (titles, votes) from unstructured text.
+*   **Memory Management:** The AI model is loaded as a **Singleton** on startup (warmed RAM) and explicitly reset after every request to prevent memory leaks.
 
 ### 6. Data Quality Loop (Feedback Mechanism)
 To maintain a high-quality dataset at scale, the system implements a **Crowdsourced Audit Loop**:

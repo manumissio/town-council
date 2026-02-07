@@ -15,11 +15,14 @@ from council_crawler.spiders.ca_belmont import Belmont
 from council_crawler.spiders.ca_berkeley import BerkeleyCustom
 from templates.legistar_cms import LegistarCms
 
-def test_berkeley_custom_parsing():
+def test_berkeley_custom_parsing(mocker):
     """
     Test: Does the new Berkeley portal spider extract data correctly?
     The Berkeley website uses a specific table structure with 'stack' classes.
     """
+    # Mock DB: Prevent database connection attempts
+    mocker.patch('council_crawler.spiders.base.BaseCitySpider._get_last_meeting_date', return_value=None)
+    
     spider = BerkeleyCustom()
     
     url = "https://berkeleyca.gov/your-government/city-council/city-council-agendas"

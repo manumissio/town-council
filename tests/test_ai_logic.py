@@ -1,69 +1,102 @@
-import os
 import pytest
-from pipeline.models import Catalog, Base
-from pipeline.summarizer import summarize_documents
-from sqlalchemy import create_engine
-from sqlalchemy.orm import sessionmaker
+from unittest.mock import MagicMock
+import sys
 
-@pytest.fixture
-def db_session():
-    """Setup: This creates a temporary, empty database in memory for each test."""
-    engine = create_engine('sqlite:///:memory:')
-    Base.metadata.create_all(engine)
-    Session = sessionmaker(bind=engine)
-    session = Session()
-    yield session
-    session.close()
+# Mock llama_cpp BEFORE importing LocalAI to avoid loading the real model
+sys.modules["llama_cpp"] = MagicMock()
 
-def test_summarization_tier1_local(db_session, mocker):
+from pipeline.llm import LocalAI
+
+def test_local_ai_summarize(mocker):
     """
-    Test: Does the local summarizer correctly update summary_extractive?
+    Test: Does the LocalAI class correctly call the llama model?
     """
-    # 1. Setup: Add a document that needs a summary.
-    doc = Catalog(
-        url_hash="test_hash_local",
-        content="The City Council discussed the budget today. It was a long meeting. Many people attended.",
-        filename="local_meeting.pdf"
-    )
-    db_session.add(doc)
-    db_session.commit()
+    # 1. Reset Singleton
+    LocalAI._instance = None
+    
+    # 2. Setup Mock
+    # We mock the CLASS so that Llama(...) returns our mock instance
+    mock_llm_class = mocker.patch('pipeline.llm.Llama')
+    mock_llm_instance = mock_llm_class.return_value
+    
+    # Configure the instance method to return a REAL DICTIONARY
+    mock_llm_instance.create_chat_completion.return_value = {
+        "choices": [
+            {"message": {"content": "- Point 1\n- Point 2\n- Point 3"}}
+        ]
+    }
+    
+    # Mock file existence
+    mocker.patch('os.path.exists', return_value=True)
 
-    # 2. Mock: Inject temporary database.
-    mocker.patch('pipeline.summarizer.db_connect', return_value=db_session.get_bind())
+    # 3. Action
+    ai = LocalAI()
+    summary = ai.summarize("This is a long meeting text about zoning.")
 
-    # 3. Action: Run Tier 1 summarizer.
-    summarize_documents()
+    # 4. Verify
+    assert "- Point 1" in summary
+    
+    # Verify strict limits
+    call_args = mock_llm_instance.create_chat_completion.call_args
+    assert call_args[1]['max_tokens'] == 256
+    
+    # Verify memory reset
+    mock_llm_instance.reset.assert_called_once()
 
-    # 4. Verify: Check summary_extractive
-    db_session.refresh(doc)
-    assert doc.summary_extractive is not None
-    assert "Council" in doc.summary_extractive
-
-def test_summarization_gemini_on_demand(db_session, mocker):
+def test_local_ai_agenda_extraction(mocker):
     """
-    Test: Simulates the on-demand Gemini summarization triggered via API.
+    Test: Does the extraction logic correctly parse JSON?
     """
-    # 1. Setup
-    doc = Catalog(
-        url_hash="test_hash_gemini",
-        content="Zoning laws are being updated to allow for more housing units.",
-        filename="gemini_meeting.pdf"
-    )
-    db_session.add(doc)
-    db_session.commit()
+    LocalAI._instance = None
+    
+    mock_llm_class = mocker.patch('pipeline.llm.Llama')
+    mock_llm_instance = mock_llm_class.return_value
+    
+    # Return a valid JSON string
+    mock_json_response = '[{"title": "Item 1", "description": "Discuss budget"}]'
+    mock_llm_instance.create_chat_completion.return_value = {
+        "choices": [
+            {"message": {"content": mock_json_response}}
+        ]
+    }
+    
+    mocker.patch('os.path.exists', return_value=True)
 
-    # 2. Mock Gemini API
-    mock_client = mocker.Mock()
-    mock_response = mocker.Mock()
-    mock_response.text = "1. Zoning updated\n2. Housing increased"
-    mock_client.models.generate_content.return_value = mock_response
-    mocker.patch('google.genai.Client', return_value=mock_client)
+    # Action
+    ai = LocalAI()
+    items = ai.extract_agenda("Meeting text here.")
 
-    # Note: In the real app, this is handled by api/main.py. 
-    # Here we are testing the database storage logic for Tier 2.
-    doc.summary = mock_response.text
-    db_session.commit()
+    # Verify
+    assert len(items) == 1
+    assert items[0]['title'] == "Item 1"
+    
+    # Verify JSON mode
+    call_args = mock_llm_instance.create_chat_completion.call_args
+    assert call_args[1]['response_format'] == {"type": "json_object"}
 
-    # 3. Verify
-    db_session.refresh(doc)
-    assert doc.summary == "1. Zoning updated\n2. Housing increased"
+def test_local_ai_error_handling(mocker):
+    """
+    Test: Does the system fail gracefully if the AI returns garbage?
+    """
+    LocalAI._instance = None
+    
+    mock_llm_class = mocker.patch('pipeline.llm.Llama')
+    mock_llm_instance = mock_llm_class.return_value
+    
+    # Return bad JSON
+    mock_llm_instance.create_chat_completion.return_value = {
+        "choices": [
+            {"message": {"content": "This is not JSON"}}
+        ]
+    }
+    
+    mocker.patch('os.path.exists', return_value=True)
+
+    # Action
+    ai = LocalAI()
+    items = ai.extract_agenda("Text")
+
+    # Verify
+    assert items == []
+    # Ensure we still reset memory even after an error
+    mock_llm_instance.reset.assert_called()
