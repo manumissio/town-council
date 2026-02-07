@@ -22,9 +22,10 @@ COPY council_crawler/requirements.txt ./council_crawler_requirements.txt
 COPY pipeline/requirements.txt ./pipeline_requirements.txt
 COPY api/requirements.txt ./api_requirements.txt
 
-# OPTIMIZATION: Compile AI libraries with CPU acceleration (AVX2).
-# This tells the compiler to use special math instructions that modern CPUs support.
-ENV CMAKE_ARGS="-DGGML_AVX2=ON"
+# OPTIMIZATION: Compile AI libraries with CPU acceleration.
+# We disable GGML_NATIVE to prevent the compiler from using instructions 
+# that are not supported by the Docker virtualization layer on some Macs.
+ENV CMAKE_ARGS="-DGGML_NEON=ON -DGGML_NATIVE=OFF"
 
 # OPTIMIZATION: Unified dependency resolution in a single pip wheel command.
 # This prevents conflicting versions of sub-dependencies (like cloudpathlib).

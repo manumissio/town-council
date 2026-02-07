@@ -61,19 +61,27 @@ services:
       - tika
       - postgres
 
-  # AI Summarizer: Uses Local AI (Gemma 3) to summarize meeting minutes.
-  summarizer:
+  # Celery Worker: Handles compute-intensive AI tasks (Summarization, Segmentation)
+  # in the background so the API remains fast and responsive.
+  worker:
     build: .
     volumes:
       - .:/app
-    working_dir: /app/pipeline
+    working_dir: /app
+    command: celery -A pipeline.tasks worker --loglevel=info --concurrency=1
     environment:
       - PYTHONUNBUFFERED=1
       - PYTHONPATH=/app
       - DATABASE_URL=${DATABASE_URL:-postgresql://town_council:secure_dev_password@postgres:5432/town_council_db}
+      - REDIS_HOST=redis
+      - REDIS_PASSWORD=${REDIS_PASSWORD:-secure_redis_password}
+      - CELERY_BROKER_URL=redis://:${REDIS_PASSWORD:-secure_redis_password}@redis:6379/0
+      - CELERY_RESULT_BACKEND=redis://:${REDIS_PASSWORD:-secure_redis_password}@redis:6379/0
       - DATA_DIR=/app/data
     depends_on:
+      - redis
       - postgres
+      - tika
 
   # NLP Worker: Uses SpaCy to extract Organizations and Locations from text.
   nlp:
@@ -157,6 +165,8 @@ services:
       - DATABASE_URL=${DATABASE_URL:-postgresql://town_council:secure_dev_password@postgres:5432/town_council_db}
       - REDIS_HOST=redis
       - REDIS_PASSWORD=${REDIS_PASSWORD:-secure_redis_password}
+      - CELERY_BROKER_URL=redis://:${REDIS_PASSWORD:-secure_redis_password}@redis:6379/0
+      - CELERY_RESULT_BACKEND=redis://:${REDIS_PASSWORD:-secure_redis_password}@redis:6379/0
       - PYTHONPATH=/app
       - API_AUTH_KEY=${API_AUTH_KEY:-dev_secret_key_change_me}
       - ALLOWED_ORIGINS=${ALLOWED_ORIGINS:-http://localhost:3000}

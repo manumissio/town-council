@@ -63,7 +63,7 @@ class LocalAI:
             return None
 
         safe_text = text[:30000]
-        prompt = f"<start_of_turn>user\nSummarize these meeting minutes into exactly 3 bullet points:\n{safe_text}<end_of_turn>\n<start_of_turn>model\n"
+        prompt = f"<bos><start_of_turn>user\nSummarize these meeting minutes into exactly 3 bullet points:\n{safe_text}<end_of_turn>\n<start_of_turn>model\n"
 
         # CONCURRENCY LOCK:
         # The AI brain can only think about one thing at a time.
@@ -75,7 +75,7 @@ class LocalAI:
                     prompt,
                     max_tokens=256,
                     temperature=0.2,
-                    stop=["<end_of_turn>", "<eos>"]
+                    stop=["<end_of_turn>", "<eos>", "<|end_of_text|>"]
                 )
                 return response["choices"][0]["text"].strip()
             except Exception as e:
@@ -95,7 +95,7 @@ class LocalAI:
         safe_text = text[:30000]
         # We explicitly ask for a JSON object with an 'items' key.
         # This matches the 'json_object' grammar constraint of the AI engine.
-        prompt = f"<start_of_turn>user\nExtract agenda items from this text. Return a JSON object with a key 'items' containing a list of {{'title', 'description', 'classification', 'result'}} objects. 'classification' should be 'Action', 'Discussion', or 'Consent'. 'result' should be 'Passed', 'Failed', or 'Tabled':\n{safe_text}<end_of_turn>\n<start_of_turn>model\n"
+        prompt = f"<bos><start_of_turn>user\nExtract agenda items from this text. Return a JSON object with a key 'items' containing a list of {{'title', 'description', 'classification', 'result'}} objects. 'classification' should be 'Action', 'Discussion', or 'Consent'. 'result' should be 'Passed', 'Failed', or 'Tabled':\n{safe_text}<end_of_turn>\n<start_of_turn>model\n"
 
         # CONCURRENCY LOCK: 
         # Prevents two users from clobbering the AI's memory at the same time.
@@ -106,7 +106,7 @@ class LocalAI:
                     prompt,
                     max_tokens=1024,
                     temperature=0.1,
-                    stop=["<end_of_turn>", "<eos>"]
+                    stop=["<end_of_turn>", "<eos>", "<|end_of_text|>"]
                 )
                 content = response["choices"][0]["text"].strip()
                 

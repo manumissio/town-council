@@ -325,7 +325,7 @@ def get_catalogs_batch(
         })
     return results
 
-from pipeline.tasks import generate_summary_task, segment_agenda_task
+from pipeline.tasks import generate_summary_task, segment_agenda_task, app as celery_app
 from celery.result import AsyncResult
 
 @app.post("/summarize/{catalog_id}", dependencies=[Depends(verify_api_key)])
@@ -396,7 +396,7 @@ def get_task_status(task_id: str):
     """
     Check the status of a background AI task.
     """
-    task = AsyncResult(task_id)
+    task = AsyncResult(task_id, app=celery_app)
     
     if task.ready():
         result = task.result
