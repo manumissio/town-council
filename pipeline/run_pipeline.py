@@ -103,9 +103,9 @@ def run_parallel_processing():
 
     logger.info(f"Starting parallel processing for {len(catalog_ids)} documents in {len(chunks)} chunks...")
     
-    # Use 75% of CPUs, but cap at 10 to avoid 'Too many clients' DB errors
+    # Use 75% of CPUs, but cap at 5 to avoid Tika server crashes
     cpu_limit = int(cpu_count() * 0.75)
-    workers = max(1, min(cpu_limit, 10))
+    workers = max(1, min(cpu_limit, 5))
     
     with ProcessPoolExecutor(max_workers=workers) as executor:
         futures = {executor.submit(process_document_chunk, chunk): chunk for chunk in chunks}
