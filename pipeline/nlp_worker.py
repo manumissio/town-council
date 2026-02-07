@@ -36,6 +36,12 @@ def scrub_municipal_noise(doc):
             if not is_trusted:
                 # If NOT trusted, apply strict human-name checks:
                 
+                # RULE 2: Proper Noun Check. 
+                # Legitimate names should contain at least one Proper Noun (PROPN).
+                # This filters out generic roles like 'Local Artist' (ADJ NOUN).
+                if not any(token.pos_ == "PROPN" for token in ent):
+                    continue
+
                 # Names usually have a space (First Last).
                 if ' ' not in text:
                     continue
@@ -145,6 +151,9 @@ def extract_entities(text):
             continue
 
         if ent.label_ == "PERSON":
+            # SECURITY: Final check against the expanded blacklist
+            if not is_likely_human_name(name):
+                continue
             if name not in entities["persons"]:
                 entities["persons"].append(name)
         

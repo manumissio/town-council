@@ -82,7 +82,10 @@ def is_likely_human_name(name):
         'ordinance', 'item', 'page', 'appendix', 'section', 
         'exhibit', 'table', 'bid', 'solicitation', 'text box',
         'supplemental', 'communications', 'rev -', 'shx text',
-        'ayes', 'noes', 'absent', 'abstain', 'floor', 'suite', 'ave'
+        'ayes', 'noes', 'absent', 'abstain', 'floor', 'suite', 'ave',
+        'berkeley', 'ca', 'california', 'artist', 'camera', 'order',
+        'public', 'meeting', 'policy', 'update', 'staff', 'manager',
+        'commission', 'council', 'dept', 'department', 'center'
     ]
     
     name_lower = name.lower()
@@ -97,7 +100,10 @@ def is_likely_human_name(name):
         return False
         
     # 3. Names usually have at least one space (First Last)
-    if ' ' not in name:
+    # but not MORE than 3 spaces (5 words). Names like
+    # 'Body Worn Cameras Policy Update' are too long.
+    spaces = name.strip().count(' ')
+    if spaces < 1 or spaces > 3:
         return False
         
     return True
