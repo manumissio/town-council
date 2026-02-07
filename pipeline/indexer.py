@@ -20,8 +20,8 @@ def index_documents():
     client = meilisearch.Client(MEILI_HOST, MEILI_MASTER_KEY)
     
     # Create the 'documents' index if it doesn't exist.
-    # We use string IDs to allow mixing different types (Meetings vs Agenda Items).
-    index = client.index('documents')
+    # Explicitly set the primary key to 'id' to avoid ambiguity errors.
+    index = client.index('documents', {'primaryKey': 'id'})
     
     # Configure Filters: These fields can be used to narrow down results.
     index.update_filterable_attributes([
@@ -103,8 +103,13 @@ def index_documents():
         
         documents_batch.append(search_doc)
         if len(documents_batch) >= batch_size:
-            index.add_documents(documents_batch)
-            count += len(documents_batch)
+            try:
+                task = index.add_documents(documents_batch)
+                # Wait for Meilisearch to acknowledge receipt
+                print(f"Sent batch to Meilisearch. Task ID: {task.task_uid}")
+                count += len(documents_batch)
+            except Exception as e:
+                print(f"Error sending batch to Meilisearch: {e}")
             documents_batch = []
 
     print("Step 2: Indexing Individual Agenda Items...")
