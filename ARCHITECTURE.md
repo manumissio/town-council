@@ -32,18 +32,22 @@ graph TD
         end
     end
 
-    subgraph "Processing Pipeline (Python 3.12)"
+    subgraph "Processing Pipeline (Distributed)"
         Downloader[Downloader: Parallel Streaming]
-        Tika[Apache Tika: OCR/Text]
-        Segmenter[Agenda Segmenter: Local AI]
-        Linker[Person Linker: Entity Disambiguation]
-        Workers[NLP/Topic/Table Workers]
+        Tika[[Apache Tika Service]]
+        Linker[Person Linker]
+        NLP[NLP/Topic/Table Workers]
+    end
+
+    subgraph "Async AI Brain (Celery)"
+        Redis[(Redis: Job Queue & Cache)]
+        Worker[Celery Worker: Concurrency=1]
+        LocalAI[[Gemma 3 270M]]
     end
 
     subgraph "Search & Access"
         Meili[[Meilisearch 1.6]]
         FastAPI[FastAPI Backend]
-        LocalAI[[Gemma 3 270M]]
         NextJS[Next.js 16 UI]
     end
 
@@ -61,20 +65,25 @@ graph TD
 
     %% Flow: Processing
     Prod --> Downloader
-    Downloader -- "Absolute Paths" --> Postgres
     Downloader --> Tika
-    Tika --> Segmenter
-    Segmenter --> Items
-    Items --> Workers
-    Workers --> Linker
+    Tika --> NLP
+    NLP --> Linker
     Linker --> Mem & Person
 
-    %% Flow: Access & On-Demand AI
+    %% Flow: Async AI Logic
+    NextJS -- "1. POST /summarize" --> FastAPI
+    FastAPI -- "2. Dispatch" --> Redis
+    Redis -- "3. Pick Up" --> Worker
+    Worker -- "4. Inference" --> LocalAI
+    LocalAI -- "5. Store" --> Postgres
+    NextJS -- "6. Poll Status" --> FastAPI
+    FastAPI -- "7. Check Results" --> Redis
+
+    %% Flow: Search & Cache
     Cat --> Meili
     Meili <--> FastAPI
-    NextJS -- "POST /summarize" --> FastAPI
-    FastAPI -- "Singleton" --> LocalAI
-    FastAPI -- "CORS Restricted" --> NextJS
+    FastAPI <--> Redis
+    NextJS <--> FastAPI
 
     %% Flow: Metrics
     Postgres -.-> Mon
