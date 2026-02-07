@@ -43,12 +43,15 @@ def extract_text(file_path):
             
             if parsed and 'content' in parsed:
                 return (parsed['content'] or "").strip()
-            return ""
+            
+            # If we get here, Tika likely returned a 503 or empty result.
+            # We raise an error to trigger our retry logic.
+            raise ValueError("Tika returned empty content or 503 error")
         except Exception as e:
             if attempt < 2:
-                # Short backoff
+                # Exponential backoff (2s, 4s)
                 wait_time = (attempt + 1) * 2
-                print(f"Tika hiccup on {file_path}, retrying in {wait_time}s... (Attempt {attempt+1}/3)")
+                print(f"Tika issue on {file_path}, retrying in {wait_time}s... (Attempt {attempt+1}/3)")
                 time.sleep(wait_time)
             else:
                 print(f"Error extracting {file_path} after 3 attempts: {e}")
