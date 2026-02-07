@@ -1,0 +1,148 @@
+{
+    "machine_info": {
+        "node": "fd454b0e0979",
+        "processor": "",
+        "machine": "aarch64",
+        "python_compiler": "GCC 12.2.0",
+        "python_implementation": "CPython",
+        "python_implementation_version": "3.12.12",
+        "python_version": "3.12.12",
+        "python_build": [
+            "main",
+            "Feb  4 2026 20:27:11"
+        ],
+        "release": "6.12.67-linuxkit",
+        "system": "Linux",
+        "cpu": {
+            "python_version": "3.12.12.final.0 (64 bit)",
+            "cpuinfo_version": [
+                9,
+                0,
+                0
+            ],
+            "cpuinfo_version_string": "9.0.0",
+            "arch": "ARM_8",
+            "bits": 64,
+            "count": 10,
+            "arch_string_raw": "aarch64",
+            "flags": [
+                "aes",
+                "asimd",
+                "asimddp",
+                "asimdfhm",
+                "asimdhp",
+                "asimdrdm",
+                "atomics",
+                "cpuid",
+                "crc32",
+                "dcpodp",
+                "dcpop",
+                "dit",
+                "evtstrm",
+                "fcma",
+                "flagm",
+                "flagm2",
+                "fp",
+                "fphp",
+                "frint",
+                "ilrcpc",
+                "jscvt",
+                "lrcpc",
+                "paca",
+                "pacg",
+                "pmull",
+                "sb",
+                "sha1",
+                "sha2",
+                "sha3",
+                "sha512",
+                "uscat"
+            ],
+            "vendor_id_raw": "Apple",
+            "brand_raw": "-"
+        }
+    },
+    "commit_info": {
+        "id": "unknown",
+        "time": null,
+        "author_time": null,
+        "dirty": false,
+        "error": "FileNotFoundError(2, 'No such file or directory')",
+        "project": "pipeline",
+        "branch": "(unknown)"
+    },
+    "benchmarks": [
+        {
+            "group": null,
+            "name": "test_benchmark_fuzzy_matching",
+            "fullname": "tests/test_benchmarks.py::test_benchmark_fuzzy_matching",
+            "params": null,
+            "param": null,
+            "extra_info": {},
+            "options": {
+                "disable_gc": false,
+                "timer": "perf_counter",
+                "min_rounds": 5,
+                "max_time": 1.0,
+                "min_time": 5e-06,
+                "warmup": false
+            },
+            "stats": {
+                "min": 4.4583000089915004e-05,
+                "max": 0.0014479999999821302,
+                "mean": 4.692227828810685e-05,
+                "stddev": 3.654662512046922e-05,
+                "rounds": 1484,
+                "median": 4.5166999825596577e-05,
+                "iqr": 4.569997145154048e-07,
+                "q1": 4.495900020629051e-05,
+                "q3": 4.5415999920805916e-05,
+                "iqr_outliers": 163,
+                "stddev_outliers": 1,
+                "outliers": "1;163",
+                "ld15iqr": 4.4583000089915004e-05,
+                "hd15iqr": 4.612499969880446e-05,
+                "ops": 21311.838139229163,
+                "total": 0.06963266097955056,
+                "iterations": 1
+            }
+        },
+        {
+            "group": null,
+            "name": "test_benchmark_regex_extraction",
+            "fullname": "tests/test_benchmarks.py::test_benchmark_regex_extraction",
+            "params": null,
+            "param": null,
+            "extra_info": {},
+            "options": {
+                "disable_gc": false,
+                "timer": "perf_counter",
+                "min_rounds": 5,
+                "max_time": 1.0,
+                "min_time": 5e-06,
+                "warmup": false
+            },
+            "stats": {
+                "min": 0.0007464169998456782,
+                "max": 0.00191958400000658,
+                "mean": 0.0007741392885064601,
+                "stddev": 5.799497562084919e-05,
+                "rounds": 1071,
+                "median": 0.000758916999984649,
+                "iqr": 2.0677250290646043e-05,
+                "q1": 0.0007539582496747244,
+                "q3": 0.0007746354999653704,
+                "iqr_outliers": 107,
+                "stddev_outliers": 55,
+                "outliers": "55;107",
+                "ld15iqr": 0.0007464169998456782,
+                "hd15iqr": 0.0008058749999690917,
+                "ops": 1291.7572003473572,
+                "total": 0.8291031779904188,
+                "iterations": 1
+            }
+        }
+    ],
+    "datetime": "2026-02-07T16:46:52.341775+00:00",
+    "version": "5.1.0"
+}

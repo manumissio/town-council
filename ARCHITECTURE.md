@@ -199,3 +199,9 @@ To ensure 24/7 availability in production, the system implements **Graceful Degr
 *   **Robust Segment Extraction:** The system uses a multi-layered approach for agenda splitting:
     1.  **Direct AI Extraction:** High-precision bulleted list from the local model.
     2.  **Paragraph Fallback:** If the AI output is malformed, the system automatically segments by paragraph to ensure the UI remains functional.
+
+### 14. Performance Guardrails
+To prevent "Speed Regressions" during development, the system implements automated performance monitoring:
+*   **Continuous Benchmarking:** Every compute-heavy function (Fuzzy Matching, Regex Parsing) is tracked via `pytest-benchmark`. If a change makes an algorithm 2x slower, the benchmark suite will highlight the regression.
+*   **Traffic Simulation:** We use **Locust** to simulate high-concurrency scenarios. This allows us to verify that our Redis caching and Meilisearch optimizations actually scale to 50+ concurrent users on standard hardware.
+*   **Payload Monitoring:** The API is configured to strictly control response sizes (via `attributesToRetrieve`), ensuring that search results remain under 100KB regardless of document size.

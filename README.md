@@ -102,6 +102,20 @@ Run the comprehensive suite of 65+ unit and integration tests:
 docker-compose run --rm pipeline pytest /app/tests/
 ```
 
+## Performance & Load Testing
+We use automated audits to ensure the platform remains fast as it grows.
+
+1. **Algorithmic Benchmarks:** Measures the millisecond cost of internal logic.
+   ```bash
+   docker-compose run --rm pipeline pytest tests/test_benchmarks.py
+   ```
+
+2. **Load Testing (Traffic Simulation):** Simulates 50+ users attacking the API.
+   ```bash
+   # Runs a 60-second headless stress test
+   docker-compose run --rm pipeline locust -f tests/locustfile.py --headless -u 50 -r 5 --run-time 1m --host http://api:8000
+   ```
+
 ## Scaling Up (Enterprise Mode)
 The system is designed to scale horizontally as your dataset grows:
 1.  **Add More Workers:** If AI processing is slow, simply add more Celery workers:
