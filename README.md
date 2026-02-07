@@ -96,7 +96,7 @@ docker-compose run pipeline pytest /app/tests/
 The system is designed to scale horizontally as your dataset grows:
 1.  **Add More Workers:** If AI processing is slow, simply add more Celery workers:
     ```bash
-    docker-compose up -d --scale celery_worker=3
+    docker-compose up -d --scale worker=3
     ```
 2.  **Distributed Pipeline:** The ingestion pipeline automatically detects your CPU count and scales OCR/NLP tasks to use all available cores.
 3.  **Database:** Use a managed PostgreSQL instance (AWS RDS, Google Cloud SQL) for production reliability.
