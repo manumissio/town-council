@@ -19,6 +19,7 @@ This project has been modernized from its 2017 pilot into a high-performance acc
 - **Robust Ingestion:** Refactored **BaseCitySpider** architecture that simplifies adding new cities and ensures resilient "Delta Crawling" (skipping duplicates).
 - **Data Quality:** Integrated **Crowdsourced Error Reporting** allowing users to flag broken links or OCR errors directly to administrators.
 - **Local-First AI:** 100% private, air-gapped intelligence using **Gemma 3 270M** running entirely on your CPU. No API keys or internet required.
+- **Production Resilience:** Optimized for 24/7 availability with **fail-soft logic** that handles database or AI outages gracefully without crashing the server.
 - **Scalable Search:** Instant, typo-tolerant search powered by **Meilisearch** using yield-based indexing.
 - **Security:** Hardened CORS, Dependency Injection for DB safety, and non-root Docker execution.
 

@@ -157,4 +157,11 @@ To ensure fast developer iteration and secure production deployments, the system
 *   **Caching:** AI responses are permanently saved to the `catalog` table, making subsequent views instant and cost-free.
 *   **Grounding:** Models use a temperature of 0.1 and strict instructional grounding to eliminate hallucinations.
 
+### 11. Resilience & Fail-Soft Logic
+To ensure 24/7 availability in production, the system implements **Graceful Degradation**:
+*   **Dependency Checking:** The API uses a `is_db_ready()` helper to verify the database connection before handling requests. If the database is down, it returns a `503 Service Unavailable` error instead of crashing.
+*   **Lazy AI Loading:** Local AI models are loaded only when first requested. If the model files are missing or corrupt, the API continues to serve search results while disabling only the summarization and segmentation features.
+*   **Robust JSON Extraction:** The AI parser uses defensive string-stripping logic to extract valid JSON blocks even if the model includes conversational text in its response.
+
+
 
