@@ -1,11 +1,15 @@
 from templates.legistar_cms import LegistarCms
 
 class Sunnyvale(LegistarCms):
-	"""
-	"""
-	name = 'sunnyvale'
+    """
+    Spider for Sunnyvale, CA using the Legistar CMS template.
+    """
+    name = 'sunnyvale'
 
-	def __init__(self, *args, **kwargs):
-		super(Sunnyvale, self).__init__(*args, city='sunnyvale', state='ca', **kwargs)
-		self.urls = ['https://sunnyvaleca.legistar.com/Calendar.aspx']
-
+    def __init__(self, *args, **kwargs):
+        super().__init__(
+            legistar_url='https://sunnyvaleca.legistar.com/Calendar.aspx',
+            city='sunnyvale',
+            state='ca',
+            *args, **kwargs
+        )

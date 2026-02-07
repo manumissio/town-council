@@ -6,6 +6,7 @@ from google import genai
 from fastapi import FastAPI, HTTPException, Query, Path, Depends
 from fastapi.middleware.cors import CORSMiddleware
 from typing import List, Optional
+from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session as SQLAlchemySession, sessionmaker
 
 # Set up structured logging for production observability
@@ -16,7 +17,7 @@ logger = logging.getLogger("town-council-api")
 sys.path.append(os.path.join(os.path.dirname(__file__), '..'))
 
 try:
-    from pipeline.models import db_connect, Document, Event, Place, Catalog, Person, AgendaItem
+    from pipeline.models import db_connect, Document, Event, Place, Catalog, Person, AgendaItem, DataIssue, IssueType
     from pipeline.utils import generate_ocd_id
     engine = db_connect()
     SessionLocal = sessionmaker(bind=engine, autoflush=False, autocommit=False)
@@ -341,3 +342,54 @@ def get_stats():
     except Exception as e:
         logger.error(f"Stats check failed: {e}")
         raise HTTPException(status_code=503, detail="Search engine unreachable")
+
+# --------------------------------------------------------------------------
+# DATA QUALITY REPORTING (FEEDBACK LOOP)
+# --------------------------------------------------------------------------
+
+class IssueReport(BaseModel):
+    """
+    Schema for the data quality report submitted by the user.
+    """
+    event_id: int = Field(..., description="The ID of the meeting being reported")
+    issue_type: str = Field(..., description="The type of problem (e.g., 'broken_link')")
+    description: Optional[str] = Field(None, max_length=500, description="Optional details about the issue")
+
+@app.post("/report-issue")
+def report_data_issue(report: IssueReport, db: SQLAlchemySession = Depends(get_db)):
+    """
+    Allows users to report errors in the data (e.g., broken links, OCR errors).
+    
+    Novice Developer Note:
+    This function validates the report, checks if the meeting actually exists,
+    and then saves the report to the 'data_issue' table for an admin to review.
+    """
+    # 1. Validation: Does the meeting actually exist in our database?
+    event = db.query(Event).filter(Event.id == report.event_id).first()
+    if not event:
+        raise HTTPException(status_code=404, detail="Meeting not found")
+
+    # 2. Validation: Is the issue type one we recognize?
+    # We check against the names defined in our IssueType Enum in models.py
+    valid_types = [t.value for t in IssueType]
+    if report.issue_type not in valid_types:
+        raise HTTPException(status_code=400, detail=f"Invalid issue_type. Must be one of: {valid_types}")
+
+    # 3. Save the report
+    try:
+        new_issue = DataIssue(
+            event_id=report.event_id,
+            issue_type=report.issue_type,
+            description=report.description
+        )
+        db.add(new_issue)
+        db.commit()
+        
+        logger.info(f"User reported an issue for event {report.event_id}: {report.issue_type}")
+        return {"status": "success", "message": "Thank you for your report. Our team will review it."}
+        
+    except Exception as e:
+        db.rollback()
+        logger.error(f"Failed to save data issue: {e}")
+        raise HTTPException(status_code=500, detail="Internal server error while saving report")
+

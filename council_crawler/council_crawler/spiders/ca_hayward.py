@@ -1,11 +1,15 @@
 from templates.legistar_cms import LegistarCms
 
 class Hayward(LegistarCms):
-	"""
-	"""
-	name = 'hayward'
+    """
+    Spider for Hayward, CA using the Legistar CMS template.
+    """
+    name = 'hayward'
 
-	def __init__(self, *args, **kwargs):
-		super(Hayward, self).__init__(*args, city='hayward', state='ca', **kwargs)
-		self.urls = ['https://hayward.legistar.com/Calendar.aspx']
-
+    def __init__(self, *args, **kwargs):
+        super().__init__(
+            legistar_url='https://hayward.legistar.com/Calendar.aspx',
+            city='hayward',
+            state='ca',
+            *args, **kwargs
+        )

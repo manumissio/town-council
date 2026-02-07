@@ -2,7 +2,8 @@ import { useState, useEffect } from "react";
 import DOMPurify from "isomorphic-dompurify";
 import { 
   MapPin, Calendar, FileText, ExternalLink, ChevronUp, ChevronDown, 
-  Sparkles, Building2, UserCircle, Table as TableIcon, Loader2, Link2
+  Sparkles, Building2, UserCircle, Table as TableIcon, Loader2, Link2,
+  Flag, AlertCircle, CheckCircle
 } from "lucide-react";
 import DataTable from "./DataTable";
 
@@ -22,8 +23,39 @@ export default function ResultCard({ hit, onPersonClick }) {
   const [isGenerating, setIsGenerating] = useState(false);
   const [isSegmenting, setIsSegmenting] = useState(false);
   const [isLoadingRelated, setIsLoadingRelated] = useState(false);
+  const [isReporting, setIsReporting] = useState(false);
+  const [reportStatus, setReportStatus] = useState(null); // 'loading', 'success', 'error'
 
   const isAgendaItem = hit.result_type === 'agenda_item';
+
+  const handleReportIssue = async (issueType) => {
+    setReportStatus('loading');
+    try {
+      const apiUrl = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
+      const res = await fetch(`${apiUrl}/report-issue`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          event_id: hit.event_id || hit.id,
+          issue_type: issueType,
+          description: "Reported from web UI"
+        })
+      });
+      if (res.ok) {
+        setReportStatus('success');
+        // Hide the form after 3 seconds of success
+        setTimeout(() => {
+          setIsReporting(false);
+          setReportStatus(null);
+        }, 3000);
+      } else {
+        setReportStatus('error');
+      }
+    } catch (err) {
+      console.error("Reporting failed", err);
+      setReportStatus('error');
+    }
+  };
 
   // Fetch related meetings when expanded
   useEffect(() => {
@@ -130,6 +162,13 @@ export default function ResultCard({ hit, onPersonClick }) {
           </div>
           
           <div className="flex gap-2">
+            <button 
+              onClick={() => setIsReporting(!isReporting)}
+              className={`p-2.5 rounded-xl transition-all border ${isReporting ? 'bg-red-50 text-red-600 border-red-200' : 'bg-gray-50 text-gray-400 hover:bg-red-50 hover:text-red-600 border-transparent hover:border-red-100'}`}
+              title="Report Data Error"
+            >
+              <Flag className="w-5 h-5" />
+            </button>
             <a 
               href={hit.url} 
               target="_blank" 
@@ -148,6 +187,50 @@ export default function ResultCard({ hit, onPersonClick }) {
             </button>
           </div>
         </div>
+
+        {isReporting && (
+          <div className="mb-6 p-4 bg-red-50/50 border border-red-100 rounded-2xl animate-in fade-in zoom-in-95 duration-200">
+            <div className="flex items-center justify-between mb-3">
+              <div className="flex items-center gap-2 text-red-700 font-bold text-[11px] uppercase tracking-widest">
+                <AlertCircle className="w-4 h-4" />
+                Report Data Issue
+              </div>
+              <button onClick={() => setIsReporting(false)} className="text-gray-400 hover:text-gray-600 text-xs font-medium">Cancel</button>
+            </div>
+            
+            {reportStatus === 'success' ? (
+              <div className="py-4 flex flex-col items-center gap-2 text-center">
+                <div className="bg-green-100 p-2 rounded-full">
+                  <CheckCircle className="w-6 h-6 text-green-600" />
+                </div>
+                <p className="text-sm font-bold text-green-800">Thank you! Report received.</p>
+                <p className="text-[11px] text-green-600">Our team will review this meeting.</p>
+              </div>
+            ) : (
+              <div className="space-y-3">
+                <p className="text-xs text-red-600/70 mb-3">What seems to be the problem with this data?</p>
+                <div className="grid grid-cols-2 gap-2">
+                  {[
+                    { id: 'broken_link', label: 'Broken Link' },
+                    { id: 'garbled_text', label: 'Garbled Text' },
+                    { id: 'wrong_city', label: 'Wrong City' },
+                    { id: 'other', label: 'Other Issue' }
+                  ].map((type) => (
+                    <button
+                      key={type.id}
+                      disabled={reportStatus === 'loading'}
+                      onClick={() => handleReportIssue(type.id)}
+                      className="px-3 py-2 bg-white border border-red-100 text-[11px] font-bold text-gray-700 rounded-xl hover:bg-red-600 hover:text-white hover:border-red-600 transition-all text-left flex items-center justify-between group"
+                    >
+                      {type.label}
+                      {reportStatus === 'loading' ? <Loader2 className="w-3 h-3 animate-spin" /> : <ChevronDown className="w-3 h-3 -rotate-90 opacity-0 group-hover:opacity-100" />}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            )}
+          </div>
+        )}
 
         {hit.people_metadata && hit.people_metadata.length > 0 && (
           <div className="mb-4 flex flex-wrap items-center gap-2">

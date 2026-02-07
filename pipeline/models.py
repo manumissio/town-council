@@ -50,6 +50,38 @@ def create_tables(engine):
     Base.metadata.create_all(engine)
 
 
+import enum
+
+class IssueType(enum.Enum):
+    """
+    Standardized types of data problems a user can report.
+    Using an Enum prevents 'typos' and ensures data consistency.
+    """
+    BROKEN_LINK = "broken_link"      # The PDF link gives a 404 error
+    GARBLED_TEXT = "garbled_text"    # OCR failed and text is unreadable
+    WRONG_CITY = "wrong_city"        # Meeting is assigned to the wrong town
+    OTHER = "other"                  # Catch-all for unique issues
+
+class DataIssue(Base):
+    """
+    Represents a report filed by a user about a specific meeting or document.
+    
+    Why this is needed:
+    It allows the community to help 'audit' the 10,000+ documents in our system
+    without needing admin access.
+    """
+    __tablename__ = 'data_issue'
+
+    id = Column(Integer, primary_key=True)
+    event_id = Column(Integer, ForeignKey('event.id'), index=True, nullable=False)
+    issue_type = Column(String, nullable=False) # Maps to IssueType enum
+    description = Column(String(500)) # Optional details from the user
+    status = Column(String, default="open") # open, resolved, ignored
+    created_at = Column(DateTime, default=datetime.datetime.utcnow)
+
+    # Relationship back to the event being reported
+    event = relationship("Event")
+
 class Place(Base):
     """
     Represents a Jurisdiction (City or Town, e.g., "Belmont, CA").

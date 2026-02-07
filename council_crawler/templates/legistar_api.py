@@ -1,60 +1,32 @@
 import datetime
-import sys
-import os
-import json
-from sqlalchemy.orm import sessionmaker
-
 import scrapy
+import json
 
-from council_crawler.items import Event
-from council_crawler.utils import url_to_md5, parse_date_string
+from council_crawler.spiders.base import BaseCitySpider
 
-# Ensure we can import from the pipeline module (parent directory)
-sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '../../..')))
-from pipeline.models import db_connect, Event as EventModel
-
-
-class LegistarApi(scrapy.Spider):
+class LegistarApi(BaseCitySpider):
     """
     Spider template for cities using the Legistar Web API.
-    This is much more reliable than HTML scraping as it returns structured JSON.
+    
+    This template inherits from BaseCitySpider, which handles the 
+    database connection and skipping of old meetings.
     """
     name = 'legistar_api'
     client_name = '' # e.g. 'cupertino'
-    ocd_division_id = ''
     
     def __init__(self, client='', city='', state='', *args, **kwargs):
-        super().__init__(*args, **kwargs)
-        self.client_name = client or city
+        # We set these before calling super().__init__ so the base class 
+        # can use them for the database lookup.
+        self.name = client or city
         self.city_name = city
         self.state = state
         self.ocd_division_id = f'ocd-division/country:us/state:{state.lower()}/place:{city.lower().replace(" ", "_")}'
         
-        # Initialize delta crawling
-        self.last_meeting_date = self._get_last_meeting_date()
-        if self.last_meeting_date:
-            self.logger.info(f"Delta crawling enabled. Fetching meetings since: {self.last_meeting_date}")
-
-    def _get_last_meeting_date(self):
-        """Retrieve the most recent meeting date from the database."""
-        try:
-            engine = db_connect()
-            Session = sessionmaker(bind=engine)
-            session = Session()
-            result = session.query(EventModel.record_date)\
-                .filter(EventModel.ocd_division_id == self.ocd_division_id)\
-                .order_by(EventModel.record_date.desc())\
-                .first()
-            session.close()
-            return result[0] if result else None
-        except Exception as e:
-            self.logger.warning(f"Database check skipped ({e}).")
-            return None
+        super().__init__(*args, **kwargs)
 
     def start_requests(self):
-        # We fetch the last 1000 events. In a production system, you'd use OData filters 
-        # to only fetch recent ones, but 1000 is a safe start for discovery.
-        url = f'https://webapi.legistar.com/v1/{self.client_name}/events?$top=1000&$orderby=EventDate%20desc'
+        # We fetch the last 1000 events from the Legistar API.
+        url = f'https://webapi.legistar.com/v1/{self.name}/events?$top=1000&$orderby=EventDate%20desc'
         yield scrapy.Request(url=url, callback=self.parse)
 
     def parse(self, response):
@@ -70,13 +42,12 @@ class LegistarApi(scrapy.Spider):
             # Legistar dates look like "2024-07-01T00:00:00"
             record_date = datetime.datetime.fromisoformat(raw_date).date()
 
-            # DELTA CRAWL CHECK
-            if self.last_meeting_date and record_date <= self.last_meeting_date:
+            # Use the BaseCitySpider to check if we should skip this meeting
+            if self.should_skip_meeting(record_date):
                 continue
 
             # 2. Extract Metadata
             body_name = item.get('EventBodyName', 'City Council')
-            meeting_name = f"{self.city_name.title()}, {self.state.upper()} {body_name} Meeting"
             
             # 3. Handle Documents
             documents = []
@@ -84,6 +55,7 @@ class LegistarApi(scrapy.Spider):
             minutes_url = item.get('EventMinutesFile')
 
             if agenda_url:
+                from council_crawler.utils import url_to_md5
                 documents.append({
                     'url': agenda_url,
                     'url_hash': url_to_md5(agenda_url),
@@ -91,23 +63,19 @@ class LegistarApi(scrapy.Spider):
                 })
 
             if minutes_url:
+                from council_crawler.utils import url_to_md5
                 documents.append({
                     'url': minutes_url,
                     'url_hash': url_to_md5(minutes_url),
                     'category': 'minutes'
                 })
 
-            # 4. Create the Event Item
-            event = Event(
-                _type='event',
-                ocd_division_id=self.ocd_division_id,
-                name=meeting_name,
-                scraped_datetime=datetime.datetime.now(datetime.timezone.utc),
-                record_date=record_date,
-                source=self.client_name,
+            # 4. Create the standardized Event Item using the base class factory
+            yield self.create_event_item(
+                meeting_date=record_date,
+                meeting_name=f"{body_name} Meeting",
                 source_url=item.get('EventInSiteURL', ''),
+                documents=documents,
                 meeting_type=body_name
             )
-            event['documents'] = documents
-            
-            yield event
+

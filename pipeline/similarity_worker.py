@@ -3,8 +3,6 @@ import os
 import logging
 import numpy as np
 from sqlalchemy.orm import sessionmaker
-from sklearn.feature_extraction.text import TfidfVectorizer
-from sklearn.metrics.pairwise import cosine_similarity
 
 # Add project root to path
 sys.path.append(os.path.join(os.path.dirname(__file__), '..'))
@@ -12,35 +10,39 @@ sys.path.append(os.path.join(os.path.dirname(__file__), '..'))
 from pipeline.models import Catalog, db_connect, create_tables
 
 # Setup logging
-logging.basicConfig(level=logging.INFO)
+logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
 logger = logging.getLogger("similarity-worker")
-
-# Reusing the same stop words to ensure consistent 'meaning' extraction
-CITY_STOP_WORDS = [
-    "meeting", "council", "city", "minutes", "present", "absent", "motion", 
-    "seconded", "voted", "item", "resolution", "ordinance", "approved", 
-    "unanimous", "quorum", "adjourned", "p.m.", "a.m.", "january", "february",
-    "march", "april", "may", "june", "july", "august", "september", "october",
-    "november", "december", "monday", "tuesday", "wednesday", "thursday", 
-    "friday", "hereby", "thereof", "therein", "clerk", "mayor", "councilmember",
-    "commissioner", "staff", "report", "public", "comment", "called", "order",
-    "action", "discussion", "held", "carried", "aye", "noes", "abstain"
-]
 
 def run_similarity_engine():
     """
-    Pre-calculates document similarities using TF-IDF and Cosine Similarity.
+    Pre-calculates document similarities using Semantic Embeddings (AI Vectors).
     
-    Why: Finding 'Related Meetings' on-the-fly is slow. By pre-calculating the 
-    top matches and storing them in the DB, the UI can show them instantly.
+    Why: Instead of just matching keywords (TF-IDF), this system understands 
+    concepts. Searching for 'housing' will now find meetings about 'zoning' 
+    or 'residential development' because their mathematical 'vectors' are similar.
+    
+    Novice Developer Note:
+    1. Every document is turned into a list of 384 numbers (an Embedding).
+    2. We store these numbers in a 'FAISS Index' (a super-fast search engine).
+    3. We ask the index: "For Meeting A, what are the top 3 closest other meetings?"
     """
+    
+    # We import these inside the function to avoid loading heavy AI models 
+    # if the script is just being imported by another file.
+    try:
+        from sentence_transformers import SentenceTransformer
+        import faiss
+    except ImportError:
+        logger.error("Missing required libraries: sentence-transformers, faiss-cpu. Run pip install.")
+        return
+
     engine = db_connect()
     create_tables(engine)
     Session = sessionmaker(bind=engine)
     session = Session()
 
-    # 1. Fetch documents that have enough text to compare
-    logger.info("Fetching documents for similarity analysis...")
+    # 1. Fetch documents that have content to compare
+    logger.info("Fetching documents for semantic analysis...")
     records = session.query(Catalog).filter(
         Catalog.content != None,
         Catalog.content != ""
@@ -50,60 +52,67 @@ def run_similarity_engine():
         logger.warning("Not enough documents to calculate similarities.")
         return
 
-    # 2. Build the corpus using a mix of summaries and content for 'Meaning Density'
-    # We prefer the summaries because they contain the most important topics.
+    # 2. Prepare the Corpus (Text to analyze)
+    # We prioritize the summary if it exists, as it contains the most 'dense' meaning.
     corpus = []
     for r in records:
-        text_source = f"{r.summary or ''} {r.summary_extractive or ''} {r.content[:10000]}"
-        corpus.append(text_source)
+        text = r.summary or r.summary_extractive or r.content[:5000]
+        corpus.append(text)
 
-    # 3. Vectorize the entire database
-    # Junior Dev Note: This turns every document into a list of numbers (a Vector).
-    vectorizer = TfidfVectorizer(
-        stop_words=CITY_STOP_WORDS,
-        max_df=0.7,
-        min_df=1,
-        max_features=10000
-    )
+    # 3. Load the AI Model (The 'Brain')
+    # all-MiniLM-L6-v2 is a lightweight but powerful model for English.
+    logger.info("Loading sentence-transformer model (all-MiniLM-L6-v2)...")
+    model = SentenceTransformer('all-MiniLM-L6-v2')
+
+    # 4. Generate Embeddings (Turning text into numbers)
+    # show_progress_bar=True helps us see how long it will take.
+    logger.info(f"Generating embeddings for {len(records)} documents...")
+    embeddings = model.encode(corpus, batch_size=32, show_progress_bar=False)
     
-    try:
-        tfidf_matrix = vectorizer.fit_transform(corpus)
-        # 4. Calculate the 'Distance' between every document
-        # result is a square matrix where similarity[i][j] is the score between doc i and j.
-        similarity_matrix = cosine_similarity(tfidf_matrix)
-    except Exception as e:
-        logger.error(f"Similarity math failed: {e}")
-        return
+    # Normalize the vectors. 
+    # This makes 'Inner Product' (IP) search equivalent to 'Cosine Similarity'.
+    faiss.normalize_L2(embeddings)
 
-    # 5. Find the top 3 related documents for each record
-    logger.info(f"Linking {len(records)} documents...")
+    # 5. Build the FAISS Index (The Search Engine)
+    dimension = embeddings.shape[1] # For this model, it's 384
+    index = faiss.IndexFlatIP(dimension)
+    index.add(embeddings.astype('float32'))
+
+    # 6. Find the top 4 matches for every document
+    # We ask for 4 because the #1 match is always the document itself.
+    logger.info("Searching for related meetings...")
+    distances, indices = index.search(embeddings.astype('float32'), 4)
+
+    # 7. Save the matches back to the database
     for i, record in enumerate(records):
-        # Get similarities for this specific document
-        scores = similarity_matrix[i]
-        
-        # Sort indices by score (highest first)
-        # We exclude the first one because it's always the document itself (score 1.0)
-        related_indices = scores.argsort()[::-1]
-        
         top_related_ids = []
-        for idx in related_indices:
-            if idx == i: continue # Skip self
+        
+        # indices[i] contains the positions of the top 4 matches
+        # distances[i] contains their similarity scores (0.0 to 1.0)
+        for j, neighbor_idx in enumerate(indices[i]):
+            # Skip the first match (the document matching itself)
+            if neighbor_idx == i:
+                continue
             
-            # Stop if the score is too low (meaning they aren't actually related)
-            if scores[idx] < 0.1: break 
+            # Security/Quality Check: Only link if they are actually similar (score > 0.35)
+            # 1.0 is a perfect match, 0.0 is completely different.
+            if distances[i][j] < 0.35:
+                continue
+                
+            top_related_ids.append(records[neighbor_idx].id)
             
-            top_related_ids.append(records[idx].id)
-            
-            if len(top_related_ids) >= 3: break # Limit to 3 related meetings
-            
+            # Stop once we have 3 related meetings
+            if len(top_related_ids) >= 3:
+                break
+                
         record.related_ids = top_related_ids
 
-    # 6. Save back to database
+    # 8. Commit changes to the database
     try:
         session.commit()
-        logger.info("Similarity linking complete.")
+        logger.info(f"Semantic linking complete. Processed {len(records)} documents.")
     except Exception as e:
-        logger.error(f"Failed to save related links: {e}")
+        logger.error(f"Failed to save semantic links: {e}")
         session.rollback()
     finally:
         session.close()

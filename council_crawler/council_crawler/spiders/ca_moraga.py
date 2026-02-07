@@ -1,120 +1,63 @@
 import datetime
-import sys
-import os
-from urllib.parse import urljoin, quote
-from sqlalchemy.orm import sessionmaker
-
 import scrapy
-
-from council_crawler.items import Event
+from urllib.parse import quote
 from council_crawler.utils import url_to_md5, parse_date_string
+from .base import BaseCitySpider
 
-# Ensure we can import from the pipeline module (parent directory)
-sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '../../..')))
-from pipeline.models import db_connect, Event as EventModel
-
-
-class Moraga(scrapy.spiders.CrawlSpider):
+class Moraga(BaseCitySpider):
     """
     Spider for Town of Moraga, CA meetings.
-    Implements delta crawling to fetch only new meetings.
+    
+    Refactored to use 'BaseCitySpider' for core infrastructure.
     """
     name = 'moraga'
     base_url = 'http://www.moraga.ca.us/council/meetings/2017'
     ocd_division_id = 'ocd-division/country:us/state:ca/place:moraga'
 
-    def __init__(self, *args, **kwargs):
-        super().__init__(*args, **kwargs)
-        self.last_meeting_date = self._get_last_meeting_date()
-        if self.last_meeting_date:
-            self.logger.info(f"Delta crawling enabled. Last meeting recorded: {self.last_meeting_date}")
-
-    def _get_last_meeting_date(self):
-        """Retrieve the most recent meeting date from the database for this city."""
-        try:
-            engine = db_connect()
-            Session = sessionmaker(bind=engine)
-            session = Session()
-            result = session.query(EventModel.record_date)\
-                .filter(EventModel.ocd_division_id == self.ocd_division_id)\
-                .order_by(EventModel.record_date.desc())\
-                .first()
-            session.close()
-            return result[0] if result else None
-        except Exception as e:
-            self.logger.warning(f"Database connection failed ({e}). Defaulting to full crawl.")
-            return None
-
     def start_requests(self):
-        urls = [self.base_url]
-
-        for url in urls:
-            yield scrapy.Request(url=url, callback=self.parse_archive)
+        yield scrapy.Request(url=self.base_url, callback=self.parse_archive)
 
     def parse_archive(self, response):
-
-        def get_agenda_url(relative_urls):
-            full_url = []
-            if relative_urls:
-                for url in relative_urls:
-                    if self.base_url not in url:
-                        # encoding url because several paths have spaces in this crawler
-                        url = quote(url)
-                        url = urljoin(self.base_url, url)                       
-                    full_url.append(url)
-                return full_url
-            else:
-                return None
-
         table_body = response.xpath('//table/tbody/tr')
         for row in table_body:
-            record_date = row.xpath('.//td[1]/text()').extract_first()
-            record_date = parse_date_string(record_date)
+            record_date_str = row.xpath('.//td[1]/text()').extract_first()
+            record_date = parse_date_string(record_date_str)
 
-            # DELTA CRAWL CHECK
-            if self.last_meeting_date and record_date and record_date <= self.last_meeting_date:
+            # Use Base Class helper for Delta Crawling check
+            if self.should_skip_meeting(record_date):
                 continue
 
             agenda_urls = row.xpath('.//td[1]/a/@href').extract()
-            agenda_urls = get_agenda_url(agenda_urls)
             meeting_type = row.xpath('.//td[1]/a/text()').extract_first()
-            minutes_url = row.xpath(
-                './/td[2]/a/@href').extract_first()
-
-            event = Event(
-                _type='event',
-                ocd_division_id=self.ocd_division_id,
-                name=f'Moraga, CA City Council {meeting_type}',
-                # Use timezone-aware UTC for the scraping timestamp
-                scraped_datetime=datetime.datetime.now(datetime.timezone.utc),
-                record_date=record_date,
-                source=self.name,
-                source_url=response.url,
-                meeting_type=meeting_type,
-            )
+            minutes_url = row.xpath('.//td[2]/a/@href').extract_first()
 
             # Build the list of documents (agendas, minutes) for this meeting
             documents = []
-            if agenda_urls is not None:
-                for url in agenda_urls:
-                    agenda_doc = {
-                        'media_type': 'application/pdf',
-                        'url': url,
-                        'url_hash': url_to_md5(url),
-                        'category': 'agenda'
-                    }
-                    documents.append(agenda_doc)
+            for url in agenda_urls:
+                if self.base_url not in url:
+                    # encoding url because several paths have spaces in this crawler
+                    url = quote(url)
+                    url = response.urljoin(url)
+                documents.append({
+                    'url': url,
+                    'url_hash': url_to_md5(url),
+                    'category': 'agenda'
+                })
 
-            if minutes_url is not None:
-                # response.urljoin handles relative links and encoding automatically
+            if minutes_url:
                 minutes_url = response.urljoin(minutes_url)
-                minutes_doc = {
-                    'media_type': 'application/pdf',
+                documents.append({
                     'url': minutes_url,
                     'url_hash': url_to_md5(minutes_url),
                     'category': 'minutes'
-                }
-                documents.append(minutes_doc)
+                })
 
-            event['documents'] = documents
-            yield event
+            # Create the standardized Event Item using the base class factory
+            yield self.create_event_item(
+                meeting_date=record_date,
+                meeting_name=f"City Council {meeting_type}",
+                source_url=response.url,
+                documents=documents,
+                meeting_type=meeting_type
+            )
+

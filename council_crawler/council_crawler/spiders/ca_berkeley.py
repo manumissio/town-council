@@ -1,11 +1,13 @@
 import datetime
 import scrapy
-from council_crawler.items import Event
 from council_crawler.utils import url_to_md5, parse_date_string
+from .base import BaseCitySpider
 
-class BerkeleyCustom(scrapy.Spider):
+class BerkeleyCustom(BaseCitySpider):
     """
     Custom spider for Berkeley, CA using their main civic portal table structure.
+    
+    Refactored to use 'BaseCitySpider' for core infrastructure.
     """
     name = 'berkeley'
     ocd_division_id = 'ocd-division/country:us/state:ca/place:berkeley'
@@ -17,12 +19,6 @@ class BerkeleyCustom(scrapy.Spider):
     def parse(self, response):
         """
         Extracts meeting details from the Berkeley Agendas table.
-        
-        How it works:
-        1. It finds all the rows (<tr>) in the meeting table.
-        2. For each row, it pulls out the meeting name and date.
-        3. It scans the row for any PDF links (Agendas or Packets).
-        4. It creates an 'Event' object for our pipeline to process.
         """
         # Look for the meeting table rows using CSS classes found on berkeleyca.gov
         rows = response.xpath('//table[contains(@class, "stack")]/tbody/tr')
@@ -40,6 +36,10 @@ class BerkeleyCustom(scrapy.Spider):
             # Turn the text date into a standard Python date object
             record_date = parse_date_string(date_str)
             
+            # Use Base Class helper for Delta Crawling check
+            if self.should_skip_meeting(record_date):
+                continue
+
             # 3. Documents
             # We look for links pointing to .pdf files in the table columns
             doc_links = row.xpath('.//td[contains(@class, "views-field")]//a[contains(@href, ".pdf")]')
@@ -60,15 +60,10 @@ class BerkeleyCustom(scrapy.Spider):
                     'category': category
                 })
 
-            event = Event(
-                _type='event',
-                ocd_division_id=self.ocd_division_id,
-                name=f'Berkeley, CA City Council {meeting_type.strip()}',
-                scraped_datetime=datetime.datetime.now(datetime.timezone.utc),
-                record_date=record_date,
-                source='berkeley',
+            # Create the standardized Event Item using the base class factory
+            yield self.create_event_item(
+                meeting_date=record_date,
+                meeting_name=f"City Council {meeting_type.strip()}",
                 source_url=response.url,
-                meeting_type=meeting_type.strip()
+                documents=documents
             )
-            event['documents'] = documents
-            yield event

@@ -167,3 +167,78 @@ def test_belmont_delta_crawl(mocker):
     # The Feb 1st meeting is older than our Feb 5th cut-off, so it should be skipped.
     assert len(items) == 1
     assert items[0]['meeting_type'] == "New Meeting"
+
+def test_base_city_spider_logic(mocker):
+    """
+    Test: Does the new 'BaseCitySpider' parent class handle logic correctly?
+    We create a temporary child class to test the inherited methods.
+    """
+    from council_crawler.spiders.base import BaseCitySpider
+    
+    # 1. Mock DB: Prevent database connection attempts
+    mocker.patch('council_crawler.spiders.base.BaseCitySpider._get_last_meeting_date', return_value=datetime.date(2026, 1, 1))
+    
+    # Create a dummy spider that inherits from BaseCitySpider
+    class TestSpider(BaseCitySpider):
+        name = 'test_city'
+        ocd_division_id = 'ocd-division/test'
+        
+    spider = TestSpider()
+    
+    # 2. Test Delta Crawling Logic (should_skip_meeting)
+    # Date is OLDER than last_meeting_date (Jan 1, 2026) -> Skip
+    assert spider.should_skip_meeting(datetime.date(2025, 12, 31)) is True
+    # Date is SAME as last_meeting_date -> Skip
+    assert spider.should_skip_meeting(datetime.date(2026, 1, 1)) is True
+    # Date is NEWER -> Keep
+    assert spider.should_skip_meeting(datetime.date(2026, 1, 2)) is False
+    # Date is None -> Skip
+    assert spider.should_skip_meeting(None) is True
+
+    # 3. Test Event Factory (create_event_item)
+    event = spider.create_event_item(
+        meeting_date=datetime.date(2026, 2, 1),
+        meeting_name="Test Meeting ", # Note the trailing space to test stripping
+        source_url="http://example.com",
+        documents=[]
+    )
+    
+    assert event['name'] == "Test_City, CA Test Meeting" # Name title-cased + formatted
+    assert event['meeting_type'] == "Test Meeting" # Stripped
+    assert event['source'] == "test_city"
+
+def test_dublin_refactored_parsing(mocker):
+    """
+    Test: Does the refactored Dublin spider (using BaseCitySpider) still parse correctly?
+    We load the 'mock_dublin.html' file and feed it to the spider.
+    """
+    from council_crawler.spiders.ca_dublin import Dublin
+    
+    # 1. Mock DB: Disable delta crawling check for this test
+    mocker.patch('council_crawler.spiders.base.BaseCitySpider._get_last_meeting_date', return_value=None)
+    
+    spider = Dublin()
+    
+    # 2. Load Mock HTML
+    mock_path = os.path.join(os.path.dirname(__file__), 'mock_dublin.html')
+    with open(mock_path, 'r') as f:
+        body = f.read()
+        
+    response = HtmlResponse(url="https://dublin.ca.gov/archive", body=body, encoding='utf-8')
+    
+    # 3. Parse
+    items = list(spider.parse(response))
+    
+    # 4. Verify
+    # The mock file contains 2 meetings: Jan 20 (Council) and Jan 13 (Planning)
+    assert len(items) == 2
+    
+    council_meeting = items[0]
+    assert council_meeting['record_date'] == datetime.date(2026, 1, 20)
+    assert "City Council Regular Meeting" in council_meeting['name']
+    assert len(council_meeting['documents']) == 2 # Agenda + Minutes
+    
+    planning_meeting = items[1]
+    assert planning_meeting['record_date'] == datetime.date(2026, 1, 13)
+    assert "Planning Commission Meeting" in planning_meeting['name']
+    assert len(planning_meeting['documents']) == 1 # Agenda only

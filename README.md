@@ -13,23 +13,32 @@ This project has been modernized from its 2017 pilot into a high-performance acc
 - **Deep-Linking:** AI-segmented **Agenda Items** that take you directly to specific discussions within large documents.
 - **Interoperability:** Standardized **OCD-IDs** for all entities, allowing data federation with other civic platforms.
 - **Multi-Tier Summaries:** Instant, **zero-cost extractive summaries** for every document (Local AI), with optional on-demand generative upgrades (Cloud AI).
-- **Topic Discovery:** Statistical **TF-IDF tagging** that identifies unique discussion topics (e.g., "Rent Control", "ADUs") for every meeting automatically.
-- **Semantic Linking:** A mathematical **Similarity Engine** that automatically connects related meetings across years and municipalities, helping users follow complex issues.
+- **Topic Discovery:** Transformer-based **Semantic Embeddings** (all-MiniLM-L6-v2) that understand concepts (e.g., 'housing' vs 'zoning') regardless of keyword overlap.
+- **Semantic Linking:** A high-performance **Similarity Engine** powered by **FAISS**, automatically connecting related meetings across years and municipalities in milliseconds.
 - **Unified Search:** A segmented "Airbnb-style" Search Hub integrating Municipality, Body, and Meeting Type filters.
+- **Robust Ingestion:** Refactored **BaseCitySpider** architecture that simplifies adding new cities and ensures resilient "Delta Crawling" (skipping duplicates).
+- **Data Quality:** Integrated **Crowdsourced Error Reporting** allowing users to flag broken links or OCR errors directly to administrators.
 - **On-Demand AI:** Instant 3-bullet summaries using **Gemini 2.0 Flash** with automatic database caching.
 - **Scalable Search:** Instant, typo-tolerant search powered by **Meilisearch** using yield-based indexing.
 - **Security:** Hardened CORS, Dependency Injection for DB safety, and non-root Docker execution.
 
 ## Getting Started
 
-### 1. Build and Start
-Ensure you have Docker installed, then build the optimized multi-stage images:
+### 1. Install Docker
+This project uses **Docker** to ensure the database, AI models, and search engine run identically on every computer.
+
+*   **Mac/Windows:** Download and install [Docker Desktop](https://www.docker.com/products/docker-desktop/).
+*   **Linux:** Follow the [official engine installation guide](https://docs.docker.com/engine/install/).
+*   **Verify:** Open your terminal and run `docker compose version`. You should see a version number (e.g., v2.x.x).
+
+### 2. Build and Start
+Once Docker is running, build the optimized multi-stage images:
 ```bash
 docker-compose build
 docker-compose up -d
 ```
 
-### 2. Scrape a City
+### 3. Scrape a City
 Gather meeting metadata and PDF links from supported municipalities:
 ```bash
 # Scrape Berkeley, CA (Native Table)
@@ -63,6 +72,36 @@ The platform is built using a modular component architecture:
 Run the comprehensive suite of 25+ unit tests:
 ```bash
 docker-compose run pipeline pytest /app/tests/
+```
+
+## How to Add a New City
+Adding a new municipality is now easy thanks to the **BaseCitySpider** architecture. You only need to define the "where" and "how to find" logic.
+
+1. **Create a new file** in `council_crawler/council_crawler/spiders/ca_cityname.py`.
+2. **Inherit from `BaseCitySpider`**:
+```python
+from .base import BaseCitySpider
+
+class MyCitySpider(BaseCitySpider):
+    name = 'mycity'
+    # Follow the OCD-ID standard format
+    ocd_division_id = 'ocd-division/country:us/state:ca/place:mycity'
+
+    def start_requests(self):
+        # Tell the spider where to start looking
+        yield scrapy.Request(url='http://mycity.gov/meetings', callback=self.parse)
+
+    def parse(self, response):
+        # The Base class handles database checks and skipping old meetings.
+        # You only need to write the logic to find the <tr> rows.
+        for row in response.xpath('//tr'):
+            # ... extraction logic ...
+            yield self.create_event_item(
+                meeting_date=date,
+                meeting_name="City Council",
+                source_url=response.url,
+                documents=docs
+            )
 ```
 
 ## Project History
