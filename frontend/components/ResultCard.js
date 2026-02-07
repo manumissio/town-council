@@ -303,7 +303,7 @@ export default function ResultCard({ hit, onPersonClick }) {
                 )}
               </div>
               <span className="hidden sm:block px-4 text-[10px] font-bold text-gray-400 uppercase tracking-widest">
-                {viewMode === "text" ? "OCR Extraction" : "Gemini AI"}
+                {viewMode === "text" ? "OCR Extraction" : "Local AI"}
               </span>
             </div>
 
@@ -317,7 +317,7 @@ export default function ResultCard({ hit, onPersonClick }) {
                     </div>
                     {summary ? (
                       <div className="space-y-4">
-                        <span className="bg-purple-100 text-purple-700 text-[9px] font-black uppercase px-1.5 py-0.5 rounded shadow-sm">Gemini 2.0 AI</span>
+                        <span className="bg-purple-100 text-purple-700 text-[9px] font-black uppercase px-1.5 py-0.5 rounded shadow-sm">Gemma 3 270M</span>
                         <p className="text-gray-800 text-[15px] whitespace-pre-line leading-relaxed italic">
                           {summary}
                         </p>
@@ -331,7 +331,7 @@ export default function ResultCard({ hit, onPersonClick }) {
                             disabled={isGenerating}
                             className="text-[10px] font-bold text-purple-600 hover:text-purple-800 flex items-center gap-1 transition-colors"
                           >
-                            <Sparkles className="w-3 h-3" /> Upgrade to Gemini AI
+                            <Sparkles className="w-3 h-3" /> Upgrade to Local Generative AI
                           </button>
                         </div>
                         <p className="text-gray-700 text-[14px] leading-relaxed line-clamp-6">
@@ -345,7 +345,7 @@ export default function ResultCard({ hit, onPersonClick }) {
                         </div>
                         <h4 className="font-bold text-purple-900 mb-1">No summary yet</h4>
                         <p className="text-purple-600/60 text-xs mb-6 max-w-[240px] text-center">
-                          Generate an executive summary using local or cloud AI.
+                          Generate an executive summary using local AI.
                         </p>
                         <button 
                           onClick={handleGenerateSummary}
@@ -355,7 +355,7 @@ export default function ResultCard({ hit, onPersonClick }) {
                           {isGenerating ? (
                             <><Loader2 className="w-4 h-4 animate-spin" /> Reading...</>
                           ) : (
-                            <><Sparkles className="w-3.5 h-3.5" /> Generate Gemini Summary</>
+                            <><Sparkles className="w-3.5 h-3.5" /> Generate Local Summary</>
                           )}
                         </button>
                       </div>

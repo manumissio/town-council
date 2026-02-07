@@ -61,7 +61,7 @@ services:
       - tika
       - postgres
 
-  # AI Summarizer: Uses Google Gemini API to summarize meeting minutes.
+  # AI Summarizer: Uses Local AI (Gemma 3) to summarize meeting minutes.
   summarizer:
     build: .
     volumes:

@@ -114,19 +114,24 @@ def get_metadata():
     """
     try:
         index = client.index('documents')
-        res = index.search("*", {'facets': ['city', 'organization']})
+        res = index.search("", {
+            "facets": ["city", "organization", "meeting_category"],
+            "limit": 0
+        })
         
-        facet_dist = res.get('facetDistribution', {})
-        cities = sorted(list(facet_dist.get('city', {}).keys()))
-        orgs = sorted(list(facet_dist.get('organization', {}).keys()))
+        facets = res.get('facetDistribution', {})
+        cities = sorted([c.replace("ca_", "").replace("_", " ").title() for c in facets.get('city', {}).keys()])
+        orgs = sorted(list(facets.get('organization', {}).keys()))
+        types = sorted(list(facets.get('meeting_category', {}).keys()))
         
         return {
-            "cities": [c.title() for c in cities],
-            "organizations": orgs
+            "cities": cities,
+            "organizations": orgs,
+            "meeting_types": types
         }
     except Exception as e:
         logger.error(f"Metadata retrieval failed: {e}")
-        return {"cities": [], "organizations": []}
+        return {"cities": [], "organizations": [], "meeting_types": []}
 
 @app.get("/people")
 def list_people(limit: int = 50, db: SQLAlchemySession = Depends(get_db)):
@@ -152,7 +157,6 @@ def get_person_history(
         raise HTTPException(status_code=404, detail="Official not found")
     
     history = []
-    # Optimization: Use joined loading in production for memberships
     for membership in person.memberships:
         history.append({
             "body": membership.organization.name,
@@ -202,10 +206,9 @@ def generate_summary(
 ):
     """
     Requests an AI-generated summary for a specific document.
+    
+    Updated: Now uses LocalAI (Gemma 3 270M) running on the CPU.
     """
-    if not ai_client:
-        raise HTTPException(status_code=503, detail="Gemini AI is not configured")
-
     catalog = db.get(Catalog, catalog_id)
     if not catalog:
         raise HTTPException(status_code=404, detail="Document not found")
@@ -217,20 +220,11 @@ def generate_summary(
         raise HTTPException(status_code=400, detail="Document has no text to summarize")
 
     try:
-        prompt = (
-            "Summarize the following civic meeting notes in 3 clear bullet points. "
-            "ONLY use the provided text.\n\n"
-            f"TEXT: {catalog.content[:100000]}"
-        )
+        # Use the local model to generate the summary
+        summary_text = local_ai.summarize(catalog.content)
 
-        response = ai_client.models.generate_content(
-            model='gemini-2.0-flash',
-            contents=prompt,
-            config={"temperature": 0.0, "max_output_tokens": 500}
-        )
-
-        if response and response.text:
-            catalog.summary = response.text.strip()
+        if summary_text:
+            catalog.summary = summary_text.strip()
             db.commit()
             
             # Async Index Update
@@ -244,7 +238,7 @@ def generate_summary(
 
             return {"summary": catalog.summary, "cached": False}
         
-        raise HTTPException(status_code=500, detail="AI generation failed")
+        raise HTTPException(status_code=500, detail="AI generation returned empty text")
 
     except Exception as e:
         db.rollback()
@@ -356,7 +350,6 @@ def report_data_issue(report: IssueReport, db: SQLAlchemySession = Depends(get_d
         raise HTTPException(status_code=404, detail="Meeting not found")
 
     # 2. Validation: Is the issue type one we recognize?
-    # We check against the names defined in our IssueType Enum in models.py
     valid_types = [t.value for t in IssueType]
     if report.issue_type not in valid_types:
         raise HTTPException(status_code=400, detail=f"Invalid issue_type. Must be one of: {valid_types}")
@@ -378,4 +371,3 @@ def report_data_issue(report: IssueReport, db: SQLAlchemySession = Depends(get_d
         db.rollback()
         logger.error(f"Failed to save data issue: {e}")
         raise HTTPException(status_code=500, detail="Internal server error while saving report")
-

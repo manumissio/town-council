@@ -304,7 +304,7 @@ class Catalog(Base):
     # The full text extracted from the PDF (OCR)
     content = Column(String, nullable=True)
     
-    # AI-generated 3-bullet summary (Generative - Gemini)
+    # AI-generated 3-bullet summary (Generative - Local AI)
     summary = Column(String, nullable=True)
 
     # Local zero-cost summary (Extractive - TextRank)

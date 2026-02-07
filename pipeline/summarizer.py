@@ -16,8 +16,8 @@ def summarize_documents():
     
     1. Tier 1 (Fast Pass): Uses TextRank (Traditional AI) to instantly pick the 3 most 
        important sentences from the text for $0.
-    2. Tier 2 (Deep Pass): Uses Gemini (LLM) to write a polished 3-bullet summary.
-       Note: Tier 2 is often triggered on-demand via the UI.
+    2. Tier 2 (Deep Pass): Uses Local AI (Gemma 3) to write a polished 3-bullet summary.
+       Note: Tier 2 is triggered on-demand via the UI.
     """
     print("Loading SpaCy NLP model for summarization...")
     try:

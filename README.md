@@ -12,13 +12,13 @@ This project has been modernized from its 2017 pilot into a high-performance acc
 - **Fuzzy Matching:** Traditional AI (string math) to automatically merge similar names (e.g., "J. Smith" and "John Smith") into a single official profile.
 - **Deep-Linking:** AI-segmented **Agenda Items** that take you directly to specific discussions within large documents.
 - **Interoperability:** Standardized **OCD-IDs** for all entities, allowing data federation with other civic platforms.
-- **Multi-Tier Summaries:** Instant, **zero-cost extractive summaries** for every document (Local AI), with optional on-demand generative upgrades (Cloud AI).
+- **Multi-Tier Summaries:** Instant, **zero-cost summaries** using a hybrid local approach: Fast-pass extractive summaries (TextRank) for every document, with deep generative upgrades (Gemma 3 270M) available on-demand.
 - **Topic Discovery:** Transformer-based **Semantic Embeddings** (all-MiniLM-L6-v2) that understand concepts (e.g., 'housing' vs 'zoning') regardless of keyword overlap.
 - **Semantic Linking:** A high-performance **Similarity Engine** powered by **FAISS**, automatically connecting related meetings across years and municipalities in milliseconds.
 - **Unified Search:** A segmented "Airbnb-style" Search Hub integrating Municipality, Body, and Meeting Type filters.
 - **Robust Ingestion:** Refactored **BaseCitySpider** architecture that simplifies adding new cities and ensures resilient "Delta Crawling" (skipping duplicates).
 - **Data Quality:** Integrated **Crowdsourced Error Reporting** allowing users to flag broken links or OCR errors directly to administrators.
-- **Local-First AI:** Zero-cost, private AI summaries using **Gemma 3 270M** running entirely on your CPU. No API keys required.
+- **Local-First AI:** 100% private, air-gapped intelligence using **Gemma 3 270M** running entirely on your CPU. No API keys or internet required.
 - **Scalable Search:** Instant, typo-tolerant search powered by **Meilisearch** using yield-based indexing.
 - **Security:** Hardened CORS, Dependency Injection for DB safety, and non-root Docker execution.
 
