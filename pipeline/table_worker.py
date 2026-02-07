@@ -2,7 +2,7 @@ import os
 import camelot
 import json
 from sqlalchemy.orm import sessionmaker
-from models import Catalog, db_connect, create_tables
+from pipeline.models import Catalog, db_connect, create_tables
 
 def extract_tables():
     """

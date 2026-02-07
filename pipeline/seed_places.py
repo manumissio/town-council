@@ -1,7 +1,7 @@
 import csv
 import os
 from sqlalchemy.orm import sessionmaker
-from models import Place, db_connect, create_tables
+from pipeline.models import Place, db_connect, create_tables
 
 def seed_places():
     """

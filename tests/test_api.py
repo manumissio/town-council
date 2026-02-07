@@ -13,6 +13,8 @@ from api.main import app, get_local_ai
 # SECURITY: Mock the heavy AI module to prevent library loading during tests
 from unittest.mock import MagicMock
 import sys
+
+# We only mock llama_cpp to prevent C++ engine loading
 sys.modules["llama_cpp"] = MagicMock()
 
 # Override the AI dependency for the entire test module

@@ -4,7 +4,6 @@ import sys
 
 # Mock heavy libraries
 sys.modules["llama_cpp"] = MagicMock()
-sys.modules["spacy"] = MagicMock()
 sys.modules["tika"] = MagicMock()
 
 from pipeline.run_pipeline import process_single_document

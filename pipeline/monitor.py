@@ -3,7 +3,7 @@ import os
 from prometheus_client import start_http_server, Gauge
 from sqlalchemy.orm import sessionmaker
 from sqlalchemy import text
-from models import db_connect
+from pipeline.models import db_connect
 
 # Define Prometheus Metrics
 DOCUMENTS_TOTAL = Gauge('tc_documents_total', 'Total number of documents in the catalog')

@@ -6,7 +6,6 @@ import os
 # Setup mocks
 sys.modules["llama_cpp"] = MagicMock()
 sys.modules["redis"] = MagicMock()
-sys.modules["celery"] = MagicMock()
 
 from pipeline.llm import LocalAI
 

@@ -1,7 +1,7 @@
 import os
 import meilisearch
 from sqlalchemy.orm import sessionmaker
-from models import Document, Catalog, Event, Place, Organization, AgendaItem, db_connect
+from pipeline.models import Document, Catalog, Event, Place, Organization, AgendaItem, db_connect
 
 # Configuration for connecting to the Meilisearch search engine.
 MEILI_HOST = os.getenv('MEILI_HOST', 'http://meilisearch:7700')

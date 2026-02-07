@@ -1,7 +1,7 @@
 from sqlalchemy import text
 from sqlalchemy.orm import sessionmaker
-from models import Event, EventStage, Place, db_connect, create_tables
-from utils import generate_ocd_id
+from pipeline.models import Event, EventStage, Place, db_connect, create_tables
+from pipeline.utils import generate_ocd_id
 
 def promote_stage():
     """

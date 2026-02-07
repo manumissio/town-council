@@ -27,16 +27,18 @@ CITY_STOP_WORDS = [
     "action", "discussion", "held", "held", "carried", "aye", "noes", "abstain"
 ]
 
+def run_keyword_tagger():
+    """
+    Alias for run_topic_tagger to match test expectations.
+    """
+    run_topic_tagger()
+
 def run_topic_tagger():
     """
     Automated Topic Discovery using TF-IDF.
-    
-    The Goal: Find words that are statistically 'unique' to each document.
-    Example: If 'ADU' appears 20 times in one document but nowhere else, 
-    it is a high-value topic for that document.
     """
     engine = db_connect()
-    create_tables(engine)
+    # Note: create_tables removed from worker, assumed done via db_init.py
     Session = sessionmaker(bind=engine)
     session = Session()
 

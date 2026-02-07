@@ -23,18 +23,21 @@ def db_connect():
     """
     database_url = os.getenv('DATABASE_URL')
     
-    if database_url:
+    if database_url and database_url.startswith('postgresql'):
         # Use PostgreSQL with connection pooling for high performance.
-        # This keeps a few connections open and ready so we don't have to reconnect every time.
         return create_engine(
             database_url,
-            pool_size=10,         # Maintain 10 open connections
-            max_overflow=20,      # Allow up to 20 extra connections if busy
-            pool_timeout=30,      # Wait 30s for a connection before giving up
-            pool_recycle=1800     # Refresh connections every 30 mins to keep them healthy
+            pool_size=10,
+            max_overflow=20,
+            pool_timeout=30,
+            pool_recycle=1800
         )
+    elif database_url:
+        # Custom URL (e.g. sqlite)
+        return create_engine(database_url)
     else:
-        # Fallback to a local SQLite file for simple testing without Docker.
+        # Fallback to a local SQLite file
+
         # This makes it easy to run scripts on your own laptop.
         current_dir = os.path.dirname(os.path.abspath(__file__))
         project_root = os.path.dirname(current_dir)
@@ -186,6 +189,7 @@ class Event(Base):
 
     place = relationship('Place')
     organization = relationship('Organization', back_populates='events')
+    documents = relationship("Document", back_populates="event", cascade="all, delete-orphan")
     agenda_items = relationship('AgendaItem', back_populates='event', cascade="all, delete-orphan")
     data_issues = relationship('DataIssue', back_populates='event')
 

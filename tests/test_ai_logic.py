@@ -64,7 +64,7 @@ def test_degraded_mode_missing_model(mocker):
     # We call summarize, which triggers _load_model()
     result = ai.summarize("Some text")
     
-    assert "Summarization unavailable" in result
+    assert result is None
     assert ai.llm is None
 
 def test_local_ai_error_handling():

@@ -1,16 +1,30 @@
 import pytest
-from pipeline.nlp_worker import get_municipal_nlp_model
+import sys
+from unittest.mock import MagicMock
 
 @pytest.fixture
 def nlp():
-    """Loads the customized municipal NLP model."""
+    """
+    Loads the real customized municipal NLP model.
+    Wipes mocks to ensure a clean state.
+    """
+    # 1. Force wipe any existing mocks or stale modules
+    for target in ["spacy", "pipeline.nlp_worker"]:
+        if target in sys.modules:
+            del sys.modules[target]
+            
+    # 2. Import REAL spacy
+    import spacy
+    
+    # 3. Load our custom model logic
+    from pipeline.nlp_worker import get_municipal_nlp_model
     return get_municipal_nlp_model()
 
 def test_title_recognition(nlp):
     """Verify that roles like Mayor and Councilmember trigger PERSON recognition."""
     text = "The meeting was called to order by Mayor Jesse Arreguin."
     doc = nlp(text)
-    
+
     # We expect 'Mayor Jesse Arreguin' to be a PERSON due to our RuleRuler
     persons = [ent.text for ent in doc.ents if ent.label_ == "PERSON"]
     assert any("Mayor Jesse Arreguin" in p or "Jesse Arreguin" in p for p in persons)
@@ -35,8 +49,6 @@ def test_vote_block_recognition(nlp):
 
 def test_cleanup_logic(nlp):
     """Verify that our triggers don't accidentally capture non-names (Sanity Check)."""
-    # Note: The cleanup of 'triggers' happens in the worker loop, not the model itself.
-    # Here we just verify the model tags them correctly.
     text = "Mayor John Doe spoke."
     doc = nlp(text)
     
