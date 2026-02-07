@@ -92,6 +92,7 @@ def segment_agenda_task(self, catalog_id: int):
         items_data = local_ai.extract_agenda(catalog.content)
         
         count = 0
+        items_to_return = []
         if items_data:
             # Clear old items to prevent duplicates if re-run
             db.query(AgendaItem).filter_by(catalog_id=catalog_id).delete()
@@ -110,12 +111,19 @@ def segment_agenda_task(self, catalog_id: int):
                     result=data.get('result')
                 )
                 db.add(item)
+                items_to_return.append({
+                    "title": item.title,
+                    "description": item.description,
+                    "order": item.order,
+                    "classification": item.classification,
+                    "result": item.result
+                })
                 count += 1
             
             db.commit()
             
         logger.info(f"Segmentation complete: {count} items found")
-        return {"status": "complete", "item_count": count}
+        return {"status": "complete", "item_count": count, "items": items_to_return}
         
     except Exception as e:
         logger.error(f"Task failed: {e}")

@@ -378,9 +378,9 @@ def segment_agenda(
         raise HTTPException(status_code=404, detail="Document not found")
 
     # Check cache
-    existing = db.query(AgendaItem).filter_by(catalog_id=catalog_id).first()
-    if existing:
-        return {"status": "cached", "message": "Agenda already segmented"}
+    existing_items = db.query(AgendaItem).filter_by(catalog_id=catalog_id).order_by(AgendaItem.order).all()
+    if existing_items:
+        return {"status": "cached", "items": existing_items}
 
     # Dispatch Task
     task = segment_agenda_task.delay(catalog_id)

@@ -88,6 +88,39 @@ export default function ResultCard({ hit, onPersonClick }) {
     }
   };
 
+  const pollTask = async (taskId, callback, type = 'summary') => {
+    const apiUrl = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
+    
+    const checkStatus = async () => {
+      try {
+        const res = await fetch(`${apiUrl}/tasks/${taskId}`);
+        const data = await res.json();
+        
+        if (data.status === 'complete') {
+          if (type === 'summary') {
+            callback(data.result.summary);
+          } else {
+            callback(data.result.items || []);
+          }
+          return true; // Stop polling
+        } else if (data.status === 'failed') {
+          console.error("Task failed", data.error);
+          return true;
+        }
+        return false; // Keep polling
+      } catch (err) {
+        console.error("Polling error", err);
+        return true;
+      }
+    };
+
+    // Poll every 2 seconds
+    const interval = setInterval(async () => {
+      const isDone = await checkStatus();
+      if (isDone) clearInterval(interval);
+    }, 2000);
+  };
+
   const handleGenerateSummary = async () => {
     if (!hit.catalog_id) return;
     
@@ -101,12 +134,19 @@ export default function ResultCard({ hit, onPersonClick }) {
       });
       const data = await res.json();
       
-      if (data.summary) {
+      if (data.status === 'cached' && data.summary) {
         setSummary(data.summary);
+        setIsGenerating(false);
+      } else if (data.task_id) {
+        pollTask(data.task_id, (result) => {
+          setSummary(result);
+          setIsGenerating(false);
+        }, 'summary');
+      } else {
+        setIsGenerating(false);
       }
     } catch (err) {
       console.error("AI Generation failed", err);
-    } finally {
       setIsGenerating(false);
     }
   };
@@ -124,12 +164,19 @@ export default function ResultCard({ hit, onPersonClick }) {
       });
       const data = await res.json();
       
-      if (data.items) {
+      if (data.status === 'cached' && data.items) {
         setAgendaItems(data.items);
+        setIsSegmenting(false);
+      } else if (data.task_id) {
+        pollTask(data.task_id, (result) => {
+          setAgendaItems(result);
+          setIsSegmenting(false);
+        }, 'agenda');
+      } else {
+        setIsSegmenting(false);
       }
     } catch (err) {
       console.error("Agenda segmentation failed", err);
-    } finally {
       setIsSegmenting(false);
     }
   };
