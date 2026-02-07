@@ -47,6 +47,15 @@ def mock_db_connect(monkeypatch, shared_engine):
             pass
     yield
 
+@pytest.fixture(autouse=True)
+def reset_nlp_cache():
+    """
+    Prevents Mock Pollution: Clears the global NLP model cache before every test.
+    """
+    import pipeline.nlp_worker
+    pipeline.nlp_worker._cached_nlp = None
+    yield
+
 @pytest.fixture
 def db_session(shared_engine):
     """

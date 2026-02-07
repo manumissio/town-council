@@ -205,3 +205,9 @@ To prevent "Speed Regressions" during development, the system implements automat
 *   **Continuous Benchmarking:** Every compute-heavy function (Fuzzy Matching, Regex Parsing) is tracked via `pytest-benchmark`. If a change makes an algorithm 2x slower, the benchmark suite will highlight the regression.
 *   **Traffic Simulation:** We use **Locust** to simulate high-concurrency scenarios. This allows us to verify that our Redis caching and Meilisearch optimizations actually scale to 50+ concurrent users on standard hardware.
 *   **Payload Monitoring:** The API is configured to strictly control response sizes (via `attributesToRetrieve`), ensuring that search results remain under 100KB regardless of document size.
+
+### 15. Municipal NLP Guardrails (The Triple Filter)
+To ensure high precision in identifying officials, the system uses a 3-layer NLP filtering strategy:
+1.  **Boilerplate Pre-emptor (Pre-NER):** An `EntityRuler` explicitly tags common municipal noise ("Item 1", "City Clerk") *before* the AI runs, preventing misidentification.
+2.  **Title-Aware Confidence:** Patterns like "Mayor [Name]" or "Moved by [Name]" are used to identify people even if the statistical model is uncertain.
+3.  **Common-Sense Validator (Post-NER):** A custom component scrubs every `PERSON` entity against human-name rules (must contain a space, cannot contain digits, root word must be human).

@@ -97,7 +97,7 @@ The platform is built using a modular component architecture:
 - **Indexing:** Python stream-based batch processing for scalability.
 
 ## Testing
-Run the comprehensive suite of 65+ unit and integration tests:
+Run the comprehensive suite of 70+ unit, integration, and benchmark tests:
 ```bash
 docker-compose run --rm pipeline pytest /app/tests/
 ```

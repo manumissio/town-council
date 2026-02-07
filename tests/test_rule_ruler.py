@@ -1,24 +1,22 @@
 import pytest
-import sys
-from unittest.mock import MagicMock
+from pipeline.nlp_worker import get_municipal_nlp_model
 
 @pytest.fixture
 def nlp():
-    """
-    Loads the real customized municipal NLP model.
-    Wipes mocks to ensure a clean state.
-    """
-    # 1. Force wipe any existing mocks or stale modules
-    for target in ["spacy", "pipeline.nlp_worker"]:
-        if target in sys.modules:
-            del sys.modules[target]
-            
-    # 2. Import REAL spacy
-    import spacy
-    
-    # 3. Load our custom model logic
-    from pipeline.nlp_worker import get_municipal_nlp_model
+    """Loads the customized municipal NLP model."""
     return get_municipal_nlp_model()
+
+def test_boilerplate_exclusion(nlp):
+    """Verify that 'City Manager' and 'Item 1' are NOT tagged as people."""
+    text = "The City Manager presented Item 1 regarding the budget."
+    doc = nlp(text)
+    
+    # Extract person entities
+    persons = [ent.text for ent in doc.ents if ent.label_ == "PERSON"]
+    
+    # Neither should be in the list
+    assert "City Manager" not in persons
+    assert "Item 1" not in persons
 
 def test_title_recognition(nlp):
     """Verify that roles like Mayor and Councilmember trigger PERSON recognition."""
@@ -44,11 +42,14 @@ def test_vote_block_recognition(nlp):
     text = "Ayes: Harrison, Arreguin, Robinson. Noes: None."
     doc = nlp(text)
     
+    # We want to ensure 'Ayes: Harrison' is captured as a PERSON (trusted title)
     persons = [ent.text for ent in doc.ents if ent.label_ == "PERSON"]
-    assert any("Ayes : Harrison" in p or "Harrison" in p for p in persons)
+    assert any("Ayes:" in p and "Harrison" in p for p in persons)
 
 def test_cleanup_logic(nlp):
     """Verify that our triggers don't accidentally capture non-names (Sanity Check)."""
+    # Note: The cleanup of 'triggers' happens in the worker loop, not the model itself.
+    # Here we just verify the model tags them correctly.
     text = "Mayor John Doe spoke."
     doc = nlp(text)
     
