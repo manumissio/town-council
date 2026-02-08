@@ -1,0 +1,52 @@
+{
+  "uid": "tc-freshness",
+  "title": "Town Council - Data Freshness",
+  "timezone": "browser",
+  "schemaVersion": 39,
+  "version": 1,
+  "refresh": "30s",
+  "tags": ["town-council", "freshness"],
+  "panels": [
+    {
+      "type": "timeseries",
+      "title": "Last Crawl Timestamp (unix)",
+      "datasource": "Prometheus",
+      "gridPos": { "x": 0, "y": 0, "w": 24, "h": 8 },
+      "targets": [
+        {
+          "expr": "tc_last_crawl_timestamp",
+          "legendFormat": "last_crawl"
+        }
+      ]
+    },
+    {
+      "type": "timeseries",
+      "title": "Hours Since Last Crawl",
+      "datasource": "Prometheus",
+      "gridPos": { "x": 0, "y": 8, "w": 24, "h": 8 },
+      "targets": [
+        {
+          "expr": "(time() - tc_last_crawl_timestamp) / 3600",
+          "legendFormat": "hours"
+        }
+      ]
+    },
+    {
+      "type": "timeseries",
+      "title": "Processed + Summarized Counts",
+      "datasource": "Prometheus",
+      "gridPos": { "x": 0, "y": 16, "w": 24, "h": 8 },
+      "targets": [
+        {
+          "expr": "tc_documents_processed_text",
+          "legendFormat": "processed_text"
+        },
+        {
+          "expr": "tc_documents_summarized",
+          "legendFormat": "summarized"
+        }
+      ]
+    }
+  ]
+}
+

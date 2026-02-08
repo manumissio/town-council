@@ -105,7 +105,26 @@ docker compose run --rm pipeline python run_pipeline.py
 | **Search UI** | [http://localhost:3000](http://localhost:3000) | N/A |
 | **Backend API** | [http://localhost:8000/docs](http://localhost:8000/docs) | N/A |
 | **Meilisearch** | [http://localhost:7700](http://localhost:7700) | `masterKey` |
-| **Grafana** | [http://localhost:3001](http://localhost:3001) | `admin` / `admin` |
+| **Grafana** | [http://localhost:3001](http://localhost:3001) | set via `GRAFANA_ADMIN_USER` / `GRAFANA_ADMIN_PASSWORD` |
+| **Prometheus** | [http://localhost:9090](http://localhost:9090) | N/A |
+
+## Observability (Grafana + Prometheus)
+The stack exports performance metrics so you can debug latency, errors, and worker throughput.
+
+Checklist (targets must be UP):
+1. Open Prometheus targets: `http://localhost:9090/targets`
+2. Confirm scrapes are healthy:
+   - `town_council_monitor` (pipeline/monitor.py gauges)
+   - `town_council_api` (FastAPI `/metrics`)
+   - `town_council_worker` (Celery worker task metrics)
+   - `postgres_exporter`, `redis_exporter`, `cadvisor`
+
+Reloading Prometheus config (no restart needed):
+* `docker compose exec prometheus wget -qO- --post-data='' http://127.0.0.1:9090/-/reload`
+
+Dashboards:
+* Grafana is pre-provisioned from `monitoring/grafana/`.
+* Dashboards live in `monitoring/grafana/dashboards/`.
 
 ## Development
 The platform is built using a modular component architecture:

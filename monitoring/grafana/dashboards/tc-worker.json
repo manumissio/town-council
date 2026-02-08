@@ -1,0 +1,60 @@
+{
+  "uid": "tc-worker",
+  "title": "Town Council - Worker / Celery",
+  "timezone": "browser",
+  "schemaVersion": 39,
+  "version": 1,
+  "refresh": "10s",
+  "tags": ["town-council", "worker"],
+  "panels": [
+    {
+      "type": "timeseries",
+      "title": "Task Throughput (success/sec)",
+      "datasource": "Prometheus",
+      "gridPos": { "x": 0, "y": 0, "w": 24, "h": 9 },
+      "targets": [
+        {
+          "expr": "sum(rate(tc_celery_task_duration_seconds_count{status=\"success\"}[10m])) by (task_name)",
+          "legendFormat": "{{task_name}}"
+        }
+      ]
+    },
+    {
+      "type": "timeseries",
+      "title": "Task Failures (rate)",
+      "datasource": "Prometheus",
+      "gridPos": { "x": 0, "y": 9, "w": 12, "h": 9 },
+      "targets": [
+        {
+          "expr": "sum(rate(tc_celery_task_failures_total[10m])) by (task_name, exception_type)",
+          "legendFormat": "{{task_name}} {{exception_type}}"
+        }
+      ]
+    },
+    {
+      "type": "timeseries",
+      "title": "Task Retries (rate)",
+      "datasource": "Prometheus",
+      "gridPos": { "x": 12, "y": 9, "w": 12, "h": 9 },
+      "targets": [
+        {
+          "expr": "sum(rate(tc_celery_task_retries_total[10m])) by (task_name)",
+          "legendFormat": "{{task_name}}"
+        }
+      ]
+    },
+    {
+      "type": "timeseries",
+      "title": "p95 Task Duration (s)",
+      "datasource": "Prometheus",
+      "gridPos": { "x": 0, "y": 18, "w": 24, "h": 9 },
+      "targets": [
+        {
+          "expr": "histogram_quantile(0.95, sum(rate(tc_celery_task_duration_seconds_bucket[10m])) by (le, task_name, status))",
+          "legendFormat": "{{task_name}} {{status}}"
+        }
+      ]
+    }
+  ]
+}
+

@@ -82,7 +82,9 @@ services:
       - .:/app
       - data:/app/data
     working_dir: /app
-    command: celery -A pipeline.tasks worker --loglevel=info --concurrency=1
+    # Use a single-process pool so the worker's metrics endpoint reports the same
+    # process that executes tasks (prefork would hide child process metrics).
+    command: celery -A pipeline.tasks worker --loglevel=info --concurrency=1 --pool=solo
     environment:
       - PYTHONUNBUFFERED=1
       - PYTHONPATH=/app
@@ -92,6 +94,7 @@ services:
       - CELERY_BROKER_URL=redis://:${REDIS_PASSWORD:-secure_redis_password}@redis:6379/0
       - CELERY_RESULT_BACKEND=redis://:${REDIS_PASSWORD:-secure_redis_password}@redis:6379/0
       - DATA_DIR=/app/data
+      - TC_WORKER_METRICS_PORT=8001
     depends_on:
       - redis
       - postgres
@@ -209,6 +212,11 @@ services:
   # Prometheus: FOSS monitoring system and time series database.
   prometheus:
     image: prom/prometheus:latest
+    # Allow config reloads without container restarts (POST /-/reload).
+    command:
+      - --config.file=/etc/prometheus/prometheus.yml
+      - --storage.tsdb.path=/prometheus
+      - --web.enable-lifecycle
     volumes:
       - ./monitoring/prometheus.yml:/etc/prometheus/prometheus.yml
       - prometheus_data:/prometheus
@@ -220,10 +228,44 @@ services:
     image: grafana/grafana:latest
     volumes:
       - grafana_data:/var/lib/grafana
+      - ./monitoring/grafana/provisioning:/etc/grafana/provisioning
+      - ./monitoring/grafana/dashboards:/var/lib/grafana/dashboards
     ports:
       - "3001:3000" # Mapped to 3001 to avoid conflict with frontend
+    environment:
+      - GF_SECURITY_ADMIN_USER=${GRAFANA_ADMIN_USER:-admin}
+      - GF_SECURITY_ADMIN_PASSWORD=${GRAFANA_ADMIN_PASSWORD:-admin}
+      - GF_USERS_ALLOW_SIGN_UP=false
     depends_on:
       - prometheus
+
+  # Prometheus exporter for Postgres (connections, locks, query stats).
+  postgres_exporter:
+    image: prometheuscommunity/postgres-exporter:v0.15.0
+    environment:
+      - DATA_SOURCE_NAME=postgresql://${POSTGRES_USER:-town_council}:${POSTGRES_PASSWORD:-secure_dev_password}@postgres:5432/${POSTGRES_DB:-town_council_db}?sslmode=disable
+    depends_on:
+      - postgres
+
+  # Prometheus exporter for Redis (memory, ops/sec, keyspace stats).
+  redis_exporter:
+    image: oliver006/redis_exporter:v1.63.0
+    environment:
+      - REDIS_ADDR=redis://redis:6379
+      - REDIS_PASSWORD=${REDIS_PASSWORD:-secure_redis_password}
+    depends_on:
+      - redis
+
+  # Container metrics (CPU/memory/network). Useful for spotting resource bottlenecks quickly.
+  cadvisor:
+    image: gcr.io/cadvisor/cadvisor:v0.49.1
+    privileged: true
+    volumes:
+      - /:/rootfs:ro
+      - /var/run:/var/run:ro
+      - /sys:/sys:ro
+      - /var/lib/docker/:/var/lib/docker:ro
+    restart: unless-stopped
 
   # Monitor: Custom Python service to export application metrics to Prometheus.
   monitor:

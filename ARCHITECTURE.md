@@ -202,7 +202,13 @@ To ensure the platform feels "instant" even on consumer hardware, we use a multi
 *   **Eager Loading:** We solve the "N+1 Query Problem" by using SQLAlchemy's `joinedload`. When you request a Person profile, we fetch their roles, city, and committee memberships in a **single database query** instead of 30+ separate round-trips.
 *   **Database Indexing:** Critical columns (`place_id`, `record_date`) are indexed to ensure that filtering 10,000+ meetings takes milliseconds.
 
-### 8.3 Search Indexing Batch Semantics
+### 8.3 Observability (Prometheus + Grafana)
+The Docker stack exposes performance metrics for both user-facing latency and background task throughput:
+* **App metrics:** the API exposes `/metrics`, and the Celery worker exports task timings and failure/retry counts.
+* **Exporters:** Postgres and Redis exporters provide infra-level visibility (connections, memory, ops/sec), and cAdvisor reports container CPU/memory.
+* **Collection + dashboards:** Prometheus scrapes these targets, and Grafana loads pre-provisioned dashboards from `monitoring/grafana/`.
+
+### 8.4 Search Indexing Batch Semantics
 The Meilisearch indexer uses explicit batch flushing rules:
 *   flush on reaching `MEILISEARCH_BATCH_SIZE`
 *   flush exactly once for the final partial batch after each phase (documents, agenda items)

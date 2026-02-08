@@ -9,6 +9,10 @@ from pipeline.llm import LocalAI
 from pipeline.agenda_service import persist_agenda_items
 from pipeline.agenda_resolver import resolve_agenda_items
 
+# Register worker metrics (safe in non-worker contexts; the HTTP server only starts
+# when TC_WORKER_METRICS_PORT is set and the Celery worker is ready).
+from pipeline import metrics as _worker_metrics  # noqa: F401
+
 # Setup logging
 logger = logging.getLogger("celery-worker")
 

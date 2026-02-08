@@ -1,0 +1,52 @@
+{
+  "uid": "tc-api",
+  "title": "Town Council - API Performance",
+  "timezone": "browser",
+  "schemaVersion": 39,
+  "version": 1,
+  "refresh": "10s",
+  "tags": ["town-council", "api"],
+  "panels": [
+    {
+      "type": "timeseries",
+      "title": "Requests/sec by Route",
+      "datasource": "Prometheus",
+      "gridPos": { "x": 0, "y": 0, "w": 24, "h": 9 },
+      "targets": [
+        {
+          "expr": "sum(rate(tc_http_requests_total[5m])) by (path)",
+          "legendFormat": "{{path}}"
+        }
+      ]
+    },
+    {
+      "type": "timeseries",
+      "title": "p95 Latency by Route (s)",
+      "datasource": "Prometheus",
+      "gridPos": { "x": 0, "y": 9, "w": 24, "h": 9 },
+      "targets": [
+        {
+          "expr": "histogram_quantile(0.95, sum(rate(tc_http_request_duration_seconds_bucket[5m])) by (le, path))",
+          "legendFormat": "{{path}}"
+        }
+      ]
+    },
+    {
+      "type": "timeseries",
+      "title": "4xx/5xx Responses (rate)",
+      "datasource": "Prometheus",
+      "gridPos": { "x": 0, "y": 18, "w": 24, "h": 9 },
+      "targets": [
+        {
+          "expr": "sum(rate(tc_http_requests_total{status=~\"4..\"}[5m])) by (path)",
+          "legendFormat": "4xx {{path}}"
+        },
+        {
+          "expr": "sum(rate(tc_http_requests_total{status=~\"5..\"}[5m])) by (path)",
+          "legendFormat": "5xx {{path}}"
+        }
+      ]
+    }
+  ]
+}
+

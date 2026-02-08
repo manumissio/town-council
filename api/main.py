@@ -13,6 +13,9 @@ from slowapi.util import get_remote_address
 from slowapi.errors import RateLimitExceeded
 from api.cache import cached
 
+# Metrics are internal-only and are scraped by Prometheus from the Docker network.
+from api.metrics import instrument_app
+
 # Set up Rate Limiting
 # This prevents a single user from overwhelming our local CPU with AI requests.
 limiter = Limiter(key_func=get_remote_address)
@@ -68,6 +71,9 @@ app = FastAPI(
     description="Search and retrieve local government meeting minutes.",
     default_response_class=ORJSONResponse
 )
+
+# Add /metrics and request timing counters (route-template labels to avoid cardinality blowups).
+instrument_app(app)
 
 # SECURITY: Startup Guardrail
 # Warn the administrator if they forgot to change the default secret.
