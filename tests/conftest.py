@@ -57,8 +57,13 @@ def reset_nlp_cache():
     """
     Prevents Mock Pollution: Clears the global NLP model cache before every test.
     """
-    import pipeline.nlp_worker
-    pipeline.nlp_worker._cached_nlp = None
+    try:
+        import pipeline.nlp_worker
+        pipeline.nlp_worker._cached_nlp = None
+    except ModuleNotFoundError:
+        # Some lightweight test environments do not install spaCy.
+        # In that case we skip NLP cache reset and let non-NLP tests run.
+        pass
     yield
 
 @pytest.fixture

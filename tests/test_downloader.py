@@ -1,27 +1,14 @@
 import sys
 import os
-import pytest
 from unittest.mock import MagicMock
-from sqlalchemy import create_engine
-from sqlalchemy.orm import sessionmaker
 
 # Setup paths
 root_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))
 sys.path.append(root_dir)
 sys.path.append(os.path.join(root_dir, 'pipeline'))
 
-from pipeline.models import Base, Catalog, UrlStage, Event, Place
+from pipeline.models import Catalog, UrlStage, Event, Place
 from pipeline.downloader import process_single_url, process_staged_urls
-
-@pytest.fixture
-def db_session():
-    """Temporary in-memory database."""
-    engine = create_engine('sqlite:///:memory:')
-    Base.metadata.create_all(engine)
-    Session = sessionmaker(bind=engine)
-    session = Session()
-    yield session
-    session.close()
 
 def test_downloader_absolute_path(db_session, mocker, monkeypatch):
     """
