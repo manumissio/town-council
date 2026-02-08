@@ -131,6 +131,8 @@ To solve the "Needle in a Haystack" problem without city-specific branching, the
     2. **Generic HTML agenda parser** when an `.html` agenda document exists
     3. **Local LLM fallback** (`Gemma 3 270M`) when structured sources are unavailable
 *   **Quality Controls:** Low-quality title sets (header noise, OCR spacing artifacts, duplicate junk) are scored and can trigger async re-generation.
+*   **Fallback Guardrails:** The fallback parser reads page context from both `[PAGE N]` tags and inline `Page N` headers, suppresses speaker-list name rolls, and filters legal/header boilerplate.
+*   **Vote Visibility:** If fallback extraction encounters `Vote:` lines, the value is stored in the agenda item `result` field so the UI can show vote outcomes without extra API shape changes.
 *   **Granular Indexing:** Final items are indexed in Meilisearch as separate, first-class entities.
 *   **Benefit:** Search results can point users directly to specific topics while keeping segmentation maintainable across cities.
 *   **Legistar Dual-Use Caveat:** Legistar is intentionally used by both crawling (discovery) and resolving (cross-check). To avoid drift and duplicated load, both paths must share one Legistar client/normalization contract, and resolver logic should read cached DB data first before making live API calls.

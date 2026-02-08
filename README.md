@@ -186,6 +186,9 @@ To improve quality and maintainability, segmentation now uses one shared resolve
 Additional behavior:
 * Cached low-quality agenda items are automatically re-generated.
 * Async segmentation preserves `page_number` for deep-linking when available.
+* Fallback extraction now detects page context from both `[PAGE N]` markers and inline `... Page N` headers.
+* Fallback extraction suppresses speaker-roll name lists and legal boilerplate so those lines are not promoted as agenda items.
+* When fallback text includes `Vote:` lines, the extracted vote outcome is stored in item `result` and shown in the Structured Agenda UI.
 * Resolver code is shared by both async tasks and batch workers to avoid duplicate logic.
 
 ### Docker Compose Note
