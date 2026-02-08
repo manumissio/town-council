@@ -28,7 +28,7 @@ def generate_ocd_id(entity_type):
     # OCD-IDs are lowercase and use hyphens
     return f"ocd-{entity_type.lower()}/{unique_id}"
 
-def find_best_person_match(name, existing_people, threshold=95):
+def find_best_person_match(name, existing_people, threshold=85):
     """
     Traditional AI/ML approach: Fuzzy Entity Resolution.
     
@@ -40,7 +40,7 @@ def find_best_person_match(name, existing_people, threshold=95):
     Args:
         name (str): The name we just found in a document.
         existing_people (list): A list of Person objects already in our database for this city.
-        threshold (int): Similarity score (0-100). 90 is stricter to avoid false matches.
+        threshold (int): Similarity score (0-100). 85 allows middle initials while avoiding false matches.
         
     Returns:
         Person: The matching Person object if found, otherwise None.
@@ -128,12 +128,14 @@ def is_likely_human_name(name, allow_single_word=False):
         r'\binc\b', r'\bcorp\b', r'\bcorporation\b', r'\bllc\b', r'\bconsulting\b',
         # Infrastructure/Community
         r'\binfestation\b', r'\bcorridor\b', r'\bmeter\b', r'\bneighborhood\b',
-        r'\bproject\b', r'\bvoting\b', r'\bpeak\b', r'\bparking\b', r'\bshelter\b', 
+        r'\bproject\b', r'\bvoting\b', r'\bpeak\b', r'\bparking\b', r'\bshelter\b',
         r'\brenovation\b', r'\bschedule\b', r'\bcomplaint\b', r'\bnotice\b',
         r'\bonline\b', r'\bdisposal\b', r'\bappeal\b', r'\bupload\b', r'\bdownload\b',
         r'\buse\b', r'\bfreeze\b', r'\bstatus\b', r'\bdraft\b', r'\brev\b',
         r'\bconcerns\b', r'\benvironmental\b', r'\bprogram\b', r'\bcommittee\b',
-        r'\bcommission\b', r'\bcouncil\b', r'\bboard\b', r'\bagency\b', r'\bauthority\b'
+        r'\bcommission\b', r'\bcouncil\b', r'\bboard\b', r'\bagency\b', r'\bauthority\b',
+        # Technology/Equipment
+        r'\bcamera\b', r'\bcameras\b', r'\bworn\b', r'\bbody worn\b'
     ]
     
     for pattern in total_noise:

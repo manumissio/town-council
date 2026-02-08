@@ -13,15 +13,15 @@ def test_local_ai_singleton():
 
 def test_local_ai_agenda_extraction():
     """
-    Test: Does the extraction logic correctly parse bulleted text?
+    Test: Does the extraction logic correctly parse the ITEM format?
     """
     LocalAI._instance = None
     ai = LocalAI()
     mock_llm = MagicMock()
     ai.llm = mock_llm
 
-    # Mock returning bulleted text (the new format)
-    mock_text_response = "* Item 1 - Budget discussion\n* Item 2 - Zoning"
+    # Mock returning the current expected format: ITEM X: Title (Page Y) - Description
+    mock_text_response = " Budget Review (Page 3) - Discussion of fiscal year\nITEM 2: Zoning Change (Page 5) - Main Street rezoning"
     mock_llm.return_value = {
         "choices": [
             {"text": mock_text_response}
@@ -31,9 +31,11 @@ def test_local_ai_agenda_extraction():
     items = ai.extract_agenda("Text content here")
 
     assert len(items) == 2
-    assert items[0]['title'] == "Item 1"
-    assert items[0]['description'] == "Budget discussion"
-    assert items[1]['title'] == "Item 2"
+    assert items[0]['title'] == "Budget Review"
+    assert items[0]['description'] == "Discussion of fiscal year"
+    assert items[0]['page_number'] == 3
+    assert items[1]['title'] == "Zoning Change"
+    assert items[1]['page_number'] == 5
 
 def test_degraded_mode_missing_model(mocker):
     """
@@ -51,27 +53,28 @@ def test_degraded_mode_missing_model(mocker):
 
 def test_local_ai_fallback_logic(mocker):
     """
-    Test: Does the system fall back to paragraph splitting if AI returns nothing?
+    Test: Does the system fall back to page-based splitting if AI returns nothing?
     """
     LocalAI._instance = None
     ai = LocalAI()
     mock_llm = MagicMock()
     ai.llm = mock_llm
 
-    # Mock returning nothing
+    # Mock returning nothing to trigger fallback
     mock_llm.return_value = {
         "choices": [
             {"text": ""}
         ]
     }
 
-    # Test text with clear paragraphs
-    text = "First paragraph that is long enough to be an item.\n\nSecond paragraph that is also long enough."
+    # Test text with PAGE markers (the format the fallback expects)
+    text = "[PAGE 1]\n\nBudget Review for 2026\nDetailed discussion of the annual budget\n\n[PAGE 2]\n\nZoning Changes\nProposed changes to Main Street zoning"
     items = ai.extract_agenda(text)
 
-    # Fallback should split by \n\n
+    # Fallback should extract items from page markers
     assert len(items) == 2
-    assert "First paragraph" in items[0]['title']
+    assert "Budget Review" in items[0]['title']
+    assert "Zoning Changes" in items[1]['title']
 
 def test_local_ai_error_handling():
     """
@@ -82,12 +85,15 @@ def test_local_ai_error_handling():
     mock_llm = MagicMock()
     ai.llm = mock_llm
 
+    # Mock returning garbage that won't match the ITEM pattern
     mock_llm.return_value = {
         "choices": [
-            {"text": "Garbage without bullets"}
+            {"text": "Garbage without proper format"}
         ]
     }
 
-    # Should fall back to paragraph splitting
-    items = ai.extract_agenda("Paragraph 1. Paragraph 1. Paragraph 1.\n\nParagraph 2. Paragraph 2.")
+    # Should fall back to page-based splitting when AI output doesn't parse
+    text = "[PAGE 1]\n\nAnnual Budget Proposal\nDiscussion of revenue and expenses for the upcoming fiscal year"
+    items = ai.extract_agenda(text)
     assert len(items) >= 1
+    assert "Budget" in items[0]['title'] or "Annual" in items[0]['title']

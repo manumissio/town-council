@@ -30,7 +30,17 @@ class LegistarApi(BaseCitySpider):
         yield scrapy.Request(url=url, callback=self.parse)
 
     def parse(self, response):
-        data = json.loads(response.text)
+        try:
+            # Parse JSON from the response body (supports both real Scrapy responses and test mocks)
+            data = response.json()
+        except (ValueError, AttributeError):
+            # Fallback: If response.json() doesn't work (old Scrapy version), parse body manually
+            try:
+                data = json.loads(response.body)
+            except (ValueError, json.JSONDecodeError) as e:
+                self.logger.error(f"Failed to parse JSON from {response.url}: {e}")
+                return
+
         self.logger.info(f"Received {len(data)} events from Legistar API")
 
         for item in data:

@@ -21,21 +21,22 @@ def test_local_ai_missing_model_returns_none(mocker):
 
 def test_ai_prompt_schema():
     """
-    Test: Does the prompt ask for structured topics?
+    Test: Does the prompt ask for structured agenda items with page numbers?
     """
     LocalAI._instance = None
     ai = LocalAI()
-    
+
     mock_llm = MagicMock()
-    mock_llm.return_value = {"choices": [{"text": "* Topic - Desc"}]} 
+    mock_llm.return_value = {"choices": [{"text": " Budget (Page 1) - Desc"}]}
     ai.llm = mock_llm
-    
+
     ai.extract_agenda("meeting text")
-    
+
     # Check the call arguments
     args, _ = mock_llm.call_args
     prompt_text = args[0]
-    
-    # Updated to match the new topic-based prompt
-    assert "topics" in prompt_text.lower()
-    assert "*" in prompt_text
+
+    # Verify prompt asks for agenda items with page numbers and specific format
+    assert "agenda items" in prompt_text.lower()
+    assert "page" in prompt_text.lower()
+    assert "ITEM" in prompt_text  # The format shows ITEM as an example
