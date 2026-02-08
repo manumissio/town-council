@@ -11,7 +11,7 @@ sys.path.append(root_dir)
 sys.path.append(os.path.join(root_dir, 'pipeline'))
 
 from pipeline.models import Base, Catalog, UrlStage, Event, Place
-from pipeline.downloader import process_single_url
+from pipeline.downloader import process_single_url, process_staged_urls
 
 @pytest.fixture
 def db_session():
@@ -119,3 +119,36 @@ def test_downloader_race_condition(db_session, mocker):
     doc_link = db_session.query(Document).filter_by(event_id=event.id).first()
     assert doc_link is not None
     assert doc_link.catalog_id == existing_file.id
+
+
+def test_process_staged_urls_archives_only_successes(mocker):
+    """
+    Test: only successfully processed URL IDs are archived from staging.
+    """
+    fake_rows = [MagicMock(id=1), MagicMock(id=2), MagicMock(id=3)]
+    fake_session = MagicMock()
+    fake_session.query.return_value.all.return_value = fake_rows
+
+    class _FakeExecutor:
+        def __init__(self, *args, **kwargs):
+            pass
+        def __enter__(self):
+            return self
+        def __exit__(self, exc_type, exc, tb):
+            return False
+        def map(self, fn, ids):
+            return [fn(i) for i in ids]
+
+    class _SessionCtx:
+        def __enter__(self):
+            return fake_session
+        def __exit__(self, exc_type, exc, tb):
+            return False
+
+    mocker.patch("pipeline.downloader.db_session", return_value=_SessionCtx())
+    mocker.patch("pipeline.downloader.ThreadPoolExecutor", _FakeExecutor)
+    mocker.patch("pipeline.downloader.process_single_url", side_effect=[True, False, True])
+    archive_mock = mocker.patch("pipeline.downloader.archive_url_stage")
+
+    process_staged_urls()
+    archive_mock.assert_called_once_with([1, 3])

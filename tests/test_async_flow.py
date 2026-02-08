@@ -12,6 +12,7 @@ sys.modules["redis"] = MagicMock()
 # We will patch the tasks dynamically.
 
 from api.main import app, get_db
+from pipeline import tasks
 
 client = TestClient(app)
 VALID_KEY = "dev_secret_key_change_me"
@@ -81,3 +82,28 @@ def test_task_status_polling():
         resp = client.get("/tasks/done-id")
         assert resp.json()["status"] == "complete"
         assert resp.json()["result"]["summary"] == "Done."
+
+
+def test_generate_summary_retries_when_ai_returns_none(mocker):
+    """
+    Regression: if LocalAI returns None, task should trigger Celery retry.
+    """
+    mock_db = MagicMock()
+    mock_catalog = MagicMock()
+    mock_catalog.content = "Meeting content"
+    mock_catalog.summary = None
+    mock_db.get.return_value = mock_catalog
+
+    mocker.patch.object(tasks, "SessionLocal", return_value=mock_db)
+    mock_ai = MagicMock()
+    mock_ai.summarize.return_value = None
+    mocker.patch.object(tasks, "LocalAI", return_value=mock_ai)
+
+    retry_exc = RuntimeError("retry-called")
+    retry_mock = mocker.patch.object(tasks.generate_summary_task, "retry", side_effect=retry_exc)
+
+    with pytest.raises(RuntimeError, match="retry-called"):
+        tasks.generate_summary_task.run(1)
+
+    retry_mock.assert_called_once()
+    mock_db.rollback.assert_called_once()

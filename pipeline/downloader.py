@@ -2,7 +2,7 @@ import os
 import requests
 import logging
 from concurrent.futures import ThreadPoolExecutor
-from sqlalchemy import text
+from sqlalchemy import text, bindparam
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import sessionmaker
 
@@ -153,7 +153,7 @@ def process_single_url(url_record_id):
     try:
         url_record = session.get(UrlStage, url_record_id)
         if not url_record:
-            return
+            return False
 
         # Find the matching event so the downloaded file can be linked.
         event_record = session.query(Event).filter(
@@ -164,7 +164,7 @@ def process_single_url(url_record_id):
         
         if not event_record:
             logger.info(f"Skipping: Event not found for {url_record.event} ({url_record.event_date})")
-            return
+            return False
 
         # Reuse existing catalog row when URL hash already exists.
         catalog_entry = session.query(Catalog).filter(
@@ -194,7 +194,7 @@ def process_single_url(url_record_id):
                     ).first()
             else:
                 logger.error(f"Failed to download: {url_record.url}")
-                return
+                return False
 
         # Avoid duplicate event/catalog links.
         existing_doc = session.query(Document).filter(
@@ -214,10 +214,12 @@ def process_single_url(url_record_id):
             session.add(document)
         
         session.commit()
+        return True
 
     except SQLAlchemyError as e:
         logger.error(f"Error processing URL record {url_record_id}: {e}")
         session.rollback()
+        return False
     finally:
         session.close()
 
@@ -237,20 +239,33 @@ def process_staged_urls():
 
     # Network-bound downloads benefit from thread-level concurrency.
     with ThreadPoolExecutor(max_workers=DOWNLOAD_WORKERS) as executor:
-        executor.map(process_single_url, url_ids)
+        results = list(executor.map(process_single_url, url_ids))
 
-    # Move staged rows to history once this run completes.
-    archive_url_stage()
+    # Archive only rows that were processed successfully.
+    processed_ids = [url_id for url_id, ok in zip(url_ids, results) if ok]
+    if processed_ids:
+        archive_url_stage(processed_ids)
+    else:
+        logger.warning("No staged URLs were successfully processed; keeping staging rows for retry.")
 
 
-def archive_url_stage():
-    """Moves processed records to the history table and clears staging."""
+def archive_url_stage(processed_ids):
+    """Move successfully processed staged rows to history."""
+    if not processed_ids:
+        return
+
     engine = db_connect()
     with engine.begin() as conn:
-        logger.info("Archiving processed URLs to history...")
-        conn.execute(text("INSERT INTO url_stage_hist (ocd_division_id, event, event_date, url, url_hash, category, created_at) SELECT ocd_division_id, event, event_date, url, url_hash, category, created_at FROM url_stage"))
-        conn.execute(text("DELETE FROM url_stage"))
-        logger.info("Staging table cleared.")
+        logger.info(f"Archiving {len(processed_ids)} processed URLs to history...")
+        insert_stmt = text(
+            "INSERT INTO url_stage_hist (ocd_division_id, event, event_date, url, url_hash, category, created_at) "
+            "SELECT ocd_division_id, event, event_date, url, url_hash, category, created_at "
+            "FROM url_stage WHERE id IN :ids"
+        ).bindparams(bindparam("ids", expanding=True))
+        delete_stmt = text("DELETE FROM url_stage WHERE id IN :ids").bindparams(bindparam("ids", expanding=True))
+        conn.execute(insert_stmt, {"ids": processed_ids})
+        conn.execute(delete_stmt, {"ids": processed_ids})
+        logger.info("Processed staging rows archived.")
 
 
 if __name__ == "__main__":

@@ -57,7 +57,7 @@ def generate_summary_task(self, catalog_id: int):
         # We MUST NOT save this to the database. If we saved "Error", the system
         # would think it finished the job and never try again.
         if summary is None:
-            raise Exception("AI Summarization returned None (Model missing or error)")
+            raise RuntimeError("AI Summarization returned None (Model missing or error)")
         
         # Update DB
         catalog.summary = summary

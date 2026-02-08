@@ -1,9 +1,13 @@
 import pytest
 import sys
 import os
+from types import SimpleNamespace
+from contextlib import contextmanager
+from unittest.mock import MagicMock
 
 # Ensure the pipeline directory is in the path for indexer imports
 sys.path.append(os.path.join(os.path.dirname(__file__), '..', 'pipeline'))
+from pipeline import indexer
 
 def test_meeting_category_normalization():
     """
@@ -30,3 +34,55 @@ def test_meeting_category_normalization():
     assert get_category("Emergency Budget Meeting") == "Other"
     assert get_category(None) == "Other"
     assert get_category("") == "Other"
+
+
+def test_indexer_flushes_agenda_final_batch_once(mocker):
+    """
+    Regression: remaining agenda items should be sent once after the loop.
+    """
+    class FakeQuery:
+        def __init__(self, rows):
+            self._rows = rows
+        def join(self, *args, **kwargs):
+            return self
+        def outerjoin(self, *args, **kwargs):
+            return self
+        def filter(self, *args, **kwargs):
+            return self
+        def yield_per(self, *args, **kwargs):
+            return self._rows
+
+    # No full documents, two agenda items, batch size two -> exactly one add_documents call.
+    item = SimpleNamespace(
+        id=1, ocd_id="ocd-item-1", title="Item", description="Desc",
+        classification="Agenda Item", result="Approved", page_number=1, catalog_id=None, catalog=None
+    )
+    item2 = SimpleNamespace(
+        id=2, ocd_id="ocd-item-2", title="Item 2", description="Desc",
+        classification="Agenda Item", result="Approved", page_number=2, catalog_id=None, catalog=None
+    )
+    event = SimpleNamespace(name="Meeting", meeting_type="Regular", record_date=None, organization_id=None)
+    place = SimpleNamespace(display_name="ca_test", name="Test City")
+
+    session = MagicMock()
+    session.query.side_effect = [
+        FakeQuery([]),
+        FakeQuery([(item, event, place, None), (item2, event, place, None)]),
+    ]
+
+    @contextmanager
+    def fake_db_session():
+        yield session
+
+    fake_index = MagicMock()
+    fake_client = MagicMock()
+    fake_client.index.return_value = fake_index
+    mocker.patch.object(indexer, "db_session", fake_db_session)
+    mocker.patch.object(indexer.meilisearch, "Client", return_value=fake_client)
+    mocker.patch.object(indexer, "MEILISEARCH_BATCH_SIZE", 2)
+
+    indexer.index_documents()
+
+    assert fake_index.add_documents.call_count == 1
+    sent_batch = fake_index.add_documents.call_args[0][0]
+    assert len(sent_batch) == 2
