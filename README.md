@@ -18,6 +18,8 @@ This project has been modernized from its 2017 pilot into a high-performance acc
 - **Unified Search:** A segmented "Airbnb-style" Search Hub integrating Municipality, Body, and Meeting Type filters.
 - **Robust Ingestion:** Refactored **BaseCitySpider** architecture that simplifies adding new cities and ensures resilient "Delta Crawling" (skipping duplicates).
 - **Data Quality:** Integrated **Crowdsourced Error Reporting** allowing users to flag broken links or OCR errors directly to administrators.
+- **Ground Truth Verification:** Dual-source validation system that fetches official voting records from the Legistar API and spatially aligns them with PDF content using PyMuPDF, providing "Verified" badges on search results with exact page coordinates for vote tallies.
+- **Transaction Safety:** All database operations protected with rollback mechanisms to prevent data corruption during network or database failures, ensuring data integrity even under adverse conditions.
 - **Local-First AI:** 100% private, air-gapped intelligence using **Gemma 3 270M** running entirely on your CPU. No API keys or internet required.
 - **High-Performance Data Layer:** Sub-100ms response times powered by **Redis caching**, **orjson**, and database query optimization.
 - **Production Resilience:** Optimized for 24/7 availability with **fail-soft logic** that handles database or AI outages gracefully without crashing the server.

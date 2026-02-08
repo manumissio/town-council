@@ -93,8 +93,19 @@ graph TD
 
 ## Key Components & Design Principles
 
-### 1. Ingestion Layer (Scrapy)
-The system utilizes city-specific spiders to handle municipal website volatility. It supports multiple portal architectures:
+### Data Pipeline Flow
+The system processes data through a multi-stage verifiable pipeline:
+1.  **Crawling:** Scrapy spiders fetch meeting metadata and PDF links from municipal sites.
+2.  **Extraction:** Apache Tika extracts raw text and XHTML page markers from PDFs.
+3.  **Ground Truth Sync:** A dedicated worker (`ground_truth_sync.py`) fetches official action text and voting results from the **Legistar API**.
+4.  **Verification & Alignment:**
+    *   **Fuzzy Matching:** Links API items to PDF segments using RapidFuzz algorithms.
+    *   **Spatial Anchoring:** Uses **PyMuPDF** to find the exact (x, y) coordinates of votes within the PDF.
+    *   **Dual-Source Validation:** Marks records as "Verified" only when the API ground truth and PDF content align spatially.
+5.  **Processing:**
+    *   **NLP:** SpaCy identifies named entities (People, Organizations).
+    *   **AI:** Local LLMs generate summaries and segment agenda items.
+6.  **Indexing:** Data is pushed to Meilisearch for sub-millisecond search performance.
 *   **Table-Centric (Berkeley):** Directly parses modern city websites using high-precision XPaths.
 *   **CivicPlus/Folder-Centric (Dublin):** Navigates standard government platforms that use metadata attributes (like `data-th`) for accessibility.
 *   **API-Centric (Cupertino):** Communicates directly with modern platforms like **Legistar Web API**. This provides the highest reliability as it bypasses HTML complexity and bot detection.
@@ -175,24 +186,36 @@ To prevent "garbage data" from corrupting the system, we enforce strict schemas 
 *   **Logic Layer (Regex):** Custom validators ensure Dates (ISO-8601) and Identifiers (OCD-ID follow strict formats.
 *   **Database Layer (Schema):** Metadata columns have explicit length limits (e.g., `VARCHAR(255)`) to prevent buffer stuffing. **High-volume text columns** (Meeting Content, Summaries, Biographies) use the `TEXT` type to ensure zero truncation during ingestion.
 
-### 11. Container Optimization & Performance
+### 11. Transaction Safety & Error Handling
+To prevent data corruption during network or database failures, all database operations follow strict transaction patterns:
+*   **Rollback Protection:** All database commits are wrapped in try/except blocks with explicit rollback() calls to maintain database consistency:
+    *   `ground_truth_sync.py`: Rolls back if Legistar API fetch fails mid-transaction, preventing partial vote records
+    *   `verification_service.py`: Rolls back if spatial coordinate lookup fails during PDF verification
+    *   `pipelines.py`: Existing rollback protection for staging operations during scraping
+*   **Thread-Safe Model Loading:** The LocalAI singleton uses double-checked locking to prevent race conditions:
+    *   First check: Fast path without lock (if model is already loaded, return immediately)
+    *   Second check: Inside lock to prevent duplicate loads if multiple threads arrive simultaneously
+    *   Model loading happens entirely within the lock to prevent multiple threads from loading the 500MB model simultaneously
+*   **Graceful Degradation:** Failed operations are logged with full context (city name, item ID, error details) while the system continues processing other items, ensuring one failure doesn't cascade into a complete pipeline halt.
+
+### 13. Container Optimization & Performance
 To ensure fast developer iteration and secure production deployments, the system uses an optimized Docker architecture:
 *   **Multi-Stage Builds:** Separates build-time dependencies (compilers, headers) from the final runtime image, reducing the attack surface and image size.
 *   **BuildKit Cache Mounts:** Utilizes `--mount=type=cache` for both Python (pip) and Node.js (npm). This allows the system to cache package downloads across builds, making repeated installs up to 10x faster.
 *   **Next.js Standalone Mode:** The frontend utilizes Next.js output tracing to create a minimal production server that only carries the absolute necessary files, resulting in a ~1GB reduction in image size.
 *   **Strict Layering:** Dockerfiles are structured to copy dependency files (`requirements.txt`, `package.json`) before source code, maximizing layer reuse.
 
-### 11. High-Performance Search & UX
+### 15. High-Performance Search & UX
 *   **Unified Search Hub:** A segmented search bar integrating Keyword, Municipality, Body, and Type filters.
 *   **Yield-Based Indexing:** The Meilisearch indexer uses Python's `yield_per` pattern to stream hundreds of thousands of documents with minimal memory footprint.
 *   **Tiered Inspection:** A 3-tier UI flow (Snippet -> Full Text -> AI Insights) manages cognitive load.
 
-### 12. AI Strategy
+### 17. AI Strategy
 *   **On-Demand Summarization:** To prevent unnecessary CPU load, summaries are only generated when requested by a user in the UI.
 *   **Caching:** AI responses are permanently saved to the `catalog` table, making subsequent views instant and cost-free.
 *   **Grounding:** Models use a temperature of 0.1 and strict instructional grounding to eliminate hallucinations.
 
-### 13. Resilience & Fail-Soft Logic
+### 19. Resilience & Fail-Soft Logic
 To ensure 24/7 availability in production, the system implements **Graceful Degradation**:
 *   **Dependency Checking:** The API uses a `is_db_ready()` helper to verify the database connection before handling requests. If the database is down, it returns a `503 Service Unavailable` error instead of crashing.
 *   **Lazy AI Loading:** Local AI models are loaded only when first requested. If the model files are missing or corrupt, the API continues to serve search results while disabling only the summarization and segmentation features.
@@ -200,13 +223,13 @@ To ensure 24/7 availability in production, the system implements **Graceful Degr
     1.  **Direct AI Extraction:** High-precision bulleted list from the local model.
     2.  **Paragraph Fallback:** If the AI output is malformed, the system automatically segments by paragraph to ensure the UI remains functional.
 
-### 14. Performance Guardrails
+### 21. Performance Guardrails
 To prevent "Speed Regressions" during development, the system implements automated performance monitoring:
 *   **Continuous Benchmarking:** Every compute-heavy function (Fuzzy Matching, Regex Parsing) is tracked via `pytest-benchmark`. If a change makes an algorithm 2x slower, the benchmark suite will highlight the regression.
 *   **Traffic Simulation:** We use **Locust** to simulate high-concurrency scenarios. This allows us to verify that our Redis caching and Meilisearch optimizations actually scale to 50+ concurrent users on standard hardware.
 *   **Payload Monitoring:** The API is configured to strictly control response sizes (via `attributesToRetrieve`), ensuring that search results remain under 100KB regardless of document size.
 
-### 15. Municipal NLP Guardrails (The Triple Filter)
+### 22. Municipal NLP Guardrails (The Triple Filter)
 To ensure high precision in identifying officials, the system uses a 3-layer NLP filtering strategy:
 1.  **Boilerplate Pre-emptor (Pre-NER):** An `EntityRuler` explicitly tags common municipal noise ("Item 1", "City Clerk") *before* the AI runs, preventing misidentification.
 2.  **Title-Aware Confidence:** Patterns like "Mayor [Name]" or "Moved by [Name]" are used to identify people even if the statistical model is uncertain.
@@ -217,4 +240,21 @@ To ensure high precision in identifying officials, the system uses a 3-layer NLP
         *   **Contextual Noise:** Blocks common municipal words like "Park", "Staff", or "Street" only if they appear as single words without a trusted title. This preserves names like "Linda Park" or "Michael Staff".
     *   **Vowel Density Check:** Discards OCR fragments (e.g., "Spl Tax Bds") by enforcing a minimum vowel density (10-25%).
     *   **Linguistic Check:** Discards entities without a Proper Noun (`PROPN`) signal.
+
+### 23. Security Advisories
+
+#### Known Dependency Vulnerabilities (Accepted Risk)
+
+**CVE-2017-14158 (Scrapy DoS) - Dismissed February 2026**
+*   **Status:** Accepted Risk (Not Vulnerable)
+*   **Severity:** High (CVSS 7.5/10)
+*   **Affected Component:** Scrapy FilesPipeline/ImagesPipeline (memory exhaustion via large file downloads)
+*   **Our Status:** Not Vulnerable - We do not use the affected components
+*   **Rationale:**
+    *   Our custom Scrapy pipelines only process metadata (meeting names, dates, PDF URLs)
+    *   We do not use FilesPipeline or ImagesPipeline which are the vulnerable components
+    *   PDF downloads happen separately in the pipeline worker, not during Scrapy crawling
+    *   We have `DOWNLOAD_MAXSIZE=104857600` (100MB) configured to prevent memory exhaustion attacks
+*   **Mitigation:** Download size limits enforced in `council_crawler/council_crawler/settings.py`
+*   **Reference:** https://github.com/scrapy/scrapy/issues/482
 
