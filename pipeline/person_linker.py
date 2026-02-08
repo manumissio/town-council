@@ -128,12 +128,12 @@ def link_people():
                     membership_count += 1
                 membership_cache.add(mem_key)
 
+    # Save all the new people and memberships to the database
+    # This commits all changes we've made during this run
     session.commit()
     session.close()
-    print(f"Linking complete. Created {person_count} new People and {membership_count} new Memberships.")
 
-    session.commit()
-    session.close()
+    # Print summary of what we accomplished
     print(f"Linking complete. Created {person_count} new People and {membership_count} new Memberships.")
 
 if __name__ == "__main__":

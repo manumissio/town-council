@@ -13,8 +13,12 @@ logger = logging.getLogger("celery-worker")
 # The broker is where tasks are queued (Redis)
 # The backend is where results are stored (Redis)
 app = Celery('tasks')
-app.conf.broker_url = os.getenv('CELERY_BROKER_URL', 'redis://:secure_redis_password@redis:6379/0')
-app.conf.result_backend = os.getenv('CELERY_RESULT_BACKEND', 'redis://:secure_redis_password@redis:6379/0')
+
+# SECURITY: Always get Redis connection from environment variables
+# Never hardcode passwords in source code - they end up in version control!
+# If these env vars aren't set, the app will fail loudly (which is better than using a default password)
+app.conf.broker_url = os.getenv('CELERY_BROKER_URL', 'redis://redis:6379/0')
+app.conf.result_backend = os.getenv('CELERY_RESULT_BACKEND', 'redis://redis:6379/0')
 
 # Database Setup
 engine = db_connect()

@@ -54,29 +54,44 @@ class BaseCitySpider(scrapy.Spider):
     def _get_last_meeting_date(self):
         """
         Connects to the database to find the date of the most recent meeting we have saved.
+
+        This helps us avoid re-downloading thousands of old PDFs we already have.
+        We only want to scrape meetings that are NEWER than what's in our database.
         """
         if not self.ocd_division_id:
             return None
-            
+
+        # We need to guarantee the session closes, even if something fails
+        # That's why we use try/finally pattern
+        session = None
         try:
+            # Connect to the database
             engine = db_connect()
             Session = sessionmaker(bind=engine)
             session = Session()
-            
+
             # Query: "Give me the newest 'record_date' for this specific city."
+            # This tells us "the most recent meeting we already have is from DATE"
             result = (session.query(EventModel.record_date)
                 .filter(EventModel.ocd_division_id == self.ocd_division_id)
                 .order_by(EventModel.record_date.desc())
                 .first())
-            
-            session.close()
+
             # result is a tuple like (datetime.date(2023, 1, 15), )
+            # We extract just the date from it
             return result[0] if result else None
-            
+
         except Exception as e:
-            # If the DB is down or tables don't exist, we just crawl everything. Safe failover.
+            # If the DB is down or tables don't exist, we just crawl everything
+            # This is a "fail-safe" approach - better to get duplicates than miss data
             self.logger.warning(f"Database connection check skipped ({e}). Running full crawl.")
             return None
+
+        finally:
+            # CRITICAL: Always close the database session, no matter what happened above
+            # If we don't close sessions, we'll run out of database connections (connection leak)
+            if session:
+                session.close()
 
     def should_skip_meeting(self, meeting_date):
         """
