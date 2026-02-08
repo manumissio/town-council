@@ -21,7 +21,7 @@ This project has been modernized from its 2017 pilot into a high-performance acc
 - **Data Quality:** Integrated **Crowdsourced Error Reporting** allowing users to flag broken links or OCR errors directly to administrators.
 - **Ground Truth Verification:** Dual-source validation system that fetches official voting records from the Legistar API and spatially aligns them with PDF content using PyMuPDF, providing "Verified" badges on search results with exact page coordinates for vote tallies.
 - **Transaction Safety:** Production-grade exception handling with 30+ specific error handlers categorized by operation type (database, network, file I/O, search, PDF processing). Every error includes educational comments explaining what can fail, why it fails, and how it's handled. Context managers and migrations use broad exception catching where architecturally required. All database operations protected with rollback mechanisms to prevent data corruption.
-- **Local-First AI:** 100% private, air-gapped intelligence using **Gemma 3 270M** running entirely on your CPU. No API keys or internet required.
+- **Local-First AI:** 100% private, local inference using **Gemma 3 270M** running entirely on your CPU after setup. No external AI API keys are required.
 - **High-Performance Data Layer:** Sub-100ms response times powered by **Redis caching**, **orjson**, and database query optimization.
 - **Production Resilience:** Optimized for 24/7 availability with **fail-soft logic** that handles database or AI outages gracefully without crashing the server.
 - **Scalable Search:** Instant, typo-tolerant search powered by **Meilisearch** using yield-based indexing.
@@ -60,27 +60,30 @@ This project uses **Docker** to ensure the database, AI models, and search engin
 
 ### 2. Initialize and Start
 Once Docker is running, build the images and initialize the database schema. **Note:** We wait 10 seconds for the database to "wake up" before creating tables.
+
+Build-time note: the image downloads local models (Hugging Face) during build, so internet access is required for the initial build. After models are present, inference is fully local.
+
 ```bash
-docker-compose up -d --build postgres redis
+docker compose up -d --build postgres redis
 sleep 10
-docker-compose run --rm pipeline python db_init.py
-docker-compose up -d
+docker compose run --rm pipeline python db_init.py
+docker compose up -d
 ```
 
 ### 3. Scrape a City
 Gather meeting metadata and PDF links from supported municipalities:
 ```bash
 # Scrape Berkeley, CA (Native Table)
-docker-compose run crawler scrapy crawl berkeley
+docker compose run crawler scrapy crawl berkeley
 
 # Scrape Cupertino, CA (Legistar API)
-docker-compose run crawler scrapy crawl cupertino
+docker compose run crawler scrapy crawl cupertino
 ```
 
 ### 4. Process Data
 Run the processing pipeline (Downloads, OCR, Entity Linking, Indexing). 
 ```bash
-docker-compose run --rm pipeline python run_pipeline.py
+docker compose run --rm pipeline python run_pipeline.py
 ```
 
 > **Developer Note:** Always use the `--rm` flag when running one-off commands. This ensures Docker automatically cleans up the container after it finishes, preventing "orphaned" containers from cluttering your system.
@@ -123,7 +126,7 @@ To ensure the 'Person' table remains 100% human, the pipeline implements strict 
 ## Testing
 Run the full suite with coverage:
 ```bash
-docker-compose run --rm pipeline pytest --cov=. --cov-report=term /app/tests/
+docker compose run --rm pipeline pytest --cov=. --cov-report=term /app/tests/
 ```
 
 For local development, you can run targeted tests in a project virtualenv:
@@ -141,20 +144,20 @@ Notes:
   * `tests/test_benchmarks.py`: performance regression checks.
 * `tests/test_spatial_alignment.py` is integration-style and will skip if no suitable PDF is present in `data/` or if `pymupdf` is unavailable.
 * `pymupdf` is required for spatial vote verification and coordinate extraction paths.
-* On Python 3.14, some NLP tests are intentionally skip-safe when the spaCy/pydantic stack is incompatible. `tests/test_nlp_runtime_compat.py` makes this explicit so skips are visible, not silent.
+* NLP tests are deterministic in the current suite and should run in CI instead of being treated as expected skips.
 
 ## Performance & Load Testing
 We use automated audits to ensure the platform remains fast as it grows.
 
 1. **Algorithmic Benchmarks:** Measures the millisecond cost of internal logic.
    ```bash
-   docker-compose run --rm pipeline pytest tests/test_benchmarks.py
+   docker compose run --rm pipeline pytest tests/test_benchmarks.py
    ```
 
 2. **Load Testing (Traffic Simulation):** Simulates 50+ users attacking the API.
    ```bash
    # Runs a 60-second headless stress test
-   docker-compose run --rm pipeline locust -f tests/locustfile.py --headless -u 50 -r 5 --run-time 1m --host http://api:8000
+   docker compose run --rm pipeline locust -f tests/locustfile.py --headless -u 50 -r 5 --run-time 1m --host http://api:8000
    ```
 
 ## Frontend Auth Header Configuration
@@ -182,7 +185,7 @@ No service or environment changes were required because Legistar cross-check use
 The system is designed to scale horizontally as your dataset grows:
 1.  **Add More Workers:** If AI processing is slow, simply add more Celery workers:
     ```bash
-    docker-compose up -d --scale worker=3
+    docker compose up -d --scale worker=3
     ```
 2.  **Distributed Pipeline:** The ingestion pipeline automatically detects your CPU count and scales OCR/NLP tasks to use all available cores.
 3.  **Database:** Use a managed PostgreSQL instance (AWS RDS, Google Cloud SQL) for production reliability.

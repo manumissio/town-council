@@ -105,7 +105,7 @@ The system processes data through a multi-stage verifiable pipeline:
 5.  **Processing:**
     *   **NLP:** SpaCy identifies named entities (People, Organizations).
     *   **AI:** Local LLMs generate summaries and segment agenda items.
-6.  **Indexing:** Data is pushed to Meilisearch for sub-millisecond search performance.
+6.  **Indexing:** Data is pushed to Meilisearch for low-latency search performance.
 *   **Table-Centric (Berkeley):** Directly parses modern city websites using high-precision XPaths.
 *   **CivicPlus/Folder-Centric (Dublin):** Navigates standard government platforms that use metadata attributes (like `data-th`) for accessibility.
 *   **API-Centric (Cupertino):** Communicates directly with modern platforms like **Legistar Web API**. This provides the highest reliability as it bypasses HTML complexity and bot detection.
@@ -142,8 +142,8 @@ The system implements a standardized identifier generator (`ocd-[type]/[uuid]`) 
 *   **Avoids IDOR Attacks:** Random UUIDs prevent malicious enumeration of records.
 *   **Federation Ready:** By following the OCD standard, the database is interoperable with other civic data projects like *Open States* or *Councilmatic*.
 
-### 5. Local-First AI Strategy (Air-Gapped)
-To ensure privacy, zero cost, and resilience, the system uses a **100% Local AI** stack. No data is ever sent to the cloud.
+### 5. Local-First AI Strategy (Local Inference)
+To ensure privacy, zero cost, and resilience, the system uses a local-inference AI stack for runtime requests. Model assets are downloaded at build time, then inference runs locally.
 
 *   **The Brain (Gemma 3 270M):** We use a 4-bit quantized version of Google's state-of-the-art "micro-model".
     *   **Context Window:** 2,048 tokens (optimized for stability in Docker).
@@ -182,14 +182,14 @@ To keep official profiles trustworthy:
 *   Membership links are created for `official` profiles only.
 *   The `/people` endpoint filters to `official` records by default and supports an explicit diagnostics mode (`include_mentions=true`).
 
-### 8. Performance Architecture (Sub-100ms)
+### 8.2 Performance Architecture (Sub-100ms)
 To ensure the platform feels "instant" even on consumer hardware, we use a multi-tiered acceleration strategy:
 *   **Caching Layer (Redis):** Frequently accessed data (like City Metadata and Statistics) is stored in RAM using Redis. This offloads 95% of read traffic from the database and delivers results in <5ms.
 *   **Turbo JSON (orjson):** The API uses `orjson` (a high-performance Rust library) instead of Python's standard `json` module. This speeds up the serialization of large search results by 3-5x.
 *   **Eager Loading:** We solve the "N+1 Query Problem" by using SQLAlchemy's `joinedload`. When you request a Person profile, we fetch their roles, city, and committee memberships in a **single database query** instead of 30+ separate round-trips.
 *   **Database Indexing:** Critical columns (`place_id`, `record_date`) are indexed to ensure that filtering 10,000+ meetings takes milliseconds.
 
-### 8.1 Search Indexing Batch Semantics
+### 8.3 Search Indexing Batch Semantics
 The Meilisearch indexer uses explicit batch flushing rules:
 *   flush on reaching `MEILISEARCH_BATCH_SIZE`
 *   flush exactly once for the final partial batch after each phase (documents, agenda items)
@@ -199,7 +199,7 @@ This prevents duplicate sends, keeps indexing counts accurate, and avoids unnece
 ### 9. Security Model
 *   **CORS Restriction:** The API is hardened to only accept requests from the authorized frontend origin (`localhost:3000`).
 *   **Dependency Injection:** Database sessions are managed via FastAPI's dependency system, ensuring every connection is strictly closed after a request to prevent connection leaks.
-*   **Non-Root Execution:** All Docker containers run as a restricted `appuser`.
+*   **Non-Root Execution:** First-party app containers built from the repo Dockerfiles run as a restricted `appuser`.
 *   **Path Traversal Protection:** The `is_safe_path` validator ensures workers only interact with authorized data directories.
 *   **Deep Health Checks:** The container orchestrator monitors the `/health` endpoint, which proactively probes the database connection. If the database locks up, the container is automatically restarted.
 *   **Frontend Auth Header Discipline:** Browser clients only send `X-API-Key` when `NEXT_PUBLIC_API_AUTH_KEY` is explicitly configured; no hardcoded default key is injected by frontend code.
@@ -271,17 +271,12 @@ The project now follows a pipeline-first testing strategy because most risk live
     * Migration tests for schema/backfill/idempotent rerun behavior.
     * Benchmark tests for regression visibility.
 *   **Runtime compatibility policy:**
-    * NLP tests are allowed to skip on incompatible Python runtimes (for example spaCy stack issues on Python 3.14).
-    * Skips are explicit and asserted by dedicated compatibility tests.
+    * NLP-dependent modules use lazy loading and clear runtime errors when the stack is unavailable.
+    * NLP tests are deterministic in the current suite and are expected to run in CI.
 *   **CI expectations:**
     * No collection errors.
     * No regression below locked baseline coverage.
     * Artifact files (`file:testdb`, benchmark outputs) are not committed.
-*   **Why it fails:** Root causes (thundering herd, race conditions, network issues)
-*   **How we handle it:** Recovery strategies (retry with backoff, rollback, graceful degradation)
-
-#### Graceful Degradation
-Failed operations are logged with full context (city name, item ID, error details) while the system continues processing other items, ensuring one failure doesn't cascade into a complete pipeline halt.
 
 ### 13. Container Optimization & Performance
 To ensure fast developer iteration and secure production deployments, the system uses an optimized Docker architecture:
@@ -290,17 +285,17 @@ To ensure fast developer iteration and secure production deployments, the system
 *   **Next.js Standalone Mode:** The frontend utilizes Next.js output tracing to create a minimal production server that only carries the absolute necessary files, resulting in a ~1GB reduction in image size.
 *   **Strict Layering:** Dockerfiles are structured to copy dependency files (`requirements.txt`, `package.json`) before source code, maximizing layer reuse.
 
-### 15. High-Performance Search & UX
+### 14. High-Performance Search & UX
 *   **Unified Search Hub:** A segmented search bar integrating Keyword, Municipality, Body, and Type filters.
 *   **Yield-Based Indexing:** The Meilisearch indexer uses Python's `yield_per` pattern to stream hundreds of thousands of documents with minimal memory footprint.
 *   **Tiered Inspection:** A 3-tier UI flow (Snippet -> Full Text -> AI Insights) manages cognitive load.
 
-### 17. AI Strategy
+### 15. AI Strategy
 *   **On-Demand Summarization:** To prevent unnecessary CPU load, summaries are only generated when requested by a user in the UI.
 *   **Caching:** AI responses are permanently saved to the `catalog` table, making subsequent views instant and cost-free.
 *   **Grounding:** Models use a temperature of 0.1 and strict instructional grounding to eliminate hallucinations.
 
-### 19. Resilience & Fail-Soft Logic
+### 16. Resilience & Fail-Soft Logic
 To ensure 24/7 availability in production, the system implements **Graceful Degradation**:
 *   **Dependency Checking:** The API uses a `is_db_ready()` helper to verify the database connection before handling requests. If the database is down, it returns a `503 Service Unavailable` error instead of crashing.
 *   **Lazy AI Loading:** Local AI models are loaded only when first requested. If the model files are missing or corrupt, the API continues to serve search results while disabling only the summarization and segmentation features.
@@ -308,13 +303,13 @@ To ensure 24/7 availability in production, the system implements **Graceful Degr
     1.  **Direct AI Extraction:** High-precision bulleted list from the local model.
     2.  **Paragraph Fallback:** If the AI output is malformed, the system automatically segments by paragraph to ensure the UI remains functional.
 
-### 21. Performance Guardrails
+### 17. Performance Guardrails
 To prevent "Speed Regressions" during development, the system implements automated performance monitoring:
 *   **Continuous Benchmarking:** Every compute-heavy function (Fuzzy Matching, Regex Parsing) is tracked via `pytest-benchmark`. If a change makes an algorithm 2x slower, the benchmark suite will highlight the regression.
 *   **Traffic Simulation:** We use **Locust** to simulate high-concurrency scenarios. This allows us to verify that our Redis caching and Meilisearch optimizations actually scale to 50+ concurrent users on standard hardware.
 *   **Payload Monitoring:** The API is configured to strictly control response sizes (via `attributesToRetrieve`), ensuring that search results remain under 100KB regardless of document size.
 
-### 22. Municipal NLP Guardrails (The Triple Filter)
+### 18. Municipal NLP Guardrails (The Triple Filter)
 To ensure high precision in identifying officials, the system uses a 3-layer NLP filtering strategy:
 1.  **Boilerplate Pre-emptor (Pre-NER):** An `EntityRuler` explicitly tags common municipal noise ("Item 1", "City Clerk") *before* the AI runs, preventing misidentification.
 2.  **Title-Aware Confidence:** Patterns like "Mayor [Name]" or "Moved by [Name]" are used to identify people even if the statistical model is uncertain.
@@ -326,7 +321,7 @@ To ensure high precision in identifying officials, the system uses a 3-layer NLP
     *   **Vowel Density Check:** Discards OCR fragments (e.g., "Spl Tax Bds") by enforcing a minimum vowel density (10-25%).
     *   **Linguistic Check:** Discards entities without a Proper Noun (`PROPN`) signal.
 
-### 23. Security Advisories
+### 19. Security Advisories
 
 #### Known Dependency Vulnerabilities (Accepted Risk)
 
