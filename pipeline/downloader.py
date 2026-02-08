@@ -3,9 +3,14 @@ import requests
 import logging
 from concurrent.futures import ThreadPoolExecutor
 from sqlalchemy import text
-from sqlalchemy.orm import sessionmaker
 from pipeline.models import Place, UrlStage, Event, Catalog, Document, UrlStageHist
-from pipeline.models import db_connect, create_tables
+from pipeline.db_session import db_session
+from pipeline.config import (
+    MAX_FILE_SIZE_BYTES,
+    FILE_WRITE_CHUNK_SIZE,
+    DOWNLOAD_TIMEOUT_SECONDS,
+    DOWNLOAD_WORKERS
+)
 
 # Setup logging
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
@@ -53,23 +58,34 @@ class Media():
     def _get_document(self, document_url):
         """
         Downloads the file from the given URL.
-        Includes safety checks for file size.
+
+        What this does:
+        1. Checks file size BEFORE downloading (prevents memory issues)
+        2. Uses streaming to avoid loading entire file into RAM
+        3. Has timeout protection (won't wait forever for slow servers)
+
+        Why file size limit matters:
+        Without this check, a malicious 10GB file could crash our server
+        by filling up all available memory.
         """
         try:
-            # Security: Use stream=True. This allows us to inspect the headers (like file size)
-            # *before* downloading the entire huge file into memory.
-            r = self.session.get(document_url, stream=True, timeout=30)
-            
+            # SECURITY: Use stream=True to download in chunks, not all at once
+            # This lets us check the file size in headers before committing to the full download
+            r = self.session.get(document_url, stream=True, timeout=DOWNLOAD_TIMEOUT_SECONDS)
+
             if r.ok:
-                # Check file size (limit to 100MB) to prevent crashing the server with massive files.
+                # Check file size limit (default: 100MB)
+                # Most meeting packets are 5-20MB, so 100MB catches outliers
                 content_length = r.headers.get('Content-Length')
-                if content_length and int(content_length) > 104857600:
-                    logger.warning(f"Skipping file: {document_url} is too large ({content_length} bytes)")
+                if content_length and int(content_length) > MAX_FILE_SIZE_BYTES:
+                    logger.warning(f"Skipping file: {document_url} is too large ({content_length} bytes, max: {MAX_FILE_SIZE_BYTES})")
                     return None
                 return r
             else:
+                # HTTP error (404, 500, etc.)
                 return r.status_code
         except Exception as e:
+            # Network timeout, connection error, etc.
             logger.error(f"Request failed for {document_url}: {e}")
             return None
 
@@ -92,11 +108,15 @@ class Media():
         # Ensure we store the absolute path in the database
         abs_path = os.path.abspath(full_path)
 
-        # Write the file in chunks (8KB at a time).
-        # This is much more memory efficient than loading the whole file into RAM at once.
+        # Write the file in small chunks instead of loading it all into memory
+        # Why chunk writing?
+        # - A 20MB PDF loaded all at once = 20MB of RAM used
+        # - A 20MB PDF written in 8KB chunks = only 8KB of RAM used at a time
+        # This lets us handle large files without exhausting memory
         try:
             with open(abs_path, 'wb') as f:
-                for chunk in response.iter_content(chunk_size=8192):
+                # iter_content() downloads and writes in small pieces
+                for chunk in response.iter_content(chunk_size=FILE_WRITE_CHUNK_SIZE):
                     f.write(chunk)
             return abs_path
         except Exception as e:
@@ -226,25 +246,31 @@ def process_single_url(url_record_id):
 def process_staged_urls():
     """
     Main entry point for the downloader.
-    Processes all URLs in the 'url_stage' table in parallel.
-    """
-    engine = db_connect()
-    # Note: create_tables removed here as we expect DB to be initialized via db_init.py
-    Session = sessionmaker(bind=engine)
-    session = Session()
 
-    # Get a list of all file IDs waiting to be downloaded.
-    url_ids = [r.id for r in session.query(UrlStage.id).all()]
-    session.close()
+    What this does:
+    1. Gets list of all URLs waiting to be downloaded
+    2. Downloads them in parallel using multiple worker threads
+    3. Saves files to disk and updates database
+
+    Why parallel downloading?
+    If we download one file at a time, a single slow server delays everything.
+    By downloading multiple files simultaneously, we maximize throughput.
+    """
+    # Use context manager for automatic session cleanup
+    with db_session() as session:
+        # Get a list of all file IDs waiting to be downloaded
+        url_ids = [r.id for r in session.query(UrlStage.id).all()]
 
     if not url_ids:
         logger.info("No URLs in staging table to process.")
         return
 
-    logger.info(f"Processing {len(url_ids)} staged URLs using 5 threads...")
-    
-    # Use 5 parallel threads to speed up downloading multiple files at once.
-    with ThreadPoolExecutor(max_workers=5) as executor:
+    logger.info(f"Processing {len(url_ids)} staged URLs using {DOWNLOAD_WORKERS} threads...")
+
+    # Use parallel threads to speed up downloading multiple files at once
+    # Why parallel? While one thread waits for a slow server, others can download from fast servers
+    # DOWNLOAD_WORKERS controls how many files we download simultaneously (default: 5)
+    with ThreadPoolExecutor(max_workers=DOWNLOAD_WORKERS) as executor:
         executor.map(process_single_url, url_ids)
 
     # After processing, move the records to the 'history' table so we don't process them again.
