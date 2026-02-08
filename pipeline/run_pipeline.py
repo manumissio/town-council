@@ -28,27 +28,8 @@ def run_step(name, command):
 
 def process_document_chunk(catalog_ids):
     """
-    Worker function: Processes a CHUNK of documents using a single DB connection.
-
-    What this does:
-    1. Establishes ONE database connection for the entire chunk
-    2. Processes 20 documents (or however many are in the chunk)
-    3. For each document: extract text (if missing), then extract entities (if missing)
-    4. Commits after each successful document
-
-    Why chunk processing?
-    Connection setup is expensive (~100ms per connection).
-    Processing 1000 documents = 1000 connections = 100 seconds wasted!
-    With chunks of 20: 1000 documents = 50 connections = 5 seconds.
-
-    Why this runs in a separate process?
-    This function is called by ProcessPoolExecutor, so it runs in its own
-    Python interpreter. This enables true parallelism (no GIL limitation).
-
-    Why custom retry logic?
-    When multiple processes start simultaneously, they might overwhelm the
-    database connection pool. Random retry delays prevent all workers from
-    retrying at the same time (thundering herd problem).
+    Process a chunk of catalog IDs in one worker process.
+    Reuses one DB session for the chunk and commits per document.
     """
     from pipeline.models import db_connect, Catalog
     from pipeline.extractor import extract_text
@@ -59,8 +40,7 @@ def process_document_chunk(catalog_ids):
     import random
     import sys
 
-    # 1. Open connection ONCE for the entire batch
-    # We retry with random backoff to avoid thundering herd
+    # Open one DB session for the chunk. Retry with jitter if DB is busy.
     db = None
     for attempt in range(3):
         try:
@@ -71,16 +51,7 @@ def process_document_chunk(catalog_ids):
             db.execute(text("SELECT 1"))
             break
         except SQLAlchemyError:
-            # Database connection errors: Why do connections fail during startup?
-            # - Connection pool exhausted: All connections in use by other workers
-            # - Database server restarting: Postgres/MySQL temporarily unavailable
-            # - Network hiccup: Brief connectivity loss
-            # - Authentication failure: Wrong credentials (rare in production)
-            # Why retry with random delay? "Thundering herd" problem:
-            #   If 10 workers all fail at once and retry at the same time,
-            #   they'll all fail again! Random delays spread out the retries.
             if db: db.close()
-            # Random delay prevents all workers from retrying simultaneously
             time.sleep(random.uniform(DB_RETRY_DELAY_MIN, DB_RETRY_DELAY_MAX))
             continue
 
@@ -88,7 +59,6 @@ def process_document_chunk(catalog_ids):
         print(f"Error: Could not connect to database for chunk {catalog_ids[:2]}...", file=sys.stderr)
         return 0
 
-    # 2. Process each document in the chunk
     processed_count = 0
     try:
         for cid in catalog_ids:
@@ -96,30 +66,20 @@ def process_document_chunk(catalog_ids):
             if not catalog:
                 continue
 
-            # Text extraction (if missing)
-            # This sends the PDF/HTML to Tika server
+            # Extract text only when needed.
             if not catalog.content and catalog.location:
                 catalog.content = extract_text(catalog.location)
 
-            # NLP entity extraction (if missing)
-            # This identifies people, organizations, and locations in the text
+            # Extract entities only when needed.
             if catalog.content and not catalog.entities:
                 catalog.entities = extract_entities(catalog.content)
 
-            # Commit after each document (incremental progress)
-            # If we crash, we don't lose everything
+            # Commit per document to keep partial progress.
             db.commit()
             processed_count += 1
 
         return processed_count
     except SQLAlchemyError as e:
-        # Batch processing database errors: What can fail during document processing?
-        # - IntegrityError: Duplicate key (another worker processed same document)
-        # - OperationalError: Connection lost mid-batch (database crashed)
-        # - DataError: Extracted content too large for database field
-        # - StatementError: Invalid SQL generated (rare, likely a bug)
-        # Why return processed_count? We successfully processed SOME documents
-        # before the error. Better to save partial progress than lose everything.
         db.rollback()
         print(f"Error processing batch: {e}", file=sys.stderr)
         return processed_count
@@ -128,36 +88,14 @@ def process_document_chunk(catalog_ids):
 
 def run_parallel_processing():
     """
-    Orchestrates the parallel processing of documents in chunks.
-
-    What this does:
-    1. Finds all documents that need text extraction or entity extraction
-    2. Splits them into manageable chunks (20 documents each)
-    3. Spawns multiple worker processes to handle chunks in parallel
-    4. Tracks progress as workers complete their chunks
-
-    Why parallel processing?
-    - Text extraction (Tika): I/O bound, waits on server responses
-    - Entity extraction (NLP): CPU bound, processes text
-    - By running multiple processes, we can extract from several documents
-      simultaneously while some wait for Tika responses
-
-    Performance example (4-core machine, 75% utilization = 3 workers):
-    - Sequential: 300 docs × 10 seconds = 3000 seconds (50 minutes)
-    - Parallel (3 workers): 300 docs × 10 seconds ÷ 3 = 1000 seconds (16.7 minutes)
-
-    Why limit workers?
-    The Tika server has limited resources. Too many parallel requests can
-    overwhelm it, causing timeouts and failures. We cap at MAX_WORKERS to
-    ensure stability.
+    Find unprocessed docs and process them in parallel chunks.
     """
     from pipeline.models import Catalog
     from pipeline.db_session import db_session
 
     # Use context manager for automatic session cleanup
     with db_session() as db:
-        # Find documents needing work (missing content OR missing entities)
-        # Why OR? Some documents might have text but not entities yet
+        # A document needs work if text or entities are missing.
         unprocessed = db.query(Catalog).filter(
             (Catalog.content.is_(None)) | (Catalog.entities.is_(None))
         ).all()
@@ -168,25 +106,19 @@ def run_parallel_processing():
         logger.info("No documents need processing.")
         return
 
-    # Split into chunks for batch processing
-    # Why chunks? Each chunk reuses one DB connection for efficiency
+    # Split IDs into fixed-size chunks.
     chunks = [catalog_ids[i:i + DOCUMENT_CHUNK_SIZE] for i in range(0, len(catalog_ids), DOCUMENT_CHUNK_SIZE)]
 
     logger.info(f"Starting parallel processing for {len(catalog_ids)} documents in {len(chunks)} chunks...")
 
-    # Calculate optimal number of worker processes
-    # Use a fraction of available CPUs, but cap at MAX_WORKERS
+    # Use a CPU fraction, capped for safety.
     cpu_limit = int(cpu_count() * PIPELINE_CPU_FRACTION)
     workers = max(1, min(cpu_limit, MAX_WORKERS))
 
-    # ProcessPoolExecutor creates separate Python processes
-    # Each process can run on a different CPU core (true parallelism)
     with ProcessPoolExecutor(max_workers=workers) as executor:
-        # Submit all chunks to the executor
-        # futures is a dictionary: {Future object: chunk data}
         futures = {executor.submit(process_document_chunk, chunk): chunk for chunk in chunks}
 
-        # Track progress as chunks complete
+        # Track completed documents across chunks.
         completed_docs = 0
         for future in as_completed(futures):
             count = future.result()

@@ -60,40 +60,23 @@ class Media():
 
     def _get_document(self, document_url):
         """
-        Downloads the file from the given URL.
-
-        What this does:
-        1. Checks file size BEFORE downloading (prevents memory issues)
-        2. Uses streaming to avoid loading entire file into RAM
-        3. Has timeout protection (won't wait forever for slow servers)
-
-        Why file size limit matters:
-        Without this check, a malicious 10GB file could crash our server
-        by filling up all available memory.
+        Download a document with streaming and timeout protection.
         """
         try:
-            # SECURITY: Use stream=True to download in chunks, not all at once
-            # This lets us check the file size in headers before committing to the full download
+            # Stream response so large files do not load fully into memory.
             r = self.session.get(document_url, stream=True, timeout=DOWNLOAD_TIMEOUT_SECONDS)
 
             if r.ok:
-                # Check file size limit (default: 100MB)
-                # Most meeting packets are 5-20MB, so 100MB catches outliers
+                # Reject files above configured maximum size.
                 content_length = r.headers.get('Content-Length')
                 if content_length and int(content_length) > MAX_FILE_SIZE_BYTES:
                     logger.warning(f"Skipping file: {document_url} is too large ({content_length} bytes, max: {MAX_FILE_SIZE_BYTES})")
                     return None
                 return r
             else:
-                # HTTP error (404, 500, etc.)
                 return r.status_code
         except requests.RequestException as e:
-            # Network errors: What can go wrong when downloading from the internet?
-            # - Timeout: Server takes too long to respond (slow network, overloaded server)
-            # - ConnectionError: Can't reach the server (network down, wrong URL)
-            # - DNSError: Can't resolve domain name (typo in URL, DNS issues)
-            # - TooManyRedirects: URL redirects in a loop
-            # Why catch RequestException? It's the parent class for all requests errors
+            # Any network failure returns None so caller can skip safely.
             logger.error(f"Request failed for {document_url}: {e}")
             return None
 
@@ -116,24 +99,13 @@ class Media():
         # Ensure we store the absolute path in the database
         abs_path = os.path.abspath(full_path)
 
-        # Write the file in small chunks instead of loading it all into memory
-        # Why chunk writing?
-        # - A 20MB PDF loaded all at once = 20MB of RAM used
-        # - A 20MB PDF written in 8KB chunks = only 8KB of RAM used at a time
-        # This lets us handle large files without exhausting memory
+        # Write in chunks to keep memory usage low.
         try:
             with open(abs_path, 'wb') as f:
-                # iter_content() downloads and writes in small pieces
                 for chunk in response.iter_content(chunk_size=FILE_WRITE_CHUNK_SIZE):
                     f.write(chunk)
             return abs_path
         except OSError as e:
-            # File system errors: What can go wrong when writing to disk?
-            # - PermissionError: No permission to write to this directory
-            # - FileNotFoundError: Parent directory doesn't exist
-            # - IsADirectoryError: Trying to write to a directory, not a file
-            # - DiskFullError: No space left on disk
-            # Why catch OSError? It's the parent class for all filesystem errors
             logger.error(f"Failed to write file {abs_path}: {e}")
             return None
 
@@ -143,13 +115,10 @@ class Media():
         Example: data/us/ca/belmont/
         """
         try:
-            # Expected format: ocd-division/country:us/state:ca/place:belmont
             if not ocd_id_str or '/' not in ocd_id_str:
                 raise ValueError("Missing '/' separator")
                 
             parts = ocd_id_str.split('/')
-            # Parts[0] is 'ocd-division', the rest are location segments
-            # like ['country:us', 'state:ca', 'place:berkeley']
             location_segments = parts[1:]
             
             segments = []
@@ -165,11 +134,7 @@ class Media():
             return safe_path
 
         except (ValueError, OSError) as e:
-            # Path creation errors: What can go wrong when creating directories?
-            # - ValueError: Malformed OCD-ID that can't be parsed into path segments
-            # - OSError: Filesystem issues (permissions, invalid characters in path)
-            # Why handle this? Some OCD-IDs from external sources might be malformed
-            # Fallback strategy: Put it in a 'misc' folder rather than failing completely
+            # Keep ingestion moving even when location metadata is malformed.
             logger.warning(f"Malformed OCD-ID '{ocd_id_str}': {e}. Using fallback 'misc'.")
             fallback_path = os.path.join(self.working_dir, "misc")
             os.makedirs(fallback_path, exist_ok=True)
@@ -186,13 +151,11 @@ def process_single_url(url_record_id):
     session = Session()
 
     try:
-        # Modern SQLAlchemy 2.0 way to fetch a record by its unique ID.
         url_record = session.get(UrlStage, url_record_id)
         if not url_record:
             return
 
-        # Check if the meeting event exists in the main table.
-        # We need an Event to link the document to.
+        # Find the matching event so the downloaded file can be linked.
         event_record = session.query(Event).filter(
             Event.ocd_division_id == url_record.ocd_division_id,
             Event.record_date == url_record.event_date,
@@ -200,17 +163,15 @@ def process_single_url(url_record_id):
         ).first()
         
         if not event_record:
-            # If the event isn't found, we can't link the doc, so we skip it.
             logger.info(f"Skipping: Event not found for {url_record.event} ({url_record.event_date})")
             return
 
-        # Check if we have already downloaded this file (by checking its hash).
+        # Reuse existing catalog row when URL hash already exists.
         catalog_entry = session.query(Catalog).filter(
             Catalog.url_hash == url_record.url_hash
         ).first()
 
         if not catalog_entry:
-            # It's a new file: Download it and add it to the Catalog.
             logger.info(f"Downloading new document: {url_record.url}")
             downloader = Media(url_record)
             file_location = downloader.gather()
@@ -224,16 +185,9 @@ def process_single_url(url_record_id):
                         filename=os.path.basename(file_location)
                     )
                     session.add(catalog_entry)
-                    session.flush() # Save immediately to get the ID
+                    session.flush()
                 except SQLAlchemyError:
-                    # Race condition handling: What is a race condition?
-                    # Two workers might try to download the same file simultaneously:
-                    # 1. Worker A checks: "Does file X exist?" → No
-                    # 2. Worker B checks: "Does file X exist?" → No
-                    # 3. Worker A downloads and inserts record
-                    # 4. Worker B tries to insert → DUPLICATE KEY ERROR!
-                    # Solution: Catch the error, rollback, and re-fetch the record
-                    # Why catch SQLAlchemyError? Covers all database errors (not just duplicates)
+                    # Another worker may have inserted the same hash first.
                     session.rollback()
                     catalog_entry = session.query(Catalog).filter(
                         Catalog.url_hash == url_record.url_hash
@@ -242,8 +196,7 @@ def process_single_url(url_record_id):
                 logger.error(f"Failed to download: {url_record.url}")
                 return
 
-        # Link the Document to the Event and the Catalog file.
-        # Check if this link already exists to avoid duplicates.
+        # Avoid duplicate event/catalog links.
         existing_doc = session.query(Document).filter(
             Document.event_id == event_record.id,
             Document.catalog_id == catalog_entry.id
@@ -263,13 +216,6 @@ def process_single_url(url_record_id):
         session.commit()
 
     except SQLAlchemyError as e:
-        # Database transaction errors: What can go wrong during a database transaction?
-        # - IntegrityError: Violates a database constraint (duplicate key, foreign key)
-        # - OperationalError: Database connection lost, server crashed
-        # - DataError: Invalid data type (trying to store text in integer field)
-        # - TimeoutError: Transaction took too long, database locked
-        # Why rollback? If ANY part of the transaction fails, we undo ALL changes
-        # to keep the database in a consistent state (atomicity principle)
         logger.error(f"Error processing URL record {url_record_id}: {e}")
         session.rollback()
     finally:
@@ -278,20 +224,9 @@ def process_single_url(url_record_id):
 
 def process_staged_urls():
     """
-    Main entry point for the downloader.
-
-    What this does:
-    1. Gets list of all URLs waiting to be downloaded
-    2. Downloads them in parallel using multiple worker threads
-    3. Saves files to disk and updates database
-
-    Why parallel downloading?
-    If we download one file at a time, a single slow server delays everything.
-    By downloading multiple files simultaneously, we maximize throughput.
+    Download staged URLs in parallel and persist document links.
     """
-    # Use context manager for automatic session cleanup
     with db_session() as session:
-        # Get a list of all file IDs waiting to be downloaded
         url_ids = [r.id for r in session.query(UrlStage.id).all()]
 
     if not url_ids:
@@ -300,13 +235,11 @@ def process_staged_urls():
 
     logger.info(f"Processing {len(url_ids)} staged URLs using {DOWNLOAD_WORKERS} threads...")
 
-    # Use parallel threads to speed up downloading multiple files at once
-    # Why parallel? While one thread waits for a slow server, others can download from fast servers
-    # DOWNLOAD_WORKERS controls how many files we download simultaneously (default: 5)
+    # Network-bound downloads benefit from thread-level concurrency.
     with ThreadPoolExecutor(max_workers=DOWNLOAD_WORKERS) as executor:
         executor.map(process_single_url, url_ids)
 
-    # After processing, move the records to the 'history' table so we don't process them again.
+    # Move staged rows to history once this run completes.
     archive_url_stage()
 
 
@@ -315,9 +248,7 @@ def archive_url_stage():
     engine = db_connect()
     with engine.begin() as conn:
         logger.info("Archiving processed URLs to history...")
-        # Move data
         conn.execute(text("INSERT INTO url_stage_hist (ocd_division_id, event, event_date, url, url_hash, category, created_at) SELECT ocd_division_id, event, event_date, url, url_hash, category, created_at FROM url_stage"))
-        # Clear staging
         conn.execute(text("DELETE FROM url_stage"))
         logger.info("Staging table cleared.")
 
