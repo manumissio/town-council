@@ -43,8 +43,8 @@ These numbers are from the latest local `pytest-benchmark` run on MacBook ARM (`
 
 ## System Requirements
 *   **CPU:** Any modern processor (AVX2 support recommended for speed).
-*   **RAM:** 4GB minimum (8GB recommended). The AI model uses ~2GB of RAM.
-*   **Storage:** 2GB free space for the Docker image and database.
+*   **RAM:** 8GB minimum (16GB recommended) for the full Docker stack. Apache Tika and local AI/model workloads can exceed lightweight laptop defaults.
+*   **Storage:** At least 8GB free for Docker images, model artifacts, and local database/volume data.
 
 ## Getting Started
 
