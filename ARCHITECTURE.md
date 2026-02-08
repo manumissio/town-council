@@ -5,103 +5,87 @@ This document provides a technical overview of the system design, focusing on th
 ## System Diagram
 
 ```mermaid
-graph TD
-    subgraph "External World"
-        Web[City Portals]
-        Legi[Legistar/Granicus]
-        HF[HuggingFace Hub]
+flowchart LR
+    subgraph External["External Sources"]
+        Web["City Portals"]
+        Legi["Legistar / Granicus"]
     end
 
-    subgraph "Ingestion Layer (Scrapy)"
-        Crawler[Crawler Service]
-        Delta[Delta Crawling Logic]
+    subgraph Ingest["Ingestion (Scrapy)"]
+        Crawler["Crawler Service"]
+        Delta["Delta Crawl Filter"]
+        Promote["promote_stage.py"]
     end
 
-    subgraph "Persistent Storage (PostgreSQL 15)"
-        subgraph "OCD Hierarchy"
-            Place[Place: Jurisdictions]
-            Org[Organization: Bodies]
-            Mem[Membership: Roles]
-            Person[Person: Officials]
-        end
-        subgraph "Data Tables"
-            Stage[Staging: URLs/Events]
-            Prod[Production: Events]
-            Items[Agenda Items: Deep-Links]
-            Cat[Catalog: Text/AI Metadata]
-        end
+    subgraph Store["PostgreSQL 15"]
+        Stage[("url_stage")]
+        Prod[("event + document")]
+        Cat[("catalog")]
+        Items[("agenda_item")]
+        Mem[("membership")]
+        Person[("person")]
     end
 
-    subgraph "Processing Pipeline (Distributed)"
-        Downloader[Downloader: Parallel Streaming]
-        Tika[[Apache Tika Service]]
-        Proc["Parallel OCR + NLP (run_pipeline)"]
-        Tables[Table Worker]
-        Topics[Topic Worker]
-        Backfill[Org Backfill]
-        Linker[Person Linker]
+    subgraph Batch["Batch Pipeline (run_pipeline.py)"]
+        Downloader["downloader.py"]
+        Proc["Parallel OCR + NLP"]
+        Tika["Apache Tika"]
+        Tables["table_worker.py"]
+        Backfill["backfill_orgs.py"]
+        Topics["topic_worker.py"]
+        Linker["person_linker.py"]
+        Indexer["indexer.py"]
     end
 
-    subgraph "Async AI Brain (Celery)"
-        Redis[(Redis: Job Queue & Cache)]
-        Worker[Celery Worker: Concurrency=1]
-        LocalAI[[Gemma 3 270M]]
+    subgraph Async["Async AI (Celery + Redis)"]
+        API["FastAPI"]
+        Queue[("Redis queue + result backend")]
+        Worker["Celery worker"]
+        Resolver["Agenda resolver: Legistar -> HTML -> LLM"]
+        LocalAI["LocalAI (Gemma 3)"]
     end
 
-    subgraph "Search & Access"
-        Meili[[Meilisearch 1.6]]
-        FastAPI[FastAPI Backend]
-        NextJS[Next.js 16 UI]
+    subgraph UX["Search + UI"]
+        Meili["Meilisearch 1.6"]
+        Next["Next.js 16 UI"]
     end
 
-    subgraph "Observability"
-        Mon[Monitor Service]
-        Prom[Prometheus]
-        Graf[Grafana]
+    subgraph Obs["Observability"]
+        Mon["monitor.py"]
+        Prom["Prometheus"]
+        Graf["Grafana"]
     end
 
-    %% Flow: Ingestion
-    Web & Legi --> Crawler
-    Crawler --> Delta
-    Delta --> Stage
-    Stage -- "promote_stage.py" --> Prod
+    Web --> Crawler
+    Legi --> Crawler
+    Crawler --> Delta --> Stage --> Promote --> Prod
 
-    %% Flow: Processing
-    Prod --> Downloader
-    Downloader --> Proc
+    Prod --> Downloader --> Proc
     Proc --> Tika
-    Proc --> Tables
-    Proc --> Backfill
-    Proc --> Topics
-    Tables --> Linker
-    Backfill --> Linker
-    Topics --> Linker
-    Linker --> Mem & Person
+    Proc --> Tables --> Linker
+    Proc --> Backfill --> Linker
+    Proc --> Topics --> Linker
+    Linker --> Mem
+    Linker --> Person
     Linker --> Cat
+    Linker --> Indexer --> Meili
     Cat --> Meili
+    Items --> Meili
 
-    %% Flow: Async AI Logic
-    NextJS -- "1. POST /summarize or /segment/{id}" --> FastAPI
-    FastAPI -- "2. Dispatch" --> Redis
-    Redis -- "3. Pick Up" --> Worker
-    Worker -- "4. Inference" --> LocalAI
-    LocalAI -- "5. Resolve agenda (Legistar -> HTML -> LLM)" --> Worker
-    Worker -- "6. Store summary/items" --> Postgres
-    NextJS -- "6. Poll Status" --> FastAPI
-    FastAPI -- "7. Check Results" --> Redis
+    Next -- "search + read" --> API
+    API --> Meili
+    API <--> Queue
+    Next -- "POST /summarize and /segment/{id}" --> API
+    Queue --> Worker --> LocalAI
+    Worker --> Resolver
+    Legi --> Resolver
+    Resolver --> Worker
+    Worker --> Cat
+    Worker --> Items
+    Next -- "poll /tasks/{id}" --> API
 
-    %% Flow: Search & Cache
-    Meili <--> FastAPI
-    FastAPI <--> Redis
-    NextJS <--> FastAPI
-
-    %% Legistar reuse beyond crawling
-    Legi --> Worker
-
-    %% Flow: Metrics
-    Postgres -.-> Mon
-    Mon -- "tc_metrics" --> Prom
-    Prom --> Graf
+    Prod -. "metrics" .-> Mon
+    Mon --> Prom --> Graf
 ```
 
 ## Key Components & Design Principles
