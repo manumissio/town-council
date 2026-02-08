@@ -125,6 +125,7 @@ The system follows the **Open Civic Data (OCD)** standard to ensure interoperabi
 *   **Organization:** The legislative body or committee (e.g., Planning Commission).
 *   **Membership:** The specific role an official holds within an organization.
 *   **Person:** A unique identity for an official, tracked across different roles and cities.
+    *   **Person Classification:** `person_type` distinguishes `official` records from `mentioned` names extracted by NLP. This prevents non-official mentions from polluting the public officials list.
 
 ### 3. Agenda Item Segmentation (Deep-Linking)
 To solve the "Needle in a Haystack" problem without city-specific branching, the system uses a shared resolver:
@@ -174,6 +175,12 @@ The frontend polls background task status (`/tasks/{id}`) and now treats both ta
 To maintain a high-quality dataset at scale, the system implements a **Crowdsourced Audit Loop**:
 *   **Reporting API:** A dedicated `POST /report-issue` endpoint allows users to flag problems (e.g., broken PDF links or OCR errors) directly from the UI.
 *   **Issue Tracking:** Reported issues are saved to the `data_issue` table, linked to the specific meeting. This allows administrators to prioritize fixes for the most critical data gaps without manually checking thousands of records.
+
+### 8.1 People Quality Guardrails
+To keep official profiles trustworthy:
+*   NLP name detections are treated as **mentions** unless official evidence exists.
+*   Membership links are created for `official` profiles only.
+*   The `/people` endpoint filters to `official` records by default and supports an explicit diagnostics mode (`include_mentions=true`).
 
 ### 8. Performance Architecture (Sub-100ms)
 To ensure the platform feels "instant" even on consumer hardware, we use a multi-tiered acceleration strategy:

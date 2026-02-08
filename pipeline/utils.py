@@ -78,6 +78,10 @@ def is_likely_human_name(name, allow_single_word=False):
         
     name_clean = name.strip()
     name_lower = name_clean.lower()
+
+    # Reject OCR-style spaced letters like "P R O C L A M A T I O N".
+    if re.match(r'^(?:[A-Za-z]\s+){3,}[A-Za-z]$', name_clean):
+        return False
     
     # 1. Block 'Tech' characters (Emails, URLs, web parameters)
     tech_chars = ['@', '://', '.com', '.php', '.gov', '.org', '?', '=', 'www.']
@@ -98,6 +102,9 @@ def is_likely_human_name(name, allow_single_word=False):
     if word_count > 4:
         return False
     if word_count < 2 and not allow_single_word:
+        return False
+    # Long lowercase phrases are usually prose fragments, not person names.
+    if word_count >= 3 and name_clean == name_clean.lower():
         return False
     if words[0] == 'the' or words[-1] == 'the':
         return False

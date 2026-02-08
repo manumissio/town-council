@@ -77,3 +77,8 @@ def test_bouncer_vowel_density():
     # OCR noise doesn't
     assert is_likely_human_name("Spl Tax Bds") is False
     assert is_likely_human_name("XF-20-Z") is False
+
+
+def test_bouncer_rejects_spaced_ocr_and_lowercase_prose():
+    assert is_likely_human_name("P R O C L A M A T I O N") is False
+    assert is_likely_human_name("state of emergency continues") is False

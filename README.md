@@ -99,6 +99,17 @@ The platform is built using a modular component architecture:
 - **Frontend:** Next.js with specialized components in `frontend/components/` (SearchHub, ResultCard, PersonProfile).
 - **Indexing:** Python stream-based batch processing for scalability.
 
+### Officials vs Mentioned People
+The pipeline now separates person records into two categories:
+1. `official`: people with official evidence (for example title context like Mayor/Councilmember and membership linkage).
+2. `mentioned`: names detected in text without enough evidence to treat as governing officials.
+
+API behavior:
+* `/people` returns `official` records by default.
+* `/people?include_mentions=true` includes both categories for diagnostics.
+
+This prevents noisy NLP detections from inflating the public officials list.
+
 ### Data Quality & Official Resolution (The Smart Bouncer)
 To ensure the 'Person' table remains 100% human, the pipeline implements strict automated guardrails:
 1. **Tech-Character Block:** Any string containing `@`, `://`, or `.php` is automatically discarded.

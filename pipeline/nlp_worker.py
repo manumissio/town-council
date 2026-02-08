@@ -194,6 +194,8 @@ def extract_entities(text):
             # If we stripped a title, we allow single-word names (e.g. 'Mayor Arreguin')
             if not is_likely_human_name(name, allow_single_word=has_prefix):
                 continue
+            # Keep NLP output broad: this is a mention list, not an official roster.
+            # Official classification happens later in person_linker.py.
             if name not in entities["persons"]:
                 entities["persons"].append(name)
         

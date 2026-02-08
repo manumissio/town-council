@@ -251,19 +251,27 @@ def get_metadata():
 def list_people(
     limit: int = Query(50, ge=1, le=200), # PERFORMANCE: Enforce limits to prevent OOM
     offset: int = Query(0, ge=0),
+    include_mentions: bool = Query(False, description="Include mention-only names for diagnostics"),
     db: SQLAlchemySession = Depends(get_db)
 ):
     """
     Returns a paginated list of identified officials.
     """
     try:
+        # By default we return official profiles only.
+        # Mention-only names are available via include_mentions=true for diagnostics.
+        base_query = db.query(Person)
+        if not include_mentions:
+            base_query = base_query.filter(Person.person_type == "official")
+
         # PERFORMANCE: Return total count for frontend pagination logic
-        total = db.query(Person).count()
-        people = db.query(Person).order_by(Person.name).limit(limit).offset(offset).all()
+        total = base_query.count()
+        people = base_query.order_by(Person.name).limit(limit).offset(offset).all()
         return {
             "total": total,
             "limit": limit,
             "offset": offset,
+            "include_mentions": include_mentions,
             "results": people
         }
     except Exception as e:

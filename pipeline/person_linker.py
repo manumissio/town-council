@@ -9,6 +9,48 @@ from pipeline.models import Catalog, Document, Event, Organization, Person, Memb
 from pipeline.db_session import db_session
 from pipeline.utils import generate_ocd_id, find_best_person_match, is_likely_human_name
 
+OFFICIAL_TITLE_PREFIXES = (
+    "Mayor ",
+    "Councilmember ",
+    "Vice Mayor ",
+    "Chair ",
+    "Commissioner ",
+)
+
+
+def has_official_title_context(raw_name):
+    """
+    Returns True when the extracted string includes an official title prefix.
+    """
+    value = (raw_name or "").strip().lower()
+    return any(value.startswith(prefix.lower()) for prefix in OFFICIAL_TITLE_PREFIXES)
+
+
+def normalize_person_name(raw_name):
+    """
+    Removes role prefixes and normalizes whitespace before matching/saving.
+    """
+    name = (raw_name or "").strip()
+    prefixes = [
+        "Mayor ", "Councilmember ", "Vice Mayor ", "Chair ", "Director ",
+        "Commissioner ", "Moved by ", "Seconded by ", "Ayes: ", "Noes: ",
+        "Ayes : ", "Noes : ", "Ayes:  ", "Noes:  "
+    ]
+    for prefix in prefixes:
+        if name.startswith(prefix):
+            name = name[len(prefix):].strip()
+    return name
+
+
+def infer_person_type(raw_name):
+    """
+    Simple classification gate:
+    - Official when strong title context is present
+    - Mentioned otherwise
+    """
+    return "official" if has_official_title_context(raw_name) else "mentioned"
+
+
 def link_people():
     """
     Intelligence Worker: Promotes raw text names to structured Person & Membership records.
@@ -97,19 +139,9 @@ def link_people():
 
             # Process each extracted name
             for raw_name in people_names:
-                # Basic cleanup: Remove titles and extra whitespace
-                name = raw_name.strip()
-
-                # Remove common prefixes found in meeting documents
-                # Example: "Mayor Jesse Arreguin" becomes "Jesse Arreguin"
-                prefixes = [
-                    "Mayor ", "Councilmember ", "Vice Mayor ", "Chair ", "Director ",
-                    "Commissioner ", "Moved by ", "Seconded by ", "Ayes: ", "Noes: ",
-                    "Ayes : ", "Noes : ", "Ayes:  ", "Noes:  "
-                ]
-                for prefix in prefixes:
-                    if name.startswith(prefix):
-                        name = name[len(prefix):].strip()
+                # Normalize extracted names once so filtering/matching stays deterministic.
+                name = normalize_person_name(raw_name)
+                person_type = infer_person_type(raw_name)
 
                 # QUALITY CONTROL: Ensure this string is actually a human name
                 # Filters out things like "City Staff", "Item 5", etc.
@@ -123,20 +155,33 @@ def link_people():
 
                 if not existing_person:
                     # No fuzzy match? This is a new person we haven't seen before
+                    role_label = (
+                        f"Official in {event.place.name}"
+                        if person_type == "official"
+                        else f"Mentioned in {event.place.name} records"
+                    )
                     existing_person = Person(
                         name=name,
-                        current_role=f"Official in {event.place.name}",
-                        ocd_id=generate_ocd_id('person')
+                        current_role=role_label,
+                        ocd_id=generate_ocd_id('person'),
+                        person_type=person_type
                     )
                     session.add(existing_person)
                     session.flush()  # Get the ID immediately
                     # Update our blocking cache so the next doc can find them
                     city_people_cache[event.place_id].append(existing_person)
                     person_count += 1
+                elif person_type == "official" and existing_person.person_type != "official":
+                    # Upgrade mention-only profiles when we later see official evidence.
+                    existing_person.person_type = "official"
 
                 person_id = existing_person.id
 
-                # 2. Find or Create Membership
+                # 2. Find or Create Membership for official profiles only.
+                # Mention-only rows keep identity info but are not treated as body members.
+                if existing_person.person_type != "official":
+                    continue
+
                 # A person can be a member of multiple organizations
                 # Example: Someone might serve on both City Council and Planning Commission
                 mem_key = (person_id, org_id)

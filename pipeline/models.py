@@ -125,6 +125,8 @@ class Person(Base):
     biography = Column(String(5000), nullable=True)
     current_role = Column(String(255), nullable=True)
     is_elected = Column(Boolean, default=False, index=True)
+    # Distinguishes official records from mention-only NLP detections.
+    person_type = Column(String(20), default="mentioned", index=True, nullable=False)
     
     created_at = Column(DateTime, default=datetime.datetime.now)
 
