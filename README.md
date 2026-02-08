@@ -109,10 +109,15 @@ To ensure the 'Person' table remains 100% human, the pipeline implements strict 
 5. **Proper Noun Enforcement:** Every official name MUST contain at least one Proper Noun (PROPN) as identified by the NLP model.
 
 ## Testing
-Run the comprehensive suite of 70+ unit, integration, and benchmark tests:
+Run the comprehensive suite of 80+ unit, integration, and benchmark tests (37% code coverage):
 ```bash
 docker-compose run --rm pipeline pytest /app/tests/
 ```
+
+**Test Results:** 79 passing, 2 failing (98% pass rate)
+- Core functionality: AI extraction, NLP entity recognition, fuzzy matching, spider parsing
+- Data quality: Noise filtering, name validation, deduplication
+- Infrastructure: Database migrations, session management, error handling
 
 ## Performance & Load Testing
 We use automated audits to ensure the platform remains fast as it grows.
