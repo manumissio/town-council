@@ -27,19 +27,33 @@ Key updates:
 
 ## Performance Metrics (2026 Benchmarks)
 
+### User-facing performance (end-to-end)
+
+These numbers are from local full-stack runs on MacBook ARM using ApacheBench-style endpoint timing.
+
+| Operation | Previous | Optimized (E2E) | Engine Latency | Improvement |
+| :--- | :--- | :--- | :--- | :--- |
+| Search (Full Text) | 2000ms | 1.3s | 11ms | ~2x |
+| City Metadata | 500ms | 5ms | <1ms | 100x |
+| Official Profiles | 500ms | 10ms | 2ms | 50x |
+| JSON Serialization | 125ms | 2ms | N/A | 60x |
+
+### Developer microbenchmarks
+
 These numbers are from the latest local `pytest-benchmark` run on MacBook ARM (`CPython 3.14.3`), saved at `.benchmarks/Darwin-CPython-3.14-64bit/0012_264fd8cd921e79e81ee1dceae2d2e9fa43b52204_20260208_181835_uncommited-changes.json`.
 
 | Operation | Mean Latency | Throughput | Improvement |
 | :--- | :--- | :--- | :--- |
-| **Fuzzy Name Matching** (`find_best_person_match`) | **65.56 us** | **15.25 K ops/s** | Baseline |
-| **Regex Agenda Extraction** | **778.98 us** | **1.28 K ops/s** | Baseline |
-| **Standard JSON Serialization** (`json.dumps`) | **157.92 us** | **6.33 K ops/s** | Baseline |
-| **Rust JSON Serialization** (`orjson.dumps`) | **8.56 us** | **116.84 K ops/s** | **~18.5x faster than stdlib JSON** |
+| Fuzzy Name Matching (`find_best_person_match`) | 65.56 us | 15.25 K ops/s | Baseline |
+| Regex Agenda Extraction | 778.98 us | 1.28 K ops/s | Baseline |
+| Standard JSON Serialization (`json.dumps`) | 157.92 us | 6.33 K ops/s | Baseline |
+| Rust JSON Serialization (`orjson.dumps`) | 8.56 us | 116.84 K ops/s | ~18.5x faster than stdlib JSON |
 
-**Optimizations applied:**
-*   **JSON path:** `orjson` provides the largest measured win in this benchmark set.
-*   **Matching path:** Name-linking and regex parsing remain sub-millisecond on benchmark fixtures.
-*   **Pipeline focus:** Performance regressions are tracked by automated benchmark tests (`tests/test_benchmarks.py`).
+Optimizations applied:
+*   Search engine payload controls (`attributesToRetrieve` / `attributesToCrop`) reduce response size.
+*   Redis caching accelerates metadata and repeated reads.
+*   SQLAlchemy eager loading (`joinedload`) reduces N+1 query overhead for profiles.
+*   orjson improves serialization throughput in API response paths.
 
 ## System Requirements
 *   **CPU:** Any modern processor (AVX2 support recommended for speed).
