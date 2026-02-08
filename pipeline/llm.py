@@ -11,40 +11,64 @@ logger = logging.getLogger("local-ai")
 class LocalAI:
     """
     The 'Brain' of our application.
+
     Uses a singleton pattern to keep the model loaded in RAM.
+    What's a singleton? It means only ONE instance of this class ever exists.
+    Why? Loading the AI model takes ~5 seconds and uses ~500MB RAM. We don't want
+    to load it multiple times!
     """
-    _instance = None
-    _lock = threading.Lock()
+    _instance = None  # Stores the single instance
+    _lock = threading.Lock()  # Prevents race conditions when multiple threads try to create the instance
 
     def __new__(cls):
+        """
+        This special method controls how new instances are created.
+        Instead of creating a new instance every time, we return the same one.
+        """
+        # First check: Is there already an instance? (fast path, no lock needed)
         if cls._instance is None:
+            # Multiple threads might reach here at the same time, so we need a lock
             with cls._lock:
+                # Second check: Now that we have the lock, double-check no one else created it
                 if cls._instance is None:
                     cls._instance = super(LocalAI, cls).__new__(cls)
-                    cls._instance.llm = None
+                    cls._instance.llm = None  # Initialize the model as None (we'll load it later)
         return cls._instance
 
     def _load_model(self):
-        if self.llm is not None:
-            return
+        """
+        Loads the AI model from disk into memory.
 
-        model_path = os.getenv("LOCAL_MODEL_PATH", "/models/gemma-3-270m-it-Q4_K_M.gguf")
-        
-        if not os.path.exists(model_path):
-            logger.warning(f"Model not found at {model_path}.")
-            return
+        This is wrapped in a lock because:
+        1. Loading takes several seconds
+        2. If two threads try to load simultaneously, we'd waste RAM and cause errors
+        3. The lock ensures only ONE thread loads the model, others wait
+        """
+        with self._lock:  # Acquire the lock (other threads will wait here)
+            # Check if model is already loaded (another thread may have loaded it while we waited)
+            if self.llm is not None:
+                return  # Already loaded, nothing to do
 
-        logger.info(f"Loading Local AI Model from {model_path}...")
-        try:
-            self.llm = Llama(
-                model_path=model_path,
-                n_ctx=2048,
-                n_gpu_layers=0,
-                verbose=False
-            )
-            logger.info("AI Model loaded successfully.")
-        except Exception as e:
-            logger.error(f"Failed to load AI model: {e}")
+            # Find where the model file is stored
+            model_path = os.getenv("LOCAL_MODEL_PATH", "/models/gemma-3-270m-it-Q4_K_M.gguf")
+
+            # Make sure the file actually exists
+            if not os.path.exists(model_path):
+                logger.warning(f"Model not found at {model_path}.")
+                return  # Can't load what doesn't exist
+
+            logger.info(f"Loading Local AI Model from {model_path}...")
+            try:
+                # Load the model (this is slow: ~5 seconds, ~500MB RAM)
+                self.llm = Llama(
+                    model_path=model_path,
+                    n_ctx=2048,  # Maximum context size (how much text it can process at once)
+                    n_gpu_layers=0,  # Don't use GPU (we want this to work on any machine)
+                    verbose=False  # Don't print debug info
+                )
+                logger.info("AI Model loaded successfully.")
+            except Exception as e:
+                logger.error(f"Failed to load AI model: {e}")
 
     def summarize(self, text):
         self._load_model()
@@ -68,46 +92,89 @@ class LocalAI:
         
         items = []
         if self.llm:
-            safe_text = text[:3000]
-            prompt = f"<start_of_turn>user\nExtract meeting topics. Format each as '* Title - Description'. No extra chat.\nText: {safe_text}<end_of_turn>\n<start_of_turn>model\n* "
+            # We increase context slightly to catch more items, focusing on the start
+            safe_text = text[:6000]
+            
+            # PROMPT: We now ask for Page numbers and a clean list.
+            # We explicitly tell it to ignore boilerplate and headers.
+            prompt = (
+                "<start_of_turn>user\n"
+                "Extract ONLY the real agenda items from this meeting document. "
+                "Include the page number where each item starts. "
+                "Format: ITEM [Order]: [Title] (Page [X]) - [Brief Summary]\n\n"
+                f"Text:\n{safe_text}<end_of_turn>\n"
+                "<start_of_turn>model\n"
+                "ITEM 1:"
+            )
             
             with self._lock:
                 try:
-                    response = self.llm(prompt, max_tokens=1024, temperature=0.1)
-                    content = "* " + response["choices"][0]["text"].strip()
+                    response = self.llm(prompt, max_tokens=1500, temperature=0.1)
+                    raw_content = response["choices"][0]["text"].strip()
+                    content = "ITEM 1:" + raw_content
+                    pattern = r"ITEM\s+(\d+):\s*(.*?)\s*\(Page\s*(\d+)\)\s*-\s*(.*)"
                     
                     for line in content.split("\n"):
-                        if line.startswith("*"):
-                            # Strip markdown artifacts
-                            clean_line = line.replace("**", "").replace("__", "")
-                            parts = clean_line[1:].split("-", 1)
-                            title = parts[0].strip()
-                            # Extra cleaning for the '*' if it was caught in the split
-                            if title.startswith("*"): title = title[1:].strip()
+                        match = re.search(pattern, line, re.IGNORECASE)
+                        if match:
+                            order = int(match.group(1))
+                            title = match.group(2).strip()
+                            page = int(match.group(3))
+                            desc = match.group(4).strip()
                             
-                            desc = parts[1].strip() if len(parts) > 1 else ""
+                            # Validation: Skip generic items
+                            blacklist = ['call to order', 'roll call', 'adjournment', 'pledge of allegiance']
+                            if any(b in title.lower() for b in blacklist):
+                                continue
+
                             if len(title) > 5:
                                 items.append({
+                                    "order": order,
                                     "title": title,
+                                    "page_number": page,
                                     "description": desc,
-                                    "classification": "Discussion",
+                                    "classification": "Agenda Item",
                                     "result": ""
                                 })
                 except Exception as e:
-                    logger.error(f"AI Extraction failed: {e}")
+                    logger.error(f"AI Agenda Extraction failed: {e}")
                 finally:
                     if self.llm: self.llm.reset()
 
+        # FALLBACK: If AI fails, use a smarter paragraph splitter that looks for page markers
         if not items:
-            paragraphs = [p.strip() for p in text.split("\n\n") if len(p.strip()) > 20]
-            for p in paragraphs[:10]:
-                lines = p.split("\n")
-                title = lines[0].replace("**", "").replace("__", "")[:100]
-                items.append({
-                    "title": title,
-                    "description": p,
-                    "classification": "Discussion",
-                    "result": ""
-                })
+            # Split by [PAGE X]
+            page_splits = re.split(r'\[PAGE (\d+)\]', text)
+            
+            # page_splits format: [pre-text, "1", page1_text, "2", page2_text...]
+            # We skip the first element (pre-text)
+            for i in range(1, len(page_splits), 2):
+                page_num = int(page_splits[i])
+                page_content = page_splits[i+1].strip()
+                
+                # Look for bold-looking lines or short starting lines
+                # We split by double newline and filter for likely headers
+                paragraphs = [p.strip() for p in page_content.split("\n\n") if 10 < len(p.strip()) < 1000]
+                
+                for p in paragraphs:
+                    lines = p.split("\n")
+                    if not lines: continue
+                    title = lines[0].strip()
+                    
+                    # Heuristic: If it's short, capitalized, or starts with a number, it's likely a title
+                    if 10 < len(title) < 150 and not any(b in title.lower() for b in ['page', 'item', 'packet', 'continuing']):
+                        items.append({
+                            "order": len(items) + 1,
+                            "title": title,
+                            "page_number": page_num,
+                            "description": (p[:500] + "...") if len(p) > 500 else p,
+                            "classification": "Agenda Item",
+                            "result": ""
+                        })
+                        # Limit to 3 items per page to reduce noise in fallback
+                        if len([it for it in items if it['page_number'] == page_num]) >= 3:
+                            break
+                            
+                if len(items) > 30: break # Cap total items per doc
         
         return items
