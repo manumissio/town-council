@@ -108,12 +108,50 @@ DOWNLOAD_WORKERS = 5
 MEILISEARCH_BATCH_SIZE = 20
 
 # Number of documents to process in parallel during pipeline run
-# This is multiplied by CPU count, so on a 4-core machine: 20 * 4 = 80 docs
+# Documents are split into chunks of this size for batch processing
+# Each worker processes one chunk at a time with a single DB connection
 DOCUMENT_CHUNK_SIZE = 20
 
 # Maximum worker processes for parallel processing
 # Prevents creating 100s of processes on high-core machines
+# Capped at 5 to ensure Tika server stability with large PDF packets
 MAX_WORKERS = 5
+
+# CPU utilization fraction for parallel pipeline processing (0.75 = 75%)
+# On a 4-core machine: 75% = 3 workers (but capped by MAX_WORKERS)
+# Lower = more resources for other services, Higher = faster processing
+PIPELINE_CPU_FRACTION = 0.75
+
+# Retry delay range for database connection attempts (min, max seconds)
+# Random delay prevents thundering herd when multiple workers retry simultaneously
+DB_RETRY_DELAY_MIN = 1
+DB_RETRY_DELAY_MAX = 3
+
+# Batch size for agenda item extraction
+# How many documents to process for agenda extraction in one batch
+# Lower = faster feedback, Higher = more efficient database usage
+AGENDA_BATCH_SIZE = 10
+
+# Batch size for text extraction commits
+# How many documents to extract before committing to database
+# Smaller batches = more frequent saves, Larger batches = better performance
+EXTRACTION_BATCH_SIZE = 10
+
+
+# =============================================================================
+# TIKA TEXT EXTRACTION CONFIGURATION
+# =============================================================================
+# These control how we extract text from PDFs and HTML files using Apache Tika
+
+# Timeout for Tika server requests (in seconds)
+# Tika can take time with large PDFs (OCR, complex layouts)
+# 60 seconds handles most documents without hanging indefinitely
+TIKA_TIMEOUT_SECONDS = 60
+
+# Retry backoff multiplier for Tika requests
+# When Tika fails, we wait (attempt × multiplier) seconds before retrying
+# Attempt 1: wait 2s, Attempt 2: wait 4s
+TIKA_RETRY_BACKOFF_MULTIPLIER = 2
 
 
 # =============================================================================
