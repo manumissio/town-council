@@ -149,6 +149,9 @@ class LocalAI:
                 return True
             if lowered.startswith("http://") or lowered.startswith("https://"):
                 return True
+            # URLs embedded in a line are almost always boilerplate, not an agenda topic.
+            if "http://" in lowered or "https://" in lowered or "www." in lowered:
+                return True
             # Dates, times, and location/address lines are metadata, not agenda topics.
             if re.match(r"^[A-Za-z]+,\s+[A-Za-z]+\s+\d{1,2},\s+\d{4}$", title):
                 return True
@@ -157,6 +160,23 @@ class LocalAI:
             if re.search(r"\b\d{2,6}\s+[A-Za-z].*(street|st|avenue|ave|road|rd|blvd|boulevard)\b", lowered):
                 return True
             if "mayor" in lowered or "councilmembers" in lowered:
+                return True
+            # Common accessibility / participation boilerplate.
+            if re.search(r"\b(disability[- ]related|accommodation\\(s\\)|auxiliary aids|interpreters?)\b", lowered):
+                return True
+            if re.search(r"\b(brown act|executive orders?)\b", lowered):
+                return True
+            if re.search(r"\b(communication access information|questions regarding|public comment portion)\b", lowered):
+                return True
+            if re.search(r"\b(agendas? and agenda reports?|agenda reports? may be accessed)\b", lowered):
+                return True
+            if re.search(r"\b(may participate in the public comment|meeting will be conducted in accordance)\b", lowered):
+                return True
+            if re.search(r"\b(city clerk|cityofberkeley\\.info|cityofberkeley\\.org)\b", lowered):
+                return True
+            if "as follows" in lowered and len(lowered) <= 40:
+                return True
+            if lowered.endswith(":") and len(lowered) <= 45:
                 return True
 
             # Common meeting header noise that should not become agenda items.
@@ -214,6 +234,9 @@ class LocalAI:
                 return False
             clean = re.sub(r"\(\d+\)", "", clean).strip()
             lowered = clean.lower()
+            # Speaker roll entries frequently contain this phrase.
+            if "on behalf of" in lowered:
+                return True
             if re.search(
                 r"\b(update|plan|zoning|hearing|budget|report|session|meeting|ordinance|resolution|project|communications|adjournment|amendment|specific|corridor|worksession)\b",
                 lowered

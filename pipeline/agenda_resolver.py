@@ -28,6 +28,8 @@ def agenda_quality_score(items: List[Any]) -> int:
     score = 100
     seen = set()
     page_one_count = 0
+    boilerplate_hits = 0
+    name_like_hits = 0
 
     for item in items:
         title = _normalize_title(_get_value(item, "title") or "")
@@ -45,6 +47,23 @@ def agenda_quality_score(items: List[Any]) -> int:
             score -= 15
         seen.add(key)
 
+        # These patterns are common in meeting *headers* and legal notices, not agenda items.
+        # We keep this generic and phrase-based (not city-specific) so it applies across jurisdictions.
+        if re.search(r"\b(i hereby request|in witness whereof|official seal|cause personal notice|forthwith)\b", key):
+            boilerplate_hits += 1
+            score -= 18
+
+        # COVID-era meeting notices and similar advisories tend to be long prose, not agenda topics.
+        if re.search(r"\bstate of emergency\b", key) and len(key) > 60:
+            boilerplate_hits += 1
+            score -= 12
+
+        # A pure person name (often from speaker lists) is rarely a useful agenda title.
+        # Example: "Leslie Sakai" or "Kirk McCarthy (2)".
+        if re.fullmatch(r"[A-Z][a-z]+(?: [A-Z]\.)?(?: [A-Z][a-z]+)+(?: \\(\\d+\\))?", title):
+            name_like_hits += 1
+            score -= 10
+
         tokens = [t for t in key.split(" ") if t]
         if tokens:
             single_char_ratio = sum(1 for t in tokens if len(t) == 1 and t.isalpha()) / len(tokens)
@@ -57,8 +76,16 @@ def agenda_quality_score(items: List[Any]) -> int:
         if len(title) < 6:
             score -= 15
 
+    # If almost everything is on page 1, we likely lost page detection or are extracting headers.
     if page_one_count >= max(1, int(len(items) * 0.8)):
-        score -= 10
+        score -= 20
+
+    # If most "items" look like boilerplate or speaker names, treat the whole set as suspect.
+    if len(items) >= 3:
+        if boilerplate_hits >= 1 and boilerplate_hits >= int(len(items) * 0.34):
+            score -= 15
+        if name_like_hits >= 2 and name_like_hits >= int(len(items) * 0.5):
+            score -= 15
 
     return max(0, min(100, score))
 

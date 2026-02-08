@@ -75,3 +75,46 @@ def test_regression_legal_boilerplate_not_promoted_to_agenda_items():
     assert "public employee appointments" in titles
     assert all("hereby request" not in title for title in titles)
     assert all("in witness whereof" not in title for title in titles)
+
+
+def test_regression_accessibility_and_url_boilerplate_not_promoted_to_agenda_items():
+    """
+    Agenda PDFs often contain participation/accessibility boilerplate plus URLs.
+    These should not become agenda item titles.
+    """
+    text = (
+        "[PAGE 1]\n\n"
+        "Agendas and agenda reports may be accessed via the Internet at http://example.com\n"
+        "COMMUNICATION ACCESS INFORMATION:\n"
+        "To request a disability-related accommodation(s) to participate in the meeting...\n"
+        "This meeting will be conducted in accordance with the Brown Act, Government Code Section 54953...\n"
+        "1. Public Employee Appointments\n"
+    )
+    items = _extract_with_forced_fallback(text)
+    titles = [item["title"].lower() for item in items]
+
+    assert "public employee appointments" in titles
+    assert all("agenda reports" not in title for title in titles)
+    assert all("communication access information" not in title for title in titles)
+    assert all("disability-related" not in title for title in titles)
+    assert all("brown act" not in title for title in titles)
+
+
+def test_regression_on_behalf_of_speaker_lines_not_promoted_to_agenda_items():
+    """
+    Communications sections can include named speakers like "X, on behalf of Y".
+    These lines are people mentions, not agenda items.
+    """
+    text = (
+        "[PAGE 4]\n\n"
+        "Communications\n"
+        "Item #1: Transit Network Update\n"
+        "1. Shona Armstrong, on behalf of Harper & Armstrong, LLP\n"
+        "2. Isaiah Stackhouse, on behalf of Trachtenberg Architects\n"
+        "1. Transit Network Update\n"
+    )
+    items = _extract_with_forced_fallback(text)
+    titles = [item["title"] for item in items]
+
+    assert "Transit Network Update" in titles
+    assert all("on behalf of" not in title.lower() for title in titles)

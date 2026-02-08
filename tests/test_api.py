@@ -117,6 +117,71 @@ def test_agenda_quality_gate_flags_low_quality_cache():
     bad_items = [
         MagicMock(title="", page_number=1),
         MagicMock(title="Special Closed Meeting 10/03/11", page_number=1),
-        MagicMock(title="Special Closed Meeting 10/03/11", page_number=1),
+        MagicMock(title="I hereby request that the City Clerk provide notice to each member.", page_number=1),
+        MagicMock(title="state of emergency continues to directly impact the ability of the members to meet safely in person and", page_number=1),
     ]
     assert agenda_items_look_low_quality(bad_items) is True
+
+
+def test_segment_force_bypasses_cache(mocker):
+    """
+    If cached agenda items exist, `force=true` should still enqueue regeneration.
+    """
+    from api.main import get_db, Catalog, AgendaItem
+
+    catalog = MagicMock(id=401, content="text")
+
+    db = MagicMock()
+    db.get.return_value = catalog
+    query = db.query.return_value
+    query.filter_by.return_value.order_by.return_value.all.return_value = [
+        MagicMock(title="Budget Amendment", order=1)
+    ]
+
+    def _mock_get_db():
+        yield db
+
+    app.dependency_overrides[get_db] = _mock_get_db
+    mocker.patch("api.main.agenda_items_look_low_quality", return_value=False)
+    mock_task = MagicMock()
+    mock_task.id = "task123"
+    mocker.patch("api.main.segment_agenda_task.delay", return_value=mock_task)
+
+    try:
+        resp = client.post("/segment/401?force=true", headers={"X-API-Key": VALID_KEY})
+        assert resp.status_code == 200
+        payload = resp.json()
+        assert payload["status"] == "processing"
+        assert payload["task_id"] == "task123"
+    finally:
+        del app.dependency_overrides[get_db]
+
+
+def test_segment_returns_cached_when_not_forced_and_quality_ok(mocker):
+    """
+    Default behavior: if cache exists and doesn't look low quality, return cached items.
+    """
+    from api.main import get_db
+
+    catalog = MagicMock(id=401, content="text")
+    existing = [MagicMock(title="Budget Amendment", order=1)]
+
+    db = MagicMock()
+    db.get.return_value = catalog
+    query = db.query.return_value
+    query.filter_by.return_value.order_by.return_value.all.return_value = existing
+
+    def _mock_get_db():
+        yield db
+
+    app.dependency_overrides[get_db] = _mock_get_db
+    mocker.patch("api.main.agenda_items_look_low_quality", return_value=False)
+    mocker.patch("api.main.segment_agenda_task.delay")
+
+    try:
+        resp = client.post("/segment/401", headers={"X-API-Key": VALID_KEY})
+        assert resp.status_code == 200
+        payload = resp.json()
+        assert payload["status"] == "cached"
+    finally:
+        del app.dependency_overrides[get_db]

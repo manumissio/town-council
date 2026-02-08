@@ -26,7 +26,7 @@ sys.path.append(os.path.join(os.path.dirname(__file__), '..'))
 
 # We initialize these as None first. If the import works, we fill them.
 SessionLocal = None
-agenda_items_look_low_quality = lambda items: False
+agenda_items_look_low_quality = None
 
 try:
     from pipeline.models import db_connect, Document, Event, Place, Catalog, Person, AgendaItem, DataIssue, IssueType, Membership, Organization
@@ -389,6 +389,13 @@ def summarize_document(
 def segment_agenda(
     request: Request,
     catalog_id: int = Path(..., ge=1),
+    force: bool = Query(
+        False,
+        description=(
+            "Force regeneration even if cached items exist. "
+            "Useful after segmentation logic changes or when cached data is known-bad."
+        ),
+    ),
     db: SQLAlchemySession = Depends(get_db)
 ):
     """
@@ -401,12 +408,16 @@ def segment_agenda(
 
     # Check cache
     existing_items = db.query(AgendaItem).filter_by(catalog_id=catalog_id).order_by(AgendaItem.order).all()
-    if existing_items and not agenda_items_look_low_quality(existing_items):
+    # The resolver may evolve over time. When it does, we sometimes need a way to
+    # refresh previously cached agenda rows. `force=true` is that escape hatch.
+    if not force and existing_items and agenda_items_look_low_quality and not agenda_items_look_low_quality(existing_items):
         return {"status": "cached", "items": existing_items}
-    if existing_items:
+    if not force and existing_items:
         logger.info(
             f"Agenda cache for catalog_id={catalog_id} looks low quality; regenerating asynchronously."
         )
+    if force:
+        logger.info(f"Force-regenerating agenda cache for catalog_id={catalog_id}.")
 
     # Dispatch Task
     task = segment_agenda_task.delay(catalog_id)
