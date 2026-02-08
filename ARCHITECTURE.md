@@ -35,8 +35,11 @@ graph TD
     subgraph "Processing Pipeline (Distributed)"
         Downloader[Downloader: Parallel Streaming]
         Tika[[Apache Tika Service]]
+        Proc[Parallel OCR + NLP (run_pipeline)]
+        Tables[Table Worker]
+        Topics[Topic Worker]
+        Backfill[Org Backfill]
         Linker[Person Linker]
-        NLP[NLP/Topic/Table Workers]
     end
 
     subgraph "Async AI Brain (Celery)"
@@ -65,25 +68,35 @@ graph TD
 
     %% Flow: Processing
     Prod --> Downloader
-    Downloader --> Tika
-    Tika --> NLP
-    NLP --> Linker
+    Downloader --> Proc
+    Proc --> Tika
+    Proc --> Tables
+    Proc --> Backfill
+    Proc --> Topics
+    Tables --> Linker
+    Backfill --> Linker
+    Topics --> Linker
     Linker --> Mem & Person
+    Linker --> Cat
+    Cat --> Meili
 
     %% Flow: Async AI Logic
-    NextJS -- "1. POST /summarize" --> FastAPI
+    NextJS -- "1. POST /summarize or /segment/{id}" --> FastAPI
     FastAPI -- "2. Dispatch" --> Redis
     Redis -- "3. Pick Up" --> Worker
     Worker -- "4. Inference" --> LocalAI
-    LocalAI -- "5. Store" --> Postgres
+    LocalAI -- "5. Resolve agenda (Legistar -> HTML -> LLM)" --> Worker
+    Worker -- "6. Store summary/items" --> Postgres
     NextJS -- "6. Poll Status" --> FastAPI
     FastAPI -- "7. Check Results" --> Redis
 
     %% Flow: Search & Cache
-    Cat --> Meili
     Meili <--> FastAPI
     FastAPI <--> Redis
     NextJS <--> FastAPI
+
+    %% Legistar reuse beyond crawling
+    Legi --> Worker
 
     %% Flow: Metrics
     Postgres -.-> Mon
