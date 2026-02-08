@@ -191,6 +191,25 @@ Additional behavior:
 * When fallback text includes `Vote:` lines, the extracted vote outcome is stored in item `result` and shown in the Structured Agenda UI.
 * Resolver code is shared by both async tasks and batch workers to avoid duplicate logic.
 
+### Agenda QA (Quality Scoring + Targeted Regeneration)
+You should not have to manually inspect every meeting to find segmentation errors.
+Instead, run Agenda QA to score stored agenda items using generic signals (boilerplate,
+speaker-name rolls, page-number issues, and missed `Vote:` lines).
+
+Report only (safe):
+```bash
+docker compose run --rm pipeline python run_agenda_qa.py
+```
+
+Report + targeted regeneration (opt-in):
+```bash
+docker compose run --rm pipeline python run_agenda_qa.py --regenerate --max 50
+```
+
+Outputs:
+* Reports are written to `data/reports/agenda_qa_<timestamp>.json` and `.csv`.
+* Regeneration is capped and rate-limited; it only enqueues catalogs that look suspect.
+
 ### Docker Compose Note
 `docker-compose.yml` was reviewed for this change set.
 No service or environment changes were required because Legistar cross-check uses existing DB metadata (`place.legistar_client`) and existing API/network paths.

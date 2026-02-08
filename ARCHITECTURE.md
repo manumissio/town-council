@@ -182,6 +182,19 @@ To keep official profiles trustworthy:
 *   Membership links are created for `official` profiles only.
 *   The `/people` endpoint filters to `official` records by default and supports an explicit diagnostics mode (`include_mentions=true`).
 
+### Agenda QA Loop (Non-Brittle Validation)
+Agenda segmentation is heuristic-heavy, so quality can drift as new documents and formats appear.
+To avoid brittle, city-specific rules and manual spot checks, the pipeline includes an Agenda QA scorer:
+* scores stored agenda items using generic signals (boilerplate, speaker-name rolls, page-number quality, missed `Vote:` lines)
+* produces a report of likely-bad catalogs (worst overall and per city)
+* optionally enqueues targeted regeneration for only the suspect catalogs (safe caps + rate limiting)
+
+This creates a quality loop:
+1. extract + store agenda items
+2. score quality from the stored rows + raw document text
+3. regenerate only the outliers
+4. lock patterns in with regression tests (property checks, not exact city outputs)
+
 ### 8.2 Performance Architecture (Sub-100ms)
 To ensure the platform feels "instant" even on consumer hardware, we use a multi-tiered acceleration strategy:
 *   **Caching Layer (Redis):** Frequently accessed data (like City Metadata and Statistics) is stored in RAM using Redis. This offloads 95% of read traffic from the database and delivers results in <5ms.
