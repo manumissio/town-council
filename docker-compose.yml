@@ -202,7 +202,7 @@ services:
       - "3000:3000"
     environment:
       - NEXT_PUBLIC_API_URL=${NEXT_PUBLIC_API_URL:-http://localhost:8000}
-      - API_AUTH_KEY=${API_AUTH_KEY:-dev_secret_key_change_me}
+      - NEXT_PUBLIC_API_AUTH_KEY=${NEXT_PUBLIC_API_AUTH_KEY:-}
     depends_on:
       - api
 

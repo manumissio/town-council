@@ -107,3 +107,39 @@ def test_generate_summary_retries_when_ai_returns_none(mocker):
 
     retry_mock.assert_called_once()
     mock_db.rollback.assert_called_once()
+
+
+def test_summarize_requires_api_key(mocker):
+    """Protected endpoint should reject missing API key."""
+    mock_catalog = MagicMock()
+    mock_catalog.id = 1
+    mock_catalog.content = "Some text"
+    mock_catalog.summary = None
+
+    mock_db = MagicMock()
+    mock_db.get.return_value = mock_catalog
+    app.dependency_overrides[get_db] = lambda: mock_db
+
+    try:
+        response = client.post("/summarize/1")
+        assert response.status_code == 401
+    finally:
+        del app.dependency_overrides[get_db]
+
+
+def test_summarize_rejects_invalid_api_key(mocker):
+    """Protected endpoint should reject incorrect API key."""
+    mock_catalog = MagicMock()
+    mock_catalog.id = 1
+    mock_catalog.content = "Some text"
+    mock_catalog.summary = None
+
+    mock_db = MagicMock()
+    mock_db.get.return_value = mock_catalog
+    app.dependency_overrides[get_db] = lambda: mock_db
+
+    try:
+        response = client.post("/summarize/1", headers={"X-API-Key": "wrong-key"})
+        assert response.status_code == 401
+    finally:
+        del app.dependency_overrides[get_db]

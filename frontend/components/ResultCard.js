@@ -6,6 +6,40 @@ import {
   Flag, AlertCircle, CheckCircle
 } from "lucide-react";
 import DataTable from "./DataTable";
+import { API_BASE_URL, getApiHeaders } from "../lib/api";
+
+// Poll background tasks until complete/failed.
+async function pollTaskStatus(taskId, callback, onError, type = "summary") {
+  const checkStatus = async () => {
+    try {
+      const res = await fetch(`${API_BASE_URL}/tasks/${taskId}`);
+      const data = await res.json();
+
+      if (data.status === "complete") {
+        if (type === "summary") callback(data.result.summary);
+        else callback(data.result.items || []);
+        return true;
+      }
+
+      if (data.status === "failed") {
+        console.error("Task failed", data.error);
+        if (onError) onError(data.error);
+        return true;
+      }
+
+      return false;
+    } catch (err) {
+      console.error("Polling error", err);
+      if (onError) onError(err);
+      return true;
+    }
+  };
+
+  const interval = setInterval(async () => {
+    const isDone = await checkStatus();
+    if (isDone) clearInterval(interval);
+  }, 2000);
+}
 
 /**
  * ResultCard Component
@@ -32,14 +66,9 @@ export default function ResultCard({ hit, onPersonClick }) {
   const handleReportIssue = async (issueType) => {
     setReportStatus('loading');
     try {
-      const apiUrl = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
-      const apiAuthKey = process.env.NEXT_PUBLIC_API_AUTH_KEY || "dev_secret_key_change_me";
-      const res = await fetch(`${apiUrl}/report-issue`, {
+      const res = await fetch(`${API_BASE_URL}/report-issue`, {
         method: "POST",
-        headers: { 
-          "Content-Type": "application/json",
-          "X-API-Key": apiAuthKey
-        },
+        headers: getApiHeaders({ useAuth: true, json: true }),
         body: JSON.stringify({
           event_id: hit.event_id || hit.id,
           issue_type: issueType,
@@ -72,13 +101,11 @@ export default function ResultCard({ hit, onPersonClick }) {
   const fetchRelatedMeetings = async () => {
     setIsLoadingRelated(true);
     try {
-      const apiUrl = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
-      const apiAuthKey = process.env.NEXT_PUBLIC_API_AUTH_KEY || "dev_secret_key_change_me";
       const params = new URLSearchParams();
       hit.related_ids.forEach(id => params.append('ids', id));
       
-      const res = await fetch(`${apiUrl}/catalog/batch?${params.toString()}`, {
-        headers: { "X-API-Key": apiAuthKey }
+      const res = await fetch(`${API_BASE_URL}/catalog/batch?${params.toString()}`, {
+        headers: getApiHeaders({ useAuth: true })
       });
       const data = await res.json();
       setRelatedMeetings(data);
@@ -89,51 +116,14 @@ export default function ResultCard({ hit, onPersonClick }) {
     }
   };
 
-  const pollTask = async (taskId, callback, onError, type = 'summary') => {
-    const apiUrl = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
-    
-    const checkStatus = async () => {
-      try {
-        const res = await fetch(`${apiUrl}/tasks/${taskId}`);
-        const data = await res.json();
-        
-        if (data.status === 'complete') {
-          if (type === 'summary') {
-            callback(data.result.summary);
-          } else {
-            callback(data.result.items || []);
-          }
-          return true; // Stop polling
-        } else if (data.status === 'failed') {
-          console.error("Task failed", data.error);
-          if (onError) onError(data.error);
-          return true;
-        }
-        return false; // Keep polling
-      } catch (err) {
-        console.error("Polling error", err);
-        if (onError) onError(err);
-        return true;
-      }
-    };
-
-    // Poll every 2 seconds
-    const interval = setInterval(async () => {
-      const isDone = await checkStatus();
-      if (isDone) clearInterval(interval);
-    }, 2000);
-  };
-
   const handleGenerateSummary = async () => {
     if (!hit.catalog_id) return;
     
     setIsGenerating(true);
     try {
-      const apiUrl = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
-      const apiAuthKey = process.env.NEXT_PUBLIC_API_AUTH_KEY || "dev_secret_key_change_me";
-      const res = await fetch(`${apiUrl}/summarize/${hit.catalog_id}`, { 
+      const res = await fetch(`${API_BASE_URL}/summarize/${hit.catalog_id}`, {
         method: "POST",
-        headers: { "X-API-Key": apiAuthKey }
+        headers: getApiHeaders({ useAuth: true })
       });
       const data = await res.json();
       
@@ -141,7 +131,7 @@ export default function ResultCard({ hit, onPersonClick }) {
         setSummary(data.summary);
         setIsGenerating(false);
       } else if (data.task_id) {
-        pollTask(data.task_id, (result) => {
+        pollTaskStatus(data.task_id, (result) => {
           setSummary(result);
           setIsGenerating(false);
         }, () => setIsGenerating(false), 'summary');
@@ -159,11 +149,9 @@ export default function ResultCard({ hit, onPersonClick }) {
     
     setIsSegmenting(true);
     try {
-      const apiUrl = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
-      const apiAuthKey = process.env.NEXT_PUBLIC_API_AUTH_KEY || "dev_secret_key_change_me";
-      const res = await fetch(`${apiUrl}/segment/${hit.catalog_id}`, { 
+      const res = await fetch(`${API_BASE_URL}/segment/${hit.catalog_id}`, {
         method: "POST",
-        headers: { "X-API-Key": apiAuthKey }
+        headers: getApiHeaders({ useAuth: true })
       });
       const data = await res.json();
       
@@ -171,7 +159,7 @@ export default function ResultCard({ hit, onPersonClick }) {
         setAgendaItems(data.items);
         setIsSegmenting(false);
       } else if (data.task_id) {
-        pollTask(data.task_id, (result) => {
+        pollTaskStatus(data.task_id, (result) => {
           setAgendaItems(result);
           setIsSegmenting(false);
         }, () => setIsSegmenting(false), 'agenda');
