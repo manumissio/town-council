@@ -21,11 +21,11 @@ def _build_db():
         poolclass=StaticPool,
     )
     Base.metadata.create_all(engine)
-    return sessionmaker(bind=engine)
+    return engine, sessionmaker(bind=engine)
 
 
 def test_people_endpoint_defaults_to_officials_only():
-    Session = _build_db()
+    engine, Session = _build_db()
     seed_db = Session()
     seed_db.add_all([
         Person(name="Official One", ocd_id="ocd-person/00000000-0000-0000-0000-000000000001", person_type="official"),
@@ -52,10 +52,11 @@ def test_people_endpoint_defaults_to_officials_only():
         assert data["results"][0]["name"] == "Official One"
     finally:
         del app.dependency_overrides[get_db]
+        engine.dispose()
 
 
 def test_people_endpoint_include_mentions_true_returns_all():
-    Session = _build_db()
+    engine, Session = _build_db()
     seed_db = Session()
     seed_db.add_all([
         Person(name="Official One", ocd_id="ocd-person/00000000-0000-0000-0000-000000000011", person_type="official"),
@@ -82,3 +83,4 @@ def test_people_endpoint_include_mentions_true_returns_all():
         assert {row["name"] for row in data["results"]} == {"Official One", "Mention One"}
     finally:
         del app.dependency_overrides[get_db]
+        engine.dispose()

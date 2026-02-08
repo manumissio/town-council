@@ -1,5 +1,3 @@
-import pytest
-from pipeline.summarizer import extract_summarize_catalog
 from pipeline.models import Catalog
 
 def test_extractive_summarization_integration(db_session, mocker):
@@ -25,8 +23,16 @@ def test_extractive_summarization_integration(db_session, mocker):
     db_session.add(catalog)
     db_session.commit()
 
-    # 2. Action: Run the extractive summarizer
-    extract_summarize_catalog(catalog.id)
+    # 2. Action: Run the extractive summarizer with a deterministic fake model.
+    from pipeline import summarizer
+    fake_sentence = mocker.Mock()
+    fake_sentence.text = "The City Council met today to discuss the budget."
+    fake_doc = mocker.Mock()
+    fake_doc._.textrank.summary.return_value = [fake_sentence]
+    fake_nlp = mocker.Mock(return_value=fake_doc)
+    mocker.patch.object(summarizer, "get_summarization_model", return_value=fake_nlp)
+
+    summarizer.extract_summarize_catalog(catalog.id)
 
     # 3. Verify: Did it save a summary?
     db_session.refresh(catalog)

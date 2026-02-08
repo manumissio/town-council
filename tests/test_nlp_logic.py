@@ -1,5 +1,4 @@
 import pytest
-from pipeline.nlp_worker import run_nlp_pipeline
 from pipeline.models import Catalog
 
 def test_nlp_extraction_mocked(db_session, mocker):
@@ -38,10 +37,11 @@ def test_nlp_extraction_mocked(db_session, mocker):
     # Tell the fake 'nlp.pipe' to return our fake 'doc'.
     mock_nlp.pipe.return_value = [mock_doc]
 
-    mocker.patch('spacy.load', return_value=mock_nlp)
+    from pipeline import nlp_worker
+    mocker.patch.object(nlp_worker, "get_municipal_nlp_model", return_value=mock_nlp)
 
     # 3. Action
-    run_nlp_pipeline()
+    nlp_worker.run_nlp_pipeline()
 
     # 4. Verify
     db_session.refresh(doc)

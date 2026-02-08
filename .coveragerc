@@ -1,0 +1,5 @@
+[run]
+branch = False
+
+[report]
+fail_under = 71

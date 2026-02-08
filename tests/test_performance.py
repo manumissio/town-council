@@ -53,6 +53,7 @@ def test_pagination_defaults():
     # Mock DB query
     mock_query = MagicMock()
     mock_query.count.return_value = 100
+    mock_query.filter.return_value = mock_query
     mock_query.order_by.return_value.limit.return_value.offset.return_value.all.return_value = []
     
     mock_db = MagicMock()

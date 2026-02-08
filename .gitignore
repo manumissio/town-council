@@ -136,3 +136,7 @@ nosetests.xml
 coverage.xml
 *,cover
 .hypothesis/
+.benchmarks/
+pipeline/.benchmarks/
+file:testdb
+pipeline/file:testdb

@@ -258,6 +258,25 @@ The LocalAI singleton uses double-checked locking to prevent race conditions:
 #### Educational Documentation
 Every exception handler includes beginner-friendly comments (500+ lines) explaining:
 *   **What can fail:** Specific error scenarios with real examples
+
+### 12. Test Strategy and Reliability Gates
+The project now follows a pipeline-first testing strategy because most risk lives in ingestion and processing, not UI rendering.
+
+*   **Coverage by area (current baseline):**
+    * `pipeline/*` is the primary focus area and receives the majority of new tests.
+    * `api/*` and crawler coverage remain important, but they are secondary to pipeline correctness.
+*   **Test tiers:**
+    * Unit tests for pure logic and validators.
+    * Integration tests for stage -> promote -> process -> link flows.
+    * Migration tests for schema/backfill/idempotent rerun behavior.
+    * Benchmark tests for regression visibility.
+*   **Runtime compatibility policy:**
+    * NLP tests are allowed to skip on incompatible Python runtimes (for example spaCy stack issues on Python 3.14).
+    * Skips are explicit and asserted by dedicated compatibility tests.
+*   **CI expectations:**
+    * No collection errors.
+    * No regression below locked baseline coverage.
+    * Artifact files (`file:testdb`, benchmark outputs) are not committed.
 *   **Why it fails:** Root causes (thundering herd, race conditions, network issues)
 *   **How we handle it:** Recovery strategies (retry with backoff, rollback, graceful degradation)
 

@@ -24,7 +24,8 @@ def shared_engine():
     # This prevents issues with cached table definitions from previous test runs
     Base.metadata.drop_all(engine)
     Base.metadata.create_all(engine)
-    return engine
+    yield engine
+    engine.dispose()
 
 @pytest.fixture(autouse=True)
 def mock_db_connect(monkeypatch, shared_engine):
@@ -48,7 +49,9 @@ def mock_db_connect(monkeypatch, shared_engine):
     for target in targets:
         try:
             monkeypatch.setattr(target, lambda: shared_engine)
-        except (AttributeError, ImportError):
+        except Exception:
+            # Some optional modules (for example spaCy stack on Py3.14) can fail
+            # during import; skip patching those modules so other tests still run.
             pass
     yield
 
@@ -60,8 +63,8 @@ def reset_nlp_cache():
     try:
         import pipeline.nlp_worker
         pipeline.nlp_worker._cached_nlp = None
-    except ModuleNotFoundError:
-        # Some lightweight test environments do not install spaCy.
+    except Exception:
+        # Some environments cannot import spaCy-dependent modules.
         # In that case we skip NLP cache reset and let non-NLP tests run.
         pass
     yield

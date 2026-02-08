@@ -121,9 +121,9 @@ To ensure the 'Person' table remains 100% human, the pipeline implements strict 
 5. **Proper Noun Enforcement:** Every official name MUST contain at least one Proper Noun (PROPN) as identified by the NLP model.
 
 ## Testing
-Run the comprehensive suite of 80+ unit, integration, and benchmark tests (37% code coverage):
+Run the full suite with coverage:
 ```bash
-docker-compose run --rm pipeline pytest /app/tests/
+docker-compose run --rm pipeline pytest --cov=. --cov-report=term /app/tests/
 ```
 
 For local development, you can run targeted tests in a project virtualenv:
@@ -135,13 +135,13 @@ python3 -m venv .venv
 ```
 
 Notes:
+* Test tiers:
+  * `tests/test_*pipeline*`, `tests/test_db_utils.py`, `tests/test_backfill_orgs.py`, `tests/test_verification_service.py`: pipeline reliability/unit+integration.
+  * `tests/test_api.py`, `tests/test_reporting.py`: API contract and security-negative paths.
+  * `tests/test_benchmarks.py`: performance regression checks.
 * `tests/test_spatial_alignment.py` is integration-style and will skip if no suitable PDF is present in `data/` or if `pymupdf` is unavailable.
 * `pymupdf` is required for spatial vote verification and coordinate extraction paths.
-
-**Test Results:** 79 passing, 2 failing (98% pass rate)
-- Core functionality: AI extraction, NLP entity recognition, fuzzy matching, spider parsing
-- Data quality: Noise filtering, name validation, deduplication
-- Infrastructure: Database migrations, session management, error handling
+* On Python 3.14, some NLP tests are intentionally skip-safe when the spaCy/pydantic stack is incompatible. `tests/test_nlp_runtime_compat.py` makes this explicit so skips are visible, not silent.
 
 ## Performance & Load Testing
 We use automated audits to ensure the platform remains fast as it grows.

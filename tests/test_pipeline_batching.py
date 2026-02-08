@@ -1,18 +1,16 @@
 import pytest
-from unittest.mock import MagicMock, patch
+from unittest.mock import MagicMock
 import sys
 
 # Mock heavy libraries
 sys.modules["llama_cpp"] = MagicMock()
 sys.modules["tika"] = MagicMock()
 
-from pipeline.run_pipeline import process_single_document
-import pipeline.extractor
-import pipeline.nlp_worker
+from pipeline.run_pipeline import process_document_chunk
 
-def test_single_document_worker(mocker):
+def test_document_chunk_worker(mocker):
     """
-    Test: Does the worker function correctly orchestrate OCR and NLP?
+    Test: Does chunk worker orchestrate OCR and NLP for one document?
     """
     # Mock DB
     mock_catalog = MagicMock()
@@ -27,19 +25,23 @@ def test_single_document_worker(mocker):
     # Mock DB Connection context
     mock_session = MagicMock()
     mock_session.return_value = mock_db
-    # We patch the source because it is imported inside the function
     mocker.patch("sqlalchemy.orm.sessionmaker", return_value=mock_session)
-    mocker.patch("pipeline.models.db_connect") # Patch this where it is defined, or imported? It's imported in the function from pipeline.models
-    
+    mocker.patch("pipeline.models.db_connect")
+
     # Mock Extractor and NLP
     mocker.patch("pipeline.extractor.extract_text", return_value="Extracted Text")
-    mocker.patch("pipeline.nlp_worker.extract_entities", return_value={"persons": ["Mayor"]})
-    
+    # Provide a lightweight nlp_worker module so process_document_chunk can import it
+    # without pulling in spaCy during this unit test.
+    mock_nlp_module = MagicMock()
+    mock_nlp_module.extract_entities.return_value = {"persons": ["Mayor"]}
+    mocker.patch.dict(sys.modules, {"pipeline.nlp_worker": mock_nlp_module})
+    mock_db.execute.return_value = None
+
     # Action
-    result_id = process_single_document(1)
-    
+    processed_count = process_document_chunk([1])
+
     # Verify
-    assert result_id == 1
+    assert processed_count == 1
     assert mock_catalog.content == "Extracted Text"
     assert mock_catalog.entities == {"persons": ["Mayor"]}
     mock_db.commit.assert_called_once()

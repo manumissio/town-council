@@ -1,8 +1,6 @@
 import os
 import sys
 import time
-import spacy
-import pytextrank
 import threading
 
 # Add project root to path
@@ -40,6 +38,8 @@ def get_summarization_model():
             return _cached_nlp_rank
 
         try:
+            import spacy  # Lazy import keeps module importable on unsupported runtimes.
+            import pytextrank  # noqa: F401 - required for "textrank" pipeline registration.
             # Load SpaCy's small English model (~13MB)
             nlp = spacy.load("en_core_web_sm")
             # Add TextRank pipeline for extractive summarization

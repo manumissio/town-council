@@ -1,7 +1,6 @@
 import sys
 import os
 import time
-import spacy
 import threading
 
 # Add project root to path for consistent imports
@@ -12,15 +11,12 @@ from pipeline.db_session import db_session
 from pipeline.utils import is_likely_human_name
 from pipeline.config import NLP_MAX_TEXT_LENGTH
 
-from spacy.language import Language
-
 # Global cache for the NLP model to avoid reloading in the same process
 # Why cache? Loading SpaCy's NLP model takes ~2 seconds and uses ~500MB RAM
 # By caching it, we only pay this cost once per process
 _cached_nlp = None
 _model_lock = threading.Lock()  # Prevents multiple threads from loading simultaneously
 
-@Language.component("scrub_municipal_noise")
 def scrub_municipal_noise(doc):
     """
     POST-NER VALIDATION:
@@ -86,6 +82,18 @@ def get_municipal_nlp_model():
         # Double-check after acquiring lock (another thread might have loaded it)
         if _cached_nlp:
             return _cached_nlp
+
+        # Load spaCy lazily so this module can still import on runtimes where
+        # spaCy is not compatible (for example, Python 3.14 right now).
+        try:
+            import spacy
+            from spacy.language import Language
+        except Exception as exc:  # pragma: no cover - depends on local runtime
+            raise RuntimeError(f"SpaCy NLP stack is unavailable in this runtime: {exc}") from exc
+
+        # Register our component once, then load the base English model
+        if not Language.has_factory("scrub_municipal_noise"):
+            Language.component("scrub_municipal_noise")(scrub_municipal_noise)
 
         # Load the base English model (includes parser, NER, lemmatizer)
         # This model is ~13MB and takes ~2 seconds to load
