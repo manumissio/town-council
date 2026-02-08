@@ -130,3 +130,143 @@ def test_local_ai_fallback_filters_header_noise():
 
     assert len(items) == 1
     assert "budget amendment" in items[0]["title"].lower()
+
+
+def test_local_ai_fallback_uses_inline_page_headers_and_skips_speaker_lists():
+    """
+    Regression: if OCR only has [PAGE 1], fallback should still detect later "Page N" headers.
+    Also ensure numbered speaker lists under Communications do not become agenda items.
+    """
+    LocalAI._instance = None
+    ai = LocalAI()
+    mock_llm = MagicMock()
+    ai.llm = mock_llm
+    mock_llm.return_value = {"choices": [{"text": "No parseable agenda output"}]}
+
+    text = (
+        "[PAGE 1]\n\n"
+        "Thursday, November 6, 2025 ANNOTATED AGENDA Page 2\n"
+        "1. Corridors Zoning Update\n"
+        "Vote: All Ayes.\n"
+        "2. San Pablo Avenue Specific Plan\n"
+        "Vote: All Ayes.\n"
+        "\nCommunications\n"
+        "Item #1: Corridors Zoning Update\n"
+        "Item #2: San Pablo Avenue Specific Plan\n"
+        "1. Leslie Sakai\n"
+        "2. Kirk McCarthy (2)\n"
+    )
+    items = ai.extract_agenda(text)
+    titles = [item["title"] for item in items]
+
+    assert "Corridors Zoning Update" in titles
+    assert "San Pablo Avenue Specific Plan" in titles
+    assert "Leslie Sakai" not in titles
+    assert "Kirk McCarthy (2)" not in titles
+    for item in items:
+        assert item["page_number"] == 2
+
+
+def test_local_ai_fallback_extracts_vote_result_from_item_block():
+    """
+    Regression: fallback should carry vote outcomes into result so the UI can display them.
+    """
+    LocalAI._instance = None
+    ai = LocalAI()
+    mock_llm = MagicMock()
+    ai.llm = mock_llm
+    mock_llm.return_value = {"choices": [{"text": "No parseable agenda output"}]}
+
+    text = (
+        "[PAGE 1]\n\n"
+        "1. Budget Hearing\n"
+        "Action: M/S/C to approve recommendation.\n"
+        "Vote: All Ayes.\n"
+    )
+    items = ai.extract_agenda(text)
+
+    assert len(items) == 1
+    assert items[0]["title"] == "Budget Hearing"
+    assert items[0]["result"] == "All Ayes."
+
+
+def test_local_ai_fallback_skips_person_heavy_numbered_lists_without_keyword():
+    """
+    Regression: some pages contain numbered speaker lists without "Communications" label.
+    If the block is mostly names, those lines should be excluded.
+    """
+    LocalAI._instance = None
+    ai = LocalAI()
+    mock_llm = MagicMock()
+    ai.llm = mock_llm
+    mock_llm.return_value = {"choices": [{"text": "No parseable agenda output"}]}
+
+    text = (
+        "[PAGE 1]\n\n"
+        "1. Corridors Zoning Update\n"
+        "2. San Pablo Avenue Specific Plan\n"
+        "[PAGE 2]\n\n"
+        "1. Leslie Sakai\n"
+        "2. Kirk McCarthy (2)\n"
+        "3. Preet Dhillon\n"
+        "4. Doris Fulder Nassiry (3)\n"
+        "5. Susan Jones\n"
+        "6. Barbara Gilbert (2)\n"
+    )
+    items = ai.extract_agenda(text)
+    titles = [item["title"] for item in items]
+
+    assert "Corridors Zoning Update" in titles
+    assert "San Pablo Avenue Specific Plan" in titles
+    assert "Leslie Sakai" not in titles
+    assert "Susan Jones" not in titles
+
+
+def test_local_ai_fallback_filters_metadata_headers():
+    """
+    Regression: date/location/official header lines should not become agenda items.
+    """
+    LocalAI._instance = None
+    ai = LocalAI()
+    mock_llm = MagicMock()
+    ai.llm = mock_llm
+    mock_llm.return_value = {"choices": [{"text": "No parseable agenda output"}]}
+
+    text = (
+        "[PAGE 1]\n\n"
+        "Thursday, November 6, 2025\n"
+        "1231 Addison Street, Berkeley, CA\n"
+        "ADENA ISHII, MAYOR\n"
+        "1. Budget Hearing\n"
+    )
+    items = ai.extract_agenda(text)
+    titles = [item["title"] for item in items]
+
+    assert "Budget Hearing" in titles
+    assert "Thursday, November 6, 2025" not in titles
+    assert "ADENA ISHII, MAYOR" not in titles
+
+
+def test_local_ai_paragraph_fallback_skips_name_lines_in_communications_pages():
+    """
+    Regression: paragraph mode should not treat public speaker names as agenda items.
+    """
+    LocalAI._instance = None
+    ai = LocalAI()
+    mock_llm = MagicMock()
+    ai.llm = mock_llm
+    mock_llm.return_value = {"choices": [{"text": "No parseable agenda output"}]}
+
+    text = (
+        "[PAGE 1]\n\n"
+        "Communications\n\n"
+        "Leslie Sakai\nPublic comment regarding Item 1.\n\n"
+        "Kirk McCarthy (2)\nPublic comment regarding Item 2.\n\n"
+        "1. Corridors Zoning Update\n"
+    )
+    items = ai.extract_agenda(text)
+    titles = [item["title"] for item in items]
+
+    assert "Corridors Zoning Update" in titles
+    assert "Leslie Sakai" not in titles
+    assert "Kirk McCarthy (2)" not in titles
