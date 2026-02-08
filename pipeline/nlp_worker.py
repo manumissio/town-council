@@ -133,16 +133,16 @@ def get_municipal_nlp_model():
     ]
     
     ruler.add_patterns(patterns)
-    
-        # --------------------------------------------------------------------------
-        # STEP 2: Post-NER Common-Sense Scrubbing
-        # This custom component filters out noise that made it through the AI
-        # --------------------------------------------------------------------------
-        nlp.add_pipe("scrub_municipal_noise", last=True)
 
-        # Cache the fully configured model for reuse
-        _cached_nlp = nlp
-        return nlp
+    # --------------------------------------------------------------------------
+    # STEP 2: Post-NER Common-Sense Scrubbing
+    # This custom component filters out noise that made it through the AI
+    # --------------------------------------------------------------------------
+    nlp.add_pipe("scrub_municipal_noise", last=True)
+
+    # Cache the fully configured model for reuse
+    _cached_nlp = nlp
+    return nlp
 
 def extract_entities(text):
     """
