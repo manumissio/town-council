@@ -89,7 +89,7 @@ export default function ResultCard({ hit, onPersonClick }) {
     }
   };
 
-  const pollTask = async (taskId, callback, type = 'summary') => {
+  const pollTask = async (taskId, callback, onError, type = 'summary') => {
     const apiUrl = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
     
     const checkStatus = async () => {
@@ -106,11 +106,13 @@ export default function ResultCard({ hit, onPersonClick }) {
           return true; // Stop polling
         } else if (data.status === 'failed') {
           console.error("Task failed", data.error);
+          if (onError) onError(data.error);
           return true;
         }
         return false; // Keep polling
       } catch (err) {
         console.error("Polling error", err);
+        if (onError) onError(err);
         return true;
       }
     };
@@ -142,7 +144,7 @@ export default function ResultCard({ hit, onPersonClick }) {
         pollTask(data.task_id, (result) => {
           setSummary(result);
           setIsGenerating(false);
-        }, 'summary');
+        }, () => setIsGenerating(false), 'summary');
       } else {
         setIsGenerating(false);
       }
@@ -172,7 +174,7 @@ export default function ResultCard({ hit, onPersonClick }) {
         pollTask(data.task_id, (result) => {
           setAgendaItems(result);
           setIsSegmenting(false);
-        }, 'agenda');
+        }, () => setIsSegmenting(false), 'agenda');
       } else {
         setIsSegmenting(false);
       }
@@ -469,11 +471,23 @@ export default function ResultCard({ hit, onPersonClick }) {
                     {agendaItems && agendaItems.length > 0 ? (
                       <div className="grid gap-4">
                         {agendaItems.map((item, i) => (
-                          <div key={i} className="p-4 bg-white border border-indigo-100 rounded-2xl shadow-sm">
+                          <div key={i} className="p-4 bg-white border border-indigo-100 rounded-2xl shadow-sm hover:border-indigo-300 transition-colors group/item">
                             <div className="flex items-start gap-3">
                               <span className="bg-indigo-100 text-indigo-700 w-6 h-6 rounded-full flex items-center justify-center text-[10px] font-bold shrink-0">{item.order || i+1}</span>
-                              <div className="space-y-1">
-                                <h5 className="font-bold text-gray-900 text-sm">{item.title}</h5>
+                              <div className="flex-1 space-y-1">
+                                <div className="flex justify-between items-start">
+                                  <h5 className="font-bold text-gray-900 text-sm leading-tight">{item.title}</h5>
+                                  {item.page_number && (
+                                    <a 
+                                      href={`${hit.url}#page=${item.page_number}`}
+                                      target="_blank"
+                                      rel="noopener noreferrer"
+                                      className="text-[10px] font-bold text-indigo-600 bg-indigo-50 px-2 py-0.5 rounded flex items-center gap-1 hover:bg-indigo-600 hover:text-white transition-all shadow-sm"
+                                    >
+                                      <FileText className="w-2.5 h-2.5" /> Page {item.page_number}
+                                    </a>
+                                  )}
+                                </div>
                                 <p className="text-xs text-gray-600 leading-relaxed">{item.description}</p>
                                 <div className="flex gap-2 pt-1">
                                   {item.classification && <span className="text-[9px] font-black uppercase text-indigo-400">{item.classification}</span>}
