@@ -96,6 +96,7 @@ class Place(Base):
     crawler_name = Column(String(100))
     crawler_type = Column(String(50))
     crawler_owner = Column(String(100))
+    legistar_client = Column(String(100), nullable=True)
 
     organizations = relationship("Organization", back_populates="place")
 
@@ -123,6 +124,7 @@ class Person(Base):
     image_url = Column(String(500), nullable=True)
     biography = Column(String(5000), nullable=True)
     current_role = Column(String(255), nullable=True)
+    is_elected = Column(Boolean, default=False, index=True)
     
     created_at = Column(DateTime, default=datetime.datetime.now)
 
@@ -208,9 +210,18 @@ class AgendaItem(Base):
     
     order = Column(Integer)
     title = Column(String(1000), nullable=False)
-    description = Column(String(5000))
+    description = Column(Text)
     classification = Column(String(100))
     result = Column(String(100))
+    
+    page_number = Column(Integer, nullable=True)
+    text_offset = Column(Integer, nullable=True)
+    
+    # Ground Truth fields for verification
+    votes = Column(JSON, nullable=True)
+    raw_history = Column(Text, nullable=True)
+    legistar_matter_id = Column(Integer, nullable=True, index=True)
+    spatial_coords = Column(JSON, nullable=True)
     
     catalog_id = Column(Integer, ForeignKey('catalog.id'), nullable=True)
 

@@ -55,7 +55,6 @@ def test_downloader_absolute_path(db_session, mocker, monkeypatch):
     mock_response.headers = {'Content-Type': 'application/pdf'}
     mock_response.iter_content.return_value = [b"dummy pdf content"]
     mocker.patch('requests.Session.get', return_value=mock_response)
-    mocker.patch('pipeline.downloader.db_connect', return_value=db_session.get_bind())
     # Mock os.makedirs and open to avoid actual disk writes
     mocker.patch('os.makedirs')
     mocker.patch('builtins.open', mocker.mock_open())
@@ -102,12 +101,10 @@ def test_downloader_race_condition(db_session, mocker):
 
     # 2. Mock: Simulate that the initial check for 'Catalog' fails (race condition)
     # but the INSERT triggers an error.
-    mocker.patch('pipeline.downloader.db_connect', return_value=db_session.get_bind())
-    
     # We mock 'Media.gather' to return a path, but we'll force the main logic
     # to hit the 'except' block by making the first query return None.
     # Note: In the real code, this happens if two threads check if it exists at the same time.
-    
+
     # 3. Action
     process_single_url(url_stage.id)
 

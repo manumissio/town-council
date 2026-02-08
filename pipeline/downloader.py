@@ -4,8 +4,9 @@ import logging
 from concurrent.futures import ThreadPoolExecutor
 from sqlalchemy import text
 from sqlalchemy.exc import SQLAlchemyError
+from sqlalchemy.orm import sessionmaker
 
-from pipeline.models import Place, UrlStage, Event, Catalog, Document, UrlStageHist
+from pipeline.models import Place, UrlStage, Event, Catalog, Document, UrlStageHist, db_connect
 from pipeline.db_session import db_session
 from pipeline.config import (
     MAX_FILE_SIZE_BYTES,

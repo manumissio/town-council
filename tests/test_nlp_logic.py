@@ -39,7 +39,6 @@ def test_nlp_extraction_mocked(db_session, mocker):
     mock_nlp.pipe.return_value = [mock_doc]
 
     mocker.patch('spacy.load', return_value=mock_nlp)
-    mocker.patch('pipeline.nlp_worker.db_connect', return_value=db_session.get_bind())
 
     # 3. Action
     run_nlp_pipeline()
