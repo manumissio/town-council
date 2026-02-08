@@ -1,7 +1,8 @@
 import os
 import meilisearch
-from sqlalchemy.orm import sessionmaker
-from pipeline.models import Document, Catalog, Event, Place, Organization, AgendaItem, db_connect
+from pipeline.models import Document, Catalog, Event, Place, Organization, AgendaItem
+from pipeline.db_session import db_session
+from pipeline.config import MAX_CONTENT_LENGTH, MEILISEARCH_BATCH_SIZE
 
 # Configuration for connecting to the Meilisearch search engine.
 MEILI_HOST = os.getenv('MEILI_HOST', 'http://meilisearch:7700')
@@ -42,15 +43,13 @@ def index_documents():
         'organization', 'people'
     ])
 
-    engine = db_connect()
-    Session = sessionmaker(bind=engine)
-    session = Session()
+    # Use context manager for automatic session cleanup
+    # The "with" statement ensures the database session closes properly
+    with db_session() as session:
+        documents_batch = []
+        count = 0
 
-    batch_size = 20
-    documents_batch = []
-    count = 0
-
-    print("Step 1: Indexing Full Meeting Documents...")
+        print("Step 1: Indexing Full Meeting Documents...")
     
     doc_query = session.query(Document, Catalog, Event, Place, Organization).join(
         Catalog, Document.catalog_id == Catalog.id
@@ -90,9 +89,9 @@ def index_documents():
             'catalog_id': catalog.id,
             'filename': catalog.filename,
             'url': catalog.url,
-            # PERFORMANCE: Truncate content to avoid payload limits. 
-            # 50k chars is enough for search relevance.
-            'content': catalog.content[:50000], 
+            # PERFORMANCE: Truncate content to avoid payload limits
+            # MAX_CONTENT_LENGTH chars is enough for search relevance without slowing down Meilisearch
+            'content': catalog.content[:MAX_CONTENT_LENGTH] if catalog.content else None, 
             'summary': catalog.summary,
             'summary_extractive': catalog.summary_extractive,
             'topics': catalog.topics,
@@ -108,13 +107,18 @@ def index_documents():
         }
         
         documents_batch.append(search_doc)
-        if len(documents_batch) >= batch_size:
+
+        # Send documents to Meilisearch in batches to improve performance
+        # Batching = sending multiple items at once instead of one-by-one
+        if len(documents_batch) >= MEILISEARCH_BATCH_SIZE:
             try:
                 task = index.add_documents(documents_batch)
                 # Wait for Meilisearch to acknowledge receipt
                 print(f"Sent batch to Meilisearch. Task ID: {task.task_uid}")
                 count += len(documents_batch)
             except Exception as e:
+                # If Meilisearch fails, log the error but continue processing
+                # We don't want one batch failure to stop the entire indexing run
                 print(f"Error sending batch to Meilisearch: {e}")
             documents_batch = []
 
@@ -143,6 +147,7 @@ def index_documents():
             'description': item.description,
             'classification': item.classification,
             'result': item.result,
+            'page_number': item.page_number,
             'event_name': event.name,
             'date': event.record_date.isoformat() if event.record_date else None,
             'city': place.display_name or place.name,
@@ -154,16 +159,26 @@ def index_documents():
         }
         
         documents_batch.append(search_item)
-        if len(documents_batch) >= batch_size:
-            index.add_documents(documents_batch)
-            count += len(documents_batch)
+
+        # Same batching logic for agenda items
+        if len(documents_batch) >= MEILISEARCH_BATCH_SIZE:
+            try:
+                index.add_documents(documents_batch)
+                count += len(documents_batch)
+            except Exception as e:
+                print(f"Error indexing agenda items batch: {e}")
             documents_batch = []
 
-    if documents_batch:
-        index.add_documents(documents_batch)
-        count += len(documents_batch)
+        # Send any remaining documents in the last batch
+        # This runs AFTER the for loop completes
+        if documents_batch:
+            try:
+                index.add_documents(documents_batch)
+                count += len(documents_batch)
+            except Exception as e:
+                print(f"Error indexing final batch: {e}")
 
-    session.close()
+    # Session automatically closes when we exit the "with" block above
     print(f"Indexing complete. Total records indexed: {count}")
 
 if __name__ == "__main__":

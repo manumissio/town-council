@@ -4,6 +4,13 @@ import logging
 import threading
 import re
 from llama_cpp import Llama
+from pipeline.config import (
+    LLM_CONTEXT_WINDOW,
+    LLM_SUMMARY_MAX_TEXT,
+    LLM_SUMMARY_MAX_TOKENS,
+    LLM_AGENDA_MAX_TEXT,
+    LLM_AGENDA_MAX_TOKENS
+)
 
 # Setup logging
 logger = logging.getLogger("local-ai")
@@ -62,7 +69,7 @@ class LocalAI:
                 # Load the model (this is slow: ~5 seconds, ~500MB RAM)
                 self.llm = Llama(
                     model_path=model_path,
-                    n_ctx=2048,  # Maximum context size (how much text it can process at once)
+                    n_ctx=LLM_CONTEXT_WINDOW,  # Maximum context size (how much text it can process at once)
                     n_gpu_layers=0,  # Don't use GPU (we want this to work on any machine)
                     verbose=False  # Don't print debug info
                 )
@@ -71,15 +78,21 @@ class LocalAI:
                 logger.error(f"Failed to load AI model: {e}")
 
     def summarize(self, text):
+        """
+        Generates a 3-bullet summary of meeting text using the local AI model.
+
+        We truncate the input text to avoid exceeding the model's context window.
+        """
         self._load_model()
         if not self.llm: return None
 
-        safe_text = text[:4000]
+        # Truncate text to fit within model limits
+        safe_text = text[:LLM_SUMMARY_MAX_TEXT]
         prompt = f"<start_of_turn>user\nSummarize these meeting minutes into 3 bullet points. No chat, just bullets:\n{safe_text}<end_of_turn>\n<start_of_turn>model\n"
 
         with self._lock:
             try:
-                response = self.llm(prompt, max_tokens=256, temperature=0.1)
+                response = self.llm(prompt, max_tokens=LLM_SUMMARY_MAX_TOKENS, temperature=0.1)
                 return response["choices"][0]["text"].strip()
             except Exception as e:
                 logger.error(f"AI Summarization failed: {e}")
@@ -88,12 +101,17 @@ class LocalAI:
                 if self.llm: self.llm.reset()
 
     def extract_agenda(self, text):
+        """
+        Extracts individual agenda items from meeting text using the local AI model.
+
+        Returns a list of agenda items with titles, page numbers, and descriptions.
+        """
         self._load_model()
-        
+
         items = []
         if self.llm:
             # We increase context slightly to catch more items, focusing on the start
-            safe_text = text[:6000]
+            safe_text = text[:LLM_AGENDA_MAX_TEXT]
             
             # PROMPT: We now ask for Page numbers and a clean list.
             # We explicitly tell it to ignore boilerplate and headers.
@@ -109,7 +127,7 @@ class LocalAI:
             
             with self._lock:
                 try:
-                    response = self.llm(prompt, max_tokens=1500, temperature=0.1)
+                    response = self.llm(prompt, max_tokens=LLM_AGENDA_MAX_TOKENS, temperature=0.1)
                     raw_content = response["choices"][0]["text"].strip()
                     content = "ITEM 1:" + raw_content
                     pattern = r"ITEM\s+(\d+):\s*(.*?)\s*\(Page\s*(\d+)\)\s*-\s*(.*)"
