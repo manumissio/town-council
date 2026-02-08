@@ -161,6 +161,11 @@ To scale beyond a single server, the system uses a **Producer-Consumer** model f
 *   **The Workers (Celery):** Background worker processes pick up these tickets and perform the heavy AI lifting (Summarization, Segmentation) without blocking the main API.
 *   **Parallel Ingestion:** The data pipeline uses `ProcessPoolExecutor` to process multiple PDF documents simultaneously (OCR -> NLP) on all available CPU cores, speeding up nightly updates by 4-8x.
 
+### 7.1 Async Task Failure Behavior (UI Contract)
+The frontend polls background task status (`/tasks/{id}`) and now treats both task failures and polling/network errors as terminal states:
+*   loading indicators are cleared on error paths
+*   users are not left in indefinite "processing" states
+
 ### 8. Data Quality Loop (Feedback Mechanism)
 To maintain a high-quality dataset at scale, the system implements a **Crowdsourced Audit Loop**:
 *   **Reporting API:** A dedicated `POST /report-issue` endpoint allows users to flag problems (e.g., broken PDF links or OCR errors) directly from the UI.
@@ -173,12 +178,20 @@ To ensure the platform feels "instant" even on consumer hardware, we use a multi
 *   **Eager Loading:** We solve the "N+1 Query Problem" by using SQLAlchemy's `joinedload`. When you request a Person profile, we fetch their roles, city, and committee memberships in a **single database query** instead of 30+ separate round-trips.
 *   **Database Indexing:** Critical columns (`place_id`, `record_date`) are indexed to ensure that filtering 10,000+ meetings takes milliseconds.
 
+### 8.1 Search Indexing Batch Semantics
+The Meilisearch indexer uses explicit batch flushing rules:
+*   flush on reaching `MEILISEARCH_BATCH_SIZE`
+*   flush exactly once for the final partial batch after each phase (documents, agenda items)
+
+This prevents duplicate sends, keeps indexing counts accurate, and avoids unnecessary write amplification.
+
 ### 9. Security Model
 *   **CORS Restriction:** The API is hardened to only accept requests from the authorized frontend origin (`localhost:3000`).
 *   **Dependency Injection:** Database sessions are managed via FastAPI's dependency system, ensuring every connection is strictly closed after a request to prevent connection leaks.
 *   **Non-Root Execution:** All Docker containers run as a restricted `appuser`.
 *   **Path Traversal Protection:** The `is_safe_path` validator ensures workers only interact with authorized data directories.
 *   **Deep Health Checks:** The container orchestrator monitors the `/health` endpoint, which proactively probes the database connection. If the database locks up, the container is automatically restarted.
+*   **Frontend Auth Header Discipline:** Browser clients only send `X-API-Key` when `NEXT_PUBLIC_API_AUTH_KEY` is explicitly configured; no hardcoded default key is injected by frontend code.
 
 ### 10. Data Integrity & Validation
 To prevent "garbage data" from corrupting the system, we enforce strict schemas at multiple layers:
@@ -216,6 +229,13 @@ All database commits are wrapped in try/except blocks with explicit rollback() c
 *   `verification_service.py`: Rolls back if spatial coordinate lookup fails during PDF verification
 *   `downloader.py`: Handles race conditions when multiple workers download the same file
 *   `promote_stage.py`: Rolls back if event promotion fails, keeping staging/production in sync
+
+#### Staging Archive Safety
+Downloader staging rows are archived selectively:
+*   rows that were processed successfully are moved to `url_stage_hist`
+*   failed rows remain in `url_stage` for retry on the next run
+
+This avoids silent data loss when network/download failures occur mid-batch.
 
 #### Thread-Safe Model Loading
 The LocalAI singleton uses double-checked locking to prevent race conditions:
@@ -291,4 +311,3 @@ To ensure high precision in identifying officials, the system uses a 3-layer NLP
     *   We have `DOWNLOAD_MAXSIZE=104857600` (100MB) configured to prevent memory exhaustion attacks
 *   **Mitigation:** Download size limits enforced in `council_crawler/council_crawler/settings.py`
 *   **Reference:** https://github.com/scrapy/scrapy/issues/482
-

@@ -114,6 +114,18 @@ Run the comprehensive suite of 80+ unit, integration, and benchmark tests (37% c
 docker-compose run --rm pipeline pytest /app/tests/
 ```
 
+For local development, you can run targeted tests in a project virtualenv:
+```bash
+python3 -m venv .venv
+.venv/bin/pip install -r pipeline/requirements.txt -r api/requirements.txt
+.venv/bin/pip install pytest-benchmark
+.venv/bin/pytest -q tests/test_downloader.py tests/test_indexer_logic.py tests/test_async_flow.py tests/test_vote_parser.py tests/test_spatial_alignment.py
+```
+
+Notes:
+* `tests/test_spatial_alignment.py` is integration-style and will skip if no suitable PDF is present in `data/` or if `pymupdf` is unavailable.
+* `pymupdf` is required for spatial vote verification and coordinate extraction paths.
+
 **Test Results:** 79 passing, 2 failing (98% pass rate)
 - Core functionality: AI extraction, NLP entity recognition, fuzzy matching, spider parsing
 - Data quality: Noise filtering, name validation, deduplication
@@ -132,6 +144,12 @@ We use automated audits to ensure the platform remains fast as it grows.
    # Runs a 60-second headless stress test
    docker-compose run --rm pipeline locust -f tests/locustfile.py --headless -u 50 -r 5 --run-time 1m --host http://api:8000
    ```
+
+## Frontend Auth Header Configuration
+Protected write endpoints (for example summary generation and issue reporting) only send `X-API-Key` from the frontend when `NEXT_PUBLIC_API_AUTH_KEY` is explicitly configured.
+
+* No default API key is embedded in browser code.
+* Configure this key only for trusted deployments where client-triggered protected actions are intended.
 
 ## Scaling Up (Enterprise Mode)
 The system is designed to scale horizontally as your dataset grows:
