@@ -126,6 +126,16 @@ MAX_WORKERS = 5
 # These common words don't help distinguish what makes each document unique
 TFIDF_MAX_DF = 0.8
 
+# TF-IDF min document frequency
+# Allow words that appear in at least 1 document (captures unique topics)
+# Higher values filter out rare words, but we want to catch even unique topics
+TFIDF_MIN_DF = 1
+
+# TF-IDF n-gram range (min, max)
+# (1, 2) means we capture both single words ("Housing") and two-word phrases ("Rent Control")
+# Single words alone miss important phrases, longer phrases are too rare
+TFIDF_NGRAM_RANGE = (1, 2)
+
 # Maximum features for TF-IDF vectorizer
 # We keep the 5,000 most important words/phrases for topic analysis
 # More = slower processing, Less = might miss important topics
@@ -135,11 +145,25 @@ TFIDF_MAX_FEATURES = 5000
 # We identify the 5 most important keywords for each meeting
 TOP_KEYWORDS_PER_DOC = 5
 
+# Progress logging interval for batch operations
+# Log progress every N documents to track processing without spamming logs
+PROGRESS_LOG_INTERVAL = 50
+
 
 # =============================================================================
 # SIMILARITY & SEARCH CONFIGURATION
 # =============================================================================
 # These control how we find related documents
+
+# Maximum content length for similarity analysis (5000 chars ≈ 1000 words)
+# We use summaries when available, otherwise truncate content
+# Shorter text = faster embedding generation without losing meaning
+SIMILARITY_CONTENT_LENGTH = 5000
+
+# Batch size for encoding embeddings (how many docs to process at once)
+# 32 is optimal for sentence-transformers on CPU without GPU acceleration
+# Larger batches = faster but more memory, smaller = slower but less memory
+EMBEDDING_BATCH_SIZE = 32
 
 # Similarity threshold for FAISS nearest neighbor search (0-1 scale)
 # 0.35 = 35% similar. Documents must be at least this similar to be "related"
@@ -168,3 +192,12 @@ TABLE_ACCURACY_MIN = 70
 # Maximum pages to scan for tables in a single PDF
 # Scanning full 500-page packets is slow, most tables are in first 5 pages
 TABLE_SCAN_MAX_PAGES = 5
+
+# CPU core fraction for table extraction workers (0.5 = 50% of cores)
+# Table extraction is CPU-intensive. Using 50% keeps system responsive
+# On a 4-core machine: 50% = 2 worker processes
+TABLE_WORKER_CPU_FRACTION = 0.5
+
+# Progress logging interval for table extraction
+# Log progress every N documents processed
+TABLE_PROGRESS_LOG_INTERVAL = 10

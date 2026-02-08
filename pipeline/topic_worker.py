@@ -1,13 +1,22 @@
 import sys
 import os
 import logging
-from sqlalchemy.orm import sessionmaker
 from sklearn.feature_extraction.text import TfidfVectorizer
 
 # Add project root to path
 sys.path.append(os.path.join(os.path.dirname(__file__), '..'))
 
-from pipeline.models import Catalog, db_connect, create_tables
+from pipeline.models import Catalog
+from pipeline.db_session import db_session
+from pipeline.config import (
+    MAX_CONTENT_LENGTH,
+    TFIDF_MAX_DF,
+    TFIDF_MIN_DF,
+    TFIDF_NGRAM_RANGE,
+    TFIDF_MAX_FEATURES,
+    TOP_KEYWORDS_PER_DOC,
+    PROGRESS_LOG_INTERVAL
+)
 
 # Setup logging
 logging.basicConfig(level=logging.INFO)
@@ -36,87 +45,98 @@ def run_keyword_tagger():
 def run_topic_tagger():
     """
     Automated Topic Discovery using TF-IDF.
+
+    What this does:
+    1. Fetches all documents from the database
+    2. Analyzes text to find the most distinctive words/phrases in each document
+    3. Tags each document with its top 5 keywords (topics)
+
+    What is TF-IDF?
+    Term Frequency-Inverse Document Frequency. It finds words that are:
+    - Common in THIS document (Term Frequency)
+    - Rare across ALL documents (Inverse Document Frequency)
+
+    For example, if "housing" appears 50 times in one meeting but only 3 times
+    in others, it's likely an important topic for that specific meeting.
     """
-    engine = db_connect()
-    # Note: create_tables removed from worker, assumed done via db_init.py
-    Session = sessionmaker(bind=engine)
-    session = Session()
+    # Use context manager for automatic session cleanup and error handling
+    with db_session() as session:
+        # 1. Fetch all documents that have text content
+        logger.info("Fetching documents for topic analysis...")
+        records = session.query(Catalog).filter(
+            Catalog.content != None,
+            Catalog.content != ""
+        ).all()
 
-    # 1. Fetch all documents that have text
-    logger.info("Fetching documents for topic analysis...")
-    records = session.query(Catalog).filter(
-        Catalog.content != None,
-        Catalog.content != ""
-    ).all()
+        # Pre-initialize topics to empty lists
+        # Why? Some documents might have no valid topics, we want [] not None
+        for r in records:
+            r.topics = []
 
-    # Pre-initialize topics to empty lists
-    for r in records:
-        r.topics = []
+        if len(records) < 2:
+            logger.warning("Not enough documents to perform TF-IDF analysis.")
+            session.commit()
+            return
 
-    if len(records) < 2:
-        logger.warning("Not enough documents to perform TF-IDF analysis.")
-        session.commit()
-        return
+        # 2. Prepare the corpus (the collection of all documents)
+        # We truncate each document to prevent memory issues with very large PDFs
+        corpus = [r.content[:MAX_CONTENT_LENGTH] for r in records]
+        filenames = [r.filename for r in records]
 
-    # 2. Prepare the corpus (the list of all text)
-    # We limit to first 50k characters for performance.
-    corpus = [r.content[:50000] for r in records]
-    filenames = [r.filename for r in records]
+        logger.info(f"Analyzing {len(corpus)} documents...")
 
-    logger.info(f"Analyzing {len(corpus)} documents...")
+        # 3. Setup the TF-IDF Vectorizer
+        # This is the "brain" that calculates which words are important
+        vectorizer = TfidfVectorizer(
+            stop_words=CITY_STOP_WORDS,  # Filter out common municipal words
+            max_df=TFIDF_MAX_DF,  # Ignore words in >80% of docs (too common)
+            min_df=TFIDF_MIN_DF,  # Allow words in just 1 doc (unique topics)
+            max_features=TFIDF_MAX_FEATURES,  # Track top 5000 words globally
+            ngram_range=TFIDF_NGRAM_RANGE  # Catch phrases like "Rent Control"
+        )
 
-    # 3. Setup the TF-IDF Vectorizer
-    # max_df=0.8 means 'ignore words that appear in more than 80% of documents' (too common)
-    # min_df=2 means 'ignore words that only appear in 1 document' (too rare/typos)
-    vectorizer = TfidfVectorizer(
-        stop_words=CITY_STOP_WORDS,
-        max_df=0.8,
-        min_df=1, # Allow unique topics even in small datasets
-        max_features=5000, # Only track the top 5000 most common words globally
-        ngram_range=(1, 2) # Catch single words ('Housing') and phrases ('Rent Control')
-    )
-
-    try:
-        tfidf_matrix = vectorizer.fit_transform(corpus)
-        feature_names = vectorizer.get_feature_names_out()
-    except Exception as e:
-        logger.error(f"TF-IDF math failed: {e}")
-        session.commit()
-        return
-
-    # 4. Extract top 5 keywords for each document
-    for i, record in enumerate(records):
-        # Initialize to empty list
-        record.topics = []
-        
+        # 4. Run the TF-IDF analysis across all documents
+        # This creates a mathematical matrix where each document is a vector of word scores
         try:
-            # Get the scores for this specific document
-            doc_vector = tfidf_matrix[i].toarray()[0]
-            
-            # Sort words by their score (highest first)
-            top_indices = doc_vector.argsort()[-5:][::-1]
-            
-            # Only keep words with a score > 0 (meaning they actually appeared)
-            keywords = [feature_names[idx] for idx in top_indices if doc_vector[idx] > 0]
-            
-            # Clean up: Capitalize for the UI
-            record.topics = [k.title() for k in keywords]
-        except Exception:
-            # If a specific doc fails (e.g. only stop words), it just gets no topics
-            continue
-        
-        if i % 50 == 0:
-            logger.info(f"Processed {i}/{len(records)} documents...")
+            tfidf_matrix = vectorizer.fit_transform(corpus)
+            feature_names = vectorizer.get_feature_names_out()
+        except Exception as e:
+            logger.error(f"TF-IDF math failed: {e}")
+            session.commit()
+            return
 
-    # 5. Save all new topics to the database
-    try:
+        # 5. Extract the top keywords for each document
+        for i, record in enumerate(records):
+            # Initialize to empty list
+            record.topics = []
+
+            try:
+                # Get the scores for this specific document
+                # This is a row in the matrix with a score for each word
+                doc_vector = tfidf_matrix[i].toarray()[0]
+
+                # Sort words by their score (highest = most important)
+                # [-N:] gets the last N items (highest), [::-1] reverses to descending order
+                top_indices = doc_vector.argsort()[-TOP_KEYWORDS_PER_DOC:][::-1]
+
+                # Only keep words with a score > 0 (meaning they actually appeared)
+                keywords = [feature_names[idx] for idx in top_indices if doc_vector[idx] > 0]
+
+                # Clean up: Capitalize for better display in the UI
+                # "housing crisis" becomes "Housing Crisis"
+                record.topics = [k.title() for k in keywords]
+            except Exception:
+                # If a specific doc fails (e.g. only stop words), it just gets no topics
+                continue
+
+            # Log progress every N documents to track processing
+            if i % PROGRESS_LOG_INTERVAL == 0:
+                logger.info(f"Processed {i}/{len(records)} documents...")
+
+        # 6. Save all new topics to the database
+        # The context manager will automatically rollback if this fails
         session.commit()
         logger.info("Topic tagging complete and saved to database.")
-    except Exception as e:
-        logger.error(f"Failed to save topics: {e}")
-        session.rollback()
-    finally:
-        session.close()
 
 if __name__ == "__main__":
     run_topic_tagger()

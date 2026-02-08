@@ -2,18 +2,23 @@ import sys
 import os
 import time
 import spacy
-from sqlalchemy.orm import sessionmaker
+import threading
 
 # Add project root to path for consistent imports
 sys.path.append(os.path.join(os.path.dirname(__file__), '..'))
 
-from pipeline.models import Catalog, db_connect, create_tables
+from pipeline.models import Catalog
+from pipeline.db_session import db_session
 from pipeline.utils import is_likely_human_name
+from pipeline.config import NLP_MAX_TEXT_LENGTH
 
 from spacy.language import Language
 
 # Global cache for the NLP model to avoid reloading in the same process
+# Why cache? Loading SpaCy's NLP model takes ~2 seconds and uses ~500MB RAM
+# By caching it, we only pay this cost once per process
 _cached_nlp = None
+_model_lock = threading.Lock()  # Prevents multiple threads from loading simultaneously
 
 @Language.component("scrub_municipal_noise")
 def scrub_municipal_noise(doc):
@@ -57,20 +62,39 @@ def scrub_municipal_noise(doc):
 def get_municipal_nlp_model():
     """
     Creates an NLP model customized for municipal documents.
-    1. Pre-NER EntityRuler to block boilerplate.
-    2. Statistical NER for name discovery.
-    3. Post-NER 'scrub_municipal_noise' component for common-sense cleanup.
+
+    What's NLP? Natural Language Processing - teaching computers to understand human language.
+    What's NER? Named Entity Recognition - finding people, places, organizations in text.
+
+    Our pipeline (3 layers of filtering):
+    1. Pre-NER EntityRuler: Block obvious boilerplate ("Item 1", "City Clerk")
+    2. Statistical NER: AI model identifies potential person names
+    3. Post-NER Scrubbing: Common-sense rules filter out noise
+
+    Why 3 layers? Municipal documents are full of noise that confuses standard NLP models.
+    Without these filters, "City Staff" and "Item 5" would be tagged as people.
     """
     global _cached_nlp
+
+    # Fast path: if model already loaded, return it immediately
     if _cached_nlp:
         return _cached_nlp
-        
-    # Load the base English model. We need parser and lemmatizer for our 'Scrubbing' logic.
-    try:
-        nlp = spacy.load("en_core_web_sm")
-    except OSError:
-        import en_core_web_sm
-        nlp = en_core_web_sm.load()
+
+    # Thread-safe model loading
+    # Only one thread should load the model at a time
+    with _model_lock:
+        # Double-check after acquiring lock (another thread might have loaded it)
+        if _cached_nlp:
+            return _cached_nlp
+
+        # Load the base English model (includes parser, NER, lemmatizer)
+        # This model is ~13MB and takes ~2 seconds to load
+        try:
+            nlp = spacy.load("en_core_web_sm")
+        except OSError:
+            # Fallback: try direct import if load() fails
+            import en_core_web_sm
+            nlp = en_core_web_sm.load()
     
     # --------------------------------------------------------------------------
     # STEP 1: Pre-NER Boilerplate Exclusion
@@ -110,23 +134,36 @@ def get_municipal_nlp_model():
     
     ruler.add_patterns(patterns)
     
-    # --------------------------------------------------------------------------
-    # STEP 2: Post-NER Common-Sense Scrubbing
-    # --------------------------------------------------------------------------
-    nlp.add_pipe("scrub_municipal_noise", last=True)
+        # --------------------------------------------------------------------------
+        # STEP 2: Post-NER Common-Sense Scrubbing
+        # This custom component filters out noise that made it through the AI
+        # --------------------------------------------------------------------------
+        nlp.add_pipe("scrub_municipal_noise", last=True)
 
-    _cached_nlp = nlp
-    return nlp
+        # Cache the fully configured model for reuse
+        _cached_nlp = nlp
+        return nlp
 
 def extract_entities(text):
     """
     Extracts entities from a single text string.
+
+    What gets extracted:
+    - persons: People's names (after extensive filtering)
+    - orgs: Organizations mentioned
+    - locs: Geographic locations
+
+    Why truncate text?
+    SpaCy's NER model can handle ~100K characters before memory becomes an issue.
+    Most meeting documents have key entities in the first portion anyway.
     """
     if not text:
         return None
-        
+
     nlp = get_municipal_nlp_model()
-    doc = nlp(text[:100000])
+
+    # Process text (truncate to prevent memory issues with very large documents)
+    doc = nlp(text[:NLP_MAX_TEXT_LENGTH])
     
     entities = {
         "orgs": [],
@@ -171,35 +208,40 @@ def extract_entities(text):
 def run_nlp_pipeline():
     """
     Legacy batch processing function.
+
+    What this does:
+    1. Loads the customized NLP model (with municipal document filters)
+    2. Finds all documents that need entity extraction
+    3. Extracts persons, organizations, and locations from each document
+    4. Saves the results to the database
+
+    This is called "legacy" because it processes all documents at once.
+    Modern usage: Call extract_entities() directly for individual documents.
     """
     print("Loading Customized Municipal NLP model...")
     nlp = get_municipal_nlp_model()
 
-    engine = db_connect()
-    create_tables(engine)
-    Session = sessionmaker(bind=engine)
-    session = Session()
+    # Use context manager for automatic session cleanup and error handling
+    # Why? The context manager automatically rolls back on errors and closes the session
+    with db_session() as session:
+        # Find all documents that have content but haven't been processed for entities yet
+        to_process = session.query(Catalog).filter(
+            Catalog.content != None,
+            Catalog.content != "",
+            Catalog.entities == None
+        ).all()
 
-    to_process = session.query(Catalog).filter(
-        Catalog.content != None,
-        Catalog.content != "",
-        Catalog.entities == None
-    ).all()
+        print(f"Found {len(to_process)} documents for NLP processing.")
 
-    print(f"Found {len(to_process)} documents for NLP processing.")
+        # Process each document: extract names, places, organizations
+        for record in to_process:
+            record.entities = extract_entities(record.content)
+            print(f"Processed {record.filename}")
 
-    for record in to_process:
-        record.entities = extract_entities(record.content)
-        print(f"Processed {record.filename}")
-
-    try:
+        # Save all changes to the database at once
+        # If this fails, the context manager will automatically rollback
         session.commit()
         print("NLP processing complete.")
-    except Exception as e:
-        print(f"Error saving to database: {e}")
-        session.rollback()
-    finally:
-        session.close()
 
 if __name__ == "__main__":
     run_nlp_pipeline()
