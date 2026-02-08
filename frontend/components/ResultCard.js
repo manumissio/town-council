@@ -477,6 +477,14 @@ export default function ResultCard({ hit, onPersonClick }) {
                                   )}
                                 </div>
                                 <p className="text-xs text-gray-600 leading-relaxed">{item.description}</p>
+                                {item.result && (
+                                  <p className="text-xs text-emerald-700 font-semibold">Vote: {item.result}</p>
+                                )}
+                                {item.votes && Array.isArray(item.votes) && item.votes.length > 0 && (
+                                  <p className="text-xs text-emerald-700 font-semibold">
+                                    Votes: {item.votes.map((v) => `${v.member || "Member"} ${v.vote || ""}`.trim()).join(", ")}
+                                  </p>
+                                )}
                                 <div className="flex gap-2 pt-1">
                                   {item.classification && <span className="text-[9px] font-black uppercase text-indigo-400">{item.classification}</span>}
                                   {item.result && <span className="text-[9px] font-black uppercase text-green-500">• {item.result}</span>}

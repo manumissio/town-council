@@ -4,6 +4,7 @@ import logging
 import threading
 import re
 from llama_cpp import Llama
+from pipeline.utils import is_likely_human_name
 from pipeline.config import (
     LLM_CONTEXT_WINDOW,
     LLM_SUMMARY_MAX_TEXT,
@@ -146,6 +147,17 @@ class LocalAI:
                 return True
             if looks_like_spaced_ocr(lowered):
                 return True
+            if lowered.startswith("http://") or lowered.startswith("https://"):
+                return True
+            # Dates, times, and location/address lines are metadata, not agenda topics.
+            if re.match(r"^[A-Za-z]+,\s+[A-Za-z]+\s+\d{1,2},\s+\d{4}$", title):
+                return True
+            if re.search(r"\b\d{1,2}:\d{2}\s*(?:a\.m\.|p\.m\.|am|pm)\b", lowered):
+                return True
+            if re.search(r"\b\d{2,6}\s+[A-Za-z].*(street|st|avenue|ave|road|rd|blvd|boulevard)\b", lowered):
+                return True
+            if "mayor" in lowered or "councilmembers" in lowered:
+                return True
 
             # Common meeting header noise that should not become agenda items.
             header_noise = [
@@ -154,8 +166,12 @@ class LocalAI:
                 "city council",
                 "agenda packet",
                 "table of contents",
+                "supplemental communications",
+                "form letters",
             ]
             if any(token in lowered for token in header_noise):
+                return True
+            if re.match(r"^district\s+\d+\b", lowered):
                 return True
 
             # Generic procedural placeholders are not user-meaningful topics.
@@ -170,7 +186,7 @@ class LocalAI:
 
             return False
 
-        def add_item(order, title, page_number, description):
+        def add_item(order, title, page_number, description, result=""):
             clean_title = normalize_spaces(title)
             clean_description = normalize_spaces(description) if description else ""
             if is_noise_title(clean_title):
@@ -185,8 +201,64 @@ class LocalAI:
                 "page_number": page_number,
                 "description": clean_description,
                 "classification": "Agenda Item",
-                "result": ""
+                "result": normalize_spaces(result)
             })
+
+        def is_probable_person_name(value):
+            """
+            Heuristic guardrail:
+            speaker roll lists are often numbered lines with person names.
+            """
+            clean = normalize_spaces(value)
+            if not clean:
+                return False
+            clean = re.sub(r"\(\d+\)", "", clean).strip()
+            lowered = clean.lower()
+            if re.search(
+                r"\b(update|plan|zoning|hearing|budget|report|session|meeting|ordinance|resolution|project|communications|adjournment|amendment|specific|corridor|worksession)\b",
+                lowered
+            ):
+                return False
+            if is_likely_human_name(clean, allow_single_word=True):
+                return True
+            # Catch multi-person entries that may include "&" / "and".
+            if " and " in lowered or " & " in clean:
+                tokens = re.split(r"\s+(?:and|&)\s+|\s+", clean)
+                tokens = [t for t in tokens if t]
+                if 2 <= len(tokens) <= 8 and all(re.match(r"^[A-Z][A-Za-z'’\.\-]*$", t) for t in tokens):
+                    return True
+            return False
+
+        def split_text_by_page_markers(raw_text):
+            """
+            Build page chunks from either explicit OCR tags ([PAGE N]) or document headers
+            like "... Page 2". This avoids defaulting everything to page 1 when OCR tags are sparse.
+            """
+            markers = []
+            for match in re.finditer(r"\[PAGE\s+(\d+)\]", raw_text, flags=re.IGNORECASE):
+                markers.append((match.start(), int(match.group(1))))
+            for match in re.finditer(r"(?im)^.*\bPage\s+(\d+)\s*$", raw_text):
+                markers.append((match.start(), int(match.group(1))))
+
+            if not markers:
+                return [(1, raw_text)]
+
+            markers.sort(key=lambda item: item[0])
+
+            # Deduplicate near-identical markers that point to same page.
+            deduped = []
+            for pos, page in markers:
+                if deduped and deduped[-1][1] == page and (pos - deduped[-1][0]) < 120:
+                    continue
+                deduped.append((pos, page))
+
+            chunks = []
+            for i, (start_pos, page_num) in enumerate(deduped):
+                end_pos = deduped[i + 1][0] if i + 1 < len(deduped) else len(raw_text)
+                chunk = raw_text[start_pos:end_pos].strip()
+                if chunk:
+                    chunks.append((page_num, chunk))
+            return chunks or [(1, raw_text)]
 
         if self.llm:
             # We increase context slightly to catch more items, focusing on the start
@@ -228,26 +300,56 @@ class LocalAI:
                 finally:
                     if self.llm: self.llm.reset()
 
-        # FALLBACK: If AI fails, use a smarter paragraph splitter that looks for page markers
+        # FALLBACK: If AI fails, use text heuristics with page-aware chunking.
         if not items:
-            # Split by [PAGE X]
-            page_splits = re.split(r'\[PAGE (\d+)\]', text)
-            
-            # page_splits format: [pre-text, "1", page1_text, "2", page2_text...]
-            # We skip the first element (pre-text)
-            for i in range(1, len(page_splits), 2):
-                page_num = int(page_splits[i])
-                page_content = page_splits[i+1].strip()
+            for page_num, page_content in split_text_by_page_markers(text):
+                page_lower = page_content.lower()
+                speaker_context = (
+                    "communications" in page_lower
+                    or "speakers" in page_lower
+                    or "public comment" in page_lower
+                    or "item #1" in page_lower
+                    or "item #2" in page_lower
+                )
 
                 # Prefer explicit numbered agenda lines when available.
-                numbered_lines = re.findall(
-                    r"(?m)^\s*(?:item\s+)?(\d{1,2}(?:\.\d+)?|[A-Z]|[IVXLC]+)[\.\):]?\s+(.{6,200})$",
-                    page_content,
-                    flags=re.IGNORECASE
+                numbered_line_pattern = re.compile(
+                    r"(?m)^\s*(?:item\s*)?#?\s*(\d{1,2}(?:\.\d+)?|[A-Z]|[IVXLC]+)[\.\):]\s+(.{6,200})$"
                 )
+
+                numbered_lines = list(numbered_line_pattern.finditer(page_content))
                 if numbered_lines:
-                    for marker, title in numbered_lines:
-                        add_item(len(items) + 1, title, page_num, f"Agenda section {marker}")
+                    # If a numbered block is mostly person-name lines, it is likely a speaker list.
+                    person_like_count = sum(
+                        1 for m in numbered_lines if is_probable_person_name(m.group(2).strip())
+                    )
+                    person_heavy_numbered_list = (
+                        len(numbered_lines) >= 5
+                        and (person_like_count / len(numbered_lines)) >= 0.5
+                    )
+
+                    for idx, match in enumerate(numbered_lines):
+                        marker = match.group(1)
+                        title = match.group(2).strip()
+                        if is_probable_person_name(title) and (
+                            speaker_context or person_heavy_numbered_list
+                        ):
+                            # Do not promote speaker-name roll calls into agenda topics.
+                            continue
+
+                        block_start = match.end()
+                        block_end = numbered_lines[idx + 1].start() if idx + 1 < len(numbered_lines) else len(page_content)
+                        block_text = page_content[block_start:block_end]
+                        vote_match = re.search(r"(?im)\bVote:\s*([^\n\r]+)", block_text)
+                        vote_result = vote_match.group(1) if vote_match else ""
+
+                        add_item(
+                            len(items) + 1,
+                            title,
+                            page_num,
+                            f"Agenda section {marker}",
+                            result=vote_result
+                        )
                     continue
 
                 # Fallback for unnumbered formats: use paragraph starts carefully.
@@ -257,12 +359,16 @@ class LocalAI:
                     lines = p.split("\n")
                     if not lines:
                         continue
-                    title = lines[0].strip()
+                    title = re.sub(r"^\s*\d+(?:\.\d+)?[\.\):]?\s*", "", lines[0].strip())
 
                     # Keep only plausible title lengths and skip common extraction junk.
                     if 10 < len(title) < 150 and not any(
                         b in title.lower() for b in ['page', 'packet', 'continuing']
                     ):
+                        if title.lower().startswith("item #"):
+                            continue
+                        if is_probable_person_name(title):
+                            continue
                         desc = (p[:500] + "...") if len(p) > 500 else p
                         add_item(len(items) + 1, title, page_num, desc)
                         # Limit to 3 items per page to reduce noise in fallback
