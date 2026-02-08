@@ -11,6 +11,7 @@ This project has been modernized from its 2017 pilot into a high-performance acc
 - **Accountability Hub:** Clickable **Official Profiles** showing full legislative history and committee assignments.
 - **Fuzzy Matching:** Traditional AI (string math) to automatically merge similar names (e.g., "J. Smith" and "John Smith") into a single official profile.
 - **Deep-Linking:** AI-segmented **Agenda Items** that take you directly to specific discussions within large documents.
+- **Agenda Source Resolver (Legistar-First):** Structured agenda extraction now follows a simple priority order: **Legistar API** (when configured) -> **HTML eAgenda parsing** -> **LLM fallback**. This avoids city-by-city custom segmentation logic.
 - **Interoperability:** Standardized **OCD-IDs** for all entities, allowing data federation with other civic platforms.
 - **Multi-Tier Summaries:** Instant, **zero-cost summaries** using a hybrid local approach: Fast-pass extractive summaries (TextRank) for every document, with deep generative upgrades (Gemma 3 270M) available on-demand.
 - **Topic Discovery:** Transformer-based **Semantic Embeddings** (all-MiniLM-L6-v2) that understand concepts (e.g., 'housing' vs 'zoning') regardless of keyword overlap.
@@ -150,6 +151,21 @@ Protected write endpoints (for example summary generation and issue reporting) o
 
 * No default API key is embedded in browser code.
 * Configure this key only for trusted deployments where client-triggered protected actions are intended.
+
+## Agenda Segmentation Reliability
+To improve quality and maintainability, segmentation now uses one shared resolver in the pipeline:
+1. Use Legistar agenda items first when `Place.legistar_client` is available.
+2. Fallback to generic HTML agenda parsing when an `.html` agenda exists.
+3. Fallback to local LLM extraction only when structured sources are unavailable.
+
+Additional behavior:
+* Cached low-quality agenda items are automatically re-generated.
+* Async segmentation preserves `page_number` for deep-linking when available.
+* Resolver code is shared by both async tasks and batch workers to avoid duplicate logic.
+
+### Docker Compose Note
+`docker-compose.yml` was reviewed for this change set.
+No service or environment changes were required because Legistar cross-check uses existing DB metadata (`place.legistar_client`) and existing API/network paths.
 
 ## Scaling Up (Enterprise Mode)
 The system is designed to scale horizontally as your dataset grows:

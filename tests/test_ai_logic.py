@@ -1,6 +1,10 @@
 import pytest
 from unittest.mock import MagicMock
 import os
+import sys
+
+# Keep tests lightweight: do not require compiled llama_cpp during unit tests.
+sys.modules["llama_cpp"] = MagicMock()
 from pipeline.llm import LocalAI
 
 def test_local_ai_singleton():
@@ -97,3 +101,32 @@ def test_local_ai_error_handling():
     items = ai.extract_agenda(text)
     assert len(items) >= 1
     assert "Budget" in items[0]['title'] or "Annual" in items[0]['title']
+
+
+def test_local_ai_fallback_filters_header_noise():
+    """
+    Regression: fallback should ignore meeting headers and spaced-letter OCR noise.
+    """
+    LocalAI._instance = None
+    ai = LocalAI()
+    mock_llm = MagicMock()
+    ai.llm = mock_llm
+
+    # Force fallback path by returning non-parseable AI output.
+    mock_llm.return_value = {
+        "choices": [
+            {"text": "No parseable agenda output"}
+        ]
+    }
+
+    text = (
+        "[PAGE 1]\n\n"
+        "Special Closed Meeting 10/03/11\n\n"
+        "P R O C L A M A T I O N\n\n"
+        "1. Budget Amendment\n"
+        "Approve revised budget allocations for FY 2026\n"
+    )
+    items = ai.extract_agenda(text)
+
+    assert len(items) == 1
+    assert "budget amendment" in items[0]["title"].lower()

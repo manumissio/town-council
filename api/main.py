@@ -26,11 +26,13 @@ sys.path.append(os.path.join(os.path.dirname(__file__), '..'))
 
 # We initialize these as None first. If the import works, we fill them.
 SessionLocal = None
+agenda_items_look_low_quality = lambda items: False
 
 try:
     from pipeline.models import db_connect, Document, Event, Place, Catalog, Person, AgendaItem, DataIssue, IssueType, Membership, Organization
     from pipeline.utils import generate_ocd_id
     from pipeline.llm import LocalAI
+    from pipeline.agenda_resolver import agenda_items_look_low_quality
     engine = db_connect()
     SessionLocal = sessionmaker(bind=engine, autoflush=False, autocommit=False)
 except Exception as e:
@@ -133,6 +135,7 @@ def validate_date_format(date_str: str):
     """Ensures date is YYYY-MM-DD"""
     if not re.match(r'^\d{4}-\d{2}-\d{2}$', date_str):
         raise HTTPException(status_code=400, detail="Invalid date format. Use YYYY-MM-DD.")
+
 
 @app.get("/health")
 def health_check(db: SQLAlchemySession = Depends(get_db)):
@@ -390,8 +393,12 @@ def segment_agenda(
 
     # Check cache
     existing_items = db.query(AgendaItem).filter_by(catalog_id=catalog_id).order_by(AgendaItem.order).all()
-    if existing_items:
+    if existing_items and not agenda_items_look_low_quality(existing_items):
         return {"status": "cached", "items": existing_items}
+    if existing_items:
+        logger.info(
+            f"Agenda cache for catalog_id={catalog_id} looks low quality; regenerating asynchronously."
+        )
 
     # Dispatch Task
     task = segment_agenda_task.delay(catalog_id)

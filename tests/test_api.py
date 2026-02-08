@@ -12,7 +12,7 @@ sys.path.append(os.path.join(os.path.dirname(__file__), '..', 'api'))
 # Mock heavy AI dependency before importing api.main
 sys.modules["llama_cpp"] = MagicMock()
 
-from api.main import app, get_local_ai
+from api.main import app, get_local_ai, agenda_items_look_low_quality
 
 # Override the AI dependency for the entire test module
 mock_ai = MagicMock()
@@ -112,3 +112,11 @@ def test_api_database_unavailable(mocker):
         del app.dependency_overrides[get_db]
 
 
+def test_agenda_quality_gate_flags_low_quality_cache():
+    """Low-quality cached agenda items should be considered stale."""
+    bad_items = [
+        MagicMock(title="", page_number=1),
+        MagicMock(title="Special Closed Meeting 10/03/11", page_number=1),
+        MagicMock(title="Special Closed Meeting 10/03/11", page_number=1),
+    ]
+    assert agenda_items_look_low_quality(bad_items) is True

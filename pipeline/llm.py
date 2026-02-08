@@ -126,6 +126,68 @@ class LocalAI:
         self._load_model()
 
         items = []
+        seen_titles = set()
+
+        def normalize_spaces(value):
+            return re.sub(r"\s+", " ", (value or "")).strip()
+
+        def looks_like_spaced_ocr(value):
+            tokens = [t for t in normalize_spaces(value).split(" ") if t]
+            if not tokens:
+                return False
+            single_char_tokens = sum(1 for t in tokens if len(t) == 1 and t.isalpha())
+            return (single_char_tokens / len(tokens)) >= 0.6
+
+        def is_noise_title(title):
+            lowered = normalize_spaces(title).lower()
+            if not lowered:
+                return True
+            if len(lowered) < 6:
+                return True
+            if looks_like_spaced_ocr(lowered):
+                return True
+
+            # Common meeting header noise that should not become agenda items.
+            header_noise = [
+                "special closed meeting",
+                "calling a special meeting",
+                "city council",
+                "agenda packet",
+                "table of contents",
+            ]
+            if any(token in lowered for token in header_noise):
+                return True
+
+            # Generic procedural placeholders are not user-meaningful topics.
+            generic_blacklist = [
+                "call to order",
+                "roll call",
+                "adjournment",
+                "pledge of allegiance",
+            ]
+            if any(token in lowered for token in generic_blacklist):
+                return True
+
+            return False
+
+        def add_item(order, title, page_number, description):
+            clean_title = normalize_spaces(title)
+            clean_description = normalize_spaces(description) if description else ""
+            if is_noise_title(clean_title):
+                return
+            dedupe_key = clean_title.lower()
+            if dedupe_key in seen_titles:
+                return
+            seen_titles.add(dedupe_key)
+            items.append({
+                "order": order,
+                "title": clean_title,
+                "page_number": page_number,
+                "description": clean_description,
+                "classification": "Agenda Item",
+                "result": ""
+            })
+
         if self.llm:
             # We increase context slightly to catch more items, focusing on the start
             safe_text = text[:LLM_AGENDA_MAX_TEXT]
@@ -156,21 +218,7 @@ class LocalAI:
                             title = match.group(2).strip()
                             page = int(match.group(3))
                             desc = match.group(4).strip()
-                            
-                            # Validation: Skip generic items
-                            blacklist = ['call to order', 'roll call', 'adjournment', 'pledge of allegiance']
-                            if any(b in title.lower() for b in blacklist):
-                                continue
-
-                            if len(title) > 5:
-                                items.append({
-                                    "order": order,
-                                    "title": title,
-                                    "page_number": page,
-                                    "description": desc,
-                                    "classification": "Agenda Item",
-                                    "result": ""
-                                })
+                            add_item(order, title, page, desc)
                 except Exception as e:
                     # AI agenda extraction errors: Same rationale as above
                     # The model can fail during generation, response parsing, or regex matching
@@ -190,26 +238,33 @@ class LocalAI:
             for i in range(1, len(page_splits), 2):
                 page_num = int(page_splits[i])
                 page_content = page_splits[i+1].strip()
-                
-                # Look for bold-looking lines or short starting lines
-                # We split by double newline and filter for likely headers
+
+                # Prefer explicit numbered agenda lines when available.
+                numbered_lines = re.findall(
+                    r"(?m)^\s*(?:item\s+)?(\d{1,2}(?:\.\d+)?|[A-Z]|[IVXLC]+)[\.\):]?\s+(.{6,200})$",
+                    page_content,
+                    flags=re.IGNORECASE
+                )
+                if numbered_lines:
+                    for marker, title in numbered_lines:
+                        add_item(len(items) + 1, title, page_num, f"Agenda section {marker}")
+                    continue
+
+                # Fallback for unnumbered formats: use paragraph starts carefully.
                 paragraphs = [p.strip() for p in page_content.split("\n\n") if 10 < len(p.strip()) < 1000]
-                
+
                 for p in paragraphs:
                     lines = p.split("\n")
-                    if not lines: continue
+                    if not lines:
+                        continue
                     title = lines[0].strip()
-                    
-                    # Heuristic: If it's short, capitalized, or starts with a number, it's likely a title
-                    if 10 < len(title) < 150 and not any(b in title.lower() for b in ['page', 'item', 'packet', 'continuing']):
-                        items.append({
-                            "order": len(items) + 1,
-                            "title": title,
-                            "page_number": page_num,
-                            "description": (p[:500] + "...") if len(p) > 500 else p,
-                            "classification": "Agenda Item",
-                            "result": ""
-                        })
+
+                    # Keep only plausible title lengths and skip common extraction junk.
+                    if 10 < len(title) < 150 and not any(
+                        b in title.lower() for b in ['page', 'packet', 'continuing']
+                    ):
+                        desc = (p[:500] + "...") if len(p) > 500 else p
+                        add_item(len(items) + 1, title, page_num, desc)
                         # Limit to 3 items per page to reduce noise in fallback
                         if len([it for it in items if it['page_number'] == page_num]) >= 3:
                             break

@@ -1,14 +1,12 @@
-import os
-import time
-import json
 from sqlalchemy import or_
 from sqlalchemy.exc import SQLAlchemyError
 
 from pipeline.models import Catalog, AgendaItem, Document
 from pipeline.db_session import db_session
 from pipeline.config import AGENDA_BATCH_SIZE
-from pipeline.utils import generate_ocd_id
 from pipeline.llm import LocalAI
+from pipeline.agenda_service import persist_agenda_items
+from pipeline.agenda_resolver import resolve_agenda_items
 
 def segment_document_agenda(catalog_id):
     """
@@ -47,34 +45,12 @@ def segment_document_agenda(catalog_id):
             if not doc or not doc.event_id:
                 return
 
-            # Call the local AI model to extract agenda items
-            # This returns a list of dictionaries with title, description, page, etc.
-            items_data = local_ai.extract_agenda(catalog.content)
+            resolved = resolve_agenda_items(session, catalog, doc, local_ai)
+            items_data = resolved["items"]
 
             if items_data:
-                # Clear old items to prevent duplicates on re-processing
-                # Why? If we re-run the extraction (maybe the AI improved), we don't
-                # want to keep both the old and new versions
-                session.query(AgendaItem).filter_by(catalog_id=catalog.id).delete()
-
-                # Create a new database record for each extracted item
-                for data in items_data:
-                    # Skip items without titles (probably extraction errors)
-                    if not data.get('title'):
-                        continue
-
-                    item = AgendaItem(
-                        ocd_id=generate_ocd_id('agendaitem'),
-                        event_id=doc.event_id,
-                        catalog_id=catalog.id,
-                        order=data.get('order'),
-                        title=data.get('title', 'Untitled Item'),
-                        description=data.get('description'),
-                        classification=data.get('classification'),
-                        result=data.get('result'),
-                        page_number=data.get('page_number')
-                    )
-                    session.add(item)
+                # Rebuild rows so reruns remain idempotent and source quality can improve.
+                persist_agenda_items(session, catalog.id, doc.event_id, items_data)
 
                 # Save all items at once
                 # The context manager will automatically rollback if this fails

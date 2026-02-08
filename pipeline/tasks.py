@@ -4,9 +4,10 @@ import logging
 from sqlalchemy.orm import sessionmaker
 from sqlalchemy.exc import SQLAlchemyError
 
-from pipeline.models import db_connect, Catalog, Document, AgendaItem
+from pipeline.models import db_connect, Catalog, Document
 from pipeline.llm import LocalAI
-from pipeline.utils import generate_ocd_id
+from pipeline.agenda_service import persist_agenda_items
+from pipeline.agenda_resolver import resolve_agenda_items
 
 # Setup logging
 logger = logging.getLogger("celery-worker")
@@ -80,41 +81,35 @@ def segment_agenda_task(self, catalog_id: int):
         if not doc:
             return {"error": "Document not linked to event"}
             
-        items_data = local_ai.extract_agenda(catalog.content)
+        resolved = resolve_agenda_items(db, catalog, doc, local_ai)
+        items_data = resolved["items"]
         
         count = 0
         items_to_return = []
         if items_data:
-            # Clear old items so re-runs remain idempotent.
-            db.query(AgendaItem).filter_by(catalog_id=catalog_id).delete()
-            
-            for data in items_data:
-                if not data.get('title'): continue
-                
-                item = AgendaItem(
-                    ocd_id=generate_ocd_id('agendaitem'),
-                    event_id=doc.event_id,
-                    catalog_id=catalog_id,
-                    order=data.get('order'),
-                    title=data.get('title', 'Untitled'),
-                    description=data.get('description'),
-                    classification=data.get('classification'),
-                    result=data.get('result')
-                )
-                db.add(item)
+            created_items = persist_agenda_items(db, catalog_id, doc.event_id, items_data)
+            for item in created_items:
                 items_to_return.append({
                     "title": item.title,
                     "description": item.description,
                     "order": item.order,
                     "classification": item.classification,
-                    "result": item.result
+                    "result": item.result,
+                    "page_number": item.page_number,
+                    "source": resolved["source_used"],
                 })
                 count += 1
             
             db.commit()
             
-        logger.info(f"Segmentation complete: {count} items found")
-        return {"status": "complete", "item_count": count, "items": items_to_return}
+        logger.info(f"Segmentation complete: {count} items found (source={resolved['source_used']})")
+        return {
+            "status": "complete",
+            "item_count": count,
+            "items": items_to_return,
+            "source_used": resolved["source_used"],
+            "quality_score": resolved["quality_score"],
+        }
 
     except (SQLAlchemyError, RuntimeError, KeyError, ValueError) as e:
         logger.error(f"Task failed: {e}")

@@ -127,11 +127,14 @@ The system follows the **Open Civic Data (OCD)** standard to ensure interoperabi
 *   **Person:** A unique identity for an official, tracked across different roles and cities.
 
 ### 3. Agenda Item Segmentation (Deep-Linking)
-To solve the "Needle in a Haystack" problem, the system uses an AI-driven segmentation worker:
-*   **Splitting Logic:** Local **Gemma 3 270M** reads the OCR text and identifies individual agenda items. 
-*   **Robustness:** The system uses a **Regex-based parser** to extract items from structured AI text, with a **fail-soft fallback** that splits by paragraph if the AI fails to find topics.
-*   **Granular Indexing:** These items are indexed in Meilisearch as separate, first-class entities.
-*   **Benefit:** Search results can point users directly to the specific 1-page section of a 500-page packet, significantly improving accessibility.
+To solve the "Needle in a Haystack" problem without city-specific branching, the system uses a shared resolver:
+*   **Source Priority (Simple-by-Default):**
+    1. **Legistar API** agenda items when `place.legistar_client` is configured
+    2. **Generic HTML agenda parser** when an `.html` agenda document exists
+    3. **Local LLM fallback** (`Gemma 3 270M`) when structured sources are unavailable
+*   **Quality Controls:** Low-quality title sets (header noise, OCR spacing artifacts, duplicate junk) are scored and can trigger async re-generation.
+*   **Granular Indexing:** Final items are indexed in Meilisearch as separate, first-class entities.
+*   **Benefit:** Search results can point users directly to specific topics while keeping segmentation maintainable across cities.
 
 ### 4. Interoperable Identifiers (OCD-ID)
 The system implements a standardized identifier generator (`ocd-[type]/[uuid]`) for all core entities:
@@ -158,7 +161,8 @@ To ensure stability on consumer-grade hardware, the local AI execution is **Seri
 ### 7. Distributed Task Architecture (Async Workers)
 To scale beyond a single server, the system uses a **Producer-Consumer** model for heavy compute tasks:
 *   **The Mailbox (Redis):** When a user requests a summary, the API puts a "Job Ticket" into Redis and returns immediately.
-*   **The Workers (Celery):** Background worker processes pick up these tickets and perform the heavy AI lifting (Summarization, Segmentation) without blocking the main API.
+*   **The Workers (Celery):** Background worker processes pick up these tickets and perform summarization/segmentation without blocking the main API.
+*   **Shared Segmentation Service:** Async task and batch worker both call the same resolver and persistence helpers to prevent duplicated logic and behavior drift.
 *   **Parallel Ingestion:** The data pipeline uses `ProcessPoolExecutor` to process multiple PDF documents simultaneously (OCR -> NLP) on all available CPU cores, speeding up nightly updates by 4-8x.
 
 ### 7.1 Async Task Failure Behavior (UI Contract)
@@ -226,6 +230,7 @@ The codebase documents scenarios where broad exception handling is the **correct
 #### Rollback Protection
 All database commits are wrapped in try/except blocks with explicit rollback() calls:
 *   `ground_truth_sync.py`: Rolls back if Legistar API fetch fails mid-transaction, preventing partial vote records
+*   `agenda_legistar.py`: Uses explicit timeouts and bounded retries for Legistar cross-check requests and fails soft to HTML/LLM sources if remote calls fail
 *   `verification_service.py`: Rolls back if spatial coordinate lookup fails during PDF verification
 *   `downloader.py`: Handles race conditions when multiple workers download the same file
 *   `promote_stage.py`: Rolls back if event promotion fails, keeping staging/production in sync

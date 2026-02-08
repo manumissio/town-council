@@ -41,16 +41,27 @@ class BerkeleyCustom(BaseCitySpider):
                 continue
 
             # 3. Documents
-            # We look for links pointing to .pdf files in the table columns
-            doc_links = row.xpath('.//td[contains(@class, "views-field")]//a[contains(@href, ".pdf")]')
+            # Generic crawl strategy: keep PDF and HTML links.
+            # Downstream resolver (Legistar -> HTML -> LLM) decides which source to trust.
+            doc_links = row.xpath('.//td[contains(@class, "views-field")]//a[@href]')
             
             documents = []
             for link in doc_links:
                 url = response.urljoin(link.xpath('./@href').extract_first())
                 text = "".join(link.xpath('.//text()').extract()).lower()
+                lowered_url = url.lower()
+                is_pdf = ".pdf" in lowered_url
+                is_eagenda_html = ("eagenda" in lowered_url or "eagenda" in text) and (
+                    ".html" in lowered_url or ".htm" in lowered_url or not is_pdf
+                )
+
+                if not is_pdf and not is_eagenda_html:
+                    continue
                 
                 # Determine if the PDF is an Agenda or a Minutes/Packet
                 category = 'agenda'
+                if is_eagenda_html:
+                    category = 'agenda_html'
                 if 'packet' in text or 'minutes' in text:
                     category = 'minutes' # We treat 'Packets' as high-value docs like minutes
 
