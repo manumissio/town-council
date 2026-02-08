@@ -46,7 +46,13 @@ def get_summarization_model():
             nlp.add_pipe("textrank")
             _cached_nlp_rank = nlp
             return nlp
-        except Exception as e:
+        except (OSError, ImportError, ValueError) as e:
+            # Model loading errors: What can go wrong when loading spaCy models?
+            # - OSError: Model not installed (need to run: python -m spacy download en_core_web_sm)
+            # - ImportError: spaCy or pytextrank package not installed
+            # - ValueError: Model version mismatch (spaCy upgraded but model is old)
+            # Why return None? If the model can't load, summarization is impossible
+            # Callers check for None and skip summarization gracefully
             print(f"Error loading NLP model for summarization: {e}")
             return None
 

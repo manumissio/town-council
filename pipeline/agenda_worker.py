@@ -2,6 +2,7 @@ import os
 import time
 import json
 from sqlalchemy import or_
+from sqlalchemy.exc import SQLAlchemyError
 
 from pipeline.models import Catalog, AgendaItem, Document
 from pipeline.db_session import db_session
@@ -78,7 +79,14 @@ def segment_document_agenda(catalog_id):
                 # Save all items at once
                 # The context manager will automatically rollback if this fails
                 session.commit()
-        except Exception as e:
+        except SQLAlchemyError as e:
+            # Database errors during agenda segmentation: What can fail?
+            # - IntegrityError: Duplicate agenda items (race condition with another worker)
+            # - DataError: AI extracted content that's too large for database fields
+            # - OperationalError: Database connection lost during AI processing
+            # Why is AI processing mentioned? extract_agenda() can take 10-30 seconds,
+            # plenty of time for connections to timeout or other issues to occur.
+            # Note: The context manager (db_session) automatically rolls back on exception
             print(f"Error segmenting {catalog_id}: {e}")
             # The context manager will automatically rollback on exception
 

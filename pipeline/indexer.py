@@ -1,5 +1,7 @@
 import os
 import meilisearch
+from meilisearch.errors import MeilisearchError
+
 from pipeline.models import Document, Catalog, Event, Place, Organization, AgendaItem
 from pipeline.db_session import db_session
 from pipeline.config import MAX_CONTENT_LENGTH, MEILISEARCH_BATCH_SIZE
@@ -24,8 +26,13 @@ def index_documents():
     # Explicitly set the primary key to 'id' to avoid ambiguity errors.
     try:
         client.create_index('documents', {'primaryKey': 'id'})
-    except Exception:
-        # Index likely already exists
+    except MeilisearchError:
+        # Index creation errors: What can go wrong when creating a search index?
+        # - Index already exists (most common - happens on every run after first)
+        # - Invalid index name (contains special characters)
+        # - Meilisearch server not ready yet
+        # Why ignore this error? The index likely already exists from a previous run
+        # If it doesn't exist and there's a real error, subsequent operations will fail
         pass
         
     index = client.index('documents')
@@ -116,9 +123,14 @@ def index_documents():
                 # Wait for Meilisearch to acknowledge receipt
                 print(f"Sent batch to Meilisearch. Task ID: {task.task_uid}")
                 count += len(documents_batch)
-            except Exception as e:
-                # If Meilisearch fails, log the error but continue processing
-                # We don't want one batch failure to stop the entire indexing run
+            except MeilisearchError as e:
+                # Search indexing errors: What can go wrong when sending data to Meilisearch?
+                # - Network timeout: Meilisearch server slow to respond
+                # - Server overload: Too many requests at once
+                # - Invalid document format: Missing required fields
+                # - Index locked: Another operation is modifying the index
+                # Why continue on error? One bad batch shouldn't stop the entire indexing
+                # The documents will be retried on the next indexing run
                 print(f"Error sending batch to Meilisearch: {e}")
             documents_batch = []
 
@@ -165,7 +177,9 @@ def index_documents():
             try:
                 index.add_documents(documents_batch)
                 count += len(documents_batch)
-            except Exception as e:
+            except MeilisearchError as e:
+                # Why catch here? Agenda items have the same indexing risks as documents
+                # See the detailed explanation above for what can go wrong
                 print(f"Error indexing agenda items batch: {e}")
             documents_batch = []
 
@@ -175,7 +189,9 @@ def index_documents():
             try:
                 index.add_documents(documents_batch)
                 count += len(documents_batch)
-            except Exception as e:
+            except MeilisearchError as e:
+                # Final batch: This catches any stragglers that didn't fill a complete batch
+                # Same error handling as above - log and continue
                 print(f"Error indexing final batch: {e}")
 
     # Session automatically closes when we exit the "with" block above

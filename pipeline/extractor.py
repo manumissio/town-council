@@ -106,7 +106,15 @@ def extract_text(file_path):
                 return marked_content.strip()
 
             raise ValueError("Tika returned empty response")
-        except Exception as e:
+        except (ValueError, OSError, ConnectionError, TimeoutError) as e:
+            # Tika extraction errors: What can fail when calling the Tika server?
+            # - ValueError: Tika returned empty content, or malformed response
+            # - OSError: Local file doesn't exist or can't be read
+            # - ConnectionError: Can't reach Tika server (network down, wrong URL)
+            # - TimeoutError: Tika took too long (large/complex PDF)
+            # Why retry with exponential backoff?
+            #   Tika might be temporarily overloaded or restarting
+            #   Waiting longer between retries gives it time to recover
             if attempt < 2:
                 # Exponential backoff: wait longer each retry
                 # Attempt 1: wait 2s, Attempt 2: wait 4s

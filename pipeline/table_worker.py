@@ -4,6 +4,7 @@ import json
 import logging
 from concurrent.futures import ProcessPoolExecutor, as_completed
 from multiprocessing import cpu_count
+from sqlalchemy.exc import SQLAlchemyError
 
 from pipeline.models import Catalog
 from pipeline.db_session import db_session
@@ -61,8 +62,15 @@ def process_single_pdf(catalog_id):
                 # Try lattice mode first (best for tables with visible borders)
                 try:
                     tables = camelot.read_pdf(record.location, pages=pages, flavor='lattice')
-                except Exception:
-                    # Fallback to stream mode (for tables without borders)
+                except (ValueError, OSError, RuntimeError):
+                    # PDF parsing errors: Why do we need a fallback strategy?
+                    # Lattice mode can fail for several reasons:
+                    # - ValueError: PDF has no grid lines (needs stream mode instead)
+                    # - OSError: PDF is corrupted or unreadable
+                    # - RuntimeError: Ghostscript (PDF renderer) failed
+                    # Solution: Try stream mode, which uses text alignment instead of lines
+                    # Why catch these specific exceptions? Camelot uses different strategies
+                    # that fail in predictable ways. We don't want to catch ALL errors here.
                     tables = camelot.read_pdf(record.location, pages=pages, flavor='stream')
 
                 extracted_data = []
@@ -79,7 +87,14 @@ def process_single_pdf(catalog_id):
                 record.tables = extracted_data
                 session.commit()
                 return 1
-            except Exception as e:
+            except (ValueError, OSError, RuntimeError, MemoryError) as e:
+                # Table extraction failures: What else can go wrong?
+                # - ValueError: Invalid page range, malformed PDF structure
+                # - OSError: File disappeared, permissions changed, disk full
+                # - RuntimeError: Camelot's underlying libraries (Ghostscript, OpenCV) crashed
+                # - MemoryError: PDF is too large (hundreds of pages with complex tables)
+                # Why mark as empty? Better to record "no tables found" than to keep
+                # retrying the same broken PDF forever. Manual review can fix it later.
                 logger.error(f"Final failure for {record.filename}: {e}")
                 # If extraction fails, mark as empty rather than leaving as None
                 # This prevents re-processing on next run
@@ -87,9 +102,14 @@ def process_single_pdf(catalog_id):
                 session.commit()
                 return 1
 
-        except Exception as e:
-            logger.error(f"DB Error for {catalog_id}: {e}")
+        except SQLAlchemyError as e:
+            # Database errors in table extraction: What can go wrong with the database?
+            # - IntegrityError: Trying to store invalid data (JSON too large)
+            # - OperationalError: Database connection lost during long PDF processing
+            # - DataError: Extracted tables contain characters the database can't store
+            # Why catch separately? Database errors are different from PDF errors
             # The context manager will automatically rollback on exception
+            logger.error(f"DB Error for {catalog_id}: {e}")
             return 0
 
 def run_table_pipeline():

@@ -3,6 +3,7 @@ from multiprocessing import cpu_count
 import logging
 import sys
 import subprocess
+from sqlalchemy.exc import SQLAlchemyError
 
 from pipeline.config import (
     DOCUMENT_CHUNK_SIZE,
@@ -69,7 +70,15 @@ def process_document_chunk(catalog_ids):
             # Health check: verify the connection works
             db.execute(text("SELECT 1"))
             break
-        except Exception:
+        except SQLAlchemyError:
+            # Database connection errors: Why do connections fail during startup?
+            # - Connection pool exhausted: All connections in use by other workers
+            # - Database server restarting: Postgres/MySQL temporarily unavailable
+            # - Network hiccup: Brief connectivity loss
+            # - Authentication failure: Wrong credentials (rare in production)
+            # Why retry with random delay? "Thundering herd" problem:
+            #   If 10 workers all fail at once and retry at the same time,
+            #   they'll all fail again! Random delays spread out the retries.
             if db: db.close()
             # Random delay prevents all workers from retrying simultaneously
             time.sleep(random.uniform(DB_RETRY_DELAY_MIN, DB_RETRY_DELAY_MAX))
@@ -103,7 +112,14 @@ def process_document_chunk(catalog_ids):
             processed_count += 1
 
         return processed_count
-    except Exception as e:
+    except SQLAlchemyError as e:
+        # Batch processing database errors: What can fail during document processing?
+        # - IntegrityError: Duplicate key (another worker processed same document)
+        # - OperationalError: Connection lost mid-batch (database crashed)
+        # - DataError: Extracted content too large for database field
+        # - StatementError: Invalid SQL generated (rare, likely a bug)
+        # Why return processed_count? We successfully processed SOME documents
+        # before the error. Better to save partial progress than lose everything.
         db.rollback()
         print(f"Error processing batch: {e}", file=sys.stderr)
         return processed_count

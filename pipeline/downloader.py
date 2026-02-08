@@ -3,6 +3,8 @@ import requests
 import logging
 from concurrent.futures import ThreadPoolExecutor
 from sqlalchemy import text
+from sqlalchemy.exc import SQLAlchemyError
+
 from pipeline.models import Place, UrlStage, Event, Catalog, Document, UrlStageHist
 from pipeline.db_session import db_session
 from pipeline.config import (
@@ -84,8 +86,13 @@ class Media():
             else:
                 # HTTP error (404, 500, etc.)
                 return r.status_code
-        except Exception as e:
-            # Network timeout, connection error, etc.
+        except requests.RequestException as e:
+            # Network errors: What can go wrong when downloading from the internet?
+            # - Timeout: Server takes too long to respond (slow network, overloaded server)
+            # - ConnectionError: Can't reach the server (network down, wrong URL)
+            # - DNSError: Can't resolve domain name (typo in URL, DNS issues)
+            # - TooManyRedirects: URL redirects in a loop
+            # Why catch RequestException? It's the parent class for all requests errors
             logger.error(f"Request failed for {document_url}: {e}")
             return None
 
@@ -119,7 +126,13 @@ class Media():
                 for chunk in response.iter_content(chunk_size=FILE_WRITE_CHUNK_SIZE):
                     f.write(chunk)
             return abs_path
-        except Exception as e:
+        except OSError as e:
+            # File system errors: What can go wrong when writing to disk?
+            # - PermissionError: No permission to write to this directory
+            # - FileNotFoundError: Parent directory doesn't exist
+            # - IsADirectoryError: Trying to write to a directory, not a file
+            # - DiskFullError: No space left on disk
+            # Why catch OSError? It's the parent class for all filesystem errors
             logger.error(f"Failed to write file {abs_path}: {e}")
             return None
 
@@ -149,8 +162,13 @@ class Media():
             safe_path = os.path.join(self.working_dir, *segments)
             os.makedirs(safe_path, exist_ok=True)
             return safe_path
-            
-        except Exception as e:
+
+        except (ValueError, OSError) as e:
+            # Path creation errors: What can go wrong when creating directories?
+            # - ValueError: Malformed OCD-ID that can't be parsed into path segments
+            # - OSError: Filesystem issues (permissions, invalid characters in path)
+            # Why handle this? Some OCD-IDs from external sources might be malformed
+            # Fallback strategy: Put it in a 'misc' folder rather than failing completely
             logger.warning(f"Malformed OCD-ID '{ocd_id_str}': {e}. Using fallback 'misc'.")
             fallback_path = os.path.join(self.working_dir, "misc")
             os.makedirs(fallback_path, exist_ok=True)
@@ -206,8 +224,15 @@ def process_single_url(url_record_id):
                     )
                     session.add(catalog_entry)
                     session.flush() # Save immediately to get the ID
-                except Exception:
-                    # If someone else inserted it while we were downloading, re-fetch it
+                except SQLAlchemyError:
+                    # Race condition handling: What is a race condition?
+                    # Two workers might try to download the same file simultaneously:
+                    # 1. Worker A checks: "Does file X exist?" → No
+                    # 2. Worker B checks: "Does file X exist?" → No
+                    # 3. Worker A downloads and inserts record
+                    # 4. Worker B tries to insert → DUPLICATE KEY ERROR!
+                    # Solution: Catch the error, rollback, and re-fetch the record
+                    # Why catch SQLAlchemyError? Covers all database errors (not just duplicates)
                     session.rollback()
                     catalog_entry = session.query(Catalog).filter(
                         Catalog.url_hash == url_record.url_hash
@@ -236,7 +261,14 @@ def process_single_url(url_record_id):
         
         session.commit()
 
-    except Exception as e:
+    except SQLAlchemyError as e:
+        # Database transaction errors: What can go wrong during a database transaction?
+        # - IntegrityError: Violates a database constraint (duplicate key, foreign key)
+        # - OperationalError: Database connection lost, server crashed
+        # - DataError: Invalid data type (trying to store text in integer field)
+        # - TimeoutError: Transaction took too long, database locked
+        # Why rollback? If ANY part of the transaction fails, we undo ALL changes
+        # to keep the database in a consistent state (atomicity principle)
         logger.error(f"Error processing URL record {url_record_id}: {e}")
         session.rollback()
     finally:

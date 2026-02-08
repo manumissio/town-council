@@ -75,6 +75,15 @@ class LocalAI:
                 )
                 logger.info("AI Model loaded successfully.")
             except Exception as e:
+                # AI model loading errors: Why keep this broad?
+                # llama-cpp-python is an external C++ library that can raise many exception types:
+                # - OSError: Model file not found or corrupted
+                # - RuntimeError: CUDA/GPU errors, incompatible model format
+                # - MemoryError: Model too large for available RAM
+                # - ValueError: Invalid parameters (context size, layers)
+                # - And potentially others from the underlying C++ code
+                # DECISION: Keep broad exception handling here. It's safer to catch everything
+                # than to miss a specific error type and crash the entire application.
                 logger.error(f"Failed to load AI model: {e}")
 
     def summarize(self, text):
@@ -95,6 +104,14 @@ class LocalAI:
                 response = self.llm(prompt, max_tokens=LLM_SUMMARY_MAX_TOKENS, temperature=0.1)
                 return response["choices"][0]["text"].strip()
             except Exception as e:
+                # AI inference errors: Why keep this broad?
+                # During text generation, the model can fail in unpredictable ways:
+                # - RuntimeError: Model context overflow, generation timeout
+                # - KeyError: Unexpected response format (model behavior changed)
+                # - MemoryError: Generated text too large
+                # - CUDA errors: GPU issues during generation
+                # DECISION: Catch all errors and return None. The caller handles gracefully.
+                # Better to skip summarization than crash the entire pipeline.
                 logger.error(f"AI Summarization failed: {e}")
                 return None
             finally:
@@ -155,6 +172,10 @@ class LocalAI:
                                     "result": ""
                                 })
                 except Exception as e:
+                    # AI agenda extraction errors: Same rationale as above
+                    # The model can fail during generation, response parsing, or regex matching
+                    # DECISION: Log the error but return partial results (items extracted so far)
+                    # rather than crashing. The fallback heuristic will catch items anyway.
                     logger.error(f"AI Agenda Extraction failed: {e}")
                 finally:
                     if self.llm: self.llm.reset()

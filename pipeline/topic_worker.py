@@ -100,7 +100,14 @@ def run_topic_tagger():
         try:
             tfidf_matrix = vectorizer.fit_transform(corpus)
             feature_names = vectorizer.get_feature_names_out()
-        except Exception as e:
+        except (ValueError, MemoryError) as e:
+            # TF-IDF computation errors: What can go wrong with the math?
+            # - ValueError: All documents are empty or contain only stop words
+            #   (no valid features to extract)
+            # - MemoryError: Too many documents or features to fit in RAM
+            #   (rare, but possible with 10,000+ documents)
+            # Why commit before returning? Save the empty topic lists we initialized
+            # This prevents infinite retries on documents that legitimately have no topics
             logger.error(f"TF-IDF math failed: {e}")
             session.commit()
             return
@@ -125,8 +132,14 @@ def run_topic_tagger():
                 # Clean up: Capitalize for better display in the UI
                 # "housing crisis" becomes "Housing Crisis"
                 record.topics = [k.title() for k in keywords]
-            except Exception:
-                # If a specific doc fails (e.g. only stop words), it just gets no topics
+            except (IndexError, ValueError):
+                # Individual document errors: What can fail for a single document?
+                # - IndexError: Document has no valid tokens after filtering
+                #   (document was all stop words like "the meeting was called to order")
+                # - ValueError: Document vector is malformed (extremely rare)
+                # Why continue instead of failing? One bad document shouldn't stop
+                # topic extraction for thousands of other documents. This document
+                # will just have an empty topics list.
                 continue
 
             # Log progress every N documents to track processing

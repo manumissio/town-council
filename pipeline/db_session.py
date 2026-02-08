@@ -21,6 +21,15 @@ BEFORE (manual):
         # work...
         session.commit()
     except Exception as e:
+        # ✅ CORRECT: Broad exception handling in cleanup code
+        # Context managers MUST catch ALL exceptions, not just database errors
+        # Why? If your code raises ANY error (ValueError, KeyError, custom exceptions),
+        # the database session still needs to rollback and close properly.
+        # Examples of non-database errors that need rollback:
+        # - ValueError: Invalid data format in your business logic
+        # - KeyError: Missing dictionary key in data transformation
+        # - AttributeError: Accessing None.property
+        # All of these should trigger rollback to keep database consistent
         session.rollback()
     finally:
         session.close()
@@ -94,8 +103,25 @@ def db_session():
         yield session
 
     except Exception:
-        # If ANY error occurred, undo uncommitted changes
-        # This keeps the database in a consistent state
+        # ✅ CORRECT: Broad exception handling in context managers
+        # This is a fundamental pattern in Python context managers
+        #
+        # Why catch Exception (broad) instead of SQLAlchemyError (specific)?
+        # Because errors can come from YOUR code, not just the database:
+        #
+        # Example 1: Business logic error
+        #   with db_session() as session:
+        #       user = session.get(User, id)
+        #       age = int(user.age)  # ← ValueError if age is "N/A"
+        #
+        # Example 2: Data processing error
+        #   with db_session() as session:
+        #       data = json.loads(record.content)  # ← JSONDecodeError
+        #
+        # If we only caught SQLAlchemyError, these would skip the rollback!
+        # Result: Database left in inconsistent state (some changes committed, some not)
+        #
+        # The context manager's job: Clean up REGARDLESS of error type
         session.rollback()
         raise  # Re-raise the exception so your code knows something failed
 

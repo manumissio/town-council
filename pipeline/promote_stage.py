@@ -1,5 +1,7 @@
 from sqlalchemy import text
 from sqlalchemy.orm import sessionmaker
+from sqlalchemy.exc import SQLAlchemyError
+
 from pipeline.models import Event, EventStage, Place, db_connect, create_tables
 from pipeline.utils import generate_ocd_id
 
@@ -74,8 +76,13 @@ def promote_stage():
             print("Clearing EventStage table...")
             session.query(EventStage).delete()
             session.commit()
-            
-    except Exception as e:
+
+    except SQLAlchemyError as e:
+        # Database errors during event promotion: What can fail?
+        # - IntegrityError: Duplicate event (same date/name/location)
+        # - ForeignKeyError: Referenced place doesn't exist
+        # - OperationalError: Database connection lost during bulk insert
+        # Why rollback? If ANY promotion fails, undo ALL to keep staging/production in sync
         print(f"Error during promotion: {e}")
         session.rollback()
     finally:
