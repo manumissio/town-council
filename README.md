@@ -7,42 +7,39 @@ Engagement in local government is limited by physical access and electronic barr
 ## Project Status (Modernized 2026)
 This project has been modernized from its 2017 pilot into a high-performance accountability platform.
 
-**Key Updates:**
-- **Accountability Hub:** Clickable **Official Profiles** showing full legislative history and committee assignments.
-- **Fuzzy Matching:** Traditional AI (string math) to automatically merge similar names (e.g., "J. Smith" and "John Smith") into a single official profile.
-- **Deep-Linking:** AI-segmented **Agenda Items** that take you directly to specific discussions within large documents.
-- **Agenda Source Resolver (Legistar-First):** Structured agenda extraction now follows a simple priority order: **Legistar API** (when configured) -> **HTML eAgenda parsing** -> **LLM fallback**. This avoids city-by-city custom segmentation logic.
-- **Interoperability:** Standardized **OCD-IDs** for all entities, allowing data federation with other civic platforms.
-- **Multi-Tier Summaries:** Instant, **zero-cost summaries** using a hybrid local approach: Fast-pass extractive summaries (TextRank) for every document, with deep generative upgrades (Gemma 3 270M) available on-demand.
-- **Topic Discovery:** Transformer-based **Semantic Embeddings** (all-MiniLM-L6-v2) that understand concepts (e.g., 'housing' vs 'zoning') regardless of keyword overlap.
-- **Semantic Linking:** A high-performance **Similarity Engine** powered by **FAISS**, automatically connecting related meetings across years and municipalities in milliseconds.
-- **Unified Search:** A segmented "Airbnb-style" Search Hub integrating Municipality, Body, and Meeting Type filters.
-- **Robust Ingestion:** Refactored **BaseCitySpider** architecture that simplifies adding new cities and ensures resilient "Delta Crawling" (skipping duplicates).
-- **Data Quality:** Integrated **Crowdsourced Error Reporting** allowing users to flag broken links or OCR errors directly to administrators.
-- **Ground Truth Verification:** Dual-source validation system that fetches official voting records from the Legistar API and spatially aligns them with PDF content using PyMuPDF, providing "Verified" badges on search results with exact page coordinates for vote tallies.
-- **Transaction Safety:** Production-grade exception handling with 30+ specific error handlers categorized by operation type (database, network, file I/O, search, PDF processing). Every error includes educational comments explaining what can fail, why it fails, and how it's handled. Context managers and migrations use broad exception catching where architecturally required. All database operations protected with rollback mechanisms to prevent data corruption.
-- **Local-First AI:** 100% private, local inference using **Gemma 3 270M** running entirely on your CPU after setup. No external AI API keys are required.
-- **High-Performance Data Layer:** Sub-100ms response times powered by **Redis caching**, **orjson**, and database query optimization.
-- **Production Resilience:** Optimized for 24/7 availability with **fail-soft logic** that handles database or AI outages gracefully without crashing the server.
-- **Scalable Search:** Instant, typo-tolerant search powered by **Meilisearch** using yield-based indexing.
-- **Security:** Hardened CORS, Dependency Injection for DB safety, non-root Docker execution, **Proactive Health Probes**, and **Strict Schema Validation**.
+Key updates:
+- Official profile views: search results can open person profiles with current role and organization membership history.
+- Name deduplication: fuzzy matching merges near-duplicate person names during linking.
+- Agenda segmentation with deep links: segmented agenda items are generated on demand and can include page links when page numbers are available.
+- Shared agenda resolver: extraction follows a maintainable order of Legistar (when configured), HTML eAgenda parsing, then local LLM fallback.
+- OCD-style identifiers: core civic entities use standardized IDs (for example event, person, organization, agenda item).
+- Two summary paths: extractive summaries (TextRank) and local generative summaries (Gemma 3 270M) are both supported.
+- Topic tagging and semantic similarity: TF-IDF topic tags are generated, and a separate embedding + FAISS flow supports related-document linking.
+- Unified search UI: keyword, city, organization, and meeting-type filters are available in one search hub.
+- Ingestion architecture: BaseCitySpider supports reusable crawl plumbing and delta-crawl behavior to reduce duplicate ingestion.
+- Data issue reporting: users can submit broken-link/OCR/city issues through the UI and API.
+- Ground-truth pipeline foundations: Legistar vote/action sync and PDF spatial alignment fields are implemented for verification workflows.
+- Transaction and rollback safety: database writes use guarded patterns with rollback on failure paths.
+- Local AI inference: summarization and segmentation run locally via llama-cpp and Gemma after model setup.
+- Search and API performance tooling: Redis caching, orjson responses, Meilisearch indexing, and benchmark tests are in place.
+- Resilience guardrails: health checks, task polling failure handling, and fail-soft behavior are implemented in API and worker paths.
+- Security controls: CORS controls, API-key protected write endpoints, non-root first-party containers, and request validation are implemented.
 
 ## Performance Metrics (2026 Benchmarks)
 
-These numbers are verified on local hardware (MacBook ARM) using `ApacheBench`.
+These numbers are from the latest local `pytest-benchmark` run on MacBook ARM (`CPython 3.14.3`), saved at `.benchmarks/Darwin-CPython-3.14-64bit/0012_264fd8cd921e79e81ee1dceae2d2e9fa43b52204_20260208_181835_uncommited-changes.json`.
 
-| Operation | Previous | Optimized (E2E) | Engine Latency | Improvement |
-| :--- | :--- | :--- | :--- | :--- |
-| **Search (Full Text)** | 2000ms | **1.3s** | **11ms** | **~2x** |
-| **City Metadata** | 500ms | **5ms** | **<1ms** | **100x** |
-| **Official Profiles** | 500ms | **10ms** | **2ms** | **50x** |
-| **JSON Serialization** | 125ms | **2ms** | **N/A** | **60x** |
+| Operation | Mean Latency | Throughput | Improvement |
+| :--- | :--- | :--- | :--- |
+| **Fuzzy Name Matching** (`find_best_person_match`) | **65.56 us** | **15.25 K ops/s** | Baseline |
+| **Regex Agenda Extraction** | **778.98 us** | **1.28 K ops/s** | Baseline |
+| **Standard JSON Serialization** (`json.dumps`) | **157.92 us** | **6.33 K ops/s** | Baseline |
+| **Rust JSON Serialization** (`orjson.dumps`) | **8.56 us** | **116.84 K ops/s** | **~18.5x faster than stdlib JSON** |
 
 **Optimizations applied:**
-*   **Search Engine:** Meilisearch indexed with optimized `attributesToRetrieve` and `attributesToCrop` to prevent 24MB JSON payloads.
-*   **Caching:** Redis stores pre-serialized JSON for metadata, delivering results in <5ms.
-*   **Database:** SQLAlchemy `joinedload` eliminates the N+1 problem for official profiles (1 query vs 30+).
-*   **JSON:** `orjson` library provides Rust-powered serialization speed.
+*   **JSON path:** `orjson` provides the largest measured win in this benchmark set.
+*   **Matching path:** Name-linking and regex parsing remain sub-millisecond on benchmark fixtures.
+*   **Pipeline focus:** Performance regressions are tracked by automated benchmark tests (`tests/test_benchmarks.py`).
 
 ## System Requirements
 *   **CPU:** Any modern processor (AVX2 support recommended for speed).
