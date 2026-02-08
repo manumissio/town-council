@@ -3,19 +3,16 @@ from fastapi.testclient import TestClient
 from fastapi import HTTPException
 import sys
 import os
+from unittest.mock import MagicMock
 
 # Add the project root to the path so we can import from api/main.py
 sys.path.append(os.path.join(os.path.dirname(__file__), '..'))
 sys.path.append(os.path.join(os.path.dirname(__file__), '..', 'api'))
 
-from api.main import app, get_local_ai
-
-# SECURITY: Mock the heavy AI module to prevent library loading during tests
-from unittest.mock import MagicMock
-import sys
-
-# We only mock llama_cpp to prevent C++ engine loading
+# Mock heavy AI dependency before importing api.main
 sys.modules["llama_cpp"] = MagicMock()
+
+from api.main import app, get_local_ai
 
 # Override the AI dependency for the entire test module
 mock_ai = MagicMock()
@@ -113,6 +110,5 @@ def test_api_database_unavailable(mocker):
     finally:
         # Cleanup: Remove the override so other tests pass
         del app.dependency_overrides[get_db]
-
 
 

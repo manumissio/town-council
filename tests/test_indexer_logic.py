@@ -86,3 +86,23 @@ def test_indexer_flushes_agenda_final_batch_once(mocker):
     assert fake_index.add_documents.call_count == 1
     sent_batch = fake_index.add_documents.call_args[0][0]
     assert len(sent_batch) == 2
+
+
+def test_flush_batch_updates_count(mocker):
+    """Batch helper should increment count by the number of sent docs."""
+    fake_index = MagicMock()
+    docs = [{"id": "doc_1"}, {"id": "doc_2"}]
+
+    count = indexer._flush_batch(fake_index, docs, 3, "document")
+    assert count == 5
+    fake_index.add_documents.assert_called_once_with(docs)
+
+
+def test_flush_batch_keeps_count_on_error(mocker):
+    """Batch helper should not increment count when indexing fails."""
+    fake_index = MagicMock()
+    fake_index.add_documents.side_effect = indexer.MeilisearchError("boom")
+    docs = [{"id": "doc_1"}]
+
+    count = indexer._flush_batch(fake_index, docs, 7, "document")
+    assert count == 7

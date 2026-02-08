@@ -34,8 +34,7 @@ class Media():
 
     def gather(self):
         """
-        Main method to fetch and save the document.
-        Returns the local file path if successful, or None if failed.
+        Download and store one document. Return local path or None.
         """
         # Fetch the document from the URL
         self.response = self._get_document(self.doc.url)
@@ -51,8 +50,7 @@ class Media():
 
     def _parse_content_type(self, headers):
         """
-        Reads the 'Content-Type' header to determine if the file is a PDF or HTML.
-        Defaults to PDF if not specified.
+        Normalize response content type for extension detection.
         """
         content_type = headers.get('Content-Type', 'application/pdf')
         content_type = content_type.split(';')[0]  # Remove charset if present (e.g., "text/html; charset=utf-8")
@@ -82,7 +80,7 @@ class Media():
 
     def _store_document(self, response, content_type, url_hash):
         """
-        Saves the downloaded content to the local disk.
+        Save downloaded bytes to local disk.
         """
         file_path = self._create_fp_from_ocd_id(self.doc.ocd_division_id)
         
@@ -111,8 +109,7 @@ class Media():
 
     def _create_fp_from_ocd_id(self, ocd_id_str):
         """
-        Creates a directory structure based on the location ID.
-        Example: data/us/ca/belmont/
+        Build a city-specific data directory from OCD division ID.
         """
         try:
             if not ocd_id_str or '/' not in ocd_id_str:
@@ -143,8 +140,7 @@ class Media():
 
 def process_single_url(url_record_id):
     """
-    Processes a single URL from the staging table.
-    Downloads the file, creates a Catalog entry, and links it to a Document.
+    Process one staged URL and link it to catalog/document rows.
     """
     engine = db_connect()
     Session = sessionmaker(bind=engine)

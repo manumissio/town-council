@@ -24,38 +24,26 @@ def _flush_batch(index, documents_batch, count, label):
 
 def index_documents():
     """
-    Syncs processed documents and agenda items from the main database into the Search Engine.
-    
-    Why this is needed:
-    Databases like Postgres are great for storage, but slow for full-text search.
-    We copy the data into Meilisearch, which is optimized for instant, 
-    typo-tolerant searching (like Google).
+    Sync processed meetings and agenda items into Meilisearch.
     """
     print(f"Connecting to Meilisearch at {MEILI_HOST}...")
     client = meilisearch.Client(MEILI_HOST, MEILI_MASTER_KEY)
     
-    # Create the 'documents' index if it doesn't exist.
-    # Explicitly set the primary key to 'id' to avoid ambiguity errors.
+    # Create the index once; ignore "already exists" errors.
     try:
         client.create_index('documents', {'primaryKey': 'id'})
     except MeilisearchError:
-        # Index creation errors: What can go wrong when creating a search index?
-        # - Index already exists (most common - happens on every run after first)
-        # - Invalid index name (contains special characters)
-        # - Meilisearch server not ready yet
-        # Why ignore this error? The index likely already exists from a previous run
-        # If it doesn't exist and there's a real error, subsequent operations will fail
         pass
         
     index = client.index('documents')
     
-    # Configure Filters: These fields can be used to narrow down results.
+    # Fields usable in filter queries.
     index.update_filterable_attributes([
         'city', 'meeting_type', 'meeting_category', 'organization', 
         'people', 'date', 'organizations', 'result_type'
     ])
     
-    # Configure Searchable Fields: Added 'title' and 'description' for Agenda Items.
+    # Fields used for full-text search ranking.
     index.update_searchable_attributes([
         'content', 'event_name', 'title', 'description', 'filename', 
         'summary', 'organizations', 'locations', 'meeting_category', 
