@@ -133,6 +133,7 @@ To solve the "Needle in a Haystack" problem without city-specific branching, the
 *   **Quality Controls:** Low-quality title sets (header noise, OCR spacing artifacts, duplicate junk) are scored and can trigger async re-generation.
 *   **Granular Indexing:** Final items are indexed in Meilisearch as separate, first-class entities.
 *   **Benefit:** Search results can point users directly to specific topics while keeping segmentation maintainable across cities.
+*   **Legistar Dual-Use Caveat:** Legistar is intentionally used by both crawling (discovery) and resolving (cross-check). To avoid drift and duplicated load, both paths must share one Legistar client/normalization contract, and resolver logic should read cached DB data first before making live API calls.
 
 ### 4. Interoperable Identifiers (OCD-ID)
 The system implements a standardized identifier generator (`ocd-[type]/[uuid]`) for all core entities:
