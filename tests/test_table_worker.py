@@ -59,6 +59,25 @@ def test_process_single_pdf_uses_stream_fallback_when_lattice_fails(mocker):
     session.commit.assert_called_once()
 
 
+def test_process_single_pdf_handles_indexerror_as_broken_pdf(mocker):
+    tw, camelot = _load_table_worker(mocker)
+    record = SimpleNamespace(id=3, location="/tmp/broken.pdf", filename="broken.pdf", tables=None)
+    session = mocker.MagicMock()
+    session.get.return_value = record
+    # Both parser strategies fail on malformed page metadata.
+    camelot.read_pdf.side_effect = [IndexError("bad page tree"), IndexError("bad page tree")]
+
+    mocker.patch.object(tw, "db_session", return_value=_Ctx(session))
+    mocker.patch.object(tw.os.path, "exists", return_value=True)
+
+    result = tw.process_single_pdf(3)
+
+    assert result == 1
+    assert record.tables == []
+    assert camelot.read_pdf.call_count == 2
+    session.commit.assert_called_once()
+
+
 def test_run_table_pipeline_returns_when_nothing_to_process(mocker):
     tw, _camelot = _load_table_worker(mocker)
     session = mocker.MagicMock()

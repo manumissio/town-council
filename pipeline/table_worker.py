@@ -62,12 +62,13 @@ def process_single_pdf(catalog_id):
                 # Try lattice mode first (best for tables with visible borders)
                 try:
                     tables = camelot.read_pdf(record.location, pages=pages, flavor='lattice')
-                except (ValueError, OSError, RuntimeError):
+                except (ValueError, OSError, RuntimeError, IndexError):
                     # PDF parsing errors: Why do we need a fallback strategy?
                     # Lattice mode can fail for several reasons:
                     # - ValueError: PDF has no grid lines (needs stream mode instead)
                     # - OSError: PDF is corrupted or unreadable
                     # - RuntimeError: Ghostscript (PDF renderer) failed
+                    # - IndexError: PDF page tree is malformed or shorter than reported
                     # Solution: Try stream mode, which uses text alignment instead of lines
                     # Why catch these specific exceptions? Camelot uses different strategies
                     # that fail in predictable ways. We don't want to catch ALL errors here.
@@ -87,12 +88,13 @@ def process_single_pdf(catalog_id):
                 record.tables = extracted_data
                 session.commit()
                 return 1
-            except (ValueError, OSError, RuntimeError, MemoryError) as e:
+            except (ValueError, OSError, RuntimeError, MemoryError, IndexError) as e:
                 # Table extraction failures: What else can go wrong?
                 # - ValueError: Invalid page range, malformed PDF structure
                 # - OSError: File disappeared, permissions changed, disk full
                 # - RuntimeError: Camelot's underlying libraries (Ghostscript, OpenCV) crashed
                 # - MemoryError: PDF is too large (hundreds of pages with complex tables)
+                # - IndexError: Parser cannot access a requested page in a broken PDF
                 # Why mark as empty? Better to record "no tables found" than to keep
                 # retrying the same broken PDF forever. Manual review can fix it later.
                 logger.error(f"Final failure for {record.filename}: {e}")
