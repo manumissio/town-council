@@ -14,11 +14,15 @@ def shared_engine():
     Creates a single engine for the entire test session.
     """
     from pipeline.models import (
-        Base, Place, Organization, Event, Document, 
+        Base, Place, Organization, Event, Document,
         Catalog, AgendaItem, DataIssue, EventStage
     )
     # The URI must have the same name for all engines to share the DB
     engine = create_engine(TEST_DB_URL)
+
+    # Force drop all existing tables to ensure clean schema
+    # This prevents issues with cached table definitions from previous test runs
+    Base.metadata.drop_all(engine)
     Base.metadata.create_all(engine)
     return engine
 

@@ -33,16 +33,20 @@ def test_downloader_absolute_path(db_session, mocker, monkeypatch):
     monkeypatch.setenv("DATA_DIR", test_data_dir)
     
     # 2. Seed Data
+    import datetime
+    test_date = datetime.date(2026, 2, 1)
+
     place = Place(name="Test City", ocd_division_id="ocd-division/country:us/state:ca/place:test", state="CA")
     db_session.add(place)
     db_session.flush()
-    
-    event = Event(name="Test Meeting", record_date=None, ocd_division_id=place.ocd_division_id, place_id=place.id)
+
+    event = Event(name="Test Meeting", record_date=test_date, ocd_division_id=place.ocd_division_id, place_id=place.id)
     db_session.add(event)
-    
+
     url_stage = UrlStage(
         ocd_division_id=place.ocd_division_id,
         event="Test Meeting",
+        event_date=test_date,
         url="https://example.com/test.pdf",
         url_hash="test_hash_123",
         category="agenda"
@@ -50,14 +54,12 @@ def test_downloader_absolute_path(db_session, mocker, monkeypatch):
     db_session.add(url_stage)
     db_session.commit()
 
-    # 3. Mock Network and Disk
-    mock_response = MagicMock()
-    mock_response.headers = {'Content-Type': 'application/pdf'}
-    mock_response.iter_content.return_value = [b"dummy pdf content"]
-    mocker.patch('requests.Session.get', return_value=mock_response)
-    # Mock os.makedirs and open to avoid actual disk writes
-    mocker.patch('os.makedirs')
-    mocker.patch('builtins.open', mocker.mock_open())
+    # 3. Mock Download
+    # Mock Media.gather to return a fake file path without actual download
+    test_path = f"{test_data_dir}/us/ca/test/test_hash_123.pdf"
+    mock_media_instance = MagicMock()
+    mock_media_instance.gather.return_value = test_path
+    mocker.patch('pipeline.downloader.Media', return_value=mock_media_instance)
 
     # 4. Action
     process_single_url(url_stage.id)
@@ -74,6 +76,9 @@ def test_downloader_race_condition(db_session, mocker):
     Test: Does the downloader handle two meetings sharing the same file?
     We simulate a 'UniqueViolation' to ensure the code recovers and links correctly.
     """
+    import datetime
+    test_date = datetime.date(2026, 2, 2)
+
     # 1. Seed existing file in Catalog
     existing_file = Catalog(
         url="https://shared.com/file.pdf",
@@ -81,17 +86,18 @@ def test_downloader_race_condition(db_session, mocker):
         location="/app/data/shared_hash.pdf"
     )
     db_session.add(existing_file)
-    
+
     place = Place(name="City", ocd_division_id="ocd-city", state="CA")
     db_session.add(place)
     db_session.flush()
-    
-    event = Event(name="Meeting 2", record_date=None, ocd_division_id="ocd-city", place_id=place.id)
+
+    event = Event(name="Meeting 2", record_date=test_date, ocd_division_id="ocd-city", place_id=place.id)
     db_session.add(event)
-    
+
     url_stage = UrlStage(
         ocd_division_id="ocd-city",
         event="Meeting 2",
+        event_date=test_date,
         url="https://shared.com/file.pdf",
         url_hash="shared_hash",
         category="minutes"
