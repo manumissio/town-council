@@ -187,16 +187,50 @@ To prevent "garbage data" from corrupting the system, we enforce strict schemas 
 *   **Database Layer (Schema):** Metadata columns have explicit length limits (e.g., `VARCHAR(255)`) to prevent buffer stuffing. **High-volume text columns** (Meeting Content, Summaries, Biographies) use the `TEXT` type to ensure zero truncation during ingestion.
 
 ### 11. Transaction Safety & Error Handling
-To prevent data corruption during network or database failures, all database operations follow strict transaction patterns:
-*   **Rollback Protection:** All database commits are wrapped in try/except blocks with explicit rollback() calls to maintain database consistency:
-    *   `ground_truth_sync.py`: Rolls back if Legistar API fetch fails mid-transaction, preventing partial vote records
-    *   `verification_service.py`: Rolls back if spatial coordinate lookup fails during PDF verification
-    *   `pipelines.py`: Existing rollback protection for staging operations during scraping
-*   **Thread-Safe Model Loading:** The LocalAI singleton uses double-checked locking to prevent race conditions:
-    *   First check: Fast path without lock (if model is already loaded, return immediately)
-    *   Second check: Inside lock to prevent duplicate loads if multiple threads arrive simultaneously
-    *   Model loading happens entirely within the lock to prevent multiple threads from loading the 500MB model simultaneously
-*   **Graceful Degradation:** Failed operations are logged with full context (city name, item ID, error details) while the system continues processing other items, ensuring one failure doesn't cascade into a complete pipeline halt.
+To prevent data corruption during network or database failures, all database operations follow strict transaction patterns with production-grade exception handling:
+
+#### Specific Exception Handling (30 instances)
+The codebase uses **specific exception types** rather than broad `except Exception` handlers, enabling precise error handling and better debugging:
+*   **Database Operations (11 instances):** All database code catches `SQLAlchemyError` to handle integrity violations, connection losses, and transaction failures while letting logic errors (ValueError, KeyError) propagate correctly
+*   **Network Operations (3 instances):** HTTP calls catch `requests.RequestException` for timeouts, DNS failures, and connection errors
+*   **File I/O (4 instances):** File operations catch `OSError` for permission errors, missing files, and disk full conditions
+*   **Search Indexing (4 instances):** Meilisearch operations catch `MeilisearchError` for index locks, timeouts, and invalid document formats
+*   **PDF Operations (4 instances):** Camelot table extraction catches specific errors (`ValueError`, `RuntimeError`, `MemoryError`) for malformed PDFs
+*   **Topic Modeling (2 instances):** TF-IDF analysis catches `ValueError` for empty documents and `MemoryError` for resource exhaustion
+*   **Background Tasks (2 instances):** Celery tasks catch specific errors and leverage task queue retry mechanisms (60s countdown, 3 attempts)
+
+#### Context Manager Pattern
+All database operations use the `db_session()` context manager (pipeline/db_session.py) which:
+*   **Automatic rollback:** Catches ANY exception (broad is correct here) and rolls back uncommitted changes
+*   **Guaranteed cleanup:** Ensures sessions close even if business logic raises errors
+*   **Educational comments:** Documents why context managers MUST catch Exception, not just SQLAlchemyError
+
+#### When Broad Exceptions Are Correct (5 instances)
+The codebase documents scenarios where broad exception handling is the **correct pattern**:
+*   **AI/LLM Operations (3 instances):** llama-cpp-python is an external C++ library that can raise unpredictable exception types; catching Exception is safer than enumerating unknowns
+*   **Migration Scripts (2 instances):** Database migrations catch Exception for cross-database compatibility (PostgreSQL, MySQL, SQLite raise different types for "column exists")
+
+#### Rollback Protection
+All database commits are wrapped in try/except blocks with explicit rollback() calls:
+*   `ground_truth_sync.py`: Rolls back if Legistar API fetch fails mid-transaction, preventing partial vote records
+*   `verification_service.py`: Rolls back if spatial coordinate lookup fails during PDF verification
+*   `downloader.py`: Handles race conditions when multiple workers download the same file
+*   `promote_stage.py`: Rolls back if event promotion fails, keeping staging/production in sync
+
+#### Thread-Safe Model Loading
+The LocalAI singleton uses double-checked locking to prevent race conditions:
+*   First check: Fast path without lock (if model is already loaded, return immediately)
+*   Second check: Inside lock to prevent duplicate loads if multiple threads arrive simultaneously
+*   Model loading happens entirely within the lock to prevent multiple threads from loading the 500MB model simultaneously
+
+#### Educational Documentation
+Every exception handler includes beginner-friendly comments (500+ lines) explaining:
+*   **What can fail:** Specific error scenarios with real examples
+*   **Why it fails:** Root causes (thundering herd, race conditions, network issues)
+*   **How we handle it:** Recovery strategies (retry with backoff, rollback, graceful degradation)
+
+#### Graceful Degradation
+Failed operations are logged with full context (city name, item ID, error details) while the system continues processing other items, ensuring one failure doesn't cascade into a complete pipeline halt.
 
 ### 13. Container Optimization & Performance
 To ensure fast developer iteration and secure production deployments, the system uses an optimized Docker architecture:

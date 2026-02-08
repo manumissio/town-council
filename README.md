@@ -19,7 +19,7 @@ This project has been modernized from its 2017 pilot into a high-performance acc
 - **Robust Ingestion:** Refactored **BaseCitySpider** architecture that simplifies adding new cities and ensures resilient "Delta Crawling" (skipping duplicates).
 - **Data Quality:** Integrated **Crowdsourced Error Reporting** allowing users to flag broken links or OCR errors directly to administrators.
 - **Ground Truth Verification:** Dual-source validation system that fetches official voting records from the Legistar API and spatially aligns them with PDF content using PyMuPDF, providing "Verified" badges on search results with exact page coordinates for vote tallies.
-- **Transaction Safety:** All database operations protected with rollback mechanisms to prevent data corruption during network or database failures, ensuring data integrity even under adverse conditions.
+- **Transaction Safety:** Production-grade exception handling with 30+ specific error handlers categorized by operation type (database, network, file I/O, search, PDF processing). Every error includes educational comments explaining what can fail, why it fails, and how it's handled. Context managers and migrations use broad exception catching where architecturally required. All database operations protected with rollback mechanisms to prevent data corruption.
 - **Local-First AI:** 100% private, air-gapped intelligence using **Gemma 3 270M** running entirely on your CPU. No API keys or internet required.
 - **High-Performance Data Layer:** Sub-100ms response times powered by **Redis caching**, **orjson**, and database query optimization.
 - **Production Resilience:** Optimized for 24/7 availability with **fail-soft logic** that handles database or AI outages gracefully without crashing the server.
