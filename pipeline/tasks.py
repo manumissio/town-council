@@ -2,6 +2,8 @@ from celery import Celery
 import os
 import logging
 from sqlalchemy.orm import sessionmaker
+from sqlalchemy.exc import SQLAlchemyError
+
 from pipeline.models import db_connect, Catalog, Document, AgendaItem
 from pipeline.llm import LocalAI
 from pipeline.utils import generate_ocd_id
@@ -63,8 +65,14 @@ def generate_summary_task(self, catalog_id: int):
         
         logger.info(f"Summarization complete for Catalog ID {catalog_id}")
         return {"status": "complete", "summary": summary}
-        
-    except Exception as e:
+
+    except (SQLAlchemyError, RuntimeError, ValueError) as e:
+        # Celery task errors: What can fail in async summarization tasks?
+        # - SQLAlchemyError: Database connection lost, commit failed
+        # - RuntimeError: AI model failed to generate summary (see llm.py)
+        # - ValueError: Invalid catalog_id or malformed content
+        # Why catch in Celery tasks? Tasks run asynchronously - errors shouldn't crash worker
+        # Celery will retry the task in 60 seconds (3 attempts total)
         logger.error(f"Task failed: {e}")
         db.rollback()
         # Retry in 60 seconds if it failed
@@ -128,8 +136,14 @@ def segment_agenda_task(self, catalog_id: int):
             
         logger.info(f"Segmentation complete: {count} items found")
         return {"status": "complete", "item_count": count, "items": items_to_return}
-        
-    except Exception as e:
+
+    except (SQLAlchemyError, RuntimeError, KeyError, ValueError) as e:
+        # Agenda segmentation task errors: What can fail during async AI extraction?
+        # - SQLAlchemyError: Database error saving agenda items
+        # - RuntimeError: AI model failed during agenda extraction
+        # - KeyError: Missing expected fields in AI response
+        # - ValueError: Invalid catalog_id or unparseable content
+        # Same retry logic as summarization task
         logger.error(f"Task failed: {e}")
         db.rollback()
         raise self.retry(exc=e, countdown=60)

@@ -1,5 +1,7 @@
 import logging
 from sqlalchemy.orm import sessionmaker
+from sqlalchemy.exc import SQLAlchemyError
+
 from pipeline.models import db_connect, AgendaItem, Catalog, Document
 from pipeline.utils import find_text_coordinates
 from rapidfuzz import fuzz
@@ -89,9 +91,13 @@ class VerificationService:
                         # We couldn't find the text anywhere in the PDF
                         logger.warning(f"Could not locate ground truth in PDF for item {item.id}")
 
-        except Exception as e:
-            # ROLLBACK: If anything failed (file read error, database error, etc.),
-            # undo any partial database changes to prevent saving corrupted data
+        except (SQLAlchemyError, OSError, ValueError) as e:
+            # Verification service errors: What can fail during PDF verification?
+            # - SQLAlchemyError: Database error saving verification results
+            # - OSError: PDF file missing, corrupted, or unreadable
+            # - ValueError: Invalid coordinates or malformed PDF structure
+            # Why rollback? Partial verification is worse than no verification
+            # ROLLBACK: Undo any partial database changes to prevent saving corrupted data
             self.db.rollback()
             logger.error(f"Error verifying item {item.id}: {e}")
 

@@ -3,6 +3,8 @@ import os
 from prometheus_client import start_http_server, Gauge
 from sqlalchemy.orm import sessionmaker
 from sqlalchemy import text
+from sqlalchemy.exc import SQLAlchemyError
+
 from pipeline.models import db_connect
 
 # Define Prometheus Metrics
@@ -51,7 +53,12 @@ def update_metrics():
 
         print(f"Metrics updated. Total Docs: {DOCUMENTS_TOTAL._value.get()}")
 
-    except Exception as e:
+    except (SQLAlchemyError, AttributeError) as e:
+        # Monitoring errors: What can fail when collecting metrics?
+        # - SQLAlchemyError: Database connection lost, query timeout
+        # - AttributeError: Metric value is None (happens on first run)
+        # Why continue on error? Monitoring failures shouldn't crash the service
+        # The next metrics update cycle (60s later) will try again
         print(f"Error updating metrics: {e}")
 
 if __name__ == '__main__':

@@ -4,6 +4,8 @@ import requests
 import logging
 import re
 from sqlalchemy.orm import sessionmaker
+from sqlalchemy.exc import SQLAlchemyError
+
 from pipeline.models import db_connect, Place, Event, AgendaItem
 
 # Setup logging
@@ -161,9 +163,13 @@ class GroundTruthSync:
                         self.fetch_matter_history(city_api_name, matter_id, local_item)
                         time.sleep(0.1)  # Brief pause to be respectful to the API
 
-        except Exception as e:
-            # Log the error with the correct city name (city_api_name was defined on line 94)
-            # This helps us identify which city's sync failed when reviewing logs
+        except (requests.RequestException, SQLAlchemyError, ValueError) as e:
+            # Ground truth sync errors: What can fail during API synchronization?
+            # - requests.RequestException: Legistar API down, timeout, network error
+            # - SQLAlchemyError: Database error saving fetched data
+            # - ValueError: Malformed API response, invalid date format
+            # Why continue on error? One city's API failure shouldn't stop syncing others
+            # The failed city will be retried on the next sync run
             logger.error(f"Error syncing {city_api_name} event on {event.record_date}: {e}")
 
     def fetch_matter_history(self, city_name, matter_id, agenda_item):
@@ -201,10 +207,14 @@ class GroundTruthSync:
                         self.db.commit()
                         break  # Stop after finding the first decisive action
 
-        except Exception as e:
-            # ROLLBACK: If anything went wrong (network error, database error, etc.),
-            # undo any partial changes to keep the database in a consistent state.
-            # Without this, we might save incomplete or corrupted data.
+        except (requests.RequestException, SQLAlchemyError, KeyError, ValueError) as e:
+            # Matter history fetch errors: What can fail when getting vote data?
+            # - requests.RequestException: API call failed (timeout, 404, 500 error)
+            # - SQLAlchemyError: Database error during commit
+            # - KeyError: API response missing expected fields (MatterHistoryActionText)
+            # - ValueError: Invalid data format (can't parse votes)
+            # Why rollback? If we got partial data, don't save incomplete records
+            # ROLLBACK: Undo any partial changes to keep the database in a consistent state
             self.db.rollback()
             logger.error(f"Error fetching matter {matter_id}: {e}")
 

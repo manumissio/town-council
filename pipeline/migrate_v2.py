@@ -32,6 +32,13 @@ def migrate_db():
             conn.commit()
             print("Added organization_id to 'event' table.")
         except Exception as e:
+            # ✅ CORRECT: Broad exception handling in migration scripts
+            # Migration scripts are idempotent (safe to run multiple times)
+            # Different databases raise different errors for "column exists":
+            # - PostgreSQL: psycopg2.errors.DuplicateColumn
+            # - MySQL: pymysql.err.OperationalError
+            # - SQLite: sqlite3.OperationalError
+            # Catching Exception lets this work across all database backends
             print(f"Skipping 'event' column addition (it might already exist): {e}")
 
         print("Checking for 'organization_name' column in 'event_stage'...")
@@ -40,6 +47,7 @@ def migrate_db():
             conn.commit()
             print("Added organization_name to 'event_stage' table.")
         except Exception as e:
+            # ✅ CORRECT: Same idempotent migration pattern as above
             print(f"Skipping 'event_stage' column addition (it might already exist): {e}")
 
 if __name__ == "__main__":

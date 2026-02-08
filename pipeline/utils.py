@@ -28,7 +28,7 @@ def generate_ocd_id(entity_type):
     # OCD-IDs are lowercase and use hyphens
     return f"ocd-{entity_type.lower()}/{unique_id}"
 
-def find_best_person_match(name, existing_people, threshold=90):
+def find_best_person_match(name, existing_people, threshold=95):
     """
     Traditional AI/ML approach: Fuzzy Entity Resolution.
     
@@ -94,9 +94,12 @@ def is_likely_human_name(name, allow_single_word=False):
 
     # 4. Word Count Guardrail
     word_count = len(name_clean.split())
+    words = name_clean.lower().split()
     if word_count > 4:
         return False
     if word_count < 2 and not allow_single_word:
+        return False
+    if words[0] == 'the' or words[-1] == 'the':
         return False
 
     # 5. Smart Blacklisting
@@ -105,6 +108,7 @@ def is_likely_human_name(name, allow_single_word=False):
     # TOTAL NOISE: These words are almost NEVER part of a legitimate name.
     # We use word boundaries to avoid 'Catherine' / 'ca' type bugs.
     total_noise = [
+        # Document Structure
         r'\bordinance\b', r'\bitem\b', r'\bpage\b', r'\bappendix\b', r'\bsection\b', 
         r'\bexhibit\b', r'\btable\b', r'\bbid\b', r'\bsolicitation\b', r'text box',
         r'\bsupplemental\b', r'\bcommunications\b', r'rev -', r'shx text',
@@ -115,11 +119,21 @@ def is_likely_human_name(name, allow_single_word=False):
         r'\blocation\b', r'\bmarriott\b', r'\bgranicus\b', r'\bteleconference\b', r'\bmailto\b',
         r'city of', r'county of', r'state of', r'incorporated', r'district',
         r'city clerk', r'city manager', r'city attorney', r'staff report',
-        r'\bstreet\b', r'\bavenue\b',
+        r'\bstreet\b', r'\bavenue\b', r'\bblvd\b', r'\broad\b', r'\bhighway\b', r'\bbridge\b',
+        r'\blane\b', r'\bway\b', r'\bcourt\b', r'\bdrive\b', r'\bcircle\b',
+        # Business/Finance
         r'\bfund\b', r'\breserve\b', r'\btax\b', r'\bbudget\b', r'\baudit\b', 
         r'\bfinancial\b', r'\bvendor\b', r'typewritten', r'\btext\b', 
         r'\battachment\b', r'\bpacket\b', r'closed session',
-        r'\binfestation\b', r'\bcorridor\b', r'\bmeter\b', r'\bneighborhood\b'
+        r'\binc\b', r'\bcorp\b', r'\bcorporation\b', r'\bllc\b', r'\bconsulting\b',
+        # Infrastructure/Community
+        r'\binfestation\b', r'\bcorridor\b', r'\bmeter\b', r'\bneighborhood\b',
+        r'\bproject\b', r'\bvoting\b', r'\bpeak\b', r'\bparking\b', r'\bshelter\b', 
+        r'\brenovation\b', r'\bschedule\b', r'\bcomplaint\b', r'\bnotice\b',
+        r'\bonline\b', r'\bdisposal\b', r'\bappeal\b', r'\bupload\b', r'\bdownload\b',
+        r'\buse\b', r'\bfreeze\b', r'\bstatus\b', r'\bdraft\b', r'\brev\b',
+        r'\bconcerns\b', r'\benvironmental\b', r'\bprogram\b', r'\bcommittee\b',
+        r'\bcommission\b', r'\bcouncil\b', r'\bboard\b', r'\bagency\b', r'\bauthority\b'
     ]
     
     for pattern in total_noise:
@@ -143,7 +157,7 @@ def is_likely_human_name(name, allow_single_word=False):
 
     # CONTEXTUAL NOISE: These words are common in municipal docs but ALSO common surnames.
     # We only block them if they are the ENTIRE string and no title was provided.
-    contextual_noise = ['park', 'clerk', 'staff', 'manager', 'ave']
+    contextual_noise = ['park', 'clerk', 'staff', 'manager', 'ave', 'voter']
     if name_lower in contextual_noise and not allow_single_word:
         return False
 
@@ -169,3 +183,41 @@ def is_likely_human_name(name, allow_single_word=False):
         return False
         
     return True
+
+def find_text_coordinates(pdf_path: str, search_text: str) -> list[dict]:
+    """
+    Finds the exact page and (x, y) coordinates of search_text in a PDF.
+    
+    Why this is needed:
+    To create 'Deep Links' that scroll exactly to the vote/action block.
+    """
+    import pymupdf
+    try:
+        doc = pymupdf.open(pdf_path)
+        locations = []
+        
+        for page_num in range(len(doc)):
+            page = doc[page_num]
+            # search_for returns a list of Rect objects
+            found_areas = page.search_for(search_text)
+            
+            for rect in found_areas:
+                locations.append({
+                    "page": page_num + 1,
+                    "x": round(rect.x0, 2),
+                    "y": round(rect.y0, 2),
+                    "width": round(rect.width, 2),
+                    "height": round(rect.height, 2)
+                })
+        
+        doc.close()
+        return locations
+    except (OSError, ValueError, RuntimeError) as e:
+        # PDF coordinate finding errors: What can fail when searching PDFs?
+        # - OSError: PDF file not found, corrupted, or locked
+        # - ValueError: Invalid PDF structure or malformed page
+        # - RuntimeError: PyMuPDF library error (unsupported PDF version)
+        # Why return empty list? Caller can handle gracefully (no coordinates = no verification)
+        import logging
+        logging.getLogger("utils").error(f"Error finding coordinates in {pdf_path}: {e}")
+        return []

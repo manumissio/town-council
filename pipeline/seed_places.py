@@ -1,6 +1,8 @@
 import csv
 import os
 from sqlalchemy.orm import sessionmaker
+from sqlalchemy.exc import SQLAlchemyError
+
 from pipeline.models import Place, db_connect, create_tables
 
 def seed_places():
@@ -60,7 +62,12 @@ def seed_places():
     try:
         session.commit()
         print("Seeding complete.")
-    except Exception as e:
+    except (SQLAlchemyError, OSError, ValueError) as e:
+        # Seeding errors: What can fail when loading city data?
+        # - SQLAlchemyError: Database error (duplicate city, invalid foreign key)
+        # - OSError: CSV file not found or unreadable
+        # - ValueError: Malformed CSV (missing columns, invalid data)
+        # Why rollback? Partial seeding creates inconsistent state
         print(f"Error during seeding: {e}")
         session.rollback()
     finally:
