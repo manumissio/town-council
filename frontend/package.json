@@ -1,6 +1,7 @@
 {
   "name": "town-council-frontend",
   "version": "1.0.0",
+  "license": "MIT",
   "private": true,
   "scripts": {
     "dev": "next dev",

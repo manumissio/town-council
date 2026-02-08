@@ -253,5 +253,8 @@ class MyCitySpider(BaseCitySpider):
             )
 ```
 
+## License
+MIT. See `LICENSE`.
+
 ## Project History
 Originally led by @chooliu and @bstarling in 2017. Modernized in 2026 to improve civic transparency through structured data and AI.
