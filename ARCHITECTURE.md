@@ -35,7 +35,7 @@ graph TD
     subgraph "Processing Pipeline (Distributed)"
         Downloader[Downloader: Parallel Streaming]
         Tika[[Apache Tika Service]]
-        Proc[Parallel OCR + NLP (run_pipeline)]
+        Proc["Parallel OCR + NLP (run_pipeline)"]
         Tables[Table Worker]
         Topics[Topic Worker]
         Backfill[Org Backfill]
