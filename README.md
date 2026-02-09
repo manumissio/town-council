@@ -91,6 +91,19 @@ docker compose run crawler scrapy crawl berkeley
 docker compose run crawler scrapy crawl cupertino
 ```
 
+What you should see after scraping + processing:
+* `http://localhost:8000/metadata` includes "Cupertino" in the `cities` list (this comes from the search index facets).
+* The UI can filter/search for Cupertino and open at least one meeting.
+
+Troubleshooting (Cupertino):
+* Cupertino missing from `/metadata`:
+  - Run `docker compose run --rm pipeline python seed_places.py` (ensures the `Place` row exists).
+  - Run `docker compose run --rm pipeline python run_pipeline.py` again (ensures indexing happened).
+* No Cupertino meetings:
+  - Re-run `docker compose run --rm crawler scrapy crawl cupertino` and check crawler logs for Legistar API errors.
+* Meetings exist but no text:
+  - Re-run `docker compose run --rm pipeline python run_pipeline.py` (extractor/NLP/indexing runs only when fields are missing).
+
 ### 4. Process Data
 Run the processing pipeline (Downloads, OCR, Entity Linking, Indexing). 
 ```bash

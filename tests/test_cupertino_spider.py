@@ -34,6 +34,15 @@ def test_cupertino_api_parsing(mocker):
             "EventAgendaFile": "https://cupertino.legistar.com/cc_agenda.pdf",
             "EventMinutesFile": None,
             "EventInSiteURL": "https://cupertino.legistar.com/MeetingDetail.aspx?ID=2"
+        },
+        {
+            # Some Legistar events have no attached agenda/minutes PDF yet.
+            # We should still create the meeting record, but with zero documents.
+            "EventBodyName": "City Council",
+            "EventDate": "2026-01-27T00:00:00",
+            "EventAgendaFile": None,
+            "EventMinutesFile": None,
+            "EventInSiteURL": "https://cupertino.legistar.com/MeetingDetail.aspx?ID=3"
         }
     ]
     
@@ -49,7 +58,7 @@ def test_cupertino_api_parsing(mocker):
     results = list(spider.parse(response))
     
     # Verify results
-    assert len(results) == 2
+    assert len(results) == 3
     
     # Check Planning Commission meeting
     m1 = results[0]
@@ -64,3 +73,8 @@ def test_cupertino_api_parsing(mocker):
     assert m2['meeting_type'] == "City Council"
     assert len(m2['documents']) == 1
     assert m2['documents'][0]['url'] == "https://cupertino.legistar.com/cc_agenda.pdf"
+
+    # Check event without documents does not emit empty/invalid document entries
+    m3 = results[2]
+    assert m3["meeting_type"] == "City Council"
+    assert m3["documents"] == []

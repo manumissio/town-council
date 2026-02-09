@@ -106,6 +106,7 @@ The system processes data through a multi-stage verifiable pipeline:
 *   **Table-Centric (Berkeley):** Directly parses modern city websites using high-precision XPaths.
 *   **CivicPlus/Folder-Centric (Dublin):** Navigates standard government platforms that use metadata attributes (like `data-th`) for accessibility.
 *   **API-Centric (Cupertino):** Communicates directly with modern platforms like **Legistar Web API**. This provides the highest reliability as it bypasses HTML complexity and bot detection.
+    *   Implementation note: Cupertino uses `council_crawler/council_crawler/spiders/ca_cupertino.py`, which subclasses the reusable `templates/legistar_api.py` spider template. Adding another Legistar-API city should look the same: a thin child spider that passes `client`, `city`, and `state`.
 *   **Delta Crawling:** All spiders implement a "look-back" check against the database to only fetch meetings that haven't been processed yet.
 
 #### Spider Architecture (BaseCitySpider)

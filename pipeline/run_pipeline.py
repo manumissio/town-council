@@ -133,6 +133,8 @@ def main():
     logger.info(">>> Starting High-Performance Pipeline")
     
     # 1. Setup & Ingest
+    # Keep dev databases compatible with the current SQLAlchemy models.
+    run_step("DB Migrate", ["python", "db_migrate.py"])
     run_step("Seed Places", ["python", "seed_places.py"])
     run_step("Promote Staged Events", ["python", "promote_stage.py"])
     run_step("Downloader", ["python", "downloader.py"])

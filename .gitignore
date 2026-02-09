@@ -124,6 +124,7 @@ frontend/.next/
 frontend/out/
 frontend/build/
 .env*.local
+frontend/.env.production
 
 # Unit test / coverage reports
 .pytest_cache/

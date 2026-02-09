@@ -42,6 +42,11 @@ services:
       - DATA_DIR=/app/data
     depends_on:
       - postgres
+      # The pipeline's final step indexes into Meilisearch. `docker compose run pipeline ...`
+      # should bring up the search service automatically for a smooth first-run experience.
+      - meilisearch
+      - redis
+      - tika
 
   # Apache Tika Server for high-performance text extraction.
   tika:

@@ -26,20 +26,32 @@ class LegistarApi(BaseCitySpider):
 
     def start_requests(self):
         # We fetch the last 1000 events from the Legistar API.
+        #
+        # Important: Legistar's Web API can respond with XML unless we ask for JSON.
+        # Scrapy's default Accept header prefers HTML/XML, so we override it here.
         url = f'https://webapi.legistar.com/v1/{self.name}/events?$top=1000&$orderby=EventDate%20desc'
-        yield scrapy.Request(url=url, callback=self.parse)
+        yield scrapy.Request(
+            url=url,
+            callback=self.parse,
+            headers={"Accept": "application/json"},
+        )
 
     def parse(self, response):
+        # Legistar should return JSON, but in practice we sometimes see:
+        # - a UTF-8 BOM prefix
+        # - a non-JSON HTML/body when a proxy/WAF returns an error page
+        #
+        # Use response.text so Scrapy handles decoding, then strip a BOM if present.
         try:
-            # Parse JSON from the response body (supports both real Scrapy responses and test mocks)
-            data = response.json()
-        except (ValueError, AttributeError):
-            # Fallback: If response.json() doesn't work (old Scrapy version), parse body manually
-            try:
-                data = json.loads(response.body)
-            except (ValueError, json.JSONDecodeError) as e:
-                self.logger.error(f"Failed to parse JSON from {response.url}: {e}")
-                return
+            text = (response.text or "").lstrip("\ufeff")
+            data = json.loads(text)
+        except (ValueError, json.JSONDecodeError) as e:
+            snippet = (getattr(response, "text", "") or "")[:200].replace("\n", "\\n")
+            self.logger.error(
+                f"Failed to parse JSON from {response.url} (status={getattr(response, 'status', 'unknown')}): {e}. "
+                f"Body starts with: {snippet!r}"
+            )
+            return
 
         self.logger.info(f"Received {len(data)} events from Legistar API")
 
@@ -88,4 +100,3 @@ class LegistarApi(BaseCitySpider):
                 documents=documents,
                 meeting_type=body_name
             )
-
