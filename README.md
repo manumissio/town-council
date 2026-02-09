@@ -103,6 +103,16 @@ Troubleshooting (Cupertino):
   - Re-run `docker compose run --rm crawler scrapy crawl cupertino` and check crawler logs for Legistar API errors.
 * Meetings exist but no text:
   - Re-run `docker compose run --rm pipeline python run_pipeline.py` (extractor/NLP/indexing runs only when fields are missing).
+* Meetings exist, but "Structured Agenda" is empty (0 agenda items):
+  - This is expected until segmentation is triggered (agenda items are generated on-demand).
+  - Ensure the API + worker are running: `docker compose up -d api worker redis`
+  - If you're calling the API directly, `/segment/{catalog_id}` requires an `X-API-Key` header:
+    - Default dev key in Docker is `dev_secret_key_change_me` (set by `API_AUTH_KEY` in `docker-compose.yml`).
+  - If you're using the UI, set `NEXT_PUBLIC_API_AUTH_KEY` so the browser can call protected endpoints:
+    - Example: set `NEXT_PUBLIC_API_AUTH_KEY=dev_secret_key_change_me` in your `.env` before running `docker compose up -d`.
+* Cupertino agenda items look low-quality:
+  - Run `docker compose run --rm pipeline python seed_places.py` to ensure `Place.legistar_client` is set from the `*.legistar.com` seed URL.
+  - When `Place.legistar_client` is present, the resolver can use Legistar Web API agenda items (more reliable than PDF-only parsing).
 
 ### 4. Process Data
 Run the processing pipeline (Downloads, OCR, Entity Linking, Indexing). 

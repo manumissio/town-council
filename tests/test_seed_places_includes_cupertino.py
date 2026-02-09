@@ -37,7 +37,7 @@ def test_seed_places_includes_cupertino_from_repo_csv(mocker):
         assert place.crawler_name == "cupertino"
         assert (place.seed_url or "").startswith("https://cupertino.legistar.com/")
         assert "legistar" in (place.hosting_service or "")
+        assert place.legistar_client == "cupertino"
     finally:
         db.close()
         engine.dispose()
-
