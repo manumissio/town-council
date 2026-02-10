@@ -156,6 +156,10 @@ To ensure privacy, zero cost, and resilience, the system uses a local-inference 
     *   **Agenda Segmentation:** Extracts structured topics and descriptions.
 *   **Memory Management:** The AI model is managed by a singleton instance to prevent redundant loads while maintaining thread-safety via locks.
 
+#### Summary & Topic Guardrails (User-Facing Quality)
+* **Doc-type aware summaries:** Summaries adapt to the underlying document category (`agenda` vs `minutes`) so agenda PDFs do not produce misleading "minutes" summaries dominated by participation boilerplate.
+* **URL-safe topic tags:** Topic extraction strips URLs and URL tokens before TF-IDF so link-heavy agendas do not generate junk topics like "HTTP Cupertino".
+
 ### 6. Concurrency Model
 To ensure stability on consumer-grade hardware, the local AI execution is **Serialized**:
 *   **Thread Safety:** Since the `llama.cpp` engine shares a single memory buffer, the `LocalAI` class utilizes a `threading.Lock`.

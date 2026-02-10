@@ -41,12 +41,18 @@ def generate_summary_task(self, catalog_id: int):
         
         if not catalog or not catalog.content:
             return {"error": "No content to summarize"}
+
+        # Decide how to summarize based on the *document type*.
+        # Many cities publish agenda PDFs without corresponding minutes PDFs.
+        # If we summarize an agenda using a "minutes" prompt, the output looks incorrect.
+        doc = db.query(Document).filter_by(catalog_id=catalog_id).first()
+        doc_kind = (doc.category or "unknown") if doc else "unknown"
         
         # Return cached value when already summarized.
         if catalog.summary:
             return {"status": "cached", "summary": catalog.summary}
             
-        summary = local_ai.summarize(catalog.content)
+        summary = local_ai.summarize(catalog.content, doc_kind=doc_kind)
         
         # Retry instead of storing an empty summary.
         if summary is None:

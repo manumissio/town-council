@@ -13,8 +13,8 @@ Key updates:
 - Agenda segmentation with deep links: segmented agenda items are generated on demand and can include page links when page numbers are available.
 - Shared agenda resolver: extraction follows a maintainable order of Legistar (when configured), HTML eAgenda parsing, then local LLM fallback.
 - OCD-style identifiers: core civic entities use standardized IDs (for example event, person, organization, agenda item).
-- Two summary paths: extractive summaries (TextRank) and local generative summaries (Gemma 3 270M) are both supported.
-- Topic tagging and semantic similarity: TF-IDF topic tags are generated, and a separate embedding + FAISS flow supports related-document linking.
+- Two summary paths: extractive summaries (TextRank) and local generative summaries (Gemma 3 270M) are both supported. Local summaries are doc-type aware (agenda vs minutes) so agenda PDFs do not produce misleading "minutes" summaries.
+- Topic tagging and semantic similarity: TF-IDF topic tags are generated (with URL stripping to avoid junk topics like "HTTP ..."), and the UI lets you click topic chips to quickly re-run a search.
 - Unified search UI: keyword, city, organization, and meeting-type filters are available in one search hub.
 - Ingestion architecture: BaseCitySpider supports reusable crawl plumbing and delta-crawl behavior to reduce duplicate ingestion.
 - Data issue reporting: users can submit broken-link/OCR/city issues through the UI and API.

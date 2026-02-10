@@ -1,6 +1,7 @@
 import sys
 import os
 import logging
+import re
 from sklearn.feature_extraction.text import TfidfVectorizer
 
 # Add project root to path
@@ -33,8 +34,29 @@ CITY_STOP_WORDS = [
     "november", "december", "monday", "tuesday", "wednesday", "thursday", 
     "friday", "hereby", "thereof", "therein", "clerk", "mayor", "councilmember",
     "commissioner", "staff", "report", "public", "comment", "called", "order",
-    "action", "discussion", "held", "held", "carried", "aye", "noes", "abstain"
+    "action", "discussion", "held", "held", "carried", "aye", "noes", "abstain",
+    # URL fragments are not meaningful topics, but can easily win TF-IDF on agenda PDFs.
+    "http", "https", "www"
 ]
+
+def _sanitize_text_for_topics(text: str) -> str:
+    """
+    Remove URL-like tokens before TF-IDF.
+
+    Why this matters:
+    Without sanitation, a document with many links can produce "topics" like
+    "HTTP Cupertino", which is useless to end users and looks buggy.
+    """
+    if not text:
+        return ""
+
+    value = text
+    value = re.sub(r"https?://\S+", " ", value, flags=re.IGNORECASE)
+    value = re.sub(r"www\.\S+", " ", value, flags=re.IGNORECASE)
+    # Leave a trailing space so we don't create accidental word joins.
+    value = re.sub(r"\bhttps?\b", " ", value, flags=re.IGNORECASE)
+    value = re.sub(r"\bwww\b", " ", value, flags=re.IGNORECASE)
+    return value
 
 def run_keyword_tagger():
     """
@@ -80,7 +102,7 @@ def run_topic_tagger():
 
         # 2. Prepare the corpus (the collection of all documents)
         # We truncate each document to prevent memory issues with very large PDFs
-        corpus = [r.content[:MAX_CONTENT_LENGTH] for r in records]
+        corpus = [_sanitize_text_for_topics(r.content[:MAX_CONTENT_LENGTH]) for r in records]
         filenames = [r.filename for r in records]
 
         logger.info(f"Analyzing {len(corpus)} documents...")

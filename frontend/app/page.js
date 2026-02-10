@@ -173,6 +173,7 @@ export default function Home() {
                     key={hit.id} 
                     hit={hit} 
                     onPersonClick={(id) => setSelectedPersonId(id)}
+                    onTopicClick={(topic) => setQuery(topic)}
                   />
                 ))}
 

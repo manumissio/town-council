@@ -16,6 +16,89 @@ from pipeline.config import (
 # Setup logging
 logger = logging.getLogger("local-ai")
 
+_SUMMARY_DOC_KINDS = {"minutes", "agenda", "unknown"}
+
+def _strip_summary_boilerplate(text: str) -> str:
+    """
+    Remove common meeting boilerplate that pollutes both summaries and topic extraction.
+
+    This is intentionally heuristic and conservative:
+    - We drop lines that are overwhelmingly "how to attend / Zoom / dial-in / ADA" instructions.
+    - If stripping removes too much content, the caller should fall back to the original text.
+    """
+    if not text:
+        return text
+
+    boilerplate_line = re.compile(
+        r"("
+        r"https?://|www\."
+        r"|zoom|webinar|register|unmute|raise hand"
+        r"|dial\s+\d|meeting id|webinar id|passcode"
+        r"|teleconference|livestream|live stream"
+        r"|options to observe|options to participate"
+        r"|public participation"
+        r"|americans with disabilities act|\bada\b|accommodations?|auxiliary aids|interpreters?"
+        r")",
+        re.IGNORECASE,
+    )
+
+    lines = []
+    for raw in text.splitlines():
+        line = raw.strip()
+        if not line:
+            continue
+        if boilerplate_line.search(line):
+            continue
+        lines.append(line)
+
+    return "\n".join(lines).strip()
+
+def prepare_summary_prompt(text: str, doc_kind: str = "unknown") -> str:
+    """
+    Build a summarization prompt that matches the *document type*.
+
+    Why this matters:
+    Some cities publish agenda PDFs without minutes PDFs. If we summarize an agenda
+    using a "minutes" prompt, the output will focus on attendance/teleconference
+    boilerplate and look incorrect.
+    """
+    kind = (doc_kind or "unknown").strip().lower()
+    if kind not in _SUMMARY_DOC_KINDS:
+        kind = "unknown"
+
+    # 1) Clean input to avoid "how to attend" text dominating the summary.
+    safe_text = (text or "")[:LLM_SUMMARY_MAX_TEXT]
+    stripped = _strip_summary_boilerplate(safe_text)
+    # If stripping leaves very little, keep the original so we don't summarize nothing.
+    if stripped and len(stripped) >= max(200, int(0.2 * len(safe_text))):
+        safe_text = stripped
+
+    if kind == "minutes":
+        instruction = (
+            "Summarize these meeting minutes into 3 bullet points. "
+            "Focus on decisions, actions taken, and vote outcomes. "
+            "Ignore attendance/teleconference/ADA boilerplate."
+        )
+    elif kind == "agenda":
+        instruction = (
+            "Summarize this meeting agenda into 3 bullet points. "
+            "Focus on the main scheduled items and expected actions. "
+            "Ignore attendance/teleconference/ADA boilerplate."
+        )
+    else:
+        instruction = (
+            "Summarize this meeting document into 3 bullet points. "
+            "Ignore attendance/teleconference/ADA boilerplate."
+        )
+
+    return (
+        "<start_of_turn>user\n"
+        f"{instruction}\n"
+        "No chat, just bullets:\n"
+        f"{safe_text}<end_of_turn>\n"
+        "<start_of_turn>model\n"
+    )
+
 class LocalAI:
     """
     The 'Brain' of our application.
@@ -87,7 +170,7 @@ class LocalAI:
                 # than to miss a specific error type and crash the entire application.
                 logger.error(f"Failed to load AI model: {e}")
 
-    def summarize(self, text):
+    def summarize(self, text, doc_kind: str = "unknown"):
         """
         Generates a 3-bullet summary of meeting text using the local AI model.
 
@@ -96,9 +179,7 @@ class LocalAI:
         self._load_model()
         if not self.llm: return None
 
-        # Truncate text to fit within model limits
-        safe_text = text[:LLM_SUMMARY_MAX_TEXT]
-        prompt = f"<start_of_turn>user\nSummarize these meeting minutes into 3 bullet points. No chat, just bullets:\n{safe_text}<end_of_turn>\n<start_of_turn>model\n"
+        prompt = prepare_summary_prompt(text, doc_kind=doc_kind)
 
         with self._lock:
             try:

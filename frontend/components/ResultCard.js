@@ -47,7 +47,7 @@ async function pollTaskStatus(taskId, callback, onError, type = "summary") {
  * DESIGN: Uses a tabbed interface for Full Text, AI Summary, and Structured Agenda.
  * All AI features are "On-Demand" to minimize API costs and respect rate limits.
  */
-export default function ResultCard({ hit, onPersonClick }) {
+export default function ResultCard({ hit, onPersonClick, onTopicClick }) {
   const [isExpanded, setIsExpanded] = useState(false);
   const [showAllOfficials, setShowAllOfficials] = useState(false);
   const [viewMode, setViewMode] = useState("text"); // 'text', 'summary', 'agenda'
@@ -62,6 +62,12 @@ export default function ResultCard({ hit, onPersonClick }) {
   const [reportStatus, setReportStatus] = useState(null); // 'loading', 'success', 'error'
 
   const isAgendaItem = hit.result_type === 'agenda_item';
+  const handleTopicClick = (topic) => {
+    // Topics are meant to be a quick way to narrow the search.
+    // We keep this simple: clicking a topic sets the main search query
+    // (handled in the parent page).
+    if (onTopicClick) onTopicClick(topic);
+  };
 
   const handleReportIssue = async (issueType) => {
     setReportStatus('loading');
@@ -434,18 +440,24 @@ export default function ResultCard({ hit, onPersonClick }) {
                           </div>
                         </div>
                       )}
-                      {hit.topics && hit.topics.length > 0 && (
-                        <div className="space-y-3">
-                          <div className="text-[10px] font-bold text-purple-400 uppercase tracking-widest">Discovered Topics</div>
-                          <div className="flex flex-wrap gap-2">
-                            {hit.topics.map((topic, i) => (
-                              <span key={i} className="px-3 py-1.5 bg-purple-100/50 text-purple-700 text-[11px] font-bold rounded-xl border border-purple-200 uppercase tracking-tight">
-                                #{topic}
-                              </span>
-                            ))}
-                          </div>
-                        </div>
-                      )}
+	                      {hit.topics && hit.topics.length > 0 && (
+	                        <div className="space-y-3">
+	                          <div className="text-[10px] font-bold text-purple-400 uppercase tracking-widest">Discovered Topics</div>
+	                          <div className="flex flex-wrap gap-2">
+	                            {hit.topics.map((topic, i) => (
+	                              <button
+	                                key={i}
+	                                type="button"
+	                                onClick={() => handleTopicClick(topic)}
+	                                className="px-3 py-1.5 bg-purple-100/50 text-purple-700 text-[11px] font-bold rounded-xl border border-purple-200 uppercase tracking-tight hover:bg-purple-100 hover:border-purple-300 transition-colors"
+	                                title="Search for this topic"
+	                              >
+	                                #{topic}
+	                              </button>
+	                            ))}
+	                          </div>
+	                        </div>
+	                      )}
                     </div>
                   )}
                 </div>
