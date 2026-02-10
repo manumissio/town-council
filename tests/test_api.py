@@ -65,7 +65,8 @@ def test_search_endpoint_params(mocker):
     
     search_params = args[1]
     # Check if filters are correctly built
-    assert 'city = "berkeley"' in search_params['filter']
+    # UI labels (e.g. "Berkeley") are normalized to the indexed facet key (e.g. "ca_berkeley").
+    assert 'city = "ca_berkeley"' in search_params['filter']
     assert 'meeting_category = "Regular"' in search_params['filter']
 
 def test_search_injection_protection(mocker):

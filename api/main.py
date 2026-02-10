@@ -1,6 +1,7 @@
 import sys
 import os
 import logging
+import re
 import meilisearch
 from fastapi import FastAPI, HTTPException, Query, Path, Depends, Header, Request
 from fastapi.middleware.cors import CORSMiddleware
@@ -196,8 +197,39 @@ def search_documents(
         def sanitize_filter(val):
             return str(val).replace('"', '\\"')
 
-        # Normalize city to lowercase to match the indexed display_name (e.g., 'ca_berkeley')
-        if city: search_params['filter'].append(f'city = "{sanitize_filter(city.lower())}"')
+        def normalize_city_filter(val: str) -> str:
+            """
+            The UI sends human-readable city labels (e.g., "Cupertino").
+            The search index stores normalized keys (e.g., "ca_cupertino").
+
+            This helper makes the /search endpoint accept either form so the UI
+            doesn't have to know how the index stores city keys.
+
+            Safety note:
+            - We only "pretty->key" normalize when the input is simple (letters/spaces/dashes).
+            - If the input contains suspicious characters, we leave it unchanged and rely on
+              sanitize_filter() to prevent filter injection.
+            """
+            raw = (val or "").strip()
+            lowered = raw.lower()
+
+            # If the value contains suspicious characters, don't try to normalize it.
+            if re.search(r'[^a-z0-9_\\-\\s]', lowered):
+                return lowered
+
+            slug = re.sub(r"[\\s\\-]+", "_", lowered).strip("_")
+
+            # Allow direct facet keys (e.g., "ca_cupertino", "ny_buffalo") to pass through.
+            if re.match(r"^[a-z]{2}_.+", slug):
+                return slug
+
+            # Default to CA for simple city labels, since this repo currently seeds CA cities.
+            return f"ca_{slug}" if slug else lowered
+
+        # Normalize city to match the indexed display_name (e.g., "ca_cupertino").
+        if city:
+            normalized_city = normalize_city_filter(city)
+            search_params['filter'].append(f'city = "{sanitize_filter(normalized_city)}"')
         if meeting_type: search_params['filter'].append(f'meeting_category = "{sanitize_filter(meeting_type)}"')
         if org: search_params['filter'].append(f'organization = "{sanitize_filter(org)}"')
 
