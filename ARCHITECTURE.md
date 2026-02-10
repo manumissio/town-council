@@ -159,6 +159,8 @@ To ensure privacy, zero cost, and resilience, the system uses a local-inference 
 #### Summary & Topic Guardrails (User-Facing Quality)
 * **Doc-type aware summaries:** Summaries adapt to the underlying document category (`agenda` vs `minutes`) so agenda PDFs do not produce misleading "minutes" summaries dominated by participation boilerplate.
 * **URL-safe topic tags:** Topic extraction strips URLs and URL tokens before TF-IDF so link-heavy agendas do not generate junk topics like "HTTP Cupertino".
+* **Summary caching (and refresh):** Summaries are generated on-demand via `POST /summarize/{catalog_id}` and cached in `catalog.summary`. If summarization logic improves, cached summaries will not change automatically. Use `force=true` to regenerate a known-bad cached summary.
+* **Agenda summaries without relying on the LLM:** If agenda items already exist for a catalog, the system can generate a short, deterministic agenda summary from the first few agenda item titles. This avoids LLM failure modes where the model "summarizes" public participation boilerplate instead of agenda content.
 
 ### 6. Concurrency Model
 To ensure stability on consumer-grade hardware, the local AI execution is **Serialized**:
@@ -171,6 +173,9 @@ To scale beyond a single server, the system uses a **Producer-Consumer** model f
 *   **The Workers (Celery):** Background worker processes pick up these tickets and perform summarization/segmentation without blocking the main API.
 *   **Shared Segmentation Service:** Async task and batch worker both call the same resolver and persistence helpers to prevent duplicated logic and behavior drift.
 *   **Parallel Ingestion:** The data pipeline uses `ProcessPoolExecutor` to process multiple PDF documents simultaneously (OCR -> NLP) on all available CPU cores, speeding up nightly updates by 4-8x.
+
+#### Docker Dev Note (Why "Restart Worker" Matters)
+In Docker Compose, the API runs with `--reload`, so code changes are picked up automatically. The Celery worker does not auto-reload. If summarization/segmentation behavior looks unchanged after a code change, restart the worker so it loads the new code.
 
 ### 7.1 Async Task Failure Behavior (UI Contract)
 The frontend polls background task status (`/tasks/{id}`) and now treats both task failures and polling/network errors as terminal states:
