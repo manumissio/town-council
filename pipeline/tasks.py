@@ -8,6 +8,7 @@ from pipeline.models import db_connect, Catalog, Document
 from pipeline.llm import LocalAI
 from pipeline.agenda_service import persist_agenda_items
 from pipeline.agenda_resolver import resolve_agenda_items
+from pipeline.models import AgendaItem
 
 # Register worker metrics (safe in non-worker contexts; the HTTP server only starts
 # when TC_WORKER_METRICS_PORT is set and the Celery worker is ready).
@@ -28,7 +29,7 @@ engine = db_connect()
 SessionLocal = sessionmaker(bind=engine)
 
 @app.task(bind=True, max_retries=3)
-def generate_summary_task(self, catalog_id: int):
+def generate_summary_task(self, catalog_id: int, force: bool = False):
     """
     Background task: generate and store a catalog summary.
     """
@@ -48,11 +49,38 @@ def generate_summary_task(self, catalog_id: int):
         doc = db.query(Document).filter_by(catalog_id=catalog_id).first()
         doc_kind = (doc.category or "unknown") if doc else "unknown"
         
-        # Return cached value when already summarized.
-        if catalog.summary:
+        # Return cached value when already summarized, unless the caller forces a refresh.
+        #
+        # Why have `force`?
+        # Summaries are cached on the Catalog row. When we improve the prompt/cleanup logic,
+        # old low-quality summaries won't change unless we regenerate them.
+        if (not force) and catalog.summary:
             return {"status": "cached", "summary": catalog.summary}
-            
-        summary = local_ai.summarize(catalog.content, doc_kind=doc_kind)
+
+        # If agenda items already exist, prefer a deterministic agenda-style summary instead
+        # of relying entirely on the LLM. This is fast, stable, and avoids "how to attend"
+        # boilerplate dominating the output.
+        #
+        # This is intentionally simple: we list the first few agenda item titles in order.
+        if doc_kind == "agenda":
+            existing_items = (
+                db.query(AgendaItem)
+                .filter_by(catalog_id=catalog_id)
+                .order_by(AgendaItem.order)
+                .limit(6)
+                .all()
+            )
+            if existing_items:
+                titles = [it.title.strip() for it in existing_items if it.title and it.title.strip()]
+                titles = titles[:3]
+                if titles:
+                    summary = "\n".join(f"* {t}" for t in titles)
+                else:
+                    summary = local_ai.summarize(catalog.content, doc_kind=doc_kind)
+            else:
+                summary = local_ai.summarize(catalog.content, doc_kind=doc_kind)
+        else:
+            summary = local_ai.summarize(catalog.content, doc_kind=doc_kind)
         
         # Retry instead of storing an empty summary.
         if summary is None:

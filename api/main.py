@@ -393,6 +393,13 @@ from celery.result import AsyncResult
 def summarize_document(
     request: Request,
     catalog_id: int = Path(..., ge=1),
+    force: bool = Query(
+        False,
+        description=(
+            "Force regeneration even if a cached summary exists. "
+            "Useful after summarization logic changes or when cached data is known-bad."
+        ),
+    ),
     db: SQLAlchemySession = Depends(get_db)
 ):
     """
@@ -403,8 +410,8 @@ def summarize_document(
     if not catalog:
         raise HTTPException(status_code=404, detail="Document not found")
 
-    # If cached, return immediately
-    if catalog.summary:
+    # If cached, return immediately unless the caller explicitly forces regeneration.
+    if (not force) and catalog.summary:
         return {"summary": catalog.summary, "status": "cached"}
 
     if not catalog.content:
@@ -414,7 +421,7 @@ def summarize_document(
     # We don't make the user wait while the AI writes a summary.
     # Instead, we put a 'task' in the mailbox and tell the user: 
     # "We're on it! Here is your tracking number."
-    task = generate_summary_task.delay(catalog_id)
+    task = generate_summary_task.delay(catalog_id, force=force)
     
     return {
         "status": "processing",

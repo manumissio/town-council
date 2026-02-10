@@ -18,6 +18,119 @@ logger = logging.getLogger("local-ai")
 
 _SUMMARY_DOC_KINDS = {"minutes", "agenda", "unknown"}
 
+def _dedupe_lines_preserve_order(lines):
+    """Return unique lines while keeping the first occurrence order."""
+    out = []
+    seen = set()
+    for line in lines:
+        key = line.strip().lower()
+        if not key:
+            continue
+        if key in seen:
+            continue
+        seen.add(key)
+        out.append(line)
+    return out
+
+
+def _looks_like_attendance_boilerplate(line: str) -> bool:
+    """
+    Return True when a line is *probably* "how to attend / public comment / ADA" boilerplate.
+
+    Why this exists:
+    Agenda PDFs often start with participation instructions (Zoom links, dial-in, ADA info).
+    If we feed those lines into the LLM, the model tends to "summarize" the boilerplate.
+    """
+    if not line:
+        return False
+
+    lowered = line.strip().lower()
+
+    # URLs and contact lines are almost never meaningful "meeting content".
+    if "http://" in lowered or "https://" in lowered or "www." in lowered:
+        return True
+    if re.search(r"\b[\w\.-]+@[\w\.-]+\.\w+\b", lowered):
+        return True
+
+    # Phone numbers and meeting IDs show up in dial-in instructions.
+    if re.search(r"\b\d{3}[-\.\s]?\d{3}[-\.\s]?\d{4}\b", lowered):
+        return True
+    if re.search(r"\bmeeting id\b|\bwebinar id\b|\bpasscode\b", lowered):
+        return True
+
+    # Common attendance / participation terms.
+    boilerplate_fragments = (
+        "zoom",
+        "webinar",
+        "teleconference",
+        "livestream",
+        "live stream",
+        "register in advance",
+        "meeting link",
+        "join by phone",
+        "dial",
+        "unmute",
+        "raise hand",
+        "public comment",
+        "public participation",
+        "written communications",
+        "options to observe",
+        "options to participate",
+        "attend in person",
+        "appear in person",
+        "members of the public",
+        "submit comments",
+        "email comments",
+        "communication access",
+        "americans with disabilities act",
+        "ada",
+        "accommodation",
+        "auxiliary aids",
+        "interpreters",
+        "disability-related",
+    )
+    return any(frag in lowered for frag in boilerplate_fragments)
+
+
+def _strip_summary_output_boilerplate(summary: str) -> str:
+    """
+    Clean model output so the UI shows useful content instead of repeated boilerplate.
+
+    We intentionally keep this conservative and property-based:
+    - Remove boilerplate bullets/lines.
+    - Deduplicate repeated bullets (the model often repeats itself).
+    """
+    if not summary:
+        return summary
+
+    raw_lines = [ln.rstrip() for ln in summary.splitlines()]
+    cleaned = []
+    for raw in raw_lines:
+        line = raw.strip()
+        if not line:
+            continue
+
+        lowered = line.lower()
+        # Drop preambles like "Here's a summary..."
+        if lowered.startswith("here's a summary") or lowered.startswith("here is a summary"):
+            continue
+        if lowered.startswith("summary of the meeting"):
+            continue
+
+        # Strip common bullet markers so dedupe is easier.
+        normalized = re.sub(r"^\s*[\*\-\u2022]+\s*", "", line).strip()
+        if not normalized:
+            continue
+
+        if _looks_like_attendance_boilerplate(normalized):
+            continue
+        cleaned.append(normalized)
+
+    cleaned = _dedupe_lines_preserve_order(cleaned)
+    # Return as bullets for consistent UI rendering.
+    return "\n".join(f"* {ln}" for ln in cleaned).strip()
+
+
 def _strip_summary_boilerplate(text: str) -> str:
     """
     Remove common meeting boilerplate that pollutes both summaries and topic extraction.
@@ -29,28 +142,17 @@ def _strip_summary_boilerplate(text: str) -> str:
     if not text:
         return text
 
-    boilerplate_line = re.compile(
-        r"("
-        r"https?://|www\."
-        r"|zoom|webinar|register|unmute|raise hand"
-        r"|dial\s+\d|meeting id|webinar id|passcode"
-        r"|teleconference|livestream|live stream"
-        r"|options to observe|options to participate"
-        r"|public participation"
-        r"|americans with disabilities act|\bada\b|accommodations?|auxiliary aids|interpreters?"
-        r")",
-        re.IGNORECASE,
-    )
-
     lines = []
     for raw in text.splitlines():
         line = raw.strip()
         if not line:
             continue
-        if boilerplate_line.search(line):
+        if _looks_like_attendance_boilerplate(line):
             continue
         lines.append(line)
 
+    # De-dupe repeated instruction lines (common in some agenda templates).
+    lines = _dedupe_lines_preserve_order(lines)
     return "\n".join(lines).strip()
 
 def prepare_summary_prompt(text: str, doc_kind: str = "unknown") -> str:
@@ -184,7 +286,11 @@ class LocalAI:
         with self._lock:
             try:
                 response = self.llm(prompt, max_tokens=LLM_SUMMARY_MAX_TOKENS, temperature=0.1)
-                return response["choices"][0]["text"].strip()
+                raw = response["choices"][0]["text"].strip()
+                cleaned = _strip_summary_output_boilerplate(raw)
+                # If cleaning removed everything, fall back to the raw output so the caller
+                # can decide how to handle it (e.g., store raw, retry, etc.).
+                return cleaned or raw
             except Exception as e:
                 # AI inference errors: Why keep this broad?
                 # During text generation, the model can fail in unpredictable ways:

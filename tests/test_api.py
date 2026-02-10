@@ -186,3 +186,32 @@ def test_segment_returns_cached_when_not_forced_and_quality_ok(mocker):
         assert payload["status"] == "cached"
     finally:
         del app.dependency_overrides[get_db]
+
+
+def test_summarize_force_bypasses_cache(mocker):
+    """
+    If a cached summary exists, `force=true` should still enqueue regeneration.
+    """
+    from api.main import get_db
+
+    catalog = MagicMock(id=401, content="text", summary="cached summary")
+
+    db = MagicMock()
+    db.get.return_value = catalog
+
+    def _mock_get_db():
+        yield db
+
+    app.dependency_overrides[get_db] = _mock_get_db
+    mock_task = MagicMock()
+    mock_task.id = "task_summary_1"
+    mocker.patch("api.main.generate_summary_task.delay", return_value=mock_task)
+
+    try:
+        resp = client.post("/summarize/401?force=true", headers={"X-API-Key": VALID_KEY})
+        assert resp.status_code == 200
+        payload = resp.json()
+        assert payload["status"] == "processing"
+        assert payload["task_id"] == "task_summary_1"
+    finally:
+        del app.dependency_overrides[get_db]

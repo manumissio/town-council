@@ -35,3 +35,18 @@ def test_strip_summary_boilerplate_removes_urls_and_zoom_words():
     assert "http" not in cleaned.lower()
     assert "zoom" not in cleaned.lower()
     assert "Approve the budget" in cleaned
+
+
+def test_strip_summary_boilerplate_dedupes_repeated_attend_lines_and_emails():
+    from pipeline.llm import _strip_summary_boilerplate
+
+    raw = """
+    Attend in person at Quinlan Community Center.
+    Attend in person at Quinlan Community Center.
+    Email comments to AuditCommittee@cupertino.gov
+    Item 1. Approve the budget.
+    """
+    cleaned = _strip_summary_boilerplate(raw)
+    assert "attend in person" not in cleaned.lower()
+    assert "cupertino.gov" not in cleaned.lower()
+    assert cleaned.lower().count("approve the budget") == 1
