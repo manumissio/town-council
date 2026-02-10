@@ -7,6 +7,8 @@ from pipeline.db_session import db_session
 from pipeline.config import (
     TIKA_TIMEOUT_SECONDS,
     TIKA_RETRY_BACKOFF_MULTIPLIER,
+    TIKA_OCR_FALLBACK_ENABLED,
+    TIKA_MIN_EXTRACTED_CHARS_FOR_NO_OCR,
     EXTRACTION_BATCH_SIZE
 )
 
@@ -46,85 +48,87 @@ def extract_text(file_path):
     if not os.path.exists(file_path) or not is_safe_path(file_path):
         return ""
 
-    # Retry logic with exponential backoff
-    # Why retry? Tika server might be temporarily busy or restarting
-    for attempt in range(3):
-        try:
-            # Request XHTML format to preserve page structure
-            # "no_ocr" = don't do OCR (slow and expensive)
-            # We only extract text from the digital layer
-            headers = {
-                "X-Tika-PDFOcrStrategy": "no_ocr",
-                "Accept": "application/xhtml+xml"
-            }
+    def _tika_extract_with_strategy(ocr_strategy: str) -> str:
+        """
+        Extract XHTML via Tika using a specific OCR strategy.
 
-            # Send file to Tika server for processing
-            parsed = parser.from_file(
-                file_path,
-                serverEndpoint=TIKA_SERVER_ENDPOINT,
-                headers=headers,
-                requestOptions={'timeout': TIKA_TIMEOUT_SECONDS}
-            )
+        Strategy notes:
+        - no_ocr: fast path, uses only the digital text layer.
+        - ocr_only: slow path, runs OCR and ignores the digital layer.
+        """
+        # Retry logic with exponential backoff
+        # Why retry? Tika server might be temporarily busy or restarting
+        for attempt in range(3):
+            try:
+                headers = {
+                    "X-Tika-PDFOcrStrategy": ocr_strategy,
+                    "Accept": "application/xhtml+xml",
+                }
+                parsed = parser.from_file(
+                    file_path,
+                    serverEndpoint=TIKA_SERVER_ENDPOINT,
+                    headers=headers,
+                    requestOptions={"timeout": TIKA_TIMEOUT_SECONDS},
+                )
 
-            if parsed and 'content' in parsed:
-                content = parsed['content'] or ""
+                if parsed and "content" in parsed:
+                    content = parsed["content"] or ""
+                    if not content.strip():
+                        raise ValueError("Tika returned empty XHTML content")
 
-                # If it's empty, Tika might have failed to read the digital layer
-                if not content.strip():
-                     raise ValueError("Tika returned empty XHTML content")
+                    # Insert Page Markers
+                    # Tika marks pages with <div class="page"> (XHTML) OR \f (form feed)
+                    import re
 
-                # Insert Page Markers
-                # Tika marks pages with <div class="page"> (XHTML) OR \f (form feed)
-                import re
-                if '<div class="page">' in content:
-                    # Split on page div tags
-                    pages = re.split(r'<div[^>]*class="page"[^>]*>', content)
+                    if '<div class="page">' in content:
+                        pages = re.split(r'<div[^>]*class="page"[^>]*>', content)
+                    else:
+                        pages = content.split("\f")
+
+                    marked_content = ""
+                    # pages[0] is usually boilerplate before the first page div
+                    if len(pages) == 1:
+                        clean_text = re.sub(r"<[^>]+>", "", pages[0]).strip()
+                        marked_content = f"[PAGE 1]\n{clean_text}"
+                    else:
+                        for i, page_text in enumerate(pages):
+                            if i == 0:
+                                clean_text = re.sub(r"<[^>]+>", "", page_text).strip()
+                                if clean_text:
+                                    marked_content += clean_text + "\n"
+                                continue
+
+                            clean_page = re.sub(r"<[^>]+>", "", page_text).strip()
+                            if clean_page:
+                                marked_content += f"\n[PAGE {i}]\n{clean_page}\n"
+
+                    return marked_content.strip()
+
+                raise ValueError("Tika returned empty response")
+            except (ValueError, OSError, ConnectionError, TimeoutError) as e:
+                if attempt < 2:
+                    wait_time = (attempt + 1) * TIKA_RETRY_BACKOFF_MULTIPLIER
+                    print(
+                        f"Tika issue on {file_path} (ocr_strategy={ocr_strategy}), retrying in {wait_time}s... "
+                        f"(Attempt {attempt + 1}/3)"
+                    )
+                    time.sleep(wait_time)
                 else:
-                    # Fallback: split on form feed character
-                    pages = content.split('\f')
+                    print(f"Error extracting {file_path} (ocr_strategy={ocr_strategy}) after 3 attempts: {e}")
+                    return ""
+        return ""
 
-                marked_content = ""
-                # pages[0] is usually boilerplate before the first page div
-                if len(pages) == 1:
-                    # Single page document, force a marker
-                    clean_text = re.sub(r'<[^>]+>', '', pages[0]).strip()
-                    marked_content = f"[PAGE 1]\n{clean_text}"
-                else:
-                    for i, page_text in enumerate(pages):
-                        if i == 0:
-                            # Strip HTML tags from initial boilerplate
-                            clean_text = re.sub(r'<[^>]+>', '', page_text).strip()
-                            if clean_text:
-                                marked_content += clean_text + "\n"
-                            continue
+    # Fast path: try digital text layer only.
+    no_ocr_text = _tika_extract_with_strategy("no_ocr")
+    if no_ocr_text and len(no_ocr_text) >= TIKA_MIN_EXTRACTED_CHARS_FOR_NO_OCR:
+        return no_ocr_text
 
-                        # Clean the page HTML (remove all tags)
-                        clean_page = re.sub(r'<[^>]+>', '', page_text).strip()
-                        if clean_page:
-                            marked_content += f"\n[PAGE {i}]\n{clean_page}\n"
+    # Slow fallback: if enabled and the digital layer was empty/too short, retry with OCR.
+    if TIKA_OCR_FALLBACK_ENABLED:
+        ocr_text = _tika_extract_with_strategy("ocr_only")
+        return ocr_text or no_ocr_text
 
-                return marked_content.strip()
-
-            raise ValueError("Tika returned empty response")
-        except (ValueError, OSError, ConnectionError, TimeoutError) as e:
-            # Tika extraction errors: What can fail when calling the Tika server?
-            # - ValueError: Tika returned empty content, or malformed response
-            # - OSError: Local file doesn't exist or can't be read
-            # - ConnectionError: Can't reach Tika server (network down, wrong URL)
-            # - TimeoutError: Tika took too long (large/complex PDF)
-            # Why retry with exponential backoff?
-            #   Tika might be temporarily overloaded or restarting
-            #   Waiting longer between retries gives it time to recover
-            if attempt < 2:
-                # Exponential backoff: wait longer each retry
-                # Attempt 1: wait 2s, Attempt 2: wait 4s
-                wait_time = (attempt + 1) * TIKA_RETRY_BACKOFF_MULTIPLIER
-                print(f"Tika issue on {file_path}, retrying in {wait_time}s... (Attempt {attempt+1}/3)")
-                time.sleep(wait_time)
-            else:
-                print(f"Error extracting {file_path} after 3 attempts: {e}")
-                return ""
-    return ""
+    return no_ocr_text
 
 def extract_content():
     """

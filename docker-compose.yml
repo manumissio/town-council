@@ -40,6 +40,9 @@ services:
       - PYTHONPATH=/app
       - DATABASE_URL=${DATABASE_URL:-postgresql://town_council:secure_dev_password@postgres:5432/town_council_db}
       - DATA_DIR=/app/data
+      # Enable OCR *only as a fallback* when a PDF has little/no selectable text.
+      # This makes scanned PDFs usable without forcing OCR on every document.
+      - TIKA_OCR_FALLBACK_ENABLED=true
     depends_on:
       - postgres
       # The pipeline's final step indexes into Meilisearch. `docker compose run pipeline ...`
@@ -75,6 +78,7 @@ services:
       - TIKA_SERVER_ENDPOINT=http://tika:9998
       - DATABASE_URL=${DATABASE_URL:-postgresql://town_council:secure_dev_password@postgres:5432/town_council_db}
       - DATA_DIR=/app/data
+      - TIKA_OCR_FALLBACK_ENABLED=true
     depends_on:
       - tika
       - postgres

@@ -29,6 +29,8 @@ All values in this file were extracted from the codebase where they appeared
 as hardcoded numbers. Each constant includes a comment explaining its purpose.
 """
 
+import os
+
 # =============================================================================
 # CONTENT LENGTH LIMITS
 # =============================================================================
@@ -147,6 +149,18 @@ EXTRACTION_BATCH_SIZE = 10
 # Tika can take time with large PDFs (OCR, complex layouts)
 # 60 seconds handles most documents without hanging indefinitely
 TIKA_TIMEOUT_SECONDS = 60
+
+# Optional OCR fallback:
+# - First attempt extracts the "digital text layer" only (fast).
+# - If that result is empty/too small and OCR fallback is enabled, we retry with OCR.
+#
+# Why not OCR everything?
+# OCR is much slower and CPU-heavy. Many PDFs already contain selectable text.
+TIKA_OCR_FALLBACK_ENABLED = os.getenv("TIKA_OCR_FALLBACK_ENABLED", "false").strip().lower() in {"1", "true", "yes"}
+
+# Minimum extracted characters to consider the digital text layer "good enough".
+# If we extract fewer characters than this and OCR fallback is enabled, we retry with OCR.
+TIKA_MIN_EXTRACTED_CHARS_FOR_NO_OCR = int(os.getenv("TIKA_MIN_EXTRACTED_CHARS_FOR_NO_OCR", "800"))
 
 # Retry backoff multiplier for Tika requests
 # When Tika fails, we wait (attempt × multiplier) seconds before retrying

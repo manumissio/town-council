@@ -122,12 +122,15 @@ export default function ResultCard({ hit, onPersonClick, onTopicClick }) {
     }
   };
 
-  const handleGenerateSummary = async () => {
+  const handleGenerateSummary = async ({ force = false } = {}) => {
     if (!hit.catalog_id) return;
     
     setIsGenerating(true);
     try {
-      const res = await fetch(`${API_BASE_URL}/summarize/${hit.catalog_id}`, {
+      const url = new URL(`${API_BASE_URL}/summarize/${hit.catalog_id}`);
+      if (force) url.searchParams.set("force", "true");
+
+      const res = await fetch(url.toString(), {
         method: "POST",
         headers: getApiHeaders({ useAuth: true })
       });
@@ -150,12 +153,15 @@ export default function ResultCard({ hit, onPersonClick, onTopicClick }) {
     }
   };
 
-  const handleGenerateAgenda = async () => {
+  const handleGenerateAgenda = async ({ force = false } = {}) => {
     if (!hit.catalog_id) return;
     
     setIsSegmenting(true);
     try {
-      const res = await fetch(`${API_BASE_URL}/segment/${hit.catalog_id}`, {
+      const url = new URL(`${API_BASE_URL}/segment/${hit.catalog_id}`);
+      if (force) url.searchParams.set("force", "true");
+
+      const res = await fetch(url.toString(), {
         method: "POST",
         headers: getApiHeaders({ useAuth: true })
       });
@@ -366,9 +372,9 @@ export default function ResultCard({ hit, onPersonClick, onTopicClick }) {
                   </button>
                 )}
               </div>
-              <span className="hidden sm:block px-4 text-[10px] font-bold text-gray-400 uppercase tracking-widest">
-                {viewMode === "text" ? "OCR Extraction" : "Local AI"}
-              </span>
+	              <span className="hidden sm:block px-4 text-[10px] font-bold text-gray-400 uppercase tracking-widest">
+	                {viewMode === "text" ? "Extracted Text" : "Local AI"}
+	              </span>
             </div>
 
             <div className="relative">
@@ -379,24 +385,33 @@ export default function ResultCard({ hit, onPersonClick, onTopicClick }) {
                       <Sparkles className="w-4 h-4" />
                       Executive Summary
                     </div>
-                    {summary ? (
-                      <div className="space-y-4">
-                        <span className="bg-purple-100 text-purple-700 text-[9px] font-black uppercase px-1.5 py-0.5 rounded shadow-sm">Gemma 3 270M</span>
-                        <p className="text-gray-800 text-[15px] whitespace-pre-line leading-relaxed italic">
-                          {summary}
-                        </p>
-                      </div>
+	                    {summary ? (
+	                      <div className="space-y-4">
+	                        <span className="bg-purple-100 text-purple-700 text-[9px] font-black uppercase px-1.5 py-0.5 rounded shadow-sm">Gemma 3 270M</span>
+	                        <p className="text-gray-800 text-[15px] whitespace-pre-line leading-relaxed italic">
+	                          {summary}
+	                        </p>
+	                        <button
+	                          type="button"
+	                          onClick={() => handleGenerateSummary({ force: true })}
+	                          disabled={isGenerating}
+	                          className="text-[10px] font-bold text-purple-600 hover:text-purple-800 flex items-center gap-1 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+	                          title="Regenerate the cached summary (useful after summarization logic changes)"
+	                        >
+	                          <Sparkles className="w-3 h-3" /> Regenerate summary
+	                        </button>
+	                      </div>
                     ) : hit.summary_extractive ? (
                       <div className="space-y-4">
                         <div className="flex items-center justify-between">
                           <span className="bg-indigo-100 text-indigo-700 text-[9px] font-black uppercase px-1.5 py-0.5 rounded shadow-sm">Local Fast-Pass AI</span>
-                          <button 
-                            onClick={handleGenerateSummary}
-                            disabled={isGenerating}
-                            className="text-[10px] font-bold text-purple-600 hover:text-purple-800 flex items-center gap-1 transition-colors"
-                          >
-                            <Sparkles className="w-3 h-3" /> Upgrade to Local Generative AI
-                          </button>
+	                          <button 
+	                            onClick={() => handleGenerateSummary()}
+	                            disabled={isGenerating}
+	                            className="text-[10px] font-bold text-purple-600 hover:text-purple-800 flex items-center gap-1 transition-colors"
+	                          >
+	                            <Sparkles className="w-3 h-3" /> Upgrade to Local Generative AI
+	                          </button>
                         </div>
                         <p className="text-gray-700 text-[14px] leading-relaxed line-clamp-6">
                           {hit.summary_extractive}
@@ -411,11 +426,11 @@ export default function ResultCard({ hit, onPersonClick, onTopicClick }) {
                         <p className="text-purple-600/60 text-xs mb-6 max-w-[240px] text-center">
                           Generate an executive summary using local AI.
                         </p>
-                        <button 
-                          onClick={handleGenerateSummary}
-                          disabled={isGenerating}
-                          className="px-6 py-2.5 bg-purple-600 text-white text-xs font-bold rounded-xl shadow-lg shadow-purple-200 hover:bg-purple-700 transition-all active:scale-95 disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2"
-                        >
+	                        <button 
+	                          onClick={() => handleGenerateSummary()}
+	                          disabled={isGenerating}
+	                          className="px-6 py-2.5 bg-purple-600 text-white text-xs font-bold rounded-xl shadow-lg shadow-purple-200 hover:bg-purple-700 transition-all active:scale-95 disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2"
+	                        >
                           {isGenerating ? (
                             <><Loader2 className="w-4 h-4 animate-spin" /> Reading...</>
                           ) : (
@@ -539,7 +554,7 @@ export default function ResultCard({ hit, onPersonClick, onTopicClick }) {
                   <div className="prose prose-sm max-w-none text-gray-700 max-h-[500px] overflow-y-auto pr-4 scrollbar-thin scrollbar-thumb-gray-200 text-left">
                     <div className="flex items-center gap-2 mb-6 text-gray-400 font-bold text-[10px] uppercase tracking-widest">
                       <FileText className="w-4 h-4" />
-                      OCR Extracted Content
+                      Extracted Text
                     </div>
                     {hit._formatted && hit._formatted.content ? (
                       <div 
