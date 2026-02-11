@@ -2,13 +2,44 @@ import os
 import meilisearch
 from meilisearch.errors import MeilisearchError
 
-from pipeline.models import Document, Catalog, Event, Place, Organization, AgendaItem
+from pipeline.models import Document, Catalog, Event, Place, Organization, AgendaItem, Membership
 from pipeline.db_session import db_session
 from pipeline.config import MAX_CONTENT_LENGTH, MEILISEARCH_BATCH_SIZE
+from sqlalchemy.orm import selectinload
 
 # Configuration for connecting to the Meilisearch search engine.
 MEILI_HOST = os.getenv('MEILI_HOST', 'http://meilisearch:7700')
 MEILI_MASTER_KEY = os.getenv('MEILI_MASTER_KEY', 'masterKey')
+
+def _select_official_memberships_for_event(organization, record_date):
+    """
+    Choose which officials to show for a meeting.
+
+    Rule:
+    - If membership term dates are present, prefer the roster active on record_date.
+    - If term dates are missing, fall back to all official memberships so the UI
+      doesn't show an empty list.
+    """
+    if not organization:
+        return []
+
+    eligible = []
+    undated_fallback = []
+    for m in (getattr(organization, "memberships", None) or []):
+        person = getattr(m, "person", None)
+        if not person:
+            continue
+        if getattr(person, "person_type", None) != "official":
+            continue
+
+        has_term_dates = bool(getattr(m, "start_date", None) or getattr(m, "end_date", None))
+        if record_date and has_term_dates:
+            if (m.start_date is None or m.start_date <= record_date) and (m.end_date is None or record_date <= m.end_date):
+                eligible.append(m)
+        else:
+            undated_fallback.append(m)
+
+    return eligible or undated_fallback
 
 
 def _flush_batch(index, documents_batch, count, label):
@@ -66,14 +97,18 @@ def index_documents():
         ).filter(
             Catalog.content.isnot(None),
             Catalog.content != ""
+        ).options(
+            # Avoid N+1 queries when building people_metadata for each document.
+            selectinload(Organization.memberships).selectinload(Membership.person)
         ).yield_per(20)
 
         for doc, catalog, event, place, organization in doc_query:
             people_list = []
             if organization:
+                chosen = _select_official_memberships_for_event(organization, event.record_date)
                 people_list = [
                     {"id": m.person.id, "ocd_id": m.person.ocd_id, "name": m.person.name}
-                    for m in organization.memberships
+                    for m in chosen
                 ]
 
             raw_type = (event.meeting_type or "").lower()
@@ -197,7 +232,9 @@ def reindex_catalog(catalog_id: int) -> dict:
             Place, Document.place_id == Place.id
         ).outerjoin(
             Organization, Event.organization_id == Organization.id
-        ).filter(Catalog.id == catalog_id).all()
+        ).filter(Catalog.id == catalog_id).options(
+            selectinload(Organization.memberships).selectinload(Membership.person)
+        ).all()
 
         if not docs:
             return {"status": "skipped", "reason": "No documents linked to catalog", "catalog_id": catalog_id}
@@ -206,9 +243,10 @@ def reindex_catalog(catalog_id: int) -> dict:
         for doc, catalog, event, place, organization in docs:
             people_list = []
             if organization:
+                chosen = _select_official_memberships_for_event(organization, event.record_date)
                 people_list = [
                     {"id": m.person.id, "ocd_id": m.person.ocd_id, "name": m.person.name}
-                    for m in organization.memberships
+                    for m in chosen
                 ]
 
             raw_type = (event.meeting_type or "").lower()
