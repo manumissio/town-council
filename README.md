@@ -256,6 +256,18 @@ Outputs:
 `docker-compose.yml` was reviewed for this change set.
 No service or environment changes were required because Legistar cross-check uses existing DB metadata (`place.legistar_client`) and existing API/network paths.
 
+## Troubleshooting: Missing or Bad Extracted Text
+Some PDFs have little/no selectable text (scanned documents). In those cases, extraction may return very little text unless OCR fallback is used.
+
+The UI includes a dev/admin-only action (requires `NEXT_PUBLIC_API_AUTH_KEY`) to re-extract text for a single meeting:
+* Open the meeting result.
+* In the **Extracted Text** tab, click **Re-extract text**.
+
+Notes:
+* This uses the already-downloaded file on disk only (no re-download).
+* OCR fallback is slower; use it only when needed.
+* Re-extraction updates `catalog.content` and reindexes that single catalog so search/UI can reflect the updated text.
+
 ## Scaling Up (Enterprise Mode)
 The system is designed to scale horizontally as your dataset grows:
 1.  **Add More Workers:** If AI processing is slow, simply add more Celery workers:

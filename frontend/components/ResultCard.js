@@ -17,7 +17,8 @@ async function pollTaskStatus(taskId, callback, onError, type = "summary") {
 
       if (data.status === "complete") {
         if (type === "summary") callback(data.result.summary);
-        else callback(data.result.items || []);
+        else if (type === "agenda") callback(data.result.items || []);
+        else callback(data.result);
         return true;
       }
 
@@ -57,6 +58,8 @@ export default function ResultCard({ hit, onPersonClick, onTopicClick }) {
   const [relatedMeetings, setRelatedMeetings] = useState(null);
   const [isGenerating, setIsGenerating] = useState(false);
   const [isSegmenting, setIsSegmenting] = useState(false);
+  const [isExtracting, setIsExtracting] = useState(false);
+  const [extractedTextOverride, setExtractedTextOverride] = useState(null);
   const [isLoadingRelated, setIsLoadingRelated] = useState(false);
   const [isReporting, setIsReporting] = useState(false);
   const [reportStatus, setReportStatus] = useState(null); // 'loading', 'success', 'error'
@@ -181,6 +184,54 @@ export default function ResultCard({ hit, onPersonClick, onTopicClick }) {
     } catch (err) {
       console.error("Agenda segmentation failed", err);
       setIsSegmenting(false);
+    }
+  };
+
+  const handleReextractText = async ({ ocrFallback = true } = {}) => {
+    if (!hit.catalog_id) return;
+    setIsExtracting(true);
+    try {
+      const url = new URL(`${API_BASE_URL}/extract/${hit.catalog_id}`);
+      url.searchParams.set("force", "true");
+      if (ocrFallback) url.searchParams.set("ocr_fallback", "true");
+
+      const res = await fetch(url.toString(), {
+        method: "POST",
+        headers: getApiHeaders({ useAuth: true }),
+      });
+      const data = await res.json();
+      if (data.status === "cached") {
+        // Pull fresh text from the DB endpoint even when cached so the UI refreshes.
+        const textRes = await fetch(`${API_BASE_URL}/catalog/${hit.catalog_id}/content`, {
+          headers: getApiHeaders({ useAuth: true }),
+        });
+        const textData = await textRes.json();
+        setExtractedTextOverride(textData.content || "");
+        setIsExtracting(false);
+        return;
+      }
+
+      if (data.task_id) {
+        pollTaskStatus(
+          data.task_id,
+          async () => {
+            const textRes = await fetch(`${API_BASE_URL}/catalog/${hit.catalog_id}/content`, {
+              headers: getApiHeaders({ useAuth: true }),
+            });
+            const textData = await textRes.json();
+            setExtractedTextOverride(textData.content || "");
+            setIsExtracting(false);
+          },
+          () => setIsExtracting(false),
+          "extract"
+        );
+        return;
+      }
+
+      setIsExtracting(false);
+    } catch (err) {
+      console.error("Re-extraction failed", err);
+      setIsExtracting(false);
     }
   };
 
@@ -551,24 +602,37 @@ export default function ResultCard({ hit, onPersonClick, onTopicClick }) {
                 </div>
               ) : (
                 <div className="p-8 bg-gray-50/50 border border-gray-100 rounded-3xl">
-                  <div className="prose prose-sm max-w-none text-gray-700 max-h-[500px] overflow-y-auto pr-4 scrollbar-thin scrollbar-thumb-gray-200 text-left">
-                    <div className="flex items-center gap-2 mb-6 text-gray-400 font-bold text-[10px] uppercase tracking-widest">
-                      <FileText className="w-4 h-4" />
-                      Extracted Text
-                    </div>
-                    {hit._formatted && hit._formatted.content ? (
-                      <div 
-                        className="whitespace-pre-line leading-relaxed text-[14px]"
-                        dangerouslySetInnerHTML={{
-                          __html: DOMPurify.sanitize(hit._formatted.content)
-                        }}
-                      />
-                    ) : (
-                      <p className="whitespace-pre-line leading-relaxed text-[14px]">{hit.content}</p>
-                    )}
-                  </div>
-                </div>
-              )}
+	                  <div className="prose prose-sm max-w-none text-gray-700 max-h-[500px] overflow-y-auto pr-4 scrollbar-thin scrollbar-thumb-gray-200 text-left">
+	                    <div className="flex items-center gap-2 mb-6 text-gray-400 font-bold text-[10px] uppercase tracking-widest">
+	                      <FileText className="w-4 h-4" />
+	                      Extracted Text
+	                    </div>
+	                    {process.env.NEXT_PUBLIC_API_AUTH_KEY && hit.catalog_id && (
+	                      <button
+	                        type="button"
+	                        onClick={() => handleReextractText({ ocrFallback: true })}
+	                        disabled={isExtracting}
+	                        className="mb-4 text-[11px] font-bold text-blue-600 hover:text-blue-800 underline underline-offset-4 disabled:opacity-50 disabled:cursor-not-allowed"
+	                        title="Re-extract text from the already-downloaded PDF file (no re-download). OCR fallback may be slower."
+	                      >
+	                        {isExtracting ? "Re-extracting..." : "Re-extract text"}
+	                      </button>
+	                    )}
+	                    {extractedTextOverride ? (
+	                      <p className="whitespace-pre-line leading-relaxed text-[14px]">{extractedTextOverride}</p>
+	                    ) : hit._formatted && hit._formatted.content ? (
+	                      <div 
+	                        className="whitespace-pre-line leading-relaxed text-[14px]"
+	                        dangerouslySetInnerHTML={{
+	                          __html: DOMPurify.sanitize(hit._formatted.content)
+	                        }}
+	                      />
+	                    ) : (
+	                      <p className="whitespace-pre-line leading-relaxed text-[14px]">{hit.content}</p>
+	                    )}
+	                  </div>
+	                </div>
+	              )}
             </div>
 
             {hit.tables && hit.tables.length > 0 && (

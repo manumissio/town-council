@@ -55,4 +55,3 @@ def test_extractor_ocr_fallback_enabled_retries_with_ocr_when_text_is_too_short(
     second_kwargs = parser_mock.call_args_list[1].kwargs
     assert first_kwargs["headers"]["X-Tika-PDFOcrStrategy"] == "no_ocr"
     assert second_kwargs["headers"]["X-Tika-PDFOcrStrategy"] == "ocr_only"
-

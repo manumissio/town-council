@@ -177,6 +177,15 @@ To scale beyond a single server, the system uses a **Producer-Consumer** model f
 #### Docker Dev Note (Why "Restart Worker" Matters)
 In Docker Compose, the API runs with `--reload`, so code changes are picked up automatically. The Celery worker does not auto-reload. If summarization/segmentation behavior looks unchanged after a code change, restart the worker so it loads the new code.
 
+#### On-Demand Re-Extraction (Text Repair)
+Extracted text is stored in `catalog.content`. If extraction was missing/low quality (for example, a scanned PDF without a text layer), the system supports a safe, single-catalog repair flow:
+1. UI triggers `POST /extract/{catalog_id}` (authenticated, rate-limited)
+2. API enqueues `extract_text_task` (Celery)
+3. Worker re-extracts from the existing `catalog.location` file on disk (no download), optionally using OCR fallback
+4. Worker updates `catalog.content` and reindexes that catalog in Meilisearch
+
+This avoids rerunning the full pipeline when only one document needs repair.
+
 ### 7.1 Async Task Failure Behavior (UI Contract)
 The frontend polls background task status (`/tasks/{id}`) and now treats both task failures and polling/network errors as terminal states:
 *   loading indicators are cleared on error paths

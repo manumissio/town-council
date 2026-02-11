@@ -9,6 +9,9 @@ from pipeline.llm import LocalAI
 from pipeline.agenda_service import persist_agenda_items
 from pipeline.agenda_resolver import resolve_agenda_items
 from pipeline.models import AgendaItem
+from pipeline.config import TIKA_MIN_EXTRACTED_CHARS_FOR_NO_OCR
+from pipeline.extraction_service import reextract_catalog_content
+from pipeline.indexer import reindex_catalog
 
 # Register worker metrics (safe in non-worker contexts; the HTTP server only starts
 # when TC_WORKER_METRICS_PORT is set and the Celery worker is ready).
@@ -151,6 +154,52 @@ def segment_agenda_task(self, catalog_id: int):
 
     except (SQLAlchemyError, RuntimeError, KeyError, ValueError) as e:
         logger.error(f"Task failed: {e}")
+        db.rollback()
+        raise self.retry(exc=e, countdown=60)
+    finally:
+        db.close()
+
+
+@app.task(bind=True, max_retries=3)
+def extract_text_task(self, catalog_id: int, force: bool = False, ocr_fallback: bool = False):
+    """
+    Background task: re-extract a catalog's text from the already-downloaded file.
+
+    This is intentionally "no download" and single-catalog scoped:
+    - It only reads Catalog.location on disk.
+    - It updates Catalog.content in the DB.
+    - It reindexes just this catalog into Meilisearch.
+    """
+    db = SessionLocal()
+    try:
+        catalog = db.get(Catalog, catalog_id)
+        result = reextract_catalog_content(
+            catalog,
+            force=force,
+            ocr_fallback=ocr_fallback,
+            min_chars=TIKA_MIN_EXTRACTED_CHARS_FOR_NO_OCR,
+        )
+        if "error" in result:
+            # Only retry for transient extraction failures. Missing files / unsafe paths
+            # should return immediately so the user can take action.
+            transient = result["error"].lower() in {
+                "extraction returned empty text",
+            }
+            if transient:
+                raise RuntimeError(result["error"])
+            return result
+
+        db.commit()
+
+        # Best-effort: update the search index for just this catalog.
+        try:
+            reindex_catalog(catalog_id)
+        except Exception as e:
+            # If reindexing fails, keep the extracted text (DB is source of truth).
+            return {**result, "reindex_error": str(e)}
+
+        return result
+    except (SQLAlchemyError, RuntimeError, ValueError) as e:
         db.rollback()
         raise self.retry(exc=e, countdown=60)
     finally:

@@ -385,7 +385,7 @@ def get_catalogs_batch(
         })
     return results
 
-from pipeline.tasks import generate_summary_task, segment_agenda_task, app as celery_app
+from pipeline.tasks import generate_summary_task, segment_agenda_task, extract_text_task, app as celery_app
 from celery.result import AsyncResult
 
 @app.post("/summarize/{catalog_id}", dependencies=[Depends(verify_api_key)])
@@ -471,6 +471,66 @@ def segment_agenda(
         "status": "processing",
         "task_id": str(task.id),
         "poll_url": f"/tasks/{task.id}"
+    }
+
+
+@app.get("/catalog/{catalog_id}/content", dependencies=[Depends(verify_api_key)])
+def get_catalog_content(
+    catalog_id: int = Path(..., ge=1),
+    db: SQLAlchemySession = Depends(get_db),
+):
+    """
+    Return the raw extracted text for one catalog.
+
+    This is primarily used by the UI after a re-extraction so the user can see
+    updated text immediately (even before search reindexing completes).
+    """
+    catalog = db.get(Catalog, catalog_id)
+    if not catalog:
+        raise HTTPException(status_code=404, detail="Document not found")
+    if not catalog.content:
+        return {"catalog_id": catalog_id, "chars": 0, "content": ""}
+    return {
+        "catalog_id": catalog_id,
+        "chars": len(catalog.content),
+        "has_page_markers": "[PAGE " in catalog.content,
+        "content": catalog.content,
+    }
+
+
+@app.post("/extract/{catalog_id}", dependencies=[Depends(verify_api_key)])
+@limiter.limit("5/minute")
+def extract_catalog_text(
+    request: Request,
+    catalog_id: int = Path(..., ge=1),
+    force: bool = Query(
+        False,
+        description="Force re-extraction even if cached extracted text exists.",
+    ),
+    ocr_fallback: bool = Query(
+        False,
+        description="Allow OCR fallback when the PDF has little/no selectable text (slower).",
+    ),
+    db: SQLAlchemySession = Depends(get_db),
+):
+    """
+    Async extraction: re-extract one catalog's text from its already-downloaded file.
+
+    We do not download here. If the file isn't present on disk, the task fails fast.
+    """
+    catalog = db.get(Catalog, catalog_id)
+    if not catalog:
+        raise HTTPException(status_code=404, detail="Document not found")
+
+    # Cheap cache: if we already have substantial text, don't re-extract unless forced.
+    if (not force) and catalog.content and len(catalog.content.strip()) >= 800:
+        return {"status": "cached", "catalog_id": catalog_id, "chars": len(catalog.content)}
+
+    task = extract_text_task.delay(catalog_id, force=force, ocr_fallback=ocr_fallback)
+    return {
+        "status": "processing",
+        "task_id": str(task.id),
+        "poll_url": f"/tasks/{task.id}",
     }
 
 @app.get("/tasks/{task_id}")

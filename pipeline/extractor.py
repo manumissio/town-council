@@ -24,7 +24,7 @@ def is_safe_path(path):
     target_path = os.path.abspath(path)
     return target_path.startswith(base_dir)
 
-def extract_text(file_path):
+def extract_text(file_path, *, ocr_fallback_enabled=None, min_chars_threshold=None):
     """
     Extracts text from a single file using Apache Tika.
     Inserts [PAGE X] markers for deep linking support.
@@ -118,13 +118,20 @@ def extract_text(file_path):
                     return ""
         return ""
 
+    # Allow per-call overrides so async tasks can choose whether OCR fallback is enabled.
+    # (We avoid mutating global module state or environment variables.)
+    if ocr_fallback_enabled is None:
+        ocr_fallback_enabled = TIKA_OCR_FALLBACK_ENABLED
+    if min_chars_threshold is None:
+        min_chars_threshold = TIKA_MIN_EXTRACTED_CHARS_FOR_NO_OCR
+
     # Fast path: try digital text layer only.
     no_ocr_text = _tika_extract_with_strategy("no_ocr")
-    if no_ocr_text and len(no_ocr_text) >= TIKA_MIN_EXTRACTED_CHARS_FOR_NO_OCR:
+    if no_ocr_text and len(no_ocr_text) >= min_chars_threshold:
         return no_ocr_text
 
     # Slow fallback: if enabled and the digital layer was empty/too short, retry with OCR.
-    if TIKA_OCR_FALLBACK_ENABLED:
+    if ocr_fallback_enabled:
         ocr_text = _tika_extract_with_strategy("ocr_only")
         return ocr_text or no_ocr_text
 
