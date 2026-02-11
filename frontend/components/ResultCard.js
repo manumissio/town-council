@@ -18,6 +18,7 @@ async function pollTaskStatus(taskId, callback, onError, type = "summary") {
       if (data.status === "complete") {
         if (type === "summary") callback(data.result.summary);
         else if (type === "agenda") callback(data.result.items || []);
+        else if (type === "topics") callback((data.result && data.result.topics) || []);
         else callback(data.result);
         return true;
       }
@@ -54,17 +55,22 @@ export default function ResultCard({ hit, onPersonClick, onTopicClick }) {
   const [viewMode, setViewMode] = useState("text"); // 'text', 'summary', 'agenda'
   
   const [summary, setSummary] = useState(hit.summary);
+  const [topics, setTopics] = useState(hit.topics || []);
   const [agendaItems, setAgendaItems] = useState(null);
   const [relatedMeetings, setRelatedMeetings] = useState(null);
   const [isGenerating, setIsGenerating] = useState(false);
+  const [isTaggingTopics, setIsTaggingTopics] = useState(false);
   const [isSegmenting, setIsSegmenting] = useState(false);
   const [isExtracting, setIsExtracting] = useState(false);
   const [extractedTextOverride, setExtractedTextOverride] = useState(null);
+  const [derivedStatus, setDerivedStatus] = useState(null);
   const [isLoadingRelated, setIsLoadingRelated] = useState(false);
   const [isReporting, setIsReporting] = useState(false);
   const [reportStatus, setReportStatus] = useState(null); // 'loading', 'success', 'error'
 
   const isAgendaItem = hit.result_type === 'agenda_item';
+  const summaryIsStale = (derivedStatus && derivedStatus.summary_is_stale) ?? hit.summary_is_stale ?? false;
+  const topicsIsStale = (derivedStatus && derivedStatus.topics_is_stale) ?? hit.topics_is_stale ?? false;
   const handleTopicClick = (topic) => {
     // Topics are meant to be a quick way to narrow the search.
     // We keep this simple: clicking a topic sets the main search query
@@ -107,6 +113,28 @@ export default function ResultCard({ hit, onPersonClick, onTopicClick }) {
     }
   }, [isExpanded, hit.related_ids]);
 
+  // Fetch derived staleness status (summary/topics) when expanded so the UI can
+  // show "stale" badges after a re-extraction.
+  useEffect(() => {
+    if (!isExpanded || !hit.catalog_id) return;
+    fetchDerivedStatus();
+  }, [isExpanded, hit.catalog_id]);
+
+  const fetchDerivedStatus = async () => {
+    if (!hit.catalog_id) return;
+    try {
+      const res = await fetch(`${API_BASE_URL}/catalog/${hit.catalog_id}/derived_status`, {
+        headers: getApiHeaders({ useAuth: true }),
+      });
+      if (!res.ok) return;
+      const data = await res.json();
+      setDerivedStatus(data);
+    } catch (err) {
+      // Best-effort only; staleness badges are helpful but not critical.
+      console.error("Failed to fetch derived status", err);
+    }
+  };
+
   const fetchRelatedMeetings = async () => {
     setIsLoadingRelated(true);
     try {
@@ -139,13 +167,15 @@ export default function ResultCard({ hit, onPersonClick, onTopicClick }) {
       });
       const data = await res.json();
       
-      if (data.status === 'cached' && data.summary) {
+      if ((data.status === 'cached' || data.status === 'stale') && data.summary) {
         setSummary(data.summary);
         setIsGenerating(false);
+        fetchDerivedStatus();
       } else if (data.task_id) {
         pollTaskStatus(data.task_id, (result) => {
           setSummary(result);
           setIsGenerating(false);
+          fetchDerivedStatus();
         }, () => setIsGenerating(false), 'summary');
       } else {
         setIsGenerating(false);
@@ -153,6 +183,43 @@ export default function ResultCard({ hit, onPersonClick, onTopicClick }) {
     } catch (err) {
       console.error("AI Generation failed", err);
       setIsGenerating(false);
+    }
+  };
+
+  const handleGenerateTopics = async ({ force = false } = {}) => {
+    if (!hit.catalog_id) return;
+    setIsTaggingTopics(true);
+    try {
+      const url = new URL(`${API_BASE_URL}/topics/${hit.catalog_id}`);
+      if (force) url.searchParams.set("force", "true");
+
+      const res = await fetch(url.toString(), {
+        method: "POST",
+        headers: getApiHeaders({ useAuth: true }),
+      });
+      const data = await res.json();
+
+      if ((data.status === "cached" || data.status === "stale") && data.topics) {
+        setTopics(data.topics || []);
+        setIsTaggingTopics(false);
+        fetchDerivedStatus();
+      } else if (data.task_id) {
+        pollTaskStatus(
+          data.task_id,
+          (resultTopics) => {
+            setTopics(resultTopics || []);
+            setIsTaggingTopics(false);
+            fetchDerivedStatus();
+          },
+          () => setIsTaggingTopics(false),
+          "topics"
+        );
+      } else {
+        setIsTaggingTopics(false);
+      }
+    } catch (err) {
+      console.error("Topic generation failed", err);
+      setIsTaggingTopics(false);
     }
   };
 
@@ -208,6 +275,7 @@ export default function ResultCard({ hit, onPersonClick, onTopicClick }) {
         const textData = await textRes.json();
         setExtractedTextOverride(textData.content || "");
         setIsExtracting(false);
+        fetchDerivedStatus();
         return;
       }
 
@@ -221,6 +289,7 @@ export default function ResultCard({ hit, onPersonClick, onTopicClick }) {
             const textData = await textRes.json();
             setExtractedTextOverride(textData.content || "");
             setIsExtracting(false);
+            fetchDerivedStatus();
           },
           () => setIsExtracting(false),
           "extract"
@@ -431,18 +500,25 @@ export default function ResultCard({ hit, onPersonClick, onTopicClick }) {
             <div className="relative">
               {viewMode === "summary" ? (
                 <div className="p-8 bg-purple-50/30 border border-purple-100 rounded-3xl space-y-6">
-                  <div className="space-y-3">
-                    <div className="flex items-center gap-2 text-purple-700 font-bold text-[11px] uppercase tracking-widest">
-                      <Sparkles className="w-4 h-4" />
-                      Executive Summary
-                    </div>
-	                    {summary ? (
-	                      <div className="space-y-4">
-	                        <span className="bg-purple-100 text-purple-700 text-[9px] font-black uppercase px-1.5 py-0.5 rounded shadow-sm">Gemma 3 270M</span>
-	                        <p className="text-gray-800 text-[15px] whitespace-pre-line leading-relaxed italic">
-	                          {summary}
-	                        </p>
-	                        <button
+                    <div className="space-y-3">
+                      <div className="flex items-center gap-2 text-purple-700 font-bold text-[11px] uppercase tracking-widest">
+                        <Sparkles className="w-4 h-4" />
+                        Executive Summary
+                      </div>
+		                    {summary ? (
+		                      <div className="space-y-4">
+		                        <div className="flex items-center gap-2">
+		                          <span className="bg-purple-100 text-purple-700 text-[9px] font-black uppercase px-1.5 py-0.5 rounded shadow-sm">Gemma 3 270M</span>
+		                          {summaryIsStale && (
+		                            <span className="bg-amber-100 text-amber-800 text-[9px] font-black uppercase px-1.5 py-0.5 rounded shadow-sm" title="The extracted text changed after this summary was generated.">
+		                              Stale
+		                            </span>
+		                          )}
+		                        </div>
+		                        <p className="text-gray-800 text-[15px] whitespace-pre-line leading-relaxed italic">
+		                          {summary}
+		                        </p>
+		                        <button
 	                          type="button"
 	                          onClick={() => handleGenerateSummary({ force: true })}
 	                          disabled={isGenerating}
@@ -492,7 +568,7 @@ export default function ResultCard({ hit, onPersonClick, onTopicClick }) {
                     )}
                   </div>
 
-                  {(hit.entities || hit.topics) && (
+                  {(hit.entities || (topics && topics.length > 0)) && (
                     <div className="grid md:grid-cols-2 gap-6 pt-6 border-t border-purple-100">
                       {hit.entities && (
                         <div className="space-y-3">
@@ -506,21 +582,46 @@ export default function ResultCard({ hit, onPersonClick, onTopicClick }) {
                           </div>
                         </div>
                       )}
-	                      {hit.topics && hit.topics.length > 0 && (
-	                        <div className="space-y-3">
-	                          <div className="text-[10px] font-bold text-purple-400 uppercase tracking-widest">Discovered Topics</div>
-	                          <div className="flex flex-wrap gap-2">
-	                            {hit.topics.map((topic, i) => (
-	                              <button
-	                                key={i}
-	                                type="button"
-	                                onClick={() => handleTopicClick(topic)}
-	                                className="px-3 py-1.5 bg-purple-100/50 text-purple-700 text-[11px] font-bold rounded-xl border border-purple-200 uppercase tracking-tight hover:bg-purple-100 hover:border-purple-300 transition-colors"
-	                                title="Search for this topic"
-	                              >
-	                                #{topic}
-	                              </button>
-	                            ))}
+		                      {topics && topics.length > 0 && (
+		                        <div className="space-y-3">
+		                          <div className="flex items-center justify-between">
+		                            <div className="flex items-center gap-2">
+		                              <div className="text-[10px] font-bold text-purple-400 uppercase tracking-widest">Discovered Topics</div>
+		                              {topicsIsStale && (
+		                                <span className="bg-amber-100 text-amber-800 text-[9px] font-black uppercase px-1.5 py-0.5 rounded shadow-sm" title="The extracted text changed after these topics were generated.">
+		                                  Stale
+		                                </span>
+		                              )}
+		                            </div>
+		                            {process.env.NEXT_PUBLIC_API_AUTH_KEY && hit.catalog_id && (
+		                              <button
+		                                type="button"
+		                                onClick={() => handleGenerateTopics({ force: true })}
+		                                disabled={isTaggingTopics}
+		                                className="text-[10px] font-bold text-purple-600 hover:text-purple-800 flex items-center gap-1 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+		                                title="Regenerate topic tags for this catalog (explicit action; does not run automatically)."
+		                              >
+		                                <Sparkles className="w-3 h-3" /> Regenerate topics
+		                              </button>
+		                            )}
+		                          </div>
+		                          <div className="flex flex-wrap gap-2">
+		                            {(topics || []).map((topic, i) => (
+		                              <button
+		                                key={i}
+		                                type="button"
+		                                onClick={() => handleTopicClick(topic)}
+		                                disabled={topicsIsStale}
+		                                className={`px-3 py-1.5 text-[11px] font-bold rounded-xl border uppercase tracking-tight transition-colors ${
+		                                  topicsIsStale
+		                                    ? "bg-gray-100 text-gray-400 border-gray-200 cursor-not-allowed"
+		                                    : "bg-purple-100/50 text-purple-700 border-purple-200 hover:bg-purple-100 hover:border-purple-300"
+		                                }`}
+		                                title={topicsIsStale ? "Topics are stale; regenerate to use them for search." : "Search for this topic"}
+		                              >
+		                                #{topic}
+		                              </button>
+		                            ))}
 	                          </div>
 	                        </div>
 	                      )}

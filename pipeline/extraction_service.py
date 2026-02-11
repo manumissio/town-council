@@ -1,6 +1,7 @@
 import os
 
 from pipeline.extractor import extract_text, is_safe_path
+from pipeline.content_hash import compute_content_hash
 
 
 def looks_like_good_extracted_text(text: str, min_chars: int) -> bool:
@@ -49,10 +50,12 @@ def reextract_catalog_content(catalog, *, force: bool, ocr_fallback: bool, min_c
         return {"error": "Extraction returned empty text"}
 
     catalog.content = new_text
+    # Hash ties derived fields (summary/topics) to a specific extracted text version.
+    catalog.content_hash = compute_content_hash(new_text)
     return {
         "status": "updated",
         "catalog_id": catalog.id,
         "chars": len(new_text),
         "ocr_fallback": bool(ocr_fallback),
+        "content_hash": catalog.content_hash,
     }
-

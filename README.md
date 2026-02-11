@@ -267,6 +267,7 @@ Notes:
 * This uses the already-downloaded file on disk only (no re-download).
 * OCR fallback is slower; use it only when needed.
 * Re-extraction updates `catalog.content` and reindexes that single catalog so search/UI can reflect the updated text.
+* Summaries and topic tags are derived from extracted text. After re-extraction, the UI will mark them as **stale** until you explicitly regenerate them.
 
 ## Scaling Up (Enterprise Mode)
 The system is designed to scale horizontally as your dataset grows:

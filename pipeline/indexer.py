@@ -132,6 +132,16 @@ def index_documents():
                 'summary': catalog.summary,
                 'summary_extractive': catalog.summary_extractive,
                 'topics': catalog.topics,
+                # Derived-field staleness: if extracted text changes, cached summary/topics
+                # may no longer match the current content.
+                'summary_is_stale': bool(
+                    catalog.summary
+                    and (not catalog.content_hash or catalog.summary_source_hash != catalog.content_hash)
+                ),
+                'topics_is_stale': bool(
+                    catalog.topics is not None
+                    and (not catalog.content_hash or catalog.topics_source_hash != catalog.content_hash)
+                ),
                 'related_ids': catalog.related_ids,
                 'people_metadata': people_list,
                 'people': [p['name'] for p in people_list],
@@ -270,6 +280,14 @@ def reindex_catalog(catalog_id: int) -> dict:
                 'summary': catalog.summary,
                 'summary_extractive': catalog.summary_extractive,
                 'topics': catalog.topics,
+                'summary_is_stale': bool(
+                    catalog.summary
+                    and (not catalog.content_hash or catalog.summary_source_hash != catalog.content_hash)
+                ),
+                'topics_is_stale': bool(
+                    catalog.topics is not None
+                    and (not catalog.content_hash or catalog.topics_source_hash != catalog.content_hash)
+                ),
                 'related_ids': catalog.related_ids,
                 'people_metadata': people_list,
                 'people': [p['name'] for p in people_list],

@@ -33,6 +33,7 @@ def process_document_chunk(catalog_ids):
     """
     from pipeline.models import db_connect, Catalog
     from pipeline.extractor import extract_text
+    from pipeline.content_hash import compute_content_hash
     from pipeline.nlp_worker import extract_entities
     from sqlalchemy.orm import sessionmaker
     from sqlalchemy import text
@@ -69,6 +70,10 @@ def process_document_chunk(catalog_ids):
             # Extract text only when needed.
             if not catalog.content and catalog.location:
                 catalog.content = extract_text(catalog.location)
+                catalog.content_hash = compute_content_hash(catalog.content)
+            elif catalog.content and not getattr(catalog, "content_hash", None):
+                # Older rows may predate content hashing.
+                catalog.content_hash = compute_content_hash(catalog.content)
 
             # Extract entities only when needed.
             if catalog.content and not catalog.entities:

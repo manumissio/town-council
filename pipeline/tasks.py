@@ -12,6 +12,7 @@ from pipeline.models import AgendaItem
 from pipeline.config import TIKA_MIN_EXTRACTED_CHARS_FOR_NO_OCR
 from pipeline.extraction_service import reextract_catalog_content
 from pipeline.indexer import reindex_catalog
+from pipeline.content_hash import compute_content_hash
 
 # Register worker metrics (safe in non-worker contexts; the HTTP server only starts
 # when TC_WORKER_METRICS_PORT is set and the Celery worker is ready).
@@ -46,6 +47,9 @@ def generate_summary_task(self, catalog_id: int, force: bool = False):
         if not catalog or not catalog.content:
             return {"error": "No content to summarize"}
 
+        # Ensure we have a stable fingerprint for "is this summary stale?"
+        content_hash = catalog.content_hash or compute_content_hash(catalog.content)
+
         # Decide how to summarize based on the *document type*.
         # Many cities publish agenda PDFs without corresponding minutes PDFs.
         # If we summarize an agenda using a "minutes" prompt, the output looks incorrect.
@@ -57,8 +61,17 @@ def generate_summary_task(self, catalog_id: int, force: bool = False):
         # Why have `force`?
         # Summaries are cached on the Catalog row. When we improve the prompt/cleanup logic,
         # old low-quality summaries won't change unless we regenerate them.
-        if (not force) and catalog.summary:
+        is_fresh = bool(
+            catalog.summary
+            and content_hash
+            and catalog.summary_source_hash
+            and catalog.summary_source_hash == content_hash
+        )
+        if (not force) and is_fresh:
             return {"status": "cached", "summary": catalog.summary}
+        if (not force) and catalog.summary and not is_fresh:
+            # Keep the old summary visible, but mark it as out-of-date.
+            return {"status": "stale", "summary": catalog.summary}
 
         # If agenda items already exist, prefer a deterministic agenda-style summary instead
         # of relying entirely on the LLM. This is fast, stable, and avoids "how to attend"
@@ -91,13 +104,126 @@ def generate_summary_task(self, catalog_id: int, force: bool = False):
         
         # Update DB
         catalog.summary = summary
+        catalog.content_hash = content_hash
+        catalog.summary_source_hash = content_hash
         db.commit()
+
+        # Best-effort: update the search index for just this catalog so stale flags
+        # and snippets stay in sync for future searches.
+        try:
+            reindex_catalog(catalog_id)
+        except Exception:
+            pass
         
         logger.info(f"Summarization complete for Catalog ID {catalog_id}")
         return {"status": "complete", "summary": summary}
 
     except (SQLAlchemyError, RuntimeError, ValueError) as e:
         logger.error(f"Task failed: {e}")
+        db.rollback()
+        raise self.retry(exc=e, countdown=60)
+    finally:
+        db.close()
+
+
+@app.task(bind=True, max_retries=3)
+def generate_topics_task(self, catalog_id: int, force: bool = False, max_corpus_docs: int = 600):
+    """
+    Background task: (re)generate topic tags for a single catalog.
+
+    Topics are derived from extracted text, so we tie them to Catalog.content_hash.
+    This task uses a bounded per-city corpus to keep runtime predictable.
+    """
+    db = SessionLocal()
+    try:
+        catalog = db.get(Catalog, catalog_id)
+        if not catalog or not catalog.content:
+            return {"error": "No content to tag"}
+
+        content_hash = catalog.content_hash or compute_content_hash(catalog.content)
+
+        is_fresh = bool(
+            catalog.topics is not None
+            and content_hash
+            and catalog.topics_source_hash
+            and catalog.topics_source_hash == content_hash
+        )
+        if (not force) and is_fresh:
+            return {"status": "cached", "topics": catalog.topics}
+        if (not force) and catalog.topics is not None and not is_fresh:
+            return {"status": "stale", "topics": catalog.topics}
+
+        doc = db.query(Document).filter_by(catalog_id=catalog_id).first()
+        if not doc:
+            return {"error": "Document not linked to catalog"}
+
+        # Reuse the same sanitation rules as the batch topic worker.
+        from pipeline.topic_worker import _sanitize_text_for_topics
+        from pipeline.config import (
+            MAX_CONTENT_LENGTH,
+            TFIDF_MAX_DF,
+            TFIDF_MIN_DF,
+            TFIDF_NGRAM_RANGE,
+            TFIDF_MAX_FEATURES,
+        )
+        from sklearn.feature_extraction.text import TfidfVectorizer
+        import numpy as np
+
+        # Build a bounded, same-city corpus so TF-IDF weights are meaningful but fast.
+        rows = (
+            db.query(Catalog.id, Catalog.content)
+            .join(Document, Document.catalog_id == Catalog.id)
+            .filter(Document.place_id == doc.place_id, Catalog.content.isnot(None), Catalog.content != "")
+            .order_by(Catalog.id.desc())
+            .limit(max_corpus_docs)
+            .all()
+        )
+        if not rows:
+            return {"error": "No corpus available for topic tagging"}
+
+        ids = [r[0] for r in rows]
+        corpus = [_sanitize_text_for_topics((r[1] or "")[:MAX_CONTENT_LENGTH]) for r in rows]
+
+        vectorizer = TfidfVectorizer(
+            max_df=TFIDF_MAX_DF,
+            min_df=TFIDF_MIN_DF,
+            ngram_range=TFIDF_NGRAM_RANGE,
+            max_features=TFIDF_MAX_FEATURES,
+            stop_words="english",
+        )
+        tfidf = vectorizer.fit_transform(corpus)
+        feature_names = vectorizer.get_feature_names_out()
+
+        try:
+            idx = ids.index(catalog_id)
+        except ValueError:
+            # The target doc might be older than our corpus window; include it explicitly.
+            target_text = _sanitize_text_for_topics((catalog.content or "")[:MAX_CONTENT_LENGTH])
+            corpus.insert(0, target_text)
+            ids.insert(0, catalog_id)
+            tfidf = vectorizer.fit_transform(corpus)
+            feature_names = vectorizer.get_feature_names_out()
+            idx = 0
+
+        row = tfidf[idx].toarray().ravel()
+        if row.size == 0:
+            keywords = []
+        else:
+            top_idx = np.argsort(row)[::-1][:5]
+            keywords = [feature_names[i].title() for i in top_idx if row[i] > 0]
+
+        catalog.topics = keywords
+        catalog.content_hash = content_hash
+        catalog.topics_source_hash = content_hash
+        db.commit()
+
+        try:
+            reindex_catalog(catalog_id)
+        except Exception:
+            pass
+
+        return {"status": "complete", "topics": keywords}
+    except (SQLAlchemyError, RuntimeError, ValueError) as e:
         db.rollback()
         raise self.retry(exc=e, countdown=60)
     finally:

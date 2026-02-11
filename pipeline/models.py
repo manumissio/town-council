@@ -254,12 +254,19 @@ class Catalog(Base):
     filename = Column(String(255))
     
     content = Column(Text)
+    # Hash of extracted `content` (normalized). Used to detect when derived fields
+    # like summaries/topics are stale after re-extraction.
+    content_hash = Column(String(64), nullable=True)
     summary = Column(Text)
+    # Hash of the `content` version that `summary` was generated from.
+    summary_source_hash = Column(String(64), nullable=True)
     summary_extractive = Column(Text)
     
     entities = Column(JSON, nullable=True)
     tables = Column(JSON, nullable=True)
     topics = Column(JSON, nullable=True)
+    # Hash of the `content` version that `topics` were generated from.
+    topics_source_hash = Column(String(64), nullable=True)
     related_ids = Column(JSON, nullable=True)
     
     processed = Column(Boolean, default=False)

@@ -55,7 +55,7 @@ def test_async_summarization_flow(mocker):
         assert "/tasks/test-task-uuid" in data["poll_url"]
         
         # Ensure the task was actually called
-        mock_generate_task.delay.assert_called_once_with(1)
+        mock_generate_task.delay.assert_called_once_with(1, force=False)
         
     del app.dependency_overrides[get_db]
 

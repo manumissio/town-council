@@ -49,6 +49,8 @@ def test_indexer_flushes_agenda_final_batch_once(mocker):
             return self
         def filter(self, *args, **kwargs):
             return self
+        def options(self, *args, **kwargs):
+            return self
         def yield_per(self, *args, **kwargs):
             return self._rows
 

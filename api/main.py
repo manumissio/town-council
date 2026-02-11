@@ -34,6 +34,7 @@ agenda_items_look_low_quality = None
 
 try:
     from pipeline.models import db_connect, Document, Event, Place, Catalog, Person, AgendaItem, DataIssue, IssueType, Membership, Organization
+    from pipeline.content_hash import compute_content_hash
     from pipeline.utils import generate_ocd_id
     from pipeline.llm import LocalAI
     from pipeline.agenda_resolver import agenda_items_look_low_quality
@@ -182,7 +183,13 @@ def search_documents(
         search_params = {
             'limit': limit,
             'offset': offset,
-            'attributesToRetrieve': ['id', 'title', 'event_name', 'city', 'date', 'filename', 'url', 'result_type', 'event_id', 'catalog_id', 'classification', 'result', 'topics', 'people_metadata'],
+            'attributesToRetrieve': [
+                'id', 'title', 'event_name', 'city', 'date', 'filename', 'url',
+                'result_type', 'event_id', 'catalog_id', 'classification', 'result',
+                'summary', 'summary_extractive', 'entities', 'topics', 'related_ids',
+                'summary_is_stale', 'topics_is_stale',
+                'people_metadata',
+            ],
             'attributesToCrop': ['content', 'description'],
             'cropLength': 50,
             'attributesToHighlight': ['content', 'title', 'description'],
@@ -385,7 +392,13 @@ def get_catalogs_batch(
         })
     return results
 
-from pipeline.tasks import generate_summary_task, segment_agenda_task, extract_text_task, app as celery_app
+from pipeline.tasks import (
+    generate_summary_task,
+    generate_topics_task,
+    segment_agenda_task,
+    extract_text_task,
+    app as celery_app,
+)
 from celery.result import AsyncResult
 
 @app.post("/summarize/{catalog_id}", dependencies=[Depends(verify_api_key)])
@@ -410,9 +423,20 @@ def summarize_document(
     if not catalog:
         raise HTTPException(status_code=404, detail="Document not found")
 
-    # If cached, return immediately unless the caller explicitly forces regeneration.
-    if (not force) and catalog.summary:
+    # "Cached" should mean: generated from the *current* extracted text.
+    # If extracted text changed (re-extraction), we keep the old summary but mark it stale.
+    content_hash = catalog.content_hash or (compute_content_hash(catalog.content) if catalog.content else None)
+    is_fresh = bool(
+        catalog.summary
+        and content_hash
+        and catalog.summary_source_hash
+        and catalog.summary_source_hash == content_hash
+    )
+
+    if (not force) and is_fresh:
         return {"summary": catalog.summary, "status": "cached"}
+    if (not force) and catalog.summary and not is_fresh:
+        return {"summary": catalog.summary, "status": "stale"}
 
     if not catalog.content:
         raise HTTPException(status_code=400, detail="Document has no text to summarize")
@@ -495,6 +519,88 @@ def get_catalog_content(
         "chars": len(catalog.content),
         "has_page_markers": "[PAGE " in catalog.content,
         "content": catalog.content,
+    }
+
+
+@app.get("/catalog/{catalog_id}/derived_status", dependencies=[Depends(verify_api_key)])
+def get_catalog_derived_status(
+    catalog_id: int = Path(..., ge=1),
+    db: SQLAlchemySession = Depends(get_db),
+):
+    """
+    Return whether derived fields (summary/topics) are stale for the current extracted text.
+
+    This endpoint is used by the UI to show a clear "stale" badge after re-extraction,
+    without auto-regenerating anything.
+    """
+    catalog = db.get(Catalog, catalog_id)
+    if not catalog:
+        raise HTTPException(status_code=404, detail="Document not found")
+
+    content_hash = catalog.content_hash or (compute_content_hash(catalog.content) if catalog.content else None)
+    summary_is_stale = bool(
+        catalog.summary and (not content_hash or catalog.summary_source_hash != content_hash)
+    )
+    topics_is_stale = bool(
+        catalog.topics is not None and (not content_hash or catalog.topics_source_hash != content_hash)
+    )
+    return {
+        "catalog_id": catalog_id,
+        "has_content": bool(catalog.content and catalog.content.strip()),
+        "content_hash": content_hash,
+        "has_summary": bool(catalog.summary),
+        "summary_source_hash": catalog.summary_source_hash,
+        "summary_is_stale": summary_is_stale,
+        "has_topics": catalog.topics is not None,
+        "topics_source_hash": catalog.topics_source_hash,
+        "topics_is_stale": topics_is_stale,
+    }
+
+
+@app.post("/topics/{catalog_id}", dependencies=[Depends(verify_api_key)])
+@limiter.limit("10/minute")
+def generate_topics_for_catalog(
+    request: Request,
+    catalog_id: int = Path(..., ge=1),
+    force: bool = Query(
+        False,
+        description=(
+            "Force regeneration even if cached topics exist. "
+            "Useful after extraction changes or when cached topics are known-bad."
+        ),
+    ),
+    db: SQLAlchemySession = Depends(get_db),
+):
+    """
+    Async topic tagging: requests topic generation for one catalog.
+
+    We keep regeneration explicit (no automatic re-tagging after extraction),
+    but we also avoid serving "cached" topics when they are stale.
+    """
+    catalog = db.get(Catalog, catalog_id)
+    if not catalog:
+        raise HTTPException(status_code=404, detail="Document not found")
+
+    if not catalog.content:
+        raise HTTPException(status_code=400, detail="Document has no text to tag")
+
+    content_hash = catalog.content_hash or (compute_content_hash(catalog.content) if catalog.content else None)
+    is_fresh = bool(
+        catalog.topics is not None
+        and content_hash
+        and catalog.topics_source_hash
+        and catalog.topics_source_hash == content_hash
+    )
+    if (not force) and is_fresh:
+        return {"status": "cached", "topics": catalog.topics or []}
+    if (not force) and catalog.topics is not None and not is_fresh:
+        return {"status": "stale", "topics": catalog.topics or []}
+
+    task = generate_topics_task.delay(catalog_id, force=force)
+    return {
+        "status": "processing",
+        "task_id": str(task.id),
+        "poll_url": f"/tasks/{task.id}",
     }
 
 

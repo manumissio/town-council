@@ -18,6 +18,7 @@ from pipeline.config import (
     TOP_KEYWORDS_PER_DOC,
     PROGRESS_LOG_INTERVAL
 )
+from pipeline.content_hash import compute_content_hash
 
 # Setup logging
 logging.basicConfig(level=logging.INFO)
@@ -93,6 +94,10 @@ def run_topic_tagger():
         # Pre-initialize topics to empty lists
         # Why? Some documents might have no valid topics, we want [] not None
         for r in records:
+            # Track which extracted text version topics were generated from.
+            # If content changes later (re-extraction), topics become "stale" by hash mismatch.
+            if r.content and not getattr(r, "content_hash", None):
+                r.content_hash = compute_content_hash(r.content)
             r.topics = []
 
         if len(records) < 2:
@@ -138,6 +143,7 @@ def run_topic_tagger():
         for i, record in enumerate(records):
             # Initialize to empty list
             record.topics = []
+            record.topics_source_hash = record.content_hash
 
             try:
                 # Get the scores for this specific document
@@ -154,6 +160,7 @@ def run_topic_tagger():
                 # Clean up: Capitalize for better display in the UI
                 # "housing crisis" becomes "Housing Crisis"
                 record.topics = [k.title() for k in keywords]
+                record.topics_source_hash = record.content_hash
             except (IndexError, ValueError):
                 # Individual document errors: What can fail for a single document?
                 # - IndexError: Document has no valid tokens after filtering
@@ -162,6 +169,7 @@ def run_topic_tagger():
                 # Why continue instead of failing? One bad document shouldn't stop
                 # topic extraction for thousands of other documents. This document
                 # will just have an empty topics list.
+                record.topics_source_hash = record.content_hash
                 continue
 
             # Log progress every N documents to track processing

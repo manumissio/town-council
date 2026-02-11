@@ -4,6 +4,7 @@ from tika import parser
 
 from pipeline.models import Catalog
 from pipeline.db_session import db_session
+from pipeline.content_hash import compute_content_hash
 from pipeline.config import (
     TIKA_TIMEOUT_SECONDS,
     TIKA_RETRY_BACKOFF_MULTIPLIER,
@@ -179,6 +180,7 @@ def extract_content():
 
             # Extract text using Tika (can take 1-10 seconds per document)
             record.content = extract_text(record.location)
+            record.content_hash = compute_content_hash(record.content)
             processed_count += 1
 
             # Commit in batches for safety and performance

@@ -186,6 +186,18 @@ Extracted text is stored in `catalog.content`. If extraction was missing/low qua
 
 This avoids rerunning the full pipeline when only one document needs repair.
 
+#### Derived-Field Staleness (Summary + Topics)
+Summaries and topic tags are derived from extracted text. Re-extraction can change `catalog.content` without automatically regenerating derived fields (explicit user consent is required).
+
+To make this safe and understandable, the system stores:
+* `catalog.content_hash`: fingerprint of the current extracted text (normalized)
+* `catalog.summary_source_hash`: fingerprint of the extracted text version used to generate `catalog.summary`
+* `catalog.topics_source_hash`: fingerprint of the extracted text version used to generate `catalog.topics`
+
+If the hashes do not match, summary/topics are treated as **stale**:
+* the UI displays them but marks them “Stale (text changed)”
+* regeneration remains explicit (`POST /summarize/{catalog_id}?force=true`, `POST /topics/{catalog_id}?force=true`)
+
 ### 7.1 Async Task Failure Behavior (UI Contract)
 The frontend polls background task status (`/tasks/{id}`) and now treats both task failures and polling/network errors as terminal states:
 *   loading indicators are cleared on error paths
