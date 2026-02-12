@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useMemo } from "react";
 import DOMPurify from "isomorphic-dompurify";
 import { 
   MapPin, Calendar, FileText, ExternalLink, ChevronUp, ChevronDown, 
@@ -7,6 +7,9 @@ import {
 } from "lucide-react";
 import DataTable from "./DataTable";
 import { API_BASE_URL, getApiHeaders } from "../lib/api";
+import textFormatter from "../lib/textFormatter";
+
+const { renderFormattedExtractedText } = textFormatter;
 
 // Poll background tasks until complete/failed.
 async function pollTaskStatus(taskId, callback, onError, type = "summary") {
@@ -69,6 +72,17 @@ export default function ResultCard({ hit, onPersonClick, onTopicClick }) {
   const [isLoadingRelated, setIsLoadingRelated] = useState(false);
   const [isReporting, setIsReporting] = useState(false);
   const [reportStatus, setReportStatus] = useState(null); // 'loading', 'success', 'error'
+
+  // Readability is a display concern only: keep DB content raw, format in UI.
+  const fullTextSource = useMemo(() => {
+    if (typeof extractedTextOverride === "string" && extractedTextOverride.length > 0) return extractedTextOverride;
+    if (typeof hit.content === "string" && hit.content.length > 0) return hit.content;
+    return "";
+  }, [extractedTextOverride, hit.content]);
+
+  const formattedFullTextHtml = useMemo(() => {
+    return renderFormattedExtractedText(fullTextSource);
+  }, [fullTextSource]);
 
   const isAgendaItem = hit.result_type === 'agenda_item';
   const summaryIsStale = (derivedStatus && derivedStatus.summary_is_stale) ?? hit.summary_is_stale ?? false;
@@ -807,7 +821,19 @@ export default function ResultCard({ hit, onPersonClick, onTopicClick }) {
 	                      </button>
 	                    )}
 	                    {extractedTextOverride ? (
-	                      <p className="whitespace-pre-line leading-relaxed text-[14px]">{extractedTextOverride}</p>
+	                      <div
+                          className="leading-relaxed text-[14px]"
+                          dangerouslySetInnerHTML={{
+                            __html: DOMPurify.sanitize(formattedFullTextHtml)
+                          }}
+                        />
+	                    ) : formattedFullTextHtml ? (
+	                      <div
+	                        className="leading-relaxed text-[14px]"
+	                        dangerouslySetInnerHTML={{
+	                          __html: DOMPurify.sanitize(formattedFullTextHtml)
+	                        }}
+	                      />
 	                    ) : hit._formatted && hit._formatted.content ? (
 	                      <div 
 	                        className="whitespace-pre-line leading-relaxed text-[14px]"
