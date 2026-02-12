@@ -24,7 +24,7 @@ def test_async_summarization_flow(mocker):
     # 1. Mock DB to return a catalog item
     mock_catalog = MagicMock()
     mock_catalog.id = 1
-    mock_catalog.content = "Some text content"
+    mock_catalog.content = "City council meeting discussed budget updates and adopted multiple motions after public comment."
     mock_catalog.summary = None # Not cached yet
     
     mock_db = MagicMock()
@@ -90,7 +90,7 @@ def test_generate_summary_retries_when_ai_returns_none(mocker):
     """
     mock_db = MagicMock()
     mock_catalog = MagicMock()
-    mock_catalog.content = "Meeting content"
+    mock_catalog.content = "City council meeting discussed budget updates and adopted multiple motions after public comment."
     mock_catalog.summary = None
     mock_db.get.return_value = mock_catalog
 
@@ -113,7 +113,7 @@ def test_summarize_requires_api_key(mocker):
     """Protected endpoint should reject missing API key."""
     mock_catalog = MagicMock()
     mock_catalog.id = 1
-    mock_catalog.content = "Some text"
+    mock_catalog.content = "City council meeting discussed budget updates and adopted multiple motions after public comment."
     mock_catalog.summary = None
 
     mock_db = MagicMock()
@@ -131,7 +131,7 @@ def test_summarize_rejects_invalid_api_key(mocker):
     """Protected endpoint should reject incorrect API key."""
     mock_catalog = MagicMock()
     mock_catalog.id = 1
-    mock_catalog.content = "Some text"
+    mock_catalog.content = "City council meeting discussed budget updates and adopted multiple motions after public comment."
     mock_catalog.summary = None
 
     mock_db = MagicMock()

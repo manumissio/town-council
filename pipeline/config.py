@@ -31,6 +31,22 @@ as hardcoded numbers. Each constant includes a comment explaining its purpose.
 
 import os
 
+
+# =============================================================================
+# STARTUP PURGE CONFIGURATION
+# =============================================================================
+# These control whether derived data is automatically cleared when services boot.
+
+# Enable derived-data purge during service startup.
+# Disabled by default so non-dev environments stay safe unless explicitly enabled.
+STARTUP_PURGE_DERIVED = os.getenv("STARTUP_PURGE_DERIVED", "false").strip().lower() in {"1", "true", "yes"}
+
+# Runtime environment label used by startup safety guardrails.
+APP_ENV = os.getenv("APP_ENV", "dev").strip().lower()
+
+# Optional non-dev override.
+STARTUP_PURGE_ALLOW_NON_DEV = os.getenv("STARTUP_PURGE_ALLOW_NON_DEV", "false").strip().lower() in {"1", "true", "yes"}
+
 # =============================================================================
 # CONTENT LENGTH LIMITS
 # =============================================================================
@@ -74,6 +90,18 @@ LLM_AGENDA_MAX_TEXT = 6000
 # Maximum tokens in agenda response (1500 tokens ≈ 1125 words)
 # Needs to be large enough to return 10-15 agenda items with descriptions
 LLM_AGENDA_MAX_TOKENS = 1500
+
+# Quality gates for AI-derived fields.
+# These block generation when extracted text is too short/noisy to trust.
+SUMMARY_MIN_CHARS = int(os.getenv("SUMMARY_MIN_CHARS", "80"))
+SUMMARY_MIN_DISTINCT_TOKENS = int(os.getenv("SUMMARY_MIN_DISTINCT_TOKENS", "8"))
+SUMMARY_MAX_BOILERPLATE_RATIO = float(os.getenv("SUMMARY_MAX_BOILERPLATE_RATIO", "0.85"))
+TOPICS_MIN_CHARS = int(os.getenv("TOPICS_MIN_CHARS", "100"))
+TOPICS_MIN_DISTINCT_TOKENS = int(os.getenv("TOPICS_MIN_DISTINCT_TOKENS", "10"))
+
+# Minimum per-claim lexical support ratio used by the summary grounding check.
+# 0.45 means nearly half of meaningful claim tokens must exist in source text.
+SUMMARY_GROUNDING_MIN_COVERAGE = float(os.getenv("SUMMARY_GROUNDING_MIN_COVERAGE", "0.45"))
 
 
 # =============================================================================

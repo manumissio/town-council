@@ -12,6 +12,7 @@ from pipeline.config import (
     DB_RETRY_DELAY_MIN,
     DB_RETRY_DELAY_MAX
 )
+from pipeline.startup_purge import run_startup_purge_if_enabled
 
 # Setup logging
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
@@ -136,6 +137,9 @@ def main():
     Main pipeline entrypoint.
     """
     logger.info(">>> Starting High-Performance Pipeline")
+    # Optional startup purge for derived fields. Safe to call repeatedly.
+    purge_result = run_startup_purge_if_enabled()
+    logger.info(f"startup_purge_result={purge_result}")
     
     # 1. Setup & Ingest
     # Keep dev databases compatible with the current SQLAlchemy models.

@@ -1,6 +1,10 @@
+import sys
 from unittest.mock import MagicMock
 
 from fastapi.testclient import TestClient
+
+# Mock heavy dependency before importing api.main
+sys.modules["llama_cpp"] = MagicMock()
 
 from api.main import app
 from pipeline.content_hash import compute_content_hash
@@ -15,7 +19,10 @@ def test_topics_endpoint_returns_stale_when_hash_mismatches(mocker):
 
     catalog = MagicMock(
         id=1,
-        content="new text",
+        content=(
+            "City council meeting discussed budget updates, transportation allocations, housing projects, "
+            "public safety staffing, and adopted multiple motions after extended public comment."
+        ),
         topics=["Old", "Topics"],
         content_hash="newhash",
         topics_source_hash="oldhash",
@@ -59,4 +66,3 @@ def test_topic_worker_sets_topics_source_hash(db_session):
     for r in rows:
         assert r.content_hash == compute_content_hash(r.content)
         assert r.topics_source_hash == r.content_hash
-

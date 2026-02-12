@@ -130,7 +130,7 @@ def test_segment_force_bypasses_cache(mocker):
     """
     from api.main import get_db, Catalog, AgendaItem
 
-    catalog = MagicMock(id=401, content="text")
+    catalog = MagicMock(id=401, content="City council meeting discussed budget updates and adopted multiple motions after public comment.")
 
     db = MagicMock()
     db.get.return_value = catalog
@@ -164,7 +164,7 @@ def test_segment_returns_cached_when_not_forced_and_quality_ok(mocker):
     """
     from api.main import get_db
 
-    catalog = MagicMock(id=401, content="text")
+    catalog = MagicMock(id=401, content="City council meeting discussed budget updates and adopted multiple motions after public comment.")
     existing = [MagicMock(title="Budget Amendment", order=1)]
 
     db = MagicMock()
@@ -194,7 +194,11 @@ def test_summarize_force_bypasses_cache(mocker):
     """
     from api.main import get_db
 
-    catalog = MagicMock(id=401, content="text", summary="cached summary")
+    catalog = MagicMock(
+        id=401,
+        content="City council meeting discussed budget updates and adopted multiple motions after public comment.",
+        summary="cached summary",
+    )
 
     db = MagicMock()
     db.get.return_value = catalog
@@ -213,5 +217,120 @@ def test_summarize_force_bypasses_cache(mocker):
         payload = resp.json()
         assert payload["status"] == "processing"
         assert payload["task_id"] == "task_summary_1"
+    finally:
+        del app.dependency_overrides[get_db]
+
+
+def test_summarize_returns_blocked_low_signal_without_queueing(mocker):
+    from api.main import get_db
+
+    catalog = MagicMock(id=909, content="Agenda", summary=None, content_hash="h1", summary_source_hash=None)
+    db = MagicMock()
+    db.get.return_value = catalog
+
+    def _mock_get_db():
+        yield db
+
+    app.dependency_overrides[get_db] = _mock_get_db
+    delay = mocker.patch("api.main.generate_summary_task.delay")
+    try:
+        resp = client.post("/summarize/909", headers={"X-API-Key": VALID_KEY})
+        assert resp.status_code == 200
+        payload = resp.json()
+        assert payload["status"] == "blocked_low_signal"
+        assert "Not enough extracted text" in payload["reason"]
+        delay.assert_not_called()
+    finally:
+        del app.dependency_overrides[get_db]
+
+
+def test_topics_returns_blocked_low_signal_without_queueing(mocker):
+    from api.main import get_db
+
+    catalog = MagicMock(id=909, content="Agenda", topics=["Old"], content_hash="h1", topics_source_hash="h1")
+    db = MagicMock()
+    db.get.return_value = catalog
+
+    def _mock_get_db():
+        yield db
+
+    app.dependency_overrides[get_db] = _mock_get_db
+    delay = mocker.patch("api.main.generate_topics_task.delay")
+    try:
+        resp = client.post("/topics/909", headers={"X-API-Key": VALID_KEY})
+        assert resp.status_code == 200
+        payload = resp.json()
+        assert payload["status"] == "blocked_low_signal"
+        assert "Not enough extracted text" in payload["reason"]
+        assert payload["topics"] == []
+        delay.assert_not_called()
+    finally:
+        del app.dependency_overrides[get_db]
+
+
+def test_derived_status_exposes_blocked_reasons_for_low_signal_content():
+    from api.main import get_db
+
+    catalog = MagicMock(
+        id=909,
+        content="Agenda",
+        content_hash="h1",
+        summary="old summary",
+        summary_source_hash="h1",
+        topics=["Old"],
+        topics_source_hash="h1",
+    )
+    db = MagicMock()
+    db.get.return_value = catalog
+    db.query.return_value.filter.return_value.count.return_value = 0
+
+    def _mock_get_db():
+        yield db
+
+    app.dependency_overrides[get_db] = _mock_get_db
+    try:
+        resp = client.get("/catalog/909/derived_status", headers={"X-API-Key": VALID_KEY})
+        assert resp.status_code == 200
+        payload = resp.json()
+        assert "Not enough extracted text" in payload["summary_blocked_reason"]
+        assert "Not enough extracted text" in payload["topics_blocked_reason"]
+        assert payload["agenda_not_generated_yet"] is True
+    finally:
+        del app.dependency_overrides[get_db]
+
+
+def test_derived_status_exposes_not_generated_flags():
+    from api.main import get_db
+
+    catalog = MagicMock(
+        id=911,
+        content=(
+            "The council discussed zoning reform, transportation safety, budget allocations, "
+            "housing permits, environmental review, public works timelines, and procurement policy updates. "
+            "Members reviewed implementation milestones, staffing impacts, and fiscal tradeoffs."
+        ),
+        content_hash="h1",
+        summary=None,
+        summary_source_hash=None,
+        topics=[],
+        topics_source_hash=None,
+    )
+    db = MagicMock()
+    db.get.return_value = catalog
+    db.query.return_value.filter.return_value.count.return_value = 0
+
+    def _mock_get_db():
+        yield db
+
+    app.dependency_overrides[get_db] = _mock_get_db
+    try:
+        resp = client.get("/catalog/911/derived_status", headers={"X-API-Key": VALID_KEY})
+        assert resp.status_code == 200
+        payload = resp.json()
+        assert payload["summary_not_generated_yet"] is True
+        assert payload["topics_not_generated_yet"] is True
+        assert payload["agenda_not_generated_yet"] is True
+        assert payload["summary_blocked_reason"] is None
+        assert payload["topics_blocked_reason"] is None
     finally:
         del app.dependency_overrides[get_db]

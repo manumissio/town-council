@@ -14,6 +14,7 @@ Key updates:
 - Shared agenda resolver: extraction follows a maintainable order of Legistar (when configured), HTML eAgenda parsing, then local LLM fallback.
 - OCD-style identifiers: core civic entities use standardized IDs (for example event, person, organization, agenda item).
 - Two summary paths: extractive summaries (TextRank) and local generative summaries (Gemma 3 270M) are both supported. Local summaries are doc-type aware (agenda vs minutes) so agenda PDFs do not produce misleading "minutes" summaries.
+- Summary/topic reliability gates: low-signal extracted text is blocked from AI summary/topic generation, and unsupported model claims are rejected instead of being saved.
 - Topic tagging and semantic similarity: TF-IDF topic tags are generated (with URL stripping to avoid junk topics like "HTTP ..."), and the UI lets you click topic chips to quickly re-run a search.
 - Unified search UI: keyword, city, organization, and meeting-type filters are available in one search hub.
 - Ingestion architecture: BaseCitySpider supports reusable crawl plumbing and delta-crawl behavior to reduce duplicate ingestion.
@@ -268,6 +269,8 @@ Notes:
 * OCR fallback is slower; use it only when needed.
 * Re-extraction updates `catalog.content` and reindexes that single catalog so search/UI can reflect the updated text.
 * Summaries and topic tags are derived from extracted text. After re-extraction, the UI will mark them as **stale** until you explicitly regenerate them.
+* If extracted text is too short/noisy, summary/topic generation is intentionally blocked with a clear message instead of producing unreliable AI output.
+* In dev Docker startup, derived fields can be auto-purged (`STARTUP_PURGE_DERIVED=true`). After purge, Summary/Topics/Structured Agenda show **Not generated yet** until you explicitly generate them.
 
 ## Scaling Up (Enterprise Mode)
 The system is designed to scale horizontally as your dataset grows:

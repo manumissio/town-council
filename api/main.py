@@ -35,6 +35,8 @@ agenda_items_look_low_quality = None
 try:
     from pipeline.models import db_connect, Document, Event, Place, Catalog, Person, AgendaItem, DataIssue, IssueType, Membership, Organization
     from pipeline.content_hash import compute_content_hash
+    from pipeline.summary_quality import analyze_source_text, is_source_summarizable, is_source_topicable, build_low_signal_message
+    from pipeline.startup_purge import run_startup_purge_if_enabled
     from pipeline.utils import generate_ocd_id
     from pipeline.llm import LocalAI
     from pipeline.agenda_resolver import agenda_items_look_low_quality
@@ -84,6 +86,9 @@ async def check_security_config():
     key = os.getenv("API_AUTH_KEY", "dev_secret_key_change_me")
     if key == "dev_secret_key_change_me":
         logger.critical("SECURITY WARNING: You are using the default API Key. Please set API_AUTH_KEY in production.")
+    # Startup purge is lock-protected. If another service already purged, we skip.
+    purge_result = run_startup_purge_if_enabled()
+    logger.info(f"startup_purge_result={purge_result}")
 
 
 # Add Rate Limit handler to the app
@@ -422,6 +427,16 @@ def summarize_document(
     catalog = db.get(Catalog, catalog_id)
     if not catalog:
         raise HTTPException(status_code=404, detail="Document not found")
+    if not catalog.content:
+        raise HTTPException(status_code=400, detail="Document has no text to summarize")
+
+    # Block generation when extracted text is too weak to support reliable output.
+    quality = analyze_source_text(catalog.content)
+    if not is_source_summarizable(quality):
+        return {
+            "status": "blocked_low_signal",
+            "reason": build_low_signal_message(quality),
+        }
 
     # "Cached" should mean: generated from the *current* extracted text.
     # If extracted text changed (re-extraction), we keep the old summary but mark it stale.
@@ -437,9 +452,6 @@ def summarize_document(
         return {"summary": catalog.summary, "status": "cached"}
     if (not force) and catalog.summary and not is_fresh:
         return {"summary": catalog.summary, "status": "stale"}
-
-    if not catalog.content:
-        raise HTTPException(status_code=400, detail="Document has no text to summarize")
 
     # THE 'MAILBOX' (Celery):
     # We don't make the user wait while the AI writes a summary.
@@ -544,16 +556,39 @@ def get_catalog_derived_status(
     topics_is_stale = bool(
         catalog.topics is not None and (not content_hash or catalog.topics_source_hash != content_hash)
     )
+    agenda_items_count = db.query(AgendaItem).filter(AgendaItem.catalog_id == catalog_id).count()
+    quality = analyze_source_text(catalog.content or "")
+    summary_blocked_reason = None
+    topics_blocked_reason = None
+    has_content = bool(catalog.content and catalog.content.strip())
+    if has_content:
+        if not is_source_summarizable(quality):
+            summary_blocked_reason = build_low_signal_message(quality)
+        if not is_source_topicable(quality):
+            topics_blocked_reason = build_low_signal_message(quality)
+
+    has_topics = catalog.topics is not None
+    has_topic_values = bool(catalog.topics is not None and len(catalog.topics or []) > 0)
+    summary_not_generated_yet = bool(has_content and not catalog.summary and not summary_blocked_reason)
+    topics_not_generated_yet = bool(has_content and not has_topic_values and not topics_blocked_reason)
+    agenda_not_generated_yet = bool(has_content and agenda_items_count == 0)
+
     return {
         "catalog_id": catalog_id,
-        "has_content": bool(catalog.content and catalog.content.strip()),
+        "has_content": has_content,
         "content_hash": content_hash,
         "has_summary": bool(catalog.summary),
         "summary_source_hash": catalog.summary_source_hash,
         "summary_is_stale": summary_is_stale,
-        "has_topics": catalog.topics is not None,
+        "summary_blocked_reason": summary_blocked_reason,
+        "summary_not_generated_yet": summary_not_generated_yet,
+        "has_topics": has_topics,
         "topics_source_hash": catalog.topics_source_hash,
         "topics_is_stale": topics_is_stale,
+        "topics_blocked_reason": topics_blocked_reason,
+        "topics_not_generated_yet": topics_not_generated_yet,
+        "agenda_items_count": agenda_items_count,
+        "agenda_not_generated_yet": agenda_not_generated_yet,
     }
 
 
@@ -583,6 +618,14 @@ def generate_topics_for_catalog(
 
     if not catalog.content:
         raise HTTPException(status_code=400, detail="Document has no text to tag")
+
+    quality = analyze_source_text(catalog.content)
+    if not is_source_topicable(quality):
+        return {
+            "status": "blocked_low_signal",
+            "reason": build_low_signal_message(quality),
+            "topics": [],
+        }
 
     content_hash = catalog.content_hash or (compute_content_hash(catalog.content) if catalog.content else None)
     is_fresh = bool(

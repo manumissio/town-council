@@ -16,9 +16,9 @@ async function pollTaskStatus(taskId, callback, onError, type = "summary") {
       const data = await res.json();
 
       if (data.status === "complete") {
-        if (type === "summary") callback(data.result.summary);
+        if (type === "summary") callback(data.result || {});
         else if (type === "agenda") callback(data.result.items || []);
-        else if (type === "topics") callback((data.result && data.result.topics) || []);
+        else if (type === "topics") callback(data.result || {});
         else callback(data.result);
         return true;
       }
@@ -56,6 +56,8 @@ export default function ResultCard({ hit, onPersonClick, onTopicClick }) {
   
   const [summary, setSummary] = useState(hit.summary);
   const [topics, setTopics] = useState(hit.topics || []);
+  const [summaryBlockReason, setSummaryBlockReason] = useState(null);
+  const [topicsBlockReason, setTopicsBlockReason] = useState(null);
   const [agendaItems, setAgendaItems] = useState(null);
   const [relatedMeetings, setRelatedMeetings] = useState(null);
   const [isGenerating, setIsGenerating] = useState(false);
@@ -71,6 +73,11 @@ export default function ResultCard({ hit, onPersonClick, onTopicClick }) {
   const isAgendaItem = hit.result_type === 'agenda_item';
   const summaryIsStale = (derivedStatus && derivedStatus.summary_is_stale) ?? hit.summary_is_stale ?? false;
   const topicsIsStale = (derivedStatus && derivedStatus.topics_is_stale) ?? hit.topics_is_stale ?? false;
+  const summaryNotGeneratedYet = (derivedStatus && derivedStatus.summary_not_generated_yet) || false;
+  const topicsNotGeneratedYet = (derivedStatus && derivedStatus.topics_not_generated_yet) || false;
+  const agendaNotGeneratedYet = (derivedStatus && derivedStatus.agenda_not_generated_yet) || false;
+  const effectiveSummaryBlockReason = (derivedStatus && derivedStatus.summary_blocked_reason) || summaryBlockReason;
+  const effectiveTopicsBlockReason = (derivedStatus && derivedStatus.topics_blocked_reason) || topicsBlockReason;
   const handleTopicClick = (topic) => {
     // Topics are meant to be a quick way to narrow the search.
     // We keep this simple: clicking a topic sets the main search query
@@ -169,11 +176,23 @@ export default function ResultCard({ hit, onPersonClick, onTopicClick }) {
       
       if ((data.status === 'cached' || data.status === 'stale') && data.summary) {
         setSummary(data.summary);
+        setSummaryBlockReason(null);
+        setIsGenerating(false);
+        fetchDerivedStatus();
+      } else if (data.status === "blocked_low_signal" || data.status === "blocked_ungrounded") {
+        setSummary(null);
+        setSummaryBlockReason(data.reason || "Not enough extracted text to generate a reliable summary.");
         setIsGenerating(false);
         fetchDerivedStatus();
       } else if (data.task_id) {
         pollTaskStatus(data.task_id, (result) => {
-          setSummary(result);
+          if (result && (result.status === "blocked_low_signal" || result.status === "blocked_ungrounded")) {
+            setSummary(null);
+            setSummaryBlockReason(result.reason || "Not enough extracted text to generate a reliable summary.");
+          } else {
+            setSummary((result && result.summary) || null);
+            setSummaryBlockReason(null);
+          }
           setIsGenerating(false);
           fetchDerivedStatus();
         }, () => setIsGenerating(false), 'summary');
@@ -201,13 +220,25 @@ export default function ResultCard({ hit, onPersonClick, onTopicClick }) {
 
       if ((data.status === "cached" || data.status === "stale") && data.topics) {
         setTopics(data.topics || []);
+        setTopicsBlockReason(null);
+        setIsTaggingTopics(false);
+        fetchDerivedStatus();
+      } else if (data.status === "blocked_low_signal") {
+        setTopics([]);
+        setTopicsBlockReason(data.reason || "Not enough extracted text to generate reliable topics.");
         setIsTaggingTopics(false);
         fetchDerivedStatus();
       } else if (data.task_id) {
         pollTaskStatus(
           data.task_id,
-          (resultTopics) => {
-            setTopics(resultTopics || []);
+          (result) => {
+            if (result && result.status === "blocked_low_signal") {
+              setTopics([]);
+              setTopicsBlockReason(result.reason || "Not enough extracted text to generate reliable topics.");
+            } else {
+              setTopics((result && result.topics) || []);
+              setTopicsBlockReason(null);
+            }
             setIsTaggingTopics(false);
             fetchDerivedStatus();
           },
@@ -506,7 +537,7 @@ export default function ResultCard({ hit, onPersonClick, onTopicClick }) {
                         Executive Summary
                       </div>
 		                    {summary ? (
-		                      <div className="space-y-4">
+		                        <div className="space-y-4">
 		                        <div className="flex items-center gap-2">
 		                          <span className="bg-purple-100 text-purple-700 text-[9px] font-black uppercase px-1.5 py-0.5 rounded shadow-sm">Gemma 3 270M</span>
 		                          {summaryIsStale && (
@@ -514,6 +545,11 @@ export default function ResultCard({ hit, onPersonClick, onTopicClick }) {
 		                              Stale
 		                            </span>
 		                          )}
+                              {summaryNotGeneratedYet && !summaryIsStale && !effectiveSummaryBlockReason && (
+                                <span className="bg-slate-100 text-slate-700 text-[9px] font-black uppercase px-1.5 py-0.5 rounded shadow-sm">
+                                  Not generated yet
+                                </span>
+                              )}
 		                        </div>
 		                        <p className="text-gray-800 text-[15px] whitespace-pre-line leading-relaxed italic">
 		                          {summary}
@@ -528,6 +564,33 @@ export default function ResultCard({ hit, onPersonClick, onTopicClick }) {
 	                          <Sparkles className="w-3 h-3" /> Regenerate summary
 	                        </button>
 	                      </div>
+                    ) : effectiveSummaryBlockReason ? (
+                      <div className="space-y-4">
+                        <div className="rounded-2xl border border-amber-200 bg-amber-50 p-4">
+                          <p className="text-[12px] font-bold text-amber-800 uppercase tracking-wide">Summary blocked</p>
+                          <p className="text-[13px] text-amber-700 mt-1">{effectiveSummaryBlockReason}</p>
+                        </div>
+                        <div className="flex gap-3 items-center">
+                          {process.env.NEXT_PUBLIC_API_AUTH_KEY && hit.catalog_id && (
+                            <button
+                              type="button"
+                              onClick={() => handleReextractText({ ocrFallback: true })}
+                              disabled={isExtracting}
+                              className="text-[10px] font-bold text-blue-600 hover:text-blue-800 underline underline-offset-4 disabled:opacity-50 disabled:cursor-not-allowed"
+                            >
+                              {isExtracting ? "Re-extracting..." : "Re-extract text"}
+                            </button>
+                          )}
+                          <button
+                            type="button"
+                            onClick={() => handleGenerateSummary({ force: true })}
+                            disabled={isGenerating}
+                            className="text-[10px] font-bold text-purple-600 hover:text-purple-800 flex items-center gap-1 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                          >
+                            <Sparkles className="w-3 h-3" /> Retry summary
+                          </button>
+                        </div>
+                      </div>
                     ) : hit.summary_extractive ? (
                       <div className="space-y-4">
                         <div className="flex items-center justify-between">
@@ -549,7 +612,9 @@ export default function ResultCard({ hit, onPersonClick, onTopicClick }) {
                         <div className="mb-4 bg-purple-100 p-3 rounded-full">
                           <Sparkles className="w-6 h-6 text-purple-600" />
                         </div>
-                        <h4 className="font-bold text-purple-900 mb-1">No summary yet</h4>
+                        <h4 className="font-bold text-purple-900 mb-1">
+                          {summaryNotGeneratedYet ? "Not generated yet" : "No summary yet"}
+                        </h4>
                         <p className="text-purple-600/60 text-xs mb-6 max-w-[240px] text-center">
                           Generate an executive summary using local AI.
                         </p>
@@ -568,7 +633,7 @@ export default function ResultCard({ hit, onPersonClick, onTopicClick }) {
                     )}
                   </div>
 
-                  {(hit.entities || (topics && topics.length > 0)) && (
+                  {(hit.entities || (topics && topics.length > 0) || effectiveTopicsBlockReason || topicsNotGeneratedYet) && (
                     <div className="grid md:grid-cols-2 gap-6 pt-6 border-t border-purple-100">
                       {hit.entities && (
                         <div className="space-y-3">
@@ -582,7 +647,7 @@ export default function ResultCard({ hit, onPersonClick, onTopicClick }) {
                           </div>
                         </div>
                       )}
-		                      {topics && topics.length > 0 && (
+		                      {(topics && topics.length > 0) || effectiveTopicsBlockReason || topicsNotGeneratedYet ? (
 		                        <div className="space-y-3">
 		                          <div className="flex items-center justify-between">
 		                            <div className="flex items-center gap-2">
@@ -592,6 +657,11 @@ export default function ResultCard({ hit, onPersonClick, onTopicClick }) {
 		                                  Stale
 		                                </span>
 		                              )}
+                                  {topicsNotGeneratedYet && !topicsIsStale && !effectiveTopicsBlockReason && (
+                                    <span className="bg-slate-100 text-slate-700 text-[9px] font-black uppercase px-1.5 py-0.5 rounded shadow-sm">
+                                      Not generated yet
+                                    </span>
+                                  )}
 		                            </div>
 		                            {process.env.NEXT_PUBLIC_API_AUTH_KEY && hit.catalog_id && (
 		                              <button
@@ -605,26 +675,36 @@ export default function ResultCard({ hit, onPersonClick, onTopicClick }) {
 		                              </button>
 		                            )}
 		                          </div>
-		                          <div className="flex flex-wrap gap-2">
-		                            {(topics || []).map((topic, i) => (
-		                              <button
-		                                key={i}
-		                                type="button"
-		                                onClick={() => handleTopicClick(topic)}
-		                                disabled={topicsIsStale}
-		                                className={`px-3 py-1.5 text-[11px] font-bold rounded-xl border uppercase tracking-tight transition-colors ${
-		                                  topicsIsStale
-		                                    ? "bg-gray-100 text-gray-400 border-gray-200 cursor-not-allowed"
-		                                    : "bg-purple-100/50 text-purple-700 border-purple-200 hover:bg-purple-100 hover:border-purple-300"
-		                                }`}
-		                                title={topicsIsStale ? "Topics are stale; regenerate to use them for search." : "Search for this topic"}
-		                              >
-		                                #{topic}
-		                              </button>
-		                            ))}
-	                          </div>
+                              {effectiveTopicsBlockReason ? (
+                                <div className="rounded-xl border border-amber-200 bg-amber-50 px-3 py-2">
+                                  <p className="text-[12px] text-amber-700">Topics unavailable: {effectiveTopicsBlockReason}</p>
+                                </div>
+                              ) : topicsNotGeneratedYet ? (
+                                <div className="rounded-xl border border-slate-200 bg-slate-50 px-3 py-2">
+                                  <p className="text-[12px] text-slate-700">Topics are not generated yet.</p>
+                                </div>
+                              ) : (
+		                            <div className="flex flex-wrap gap-2">
+		                              {(topics || []).map((topic, i) => (
+		                                <button
+		                                  key={i}
+		                                  type="button"
+		                                  onClick={() => handleTopicClick(topic)}
+		                                  disabled={topicsIsStale}
+		                                  className={`px-3 py-1.5 text-[11px] font-bold rounded-xl border uppercase tracking-tight transition-colors ${
+		                                    topicsIsStale
+		                                      ? "bg-gray-100 text-gray-400 border-gray-200 cursor-not-allowed"
+		                                      : "bg-purple-100/50 text-purple-700 border-purple-200 hover:bg-purple-100 hover:border-purple-300"
+		                                  }`}
+		                                  title={topicsIsStale ? "Topics are stale; regenerate to use them for search." : "Search for this topic"}
+		                                >
+		                                  #{topic}
+		                                </button>
+		                              ))}
+	                            </div>
+                              )}
 	                        </div>
-	                      )}
+	                      ) : null}
                     </div>
                   )}
                 </div>
@@ -634,6 +714,11 @@ export default function ResultCard({ hit, onPersonClick, onTopicClick }) {
                     <div className="flex items-center gap-2 text-indigo-700 font-bold text-[11px] uppercase tracking-widest">
                       <TableIcon className="w-4 h-4" />
                       Segmented Agenda Items
+                      {agendaNotGeneratedYet && (
+                        <span className="bg-slate-100 text-slate-700 text-[9px] font-black uppercase px-1.5 py-0.5 rounded shadow-sm">
+                          Not generated yet
+                        </span>
+                      )}
                     </div>
                     {agendaItems && agendaItems.length > 0 ? (
                       <div className="grid gap-4">
@@ -679,7 +764,9 @@ export default function ResultCard({ hit, onPersonClick, onTopicClick }) {
                           <TableIcon className="w-6 h-6 text-indigo-600" />
                         </div>
                         <h4 className="font-bold text-indigo-900 mb-1">
-                          {agendaItems && agendaItems.length === 0 ? "No items found" : "Agenda not segmented"}
+                          {agendaNotGeneratedYet
+                            ? "Not generated yet"
+                            : (agendaItems && agendaItems.length === 0 ? "No items found" : "Agenda not segmented")}
                         </h4>
                         <p className="text-indigo-600/60 text-xs mb-6 max-w-[240px] text-center">
                           {agendaItems && agendaItems.length === 0 

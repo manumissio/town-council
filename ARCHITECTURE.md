@@ -159,6 +159,8 @@ To ensure privacy, zero cost, and resilience, the system uses a local-inference 
 #### Summary & Topic Guardrails (User-Facing Quality)
 * **Doc-type aware summaries:** Summaries adapt to the underlying document category (`agenda` vs `minutes`) so agenda PDFs do not produce misleading "minutes" summaries dominated by participation boilerplate.
 * **URL-safe topic tags:** Topic extraction strips URLs and URL tokens before TF-IDF so link-heavy agendas do not generate junk topics like "HTTP Cupertino".
+* **Input quality gate:** Summary/topic generation is blocked when extracted text is too short/noisy (for example OCR stubs like only "Agenda"), with a user-visible "not enough extracted text" reason.
+* **Grounding gate for model summaries:** LLM summary bullets are checked against extracted source text. Unsupported claim lines are rejected and not saved.
 * **Summary caching (and refresh):** Summaries are generated on-demand via `POST /summarize/{catalog_id}` and cached in `catalog.summary`. If summarization logic improves, cached summaries will not change automatically. Use `force=true` to regenerate a known-bad cached summary.
 * **Agenda summaries without relying on the LLM:** If agenda items already exist for a catalog, the system can generate a short, deterministic agenda summary from the first few agenda item titles. This avoids LLM failure modes where the model "summarizes" public participation boilerplate instead of agenda content.
 
@@ -197,6 +199,25 @@ To make this safe and understandable, the system stores:
 If the hashes do not match, summary/topics are treated as **stale**:
 * the UI displays them but marks them “Stale (text changed)”
 * regeneration remains explicit (`POST /summarize/{catalog_id}?force=true`, `POST /topics/{catalog_id}?force=true`)
+
+If extracted text quality is below the reliability thresholds, summary/topics are treated as **blocked**:
+* API returns `blocked_low_signal` with a plain-language reason
+* UI shows a non-error warning and keeps explicit "Re-extract text" / regenerate controls
+
+#### Startup Derived-Data Purge (Dev)
+For deterministic local testing, startup can clear generated fields while preserving source ingest rows:
+* Controlled by `STARTUP_PURGE_DERIVED=true` (Docker dev default in this repo)
+* Safety guard: purge is blocked outside `APP_ENV=dev` unless explicitly overridden
+* Concurrency guard: PostgreSQL advisory lock allows only one service to purge per startup wave
+
+Purged at startup:
+* `agenda_item` rows
+* `catalog.content`, `summary`, `summary_extractive`, `topics`, `entities`, `related_ids`, `tables`
+* hash fields (`content_hash`, `summary_source_hash`, `topics_source_hash`)
+
+UI contract after startup purge:
+* Summary/Topics/Structured Agenda show **Not generated yet**
+* users must explicitly regenerate/resegment
 
 ### 7.1 Async Task Failure Behavior (UI Contract)
 The frontend polls background task status (`/tasks/{id}`) and now treats both task failures and polling/network errors as terminal states:

@@ -1,6 +1,10 @@
+import sys
 from unittest.mock import MagicMock
 
 from fastapi.testclient import TestClient
+
+# Mock heavy dependency before importing api.main
+sys.modules["llama_cpp"] = MagicMock()
 
 from api.main import app
 
@@ -14,7 +18,7 @@ def test_summarize_returns_cached_only_when_source_hash_matches(mocker):
 
     catalog = MagicMock(
         id=1,
-        content="hello world",
+        content="City council meeting discussed budget updates and adopted multiple motions after public comment.",
         summary="cached summary",
         content_hash="abc",
         summary_source_hash="abc",
@@ -43,7 +47,7 @@ def test_summarize_returns_stale_when_hash_mismatches(mocker):
 
     catalog = MagicMock(
         id=1,
-        content="new text",
+        content="City council meeting discussed budget updates and adopted multiple motions after public comment.",
         summary="old summary",
         content_hash="newhash",
         summary_source_hash="oldhash",
@@ -66,4 +70,3 @@ def test_summarize_returns_stale_when_hash_mismatches(mocker):
         delay.assert_not_called()
     finally:
         del app.dependency_overrides[get_db]
-
