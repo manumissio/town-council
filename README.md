@@ -86,5 +86,8 @@ Update docs when you change:
 3. Startup purge, stale/not-generated, or blocked-state behavior
 4. Quickstart commands or required dependencies
 
+## Project History
+Originally led by @chooliu and @bstarling in 2017. Modernized in 2026 to improve civic transparency through structured data and local-first AI workflows.
+
 ## License
 MIT. See [`LICENSE`](LICENSE).
