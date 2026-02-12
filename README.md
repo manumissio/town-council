@@ -51,6 +51,7 @@ Protected write endpoints require `X-API-Key`.
 
 - Backend key (Docker default): `dev_secret_key_change_me`
 - Frontend must set `NEXT_PUBLIC_API_AUTH_KEY` to call protected actions from browser.
+- Unauthorized requests are logged without storing API key values or key fragments.
 
 ### Structured Agenda is empty
 This is expected until segmentation runs.

@@ -2,21 +2,28 @@ import html
 import os
 import re
 
+from bs4 import BeautifulSoup
+
 
 def _normalize(text):
     return re.sub(r"\s+", " ", (text or "")).strip()
 
 
 def _extract_text_lines_from_html(raw_html):
-    # Remove script/style blocks first so we do not index JS/CSS text.
-    cleaned = re.sub(r"(?is)<script[^>]*>.*?</script>", " ", raw_html)
-    cleaned = re.sub(r"(?is)<style[^>]*>.*?</style>", " ", cleaned)
+    # Normalize malformed closing tags that appear in some portal exports.
+    normalized_html = re.sub(r"(?i)</script\s+>", "</script>", raw_html or "")
+    normalized_html = re.sub(r"(?i)</style\s+>", "</style>", normalized_html)
 
-    # Turn layout tags into line breaks, then strip all other tags.
-    cleaned = re.sub(r"(?i)</?(?:br|p|li|td|tr|div|h[1-6])[^>]*>", "\n", cleaned)
-    cleaned = re.sub(r"(?is)<[^>]+>", " ", cleaned)
-    cleaned = html.unescape(cleaned)
+    # Parse with a real HTML parser so malformed tags do not bypass stripping.
+    soup = BeautifulSoup(normalized_html, "html.parser")
+    for node in soup(["script", "style", "noscript"]):
+        node.decompose()
 
+    # Convert common layout boundaries into line breaks before text extraction.
+    for node in soup.find_all(["br", "p", "li", "td", "tr", "div", "h1", "h2", "h3", "h4", "h5", "h6"]):
+        node.insert_before("\n")
+
+    cleaned = html.unescape(soup.get_text(separator=" ", strip=False))
     lines = [_normalize(line) for line in cleaned.splitlines()]
     return [line for line in lines if line]
 

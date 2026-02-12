@@ -1,4 +1,5 @@
 from pipeline.agenda_crosscheck import (
+    _extract_text_lines_from_html,
     parse_eagenda_items_from_html,
     merge_ai_with_eagenda,
 )
@@ -35,3 +36,19 @@ def test_merge_ai_with_eagenda_prefers_structured_html_when_rich():
     assert len(merged) == 3
     assert merged[0]["title"] == "Public Employee Appointments"
 
+
+def test_extract_text_lines_strips_script_style_and_noscript_content():
+    html = """
+    <html><body>
+      <script>window.evil = 1;</script>
+      <style>.hidden { display:none; }</style>
+      <noscript>Fallback script message</noscript>
+      <div>1. Safe Agenda Title</div>
+    </body></html>
+    """
+    lines = _extract_text_lines_from_html(html)
+    joined = " ".join(lines).lower()
+    assert "evil" not in joined
+    assert "hidden" not in joined
+    assert "fallback script message" not in joined
+    assert "1. safe agenda title" in joined

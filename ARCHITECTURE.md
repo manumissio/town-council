@@ -120,6 +120,7 @@ The resolver uses a maintainable source priority:
 Quality safeguards:
 - low-quality cached items can be regenerated
 - fallback parser suppresses speaker-roll/name-list pollution
+- HTML cross-check parsing uses a DOM parser (not regex sanitization) before line extraction
 - vote lines (`Vote:`) are mapped into agenda item `result` when available
 - page context uses both `[PAGE N]` markers and inline `Page N` headers
 
@@ -160,6 +161,7 @@ Safety:
 
 ### Security controls
 - Protected write endpoints require `X-API-Key`.
+- Auth failure logs include request metadata only and never include API key material.
 - CORS origin allowlist is environment-controlled.
 - File re-extraction path is guarded by safe-path validation.
 - Frontend sends auth header only when explicitly configured.

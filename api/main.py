@@ -61,12 +61,14 @@ def get_db():
 # SECURITY: API Key Verification
 # This ensures that only authorized users (like our frontend) can 
 # trigger expensive AI tasks or report issues.
-async def verify_api_key(x_api_key: str = Header(None)):
+async def verify_api_key(request: Request, x_api_key: str = Header(None)):
     expected_key = os.getenv("API_AUTH_KEY", "dev_secret_key_change_me")
     if x_api_key != expected_key:
-        # Mask the key in logs to prevent secret leakage (e.g. 'abc***')
-        masked_key = f"{x_api_key[:3]}***" if x_api_key else "None"
-        logger.warning(f"Unauthorized API access attempt with key: {masked_key}")
+        client_ip = request.client.host if request and request.client else "unknown"
+        logger.warning(
+            "Unauthorized API access attempt: invalid or missing API key",
+            extra={"client_ip": client_ip, "path": request.url.path},
+        )
         raise HTTPException(status_code=401, detail="Invalid or missing API Key")
 
 # PERFORMANCE: Use ORJSONResponse for 3-5x faster JSON serialization

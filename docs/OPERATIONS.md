@@ -36,6 +36,9 @@ Docker dev default key:
 Frontend must set:
 - `NEXT_PUBLIC_API_AUTH_KEY` (for browser-triggered protected actions)
 
+Security logging rule:
+- Do not log API key values or key fragments. Log only path/client metadata on auth failures.
+
 ## Agenda QA loop
 
 Report only:
@@ -91,3 +94,7 @@ Targets should be UP:
 
 Check:
 - Prometheus targets: [http://localhost:9090/targets](http://localhost:9090/targets)
+
+## Code scanning hygiene
+- Keep captured portal snapshots and fixtures out of runtime source roots when possible.
+- If a fixture triggers a scanner result but is not executable code, move it under `tests/` or explicitly exclude that fixture path in scanner configuration.
