@@ -1,411 +1,189 @@
-# Modernized Town Council Architecture (2026)
+# Town Council Architecture (2026)
 
-This document provides a technical overview of the system design, focusing on the high-performance data pipeline, structured civic data modeling, and security model.
+This document describes system structure, data flow, and reliability/security design choices.
+Operational commands live in [`docs/OPERATIONS.md`](docs/OPERATIONS.md). Benchmark details live in [`docs/PERFORMANCE.md`](docs/PERFORMANCE.md).
 
-## System Diagram
+## System Boundaries
+
+### External inputs
+- Municipal meeting portals (HTML tables/pages)
+- Legistar/Granicus APIs and feeds
+
+### Internal services
+- `crawler` (Scrapy ingestion)
+- `pipeline` (download, extraction, NLP, indexing)
+- `api` (FastAPI)
+- `worker` (Celery async tasks)
+- `postgres` (system of record)
+- `redis` (task queue/result backend + cache)
+- `meilisearch` (search index)
+- `prometheus` + `grafana` (observability)
+
+## Architecture Diagram
 
 ```mermaid
 flowchart LR
-    subgraph External["External Sources"]
+    subgraph Sources["External Sources"]
         Web["City Portals"]
         Legi["Legistar / Granicus"]
     end
 
-    subgraph Ingest["Ingestion (Scrapy)"]
-        Crawler["Crawler Service"]
-        Delta["Delta Crawl Filter"]
+    subgraph Crawl["Ingestion (Scrapy)"]
+        Spider["Crawler Service"]
         Promote["promote_stage.py"]
     end
 
-    subgraph Store["PostgreSQL 15"]
-        Stage[("url_stage")]
-        Prod[("event + document")]
-        Cat[("catalog")]
-        Items[("agenda_item")]
-        Mem[("membership")]
-        Person[("person")]
+    subgraph DB["PostgreSQL"]
+        Stage[("event_stage + url_stage")]
+        Core[("event + document + catalog")]
+        Agenda[("agenda_item")]
+        People[("person + membership")]
     end
 
     subgraph Batch["Batch Pipeline (run_pipeline.py)"]
-        Downloader["downloader.py"]
-        Proc["Parallel OCR + NLP"]
-        Tika["Apache Tika"]
-        Tables["table_worker.py"]
-        Backfill["backfill_orgs.py"]
+        Download["downloader.py"]
+        Extract["extractor/Tika"]
+        NLP["nlp_worker.py"]
         Topics["topic_worker.py"]
-        Linker["person_linker.py"]
-        Indexer["indexer.py"]
+        Link["person_linker.py"]
+        Index["indexer.py"]
     end
 
-    subgraph Async["Async AI (Celery + Redis)"]
+    subgraph Async["Async (FastAPI + Celery + Redis)"]
         API["FastAPI"]
-        Queue[("Redis queue + result backend")]
+        Queue[("Redis queue/result")]
         Worker["Celery worker"]
-        Resolver["Agenda resolver: Legistar -> HTML -> LLM"]
-        LocalAI["LocalAI (Gemma 3)"]
+        Resolver["Agenda resolver\nLegistar -> HTML -> LLM"]
+        LocalAI["Local AI (Gemma/llama-cpp)"]
     end
 
-    subgraph UX["Search + UI"]
-        Meili["Meilisearch 1.6"]
-        Next["Next.js 16 UI"]
+    subgraph Search["Search + UI"]
+        Meili["Meilisearch"]
+        UI["Next.js UI"]
     end
 
     subgraph Obs["Observability"]
-        Mon["monitor.py"]
         Prom["Prometheus"]
         Graf["Grafana"]
     end
 
-    Web --> Crawler
-    Legi --> Crawler
-    Crawler --> Delta --> Stage --> Promote --> Prod
+    Web --> Spider
+    Legi --> Spider
+    Spider --> Stage --> Promote --> Core
 
-    Prod --> Downloader --> Proc
-    Proc --> Tika
-    Proc --> Tables --> Linker
-    Proc --> Backfill --> Linker
-    Proc --> Topics --> Linker
-    Linker --> Mem
-    Linker --> Person
-    Linker --> Cat
-    Linker --> Indexer --> Meili
-    Cat --> Meili
-    Items --> Meili
+    Core --> Download --> Extract --> NLP --> Topics --> Link --> People
+    Link --> Core
+    Core --> Index --> Meili
+    Agenda --> Index
 
-    Next -- "search + read" --> API
-    API --> Meili
-    API <--> Queue
-    Next -- "POST /summarize and /segment/{id}" --> API
-    Queue --> Worker --> LocalAI
+    UI -->|"search/read"| API --> Meili
+    UI -->|"POST /summarize /segment /topics /extract"| API
+    API <--> Queue --> Worker --> LocalAI
     Worker --> Resolver
     Legi --> Resolver
-    Resolver --> Worker
-    Worker --> Cat
-    Worker --> Items
-    Next -- "poll /tasks/{id}" --> API
+    Resolver --> Agenda
+    Worker --> Core
+    UI -->|"GET /tasks/{id}"| API
+    UI -->|"GET /catalog/{id}/derived_status"| API
 
-    Prod -. "metrics" .-> Mon
-    Mon --> Prom --> Graf
+    API -. metrics .-> Prom
+    Worker -. metrics .-> Prom
+    Prom --> Graf
 ```
 
-## Key Components & Design Principles
+## Data Flow
 
-### Data Pipeline Flow
-The system processes data through a multi-stage verifiable pipeline:
-1.  **Crawling:** Scrapy spiders fetch meeting metadata and PDF links from municipal sites.
-2.  **Extraction:** Apache Tika extracts raw text and XHTML page markers from PDFs.
-3.  **Ground Truth Sync:** A dedicated worker (`ground_truth_sync.py`) fetches official action text and voting results from the **Legistar API**.
-4.  **Verification & Alignment:**
-    *   **Fuzzy Matching:** Links API items to PDF segments using RapidFuzz algorithms.
-    *   **Spatial Anchoring:** Uses **PyMuPDF** to find the exact (x, y) coordinates of votes within the PDF.
-    *   **Dual-Source Validation:** Marks records as "Verified" only when the API ground truth and PDF content align spatially.
-5.  **Processing:**
-    *   **NLP:** SpaCy identifies named entities (People, Organizations).
-    *   **AI:** Local LLMs generate summaries and segment agenda items.
-6.  **Indexing:** Data is pushed to Meilisearch for low-latency search performance.
-*   **Table-Centric (Berkeley):** Directly parses modern city websites using high-precision XPaths.
-*   **CivicPlus/Folder-Centric (Dublin):** Navigates standard government platforms that use metadata attributes (like `data-th`) for accessibility.
-*   **API-Centric (Cupertino):** Communicates directly with modern platforms like **Legistar Web API**. This provides the highest reliability as it bypasses HTML complexity and bot detection.
-    *   Implementation note: Cupertino uses `council_crawler/council_crawler/spiders/ca_cupertino.py`, which subclasses the reusable `templates/legistar_api.py` spider template. Adding another Legistar-API city should look the same: a thin child spider that passes `client`, `city`, and `state`.
-*   **Delta Crawling:** All spiders implement a "look-back" check against the database to only fetch meetings that haven't been processed yet.
+### 1) Ingestion and normalization
+1. Crawler collects meeting metadata and document URLs into staging tables.
+2. Promotion step writes canonical `event` and `document` rows.
+3. Downloader stores files and links documents to `catalog` rows.
 
-#### Spider Architecture (BaseCitySpider)
-To ensure scalability and maintainability, the scraping layer uses an Object-Oriented **Inheritance Pattern**:
-*   **BaseCitySpider (`base.py`):** A robust parent class that handles all infrastructure logic:
-    *   **Database Connection:** Automatically connects to PostgreSQL to check for existing data.
-    *   **Delta Logic:** Implements `should_skip_meeting(date)` to prevent re-downloading thousands of PDFs.
-    *   **Standardization:** Uses a factory method `create_event_item()` to ensure every spider outputs data in the exact same format (OCD Compliant).
-*   **Child Spiders (e.g., `ca_dublin.py`):** These are lightweight (often <50 lines) and strictly focused on **Page Parsing**. They inherit all the complex "plumbing" from the base class, making it easy for novice developers to add new cities.
+### 2) Batch enrichment
+1. Text extraction writes raw document text to `catalog.content`.
+2. NLP/entity and topic workers enrich catalog records.
+3. Person linker resolves official profiles and memberships.
+4. Indexer publishes documents and agenda items to Meilisearch.
 
-### 2. Structured Data Modeling (OCD Alignment)
-The system follows the **Open Civic Data (OCD)** standard to ensure interoperability and accountability:
-*   **Jurisdiction (Place):** The geographical scope (e.g., Berkeley, CA).
-*   **Organization:** The legislative body or committee (e.g., Planning Commission).
-*   **Membership:** The specific role an official holds within an organization.
-*   **Person:** A unique identity for an official, tracked across different roles and cities.
-    *   **Person Classification:** `person_type` distinguishes `official` records from `mentioned` names extracted by NLP. This prevents non-official mentions from polluting the public officials list.
+### 3) Async user-triggered generation
+1. UI calls protected API endpoints (`/summarize`, `/segment`, `/topics`, `/extract`).
+2. API enqueues Celery tasks in Redis.
+3. Worker executes task, writes DB updates, then reindexes affected catalog/entity.
+4. UI polls `/tasks/{id}` for completion.
 
-### 3. Agenda Item Segmentation (Deep-Linking)
-To solve the "Needle in a Haystack" problem without city-specific branching, the system uses a shared resolver:
-*   **Source Priority (Simple-by-Default):**
-    1. **Legistar API** agenda items when `place.legistar_client` is configured
-    2. **Generic HTML agenda parser** when an `.html` agenda document exists
-    3. **Local LLM fallback** (`Gemma 3 270M`) when structured sources are unavailable
-    *   **Legistar Configuration Contract:** `place.legistar_client` is derived during seeding from a Legistar seed URL like `https://<client>.legistar.com/...` when the city is marked `hosting_services=legistar|...`. This keeps Legistar resolution generic across cities (no per-city code).
-*   **Quality Controls:** Low-quality title sets (header noise, OCR spacing artifacts, duplicate junk) are scored and can trigger async re-generation.
-*   **Fallback Guardrails:** The fallback parser reads page context from both `[PAGE N]` tags and inline `Page N` headers, suppresses speaker-list name rolls, and filters legal/header boilerplate.
-*   **Vote Visibility:** If fallback extraction encounters `Vote:` lines, the value is stored in the agenda item `result` field so the UI can show vote outcomes without extra API shape changes.
-*   **Granular Indexing:** Final items are indexed in Meilisearch as separate, first-class entities.
-*   **Benefit:** Search results can point users directly to specific topics while keeping segmentation maintainable across cities.
-*   **Legistar Dual-Use Caveat:** Legistar is intentionally used by both crawling (discovery) and resolving (cross-check). To avoid drift and duplicated load, both paths must share one Legistar client/normalization contract, and resolver logic should read cached DB data first before making live API calls.
+## Agenda Segmentation Design
 
-### 4. Interoperable Identifiers (OCD-ID)
-The system implements a standardized identifier generator (`ocd-[type]/[uuid]`) for all core entities:
-*   **Avoids IDOR Attacks:** Random UUIDs prevent malicious enumeration of records.
-*   **Federation Ready:** By following the OCD standard, the database is interoperable with other civic data projects like *Open States* or *Councilmatic*.
+The resolver uses a maintainable source priority:
+1. Legistar agenda items (when `place.legistar_client` exists)
+2. Generic HTML agenda parsing
+3. Local LLM fallback
 
-### 5. Local-First AI Strategy (Local Inference)
-To ensure privacy, zero cost, and resilience, the system uses a local-inference AI stack for runtime requests. Model assets are downloaded at build time, then inference runs locally.
+Quality safeguards:
+- low-quality cached items can be regenerated
+- fallback parser suppresses speaker-roll/name-list pollution
+- vote lines (`Vote:`) are mapped into agenda item `result` when available
+- page context uses both `[PAGE N]` markers and inline `Page N` headers
 
-*   **The Brain (Gemma 3 270M):** We use a 4-bit quantized version of Google's state-of-the-art "micro-model".
-    *   **Context Window:** 2,048 tokens (optimized for stability in Docker).
-    *   **Size:** ~150MB (Embedded directly in the Docker image).
-    *   **Inference Engine:** `llama-cpp-python` compiled with NEON support for high-speed processing on Apple Silicon and AVX2 on x86.
-*   **Tasks:**
-    *   **Summarization:** Generates 3-bullet executive summaries.
-    *   **Agenda Segmentation:** Extracts structured topics and descriptions.
-*   **Memory Management:** The AI model is managed by a singleton instance to prevent redundant loads while maintaining thread-safety via locks.
+## Derived Data Lifecycle
 
-#### Summary & Topic Guardrails (User-Facing Quality)
-* **Doc-type aware summaries:** Summaries adapt to the underlying document category (`agenda` vs `minutes`) so agenda PDFs do not produce misleading "minutes" summaries dominated by participation boilerplate.
-* **URL-safe topic tags:** Topic extraction strips URLs and URL tokens before TF-IDF so link-heavy agendas do not generate junk topics like "HTTP Cupertino".
-* **Input quality gate:** Summary/topic generation is blocked when extracted text is too short/noisy (for example OCR stubs like only "Agenda"), with a user-visible "not enough extracted text" reason.
-* **Grounding gate for model summaries:** LLM summary bullets are checked against extracted source text. Unsupported claim lines are rejected and not saved.
-* **Summary caching (and refresh):** Summaries are generated on-demand via `POST /summarize/{catalog_id}` and cached in `catalog.summary`. If summarization logic improves, cached summaries will not change automatically. Use `force=true` to regenerate a known-bad cached summary.
-* **Agenda summaries without relying on the LLM:** If agenda items already exist for a catalog, the system can generate a short, deterministic agenda summary from the first few agenda item titles. This avoids LLM failure modes where the model "summarizes" public participation boilerplate instead of agenda content.
+Derived fields are tied to extracted text by hashes:
+- `catalog.content_hash`
+- `catalog.summary_source_hash`
+- `catalog.topics_source_hash`
 
-### 6. Concurrency Model
-To ensure stability on consumer-grade hardware, the local AI execution is **Serialized**:
-*   **Thread Safety:** Since the `llama.cpp` engine shares a single memory buffer, the `LocalAI` class utilizes a `threading.Lock`.
-*   **Queueing Logic:** If multiple users trigger AI summaries simultaneously, their requests wait in a thread-safe queue. This prevents RAM exhaustion and "Race Conditions" while maintaining high throughput for search and metadata queries.
+States exposed to UI:
+- **stale**: source hash mismatch after text changes
+- **blocked**: generation rejected for low-signal input (or ungrounded summary output)
+- **not generated yet**: derived field absent
 
-### 7. Distributed Task Architecture (Async Workers)
-To scale beyond a single server, the system uses a **Producer-Consumer** model for heavy compute tasks:
-*   **The Mailbox (Redis):** When a user requests a summary, the API puts a "Job Ticket" into Redis and returns immediately.
-*   **The Workers (Celery):** Background worker processes pick up these tickets and perform summarization/segmentation without blocking the main API.
-*   **Shared Segmentation Service:** Async task and batch worker both call the same resolver and persistence helpers to prevent duplicated logic and behavior drift.
-*   **Parallel Ingestion:** The data pipeline uses `ProcessPoolExecutor` to process multiple PDF documents simultaneously (OCR -> NLP) on all available CPU cores, speeding up nightly updates by 4-8x.
+Re-extraction is explicit and uses existing downloaded file only (no redownload).
 
-#### Docker Dev Note (Why "Restart Worker" Matters)
-In Docker Compose, the API runs with `--reload`, so code changes are picked up automatically. The Celery worker does not auto-reload. If summarization/segmentation behavior looks unchanged after a code change, restart the worker so it loads the new code.
+## Startup Purge Model (Dev)
 
-#### On-Demand Re-Extraction (Text Repair)
-Extracted text is stored in `catalog.content`. If extraction was missing/low quality (for example, a scanned PDF without a text layer), the system supports a safe, single-catalog repair flow:
-1. UI triggers `POST /extract/{catalog_id}` (authenticated, rate-limited)
-2. API enqueues `extract_text_task` (Celery)
-3. Worker re-extracts from the existing `catalog.location` file on disk (no download), optionally using OCR fallback
-4. Worker updates `catalog.content` and reindexes that catalog in Meilisearch
+When enabled (`STARTUP_PURGE_DERIVED=true`), startup purges derived state for deterministic local testing.
 
-This avoids rerunning the full pipeline when only one document needs repair.
+Purged:
+- `agenda_item` rows
+- derived `catalog` fields (`content`, summaries, topics, entities, related IDs, tables)
+- content/source hash fields
 
-#### Derived-Field Staleness (Summary + Topics)
-Summaries and topic tags are derived from extracted text. Re-extraction can change `catalog.content` without automatically regenerating derived fields (explicit user consent is required).
+Safety:
+- blocked outside `APP_ENV=dev` unless explicitly overridden
+- PostgreSQL advisory lock ensures one purge executor per startup wave
 
-To make this safe and understandable, the system stores:
-* `catalog.content_hash`: fingerprint of the current extracted text (normalized)
-* `catalog.summary_source_hash`: fingerprint of the extracted text version used to generate `catalog.summary`
-* `catalog.topics_source_hash`: fingerprint of the extracted text version used to generate `catalog.topics`
+## Full Text Rendering Contract
 
-If the hashes do not match, summary/topics are treated as **stale**:
-* the UI displays them but marks them “Stale (text changed)”
-* regeneration remains explicit (`POST /summarize/{catalog_id}?force=true`, `POST /topics/{catalog_id}?force=true`)
+- Raw extraction remains canonical in DB/API (`catalog.content`).
+- Full Text readability formatting is client-side only (whitespace cleanup + `Page N` headers).
+- This avoids changing data used by indexing, summarization, and segmentation.
 
-If extracted text quality is below the reliability thresholds, summary/topics are treated as **blocked**:
-* API returns `blocked_low_signal` with a plain-language reason
-* UI shows a non-error warning and keeps explicit "Re-extract text" / regenerate controls
+## Security and Reliability Model
 
-#### Startup Derived-Data Purge (Dev)
-For deterministic local testing, startup can clear generated fields while preserving source ingest rows:
-* Controlled by `STARTUP_PURGE_DERIVED=true` (Docker dev default in this repo)
-* Safety guard: purge is blocked outside `APP_ENV=dev` unless explicitly overridden
-* Concurrency guard: PostgreSQL advisory lock allows only one service to purge per startup wave
+### Security controls
+- Protected write endpoints require `X-API-Key`.
+- CORS origin allowlist is environment-controlled.
+- File re-extraction path is guarded by safe-path validation.
+- Frontend sends auth header only when explicitly configured.
 
-Purged at startup:
-* `agenda_item` rows
-* `catalog.content`, `summary`, `summary_extractive`, `topics`, `entities`, `related_ids`, `tables`
-* hash fields (`content_hash`, `summary_source_hash`, `topics_source_hash`)
+### Reliability controls
+- API and worker use async task model to keep request latency predictable.
+- Task polling has explicit terminal handling for failure/error states.
+- DB writes use rollback-safe transaction patterns.
+- Startup health checks and fail-soft behavior keep read/search paths available when AI tasks fail.
 
-UI contract after startup purge:
-* Summary/Topics/Structured Agenda show **Not generated yet**
-* users must explicitly regenerate/resegment
+## Observability Architecture
 
-### 7.1 Async Task Failure Behavior (UI Contract)
-The frontend polls background task status (`/tasks/{id}`) and now treats both task failures and polling/network errors as terminal states:
-*   loading indicators are cleared on error paths
-*   users are not left in indefinite "processing" states
+Prometheus scrapes:
+- API metrics endpoint
+- worker metrics endpoint
+- PostgreSQL exporter
+- Redis exporter
+- cAdvisor
 
-### 8. Data Quality Loop (Feedback Mechanism)
-To maintain a high-quality dataset at scale, the system implements a **Crowdsourced Audit Loop**:
-*   **Reporting API:** A dedicated `POST /report-issue` endpoint allows users to flag problems (e.g., broken PDF links or OCR errors) directly from the UI.
-*   **Issue Tracking:** Reported issues are saved to the `data_issue` table, linked to the specific meeting. This allows administrators to prioritize fixes for the most critical data gaps without manually checking thousands of records.
+Grafana dashboards are provisioned from repository files under `monitoring/grafana/`.
 
-### 8.1 People Quality Guardrails
-To keep official profiles trustworthy:
-*   NLP name detections are treated as **mentions** unless official evidence exists.
-*   Membership links are created for `official` profiles only.
-*   The `/people` endpoint filters to `official` records by default and supports an explicit diagnostics mode (`include_mentions=true`).
+## Document Ownership
 
-### Agenda QA Loop (Non-Brittle Validation)
-Agenda segmentation is heuristic-heavy, so quality can drift as new documents and formats appear.
-To avoid brittle, city-specific rules and manual spot checks, the pipeline includes an Agenda QA scorer:
-* scores stored agenda items using generic signals (boilerplate, speaker-name rolls, page-number quality, missed `Vote:` lines)
-* produces a report of likely-bad catalogs (worst overall and per city)
-* optionally enqueues targeted regeneration for only the suspect catalogs (safe caps + rate limiting)
-
-This creates a quality loop:
-1. extract + store agenda items
-2. score quality from the stored rows + raw document text
-3. regenerate only the outliers
-4. lock patterns in with regression tests (property checks, not exact city outputs)
-
-### 8.2 Performance Architecture (Sub-100ms)
-To ensure the platform feels "instant" even on consumer hardware, we use a multi-tiered acceleration strategy:
-*   **Caching Layer (Redis):** Frequently accessed data (like City Metadata and Statistics) is stored in RAM using Redis. This offloads 95% of read traffic from the database and delivers results in <5ms.
-*   **Turbo JSON (orjson):** The API uses `orjson` (a high-performance Rust library) instead of Python's standard `json` module. This speeds up the serialization of large search results by 3-5x.
-*   **Eager Loading:** We solve the "N+1 Query Problem" by using SQLAlchemy's `joinedload`. When you request a Person profile, we fetch their roles, city, and committee memberships in a **single database query** instead of 30+ separate round-trips.
-*   **Database Indexing:** Critical columns (`place_id`, `record_date`) are indexed to ensure that filtering 10,000+ meetings takes milliseconds.
-
-### 8.3 Observability (Prometheus + Grafana)
-The Docker stack exposes performance metrics for both user-facing latency and background task throughput:
-* **App metrics:** the API exposes `/metrics`, and the Celery worker exports task timings and failure/retry counts.
-* **Exporters:** Postgres and Redis exporters provide infra-level visibility (connections, memory, ops/sec), and cAdvisor reports container CPU/memory.
-* **Collection + dashboards:** Prometheus scrapes these targets, and Grafana loads pre-provisioned dashboards from `monitoring/grafana/`.
-
-### 8.4 Search Indexing Batch Semantics
-The Meilisearch indexer uses explicit batch flushing rules:
-*   flush on reaching `MEILISEARCH_BATCH_SIZE`
-*   flush exactly once for the final partial batch after each phase (documents, agenda items)
-
-This prevents duplicate sends, keeps indexing counts accurate, and avoids unnecessary write amplification.
-
-### 9. Security Model
-*   **CORS Restriction:** The API is hardened to only accept requests from the authorized frontend origin (`localhost:3000`).
-*   **Dependency Injection:** Database sessions are managed via FastAPI's dependency system, ensuring every connection is strictly closed after a request to prevent connection leaks.
-*   **Non-Root Execution:** First-party app containers built from the repo Dockerfiles run as a restricted `appuser`.
-*   **Path Traversal Protection:** The `is_safe_path` validator ensures workers only interact with authorized data directories.
-*   **Deep Health Checks:** The container orchestrator monitors the `/health` endpoint, which proactively probes the database connection. If the database locks up, the container is automatically restarted.
-*   **Frontend Auth Header Discipline:** Browser clients only send `X-API-Key` when `NEXT_PUBLIC_API_AUTH_KEY` is explicitly configured; no hardcoded default key is injected by frontend code.
-
-### 10. Data Integrity & Validation
-To prevent "garbage data" from corrupting the system, we enforce strict schemas at multiple layers:
-*   **API Layer (Pydantic):** Strict type checking for all JSON inputs.
-*   **Logic Layer (Regex):** Custom validators ensure Dates (ISO-8601) and Identifiers (OCD-ID follow strict formats.
-*   **Database Layer (Schema):** Metadata columns have explicit length limits (e.g., `VARCHAR(255)`) to prevent buffer stuffing. **High-volume text columns** (Meeting Content, Summaries, Biographies) use the `TEXT` type to ensure zero truncation during ingestion.
-
-### 11. Transaction Safety & Error Handling
-To prevent data corruption during network or database failures, all database operations follow strict transaction patterns with production-grade exception handling:
-
-#### Specific Exception Handling (30 instances)
-The codebase uses **specific exception types** rather than broad `except Exception` handlers, enabling precise error handling and better debugging:
-*   **Database Operations (11 instances):** All database code catches `SQLAlchemyError` to handle integrity violations, connection losses, and transaction failures while letting logic errors (ValueError, KeyError) propagate correctly
-*   **Network Operations (3 instances):** HTTP calls catch `requests.RequestException` for timeouts, DNS failures, and connection errors
-*   **File I/O (4 instances):** File operations catch `OSError` for permission errors, missing files, and disk full conditions
-*   **Search Indexing (4 instances):** Meilisearch operations catch `MeilisearchError` for index locks, timeouts, and invalid document formats
-*   **PDF Operations (4 instances):** Camelot table extraction catches specific errors (`ValueError`, `RuntimeError`, `MemoryError`) for malformed PDFs
-*   **Topic Modeling (2 instances):** TF-IDF analysis catches `ValueError` for empty documents and `MemoryError` for resource exhaustion
-*   **Background Tasks (2 instances):** Celery tasks catch specific errors and leverage task queue retry mechanisms (60s countdown, 3 attempts)
-
-#### Context Manager Pattern
-All database operations use the `db_session()` context manager (pipeline/db_session.py) which:
-*   **Automatic rollback:** Catches ANY exception (broad is correct here) and rolls back uncommitted changes
-*   **Guaranteed cleanup:** Ensures sessions close even if business logic raises errors
-*   **Educational comments:** Documents why context managers MUST catch Exception, not just SQLAlchemyError
-
-#### When Broad Exceptions Are Correct (5 instances)
-The codebase documents scenarios where broad exception handling is the **correct pattern**:
-*   **AI/LLM Operations (3 instances):** llama-cpp-python is an external C++ library that can raise unpredictable exception types; catching Exception is safer than enumerating unknowns
-*   **Migration Scripts (2 instances):** Database migrations catch Exception for cross-database compatibility (PostgreSQL, MySQL, SQLite raise different types for "column exists")
-
-#### Rollback Protection
-All database commits are wrapped in try/except blocks with explicit rollback() calls:
-*   `ground_truth_sync.py`: Rolls back if Legistar API fetch fails mid-transaction, preventing partial vote records
-*   `agenda_legistar.py`: Uses explicit timeouts and bounded retries for Legistar cross-check requests and fails soft to HTML/LLM sources if remote calls fail
-*   `verification_service.py`: Rolls back if spatial coordinate lookup fails during PDF verification
-*   `downloader.py`: Handles race conditions when multiple workers download the same file
-*   `promote_stage.py`: Rolls back if event promotion fails, keeping staging/production in sync
-
-#### Staging Archive Safety
-Downloader staging rows are archived selectively:
-*   rows that were processed successfully are moved to `url_stage_hist`
-*   failed rows remain in `url_stage` for retry on the next run
-
-This avoids silent data loss when network/download failures occur mid-batch.
-
-#### Thread-Safe Model Loading
-The LocalAI singleton uses double-checked locking to prevent race conditions:
-*   First check: Fast path without lock (if model is already loaded, return immediately)
-*   Second check: Inside lock to prevent duplicate loads if multiple threads arrive simultaneously
-*   Model loading happens entirely within the lock to prevent multiple threads from loading the 500MB model simultaneously
-
-#### Educational Documentation
-Every exception handler includes beginner-friendly comments (500+ lines) explaining:
-*   **What can fail:** Specific error scenarios with real examples
-
-### 12. Test Strategy and Reliability Gates
-The project now follows a pipeline-first testing strategy because most risk lives in ingestion and processing, not UI rendering.
-
-*   **Coverage by area (current baseline):**
-    * `pipeline/*` is the primary focus area and receives the majority of new tests.
-    * `api/*` and crawler coverage remain important, but they are secondary to pipeline correctness.
-*   **Test tiers:**
-    * Unit tests for pure logic and validators.
-    * Integration tests for stage -> promote -> process -> link flows.
-    * Migration tests for schema/backfill/idempotent rerun behavior.
-    * Benchmark tests for regression visibility.
-*   **Runtime compatibility policy:**
-    * NLP-dependent modules use lazy loading and clear runtime errors when the stack is unavailable.
-    * NLP tests are deterministic in the current suite and are expected to run in CI.
-*   **CI expectations:**
-    * No collection errors.
-    * No regression below locked baseline coverage.
-    * Artifact files (`file:testdb`, benchmark outputs) are not committed.
-
-### 13. Container Optimization & Performance
-To ensure fast developer iteration and secure production deployments, the system uses an optimized Docker architecture:
-*   **Multi-Stage Builds:** Separates build-time dependencies (compilers, headers) from the final runtime image, reducing the attack surface and image size.
-*   **BuildKit Cache Mounts:** Utilizes `--mount=type=cache` for both Python (pip) and Node.js (npm). This allows the system to cache package downloads across builds, making repeated installs up to 10x faster.
-*   **Next.js Standalone Mode:** The frontend utilizes Next.js output tracing to create a minimal production server that only carries the absolute necessary files, resulting in a ~1GB reduction in image size.
-*   **Strict Layering:** Dockerfiles are structured to copy dependency files (`requirements.txt`, `package.json`) before source code, maximizing layer reuse.
-
-### 14. High-Performance Search & UX
-*   **Unified Search Hub:** A segmented search bar integrating Keyword, Municipality, Body, and Type filters.
-*   **Yield-Based Indexing:** The Meilisearch indexer uses Python's `yield_per` pattern to stream hundreds of thousands of documents with minimal memory footprint.
-*   **Tiered Inspection:** A 3-tier UI flow (Snippet -> Full Text -> AI Insights) manages cognitive load.
-
-### 15. AI Strategy
-*   **On-Demand Summarization:** To prevent unnecessary CPU load, summaries are only generated when requested by a user in the UI.
-*   **Caching:** AI responses are permanently saved to the `catalog` table, making subsequent views instant and cost-free.
-*   **Grounding:** Models use a temperature of 0.1 and strict instructional grounding to eliminate hallucinations.
-
-### 16. Resilience & Fail-Soft Logic
-To ensure 24/7 availability in production, the system implements **Graceful Degradation**:
-*   **Dependency Checking:** The API uses a `is_db_ready()` helper to verify the database connection before handling requests. If the database is down, it returns a `503 Service Unavailable` error instead of crashing.
-*   **Lazy AI Loading:** Local AI models are loaded only when first requested. If the model files are missing or corrupt, the API continues to serve search results while disabling only the summarization and segmentation features.
-*   **Robust Segment Extraction:** The system uses a multi-layered approach for agenda splitting:
-    1.  **Direct AI Extraction:** High-precision bulleted list from the local model.
-    2.  **Paragraph Fallback:** If the AI output is malformed, the system automatically segments by paragraph to ensure the UI remains functional.
-
-### 17. Performance Guardrails
-To prevent "Speed Regressions" during development, the system implements automated performance monitoring:
-*   **Continuous Benchmarking:** Every compute-heavy function (Fuzzy Matching, Regex Parsing) is tracked via `pytest-benchmark`. If a change makes an algorithm 2x slower, the benchmark suite will highlight the regression.
-*   **Traffic Simulation:** We use **Locust** to simulate high-concurrency scenarios. This allows us to verify that our Redis caching and Meilisearch optimizations actually scale to 50+ concurrent users on standard hardware.
-*   **Payload Monitoring:** The API is configured to strictly control response sizes (via `attributesToRetrieve`), ensuring that search results remain under 100KB regardless of document size.
-
-### 18. Municipal NLP Guardrails (The Triple Filter)
-To ensure high precision in identifying officials, the system uses a 3-layer NLP filtering strategy:
-1.  **Boilerplate Pre-emptor (Pre-NER):** An `EntityRuler` explicitly tags common municipal noise ("Item 1", "City Clerk") *before* the AI runs, preventing misidentification.
-2.  **Title-Aware Confidence:** Patterns like "Mayor [Name]" or "Moved by [Name]" are used to identify people even if the statistical model is uncertain.
-3.  **Heuristic Bouncer (Post-NER):** A custom component scrubs every `PERSON` entity against "Nuclear Precision" human-name heuristics:
-    *   **Tech-Character Block:** Discards strings with web-symbols (`@`, `://`).
-    *   **Smart Blacklisting:**
-        *   **Total Noise:** Uses word-boundary regex (`\bca\b`, `\bclerk\b`) to block municipal boilerplate without filtering legitimate names like "Catherine".
-        *   **Contextual Noise:** Blocks common municipal words like "Park", "Staff", or "Street" only if they appear as single words without a trusted title. This preserves names like "Linda Park" or "Michael Staff".
-    *   **Vowel Density Check:** Discards OCR fragments (e.g., "Spl Tax Bds") by enforcing a minimum vowel density (10-25%).
-    *   **Linguistic Check:** Discards entities without a Proper Noun (`PROPN`) signal.
-
-### 19. Security Advisories
-
-#### Known Dependency Vulnerabilities (Accepted Risk)
-
-**CVE-2017-14158 (Scrapy DoS) - Dismissed February 2026**
-*   **Status:** Accepted Risk (Not Vulnerable)
-*   **Severity:** High (CVSS 7.5/10)
-*   **Affected Component:** Scrapy FilesPipeline/ImagesPipeline (memory exhaustion via large file downloads)
-*   **Our Status:** Not Vulnerable - We do not use the affected components
-*   **Rationale:**
-    *   Our custom Scrapy pipelines only process metadata (meeting names, dates, PDF URLs)
-    *   We do not use FilesPipeline or ImagesPipeline which are the vulnerable components
-    *   PDF downloads happen separately in the pipeline worker, not during Scrapy crawling
-    *   We have `DOWNLOAD_MAXSIZE=104857600` (100MB) configured to prevent memory exhaustion attacks
-*   **Mitigation:** Download size limits enforced in `council_crawler/council_crawler/settings.py`
-*   **Reference:** https://github.com/scrapy/scrapy/issues/482
+- Architecture and design intent: this file (`ARCHITECTURE.md`)
+- Operator runbook and commands: [`docs/OPERATIONS.md`](docs/OPERATIONS.md)
+- Benchmark numbers and reproduction: [`docs/PERFORMANCE.md`](docs/PERFORMANCE.md)
+- City onboarding workflow: [`docs/CONTRIBUTING_CITIES.md`](docs/CONTRIBUTING_CITIES.md)

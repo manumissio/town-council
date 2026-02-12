@@ -1,0 +1,46 @@
+# Adding a New City Crawler
+
+## Overview
+Add city coverage by implementing a spider and ensuring metadata seeding/indexing paths include the city.
+
+## Steps
+
+### 1) Add city metadata
+Update `city_metadata/list_of_cities.csv` with:
+- `ocd_division_id`
+- display name
+- crawler metadata
+- hosting service fields (for example Legistar/laserfiche)
+
+### 2) Implement spider
+Create spider file under:
+- `council_crawler/council_crawler/spiders/`
+
+Prefer existing templates/base classes when possible:
+- `BaseCitySpider`
+- Legistar templates in `council_crawler/templates/`
+
+### 3) Validate crawler output contract
+Ensure emitted items include:
+- meeting/event identity
+- valid record date
+- source URL
+- document links (agenda/minutes where available)
+
+### 4) Seed + process
+```bash
+docker compose run --rm pipeline python seed_places.py
+docker compose run --rm crawler scrapy crawl <city_spider_name>
+docker compose run --rm pipeline python run_pipeline.py
+```
+
+### 5) Verify in API/UI
+- `/metadata` includes city facet
+- city meetings appear in search
+- opening a record shows extracted content
+
+## Test expectations
+Add/extend tests with invariant checks (not brittle exact output):
+- seed places includes city record
+- spider handles missing optional doc links cleanly
+- mapping from source payload -> internal fields remains valid
