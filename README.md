@@ -43,6 +43,22 @@ docker compose run --rm pipeline python run_pipeline.py
 - Meilisearch: [http://localhost:7700](http://localhost:7700)
 - Grafana: [http://localhost:3001](http://localhost:3001)
 - Prometheus: [http://localhost:9090](http://localhost:9090)
+- Static demo (GitHub Pages): [https://manumissio.github.io/town-council/](https://manumissio.github.io/town-council/)
+
+## GitHub Pages Demo
+
+The Pages site is a static product demo powered by local JSON fixtures.
+
+- No backend/API/DB required
+- No write actions (summarize/segment/topics/extract/report)
+- Intended for walkthroughs, not live production data
+
+Local demo build:
+```bash
+cd frontend
+NEXT_PUBLIC_DEMO_MODE=true STATIC_EXPORT=true npm run build -- --webpack
+npx serve out
+```
 
 ## Common Troubleshooting
 

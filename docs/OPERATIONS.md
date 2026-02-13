@@ -22,6 +22,22 @@ docker compose run --rm crawler scrapy crawl cupertino
 docker compose run --rm pipeline python run_pipeline.py
 ```
 
+## GitHub Pages static demo
+
+The Pages build is demo-only and uses fixtures from `frontend/public/demo`.
+
+### Local demo preview
+```bash
+cd frontend
+NEXT_PUBLIC_DEMO_MODE=true STATIC_EXPORT=true npm run build -- --webpack
+npx serve out
+```
+
+### CI deploy workflow
+- Workflow file: `.github/workflows/pages-demo.yml`
+- Trigger: push to `master` or manual dispatch
+- Output: static export deployed to GitHub Pages
+
 ## Protected write endpoints
 These routes require `X-API-Key`:
 - `POST /summarize/{catalog_id}`

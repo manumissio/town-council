@@ -6,7 +6,7 @@ import {
   Flag, AlertCircle, CheckCircle
 } from "lucide-react";
 import DataTable from "./DataTable";
-import { API_BASE_URL, getApiHeaders } from "../lib/api";
+import { API_BASE_URL, buildApiUrl, getApiHeaders, isDemoMode } from "../lib/api";
 import textFormatter from "../lib/textFormatter";
 
 const { renderFormattedExtractedText } = textFormatter;
@@ -15,7 +15,7 @@ const { renderFormattedExtractedText } = textFormatter;
 async function pollTaskStatus(taskId, callback, onError, type = "summary") {
   const checkStatus = async () => {
     try {
-      const res = await fetch(`${API_BASE_URL}/tasks/${taskId}`);
+      const res = await fetch(buildApiUrl(`/tasks/${taskId}`));
       const data = await res.json();
 
       if (data.status === "complete") {
@@ -61,7 +61,7 @@ export default function ResultCard({ hit, onPersonClick, onTopicClick }) {
   const [topics, setTopics] = useState(hit.topics || []);
   const [summaryBlockReason, setSummaryBlockReason] = useState(null);
   const [topicsBlockReason, setTopicsBlockReason] = useState(null);
-  const [agendaItems, setAgendaItems] = useState(null);
+  const [agendaItems, setAgendaItems] = useState(hit.agenda_items || null);
   const [relatedMeetings, setRelatedMeetings] = useState(null);
   const [isGenerating, setIsGenerating] = useState(false);
   const [isTaggingTopics, setIsTaggingTopics] = useState(false);
@@ -72,6 +72,8 @@ export default function ResultCard({ hit, onPersonClick, onTopicClick }) {
   const [isLoadingRelated, setIsLoadingRelated] = useState(false);
   const [isReporting, setIsReporting] = useState(false);
   const [reportStatus, setReportStatus] = useState(null); // 'loading', 'success', 'error'
+  const demoMode = isDemoMode();
+  const canMutate = !demoMode && Boolean(process.env.NEXT_PUBLIC_API_AUTH_KEY);
 
   // Readability is a display concern only: keep DB content raw, format in UI.
   const fullTextSource = useMemo(() => {
@@ -100,6 +102,7 @@ export default function ResultCard({ hit, onPersonClick, onTopicClick }) {
   };
 
   const handleReportIssue = async (issueType) => {
+    if (!canMutate) return;
     setReportStatus('loading');
     try {
       const res = await fetch(`${API_BASE_URL}/report-issue`, {
@@ -144,8 +147,8 @@ export default function ResultCard({ hit, onPersonClick, onTopicClick }) {
   const fetchDerivedStatus = async () => {
     if (!hit.catalog_id) return;
     try {
-      const res = await fetch(`${API_BASE_URL}/catalog/${hit.catalog_id}/derived_status`, {
-        headers: getApiHeaders({ useAuth: true }),
+      const res = await fetch(buildApiUrl(`/catalog/${hit.catalog_id}/derived_status`), {
+        headers: getApiHeaders({ useAuth: canMutate }),
       });
       if (!res.ok) return;
       const data = await res.json();
@@ -162,8 +165,8 @@ export default function ResultCard({ hit, onPersonClick, onTopicClick }) {
       const params = new URLSearchParams();
       hit.related_ids.forEach(id => params.append('ids', id));
       
-      const res = await fetch(`${API_BASE_URL}/catalog/batch?${params.toString()}`, {
-        headers: getApiHeaders({ useAuth: true })
+      const res = await fetch(buildApiUrl(`/catalog/batch?${params.toString()}`), {
+        headers: getApiHeaders({ useAuth: canMutate })
       });
       const data = await res.json();
       setRelatedMeetings(data);
@@ -175,7 +178,7 @@ export default function ResultCard({ hit, onPersonClick, onTopicClick }) {
   };
 
   const handleGenerateSummary = async ({ force = false } = {}) => {
-    if (!hit.catalog_id) return;
+    if (!hit.catalog_id || demoMode) return;
     
     setIsGenerating(true);
     try {
@@ -220,7 +223,7 @@ export default function ResultCard({ hit, onPersonClick, onTopicClick }) {
   };
 
   const handleGenerateTopics = async ({ force = false } = {}) => {
-    if (!hit.catalog_id) return;
+    if (!hit.catalog_id || demoMode) return;
     setIsTaggingTopics(true);
     try {
       const url = new URL(`${API_BASE_URL}/topics/${hit.catalog_id}`);
@@ -269,7 +272,7 @@ export default function ResultCard({ hit, onPersonClick, onTopicClick }) {
   };
 
   const handleGenerateAgenda = async ({ force = false } = {}) => {
-    if (!hit.catalog_id) return;
+    if (!hit.catalog_id || demoMode) return;
     
     setIsSegmenting(true);
     try {
@@ -300,7 +303,7 @@ export default function ResultCard({ hit, onPersonClick, onTopicClick }) {
   };
 
   const handleReextractText = async ({ ocrFallback = true } = {}) => {
-    if (!hit.catalog_id) return;
+    if (!hit.catalog_id || demoMode) return;
     setIsExtracting(true);
     try {
       const url = new URL(`${API_BASE_URL}/extract/${hit.catalog_id}`);
@@ -314,8 +317,8 @@ export default function ResultCard({ hit, onPersonClick, onTopicClick }) {
       const data = await res.json();
       if (data.status === "cached") {
         // Pull fresh text from the DB endpoint even when cached so the UI refreshes.
-        const textRes = await fetch(`${API_BASE_URL}/catalog/${hit.catalog_id}/content`, {
-          headers: getApiHeaders({ useAuth: true }),
+        const textRes = await fetch(buildApiUrl(`/catalog/${hit.catalog_id}/content`), {
+          headers: getApiHeaders({ useAuth: canMutate }),
         });
         const textData = await textRes.json();
         setExtractedTextOverride(textData.content || "");
@@ -328,8 +331,8 @@ export default function ResultCard({ hit, onPersonClick, onTopicClick }) {
         pollTaskStatus(
           data.task_id,
           async () => {
-            const textRes = await fetch(`${API_BASE_URL}/catalog/${hit.catalog_id}/content`, {
-              headers: getApiHeaders({ useAuth: true }),
+            const textRes = await fetch(buildApiUrl(`/catalog/${hit.catalog_id}/content`), {
+              headers: getApiHeaders({ useAuth: canMutate }),
             });
             const textData = await textRes.json();
             setExtractedTextOverride(textData.content || "");
@@ -394,8 +397,9 @@ export default function ResultCard({ hit, onPersonClick, onTopicClick }) {
           <div className="flex gap-2">
             <button 
               onClick={() => setIsReporting(!isReporting)}
-              className={`p-2.5 rounded-xl transition-all border ${isReporting ? 'bg-red-50 text-red-600 border-red-200' : 'bg-gray-50 text-gray-400 hover:bg-red-50 hover:text-red-600 border-transparent hover:border-red-100'}`}
-              title="Report Data Error"
+              disabled={!canMutate}
+              className={`p-2.5 rounded-xl transition-all border disabled:opacity-40 disabled:cursor-not-allowed ${isReporting ? 'bg-red-50 text-red-600 border-red-200' : 'bg-gray-50 text-gray-400 hover:bg-red-50 hover:text-red-600 border-transparent hover:border-red-100'}`}
+              title={canMutate ? "Report Data Error" : "Unavailable in static demo mode"}
             >
               <Flag className="w-5 h-5" />
             </button>
@@ -538,11 +542,18 @@ export default function ResultCard({ hit, onPersonClick, onTopicClick }) {
                 )}
               </div>
 	              <span className="hidden sm:block px-4 text-[10px] font-bold text-gray-400 uppercase tracking-widest">
-	                {viewMode === "text" ? "Extracted Text" : "Local AI"}
+	                {demoMode ? "Demo Mode" : (viewMode === "text" ? "Extracted Text" : "Local AI")}
 	              </span>
             </div>
 
             <div className="relative">
+              {demoMode && (
+                <div className="mb-4 rounded-xl border border-amber-200 bg-amber-50 px-3 py-2">
+                  <p className="text-[12px] text-amber-800">
+                    Demo mode uses static fixtures. AI generation, segmentation, topic tagging, and re-extraction are disabled.
+                  </p>
+                </div>
+              )}
               {viewMode === "summary" ? (
                 <div className="p-8 bg-purple-50/30 border border-purple-100 rounded-3xl space-y-6">
                     <div className="space-y-3">
@@ -568,12 +579,12 @@ export default function ResultCard({ hit, onPersonClick, onTopicClick }) {
 		                        <p className="text-gray-800 text-[15px] whitespace-pre-line leading-relaxed italic">
 		                          {summary}
 		                        </p>
-		                        <button
+	                        <button
 	                          type="button"
 	                          onClick={() => handleGenerateSummary({ force: true })}
-	                          disabled={isGenerating}
+	                          disabled={!canMutate || isGenerating}
 	                          className="text-[10px] font-bold text-purple-600 hover:text-purple-800 flex items-center gap-1 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-	                          title="Regenerate the cached summary (useful after summarization logic changes)"
+	                          title={canMutate ? "Regenerate the cached summary (useful after summarization logic changes)" : "Unavailable in static demo mode"}
 	                        >
 	                          <Sparkles className="w-3 h-3" /> Regenerate summary
 	                        </button>
@@ -585,7 +596,7 @@ export default function ResultCard({ hit, onPersonClick, onTopicClick }) {
                           <p className="text-[13px] text-amber-700 mt-1">{effectiveSummaryBlockReason}</p>
                         </div>
                         <div className="flex gap-3 items-center">
-                          {process.env.NEXT_PUBLIC_API_AUTH_KEY && hit.catalog_id && (
+                          {canMutate && hit.catalog_id && (
                             <button
                               type="button"
                               onClick={() => handleReextractText({ ocrFallback: true })}
@@ -598,7 +609,7 @@ export default function ResultCard({ hit, onPersonClick, onTopicClick }) {
                           <button
                             type="button"
                             onClick={() => handleGenerateSummary({ force: true })}
-                            disabled={isGenerating}
+                            disabled={!canMutate || isGenerating}
                             className="text-[10px] font-bold text-purple-600 hover:text-purple-800 flex items-center gap-1 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
                           >
                             <Sparkles className="w-3 h-3" /> Retry summary
@@ -611,7 +622,7 @@ export default function ResultCard({ hit, onPersonClick, onTopicClick }) {
                           <span className="bg-indigo-100 text-indigo-700 text-[9px] font-black uppercase px-1.5 py-0.5 rounded shadow-sm">Local Fast-Pass AI</span>
 	                          <button 
 	                            onClick={() => handleGenerateSummary()}
-	                            disabled={isGenerating}
+	                            disabled={!canMutate || isGenerating}
 	                            className="text-[10px] font-bold text-purple-600 hover:text-purple-800 flex items-center gap-1 transition-colors"
 	                          >
 	                            <Sparkles className="w-3 h-3" /> Upgrade to Local Generative AI
@@ -634,7 +645,7 @@ export default function ResultCard({ hit, onPersonClick, onTopicClick }) {
                         </p>
 	                        <button 
 	                          onClick={() => handleGenerateSummary()}
-	                          disabled={isGenerating}
+	                          disabled={!canMutate || isGenerating}
 	                          className="px-6 py-2.5 bg-purple-600 text-white text-xs font-bold rounded-xl shadow-lg shadow-purple-200 hover:bg-purple-700 transition-all active:scale-95 disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2"
 	                        >
                           {isGenerating ? (
@@ -677,7 +688,7 @@ export default function ResultCard({ hit, onPersonClick, onTopicClick }) {
                                     </span>
                                   )}
 		                            </div>
-		                            {process.env.NEXT_PUBLIC_API_AUTH_KEY && hit.catalog_id && (
+		                            {canMutate && hit.catalog_id && (
 		                              <button
 		                                type="button"
 		                                onClick={() => handleGenerateTopics({ force: true })}
@@ -789,7 +800,7 @@ export default function ResultCard({ hit, onPersonClick, onTopicClick }) {
                         </p>
                         <button 
                           onClick={handleGenerateAgenda}
-                          disabled={isSegmenting}
+                          disabled={!canMutate || isSegmenting}
                           className="px-6 py-2.5 bg-indigo-600 text-white text-xs font-bold rounded-xl shadow-lg shadow-indigo-200 hover:bg-indigo-700 transition-all active:scale-95 disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2"
                         >
                           {isSegmenting ? (
@@ -809,7 +820,7 @@ export default function ResultCard({ hit, onPersonClick, onTopicClick }) {
 	                      <FileText className="w-4 h-4" />
 	                      Extracted Text
 	                    </div>
-	                    {process.env.NEXT_PUBLIC_API_AUTH_KEY && hit.catalog_id && (
+	                    {canMutate && hit.catalog_id && (
 	                      <button
 	                        type="button"
 	                        onClick={() => handleReextractText({ ocrFallback: true })}

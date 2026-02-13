@@ -15,6 +15,7 @@ Notes:
 - These are local-machine measurements.
 - E2E includes API/network/serialization overhead.
 - Engine latency isolates backend compute/query time.
+- GitHub Pages demo metrics are not equivalent: Pages runs static fixtures and bypasses backend services.
 
 ## Developer microbenchmarks
 

@@ -1,0 +1,8 @@
+{
+  "id": 4,
+  "name": "Audit Chair",
+  "current_role": "Audit Committee",
+  "roles": [
+    {"body": "Audit Committee", "city": "CA_CUPERTINO", "role": "Chair"}
+  ]
+}

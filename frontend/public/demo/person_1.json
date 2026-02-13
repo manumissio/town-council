@@ -1,0 +1,8 @@
+{
+  "id": 1,
+  "name": "Rashi Kesarwani",
+  "current_role": "Councilmember",
+  "roles": [
+    {"body": "City Council", "city": "CA_BERKELEY", "role": "Councilmember"}
+  ]
+}

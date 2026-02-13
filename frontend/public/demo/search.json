@@ -1,0 +1,95 @@
+{
+  "estimatedTotalHits": 3,
+  "hits": [
+    {
+      "id": 701,
+      "catalog_id": 701,
+      "event_id": 701,
+      "event_name": "Berkeley, CA City Council Regular Meeting",
+      "city": "CA_BERKELEY",
+      "organization": "City Council",
+      "meeting_category": "Regular",
+      "date": "2026-01-14",
+      "filename": "berkeley_regular_2026_01_14.pdf",
+      "url": "https://example.com/berkeley_regular_2026_01_14.pdf",
+      "content": "[PAGE 1] CALL TO ORDER\nROLL CALL\n[PAGE 2] 1. Budget Amendment\nVote: All Ayes.",
+      "summary": "The council opened the meeting, reviewed a budget amendment, and approved it unanimously.",
+      "topics": ["budget", "city council", "vote"],
+      "summary_is_stale": false,
+      "topics_is_stale": false,
+      "summary_extractive": null,
+      "agenda_items": [
+        {
+          "order": 1,
+          "title": "Budget Amendment",
+          "description": "Agenda section 1",
+          "classification": "Agenda Item",
+          "result": "All Ayes.",
+          "page_number": 2,
+          "votes": []
+        }
+      ],
+      "people_metadata": [
+        {"id": 1, "name": "Rashi Kesarwani"},
+        {"id": 2, "name": "Susan Wengraf"}
+      ],
+      "entities": {"orgs": ["City Council", "Finance Department"]}
+    },
+    {
+      "id": 702,
+      "catalog_id": 702,
+      "event_id": 702,
+      "event_name": "Cupertino, CA Environmental Review Committee Meeting",
+      "city": "CA_CUPERTINO",
+      "organization": "Environmental Review Committee",
+      "meeting_category": "Regular",
+      "date": "2026-01-21",
+      "filename": "cupertino_environment_2026_01_21.pdf",
+      "url": "https://example.com/cupertino_environment_2026_01_21.pdf",
+      "content": "Agenda",
+      "summary": null,
+      "topics": [],
+      "summary_is_stale": false,
+      "topics_is_stale": false,
+      "summary_extractive": null,
+      "agenda_items": null,
+      "people_metadata": [
+        {"id": 3, "name": "Committee Chair"}
+      ],
+      "entities": {"orgs": ["Environmental Review Committee"]}
+    },
+    {
+      "id": 703,
+      "catalog_id": 703,
+      "event_id": 703,
+      "event_name": "Cupertino, CA Audit Committee Meeting",
+      "city": "CA_CUPERTINO",
+      "organization": "Audit Committee",
+      "meeting_category": "Special",
+      "date": "2026-01-25",
+      "filename": "cupertino_audit_2026_01_25.pdf",
+      "url": "https://example.com/cupertino_audit_2026_01_25.pdf",
+      "content": "[PAGE 1] AUDIT COMMITTEE\nPUBLIC COMMENT\n[PAGE 2] 1. Fiscal Update\nVote: Motion carried.",
+      "summary": "Prior summary generated from older extracted text.",
+      "topics": ["audit", "finance"],
+      "summary_is_stale": true,
+      "topics_is_stale": true,
+      "summary_extractive": null,
+      "agenda_items": [
+        {
+          "order": 1,
+          "title": "Fiscal Update",
+          "description": "Agenda section 1",
+          "classification": "Agenda Item",
+          "result": "Motion carried.",
+          "page_number": 2,
+          "votes": []
+        }
+      ],
+      "people_metadata": [
+        {"id": 4, "name": "Audit Chair"}
+      ],
+      "entities": {"orgs": ["Audit Committee", "Finance Department"]}
+    }
+  ]
+}

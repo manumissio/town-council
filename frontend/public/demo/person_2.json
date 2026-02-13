@@ -1,0 +1,8 @@
+{
+  "id": 2,
+  "name": "Susan Wengraf",
+  "current_role": "Councilmember",
+  "roles": [
+    {"body": "City Council", "city": "CA_BERKELEY", "role": "Councilmember"}
+  ]
+}

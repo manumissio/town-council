@@ -7,7 +7,7 @@ import SearchHub from "../components/SearchHub";
 import ResultCard from "../components/ResultCard";
 import PersonProfile from "../components/PersonProfile";
 import { TooltipProvider } from "@/components/ui/tooltip";
-import { API_BASE_URL, getApiHeaders } from "../lib/api";
+import { buildApiUrl, getApiHeaders, isDemoMode } from "../lib/api";
 
 export default function Home() {
   // Search State
@@ -30,6 +30,7 @@ export default function Home() {
 
   // Person Profile Modal State
   const [selectedPersonId, setSelectedPersonId] = useState(null);
+  const demoMode = isDemoMode();
 
   /**
    * The heart of the search UI.
@@ -50,9 +51,51 @@ export default function Home() {
 
     try {
       const currentOffset = isLoadMore ? offset + 20 : 0;
+
+      if (demoMode) {
+        const res = await fetch(buildApiUrl("/search"));
+        const data = await res.json();
+        const allHits = data.hits || [];
+        const normalizedQuery = query.trim().toLowerCase();
+        const normalizedCity = (cityFilter || "").toLowerCase();
+        const normalizedOrg = (orgFilter || "").toLowerCase();
+        const normalizedMeetingType = (meetingTypeFilter || "").toLowerCase();
+
+        const filteredHits = allHits.filter((hit) => {
+          const haystack = [
+            hit.event_name,
+            hit.title,
+            hit.content,
+            hit.summary,
+            ...(hit.topics || []),
+          ]
+            .filter(Boolean)
+            .join(" ")
+            .toLowerCase();
+
+          if (normalizedQuery && !haystack.includes(normalizedQuery)) return false;
+          if (normalizedCity && normalizedCity !== "all" && (hit.city || "").toLowerCase() !== normalizedCity) return false;
+          if (
+            normalizedMeetingType &&
+            normalizedMeetingType !== "all" &&
+            (hit.meeting_category || "").toLowerCase() !== normalizedMeetingType
+          ) {
+            return false;
+          }
+          if (normalizedOrg && normalizedOrg !== "all" && (hit.organization || "").toLowerCase() !== normalizedOrg) return false;
+          return true;
+        });
+
+        const pagedHits = filteredHits.slice(currentOffset, currentOffset + 20);
+        setResults((prev) => (isLoadMore ? [...prev, ...pagedHits] : pagedHits));
+        setTotalHits(filteredHits.length);
+        setOffset(currentOffset);
+        setHasMore(currentOffset + 20 < filteredHits.length);
+        return;
+      }
       
       // Build the URL with our search query and any active filters
-      let url = `${API_BASE_URL}/search?q=${encodeURIComponent(query)}&limit=20&offset=${currentOffset}`;
+      let url = buildApiUrl(`/search?q=${encodeURIComponent(query)}&limit=20&offset=${currentOffset}`);
       
       if (cityFilter && cityFilter !== "all") url += `&city=${encodeURIComponent(cityFilter)}`;
       if (meetingTypeFilter && meetingTypeFilter !== "all") url += `&meeting_type=${encodeURIComponent(meetingTypeFilter)}`;
@@ -76,7 +119,7 @@ export default function Home() {
       setLoading(false);
       setIsSearching(false);
     }
-  }, [query, cityFilter, meetingTypeFilter, orgFilter, offset]);
+  }, [query, cityFilter, meetingTypeFilter, orgFilter, offset, demoMode]);
 
   // Debouncing: Prevents searching on EVERY single keypress (waits 400ms)
   useEffect(() => {
@@ -90,7 +133,7 @@ export default function Home() {
 
   // Initial Load: Fetch valid filter options from the search engine
   useEffect(() => {
-    fetch(`${API_BASE_URL}/metadata`, {
+    fetch(buildApiUrl("/metadata"), {
       headers: getApiHeaders({ useAuth: true })
     })
       .then(res => res.json())
@@ -135,6 +178,11 @@ export default function Home() {
                 </a>
               </nav>
             </div>
+            {demoMode && (
+              <span className="text-[10px] font-black uppercase tracking-widest bg-amber-100 text-amber-800 px-3 py-1.5 rounded-full border border-amber-200">
+                Demo Mode (Static)
+              </span>
+            )}
           </div>
         </header>
 

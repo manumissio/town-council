@@ -1,6 +1,6 @@
 import { useState, useEffect } from "react";
 import { X, User, Loader2, Building2, Info } from "lucide-react";
-import { API_BASE_URL, getApiHeaders } from "../lib/api";
+import { buildApiUrl, getApiHeaders, isDemoMode } from "../lib/api";
 
 /**
  * PersonProfile Component
@@ -11,6 +11,7 @@ import { API_BASE_URL, getApiHeaders } from "../lib/api";
 export default function PersonProfile({ personId, onClose }) {
   const [data, setData] = useState(null);
   const [loading, setLoading] = useState(true);
+  const demoMode = isDemoMode();
 
   useEffect(() => {
     if (!personId) return;
@@ -18,8 +19,8 @@ export default function PersonProfile({ personId, onClose }) {
     const fetchPerson = async () => {
       setLoading(true);
       try {
-        const res = await fetch(`${API_BASE_URL}/person/${personId}`, {
-          headers: getApiHeaders({ useAuth: true })
+        const res = await fetch(buildApiUrl(`/person/${personId}`), {
+          headers: getApiHeaders({ useAuth: !demoMode })
         });
         const json = await res.json();
         setData(json);
