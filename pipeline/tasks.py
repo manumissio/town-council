@@ -61,15 +61,63 @@ def _extract_agenda_titles_from_text(text: str, max_titles: int = 3):
         return []
 
     # Page markers are useful for deep linking, but they make regex parsing noisier.
-    value = re.sub(r"\\[PAGE\\s+\\d+\\]", "\n", text, flags=re.IGNORECASE)
-    value = re.sub(r"[ \\t]+", " ", value)
+    value = re.sub(r"\[PAGE\s+\d+\]", "\n", text, flags=re.IGNORECASE)
+    # Normalize runs of spaces/tabs without deleting letters.
+    value = re.sub(r"[ \t]+", " ", value)
 
     titles = []
 
+    def _looks_like_attendance_or_access_info(line: str) -> bool:
+        """
+        Skip "how to attend" boilerplate.
+
+        Why:
+        Many agendas include numbered participation instructions (email/phone/webinar).
+        Those are not agenda *items* and should not drive summaries.
+        """
+        v = (line or "").strip().lower()
+        if not v:
+            return True
+        needles = [
+            "teleconference",
+            "public participation",
+            "email comments",
+            "e-mail comments",
+            "email address",
+            "enter an email",
+            "enter your email",
+            "register",
+            "webinar",
+            "zoom",
+            "webex",
+            "teams",
+            "passcode",
+            "phone",
+            "dial",
+            "raise hand",
+            "unmute",
+            "mute",
+            "last four digits",
+            "time allotted",
+            "limit your remarks",
+            "browser",
+            "microsoft edge",
+            "internet explorer",
+            "safari",
+            "firefox",
+            "chrome",
+            "ada",
+            "accommodation",
+            "accessibility",
+        ]
+        return any(n in v for n in needles)
+
     # 1) Prefer true line-based numbering when available.
-    for m in re.finditer(r"(?m)^\\s*\\d+\\.\\s+(.+?)\\s*$", value):
+    for m in re.finditer(r"(?m)^\s*\d+\.\s+(.+?)\s*$", value):
         title = (m.group(1) or "").strip()
         if not title or len(title) < 10:
+            continue
+        if _looks_like_attendance_or_access_info(title):
             continue
         titles.append(title)
         if len(titles) >= max_titles:
@@ -77,7 +125,7 @@ def _extract_agenda_titles_from_text(text: str, max_titles: int = 3):
 
     # 2) Fallback: split by inline numbering when extraction collapsed line breaks.
     if len(titles) < max_titles:
-        parts = re.split(r"\\b(\\d{1,2})\\.\\s+", value)
+        parts = re.split(r"\b(\d{1,2})\.\s+", value)
         # parts: [prefix, num, rest, num, rest, ...]
         for i in range(1, len(parts), 2):
             rest = (parts[i + 1] if i + 1 < len(parts) else "").strip()
@@ -86,6 +134,8 @@ def _extract_agenda_titles_from_text(text: str, max_titles: int = 3):
             candidate = rest.split("\n", 1)[0].strip()
             candidate = candidate[:160].strip()
             if len(candidate) < 10:
+                continue
+            if _looks_like_attendance_or_access_info(candidate):
                 continue
             titles.append(candidate)
             if len(titles) >= max_titles:
@@ -317,9 +367,96 @@ def generate_topics_task(self, catalog_id: int, force: bool = False, max_corpus_
         # Use the same municipal stopwords as the batch worker so we don't emit date tokens
         # like "September" or URL fragments as "topics".
         from pipeline.topic_worker import CITY_STOP_WORDS
-        stop_words = sorted(set(CITY_STOP_WORDS).union(ENGLISH_STOP_WORDS))
+
+        # City names are already visible in the UI metadata, so they tend to be "decorative"
+        # topics. Remove place tokens to let actual subject matter rise to the top.
+        place_tokens = set()
+        try:
+            from pipeline.models import Place
+            place = db.get(Place, doc.place_id)
+            display = (getattr(place, "display_name", "") or getattr(place, "name", "") or "").lower()
+            for tok in re.findall(r"[a-zA-Z]{3,}", display):
+                place_tokens.add(tok)
+        except Exception:
+            place_tokens = set()
+
+        stop_words = sorted(set(CITY_STOP_WORDS).union(ENGLISH_STOP_WORDS).union(place_tokens))
 
         n_docs = len(corpus)
+
+        if n_docs < 3:
+            # With only 1-2 documents, TF-IDF is either unstable or just returns generic words.
+            # Use a deterministic single-document fallback that favors agenda "Subject:" lines.
+            cleaned = postprocess_extracted_text(catalog.content)
+            titles = _extract_agenda_titles_from_text(cleaned, max_titles=8)
+            if titles:
+                # Strip common template labels and "(Presenter)" suffixes.
+                normalized_titles = []
+                for t in titles:
+                    v = re.sub(r"\([^)]*\)", " ", t)  # drop presenter/staff name suffix
+                    v = re.sub(r"^\s*subject\s*:\s*", "", v, flags=re.IGNORECASE)
+                    v = re.sub(r"^\s*recommended\s+action\s*:\s*", "", v, flags=re.IGNORECASE)
+                    normalized_titles.append(v.strip())
+                candidates = " ".join(normalized_titles)
+            else:
+                candidates = cleaned
+
+            word_tokens = [t.lower() for t in re.findall(r"[a-zA-Z][a-zA-Z'-]{2,}", candidates)]
+            stop = set(stop_words)
+            filtered = [t for t in word_tokens if t not in stop]
+            if not filtered:
+                return {
+                    "status": "blocked_low_signal",
+                    "reason": "Not enough usable text to generate topics.",
+                    "topics": [],
+                }
+
+            # Prefer short phrases (bigrams/trigrams) over single words.
+            phrase_counts = {}
+            for n in (3, 2):
+                for i in range(0, max(0, len(filtered) - n + 1)):
+                    phrase = " ".join(filtered[i : i + n])
+                    phrase_counts[phrase] = phrase_counts.get(phrase, 0) + 1
+
+            unigram_counts = {}
+            for t in filtered:
+                unigram_counts[t] = unigram_counts.get(t, 0) + 1
+
+            ranked_phrases = sorted(phrase_counts.items(), key=lambda kv: (-kv[1], kv[0]))
+            ranked_unigrams = sorted(unigram_counts.items(), key=lambda kv: (-kv[1], kv[0]))
+
+            keywords = []
+            seen = set()
+            for phrase, _n in ranked_phrases:
+                key = phrase.lower()
+                if key in seen:
+                    continue
+                seen.add(key)
+                keywords.append(phrase.title())
+                if len(keywords) >= 5:
+                    break
+            if len(keywords) < 5:
+                for word, _n in ranked_unigrams:
+                    key = word.lower()
+                    if key in seen:
+                        continue
+                    seen.add(key)
+                    keywords.append(word.title())
+                    if len(keywords) >= 5:
+                        break
+
+            catalog.topics = keywords
+            catalog.content_hash = content_hash
+            catalog.topics_source_hash = content_hash
+            db.commit()
+
+            try:
+                reindex_catalog(catalog_id)
+            except Exception:
+                pass
+
+            return {"status": "complete", "topics": keywords}
+
         max_df = (1.0 if n_docs < 2 else TFIDF_MAX_DF)
         min_df = (1 if n_docs < 3 else TFIDF_MIN_DF)
         vectorizer = TfidfVectorizer(

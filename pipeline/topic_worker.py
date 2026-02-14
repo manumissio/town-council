@@ -30,14 +30,17 @@ logger = logging.getLogger("topic-worker")
 # These are words that appear constantly in city documents but aren't useful as 'Topics'.
 # We filter these out so they don't drown out real topics like 'Housing' or 'Biking'.
 CITY_STOP_WORDS = [
-    "meeting", "council", "city", "minutes", "present", "absent", "motion", 
+    "meeting", "council", "city", "minutes", "agenda", "present", "absent", "motion", 
     "seconded", "voted", "item", "resolution", "ordinance", "approved", 
     "unanimous", "quorum", "adjourned", "p.m.", "a.m.", "january", "february",
     "march", "april", "may", "june", "july", "august", "september", "october",
     "november", "december", "monday", "tuesday", "wednesday", "thursday", 
     "friday", "hereby", "thereof", "therein", "clerk", "mayor", "councilmember",
-    "commissioner", "staff", "report", "public", "comment", "called", "order",
+    "commission", "committee", "commissioner", "members", "teleconference",
+    "staff", "report", "public", "comment", "called", "order",
     "action", "discussion", "held", "held", "carried", "aye", "noes", "abstain",
+    # Agenda templates often include "Subject:" / "Recommended Action:" labels.
+    "subject", "recommended", "recommendation",
     # URL fragments are not meaningful topics, but can easily win TF-IDF on agenda PDFs.
     "http", "https", "www"
 ]
