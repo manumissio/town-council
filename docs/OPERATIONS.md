@@ -6,9 +6,21 @@ Last verified: 2026-02-12
 
 ### 1) Start stack
 ```bash
-docker compose up -d --build postgres redis
+docker compose up -d --build
 docker compose run --rm pipeline python db_init.py
-docker compose up -d
+```
+
+Optional helper (same steps, fewer flags to remember):
+```bash
+bash ./scripts/dev_up.sh
+```
+
+### 1.5) Verify containers are using the latest image
+This catches “stale image” problems early (for example, missing Python deps).
+
+```bash
+docker compose run --rm api python -c "import bs4; print('bs4', bs4.__version__)"
+curl -f http://localhost:8000/health
 ```
 
 ### 2) Scrape

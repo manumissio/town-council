@@ -17,10 +17,21 @@ This project ingests agendas/minutes, extracts text, indexes search content, and
 
 ### 2) Start core services and initialize DB
 ```bash
-docker compose up -d --build postgres redis
-sleep 10
+docker compose up -d --build
 docker compose run --rm pipeline python db_init.py
-docker compose up -d
+```
+
+Optional helper (same steps, fewer flags to remember):
+```bash
+bash ./scripts/dev_up.sh
+```
+
+### 2.5) Verify containers are using the latest image
+This catches “stale image” problems early (for example, missing Python deps).
+
+```bash
+docker compose run --rm api python -c "import bs4; print('bs4', bs4.__version__)"
+curl -f http://localhost:8000/health
 ```
 
 ### 3) Scrape a city
