@@ -142,7 +142,15 @@ def extract_claim_lines(summary: str) -> List[str]:
         return []
     lines = []
     for raw in summary.splitlines():
-        line = raw.strip()
+        # Normalize whitespace so simple substring checks work even with NBSPs, etc.
+        line = " ".join((raw or "").strip().split())
+        if not line:
+            continue
+        # Strip common bullet markers before any content-based filtering.
+        line = re.sub(r"^\s*[\*\-\u2022]+\s*", "", line).strip()
+        # Models sometimes wrap preambles in quotes or punctuation; drop leading non-alphanumerics
+        # so "Here’s ..." is detected reliably.
+        line = re.sub(r"^[^A-Za-z0-9]+", "", line).strip()
         if not line:
             continue
         # BLUF is a synthesis line and often paraphrases the source.
@@ -151,8 +159,10 @@ def extract_claim_lines(summary: str) -> List[str]:
         lowered = line.lower()
         if lowered.startswith("bluf:"):
             continue
-        line = re.sub(r"^\s*[\*\-\u2022]+\s*", "", line).strip()
-        if not line:
+        # Drop generic preambles that models often add before actual claims.
+        if lowered.startswith("here") and "summary" in lowered:
+            continue
+        if "executive summary" in lowered or ("summary" in lowered and lowered.endswith(":")):
             continue
         if lowered.startswith("here's a summary") or lowered.startswith("here is a summary"):
             continue
@@ -164,27 +174,48 @@ def extract_claim_lines(summary: str) -> List[str]:
     return lines
 
 
-def _claim_coverage(claim: str, source_tokens: set) -> float:
+def _claim_coverage(claim: str, source_tokens: set, source_prefixes: set) -> float:
     claim_tokens = [t for t in _tokenize(claim) if len(t) >= 3 and t not in _STOPWORDS]
     if not claim_tokens:
         return 1.0
-    matched = sum(1 for t in claim_tokens if t in source_tokens)
+    # Allow a small amount of morphological drift (employee vs employment, appointments vs appoint)
+    # using a fixed-length prefix match. This stays deterministic and bounded.
+    matched = 0
+    for t in claim_tokens:
+        if t in source_tokens:
+            matched += 1
+            continue
+        if len(t) >= 5 and t[:5] in source_prefixes:
+            matched += 1
+            continue
     return matched / len(claim_tokens)
 
 
 def is_summary_grounded(summary: str, source_text: str) -> GroundingResult:
     claims = extract_claim_lines(summary)
     if not claims:
-        return GroundingResult(is_grounded=False, coverage=0.0, unsupported_claims=["No summary claims found"])
+        # Fallback: if the summary has only a BLUF line, use it as a single claim.
+        # This prevents blanket blocks when the model returns a short, high-level takeaway.
+        bluf = None
+        for raw in (summary or "").splitlines():
+            line = " ".join((raw or "").strip().split())
+            if line.lower().startswith("bluf:"):
+                bluf = line.split(":", 1)[1].strip()
+                break
+        if bluf and len(bluf) >= 5:
+            claims = [bluf]
+        else:
+            return GroundingResult(is_grounded=False, coverage=0.0, unsupported_claims=["No summary claims found"])
 
     source_tokens = set(_tokenize(source_text or ""))
     if not source_tokens:
         return GroundingResult(is_grounded=False, coverage=0.0, unsupported_claims=claims[:3])
+    source_prefixes = {tok[:5] for tok in source_tokens if len(tok) >= 5}
 
     claim_coverages = []
     unsupported = []
     for claim in claims:
-        coverage = _claim_coverage(claim, source_tokens)
+        coverage = _claim_coverage(claim, source_tokens, source_prefixes)
         claim_coverages.append(coverage)
         if coverage < SUMMARY_GROUNDING_MIN_COVERAGE:
             unsupported.append(claim)

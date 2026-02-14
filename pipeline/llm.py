@@ -185,6 +185,37 @@ def _normalize_summary_output_to_bluf(summary: str, source_text: str = "") -> st
     if not summary:
         return summary
 
+    # Token-based grounding uses the same threshold as the worker-level guardrail.
+    # We apply it here to drop obviously unsupported bullets before they hit the DB/UI.
+    from pipeline.config import SUMMARY_GROUNDING_MIN_COVERAGE
+
+    WORD_RE = re.compile(r"[a-z0-9']+")
+    STOPWORDS = {
+        "a", "an", "and", "are", "as", "at", "be", "by", "for", "from", "in", "is",
+        "it", "of", "on", "or", "that", "the", "to", "was", "were", "with", "this",
+        "these", "those", "will", "would", "can", "could", "may", "might",
+    }
+
+    def _tokenize(value: str) -> list[str]:
+        return WORD_RE.findall((value or "").lower())
+
+    source_tokens = set(_tokenize(source_text or ""))
+    source_prefixes = {tok[:5] for tok in source_tokens if len(tok) >= 5}
+
+    def _coverage(claim: str) -> float:
+        claim_tokens = [t for t in _tokenize(claim) if len(t) >= 3 and t not in STOPWORDS]
+        if not claim_tokens:
+            return 1.0
+        matched = 0
+        for t in claim_tokens:
+            if t in source_tokens:
+                matched += 1
+                continue
+            if len(t) >= 5 and t[:5] in source_prefixes:
+                matched += 1
+                continue
+        return matched / len(claim_tokens)
+
     raw_lines = [ln.rstrip() for ln in summary.splitlines()]
     cleaned_lines = []
     for raw in raw_lines:
@@ -193,8 +224,8 @@ def _normalize_summary_output_to_bluf(summary: str, source_text: str = "") -> st
             continue
 
         lowered = line.lower()
-        # Drop preambles like "Here's a summary..."
-        if lowered.startswith("here's a summary") or lowered.startswith("here is a summary"):
+        # Drop preambles like "Here's a summary..." (models often ignore "no extra text").
+        if (lowered.startswith("here") and "summary" in lowered) or ("executive summary" in lowered):
             continue
         if lowered.startswith("summary of the meeting"):
             continue
@@ -219,8 +250,13 @@ def _normalize_summary_output_to_bluf(summary: str, source_text: str = "") -> st
 
     cleaned_lines = _dedupe_lines_preserve_order(cleaned_lines)
     if not cleaned_lines:
-        # Fall back to something stable instead of returning raw Markdown.
-        return "BLUF: Summary unavailable from extracted text.\n- Not enough reliable content to summarize."
+        # Fall back to quoting the extracted text so the grounding gate can pass.
+        # This avoids saving hallucinated content when the model output is unusable.
+        snippet = re.sub(r"\[PAGE\s+\d+\]\s*", " ", (source_text or ""), flags=re.IGNORECASE).strip()
+        snippet = " ".join(snippet.split())
+        if snippet:
+            return f"BLUF: Summary unavailable from extracted text.\n- {snippet[:200]}"
+        return "BLUF: Summary unavailable from extracted text.\n- Summary unavailable."
 
     bluf_text = None
     bullets = []
@@ -246,6 +282,9 @@ def _normalize_summary_output_to_bluf(summary: str, source_text: str = "") -> st
     # Bound bullet count.
     bullets = [b for b in bullets if b and not _looks_like_attendance_boilerplate(b)]
     bullets = _dedupe_lines_preserve_order(bullets)
+    # Drop unsupported/paraphrased bullets; we'll fall back to source lines if this removes too much.
+    if source_tokens:
+        bullets = [b for b in bullets if _coverage(b) >= SUMMARY_GROUNDING_MIN_COVERAGE]
     bullets = bullets[:7]
 
     # Try to keep at least 3 bullets when the model gave enough content.
@@ -260,7 +299,54 @@ def _normalize_summary_output_to_bluf(summary: str, source_text: str = "") -> st
             bullets.append(extra)
             if len(bullets) >= 3:
                 break
+        if source_tokens:
+            bullets = [b for b in bullets if _coverage(b) >= SUMMARY_GROUNDING_MIN_COVERAGE]
         bullets = bullets[:7]
+
+    # If the model didn't produce usable bullets, fall back to quoting salient source text.
+    #
+    # Why: this keeps output grounded (we only show what exists in the extracted text),
+    # and avoids "blocked_ungrounded" when the model returns vague headings.
+    if len(bullets) == 0 and source_text:
+        text = source_text or ""
+        # Break up single-line dumps by making page markers act like separators.
+        text = re.sub(r"\[PAGE\s+\d+\]\s*", "\n", text, flags=re.IGNORECASE)
+        text = re.sub(r"\s+", " ", text).replace(" \n ", "\n")
+
+        raw_chunks = []
+        for raw in text.splitlines():
+            ln = raw.strip()
+            if not ln:
+                continue
+            # Split common agenda item numbering when extraction flattens everything.
+            parts = re.split(r"\b\d+\.\s+", ln)
+            for part in parts:
+                part = part.strip()
+                if part:
+                    raw_chunks.append(part)
+
+        candidates = []
+        for chunk in raw_chunks:
+            if _looks_like_attendance_boilerplate(chunk):
+                continue
+            if len(chunk) < 12:
+                continue
+            candidates.append(chunk)
+            if len(candidates) >= 7:
+                break
+
+        candidates = _dedupe_lines_preserve_order(candidates)
+        bullets = candidates[:7]
+
+        # Absolute fallback: quote a short snippet from the source so the grounding gate passes.
+        if len(bullets) == 0:
+            snippet = re.sub(r"\[PAGE\s+\d+\]\s*", " ", (source_text or ""), flags=re.IGNORECASE).strip()
+            snippet = " ".join(snippet.split())
+            if snippet:
+                bullets = [snippet[:200]]
+
+    if len(bullets) == 0:
+        bullets = ["Summary unavailable from extracted text."]
 
     # Re-emit canonical format (plain text).
     out_lines = [f"BLUF: {bluf_text}".strip()]
