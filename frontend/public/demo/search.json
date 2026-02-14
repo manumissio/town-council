@@ -12,7 +12,7 @@
       "date": "2026-01-14",
       "filename": "berkeley_regular_2026_01_14.pdf",
       "url": "https://example.com/berkeley_regular_2026_01_14.pdf",
-      "content": "[PAGE 1] CALL TO ORDER\nROLL CALL\n[PAGE 2] 1. Budget Amendment\nVote: All Ayes.",
+      "content": "[PAGE 1]\nCALL TO ORDER\nROLL CALL\n\n[PAGE 2]\n1. Budget Amendment\nVote: All Ayes.",
       "summary": "The council opened the meeting, reviewed a budget amendment, and approved it unanimously.",
       "topics": [
         "budget",
@@ -91,7 +91,7 @@
       "date": "2026-01-25",
       "filename": "cupertino_audit_2026_01_25.pdf",
       "url": "https://example.com/cupertino_audit_2026_01_25.pdf",
-      "content": "[PAGE 1] AUDIT COMMITTEE\nPUBLIC COMMENT\n[PAGE 2] 1. Fiscal Update\nVote: Motion carried.",
+      "content": "[PAGE 1]\nAUDIT COMMITTEE\nPUBLIC COMMENT\n\n[PAGE 2]\n1. Fiscal Update\nVote: Motion carried.",
       "summary": "Prior summary generated from older extracted text.",
       "topics": [
         "audit",
@@ -135,7 +135,7 @@
       "date": "2026-01-30",
       "filename": "berkeley_planning_2026_01_30.pdf",
       "url": "https://example.com/berkeley_planning_2026_01_30.pdf",
-      "content": "[PAGE 1] CALL TO ORDER\\nCONSENT CALENDAR\\n[PAGE 3] 2. Zoning Map Amendment\\nVote: 6-1 approved.",
+      "content": "[PAGE 1]\nCITY OF BERKELEY PLANNING COMMISSION\nREGULAR MEETING\nJanuary 30, 2026\n\nCALL TO ORDER\nThe meeting was called to order at 7:02 p.m.\n\nROLL CALL\nCommissioners present: Alvarez, Chen, Lopez, Patel, Rivera, Singh, Walsh.\n\nAPPROVAL OF MINUTES\nMinutes from January 16, 2026 were approved.\n\n[PAGE 2]\nPUBLIC COMMENT\nSpeakers addressed housing affordability, transit access, and neighborhood design.\n\nCONSENT CALENDAR\nItem A: Design review extension for 2100 University Avenue.\nItem B: Administrative zoning correction for mixed-use parcel map.\n\n[PAGE 3]\nAGENDA ITEM 2\nZONING MAP AMENDMENT\nStaff report presented options for rezoning from C-SA to C-NS to align with adopted housing policy.\nAction: Motion to approve amendment with findings.\nVote: 6-1 approved.\n\nNEXT MEETING\nFebruary 13, 2026\n",
       "summary": "The commission approved a zoning map amendment after public comment.",
       "topics": [
         "zoning",
@@ -182,7 +182,7 @@
       "date": "2026-02-03",
       "filename": "cupertino_council_2026_02_03.pdf",
       "url": "https://example.com/cupertino_council_2026_02_03.pdf",
-      "content": "[PAGE 1] CALL TO ORDER\\n[PAGE 2] 1. Housing Element Update\\nAction: Continued to next meeting.",
+      "content": "[PAGE 1]\nCITY OF CUPERTINO CITY COUNCIL\nREGULAR MEETING\nFebruary 3, 2026\n\nCALL TO ORDER\nMayor called the meeting to order at 6:45 p.m.\n\nPLEDGE OF ALLEGIANCE\n\nROLL CALL\nCouncilmembers present: Moore, Tanaka, Shah, Rivera, Delgado.\n\n[PAGE 2]\nAGENDA ITEM 1\nHOUSING ELEMENT UPDATE\nPlanning staff provided status on state review comments and implementation milestones.\nPublic comments focused on tenant protections and displacement mitigation.\nAction: Continue item to next regular meeting for revised draft language.\n\nAGENDA ITEM 2\nBUDGET ADJUSTMENT FOR PERMIT PROCESSING\nAction: Approved budget transfer for temporary staffing support.\nVote: 5-0.\n\nADJOURNMENT\nMeeting adjourned at 10:14 p.m.\n",
       "summary": "Council reviewed the housing element update and continued the item.",
       "topics": [
         "housing",
@@ -226,7 +226,7 @@
       "date": "2026-02-10",
       "filename": "berkeley_transportation_2026_02_10.pdf",
       "url": "https://example.com/berkeley_transportation_2026_02_10.pdf",
-      "content": "[PAGE 1] SPECIAL MEETING\\n1. Bike Network Expansion\\n2. Transit Signal Priority",
+      "content": "[PAGE 1]\nCITY OF BERKELEY TRANSPORTATION COMMISSION\nSPECIAL MEETING\nFebruary 10, 2026\n\nCALL TO ORDER\n\nITEM 1: BIKE NETWORK EXPANSION\nStaff reviewed protected lane options and phased implementation schedule.\nCommission discussion highlighted safety at major intersections and school routes.\n\nITEM 2: TRANSIT SIGNAL PRIORITY\nPresentation on corridor-level transit delay reduction.\nNo formal vote taken.\n\nPUBLIC COMMENT\nResidents requested better curb management and bus stop accessibility.\n\nADJOURNMENT\n",
       "summary": null,
       "topics": [],
       "summary_is_stale": false,
@@ -266,7 +266,7 @@
       "date": "2026-02-12",
       "filename": "cupertino_finance_2026_02_12.pdf",
       "url": "https://example.com/cupertino_finance_2026_02_12.pdf",
-      "content": "[PAGE 1] FINANCE COMMITTEE\\n[PAGE 2] 1. Midyear Budget Review\\nVote: Approved unanimously.",
+      "content": "[PAGE 1]\nCITY OF CUPERTINO FINANCE COMMITTEE\nREGULAR MEETING\nFebruary 12, 2026\n\nCALL TO ORDER\nMeeting called to order at 4:02 p.m.\n\nMIDYEAR BUDGET REVIEW\nRevenue performance is tracking 2.3% above forecast.\nExpenditure categories with variance were public works and facilities maintenance.\n\n[PAGE 2]\nCAPITAL IMPROVEMENT PROGRAM STATUS\nProject updates: library modernization, stormwater upgrades, park lighting replacement.\n\nACTION\nMotion to recommend amended appropriations to City Council.\nVote: Approved unanimously.\n\nNEXT STEPS\nStaff to prepare final recommendation memo.\n",
       "summary": "Committee approved the midyear budget review recommendations.",
       "topics": [
         "budget",
@@ -311,7 +311,7 @@
       "date": "2026-02-14",
       "filename": "berkeley_closed_2026_02_14.pdf",
       "url": "https://example.com/berkeley_closed_2026_02_14.pdf",
-      "content": "[PAGE 1] CLOSED SESSION\\n1. Conference with legal counsel",
+      "content": "[PAGE 1]\nCITY OF BERKELEY CITY COUNCIL\nCLOSED SESSION\nFebruary 14, 2026\n\nCONFERENCE WITH LEGAL COUNSEL\nExisting litigation and anticipated litigation matters were discussed.\n\nPUBLIC EMPLOYEE PERFORMANCE EVALUATION\nLimited to positions authorized under applicable law.\n\nREPORTABLE ACTION\nNo reportable action from closed session.\n\nADJOURNMENT\n",
       "summary": "Closed session convened to discuss legal matters. No reportable action.",
       "topics": [
         "closed session",
@@ -355,7 +355,7 @@
       "date": "2026-02-18",
       "filename": "cupertino_parks_2026_02_18.pdf",
       "url": "https://example.com/cupertino_parks_2026_02_18.pdf",
-      "content": "[PAGE 1] PARKS AND RECREATION\\n1. Capital Improvement Plan priorities",
+      "content": "[PAGE 1]\nCITY OF CUPERTINO PARKS AND RECREATION COMMISSION\nREGULAR MEETING\nFebruary 18, 2026\n\nCALL TO ORDER\n\nITEM 1: CAPITAL IMPROVEMENT PLAN PRIORITIES\nCommission reviewed project ranking criteria: safety, equity, lifecycle cost, and neighborhood access.\n\nITEM 2: COMMUNITY EVENT CALENDAR\nDiscussion on summer programming and volunteer capacity.\n\nPUBLIC COMMENT\nResidents requested expanded evening programming at neighborhood parks.\n\nADJOURNMENT\n",
       "summary": "Commission discussed park capital priorities for FY 2026-27.",
       "topics": [
         "parks",
@@ -388,7 +388,7 @@
       "date": "2026-02-20",
       "filename": "berkeley_housing_2026_02_20.pdf",
       "url": "https://example.com/berkeley_housing_2026_02_20.pdf",
-      "content": "[PAGE 1] HOUSING ADVISORY COMMISSION\\n1. Tenant Protection Program update",
+      "content": "[PAGE 1]\nCITY OF BERKELEY HOUSING ADVISORY COMMISSION\nREGULAR MEETING\nFebruary 20, 2026\n\nCALL TO ORDER\n\nTENANT PROTECTION PROGRAM UPDATE\nStaff reported year-to-date outcomes for legal assistance and relocation support.\nMembers requested disaggregated data by neighborhood and income level.\n\n[PAGE 2]\nRENT STABILIZATION OUTREACH\nCommunity partners described multilingual outreach progress and landlord training sessions.\n\nACTION\nCommission directed staff to return with implementation options and funding impacts.\n\nADJOURNMENT\n",
       "summary": "The commission reviewed tenant protection outcomes and directed staff follow-up.",
       "topics": [
         "housing",
