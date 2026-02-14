@@ -1,5 +1,5 @@
 {
-  "estimatedTotalHits": 3,
+  "estimatedTotalHits": 10,
   "hits": [
     {
       "id": 701,
@@ -14,7 +14,11 @@
       "url": "https://example.com/berkeley_regular_2026_01_14.pdf",
       "content": "[PAGE 1] CALL TO ORDER\nROLL CALL\n[PAGE 2] 1. Budget Amendment\nVote: All Ayes.",
       "summary": "The council opened the meeting, reviewed a budget amendment, and approved it unanimously.",
-      "topics": ["budget", "city council", "vote"],
+      "topics": [
+        "budget",
+        "city council",
+        "vote"
+      ],
       "summary_is_stale": false,
       "topics_is_stale": false,
       "summary_extractive": null,
@@ -30,10 +34,21 @@
         }
       ],
       "people_metadata": [
-        {"id": 1, "name": "Rashi Kesarwani"},
-        {"id": 2, "name": "Susan Wengraf"}
+        {
+          "id": 1,
+          "name": "Rashi Kesarwani"
+        },
+        {
+          "id": 2,
+          "name": "Susan Wengraf"
+        }
       ],
-      "entities": {"orgs": ["City Council", "Finance Department"]}
+      "entities": {
+        "orgs": [
+          "City Council",
+          "Finance Department"
+        ]
+      }
     },
     {
       "id": 702,
@@ -54,9 +69,16 @@
       "summary_extractive": null,
       "agenda_items": null,
       "people_metadata": [
-        {"id": 3, "name": "Committee Chair"}
+        {
+          "id": 3,
+          "name": "Committee Chair"
+        }
       ],
-      "entities": {"orgs": ["Environmental Review Committee"]}
+      "entities": {
+        "orgs": [
+          "Environmental Review Committee"
+        ]
+      }
     },
     {
       "id": 703,
@@ -71,7 +93,10 @@
       "url": "https://example.com/cupertino_audit_2026_01_25.pdf",
       "content": "[PAGE 1] AUDIT COMMITTEE\nPUBLIC COMMENT\n[PAGE 2] 1. Fiscal Update\nVote: Motion carried.",
       "summary": "Prior summary generated from older extracted text.",
-      "topics": ["audit", "finance"],
+      "topics": [
+        "audit",
+        "finance"
+      ],
       "summary_is_stale": true,
       "topics_is_stale": true,
       "summary_extractive": null,
@@ -87,9 +112,313 @@
         }
       ],
       "people_metadata": [
-        {"id": 4, "name": "Audit Chair"}
+        {
+          "id": 4,
+          "name": "Audit Chair"
+        }
       ],
-      "entities": {"orgs": ["Audit Committee", "Finance Department"]}
+      "entities": {
+        "orgs": [
+          "Audit Committee",
+          "Finance Department"
+        ]
+      }
+    },
+    {
+      "id": 704,
+      "catalog_id": 704,
+      "event_id": 704,
+      "event_name": "Berkeley, CA Planning Commission Regular Meeting",
+      "city": "CA_BERKELEY",
+      "organization": "Planning Commission",
+      "meeting_category": "Regular",
+      "date": "2026-01-30",
+      "filename": "berkeley_planning_2026_01_30.pdf",
+      "url": "https://example.com/berkeley_planning_2026_01_30.pdf",
+      "content": "[PAGE 1] CALL TO ORDER\\nCONSENT CALENDAR\\n[PAGE 3] 2. Zoning Map Amendment\\nVote: 6-1 approved.",
+      "summary": "The commission approved a zoning map amendment after public comment.",
+      "topics": [
+        "zoning",
+        "housing",
+        "planning"
+      ],
+      "summary_is_stale": false,
+      "topics_is_stale": false,
+      "summary_extractive": null,
+      "agenda_items": [
+        {
+          "order": 2,
+          "title": "Zoning Map Amendment",
+          "description": "Agenda section 2",
+          "classification": "Agenda Item",
+          "result": "6-1 approved.",
+          "page_number": 3,
+          "votes": [
+            "Ayes: 6",
+            "Noes: 1"
+          ]
+        }
+      ],
+      "people_metadata": [
+        {
+          "id": 1,
+          "name": "Rashi Kesarwani"
+        }
+      ],
+      "entities": {
+        "orgs": [
+          "Planning Commission"
+        ]
+      }
+    },
+    {
+      "id": 705,
+      "catalog_id": 705,
+      "event_id": 705,
+      "event_name": "Cupertino, CA City Council Regular Meeting",
+      "city": "CA_CUPERTINO",
+      "organization": "City Council",
+      "meeting_category": "Regular",
+      "date": "2026-02-03",
+      "filename": "cupertino_council_2026_02_03.pdf",
+      "url": "https://example.com/cupertino_council_2026_02_03.pdf",
+      "content": "[PAGE 1] CALL TO ORDER\\n[PAGE 2] 1. Housing Element Update\\nAction: Continued to next meeting.",
+      "summary": "Council reviewed the housing element update and continued the item.",
+      "topics": [
+        "housing",
+        "city council"
+      ],
+      "summary_is_stale": false,
+      "topics_is_stale": false,
+      "summary_extractive": null,
+      "agenda_items": [
+        {
+          "order": 1,
+          "title": "Housing Element Update",
+          "description": "Agenda section 1",
+          "classification": "Agenda Item",
+          "result": "Continued to next meeting.",
+          "page_number": 2,
+          "votes": []
+        }
+      ],
+      "people_metadata": [
+        {
+          "id": 2,
+          "name": "Susan Wengraf"
+        }
+      ],
+      "entities": {
+        "orgs": [
+          "City Council",
+          "Housing Department"
+        ]
+      }
+    },
+    {
+      "id": 706,
+      "catalog_id": 706,
+      "event_id": 706,
+      "event_name": "Berkeley, CA Transportation Commission Special Meeting",
+      "city": "CA_BERKELEY",
+      "organization": "Transportation Commission",
+      "meeting_category": "Special",
+      "date": "2026-02-10",
+      "filename": "berkeley_transportation_2026_02_10.pdf",
+      "url": "https://example.com/berkeley_transportation_2026_02_10.pdf",
+      "content": "[PAGE 1] SPECIAL MEETING\\n1. Bike Network Expansion\\n2. Transit Signal Priority",
+      "summary": null,
+      "topics": [],
+      "summary_is_stale": false,
+      "topics_is_stale": false,
+      "summary_extractive": null,
+      "agenda_items": [
+        {
+          "order": 1,
+          "title": "Bike Network Expansion",
+          "description": "Agenda section 1",
+          "classification": "Agenda Item",
+          "result": "Discussion only.",
+          "page_number": 1,
+          "votes": []
+        }
+      ],
+      "people_metadata": [
+        {
+          "id": 3,
+          "name": "Committee Chair"
+        }
+      ],
+      "entities": {
+        "orgs": [
+          "Transportation Commission"
+        ]
+      }
+    },
+    {
+      "id": 707,
+      "catalog_id": 707,
+      "event_id": 707,
+      "event_name": "Cupertino, CA Finance Committee Meeting",
+      "city": "CA_CUPERTINO",
+      "organization": "Finance Committee",
+      "meeting_category": "Regular",
+      "date": "2026-02-12",
+      "filename": "cupertino_finance_2026_02_12.pdf",
+      "url": "https://example.com/cupertino_finance_2026_02_12.pdf",
+      "content": "[PAGE 1] FINANCE COMMITTEE\\n[PAGE 2] 1. Midyear Budget Review\\nVote: Approved unanimously.",
+      "summary": "Committee approved the midyear budget review recommendations.",
+      "topics": [
+        "budget",
+        "finance"
+      ],
+      "summary_is_stale": false,
+      "topics_is_stale": false,
+      "summary_extractive": null,
+      "agenda_items": [
+        {
+          "order": 1,
+          "title": "Midyear Budget Review",
+          "description": "Agenda section 1",
+          "classification": "Agenda Item",
+          "result": "Approved unanimously.",
+          "page_number": 2,
+          "votes": [
+            "All Ayes"
+          ]
+        }
+      ],
+      "people_metadata": [
+        {
+          "id": 4,
+          "name": "Audit Chair"
+        }
+      ],
+      "entities": {
+        "orgs": [
+          "Finance Committee"
+        ]
+      }
+    },
+    {
+      "id": 708,
+      "catalog_id": 708,
+      "event_id": 708,
+      "event_name": "Berkeley, CA City Council Closed Session",
+      "city": "CA_BERKELEY",
+      "organization": "City Council",
+      "meeting_category": "Closed",
+      "date": "2026-02-14",
+      "filename": "berkeley_closed_2026_02_14.pdf",
+      "url": "https://example.com/berkeley_closed_2026_02_14.pdf",
+      "content": "[PAGE 1] CLOSED SESSION\\n1. Conference with legal counsel",
+      "summary": "Closed session convened to discuss legal matters. No reportable action.",
+      "topics": [
+        "closed session",
+        "legal"
+      ],
+      "summary_is_stale": false,
+      "topics_is_stale": false,
+      "summary_extractive": null,
+      "agenda_items": [
+        {
+          "order": 1,
+          "title": "Conference with legal counsel",
+          "description": "Agenda section 1",
+          "classification": "Agenda Item",
+          "result": "No reportable action.",
+          "page_number": 1,
+          "votes": []
+        }
+      ],
+      "people_metadata": [
+        {
+          "id": 1,
+          "name": "Rashi Kesarwani"
+        }
+      ],
+      "entities": {
+        "orgs": [
+          "City Council",
+          "City Attorney"
+        ]
+      }
+    },
+    {
+      "id": 709,
+      "catalog_id": 709,
+      "event_id": 709,
+      "event_name": "Cupertino, CA Parks and Recreation Commission Meeting",
+      "city": "CA_CUPERTINO",
+      "organization": "Parks and Recreation Commission",
+      "meeting_category": "Other",
+      "date": "2026-02-18",
+      "filename": "cupertino_parks_2026_02_18.pdf",
+      "url": "https://example.com/cupertino_parks_2026_02_18.pdf",
+      "content": "[PAGE 1] PARKS AND RECREATION\\n1. Capital Improvement Plan priorities",
+      "summary": "Commission discussed park capital priorities for FY 2026-27.",
+      "topics": [
+        "parks",
+        "capital improvement"
+      ],
+      "summary_is_stale": false,
+      "topics_is_stale": false,
+      "summary_extractive": null,
+      "agenda_items": null,
+      "people_metadata": [
+        {
+          "id": 3,
+          "name": "Committee Chair"
+        }
+      ],
+      "entities": {
+        "orgs": [
+          "Parks and Recreation Commission"
+        ]
+      }
+    },
+    {
+      "id": 710,
+      "catalog_id": 710,
+      "event_id": 710,
+      "event_name": "Berkeley, CA Housing Advisory Commission Regular Meeting",
+      "city": "CA_BERKELEY",
+      "organization": "Housing Advisory Commission",
+      "meeting_category": "Regular",
+      "date": "2026-02-20",
+      "filename": "berkeley_housing_2026_02_20.pdf",
+      "url": "https://example.com/berkeley_housing_2026_02_20.pdf",
+      "content": "[PAGE 1] HOUSING ADVISORY COMMISSION\\n1. Tenant Protection Program update",
+      "summary": "The commission reviewed tenant protection outcomes and directed staff follow-up.",
+      "topics": [
+        "housing",
+        "tenant protections"
+      ],
+      "summary_is_stale": true,
+      "topics_is_stale": false,
+      "summary_extractive": null,
+      "agenda_items": [
+        {
+          "order": 1,
+          "title": "Tenant Protection Program update",
+          "description": "Agenda section 1",
+          "classification": "Agenda Item",
+          "result": "Direction to staff.",
+          "page_number": 1,
+          "votes": []
+        }
+      ],
+      "people_metadata": [
+        {
+          "id": 2,
+          "name": "Susan Wengraf"
+        }
+      ],
+      "entities": {
+        "orgs": [
+          "Housing Advisory Commission"
+        ]
+      }
     }
   ]
 }
