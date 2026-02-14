@@ -12,7 +12,7 @@
       "date": "2026-01-14",
       "filename": "berkeley_regular_2026_01_14.pdf",
       "url": "https://example.com/berkeley_regular_2026_01_14.pdf",
-      "content": "[PAGE 1]\nCALL TO ORDER\nROLL CALL\n\n[PAGE 2]\n1. Budget Amendment\nVote: All Ayes.",
+      "content": "[PAGE 1]\nCITY OF BERKELEY CITY COUNCIL\nREGULAR MEETING\nJanuary 14, 2026\n\nCALL TO ORDER\nMayor called the meeting to order at 6:31 p.m.\n\nROLL CALL\nCouncilmembers present: Kesarwani, Wengraf, Robinson, Bartlett, Harrison, Taplin, Hahn, Droste.\n\nAPPROVAL OF AGENDA\nApproved without changes.\n\n[PAGE 2]\nAGENDA ITEM 1\nBUDGET AMENDMENT\nStaff presented a midyear adjustment to align departmental expenditures with revised revenue estimates.\nPublic comment focused on funding priorities for housing services and traffic safety improvements.\nAction: Motion to approve budget amendment.\nVote: All Ayes.\n\nAGENDA ITEM 2\nPUBLIC SAFETY UPDATE\nInformational report received and filed.\n\nADJOURNMENT\nMeeting adjourned at 10:08 p.m.\n",
       "summary": "The council opened the meeting, reviewed a budget amendment, and approved it unanimously.",
       "topics": [
         "budget",
@@ -61,7 +61,7 @@
       "date": "2026-01-21",
       "filename": "cupertino_environment_2026_01_21.pdf",
       "url": "https://example.com/cupertino_environment_2026_01_21.pdf",
-      "content": "Agenda",
+      "content": "[PAGE 1]\nCITY OF CUPERTINO ENVIRONMENTAL REVIEW COMMITTEE\nREGULAR MEETING\nJanuary 21, 2026\n\nCALL TO ORDER\nMeeting convened at 5:00 p.m.\n\nROLL CALL\nCommittee members present: Chair Morales, Member Singh, Member Park.\n\n[PAGE 2]\nITEM 1: TREE CANOPY IMPACT REVIEW\nStaff summarized environmental impact findings for proposed corridor improvements.\nCommittee discussed mitigation options, replacement ratios, and monitoring cadence.\nAction: Recommend approval with added annual reporting requirement.\nVote: 3-0.\n\nITEM 2: STORMWATER COMPLIANCE STATUS\nReport accepted; no action required.\n\nPUBLIC COMMENT\nTwo speakers requested stronger construction-phase protections.\n\nADJOURNMENT\n",
       "summary": null,
       "topics": [],
       "summary_is_stale": false,
@@ -91,7 +91,7 @@
       "date": "2026-01-25",
       "filename": "cupertino_audit_2026_01_25.pdf",
       "url": "https://example.com/cupertino_audit_2026_01_25.pdf",
-      "content": "[PAGE 1]\nAUDIT COMMITTEE\nPUBLIC COMMENT\n\n[PAGE 2]\n1. Fiscal Update\nVote: Motion carried.",
+      "content": "[PAGE 1]\nCITY OF CUPERTINO AUDIT COMMITTEE\nSPECIAL MEETING\nJanuary 25, 2026\n\nCALL TO ORDER\n\nITEM 1: FISCAL UPDATE\nFinance staff reviewed quarterly revenue performance and expenditure controls.\nCommittee requested additional variance detail for capital projects over $1M.\n\n[PAGE 2]\nACTION\nMotion to accept fiscal update and forward recommendations to City Council.\nVote: Motion carried.\n\nITEM 2: INTERNAL CONTROL WORKPLAN\nDiscussion on procurement controls and grant documentation readiness.\n\nADJOURNMENT\n",
       "summary": "Prior summary generated from older extracted text.",
       "topics": [
         "audit",
