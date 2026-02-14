@@ -1,7 +1,7 @@
 {
   "catalog_id": 703,
-  "summary_is_stale": true,
-  "topics_is_stale": true,
+  "summary_is_stale": false,
+  "topics_is_stale": false,
   "summary_not_generated_yet": false,
   "topics_not_generated_yet": false,
   "agenda_not_generated_yet": false,
