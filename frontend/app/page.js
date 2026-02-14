@@ -38,7 +38,9 @@ export default function Home() {
    * and "Load More" requests.
    */
   const performSearch = useCallback(async (isLoadMore = false) => {
-    if (!query.trim()) {
+    // In static demo mode, show all fixture records when the query is empty.
+    // In live API mode, keep the existing behavior that requires a query string.
+    if (!query.trim() && !demoMode) {
       if (!isLoadMore) {
         setResults([]);
         setTotalHits(0);
