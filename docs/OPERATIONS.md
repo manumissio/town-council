@@ -15,6 +15,15 @@ Optional helper (same steps, fewer flags to remember):
 bash ./scripts/dev_up.sh
 ```
 
+What `scripts/dev_up.sh` does:
+- starts the Docker Compose stack (with `--build`)
+- initializes the DB schema
+- runs a small smoke check (`/health`)
+
+What it does *not* do:
+- scrape any city data (no crawler runs)
+- process/index documents (no `run_pipeline.py`)
+
 ### 1.5) Verify containers are using the latest image
 This catches “stale image” problems early (for example, missing Python deps).
 
