@@ -20,7 +20,8 @@ This catches “stale image” problems early (for example, missing Python deps)
 
 ```bash
 docker compose run --rm api python -c "import bs4; print('bs4', bs4.__version__)"
-curl -f http://localhost:8000/health
+# The API can take a few seconds to boot. Retry a few times before assuming it's broken.
+for i in {1..20}; do curl -fsS http://localhost:8000/health && break; sleep 1; done
 ```
 
 ### 2) Scrape
@@ -41,7 +42,7 @@ The Pages build is demo-only and uses fixtures from `frontend/public/demo`.
 ### Local demo preview
 ```bash
 cd frontend
-NEXT_PUBLIC_DEMO_MODE=true STATIC_EXPORT=true npm run build -- --webpack
+NEXT_PUBLIC_DEMO_MODE=true STATIC_EXPORT=true npm run build
 npx serve out
 ```
 
@@ -94,6 +95,9 @@ Outputs:
 - `not generated yet`: derived field is absent
 - `blocked_low_signal`: source text quality below reliability gate
 - `blocked_ungrounded` (summary): generated claims not sufficiently supported by source text
+
+Summary format:
+- Stored and displayed as plain text with a `BLUF:` line and `- ` bullets (no Markdown rendering).
 
 ### Derived status endpoint
 - `GET /catalog/{catalog_id}/derived_status`

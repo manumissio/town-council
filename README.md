@@ -31,7 +31,8 @@ This catches “stale image” problems early (for example, missing Python deps)
 
 ```bash
 docker compose run --rm api python -c "import bs4; print('bs4', bs4.__version__)"
-curl -f http://localhost:8000/health
+# The API can take a few seconds to boot. Retry a few times before assuming it's broken.
+for i in {1..20}; do curl -fsS http://localhost:8000/health && break; sleep 1; done
 ```
 
 ### 3) Scrape a city
@@ -67,7 +68,7 @@ The Pages site is a static product demo powered by local JSON fixtures.
 Local demo build:
 ```bash
 cd frontend
-NEXT_PUBLIC_DEMO_MODE=true STATIC_EXPORT=true npm run build -- --webpack
+NEXT_PUBLIC_DEMO_MODE=true STATIC_EXPORT=true npm run build
 npx serve out
 ```
 
@@ -92,6 +93,14 @@ Use **Re-extract text** in Full Text tab.
 - Uses existing downloaded file only (no re-download)
 - OCR fallback is slower and optional
 - Re-extraction updates `catalog.content` and reindexes that catalog
+
+Note: the `pipeline` Docker image does not include `curl`. Run health checks from your host shell, or use Python inside a container:
+```bash
+docker compose run --rm pipeline python - <<'PY'
+import urllib.request
+print(urllib.request.urlopen("http://api:8000/health", timeout=5).read().decode())
+PY
+```
 
 ### Stale / Not generated yet / Blocked states
 - **Stale**: extracted text changed after summary/topics were generated

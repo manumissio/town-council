@@ -30,12 +30,14 @@ Notes:
 
 ### Benchmark tests
 ```bash
-docker compose run --rm pipeline pytest tests/test_benchmarks.py
+# Note: the pipeline container runs from /app/pipeline, tests live in /app/tests.
+docker compose run --rm pipeline pytest ../tests/test_benchmarks.py
 ```
 
 ### API load test (Locust)
 ```bash
-docker compose run --rm pipeline locust -f tests/locustfile.py --headless -u 50 -r 5 --run-time 1m --host http://api:8000
+# Locust is installed in the pipeline image. The locust file lives under /app/tests.
+docker compose run --rm pipeline locust -f ../tests/locustfile.py --headless -u 50 -r 5 --run-time 1m --host http://api:8000
 ```
 
 ## Optimization mechanisms currently in use
