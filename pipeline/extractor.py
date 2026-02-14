@@ -5,6 +5,7 @@ from tika import parser
 from pipeline.models import Catalog
 from pipeline.db_session import db_session
 from pipeline.content_hash import compute_content_hash
+from pipeline.text_cleaning import postprocess_extracted_text
 from pipeline.config import (
     TIKA_TIMEOUT_SECONDS,
     TIKA_RETRY_BACKOFF_MULTIPLIER,
@@ -129,14 +130,14 @@ def extract_text(file_path, *, ocr_fallback_enabled=None, min_chars_threshold=No
     # Fast path: try digital text layer only.
     no_ocr_text = _tika_extract_with_strategy("no_ocr")
     if no_ocr_text and len(no_ocr_text) >= min_chars_threshold:
-        return no_ocr_text
+        return postprocess_extracted_text(no_ocr_text)
 
     # Slow fallback: if enabled and the digital layer was empty/too short, retry with OCR.
     if ocr_fallback_enabled:
         ocr_text = _tika_extract_with_strategy("ocr_only")
-        return ocr_text or no_ocr_text
+        return postprocess_extracted_text(ocr_text or no_ocr_text)
 
-    return no_ocr_text
+    return postprocess_extracted_text(no_ocr_text)
 
 def extract_content():
     """

@@ -108,6 +108,15 @@ Outputs:
 Summary format:
 - Stored and displayed as plain text with a `BLUF:` line and `- ` bullets (no Markdown rendering).
 
+Extracted text normalization:
+- After extraction, we postprocess text to reduce common artifacts like spaced-letter ALLCAPS
+  (`P R O C L A M A T I O N` -> `PROCLAMATION`). This improves both summaries and topics.
+
+Topic tagging notes:
+- Per-catalog topics use TF-IDF over a bounded, same-city corpus.
+- If only 1 document has extracted text (common right after startup purge), topics may be low-signal,
+  but regeneration should still complete (no crashes).
+
 ### Derived status endpoint
 - `GET /catalog/{catalog_id}/derived_status`
 - Includes stale flags, blocked reasons, and not-generated flags for summary/topics/agenda.

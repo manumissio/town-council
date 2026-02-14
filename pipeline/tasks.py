@@ -2,6 +2,7 @@ from celery import Celery
 from celery.signals import worker_ready
 import os
 import logging
+import re
 from sqlalchemy.orm import sessionmaker
 from sqlalchemy.exc import SQLAlchemyError
 
@@ -21,6 +22,7 @@ from pipeline.summary_quality import (
     is_source_topicable,
     is_summary_grounded,
 )
+from pipeline.text_cleaning import postprocess_extracted_text
 from pipeline.startup_purge import run_startup_purge_if_enabled
 
 # Register worker metrics (safe in non-worker contexts; the HTTP server only starts
@@ -29,6 +31,67 @@ from pipeline import metrics as _worker_metrics  # noqa: F401
 
 # Setup logging
 logger = logging.getLogger("celery-worker")
+
+
+def _dedupe_titles_preserve_order(values):
+    """
+    Deduplicate extracted title candidates without reordering them.
+    """
+    seen = set()
+    out = []
+    for v in values or []:
+        key = (v or "").strip().lower()
+        if not key or key in seen:
+            continue
+        seen.add(key)
+        out.append(v.strip())
+    return out
+
+
+def _extract_agenda_titles_from_text(text: str, max_titles: int = 3):
+    """
+    Best-effort agenda title extraction from raw/flattened extracted text.
+
+    Why this exists:
+    Some "agenda" PDFs are tiny, header-heavy, or flattened into a single line.
+    In those cases, an LLM summary often degenerates into boilerplate or headings.
+    This heuristic keeps the output deterministic and city-agnostic.
+    """
+    if not text:
+        return []
+
+    # Page markers are useful for deep linking, but they make regex parsing noisier.
+    value = re.sub(r"\\[PAGE\\s+\\d+\\]", "\n", text, flags=re.IGNORECASE)
+    value = re.sub(r"[ \\t]+", " ", value)
+
+    titles = []
+
+    # 1) Prefer true line-based numbering when available.
+    for m in re.finditer(r"(?m)^\\s*\\d+\\.\\s+(.+?)\\s*$", value):
+        title = (m.group(1) or "").strip()
+        if not title or len(title) < 10:
+            continue
+        titles.append(title)
+        if len(titles) >= max_titles:
+            break
+
+    # 2) Fallback: split by inline numbering when extraction collapsed line breaks.
+    if len(titles) < max_titles:
+        parts = re.split(r"\\b(\\d{1,2})\\.\\s+", value)
+        # parts: [prefix, num, rest, num, rest, ...]
+        for i in range(1, len(parts), 2):
+            rest = (parts[i + 1] if i + 1 < len(parts) else "").strip()
+            if not rest:
+                continue
+            candidate = rest.split("\n", 1)[0].strip()
+            candidate = candidate[:160].strip()
+            if len(candidate) < 10:
+                continue
+            titles.append(candidate)
+            if len(titles) >= max_titles:
+                break
+
+    return _dedupe_titles_preserve_order(titles)[:max_titles]
 
 # Celery broker queues tasks; result backend stores task results.
 app = Celery('tasks')
@@ -120,11 +183,19 @@ def generate_summary_task(self, catalog_id: int, force: bool = False):
                     summary = "\n".join([bluf] + [f"- {t}" for t in titles])
                     used_model_summary = False
                 else:
-                    summary = local_ai.summarize(catalog.content, doc_kind=doc_kind)
+                    summary = local_ai.summarize(postprocess_extracted_text(catalog.content), doc_kind=doc_kind)
             else:
-                summary = local_ai.summarize(catalog.content, doc_kind=doc_kind)
+                # Fallback: try to extract a few agenda titles directly from the text before invoking the model.
+                cleaned = postprocess_extracted_text(catalog.content)
+                title_matches = _extract_agenda_titles_from_text(cleaned, max_titles=3)
+                if title_matches:
+                    bluf = f"BLUF: Agenda covers {len(title_matches)} highlighted items."
+                    summary = "\n".join([bluf] + [f"- {t}" for t in title_matches])
+                    used_model_summary = False
+                else:
+                    summary = local_ai.summarize(cleaned, doc_kind=doc_kind)
         else:
-            summary = local_ai.summarize(catalog.content, doc_kind=doc_kind)
+            summary = local_ai.summarize(postprocess_extracted_text(catalog.content), doc_kind=doc_kind)
         
         # Retry instead of storing an empty summary.
         if summary is None:
@@ -132,7 +203,7 @@ def generate_summary_task(self, catalog_id: int, force: bool = False):
 
         # Guardrail: block ungrounded model claims (deterministic agenda-title summaries are exempt).
         if used_model_summary:
-            grounding = is_summary_grounded(summary, catalog.content)
+            grounding = is_summary_grounded(summary, postprocess_extracted_text(catalog.content))
             if not grounding.is_grounded:
                 reason = (
                     "Generated summary appears unsupported by extracted text. "
@@ -218,6 +289,7 @@ def generate_topics_task(self, catalog_id: int, force: bool = False, max_corpus_
             TFIDF_MAX_FEATURES,
         )
         from sklearn.feature_extraction.text import TfidfVectorizer
+        from sklearn.feature_extraction.text import ENGLISH_STOP_WORDS
         import numpy as np
 
         # Build a bounded, same-city corpus so TF-IDF weights are meaningful but fast.
@@ -234,13 +306,32 @@ def generate_topics_task(self, catalog_id: int, force: bool = False, max_corpus_
 
         ids = [r[0] for r in rows]
         corpus = [_sanitize_text_for_topics((r[1] or "")[:MAX_CONTENT_LENGTH]) for r in rows]
+        # If sanitation removed everything (e.g., doc was all URLs/page markers), TF-IDF can't work.
+        if not any(s.strip() for s in corpus):
+            return {
+                "status": "blocked_low_signal",
+                "reason": "Not enough usable text to generate topics.",
+                "topics": [],
+            }
 
+        # Use the same municipal stopwords as the batch worker so we don't emit date tokens
+        # like "September" or URL fragments as "topics".
+        from pipeline.topic_worker import CITY_STOP_WORDS
+        stop_words = sorted(set(CITY_STOP_WORDS).union(ENGLISH_STOP_WORDS))
+
+        n_docs = len(corpus)
+        max_df = (1.0 if n_docs < 2 else TFIDF_MAX_DF)
+        min_df = (1 if n_docs < 3 else TFIDF_MIN_DF)
         vectorizer = TfidfVectorizer(
-            max_df=TFIDF_MAX_DF,
-            min_df=TFIDF_MIN_DF,
+            max_df=max_df,
+            # When a city has very few extracted documents, scikit can throw:
+            # "max_df corresponds to < documents than min_df".
+            # Use min_df=1/max_df=1.0 for tiny corpora so per-catalog topic regeneration still works.
+            min_df=min_df,
             ngram_range=TFIDF_NGRAM_RANGE,
             max_features=TFIDF_MAX_FEATURES,
-            stop_words="english",
+            stop_words=stop_words,
+            token_pattern=r"(?u)\b[a-zA-Z][a-zA-Z']{2,}\b",
         )
         tfidf = vectorizer.fit_transform(corpus)
         feature_names = vectorizer.get_feature_names_out()

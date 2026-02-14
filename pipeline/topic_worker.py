@@ -3,6 +3,7 @@ import os
 import logging
 import re
 from sklearn.feature_extraction.text import TfidfVectorizer
+from sklearn.feature_extraction.text import ENGLISH_STOP_WORDS
 
 # Add project root to path
 sys.path.append(os.path.join(os.path.dirname(__file__), '..'))
@@ -19,6 +20,7 @@ from pipeline.config import (
     PROGRESS_LOG_INTERVAL
 )
 from pipeline.content_hash import compute_content_hash
+from pipeline.text_cleaning import postprocess_extracted_text
 
 # Setup logging
 logging.basicConfig(level=logging.INFO)
@@ -42,7 +44,7 @@ CITY_STOP_WORDS = [
 
 def _sanitize_text_for_topics(text: str) -> str:
     """
-    Remove URL-like tokens before TF-IDF.
+    Remove obvious noise tokens before TF-IDF.
 
     Why this matters:
     Without sanitation, a document with many links can produce "topics" like
@@ -51,12 +53,15 @@ def _sanitize_text_for_topics(text: str) -> str:
     if not text:
         return ""
 
-    value = text
+    # Clean extraction artifacts first (spaced ALLCAPS, etc.).
+    value = postprocess_extracted_text(text)
     value = re.sub(r"https?://\S+", " ", value, flags=re.IGNORECASE)
     value = re.sub(r"www\.\S+", " ", value, flags=re.IGNORECASE)
     # Leave a trailing space so we don't create accidental word joins.
     value = re.sub(r"\bhttps?\b", " ", value, flags=re.IGNORECASE)
     value = re.sub(r"\bwww\b", " ", value, flags=re.IGNORECASE)
+    # Page markers are useful for deep linking, but not for topic discovery.
+    value = re.sub(r"\[PAGE\s+\d+\]", " ", value, flags=re.IGNORECASE)
     return value
 
 def run_keyword_tagger():
@@ -114,12 +119,15 @@ def run_topic_tagger():
 
         # 3. Setup the TF-IDF Vectorizer
         # This is the "brain" that calculates which words are important
+        stop_words = sorted(set(CITY_STOP_WORDS).union(ENGLISH_STOP_WORDS))
         vectorizer = TfidfVectorizer(
-            stop_words=CITY_STOP_WORDS,  # Filter out common municipal words
+            stop_words=stop_words,  # Filter out common municipal + English words
             max_df=TFIDF_MAX_DF,  # Ignore words in >80% of docs (too common)
             min_df=TFIDF_MIN_DF,  # Allow words in just 1 doc (unique topics)
             max_features=TFIDF_MAX_FEATURES,  # Track top 5000 words globally
-            ngram_range=TFIDF_NGRAM_RANGE  # Catch phrases like "Rent Control"
+            ngram_range=TFIDF_NGRAM_RANGE,  # Catch phrases like "Rent Control"
+            # Drop pure numbers and very short tokens so dates/years don't become "topics".
+            token_pattern=r"(?u)\b[a-zA-Z][a-zA-Z']{2,}\b",
         )
 
         # 4. Run the TF-IDF analysis across all documents

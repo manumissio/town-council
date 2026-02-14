@@ -99,7 +99,8 @@ flowchart LR
 3. Downloader stores files and links documents to `catalog` rows.
 
 ### 2) Batch enrichment
-1. Text extraction writes raw document text to `catalog.content`.
+1. Text extraction writes document text to `catalog.content` and postprocesses common extraction artifacts
+   (for example, spaced-letter ALLCAPS) to improve downstream summaries/topics.
 2. NLP/entity and topic workers enrich catalog records.
 3. Person linker resolves official profiles and memberships.
 4. Indexer publishes documents and agenda items to Meilisearch.
