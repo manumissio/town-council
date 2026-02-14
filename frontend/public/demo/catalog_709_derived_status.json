@@ -1,0 +1,10 @@
+{
+  "catalog_id": 709,
+  "summary_is_stale": false,
+  "topics_is_stale": false,
+  "summary_not_generated_yet": false,
+  "topics_not_generated_yet": false,
+  "agenda_not_generated_yet": true,
+  "summary_blocked_reason": null,
+  "topics_blocked_reason": null
+}
