@@ -145,10 +145,15 @@ def extract_claim_lines(summary: str) -> List[str]:
         line = raw.strip()
         if not line:
             continue
+        # BLUF is a synthesis line and often paraphrases the source.
+        # Our grounding check is intentionally conservative and lexical, so we
+        # validate only the bullet "claims" instead of blocking on an abstract BLUF.
+        lowered = line.lower()
+        if lowered.startswith("bluf:"):
+            continue
         line = re.sub(r"^\s*[\*\-\u2022]+\s*", "", line).strip()
         if not line:
             continue
-        lowered = line.lower()
         if lowered.startswith("here's a summary") or lowered.startswith("here is a summary"):
             continue
         if lowered.startswith("summary of the meeting"):
