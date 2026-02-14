@@ -71,6 +71,9 @@ def _looks_like_attendance_boilerplate(line: str) -> bool:
         "dial",
         "unmute",
         "raise hand",
+        "conference room",
+        "virtual meeting",
+        "meeting will be held",
         "public comment",
         "public participation",
         "written communications",
@@ -94,41 +97,13 @@ def _looks_like_attendance_boilerplate(line: str) -> bool:
 
 def _strip_summary_output_boilerplate(summary: str) -> str:
     """
-    Clean model output so the UI shows useful content instead of repeated boilerplate.
+    Backwards-compatible wrapper for summary cleanup.
 
-    We intentionally keep this conservative and property-based:
-    - Remove boilerplate bullets/lines.
-    - Deduplicate repeated bullets (the model often repeats itself).
+    New behavior:
+    Summaries are normalized into a BLUF-first, plain-text format so the UI never
+    needs to render Markdown and never shows teleconference boilerplate.
     """
-    if not summary:
-        return summary
-
-    raw_lines = [ln.rstrip() for ln in summary.splitlines()]
-    cleaned = []
-    for raw in raw_lines:
-        line = raw.strip()
-        if not line:
-            continue
-
-        lowered = line.lower()
-        # Drop preambles like "Here's a summary..."
-        if lowered.startswith("here's a summary") or lowered.startswith("here is a summary"):
-            continue
-        if lowered.startswith("summary of the meeting"):
-            continue
-
-        # Strip common bullet markers so dedupe is easier.
-        normalized = re.sub(r"^\s*[\*\-\u2022]+\s*", "", line).strip()
-        if not normalized:
-            continue
-
-        if _looks_like_attendance_boilerplate(normalized):
-            continue
-        cleaned.append(normalized)
-
-    cleaned = _dedupe_lines_preserve_order(cleaned)
-    # Return as bullets for consistent UI rendering.
-    return "\n".join(f"* {ln}" for ln in cleaned).strip()
+    return summary
 
 
 def _strip_summary_boilerplate(text: str) -> str:
@@ -155,6 +130,144 @@ def _strip_summary_boilerplate(text: str) -> str:
     lines = _dedupe_lines_preserve_order(lines)
     return "\n".join(lines).strip()
 
+def _strip_markdown_emphasis(text: str) -> str:
+    """
+    Remove common Markdown emphasis markers from model output.
+
+    Why this exists:
+    The UI renders summaries as plain text. If the model emits Markdown, users see
+    raw markers like "**Agenda:**" instead of formatted text.
+    """
+    if not text:
+        return text
+    # Keep this conservative: remove only the markers, preserve the inner text.
+    text = re.sub(r"\*\*(.+?)\*\*", r"\1", text)
+    text = re.sub(r"__(.+?)__", r"\1", text)
+    text = re.sub(r"`([^`]+)`", r"\1", text)
+    return text
+
+
+def _first_sentence(value: str) -> str:
+    """
+    Return the first sentence-like chunk (or the whole string if no punctuation).
+
+    This keeps BLUF short and predictable.
+    """
+    if not value:
+        return value
+    value = value.strip()
+    match = re.search(r"^(.+?[\.!\?])(\s|$)", value)
+    return (match.group(1) if match else value).strip()
+
+
+def _cap_words(value: str, max_words: int = 30) -> str:
+    if not value:
+        return value
+    words = value.strip().split()
+    if len(words) <= max_words:
+        return value.strip()
+    return " ".join(words[:max_words]).rstrip(".,;:") + "."
+
+
+def _normalize_summary_output_to_bluf(summary: str, source_text: str = "") -> str:
+    """
+    Normalize summary output into a BLUF-first, plain-text format:
+
+    BLUF: <one-sentence takeaway>.
+    - <detail bullet>
+    - <detail bullet>
+
+    Requirements:
+    - no Markdown markers
+    - no teleconference/ADA/how-to-attend boilerplate
+    - 3-7 bullets when possible
+    """
+    if not summary:
+        return summary
+
+    raw_lines = [ln.rstrip() for ln in summary.splitlines()]
+    cleaned_lines = []
+    for raw in raw_lines:
+        line = (raw or "").strip()
+        if not line:
+            continue
+
+        lowered = line.lower()
+        # Drop preambles like "Here's a summary..."
+        if lowered.startswith("here's a summary") or lowered.startswith("here is a summary"):
+            continue
+        if lowered.startswith("summary of the meeting"):
+            continue
+
+        line = _strip_markdown_emphasis(line).strip()
+
+        # Strip common bullet markers so the output stays consistent.
+        # Note: we re-add bullets later using "- ".
+        line = re.sub(r"^\s*[\*\-\u2022]+\s*", "", line).strip()
+        if not line:
+            continue
+
+        # Remove any remaining leading numbering like "1." or "1)".
+        line = re.sub(r"^\s*\d+\s*[\.\)]\s*", "", line).strip()
+        if not line:
+            continue
+
+        if _looks_like_attendance_boilerplate(line):
+            continue
+
+        cleaned_lines.append(line)
+
+    cleaned_lines = _dedupe_lines_preserve_order(cleaned_lines)
+    if not cleaned_lines:
+        # Fall back to something stable instead of returning raw Markdown.
+        return "BLUF: Summary unavailable from extracted text.\n- Not enough reliable content to summarize."
+
+    bluf_text = None
+    bullets = []
+    for line in cleaned_lines:
+        if line.lower().startswith("bluf:"):
+            bluf_text = line.split(":", 1)[1].strip()
+            continue
+        bullets.append(line)
+
+    if not bluf_text:
+        # Use first bullet/line as the seed for BLUF.
+        seed = bullets[0] if bullets else cleaned_lines[0]
+        bluf_text = seed
+
+    bluf_text = _cap_words(_first_sentence(bluf_text), max_words=30)
+    if bluf_text and not bluf_text.endswith((".", "!", "?")):
+        bluf_text = bluf_text.rstrip(".,;:") + "."
+
+    # Drop boilerplate again in case BLUF seed contained it.
+    if _looks_like_attendance_boilerplate(bluf_text):
+        bluf_text = "Key meeting takeaway is unclear from extracted text."
+
+    # Bound bullet count.
+    bullets = [b for b in bullets if b and not _looks_like_attendance_boilerplate(b)]
+    bullets = _dedupe_lines_preserve_order(bullets)
+    bullets = bullets[:7]
+
+    # Try to keep at least 3 bullets when the model gave enough content.
+    if len(bullets) < 3 and len(cleaned_lines) >= 3:
+        for extra in cleaned_lines:
+            if extra.lower().startswith("bluf:"):
+                continue
+            if extra in bullets:
+                continue
+            if _looks_like_attendance_boilerplate(extra):
+                continue
+            bullets.append(extra)
+            if len(bullets) >= 3:
+                break
+        bullets = bullets[:7]
+
+    # Re-emit canonical format (plain text).
+    out_lines = [f"BLUF: {bluf_text}".strip()]
+    for b in bullets:
+        out_lines.append(f"- {b.strip()}")
+    return "\n".join(out_lines).strip()
+
 def prepare_summary_prompt(text: str, doc_kind: str = "unknown") -> str:
     """
     Build a summarization prompt that matches the *document type*.
@@ -177,26 +290,41 @@ def prepare_summary_prompt(text: str, doc_kind: str = "unknown") -> str:
 
     if kind == "minutes":
         instruction = (
-            "Summarize these meeting minutes into 3 bullet points. "
-            "Focus on decisions, actions taken, and vote outcomes. "
-            "Ignore attendance/teleconference/ADA boilerplate."
+            "Write a plain-text executive summary of these meeting minutes. "
+            "Format requirements:\n"
+            "1) First line must be: BLUF: <one-sentence takeaway>\n"
+            "2) Then write 3 to 7 bullets, one per line, each starting with '- '\n"
+            "3) Plain text only. Do not use Markdown (*, **, headings).\n"
+            "Content requirements:\n"
+            "- Focus on decisions, actions taken, and vote outcomes.\n"
+            "- Do NOT summarize teleconference/Zoom/ADA/how-to-attend details."
         )
     elif kind == "agenda":
         instruction = (
-            "Summarize this meeting agenda into 3 bullet points. "
-            "Focus on the main scheduled items and expected actions. "
-            "Ignore attendance/teleconference/ADA boilerplate."
+            "Write a plain-text executive summary of this meeting agenda. "
+            "Format requirements:\n"
+            "1) First line must be: BLUF: <one-sentence takeaway>\n"
+            "2) Then write 3 to 7 bullets, one per line, each starting with '- '\n"
+            "3) Plain text only. Do not use Markdown (*, **, headings).\n"
+            "Content requirements:\n"
+            "- Focus on the main scheduled items and expected actions.\n"
+            "- Do NOT summarize teleconference/Zoom/ADA/how-to-attend details."
         )
     else:
         instruction = (
-            "Summarize this meeting document into 3 bullet points. "
-            "Ignore attendance/teleconference/ADA boilerplate."
+            "Write a plain-text executive summary of this meeting document. "
+            "Format requirements:\n"
+            "1) First line must be: BLUF: <one-sentence takeaway>\n"
+            "2) Then write 3 to 7 bullets, one per line, each starting with '- '\n"
+            "3) Plain text only. Do not use Markdown (*, **, headings).\n"
+            "Content requirements:\n"
+            "- Do NOT summarize teleconference/Zoom/ADA/how-to-attend details."
         )
 
     return (
         "<start_of_turn>user\n"
         f"{instruction}\n"
-        "No chat, just bullets:\n"
+        "Return only the BLUF line and the bullet lines. No extra text.\n"
         f"{safe_text}<end_of_turn>\n"
         "<start_of_turn>model\n"
     )
@@ -287,10 +415,10 @@ class LocalAI:
             try:
                 response = self.llm(prompt, max_tokens=LLM_SUMMARY_MAX_TOKENS, temperature=0.1)
                 raw = response["choices"][0]["text"].strip()
-                cleaned = _strip_summary_output_boilerplate(raw)
-                # If cleaning removed everything, fall back to the raw output so the caller
-                # can decide how to handle it (e.g., store raw, retry, etc.).
-                return cleaned or raw
+                normalized = _normalize_summary_output_to_bluf(raw, source_text=text)
+                # If normalization fails unexpectedly, fall back to the raw output so the
+                # caller can decide how to handle it (e.g., store raw, retry, etc.).
+                return normalized or raw
             except Exception as e:
                 # AI inference errors: Why keep this broad?
                 # During text generation, the model can fail in unpredictable ways:

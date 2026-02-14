@@ -136,6 +136,10 @@ States exposed to UI:
 - **blocked**: generation rejected for low-signal input (or ungrounded summary output)
 - **not generated yet**: derived field absent
 
+Summary rendering contract:
+- `catalog.summary` is stored as plain text in a BLUF-first format (`BLUF:` line + `- ` bullets).
+- This avoids Markdown/HTML rendering in the UI and keeps output predictable.
+
 Re-extraction is explicit and uses existing downloaded file only (no redownload).
 
 ## Startup Purge Model (Dev)

@@ -115,7 +115,9 @@ def generate_summary_task(self, catalog_id: int, force: bool = False):
                 titles = [it.title.strip() for it in existing_items if it.title and it.title.strip()]
                 titles = titles[:3]
                 if titles:
-                    summary = "\n".join(f"* {t}" for t in titles)
+                    # Keep summary format consistent: BLUF + plain-text bullets (no Markdown).
+                    bluf = f"BLUF: Agenda covers {len(existing_items)} main items."
+                    summary = "\n".join([bluf] + [f"- {t}" for t in titles])
                     used_model_summary = False
                 else:
                     summary = local_ai.summarize(catalog.content, doc_kind=doc_kind)

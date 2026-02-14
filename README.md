@@ -98,6 +98,9 @@ Use **Re-extract text** in Full Text tab.
 - **Not generated yet**: derived fields not created yet (common after startup purge)
 - **Blocked**: extracted text too low-signal for reliable summary/topics
 
+Summary format:
+- Stored and displayed as plain text with a `BLUF:` line and `- ` bullets (no Markdown rendering).
+
 ### Startup purge behavior (dev)
 If `STARTUP_PURGE_DERIVED=true`, startup clears derived data (summary/topics/agenda items/content hashes) for deterministic local runs while preserving source ingest records.
 
