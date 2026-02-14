@@ -30,7 +30,8 @@ function getDemoPath(path) {
 export function buildApiUrl(path) {
   if (DEMO_MODE) {
     const demoPath = getDemoPath(path);
-    if (demoPath) return demoPath;
+    // Use relative fixture paths so static demo works at both "/" and "/<repo>".
+    if (demoPath) return `.${demoPath}`;
   }
   return `${API_BASE_URL}${path}`;
 }
