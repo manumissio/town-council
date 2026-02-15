@@ -102,11 +102,13 @@ def run_parallel_processing():
     # Use context manager for automatic session cleanup
     with db_session() as db:
         # A document needs work if text or entities are missing.
-        unprocessed = db.query(Catalog).filter(
+        # Query IDs only: Catalog.content can be very large, and loading full rows
+        # via .all() can spike RAM and crash the pipeline.
+        unprocessed_ids = db.query(Catalog.id).filter(
             (Catalog.content.is_(None)) | (Catalog.entities.is_(None))
-        ).all()
+        ).yield_per(1000)
 
-        catalog_ids = [c.id for c in unprocessed]
+        catalog_ids = [row[0] for row in unprocessed_ids]
 
     if not catalog_ids:
         logger.info("No documents need processing.")

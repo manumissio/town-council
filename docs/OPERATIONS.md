@@ -119,6 +119,10 @@ Outputs:
 - `not generated yet`: derived field is absent
 - `blocked_low_signal`: source text quality below reliability gate
 - `blocked_ungrounded` (summary): generated claims not sufficiently supported by source text
+- Agenda segmentation status:
+  - `agenda_segmentation_status=null`: segmentation has not been attempted yet
+  - `agenda_segmentation_status=empty`: attempted, but no substantive agenda items were detected
+  - `agenda_segmentation_status=failed`: attempted, but task errored and is eligible for retry
 
 Summary format:
 - Stored and displayed as plain text with a `BLUF:` line and `- ` bullets (no Markdown rendering).
@@ -152,7 +156,7 @@ Topic tagging notes:
 
 ### Derived status endpoint
 - `GET /catalog/{catalog_id}/derived_status`
-- Includes stale flags, blocked reasons, and not-generated flags for summary/topics/agenda.
+- Includes stale flags, blocked reasons, not-generated flags, and agenda segmentation status/count.
 
 ## Startup purge (dev)
 When enabled, startup clears derived data for deterministic local testing.

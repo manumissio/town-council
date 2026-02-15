@@ -1,6 +1,7 @@
 import sys
 import os
 import logging
+import hmac
 import re
 import meilisearch
 from fastapi import FastAPI, HTTPException, Query, Path, Depends, Header, Request
@@ -63,7 +64,8 @@ def get_db():
 # trigger expensive AI tasks or report issues.
 async def verify_api_key(request: Request, x_api_key: str = Header(None)):
     expected_key = os.getenv("API_AUTH_KEY", "dev_secret_key_change_me")
-    if x_api_key != expected_key:
+    # Constant-time comparison reduces timing side-channels.
+    if not hmac.compare_digest(x_api_key or "", expected_key):
         client_ip = request.client.host if request and request.client else "unknown"
         logger.warning(
             "Unauthorized API access attempt: invalid or missing API key",
@@ -581,7 +583,20 @@ def get_catalog_derived_status(
     topics_is_stale = bool(
         catalog.topics is not None and (not content_hash or catalog.topics_source_hash != content_hash)
     )
-    agenda_items_count = db.query(AgendaItem).filter(AgendaItem.catalog_id == catalog_id).count()
+    agenda_segmentation_status = getattr(catalog, "agenda_segmentation_status", None)
+    agenda_segmentation_attempted_at = getattr(catalog, "agenda_segmentation_attempted_at", None)
+    agenda_segmentation_item_count = getattr(catalog, "agenda_segmentation_item_count", None)
+    agenda_segmentation_error = getattr(catalog, "agenda_segmentation_error", None)
+
+    valid_segmentation_statuses = {None, "complete", "empty", "failed"}
+    if agenda_segmentation_status not in valid_segmentation_statuses:
+        agenda_segmentation_status = None
+
+    # Prefer the catalog-level count if present (avoids extra queries when possible).
+    if isinstance(agenda_segmentation_item_count, int):
+        agenda_items_count = agenda_segmentation_item_count
+    else:
+        agenda_items_count = db.query(AgendaItem).filter(AgendaItem.catalog_id == catalog_id).count()
     quality = analyze_source_text(catalog.content or "")
     summary_blocked_reason = None
     topics_blocked_reason = None
@@ -596,7 +611,11 @@ def get_catalog_derived_status(
     has_topic_values = bool(catalog.topics is not None and len(catalog.topics or []) > 0)
     summary_not_generated_yet = bool(has_content and not catalog.summary and not summary_blocked_reason)
     topics_not_generated_yet = bool(has_content and not has_topic_values and not topics_blocked_reason)
-    agenda_not_generated_yet = bool(has_content and agenda_items_count == 0)
+    # Agenda segmentation is a separate derived process. We treat "0 items" as:
+    # - not_generated_yet: never attempted
+    # - empty: attempted but found no substantive items
+    agenda_not_generated_yet = bool(has_content and agenda_segmentation_status is None)
+    agenda_is_empty = bool(has_content and agenda_segmentation_status == "empty")
 
     return {
         "catalog_id": catalog_id,
@@ -614,6 +633,11 @@ def get_catalog_derived_status(
         "topics_not_generated_yet": topics_not_generated_yet,
         "agenda_items_count": agenda_items_count,
         "agenda_not_generated_yet": agenda_not_generated_yet,
+        "agenda_is_empty": agenda_is_empty,
+        "agenda_segmentation_status": agenda_segmentation_status,
+        "agenda_segmentation_attempted_at": agenda_segmentation_attempted_at.isoformat() if agenda_segmentation_attempted_at else None,
+        "agenda_segmentation_item_count": agenda_segmentation_item_count,
+        "agenda_segmentation_error": agenda_segmentation_error,
     }
 
 

@@ -3,6 +3,7 @@ from celery.signals import worker_ready
 import os
 import logging
 import re
+from datetime import datetime, timezone
 from sqlalchemy.orm import sessionmaker
 from sqlalchemy.exc import SQLAlchemyError
 
@@ -157,6 +158,21 @@ SessionLocal = sessionmaker(bind=engine)
 
 @worker_ready.connect
 def _run_startup_purge_on_worker_ready(sender=None, **kwargs):
+    # Guardrail: LocalAI's singleton is per-process. If a worker is configured with
+    # concurrency > 1 (or a multiprocessing pool), each process will load its own model.
+    # This can OOM a dev machine quickly.
+    try:
+        concurrency = getattr(sender, "concurrency", None)
+        if concurrency is None and sender is not None:
+            concurrency = getattr(getattr(sender, "app", None), "conf", {}).get("worker_concurrency")  # type: ignore[attr-defined]
+        if isinstance(concurrency, int) and concurrency > 1:
+            logger.warning(
+                "Worker concurrency > 1 may load multiple LLM copies into RAM. "
+                "Recommended: --concurrency=1 --pool=solo for local Gemma."
+            )
+    except Exception:
+        pass
+
     # The purge is env-gated and DB-lock protected so concurrent starters are safe.
     result = run_startup_purge_if_enabled()
     logger.info(f"startup_purge_result={result}")
@@ -573,6 +589,17 @@ def segment_agenda_task(self, catalog_id: int):
                 })
                 count += 1
             
+            catalog.agenda_segmentation_status = "complete"
+            catalog.agenda_segmentation_item_count = count
+            catalog.agenda_segmentation_attempted_at = datetime.now(timezone.utc)
+            catalog.agenda_segmentation_error = None
+            db.commit()
+        else:
+            # Terminal state: agenda segmentation ran but found no substantive items.
+            catalog.agenda_segmentation_status = "empty"
+            catalog.agenda_segmentation_item_count = 0
+            catalog.agenda_segmentation_attempted_at = datetime.now(timezone.utc)
+            catalog.agenda_segmentation_error = None
             db.commit()
             
         logger.info(f"Segmentation complete: {count} items found (source={resolved['source_used']})")
@@ -587,6 +614,17 @@ def segment_agenda_task(self, catalog_id: int):
     except (SQLAlchemyError, RuntimeError, KeyError, ValueError) as e:
         logger.error(f"Task failed: {e}")
         db.rollback()
+        # Best-effort: persist failure status so batch workers don't spin forever.
+        try:
+            catalog = db.get(Catalog, catalog_id)
+            if catalog:
+                catalog.agenda_segmentation_status = "failed"
+                catalog.agenda_segmentation_item_count = 0
+                catalog.agenda_segmentation_attempted_at = datetime.now(timezone.utc)
+                catalog.agenda_segmentation_error = str(e)[:500]
+                db.commit()
+        except Exception:
+            db.rollback()
         raise self.retry(exc=e, countdown=60)
     finally:
         db.close()

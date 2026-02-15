@@ -15,7 +15,10 @@ from pipeline.config import (
     LLM_SUMMARY_MAX_TEXT,
     LLM_SUMMARY_MAX_TOKENS,
     LLM_AGENDA_MAX_TEXT,
-    LLM_AGENDA_MAX_TOKENS
+    LLM_AGENDA_MAX_TOKENS,
+    AGENDA_FALLBACK_MAX_ITEMS_PER_DOC,
+    AGENDA_FALLBACK_MAX_ITEMS_PER_PAGE_PARAGRAPH,
+    AGENDA_FALLBACK_MAX_CONSECUTIVE_REJECTS_PER_PAGE,
 )
 
 # Setup logging
@@ -786,6 +789,126 @@ def _strip_llm_acknowledgements(text: str) -> str:
 
     return "\n".join(lines[i:]).strip()
 
+def parse_llm_agenda_items(llm_text: str) -> list[dict]:
+    """
+    Parse the LLM's agenda extraction output.
+
+    Why this exists:
+    The model sometimes emits multi-line descriptions. A line-by-line parse will
+    drop any continuation lines that don't match the header regex.
+
+    We accept small formatting variance (dash/en-dash/em-dash/colon separators)
+    and default missing/invalid page numbers to 1 rather than dropping the item.
+    """
+    text = (llm_text or "").strip()
+    if not text:
+        return []
+
+    header = re.compile(r"(?im)^\s*ITEM\s+(?P<order>\d+)\s*:\s*")
+    headers = list(header.finditer(text))
+    if not headers:
+        return []
+
+    out: list[dict] = []
+    for idx, m in enumerate(headers):
+        try:
+            order = int(m.group("order"))
+        except Exception:
+            continue
+
+        start = m.end()
+        end = headers[idx + 1].start() if idx + 1 < len(headers) else len(text)
+        body = text[start:end].strip()
+        if not body:
+            continue
+
+        # Prefer the explicit "(Page N)" marker when present.
+        page_match = re.search(r"(?i)\(\s*page\s*(\d+)\s*\)", body)
+        page = 1
+        title_part = body
+        desc_part = ""
+        if page_match:
+            try:
+                page = int(page_match.group(1))
+            except Exception:
+                page = 1
+            title_part = body[: page_match.start()].strip()
+            desc_part = body[page_match.end() :].strip()
+        else:
+            # If the page marker is missing, split on the first reasonable separator.
+            sep = re.search(r"\s+[-\u2013\u2014:]\s+", body)
+            if sep:
+                title_part = body[: sep.start()].strip()
+                desc_part = body[sep.end() :].strip()
+            else:
+                # Fall back to first-line title + remainder as description.
+                first, *rest = body.splitlines()
+                title_part = first.strip()
+                desc_part = " ".join([ln.strip() for ln in rest]).strip()
+
+        title = " ".join((title_part or "").split())
+        if not title:
+            continue
+
+        desc = (desc_part or "").strip()
+        desc = re.sub(r"^[-\u2013\u2014:]\s*", "", desc)  # trim leading separator
+        desc = " ".join(desc.split())
+
+        out.append({"order": order, "title": title, "page_number": page, "description": desc})
+
+    # If the model accidentally repeats ITEM numbers, keep the first occurrence.
+    seen = set()
+    deduped: list[dict] = []
+    for item in out:
+        key = (item["order"], item["title"].lower())
+        if key in seen:
+            continue
+        seen.add(key)
+        deduped.append(item)
+    return deduped
+
+def iter_fallback_paragraphs(page_content: str) -> list[str]:
+    """
+    Extract paragraph-like chunks from a page for the weakest heuristic fallback.
+
+    OCR often collapses paragraphs to single newlines. We prefer blank-line splits,
+    but if blank lines are scarce we use "boundary lines" (numbered items, Subject:,
+    and obvious headings) as delimiters.
+    """
+    raw = (page_content or "").replace("\r\n", "\n").replace("\r", "\n")
+    if not raw.strip():
+        return []
+
+    blank_paras = [p.strip() for p in re.split(r"\n\s*\n+", raw) if p.strip()]
+    if len(blank_paras) >= 3:
+        return blank_paras
+
+    boundary = re.compile(
+        r"(?i)^\s*("
+        r"subject\s*:"
+        r"|item\s*#?\s*\d{1,3}\b"
+        r"|#?\s*\d{1,2}(?:\.\d+)?[\.\):]\s+"
+        r"|[A-Z][A-Z\s]{12,}"
+        r")"
+    )
+    lines = [ln.strip() for ln in raw.splitlines()]
+    paras: list[str] = []
+    current: list[str] = []
+    for ln in lines:
+        if not ln:
+            if current:
+                paras.append("\n".join(current).strip())
+                current = []
+            continue
+        if boundary.match(ln) and current:
+            paras.append("\n".join(current).strip())
+            current = [ln]
+            continue
+        current.append(ln)
+    if current:
+        paras.append("\n".join(current).strip())
+    return [p for p in paras if p]
+
 class LocalAI:
     """
     The 'Brain' of our application.
@@ -1125,17 +1248,25 @@ class LocalAI:
                 try:
                     response = self.llm(prompt, max_tokens=LLM_AGENDA_MAX_TOKENS, temperature=0.1)
                     raw_content = response["choices"][0]["text"].strip()
-                    content = "ITEM 1:" + raw_content
-                    pattern = r"ITEM\s+(\d+):\s*(.*?)\s*\(Page\s*(\d+)\)\s*-\s*(.*)"
-                    
-                    for line in content.split("\n"):
-                        match = re.search(pattern, line, re.IGNORECASE)
-                        if match:
-                            order = int(match.group(1))
-                            title = match.group(2).strip()
-                            page = int(match.group(3))
-                            desc = match.group(4).strip()
-                            add_item(order, title, page, desc)
+                    # The prompt pins the model's output stream at "ITEM 1:", but llama.cpp
+                    # returns only the continuation text. Only reconstruct "ITEM 1:" when the
+                    # continuation looks like it actually followed the requested format.
+                    content = raw_content
+                    if (
+                        "(page" in raw_content.lower()
+                        or re.search(r"(?im)^\s*ITEM\s+\d+\s*:", raw_content)
+                        or re.search(r"(?im)\n\s*ITEM\s+\d+\s*:", raw_content)
+                    ):
+                        content = "ITEM 1:" + raw_content
+
+                    # Parse across the full model output so we don't drop multi-line descriptions.
+                    for parsed in parse_llm_agenda_items(content):
+                        add_item(
+                            parsed["order"],
+                            parsed["title"],
+                            parsed["page_number"],
+                            parsed["description"],
+                        )
                 except Exception as e:
                     # AI agenda extraction errors: Same rationale as above
                     # The model can fail during generation, response parsing, or regex matching
@@ -1218,32 +1349,66 @@ class LocalAI:
                             f"Agenda section {marker}",
                             result=vote_result
                         )
+                        if len(items) >= AGENDA_FALLBACK_MAX_ITEMS_PER_DOC:
+                            break
                     if numbered_lines:
                         continue
 
                 # Fallback for unnumbered formats: use paragraph starts carefully.
-                paragraphs = [p.strip() for p in page_content.split("\n\n") if 10 < len(p.strip()) < 1000]
+                paragraphs = [
+                    p for p in iter_fallback_paragraphs(page_content)
+                    if 10 < len(p.strip()) < 1000
+                ]
 
+                added_from_paragraphs = 0
+                consecutive_rejects = 0
                 for p in paragraphs:
+                    if len(items) >= AGENDA_FALLBACK_MAX_ITEMS_PER_DOC:
+                        break
+                    if added_from_paragraphs >= AGENDA_FALLBACK_MAX_ITEMS_PER_PAGE_PARAGRAPH:
+                        break
+
                     lines = p.split("\n")
                     if not lines:
+                        consecutive_rejects += 1
+                        if consecutive_rejects >= AGENDA_FALLBACK_MAX_CONSECUTIVE_REJECTS_PER_PAGE:
+                            break
                         continue
+
                     title = re.sub(r"^\s*\d+(?:\.\d+)?[\.\):]?\s*", "", lines[0].strip())
+                    title_l = title.lower()
 
                     # Keep only plausible title lengths and skip common extraction junk.
-                    if 10 < len(title) < 150 and not any(
-                        b in title.lower() for b in ['page', 'packet', 'continuing']
-                    ):
-                        if title.lower().startswith("item #"):
-                            continue
-                        if is_probable_person_name(title):
-                            continue
-                        desc = (p[:500] + "...") if len(p) > 500 else p
-                        add_item(len(items) + 1, title, page_num, desc)
-                        # Limit to 3 items per page to reduce noise in fallback
-                        if len([it for it in items if it['page_number'] == page_num]) >= 3:
+                    if not (10 < len(title) < 150):
+                        consecutive_rejects += 1
+                        if consecutive_rejects >= AGENDA_FALLBACK_MAX_CONSECUTIVE_REJECTS_PER_PAGE:
                             break
-                            
-                if len(items) > 30: break # Cap total items per doc
+                        continue
+
+                    if any(b in title_l for b in ["page", "packet", "continuing"]):
+                        consecutive_rejects += 1
+                        if consecutive_rejects >= AGENDA_FALLBACK_MAX_CONSECUTIVE_REJECTS_PER_PAGE:
+                            break
+                        continue
+
+                    if title_l.startswith("item #") or is_probable_person_name(title):
+                        consecutive_rejects += 1
+                        if consecutive_rejects >= AGENDA_FALLBACK_MAX_CONSECUTIVE_REJECTS_PER_PAGE:
+                            break
+                        continue
+
+                    desc = (p[:500] + "...") if len(p) > 500 else p
+                    before = len(items)
+                    add_item(len(items) + 1, title, page_num, desc)
+                    if len(items) > before:
+                        added_from_paragraphs += 1
+                        consecutive_rejects = 0
+                    else:
+                        consecutive_rejects += 1
+                        if consecutive_rejects >= AGENDA_FALLBACK_MAX_CONSECUTIVE_REJECTS_PER_PAGE:
+                            break
+
+                if len(items) >= AGENDA_FALLBACK_MAX_ITEMS_PER_DOC:
+                    break
         
         return items

@@ -54,7 +54,36 @@ def migrate() -> None:
             )
             conn.execute(text("CREATE INDEX IF NOT EXISTS ix_person_person_type ON person (person_type)"))
 
+        # Agenda segmentation status columns (additive; safe to run repeatedly).
+        if not _postgres_column_exists(conn, "catalog", "agenda_segmentation_status"):
+            conn.execute(
+                text("ALTER TABLE catalog ADD COLUMN agenda_segmentation_status VARCHAR(20)")
+            )
+            conn.execute(
+                text(
+                    "CREATE INDEX IF NOT EXISTS ix_catalog_agenda_segmentation_status "
+                    "ON catalog (agenda_segmentation_status)"
+                )
+            )
+        if not _postgres_column_exists(conn, "catalog", "agenda_segmentation_attempted_at"):
+            conn.execute(
+                text("ALTER TABLE catalog ADD COLUMN agenda_segmentation_attempted_at TIMESTAMP")
+            )
+            conn.execute(
+                text(
+                    "CREATE INDEX IF NOT EXISTS ix_catalog_agenda_segmentation_attempted_at "
+                    "ON catalog (agenda_segmentation_attempted_at)"
+                )
+            )
+        if not _postgres_column_exists(conn, "catalog", "agenda_segmentation_item_count"):
+            conn.execute(
+                text("ALTER TABLE catalog ADD COLUMN agenda_segmentation_item_count INTEGER")
+            )
+        if not _postgres_column_exists(conn, "catalog", "agenda_segmentation_error"):
+            conn.execute(
+                text("ALTER TABLE catalog ADD COLUMN agenda_segmentation_error TEXT")
+            )
+
 
 if __name__ == "__main__":
     migrate()
-

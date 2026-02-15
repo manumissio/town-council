@@ -29,7 +29,7 @@ def test_process_document_chunk_returns_zero_when_db_unavailable(mocker):
 
 def test_run_parallel_processing_returns_when_no_unprocessed_docs(mocker):
     fake_db = mocker.MagicMock()
-    fake_db.query.return_value.filter.return_value.all.return_value = []
+    fake_db.query.return_value.filter.return_value.yield_per.return_value = []
 
     class _Cond:
         def is_(self, _):
@@ -39,6 +39,7 @@ def test_run_parallel_processing_returns_when_no_unprocessed_docs(mocker):
             return self
 
     class _Catalog:
+        id = object()
         content = _Cond()
         entities = _Cond()
 
@@ -56,6 +57,7 @@ def test_run_parallel_processing_returns_when_no_unprocessed_docs(mocker):
     run_pipeline.run_parallel_processing()
 
     executor_spy.assert_not_called()
+    fake_db.query.assert_called_once_with(_Catalog.id)
 
 
 def test_main_runs_steps_in_expected_order(mocker):

@@ -137,6 +137,7 @@ States exposed to UI:
 - **stale**: source hash mismatch after text changes
 - **blocked**: generation rejected for low-signal input (or ungrounded summary output)
 - **not generated yet**: derived field absent
+- **agenda empty**: agenda segmentation ran but detected 0 substantive items (tracked on `catalog`)
 
 Summary rendering contract:
 - `catalog.summary` is stored as plain text in a BLUF-first format (`BLUF:` line + `- ` bullets).
@@ -180,6 +181,7 @@ Safety:
 ### Security controls
 - Protected write endpoints require `X-API-Key`.
 - Auth failure logs include request metadata only and never include API key material.
+- API key comparison uses constant-time `compare_digest` semantics.
 - CORS origin allowlist is environment-controlled.
 - File re-extraction path is guarded by safe-path validation.
 - Frontend sends auth header only when explicitly configured.

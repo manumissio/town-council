@@ -136,6 +136,7 @@ PY
 - **Stale**: extracted text changed after summary/topics were generated
 - **Not generated yet**: derived fields not created yet (common after startup purge)
 - **Blocked**: extracted text too low-signal for reliable summary/topics
+- **Agenda empty**: agenda segmentation ran but detected 0 substantive agenda items (no infinite reprocessing)
 
 ### Segmentation includes teleconference/ADA/COVID boilerplate
 If structured agenda items look like participation instructions (teleconference/COVID/ADA text), re-run segmentation after upgrading.
@@ -159,6 +160,9 @@ You can tune these via env vars (worker reads them):
 - `LLM_SUMMARY_MAX_TEXT` (default `30000`)
 - `LLM_SUMMARY_MAX_TOKENS` (default `512`)
 - `LLM_AGENDA_MAX_TEXT` (default `60000`)
+
+Local dev memory guardrail:
+- Keep the Celery worker single-process (Compose uses `--concurrency=1 --pool=solo`). Higher concurrency can load multiple model copies into RAM.
 
 ## Documentation Map
 - Operations runbook: [`docs/OPERATIONS.md`](docs/OPERATIONS.md)

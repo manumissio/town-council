@@ -163,6 +163,17 @@ DB_RETRY_DELAY_MAX = 3
 # Lower = faster feedback, Higher = more efficient database usage
 AGENDA_BATCH_SIZE = 10
 
+# Heuristic agenda-extraction safety limits (used when LLM extraction fails).
+# These used to be hardcoded (3 items/page and 30 items/doc) which caused silent data loss.
+# We keep them configurable and conservative to avoid runaway extraction on bad OCR.
+AGENDA_FALLBACK_MAX_ITEMS_PER_DOC = int(os.getenv("AGENDA_FALLBACK_MAX_ITEMS_PER_DOC", "200"))
+AGENDA_FALLBACK_MAX_ITEMS_PER_PAGE_PARAGRAPH = int(
+    os.getenv("AGENDA_FALLBACK_MAX_ITEMS_PER_PAGE_PARAGRAPH", "25")
+)
+AGENDA_FALLBACK_MAX_CONSECUTIVE_REJECTS_PER_PAGE = int(
+    os.getenv("AGENDA_FALLBACK_MAX_CONSECUTIVE_REJECTS_PER_PAGE", "15")
+)
+
 # Batch size for text extraction commits
 # How many documents to extract before committing to database
 # Smaller batches = more frequent saves, Larger batches = better performance

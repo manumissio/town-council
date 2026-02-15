@@ -1,4 +1,5 @@
 import os
+import re
 import time
 from tika import parser
 
@@ -16,6 +17,48 @@ from pipeline.config import (
 
 # Define where the Tika server is located (usually a separate Docker container)
 TIKA_SERVER_ENDPOINT = os.getenv('TIKA_SERVER_ENDPOINT', 'http://tika:9998')
+
+def inject_page_markers(pages: list[str], mode: str) -> str:
+    """
+    Convert Tika XHTML "pages" into plain text with [PAGE N] markers.
+
+    Tika emits page boundaries in two common ways:
+    - XHTML: <div class="page"> ... content ... (often includes a preamble chunk at pages[0])
+    - Form feeds: "\\f" separators (pages[0] is the actual first page)
+
+    We keep numbering consistent for deep linking:
+    - div_page: pages[1] => [PAGE 1]
+    - formfeed: pages[0] => [PAGE 1]
+    """
+    def _strip_tags(value: str) -> str:
+        return re.sub(r"<[^>]+>", "", value or "")
+
+    if not pages:
+        return ""
+
+    if len(pages) == 1:
+        clean = _strip_tags(pages[0]).strip()
+        return f"[PAGE 1]\n{clean}".strip() if clean else ""
+
+    chunks: list[str] = []
+    if mode == "div_page":
+        preamble = _strip_tags(pages[0]).strip()
+        if preamble:
+            chunks.append(preamble)
+        for page_num, page_text in enumerate(pages[1:], start=1):
+            clean_page = _strip_tags(page_text).strip()
+            if clean_page:
+                chunks.append(f"[PAGE {page_num}]\n{clean_page}")
+        return "\n\n".join(chunks).strip()
+
+    if mode == "formfeed":
+        for page_num, page_text in enumerate(pages, start=1):
+            clean_page = _strip_tags(page_text).strip()
+            if clean_page:
+                chunks.append(f"[PAGE {page_num}]\n{clean_page}")
+        return "\n\n".join(chunks).strip()
+
+    raise ValueError(f"Unknown page marker mode: {mode}")
 
 def is_safe_path(path):
     """
@@ -80,31 +123,12 @@ def extract_text(file_path, *, ocr_fallback_enabled=None, min_chars_threshold=No
 
                     # Insert Page Markers
                     # Tika marks pages with <div class="page"> (XHTML) OR \f (form feed)
-                    import re
-
                     if '<div class="page">' in content:
                         pages = re.split(r'<div[^>]*class="page"[^>]*>', content)
-                    else:
-                        pages = content.split("\f")
+                        return inject_page_markers(pages, mode="div_page")
 
-                    marked_content = ""
-                    # pages[0] is usually boilerplate before the first page div
-                    if len(pages) == 1:
-                        clean_text = re.sub(r"<[^>]+>", "", pages[0]).strip()
-                        marked_content = f"[PAGE 1]\n{clean_text}"
-                    else:
-                        for i, page_text in enumerate(pages):
-                            if i == 0:
-                                clean_text = re.sub(r"<[^>]+>", "", page_text).strip()
-                                if clean_text:
-                                    marked_content += clean_text + "\n"
-                                continue
-
-                            clean_page = re.sub(r"<[^>]+>", "", page_text).strip()
-                            if clean_page:
-                                marked_content += f"\n[PAGE {i}]\n{clean_page}\n"
-
-                    return marked_content.strip()
+                    pages = content.split("\f")
+                    return inject_page_markers(pages, mode="formfeed")
 
                 raise ValueError("Tika returned empty response")
             except (ValueError, OSError, ConnectionError, TimeoutError) as e:

@@ -228,7 +228,7 @@ class AgendaItem(Base):
     catalog_id = Column(Integer, ForeignKey('catalog.id'), nullable=True)
 
     event = relationship('Event', back_populates='agenda_items')
-    catalog = relationship('Catalog')
+    catalog = relationship('Catalog', back_populates='agenda_items')
 
 
 class UrlStageHist(Base):
@@ -268,13 +268,20 @@ class Catalog(Base):
     # Hash of the `content` version that `topics` were generated from.
     topics_source_hash = Column(String(64), nullable=True)
     related_ids = Column(JSON, nullable=True)
+
+    # Agenda segmentation status for this catalog.
+    # This prevents "poison pill" reprocessing when a document genuinely yields 0 items.
+    agenda_segmentation_status = Column(String(20), nullable=True)  # complete|empty|failed
+    agenda_segmentation_attempted_at = Column(DateTime, nullable=True)
+    agenda_segmentation_item_count = Column(Integer, nullable=True)
+    agenda_segmentation_error = Column(Text, nullable=True)
     
     processed = Column(Boolean, default=False)
     created_at = Column(DateTime, default=func.now())
     uploaded_at = Column(DateTime, default=datetime.datetime.now)
 
     document = relationship("Document", back_populates="catalog", uselist=False)
-    agenda_items = relationship("AgendaItem", back_populates="catalog")
+    agenda_items = relationship("AgendaItem", back_populates="catalog", cascade="all, delete-orphan")
 
     __table_args__ = (
         Index('idx_catalog_hash', 'url_hash'),

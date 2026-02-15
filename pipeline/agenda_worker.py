@@ -1,4 +1,6 @@
-from sqlalchemy import or_
+from datetime import datetime, timezone
+
+from sqlalchemy import and_, or_
 from sqlalchemy.exc import SQLAlchemyError
 
 from pipeline.models import Catalog, AgendaItem, Document
@@ -51,10 +53,19 @@ def segment_document_agenda(catalog_id):
             if items_data:
                 # Rebuild rows so reruns remain idempotent and source quality can improve.
                 persist_agenda_items(session, catalog.id, doc.event_id, items_data)
+                catalog.agenda_segmentation_status = "complete"
+                catalog.agenda_segmentation_item_count = len(items_data)
+                catalog.agenda_segmentation_attempted_at = datetime.now(timezone.utc)
+                catalog.agenda_segmentation_error = None
+            else:
+                # Terminal empty state: don't reprocess forever.
+                catalog.agenda_segmentation_status = "empty"
+                catalog.agenda_segmentation_item_count = 0
+                catalog.agenda_segmentation_attempted_at = datetime.now(timezone.utc)
+                catalog.agenda_segmentation_error = None
 
-                # Save all items at once
-                # The context manager will automatically rollback if this fails
-                session.commit()
+            # Save all items (or empty/failed status) at once.
+            session.commit()
         except SQLAlchemyError as e:
             # Database errors during agenda segmentation: What can fail?
             # - IntegrityError: Duplicate agenda items (race condition with another worker)
@@ -63,6 +74,17 @@ def segment_document_agenda(catalog_id):
             # Why is AI processing mentioned? extract_agenda() can take 10-30 seconds,
             # plenty of time for connections to timeout or other issues to occur.
             # Note: The context manager (db_session) automatically rolls back on exception
+            try:
+                catalog = session.get(Catalog, catalog_id)
+                if catalog:
+                    catalog.agenda_segmentation_status = "failed"
+                    catalog.agenda_segmentation_item_count = 0
+                    catalog.agenda_segmentation_attempted_at = datetime.now(timezone.utc)
+                    catalog.agenda_segmentation_error = str(e)[:500]
+                    session.commit()
+            except Exception:
+                # The context manager will rollback; keep legacy print for visibility.
+                pass
             print(f"Error segmenting {catalog_id}: {e}")
             # The context manager will automatically rollback on exception
 
@@ -100,8 +122,12 @@ def segment_agendas():
             Catalog.content != None,
             Catalog.content != "",
             or_(
-                AgendaItem.id == None,  # No items exist yet
-                AgendaItem.page_number == None  # Items exist but incomplete
+                Catalog.agenda_segmentation_status == None,  # Not attempted yet
+                Catalog.agenda_segmentation_status == "failed",  # Retry failed runs
+                and_(
+                    Catalog.agenda_segmentation_status == "complete",
+                    AgendaItem.page_number == None,  # Items exist but incomplete
+                ),
             )
         ).limit(AGENDA_BATCH_SIZE).all()
 
