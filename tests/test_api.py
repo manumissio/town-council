@@ -69,6 +69,49 @@ def test_search_endpoint_params(mocker):
     assert 'city = "ca_berkeley"' in search_params['filter']
     assert 'meeting_category = "Regular"' in search_params['filter']
     assert 'result_type = "meeting"' in search_params['filter']
+    assert "sort" not in search_params
+
+
+def test_search_sort_newest_sets_meilisearch_sort(mocker):
+    mock_index = mocker.Mock()
+    mock_index.search.return_value = {"hits": [], "estimatedTotalHits": 0}
+    mocker.patch("api.main.client.index", return_value=mock_index)
+
+    response = client.get("/search?q=zoning&sort=newest", headers={"X-API-Key": VALID_KEY})
+    assert response.status_code == 200
+    search_params = mock_index.search.call_args[0][1]
+    assert search_params["sort"] == ["date:desc"]
+
+
+def test_search_sort_oldest_sets_meilisearch_sort(mocker):
+    mock_index = mocker.Mock()
+    mock_index.search.return_value = {"hits": [], "estimatedTotalHits": 0}
+    mocker.patch("api.main.client.index", return_value=mock_index)
+
+    response = client.get("/search?q=zoning&sort=oldest", headers={"X-API-Key": VALID_KEY})
+    assert response.status_code == 200
+    search_params = mock_index.search.call_args[0][1]
+    assert search_params["sort"] == ["date:asc"]
+
+
+def test_search_sort_relevance_does_not_set_meilisearch_sort(mocker):
+    mock_index = mocker.Mock()
+    mock_index.search.return_value = {"hits": [], "estimatedTotalHits": 0}
+    mocker.patch("api.main.client.index", return_value=mock_index)
+
+    response = client.get("/search?q=zoning&sort=relevance", headers={"X-API-Key": VALID_KEY})
+    assert response.status_code == 200
+    search_params = mock_index.search.call_args[0][1]
+    assert "sort" not in search_params
+
+
+def test_search_sort_invalid_returns_400(mocker):
+    mock_index = mocker.Mock()
+    mock_index.search.return_value = {"hits": [], "estimatedTotalHits": 0}
+    mocker.patch("api.main.client.index", return_value=mock_index)
+
+    response = client.get("/search?q=zoning&sort=wat", headers={"X-API-Key": VALID_KEY})
+    assert response.status_code == 400
 
 def test_search_injection_protection(mocker):
     """

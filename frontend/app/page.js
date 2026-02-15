@@ -24,6 +24,7 @@ export default function Home() {
   const [meetingTypeFilter, setMeetingTypeFilter] = useState("");
   const [orgFilter, setOrgFilter] = useState("");
   const [includeAgendaItems, setIncludeAgendaItems] = useState(false);
+  const [sortMode, setSortMode] = useState("newest"); // newest | oldest | relevance
   
   // Metadata State
   const [availableCities, setAvailableCities] = useState([]);
@@ -90,11 +91,22 @@ export default function Home() {
           return true;
         });
 
-        const pagedHits = filteredHits.slice(currentOffset, currentOffset + 20);
+        const sortedHits = (() => {
+          if (sortMode === "relevance") return filteredHits;
+          const dir = sortMode === "oldest" ? 1 : -1;
+          const parseDate = (value) => {
+            const s = (value || "").toString().trim();
+            const t = Date.parse(s);
+            return Number.isFinite(t) ? t : 0;
+          };
+          return [...filteredHits].sort((a, b) => dir * (parseDate(a.date) - parseDate(b.date)));
+        })();
+
+        const pagedHits = sortedHits.slice(currentOffset, currentOffset + 20);
         setResults((prev) => (isLoadMore ? [...prev, ...pagedHits] : pagedHits));
-        setTotalHits(filteredHits.length);
+        setTotalHits(sortedHits.length);
         setOffset(currentOffset);
-        setHasMore(currentOffset + 20 < filteredHits.length);
+        setHasMore(currentOffset + 20 < sortedHits.length);
         return;
       }
       
@@ -103,6 +115,7 @@ export default function Home() {
       
       if (cityFilter && cityFilter !== "all") url += `&city=${encodeURIComponent(cityFilter)}`;
       if (includeAgendaItems) url += `&include_agenda_items=true`;
+      url += `&sort=${encodeURIComponent(sortMode)}`;
       if (meetingTypeFilter && meetingTypeFilter !== "all") url += `&meeting_type=${encodeURIComponent(meetingTypeFilter)}`;
       if (orgFilter && orgFilter !== "all") url += `&org=${encodeURIComponent(orgFilter)}`;
 
@@ -124,7 +137,7 @@ export default function Home() {
       setLoading(false);
       setIsSearching(false);
     }
-  }, [query, cityFilter, includeAgendaItems, meetingTypeFilter, orgFilter, offset, demoMode]);
+  }, [query, cityFilter, includeAgendaItems, sortMode, meetingTypeFilter, orgFilter, offset, demoMode]);
 
   // Debouncing: Prevents searching on EVERY single keypress (waits 400ms)
   useEffect(() => {
@@ -134,7 +147,7 @@ export default function Home() {
     }, 400);
 
     return () => clearTimeout(delayDebounceFn);
-  }, [query, cityFilter, includeAgendaItems, meetingTypeFilter, orgFilter]);
+  }, [query, cityFilter, includeAgendaItems, sortMode, meetingTypeFilter, orgFilter]);
 
   // Initial Load: Fetch valid filter options from the search engine
   useEffect(() => {
@@ -157,6 +170,7 @@ export default function Home() {
     setMeetingTypeFilter("");
     setOrgFilter("");
     setIncludeAgendaItems(false);
+    setSortMode("newest");
     setOffset(0);
     setHasMore(false);
   };
@@ -200,6 +214,7 @@ export default function Home() {
             orgFilter={orgFilter} setOrgFilter={setOrgFilter}
             meetingTypeFilter={meetingTypeFilter} setMeetingTypeFilter={setMeetingTypeFilter}
             includeAgendaItems={includeAgendaItems} setIncludeAgendaItems={setIncludeAgendaItems}
+            sortMode={sortMode} setSortMode={setSortMode}
             availableCities={availableCities} availableOrgs={availableOrgs}
             isSearching={isSearching} resetApp={resetApp}
           />

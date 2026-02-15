@@ -81,6 +81,12 @@ Search results default to **meeting records only**. This avoids confusing “age
 
 If you want agenda items to appear as separate search hits, toggle **Agenda Items: On** in the UI (it sets `include_agenda_items=true` on `/search`).
 
+## Sorting Search Results
+The UI defaults to **Newest** first (date descending). Use the **Sort** pill to cycle:
+- Newest
+- Oldest
+- Relevance
+
 ## GitHub Pages Demo
 
 The Pages site is a static product demo powered by local JSON fixtures.

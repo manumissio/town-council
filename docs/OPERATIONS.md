@@ -131,6 +131,8 @@ Agenda summary contract:
 Search behavior:
 - `/search` returns meeting records only by default.
 - To include agenda items as independent search hits, enable the UI toggle (**Agenda Items: On**) or set `include_agenda_items=true`.
+- The UI defaults to sorting by date (newest first). Sorting requires `date` to be configured as a sortable attribute in Meilisearch.
+  If you changed indexing logic or rebuilt the index from scratch, run `python reindex_only.py` to reapply settings.
 
 Segmentation noise suppression:
 - Agenda segmentation suppresses common participation template blocks (teleconference/COVID/ADA/how-to-join instructions).

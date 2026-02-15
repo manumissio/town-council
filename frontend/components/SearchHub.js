@@ -13,9 +13,24 @@ export default function SearchHub({
   orgFilter, setOrgFilter,
   meetingTypeFilter, setMeetingTypeFilter,
   includeAgendaItems, setIncludeAgendaItems,
+  sortMode, setSortMode,
   availableCities, availableOrgs,
   isSearching, resetApp
 }) {
+  const cycleSortMode = () => {
+    const current = (sortMode || "newest").toLowerCase();
+    if (current === "newest") return setSortMode("oldest");
+    if (current === "oldest") return setSortMode("relevance");
+    return setSortMode("newest");
+  };
+
+  const sortLabel = (() => {
+    const current = (sortMode || "newest").toLowerCase();
+    if (current === "oldest") return "Sort: Oldest";
+    if (current === "relevance") return "Sort: Relevance";
+    return "Sort: Newest";
+  })();
+
   return (
     <section className="bg-white border-b border-gray-100 py-16 lg:py-24 shadow-inner relative z-20">
       <div className="max-w-6xl mx-auto px-4">
@@ -116,6 +131,14 @@ export default function SearchHub({
             title="When enabled, search results can include individual agenda items as separate hits."
           >
             {includeAgendaItems ? "Agenda Items: On" : "Agenda Items: Off"}
+          </button>
+          <button
+            type="button"
+            onClick={cycleSortMode}
+            className="px-5 py-2.5 border text-[11px] font-black uppercase tracking-widest rounded-full transition-all bg-white text-gray-500 border-gray-200 hover:border-blue-400 hover:text-blue-600"
+            title="Cycle sort mode: newest, oldest, relevance."
+          >
+            {sortLabel}
           </button>
           {["Zoning", "Housing", "Budget", "Police", "Biking"].map(tag => (
             <button 

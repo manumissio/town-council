@@ -90,6 +90,10 @@ def index_documents():
         'city', 'meeting_type', 'meeting_category', 'organization', 
         'people', 'date', 'organizations', 'result_type'
     ])
+
+    # Sortable attributes (used by /search?sort=newest|oldest).
+    # Date is stored as ISO-8601 (YYYY-MM-DD), so lexicographic ordering matches chronological ordering.
+    index.update_sortable_attributes(['date'])
     
     # Fields used for full-text search ranking.
     index.update_searchable_attributes([
@@ -244,6 +248,7 @@ def reindex_catalog(catalog_id: int) -> dict:
         'city', 'meeting_type', 'meeting_category', 'organization',
         'people', 'date', 'organizations', 'result_type'
     ])
+    index.update_sortable_attributes(['date'])
     index.update_searchable_attributes([
         'content', 'event_name', 'title', 'description', 'filename',
         'summary', 'organizations', 'locations', 'meeting_category',

@@ -171,6 +171,7 @@ def search_documents(
     q: str = Query(..., min_length=1, description="The search query (e.g., 'zoning')"),
     city: Optional[str] = Query(None),
     include_agenda_items: bool = Query(False, description="Include individual agenda items in search hits"),
+    sort: Optional[str] = Query(None, description="Sort mode: newest|oldest|relevance"),
     meeting_type: Optional[str] = Query(None),
     org: Optional[str] = Query(None),
     date_from: Optional[str] = Query(None),
@@ -205,6 +206,19 @@ def search_documents(
             'highlightPostTag': '</em>',
             'filter': []
         }
+
+        # Back-compat: when sort is omitted, Meilisearch uses relevance ranking.
+        # UI defaults to "newest" by explicitly setting sort=newest.
+        if sort is not None:
+            sort_mode = (sort or "").strip().lower()
+            if sort_mode in {"", "relevance"}:
+                pass
+            elif sort_mode == "newest":
+                search_params["sort"] = ["date:desc"]
+            elif sort_mode == "oldest":
+                search_params["sort"] = ["date:asc"]
+            else:
+                raise HTTPException(status_code=400, detail="Invalid sort mode. Use newest|oldest|relevance.")
         
         # SECURITY: We sanitize inputs by escaping double quotes.
         # This prevents 'Filter Injection' attacks where a user might try to 
@@ -274,6 +288,9 @@ def search_documents(
                 
         logger.info(f"Search query='{q}' city='{city}' returned {len(results['hits'])} hits")
         return results
+    except HTTPException:
+        # Bubble up explicit request validation errors (e.g., bad sort mode).
+        raise
     except Exception as e:
         logger.error(f"Search failed: {e}")
         raise HTTPException(status_code=500, detail="Internal search engine error")

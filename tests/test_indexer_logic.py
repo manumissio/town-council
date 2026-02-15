@@ -85,6 +85,7 @@ def test_indexer_flushes_agenda_final_batch_once(mocker):
 
     indexer.index_documents()
 
+    fake_index.update_sortable_attributes.assert_called_with(["date"])
     assert fake_index.add_documents.call_count == 1
     sent_batch = fake_index.add_documents.call_args[0][0]
     assert len(sent_batch) == 2
