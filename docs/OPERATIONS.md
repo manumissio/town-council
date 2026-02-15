@@ -128,6 +128,9 @@ Segmentation noise suppression:
 Extracted text normalization:
 - After extraction, we postprocess text to reduce common artifacts like spaced-letter ALLCAPS
   (`P R O C L A M A T I O N` -> `PROCLAMATION`). This improves both summaries and topics.
+- Some PDFs also extract ALLCAPS headers as small chunks (for example `ANN OT AT ED` or `B ER K EL EY`).
+  This is also fixed during extraction-time postprocessing, but you must **re-extract** a catalog to apply it
+  to already-stored content.
 
 Topic tagging notes:
 - Per-catalog topics use TF-IDF over a bounded, same-city corpus.

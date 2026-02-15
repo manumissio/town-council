@@ -625,6 +625,7 @@ def prepare_agenda_items_summary_prompt(meeting_title: str, meeting_date: str, i
         "- 1 to 2 paragraphs total.\n"
         "- First sentence must be a BLUF-style takeaway.\n"
         "- Plain text only (no Markdown markers like *, **, headings).\n"
+        "- Do not acknowledge the prompt. Do not say things like 'Okay' or 'I understand'. Start immediately.\n"
         "Content requirements:\n"
         "- Focus on substantive agenda items.\n"
         "- Do NOT include teleconference/Zoom/ADA/how-to-attend/broadcast/polling-app instructions.\n"
@@ -639,7 +640,51 @@ def prepare_agenda_items_summary_prompt(meeting_title: str, meeting_date: str, i
         f"Agenda items:\n{items_block}\n"
         "<end_of_turn>\n"
         "<start_of_turn>model\n"
+        "BLUF:"
     )
+
+def _strip_llm_acknowledgements(text: str) -> str:
+    """
+    Remove common "acknowledgement" / compliance preambles from LLM output.
+
+    Why this exists:
+    Even with good prompts, small instruction-tuned models sometimes begin with
+    "Okay, I understand..." which is UI-noise and reduces trust.
+    """
+    if not text:
+        return ""
+
+    lines = [ln.rstrip() for ln in (text or "").splitlines()]
+    i = 0
+    while i < len(lines):
+        ln = lines[i].strip()
+        if not ln:
+            i += 1
+            continue
+
+        lowered = ln.lower()
+        # If the model crams the acknowledgement and the BLUF onto one line,
+        # keep the BLUF portion instead of dropping the entire line.
+        if "bluf:" in lowered:
+            idx = lowered.index("bluf:")
+            return ln[idx:].strip() + ("\n" + "\n".join(lines[i + 1 :]).strip() if (i + 1) < len(lines) else "")
+        # Keep this list small and generic; we only strip at the start.
+        if (
+            lowered.startswith("okay")
+            or lowered.startswith("sure")
+            or lowered.startswith("certainly")
+            or lowered.startswith("got it")
+            or lowered.startswith("understood")
+            or "i understand" in lowered
+            or lowered.startswith("i will")
+            or lowered.startswith("i'll")
+        ):
+            i += 1
+            continue
+
+        break
+
+    return "\n".join(lines[i:]).strip()
 
 class LocalAI:
     """
@@ -769,8 +814,12 @@ class LocalAI:
                 raw = (response["choices"][0]["text"] or "").strip()
                 # Keep plain text, strip simple Markdown emphasis if the model slips it in.
                 cleaned = _strip_markdown_emphasis(raw).strip()
+                cleaned = _strip_llm_acknowledgements(cleaned).strip()
                 # Drop any leading bullet markers; narrative output should be paragraphs.
                 cleaned = re.sub(r"(?m)^\\s*[\\*\\-\\u2022]+\\s*", "", cleaned).strip()
+                if cleaned and not cleaned.startswith("BLUF:"):
+                    # Last resort: agenda summaries are expected to begin with BLUF.
+                    cleaned = f"BLUF: Agenda summary. {cleaned}"
                 return cleaned or raw
             except Exception as e:
                 logger.error(f"AI Agenda Items Summarization failed: {e}")

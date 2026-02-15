@@ -8,3 +8,20 @@ def test_postprocess_extracted_text_collapses_spaced_allcaps_preserving_word_bou
     assert "PROCLAMATION" in out
     assert "CITYCOUNCIL" not in out
 
+
+def test_postprocess_extracted_text_collapses_chunked_allcaps_words_conservatively():
+    from pipeline.text_cleaning import postprocess_extracted_text
+
+    raw = "\n".join(
+        [
+            "ANN OT AT ED A G E N D A",
+            "PROCL AM AT ION",
+            "CITY OF CA",
+        ]
+    )
+    out = postprocess_extracted_text(raw)
+
+    assert "ANNOTATED AGENDA" in out
+    assert "PROCLAMATION" in out
+    # Negative control: do not merge normal phrases.
+    assert "CITY OF CA" in out
