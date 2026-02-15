@@ -23,6 +23,7 @@ export default function Home() {
   const [cityFilter, setCityFilter] = useState("");
   const [meetingTypeFilter, setMeetingTypeFilter] = useState("");
   const [orgFilter, setOrgFilter] = useState("");
+  const [includeAgendaItems, setIncludeAgendaItems] = useState(false);
   
   // Metadata State
   const [availableCities, setAvailableCities] = useState([]);
@@ -64,6 +65,7 @@ export default function Home() {
         const normalizedMeetingType = (meetingTypeFilter || "").toLowerCase();
 
         const filteredHits = allHits.filter((hit) => {
+          if (!includeAgendaItems && hit.result_type === "agenda_item") return false;
           const haystack = [
             hit.event_name,
             hit.title,
@@ -100,6 +102,7 @@ export default function Home() {
       let url = buildApiUrl(`/search?q=${encodeURIComponent(query)}&limit=20&offset=${currentOffset}`);
       
       if (cityFilter && cityFilter !== "all") url += `&city=${encodeURIComponent(cityFilter)}`;
+      if (includeAgendaItems) url += `&include_agenda_items=true`;
       if (meetingTypeFilter && meetingTypeFilter !== "all") url += `&meeting_type=${encodeURIComponent(meetingTypeFilter)}`;
       if (orgFilter && orgFilter !== "all") url += `&org=${encodeURIComponent(orgFilter)}`;
 
@@ -121,7 +124,7 @@ export default function Home() {
       setLoading(false);
       setIsSearching(false);
     }
-  }, [query, cityFilter, meetingTypeFilter, orgFilter, offset, demoMode]);
+  }, [query, cityFilter, includeAgendaItems, meetingTypeFilter, orgFilter, offset, demoMode]);
 
   // Debouncing: Prevents searching on EVERY single keypress (waits 400ms)
   useEffect(() => {
@@ -131,7 +134,7 @@ export default function Home() {
     }, 400);
 
     return () => clearTimeout(delayDebounceFn);
-  }, [query, cityFilter, meetingTypeFilter, orgFilter]);
+  }, [query, cityFilter, includeAgendaItems, meetingTypeFilter, orgFilter]);
 
   // Initial Load: Fetch valid filter options from the search engine
   useEffect(() => {
@@ -153,6 +156,7 @@ export default function Home() {
     setCityFilter("");
     setMeetingTypeFilter("");
     setOrgFilter("");
+    setIncludeAgendaItems(false);
     setOffset(0);
     setHasMore(false);
   };
@@ -195,6 +199,7 @@ export default function Home() {
             cityFilter={cityFilter} setCityFilter={setCityFilter}
             orgFilter={orgFilter} setOrgFilter={setOrgFilter}
             meetingTypeFilter={meetingTypeFilter} setMeetingTypeFilter={setMeetingTypeFilter}
+            includeAgendaItems={includeAgendaItems} setIncludeAgendaItems={setIncludeAgendaItems}
             availableCities={availableCities} availableOrgs={availableOrgs}
             isSearching={isSearching} resetApp={resetApp}
           />

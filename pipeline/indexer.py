@@ -1,6 +1,7 @@
 import os
 import meilisearch
 from meilisearch.errors import MeilisearchError
+import re
 
 from pipeline.models import Document, Catalog, Event, Place, Organization, AgendaItem, Membership
 from pipeline.db_session import db_session
@@ -10,6 +11,22 @@ from sqlalchemy.orm import selectinload
 # Configuration for connecting to the Meilisearch search engine.
 MEILI_HOST = os.getenv('MEILI_HOST', 'http://meilisearch:7700')
 MEILI_MASTER_KEY = os.getenv('MEILI_MASTER_KEY', 'masterKey')
+
+_TAG_RE = re.compile(r"<[^>]+>")
+
+
+def _strip_any_html(value: str | None) -> str | None:
+    """
+    Defense-in-depth: Meilisearch highlights should be the only markup the UI sees.
+    Agenda items may originate from Legistar APIs that sometimes include HTML.
+    """
+    if value is None:
+        return None
+    if "<" not in value and ">" not in value:
+        return value
+    cleaned = _TAG_RE.sub(" ", value)
+    cleaned = re.sub(r"\\s+", " ", cleaned).strip()
+    return cleaned
 
 def _select_official_memberships_for_event(organization, record_date):
     """
@@ -183,8 +200,8 @@ def index_documents():
                 'db_id': item.id,
                 'ocd_id': item.ocd_id,
                 'result_type': 'agenda_item',
-                'title': item.title,
-                'description': item.description,
+                'title': _strip_any_html(item.title),
+                'description': _strip_any_html(item.description),
                 'classification': item.classification,
                 'result': item.result,
                 'page_number': item.page_number,

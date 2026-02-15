@@ -120,6 +120,11 @@ Summary format:
 Agenda summary contract:
 - For `Document.category == "agenda"`, summaries are derived from segmented agenda items (Structured Agenda) to avoid drift.
 - If an agenda has not been segmented yet, summary generation returns `not_generated_yet` and prompts you to segment first.
+- If the model output is too short or missing bullets, the system falls back to a deterministic summary built from agenda item titles.
+
+Search behavior:
+- `/search` returns meeting records only by default.
+- To include agenda items as independent search hits, enable the UI toggle (**Agenda Items: On**) or set `include_agenda_items=true`.
 
 Segmentation noise suppression:
 - Agenda segmentation suppresses common participation template blocks (teleconference/COVID/ADA/how-to-join instructions).

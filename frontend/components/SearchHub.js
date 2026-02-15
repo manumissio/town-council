@@ -12,6 +12,7 @@ export default function SearchHub({
   cityFilter, setCityFilter, 
   orgFilter, setOrgFilter,
   meetingTypeFilter, setMeetingTypeFilter,
+  includeAgendaItems, setIncludeAgendaItems,
   availableCities, availableOrgs,
   isSearching, resetApp
 }) {
@@ -103,7 +104,19 @@ export default function SearchHub({
         </div>
 
         {/* Quick Search Tags */}
-        <div className="mt-12 flex flex-wrap justify-center gap-3">
+        <div className="mt-10 flex flex-wrap justify-center gap-3 items-center">
+          <button
+            type="button"
+            onClick={() => setIncludeAgendaItems(!includeAgendaItems)}
+            className={`px-5 py-2.5 border text-[11px] font-black uppercase tracking-widest rounded-full transition-all ${
+              includeAgendaItems
+                ? "bg-blue-600 text-white border-blue-600 shadow-sm"
+                : "bg-white text-gray-500 border-gray-200 hover:border-blue-400 hover:text-blue-600"
+            }`}
+            title="When enabled, search results can include individual agenda items as separate hits."
+          >
+            {includeAgendaItems ? "Agenda Items: On" : "Agenda Items: Off"}
+          </button>
           {["Zoning", "Housing", "Budget", "Police", "Biking"].map(tag => (
             <button 
               key={tag} 

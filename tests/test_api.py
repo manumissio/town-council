@@ -54,7 +54,7 @@ def test_search_endpoint_params(mocker):
     mock_index.search.return_value = {"hits": [], "estimatedTotalHits": 0}
     mocker.patch("api.main.client.index", return_value=mock_index)
     
-    # Test with multiple filters
+    # Test with multiple filters (meeting-only by default)
     response = client.get("/search?q=zoning&city=berkeley&meeting_type=Regular&limit=10&offset=5", headers={"X-API-Key": VALID_KEY})
     assert response.status_code == 200
     
@@ -68,6 +68,7 @@ def test_search_endpoint_params(mocker):
     # UI labels (e.g. "Berkeley") are normalized to the indexed facet key (e.g. "ca_berkeley").
     assert 'city = "ca_berkeley"' in search_params['filter']
     assert 'meeting_category = "Regular"' in search_params['filter']
+    assert 'result_type = "meeting"' in search_params['filter']
 
 def test_search_injection_protection(mocker):
     """

@@ -70,6 +70,11 @@ docker compose run --rm pipeline python run_pipeline.py
 - Prometheus: [http://localhost:9090](http://localhost:9090)
 - Static demo (GitHub Pages): [https://manumissio.github.io/town-council/](https://manumissio.github.io/town-council/)
 
+## Search Behavior (Meetings vs Agenda Items)
+Search results default to **meeting records only**. This avoids confusing “agenda item” hits that look like separate meetings.
+
+If you want agenda items to appear as separate search hits, toggle **Agenda Items: On** in the UI (it sets `include_agenda_items=true` on `/search`).
+
 ## GitHub Pages Demo
 
 The Pages site is a static product demo powered by local JSON fixtures.

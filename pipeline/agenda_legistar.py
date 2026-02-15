@@ -2,6 +2,8 @@ import logging
 from datetime import date
 from typing import List, Dict, Any, Optional
 
+import html as _html
+import re
 import requests
 from requests.adapters import HTTPAdapter
 from urllib3.util import Retry
@@ -9,6 +11,28 @@ from urllib3.util import Retry
 
 logger = logging.getLogger("agenda-legistar")
 
+_TAG_RE = re.compile(r"<[^>]+>")
+
+
+def strip_html_to_text(value: str) -> str:
+    """
+    Convert simple HTML fragments (common in Legistar titles) into plain text.
+
+    Why this exists:
+    - Legistar fields sometimes include tags like <em> or <br>.
+    - Meilisearch also injects its own <em class=...> tags for highlights.
+      Storing raw HTML in DB/index makes the UI look broken and increases risk.
+    """
+    if not value:
+        return ""
+
+    # Convert <br> to space/newline boundaries before stripping tags.
+    v = re.sub(r"(?i)<br\s*/?>", " ", value)
+    v = _TAG_RE.sub(" ", v)
+    v = _html.unescape(v)
+    # Collapse any double spaces created by tag stripping.
+    v = re.sub(r"\s+", " ", v).strip()
+    return v
 
 def build_legistar_session() -> requests.Session:
     """
@@ -29,12 +53,13 @@ def build_legistar_session() -> requests.Session:
 
 def _safe_title(item: Dict[str, Any]) -> str:
     # Legistar payload fields vary by city; use first useful title-like value.
-    return (
+    raw = (
         item.get("EventItemTitle")
         or item.get("EventItemMatterName")
         or item.get("EventItemMatterFile")
         or ""
     ).strip()
+    return strip_html_to_text(raw)
 
 
 def fetch_legistar_agenda_items(

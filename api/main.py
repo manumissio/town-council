@@ -170,6 +170,7 @@ def health_check(db: SQLAlchemySession = Depends(get_db)):
 def search_documents(
     q: str = Query(..., min_length=1, description="The search query (e.g., 'zoning')"),
     city: Optional[str] = Query(None),
+    include_agenda_items: bool = Query(False, description="Include individual agenda items in search hits"),
     meeting_type: Optional[str] = Query(None),
     org: Optional[str] = Query(None),
     date_from: Optional[str] = Query(None),
@@ -239,6 +240,11 @@ def search_documents(
 
             # Default to CA for simple city labels, since this repo currently seeds CA cities.
             return f"ca_{slug}" if slug else lowered
+
+        # Default: search meeting records only. Agenda items are opt-in because they otherwise
+        # appear as separate search entries and confuse city-level browsing (especially Legistar cities).
+        if not include_agenda_items:
+            search_params['filter'].append('result_type = "meeting"')
 
         # Normalize city to match the indexed display_name (e.g., "ca_cupertino").
         if city:

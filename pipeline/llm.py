@@ -656,18 +656,22 @@ def prepare_agenda_items_summary_prompt(meeting_title: str, meeting_date: str, i
     safe_items = [(" ".join((it or "").strip().split())) for it in (items or []) if (it or "").strip()]
     lines = [f"{i+1}. {it}" for i, it in enumerate(safe_items)]
     items_block = "\n".join(lines) if lines else ""
+    total_items = len(safe_items)
 
     instruction = (
         "Write a plain-text executive summary of this meeting agenda based ONLY on the agenda items below.\n"
         "Format requirements:\n"
-        "- 1 to 2 paragraphs total.\n"
-        "- First sentence must be a BLUF-style takeaway.\n"
-        "- Plain text only (no Markdown markers like *, **, headings).\n"
+        "- First output must begin exactly with: BLUF: <one-sentence takeaway>\n"
+        "- Then write a short narrative paragraph (2 to 4 sentences).\n"
+        "- Then write 6 to 12 bullets, one per line, each starting with '- '.\n"
+        "- Plain text only. Do not use Markdown markers like '*', '**', headings, or numbering.\n"
         "- Do not acknowledge the prompt. Do not say things like 'Okay' or 'I understand'. Start immediately.\n"
         "Content requirements:\n"
         "- Focus on substantive agenda items.\n"
         "- Do NOT include teleconference/Zoom/ADA/how-to-attend/broadcast/polling-app instructions.\n"
         "- Do NOT invent outcomes; use neutral language like 'scheduled to consider' when needed.\n"
+        "- The bullets must each reference a specific agenda item (by describing it, not by quoting page numbers).\n"
+        f"Metadata: Total items provided to you: {total_items}.\n"
         "If you were only given a partial item list due to context limits, say so explicitly.\n"
     )
 
@@ -680,6 +684,64 @@ def prepare_agenda_items_summary_prompt(meeting_title: str, meeting_date: str, i
         "<start_of_turn>model\n"
         "BLUF:"
     )
+
+
+def _normalize_bullets_to_dash(text: str) -> str:
+    """
+    Normalize bullet markers to "- " (plain text).
+
+    Why:
+    The UI does not render Markdown. We still want consistent bullet output.
+    """
+    if not text:
+        return ""
+    text = re.sub(r"(?m)^\\s*[\\*\\u2022]\\s+", "- ", text)
+    text = re.sub(r"(?m)^\\s+-\\s+", "- ", text)
+    return text
+
+
+def _agenda_items_summary_is_too_short(text: str) -> bool:
+    """
+    Decide whether a model agenda summary is too short / low-utility.
+
+    We prefer returning a deterministic fallback over storing a useless model output.
+    """
+    if not text:
+        return True
+    t = text.strip()
+    if len(t) < 200:
+        return True
+    bullet_lines = [ln for ln in t.splitlines() if ln.strip().startswith("- ")]
+    if len(bullet_lines) < 3:
+        return True
+    sentence_count = len(re.findall(r"[.!?]\s", t)) + (1 if re.search(r"[.!?]$", t) else 0)
+    if sentence_count < 2:
+        return True
+    return False
+
+
+def _deterministic_agenda_items_summary(items: list[str], max_bullets: int = 25) -> str:
+    """
+    Deterministic fallback summary for agendas.
+
+    Why:
+    If the model output is clipped or noncompliant, we still want a usable result
+    without re-running inference.
+    """
+    safe_items = [(" ".join((it or "").strip().split())) for it in (items or []) if (it or "").strip()]
+    n = len(safe_items)
+    shown = safe_items[:max_bullets]
+    remaining = max(0, n - len(shown))
+
+    bluf = f"BLUF: Agenda includes {n} substantive item{'s' if n != 1 else ''}."
+    narrative = ""
+    if shown:
+        sample = ", ".join(shown[:3])
+        narrative = f"This meeting is scheduled to cover items including: {sample}."
+    bullets = "\n".join([f"- {it}" for it in shown])
+    if remaining > 0:
+        bullets = (bullets + f"\n- (+{remaining} more)") if bullets else f"- (+{remaining} more)"
+    return "\n".join([part for part in [bluf, narrative, bullets] if part]).strip()
 
 def _strip_llm_acknowledgements(text: str) -> str:
     """
@@ -853,12 +915,13 @@ class LocalAI:
                 # Keep plain text, strip simple Markdown emphasis if the model slips it in.
                 cleaned = _strip_markdown_emphasis(raw).strip()
                 cleaned = _strip_llm_acknowledgements(cleaned).strip()
-                # Drop any leading bullet markers; narrative output should be paragraphs.
-                cleaned = re.sub(r"(?m)^\\s*[\\*\\-\\u2022]+\\s*", "", cleaned).strip()
+                cleaned = _normalize_bullets_to_dash(cleaned).strip()
                 if cleaned and not cleaned.startswith("BLUF:"):
                     # Last resort: agenda summaries are expected to begin with BLUF.
                     cleaned = f"BLUF: Agenda summary. {cleaned}"
-                return cleaned or raw
+                if _agenda_items_summary_is_too_short(cleaned):
+                    return _deterministic_agenda_items_summary(items)
+                return cleaned or _deterministic_agenda_items_summary(items)
             except Exception as e:
                 logger.error(f"AI Agenda Items Summarization failed: {e}")
                 return None

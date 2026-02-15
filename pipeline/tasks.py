@@ -173,25 +173,34 @@ def generate_summary_task(self, catalog_id: int, force: bool = False):
         logger.info(f"Starting summarization for Catalog ID {catalog_id}")
         catalog = db.get(Catalog, catalog_id)
         
-        if not catalog or not catalog.content:
-            return {"error": "No content to summarize"}
-
-        # Ensure we have a stable fingerprint for "is this summary stale?"
-        content_hash = catalog.content_hash or compute_content_hash(catalog.content)
-        quality = analyze_source_text(catalog.content)
-        if not is_source_summarizable(quality):
-            # We do not run Gemma on low-signal content because it tends to hallucinate.
-            return {
-                "status": "blocked_low_signal",
-                "reason": build_low_signal_message(quality),
-                "summary": None,
-            }
-
         # Decide how to summarize based on the *document type*.
         # Many cities publish agenda PDFs without corresponding minutes PDFs.
         # If we summarize an agenda using a "minutes" prompt, the output looks incorrect.
         doc = db.query(Document).filter_by(catalog_id=catalog_id).first()
         doc_kind = (doc.category or "unknown") if doc else "unknown"
+
+        if not catalog:
+            return {"error": "Catalog not found"}
+
+        # Ensure we have a stable fingerprint for "is this summary stale?"
+        content_hash = compute_content_hash(catalog.content) if (catalog.content or "") else None
+        if content_hash:
+            catalog.content_hash = content_hash
+
+        # Minutes/unknown summaries are grounded in extracted text, so we block low-signal inputs.
+        # Agenda summaries are derived from segmented agenda items, so the extracted-text quality
+        # gate is not the right control (Legistar items can be good even if PDF text is sparse).
+        if doc_kind != "agenda":
+            if not catalog.content:
+                return {"error": "No content to summarize"}
+            quality = analyze_source_text(catalog.content)
+            if not is_source_summarizable(quality):
+                # We do not run Gemma on low-signal content because it tends to hallucinate.
+                return {
+                    "status": "blocked_low_signal",
+                    "reason": build_low_signal_message(quality),
+                    "summary": None,
+                }
         
         # Return cached value when already summarized, unless the caller forces a refresh.
         #
@@ -212,7 +221,9 @@ def generate_summary_task(self, catalog_id: int, force: bool = False):
 
         # Agenda summaries are derived from segmented agenda items (not raw PDF text) so the
         # AI Summary and Structured Agenda tabs cannot drift.
-        used_model_summary = True
+        # Whether we should run the "summary must be lexically grounded in extracted text" check.
+        # Agenda summaries are derived from structured items, so we do not ground against the PDF text.
+        do_grounding_check = True
         if doc_kind == "agenda":
             # Agenda summaries must be derived from segmented agenda items so the
             # AI Summary and Structured Agenda tabs cannot drift.
@@ -254,10 +265,8 @@ def generate_summary_task(self, catalog_id: int, force: bool = False):
                 meeting_date=(str(doc.event.record_date) if doc and doc.event and doc.event.record_date else ""),
                 items=titles,
             )
-            # Agenda-item summaries are derived from structured titles, not raw text, so the
-            # lexical grounding check (against the full extracted PDF text) is too strict.
-            # We still rely on input quality gates + boilerplate filtering to prevent junk.
-            used_model_summary = False
+            # Agenda summaries are derived from structured titles, not raw text.
+            do_grounding_check = False
         else:
             summary = local_ai.summarize(postprocess_extracted_text(catalog.content), doc_kind=doc_kind)
         
@@ -266,7 +275,7 @@ def generate_summary_task(self, catalog_id: int, force: bool = False):
             raise RuntimeError("AI Summarization returned None (Model missing or error)")
 
         # Guardrail: block ungrounded model claims (deterministic agenda-title summaries are exempt).
-        if used_model_summary:
+        if do_grounding_check:
             # Ground against the extracted text. This is conservative and may block on
             # paraphrases; if it becomes too strict for agenda-item summaries, we can
             # switch to grounding against the agenda-items payload instead.
@@ -285,8 +294,9 @@ def generate_summary_task(self, catalog_id: int, force: bool = False):
         
         # Update DB
         catalog.summary = summary
-        catalog.content_hash = content_hash
-        catalog.summary_source_hash = content_hash
+        if content_hash:
+            catalog.content_hash = content_hash
+            catalog.summary_source_hash = content_hash
         db.commit()
 
         # Best-effort: update the search index for just this catalog so stale flags

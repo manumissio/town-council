@@ -145,6 +145,12 @@ Summary rendering contract:
 Agenda summary contract:
 - For `Document.category == "agenda"`, summaries are derived from segmented agenda items (Structured Agenda) to prevent drift.
 - If an agenda has not been segmented yet, summary generation returns `not_generated_yet` and prompts segmentation first.
+- If the model output is too short or noncompliant, the system falls back to a deterministic summary built from agenda item titles.
+
+Search index doc types:
+- Meetings are indexed as `result_type="meeting"`.
+- Individual `agenda_item` rows are also indexed as `result_type="agenda_item"` for drilldown searches.
+- The API defaults to meeting-only search results; agenda-item hits are opt-in (`include_agenda_items=true`).
 
 Re-extraction is explicit and uses existing downloaded file only (no redownload).
 

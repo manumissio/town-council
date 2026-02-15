@@ -409,7 +409,9 @@ export default function ResultCard({ hit, onPersonClick, onTopicClick }) {
                  </span>
                )}
                <h2 className="text-xl font-bold text-gray-900 group-hover:text-blue-600 transition-colors leading-tight cursor-pointer" onClick={() => setIsExpanded(!isExpanded)}>
-                {isAgendaItem ? (hit._formatted?.title || hit.title) : (hit.event_name || "Untitled Meeting")}
+                {/* For agenda items, prefer the raw title. Meilisearch highlighting injects <em> tags into _formatted.title,
+                    and rendering that as plain text looks broken (the snippet already highlights the match). */}
+                {isAgendaItem ? (hit.title || "Untitled Agenda Item") : (hit.event_name || "Untitled Meeting")}
               </h2>
             </div>
             
