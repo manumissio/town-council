@@ -68,6 +68,9 @@ export default function ResultCard({ hit, onPersonClick, onTopicClick }) {
   const [isSegmenting, setIsSegmenting] = useState(false);
   const [isExtracting, setIsExtracting] = useState(false);
   const [extractedTextOverride, setExtractedTextOverride] = useState(null);
+  const [isLoadingCanonicalText, setIsLoadingCanonicalText] = useState(false);
+  const [canonicalTextLoadError, setCanonicalTextLoadError] = useState(null);
+  const [canonicalTextFetchFailed, setCanonicalTextFetchFailed] = useState(false);
   const [derivedStatus, setDerivedStatus] = useState(null);
   const [isLoadingRelated, setIsLoadingRelated] = useState(false);
   const [isReporting, setIsReporting] = useState(false);
@@ -77,10 +80,14 @@ export default function ResultCard({ hit, onPersonClick, onTopicClick }) {
 
   // Readability is a display concern only: keep DB content raw, format in UI.
   const fullTextSource = useMemo(() => {
-    if (typeof extractedTextOverride === "string" && extractedTextOverride.length > 0) return extractedTextOverride;
-    if (typeof hit.content === "string" && hit.content.length > 0) return hit.content;
+    // Use the canonical DB text when we have it, even if it's empty:
+    // an empty string means "not extracted yet" (common after startup purge).
+    if (typeof extractedTextOverride === "string") return extractedTextOverride;
+
+    // Only fall back to the search snippet when we could not fetch canonical text.
+    if (canonicalTextFetchFailed && typeof hit.content === "string") return hit.content;
     return "";
-  }, [extractedTextOverride, hit.content]);
+  }, [extractedTextOverride, canonicalTextFetchFailed, hit.content]);
 
   const formattedFullTextHtml = useMemo(() => {
     return renderFormattedExtractedText(fullTextSource);
@@ -144,6 +151,13 @@ export default function ResultCard({ hit, onPersonClick, onTopicClick }) {
     fetchDerivedStatus();
   }, [isExpanded, hit.catalog_id]);
 
+  // Full Text should come from the DB, not from the search index.
+  // Meilisearch results can be stale after startup purge or indexing changes.
+  useEffect(() => {
+    if (!isExpanded || !hit.catalog_id) return;
+    fetchCanonicalContent();
+  }, [isExpanded, hit.catalog_id]);
+
   const fetchDerivedStatus = async () => {
     if (!hit.catalog_id) return;
     try {
@@ -156,6 +170,41 @@ export default function ResultCard({ hit, onPersonClick, onTopicClick }) {
     } catch (err) {
       // Best-effort only; staleness badges are helpful but not critical.
       console.error("Failed to fetch derived status", err);
+    }
+  };
+
+  const fetchCanonicalContent = async () => {
+    if (!hit.catalog_id) return;
+    if (!demoMode && !canMutate) {
+      // The API protects /catalog/* endpoints with an API key. Without a key we can still
+      // browse search results, but we can't show canonical extracted text.
+      setCanonicalTextFetchFailed(true);
+      setCanonicalTextLoadError("Missing API key (cannot load canonical extracted text).");
+      return;
+    }
+
+    setIsLoadingCanonicalText(true);
+    setCanonicalTextLoadError(null);
+    try {
+      const res = await fetch(buildApiUrl(`/catalog/${hit.catalog_id}/content`), {
+        headers: getApiHeaders({ useAuth: canMutate }),
+      });
+      if (!res.ok) {
+        setCanonicalTextFetchFailed(true);
+        setCanonicalTextLoadError(`Failed to load extracted text (HTTP ${res.status}).`);
+        setIsLoadingCanonicalText(false);
+        return;
+      }
+
+      const data = await res.json();
+      setExtractedTextOverride(typeof data.content === "string" ? data.content : "");
+      setCanonicalTextFetchFailed(false);
+      setIsLoadingCanonicalText(false);
+    } catch (err) {
+      console.error("Failed to fetch canonical text", err);
+      setCanonicalTextFetchFailed(true);
+      setCanonicalTextLoadError("Failed to load extracted text (network error).");
+      setIsLoadingCanonicalText(false);
     }
   };
 
@@ -321,11 +370,7 @@ export default function ResultCard({ hit, onPersonClick, onTopicClick }) {
       const data = await res.json();
       if (data.status === "cached") {
         // Pull fresh text from the DB endpoint even when cached so the UI refreshes.
-        const textRes = await fetch(buildApiUrl(`/catalog/${hit.catalog_id}/content`), {
-          headers: getApiHeaders({ useAuth: canMutate }),
-        });
-        const textData = await textRes.json();
-        setExtractedTextOverride(textData.content || "");
+        await fetchCanonicalContent();
         setIsExtracting(false);
         fetchDerivedStatus();
         return;
@@ -335,11 +380,7 @@ export default function ResultCard({ hit, onPersonClick, onTopicClick }) {
         pollTaskStatus(
           data.task_id,
           async () => {
-            const textRes = await fetch(buildApiUrl(`/catalog/${hit.catalog_id}/content`), {
-              headers: getApiHeaders({ useAuth: canMutate }),
-            });
-            const textData = await textRes.json();
-            setExtractedTextOverride(textData.content || "");
+            await fetchCanonicalContent();
             setIsExtracting(false);
             fetchDerivedStatus();
           },
@@ -823,7 +864,23 @@ export default function ResultCard({ hit, onPersonClick, onTopicClick }) {
 	                    <div className="flex items-center gap-2 mb-6 text-gray-400 font-bold text-[10px] uppercase tracking-widest">
 	                      <FileText className="w-4 h-4" />
 	                      Extracted Text
+                        {(derivedStatus && derivedStatus.has_content === false) && (
+                          <span className="bg-slate-100 text-slate-700 text-[9px] font-black uppercase px-1.5 py-0.5 rounded shadow-sm">
+                            Not extracted yet
+                          </span>
+                        )}
 	                    </div>
+                      {canonicalTextLoadError && (
+                        <div className="mb-4 text-[12px] text-amber-800 bg-amber-50 border border-amber-200 rounded-xl px-3 py-2">
+                          {canonicalTextLoadError}{" "}
+                          {canonicalTextFetchFailed && typeof hit.content === "string" && hit.content.length > 0
+                            ? "Showing search snippet instead."
+                            : null}
+                        </div>
+                      )}
+                      {isLoadingCanonicalText && (
+                        <div className="mb-4 text-[12px] text-gray-500">Loading extracted text...</div>
+                      )}
 	                    {canMutate && hit.catalog_id && (
 	                      <button
 	                        type="button"

@@ -135,6 +135,7 @@ Env controls:
 Behavior:
 - lock-protected purge (only one service executes during startup wave)
 - preserves source ingest records
+- extracted text (`Catalog.content`) is cleared, so Full Text will show **Not extracted yet** until re-extraction runs
 
 ## Observability quick checks
 

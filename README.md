@@ -35,6 +35,10 @@ What it does *not* do:
 - scrape any city data (no crawler runs)
 - process/index documents (no `run_pipeline.py`)
 
+Note on Full Text after restart:
+If `STARTUP_PURGE_DERIVED=true` (default in this repo’s `docker-compose.yml`), extracted text is cleared from the DB on startup.
+The UI Full Text tab pulls canonical text from Postgres (`/catalog/{id}/content`), so it may show **Not extracted yet** until you click **Re-extract text** for that record.
+
 ### 2.5) Verify containers are using the latest image
 This catches “stale image” problems early (for example, missing Python deps).
 

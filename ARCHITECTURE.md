@@ -162,6 +162,8 @@ Safety:
 - Raw extraction remains canonical in DB/API (`catalog.content`).
 - Full Text readability formatting is client-side only (whitespace cleanup + `Page N` headers).
 - This avoids changing data used by indexing, summarization, and segmentation.
+- The UI fetches canonical Full Text from Postgres (`GET /catalog/{id}/content`), not from Meilisearch search snippets.
+  This prevents “stale snippet” confusion after startup purge clears extracted text.
 
 ## Security and Reliability Model
 
