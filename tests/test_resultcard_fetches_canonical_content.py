@@ -20,3 +20,13 @@ def test_result_card_uses_db_text_even_when_empty():
     source = Path("frontend/components/ResultCard.js").read_text(encoding="utf-8")
     assert "if (typeof extractedTextOverride === \"string\") return extractedTextOverride;" in source
 
+
+def test_result_card_shows_empty_state_for_empty_canonical_text_and_gates_snippet_fallback():
+    """
+    Regression: when canonical DB content is an empty string, do not fall through and show
+    Meilisearch snippets. Only show snippets when the canonical fetch failed.
+    """
+    source = Path("frontend/components/ResultCard.js").read_text(encoding="utf-8")
+    assert "typeof extractedTextOverride === \"string\"" in source
+    assert "extractedTextOverride.trim() === \"\"" in source
+    assert ") : canonicalTextFetchFailed ? (" in source

@@ -892,14 +892,20 @@ export default function ResultCard({ hit, onPersonClick, onTopicClick }) {
 	                        {isExtracting ? "Re-extracting..." : "Re-extract text"}
 	                      </button>
 	                    )}
-	                    {extractedTextOverride ? (
-	                      <div
-                          className="leading-relaxed text-[14px]"
-                          dangerouslySetInnerHTML={{
-                            __html: DOMPurify.sanitize(formattedFullTextHtml)
-                          }}
-                        />
-	                    ) : formattedFullTextHtml ? (
+                      {typeof extractedTextOverride === "string" ? (
+                        extractedTextOverride.trim() === "" ? (
+                          <p className="text-[13px] text-gray-500 italic">
+                            Not extracted yet. Use <span className="font-semibold">Re-extract text</span> to load the canonical document text.
+                          </p>
+                        ) : (
+                          <div
+                            className="leading-relaxed text-[14px]"
+                            dangerouslySetInnerHTML={{
+                              __html: DOMPurify.sanitize(formattedFullTextHtml)
+                            }}
+                          />
+                        )
+                      ) : formattedFullTextHtml ? (
 	                      <div
 	                        className="leading-relaxed text-[14px]"
 	                        dangerouslySetInnerHTML={{
@@ -913,9 +919,13 @@ export default function ResultCard({ hit, onPersonClick, onTopicClick }) {
 	                          __html: DOMPurify.sanitize(hit._formatted.content)
 	                        }}
 	                      />
-	                    ) : (
+	                    ) : canonicalTextFetchFailed ? (
 	                      <p className="whitespace-pre-line leading-relaxed text-[14px]">{hit.content}</p>
-	                    )}
+	                    ) : (
+                        <p className="text-[13px] text-gray-500 italic">
+                          Not extracted yet. Use <span className="font-semibold">Re-extract text</span> to load the canonical document text.
+                        </p>
+                      )}
 	                  </div>
 	                </div>
 	              )}
