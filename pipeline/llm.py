@@ -3,6 +3,7 @@ import json
 import logging
 import threading
 import re
+import multiprocessing
 try:
     # Optional dependency: we still want the pipeline to run (heuristic fallbacks)
     # even if llama-cpp isn't installed in the current environment.
@@ -19,12 +20,43 @@ from pipeline.config import (
     AGENDA_FALLBACK_MAX_ITEMS_PER_DOC,
     AGENDA_FALLBACK_MAX_ITEMS_PER_PAGE_PARAGRAPH,
     AGENDA_FALLBACK_MAX_CONSECUTIVE_REJECTS_PER_PAGE,
+    LOCAL_AI_ALLOW_MULTIPROCESS,
 )
 
 # Setup logging
 logger = logging.getLogger("local-ai")
 
 _SUMMARY_DOC_KINDS = {"minutes", "agenda", "unknown"}
+
+class LocalAIConfigError(RuntimeError):
+    """
+    Raised when LocalAI is invoked in an unsafe/unsupported runtime configuration.
+    """
+
+def _looks_like_multiprocess_worker() -> bool:
+    """
+    Best-effort detection of "this code is running inside a forked/child process".
+
+    This is intentionally conservative: if we suspect multiprocess and the guardrail
+    is enabled, we fail fast to avoid loading multiple GGUF model copies into RAM.
+    """
+    try:
+        if multiprocessing.current_process().name != "MainProcess":
+            return True
+    except Exception:
+        pass
+
+    # Celery/worker env hints (best-effort; not authoritative).
+    for key in ("CELERYD_CONCURRENCY", "WORKER_CONCURRENCY", "CELERY_WORKER_CONCURRENCY"):
+        val = os.getenv(key)
+        if val:
+            try:
+                if int(val) > 1:
+                    return True
+            except Exception:
+                # Non-integer values are ignored; the process-name check is primary.
+                pass
+    return False
 
 def _dedupe_lines_preserve_order(lines):
     """Return unique lines while keeping the first occurrence order."""
@@ -913,10 +945,14 @@ class LocalAI:
     """
     The 'Brain' of our application.
 
-    Uses a singleton pattern to keep the model loaded in RAM.
-    What's a singleton? It means only ONE instance of this class ever exists.
+    Uses a singleton pattern to keep the model loaded in RAM *per Python process*.
+    What's a singleton? It means only ONE instance of this class exists in a given process.
     Why? Loading the AI model takes ~5 seconds and uses ~500MB RAM. We don't want
     to load it multiple times!
+
+    Important architecture note:
+    Celery prefork/multiprocessing spawns multiple worker processes. Processes do not
+    share memory, so each process would load its own model copy unless guarded.
     """
     _instance = None  # Stores the single instance
     _lock = threading.Lock()  # Prevents race conditions when multiple threads try to create the instance
@@ -945,6 +981,14 @@ class LocalAI:
         2. If two threads try to load simultaneously, we'd waste RAM and cause errors
         3. The lock ensures only ONE thread loads the model, others wait
         """
+        # Guardrail: llama.cpp loads the model into the *current process*. In a multiprocess
+        # worker (Celery prefork), this will duplicate the model per process and can OOM.
+        if not LOCAL_AI_ALLOW_MULTIPROCESS and _looks_like_multiprocess_worker():
+            raise LocalAIConfigError(
+                "Unsafe LocalAI configuration detected (multiprocess worker). "
+                "Run Celery with --concurrency=1 --pool=solo, or switch to a dedicated inference server backend."
+            )
+
         if Llama is None:
             logger.error("Local AI model is unavailable (llama_cpp not installed). Falling back to heuristics.")
             return

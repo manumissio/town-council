@@ -111,6 +111,12 @@ flowchart LR
 3. Worker executes task, writes DB updates, then reindexes affected catalog/entity.
 4. UI polls `/tasks/{id}` for completion.
 
+Local AI process model note:
+- `LocalAI` (llama.cpp) is a singleton **per Python process**, not a cross-process singleton.
+- Celery prefork/multiprocessing spawns multiple worker processes; each would load its own GGUF model copy into RAM.
+- This repo's default worker configuration uses `--pool=solo --concurrency=1` and includes fail-fast guardrails.
+- Scaling inference beyond a single process requires a dedicated inference server and HTTP-based inference (future work).
+
 ## Agenda Segmentation Design
 
 The resolver uses a maintainable source priority:

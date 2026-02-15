@@ -1,6 +1,7 @@
 from celery import Celery
 from celery.signals import worker_ready
 import os
+import sys
 import logging
 import re
 from datetime import datetime, timezone
@@ -8,11 +9,15 @@ from sqlalchemy.orm import sessionmaker
 from sqlalchemy.exc import SQLAlchemyError
 
 from pipeline.models import db_connect, Catalog, Document
-from pipeline.llm import LocalAI
+from pipeline.llm import LocalAI, LocalAIConfigError
 from pipeline.agenda_service import persist_agenda_items
 from pipeline.agenda_resolver import resolve_agenda_items
 from pipeline.models import AgendaItem
-from pipeline.config import TIKA_MIN_EXTRACTED_CHARS_FOR_NO_OCR
+from pipeline.config import (
+    TIKA_MIN_EXTRACTED_CHARS_FOR_NO_OCR,
+    LOCAL_AI_ALLOW_MULTIPROCESS,
+    LOCAL_AI_REQUIRE_SOLO_POOL,
+)
 from pipeline.extraction_service import reextract_catalog_content
 from pipeline.indexer import reindex_catalog
 from pipeline.content_hash import compute_content_hash
@@ -156,6 +161,24 @@ engine = db_connect()
 SessionLocal = sessionmaker(bind=engine)
 
 
+def _get_celery_pool_from_argv(argv: list[str]) -> str | None:
+    """
+    Best-effort extraction of the Celery pool from argv.
+
+    Why this exists:
+    Celery's "sender" object passed to worker_ready isn't guaranteed to expose pool
+    details across versions/configs, but argv is stable for our Docker entrypoint.
+    """
+    if not argv:
+        return None
+    for i, arg in enumerate(argv):
+        if arg.startswith("--pool="):
+            return arg.split("=", 1)[1].strip() or None
+        if arg == "--pool" and (i + 1) < len(argv):
+            return (argv[i + 1] or "").strip() or None
+    return None
+
+
 @worker_ready.connect
 def _run_startup_purge_on_worker_ready(sender=None, **kwargs):
     # Guardrail: LocalAI's singleton is per-process. If a worker is configured with
@@ -165,11 +188,28 @@ def _run_startup_purge_on_worker_ready(sender=None, **kwargs):
         concurrency = getattr(sender, "concurrency", None)
         if concurrency is None and sender is not None:
             concurrency = getattr(getattr(sender, "app", None), "conf", {}).get("worker_concurrency")  # type: ignore[attr-defined]
-        if isinstance(concurrency, int) and concurrency > 1:
-            logger.warning(
-                "Worker concurrency > 1 may load multiple LLM copies into RAM. "
-                "Recommended: --concurrency=1 --pool=solo for local Gemma."
-            )
+        pool = _get_celery_pool_from_argv(getattr(sender, "argv", None) or sys.argv)  # type: ignore[arg-type]
+
+        if not LOCAL_AI_ALLOW_MULTIPROCESS:
+            # Default stance: LocalAI runs in-process via llama.cpp, which loads the model
+            # into the current process's RAM. Multiprocess pools will duplicate the model.
+            if LOCAL_AI_REQUIRE_SOLO_POOL and pool and pool != "solo":
+                logger.critical(
+                    "Unsafe worker pool for LocalAI: pool=%s. "
+                    "Run Celery with --pool=solo (and typically --concurrency=1), or use an inference server backend.",
+                    pool,
+                )
+                raise SystemExit(1)
+            if isinstance(concurrency, int) and concurrency > 1 and (pool is None or pool != "solo"):
+                logger.critical(
+                    "Unsafe worker concurrency for LocalAI: concurrency=%s pool=%s. "
+                    "Run Celery with --concurrency=1 --pool=solo, or use an inference server backend.",
+                    concurrency,
+                    pool,
+                )
+                raise SystemExit(1)
+    except SystemExit:
+        raise
     except Exception:
         pass
 
@@ -325,6 +365,11 @@ def generate_summary_task(self, catalog_id: int, force: bool = False):
         logger.info(f"Summarization complete for Catalog ID {catalog_id}")
         return {"status": "complete", "summary": summary}
 
+    except LocalAIConfigError as e:
+        # Configuration errors are not transient; do not retry.
+        logger.critical(f"LocalAI misconfiguration: {e}")
+        db.rollback()
+        return {"status": "error", "error": str(e)}
     except (SQLAlchemyError, RuntimeError, ValueError) as e:
         logger.error(f"Task failed: {e}")
         db.rollback()
@@ -611,6 +656,20 @@ def segment_agenda_task(self, catalog_id: int):
             "quality_score": resolved["quality_score"],
         }
 
+    except LocalAIConfigError as e:
+        logger.critical(f"LocalAI misconfiguration: {e}")
+        db.rollback()
+        try:
+            catalog = db.get(Catalog, catalog_id)
+            if catalog:
+                catalog.agenda_segmentation_status = "failed"
+                catalog.agenda_segmentation_item_count = 0
+                catalog.agenda_segmentation_attempted_at = datetime.now(timezone.utc)
+                catalog.agenda_segmentation_error = str(e)[:500]
+                db.commit()
+        except Exception:
+            db.rollback()
+        return {"status": "error", "error": str(e)}
     except (SQLAlchemyError, RuntimeError, KeyError, ValueError) as e:
         logger.error(f"Task failed: {e}")
         db.rollback()

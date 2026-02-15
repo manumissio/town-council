@@ -162,7 +162,13 @@ You can tune these via env vars (worker reads them):
 - `LLM_AGENDA_MAX_TEXT` (default `60000`)
 
 Local dev memory guardrail:
-- Keep the Celery worker single-process (Compose uses `--concurrency=1 --pool=solo`). Higher concurrency can load multiple model copies into RAM.
+- LocalAI (llama.cpp) is **per-process**. Celery prefork/multiprocessing spawns multiple processes; each would load its own model copy.
+- Keep the Celery worker single-process (Compose uses `--concurrency=1 --pool=solo`).
+- Guardrails will fail fast if the worker is started in a multiprocess configuration. Override only if you know what you're doing:
+  - `LOCAL_AI_ALLOW_MULTIPROCESS=true` (not recommended; can OOM)
+
+Scaling note:
+- If you want to scale inference beyond a single process, run a dedicated inference server (for example Ollama, llama.cpp server, or vLLM) and switch the app to HTTP-based inference (future work).
 
 ## Documentation Map
 - Operations runbook: [`docs/OPERATIONS.md`](docs/OPERATIONS.md)

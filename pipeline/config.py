@@ -71,6 +71,16 @@ NLP_MAX_TEXT_LENGTH = 100000
 # =============================================================================
 # These control the local AI model behavior (Gemma 3 270M)
 
+# =============================================================================
+# LOCAL AI PROCESS MODEL GUARDRAILS
+# =============================================================================
+# LocalAI loads a llama.cpp GGUF model into the current *process*.
+# Celery prefork/multiprocessing can spawn multiple worker processes, each loading its own model copy.
+# These flags prevent accidental OOM by failing fast when LocalAI is used in a multiprocess worker.
+
+LOCAL_AI_ALLOW_MULTIPROCESS = os.getenv("LOCAL_AI_ALLOW_MULTIPROCESS", "false").strip().lower() in {"1", "true", "yes"}
+LOCAL_AI_REQUIRE_SOLO_POOL = os.getenv("LOCAL_AI_REQUIRE_SOLO_POOL", "true").strip().lower() in {"1", "true", "yes"}
+
 # Context window size - how much text the model can "see" at once
 # Default is conservative for Docker stability/perf. Gemma 3 270M supports up to 32K.
 # Override via env when you want higher quality and can afford the extra KV cache.

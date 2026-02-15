@@ -89,6 +89,19 @@ We default to a smaller context window for Docker stability/performance. Tune vi
 - `LLM_SUMMARY_MAX_TOKENS` (default `512`)
 - `LLM_AGENDA_MAX_TEXT` (default `60000`)
 
+### LocalAI process model guardrail
+LocalAI (llama.cpp) loads the GGUF model into the current *process*.
+
+Celery's default prefork worker model uses multiple processes, which would duplicate the model in RAM and can OOM the host.
+This repo fails fast by default if the worker is started with an unsafe pool/concurrency configuration.
+
+Safe default (Compose):
+- `--pool=solo --concurrency=1`
+
+Override (not recommended):
+- `LOCAL_AI_ALLOW_MULTIPROCESS=true`
+  - Use only if you understand the memory impact (each worker process loads its own model copy).
+
 Security logging rule:
 - Do not log API key values or key fragments. Log only path/client metadata on auth failures.
 
