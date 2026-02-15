@@ -121,6 +121,7 @@ The resolver uses a maintainable source priority:
 Quality safeguards:
 - low-quality cached items can be regenerated
 - fallback parser suppresses speaker-roll/name-list pollution
+- fallback parser suppresses participation template boilerplate (teleconference/COVID/ADA/how-to-join instructions)
 - HTML cross-check parsing uses a DOM parser (not regex sanitization) before line extraction
 - vote lines (`Vote:`) are mapped into agenda item `result` when available
 - page context uses both `[PAGE N]` markers and inline `Page N` headers

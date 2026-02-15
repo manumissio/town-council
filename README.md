@@ -116,6 +116,10 @@ PY
 - **Not generated yet**: derived fields not created yet (common after startup purge)
 - **Blocked**: extracted text too low-signal for reliable summary/topics
 
+### Segmentation includes teleconference/ADA/COVID boilerplate
+If structured agenda items look like participation instructions (teleconference/COVID/ADA text), re-run segmentation after upgrading.
+The agenda extractor now suppresses common template boilerplate blocks so they do not become agenda items.
+
 Summary format:
 - Stored and displayed as plain text with a `BLUF:` line and `- ` bullets (no Markdown rendering).
 

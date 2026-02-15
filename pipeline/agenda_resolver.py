@@ -58,6 +58,14 @@ def agenda_quality_score(items: List[Any]) -> int:
             boilerplate_hits += 1
             score -= 12
 
+        # Participation / teleconference / ADA notices are usually template boilerplate.
+        if re.search(
+            r"\b(teleconference|public participation|join the webinar|join by phone|e-?mail comments|raise hand|unmute|meeting id|passcode|ada|accommodation|auxiliary aids|interpreters?)\b",
+            key,
+        ):
+            boilerplate_hits += 1
+            score -= 10
+
         # A pure person name (often from speaker lists) is rarely a useful agenda title.
         # Example: "Leslie Sakai" or "Kirk McCarthy (2)".
         if re.fullmatch(r"[A-Z][a-z]+(?: [A-Z]\.)?(?: [A-Z][a-z]+)+(?: \\(\\d+\\))?", title):

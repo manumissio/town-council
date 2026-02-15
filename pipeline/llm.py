@@ -3,7 +3,12 @@ import json
 import logging
 import threading
 import re
-from llama_cpp import Llama
+try:
+    # Optional dependency: we still want the pipeline to run (heuristic fallbacks)
+    # even if llama-cpp isn't installed in the current environment.
+    from llama_cpp import Llama
+except Exception:  # pragma: no cover
+    Llama = None
 from pipeline.utils import is_likely_human_name
 from pipeline.config import (
     LLM_CONTEXT_WINDOW,
@@ -76,6 +81,10 @@ def _looks_like_attendance_boilerplate(line: str) -> bool:
         "meeting will be held",
         "public comment",
         "public participation",
+        "speakers will be",
+        "called to speak",
+        "limit your remarks",
+        "time allotted",
         "written communications",
         "options to observe",
         "options to participate",
@@ -84,6 +93,7 @@ def _looks_like_attendance_boilerplate(line: str) -> bool:
         "members of the public",
         "submit comments",
         "email comments",
+        "e-mail comments",
         "communication access",
         "americans with disabilities act",
         "ada",
@@ -93,6 +103,134 @@ def _looks_like_attendance_boilerplate(line: str) -> bool:
         "disability-related",
     )
     return any(frag in lowered for frag in boilerplate_fragments)
+
+
+def _looks_like_agenda_segmentation_boilerplate(line: str) -> bool:
+    """
+    Return True when a line is *probably* boilerplate that should not become an agenda item.
+
+    Why this exists:
+    Agenda segmentation is more sensitive than summarization. In many PDFs the
+    participation/teleconference/COVID/ADA section is numbered, which can look
+    like "real items" to simple numbered-line heuristics.
+    """
+    if not line:
+        return False
+
+    lowered = (line or "").strip().lower()
+
+    # Reuse the summarization boilerplate filter first.
+    if _looks_like_attendance_boilerplate(lowered):
+        return True
+
+    # COVID-era and remote-meeting legal/policy notices.
+    covid_fragments = (
+        "covid",
+        "covid-19",
+        "coronavirus",
+        "state of emergency",
+        "executive order",
+        "governor newsom",
+        "order no-",
+        "order no.",
+    )
+    if any(frag in lowered for frag in covid_fragments):
+        return True
+
+    # Remote meeting platform mechanics and browser requirements.
+    platform_fragments = (
+        "join the webinar",
+        "join by phone",
+        "please read the following instructions",
+        "please read the instructions carefully",
+        "instructions carefully",
+        "you will be asked to enter",
+        "enter an email address",
+        "confirmation email",
+        "raise hand",
+        "unmute",
+        "mute",
+        "last four digits",
+        "internet browser",
+        "browser",
+        "microsoft edge",
+        "internet explorer",
+        "chrome",
+        "firefox",
+        "safari",
+        "h.323",
+        "sip",
+        "passcode",
+        "meeting id",
+        "webinar id",
+        "registration",
+        "register",
+    )
+    if any(frag in lowered for frag in platform_fragments):
+        return True
+
+    # Registration templates often include privacy/identity instructions that are not agenda topics.
+    if "email address" in lowered:
+        return True
+    if "will not be disclosed" in lowered:
+        return True
+    if "connect to the meeting" in lowered:
+        return True
+    if "you may enter" in lowered and ("designation" in lowered or "resident" in lowered):
+        return True
+
+    # Some templates include lists of teleconference endpoints like:
+    # "144.110 (Amsterdam Netherlands)" or "140.110 (Germany)".
+    # These are participation mechanics, not agenda topics.
+    if _looks_like_teleconference_endpoint_line(lowered):
+        return True
+
+    # ADA / accessibility wording in many agenda templates.
+    accessibility_fragments = (
+        "communication access",
+        "disability",
+        "accommodation",
+        "auxiliary aids",
+        "interpreters",
+        "americans with disabilities act",
+        "ada",
+    )
+    if any(frag in lowered for frag in accessibility_fragments):
+        return True
+
+    return False
+
+
+def _looks_like_teleconference_endpoint_line(line: str) -> bool:
+    """
+    Return True for short "endpoint list" lines that show up in teleconference instructions.
+
+    Why this exists:
+    Some meeting templates list H.323/SIP endpoints by region, e.g. "144.110 (Amsterdam Netherlands)".
+    Those lines are often numbered, which confuses simple agenda segmentation heuristics.
+    """
+    if not line:
+        return False
+
+    lowered = (line or "").strip().lower()
+    m = re.match(r"^\s*(\d{2,3})\.(\d{2,3})(?:\.(\d{1,3}))?(?:\.(\d{1,3}))?\s*(.*)$", lowered)
+    if not m:
+        return False
+
+    # Reduce false positives for genuine section numbers like "2.1" or "12.3".
+    a = int(m.group(1))
+    b = int(m.group(2))
+    if a < 20 or b < 20:
+        return False
+
+    tail = (m.group(5) or "").strip()
+
+    # Some PDFs truncate or wrap, so tolerate missing closing parens.
+    if not tail:
+        return True
+    if tail.startswith("("):
+        return True
+    return False
 
 
 def _strip_summary_output_boilerplate(summary: str) -> str:
@@ -451,6 +589,9 @@ class LocalAI:
         2. If two threads try to load simultaneously, we'd waste RAM and cause errors
         3. The lock ensures only ONE thread loads the model, others wait
         """
+        if Llama is None:
+            logger.error("Local AI model is unavailable (llama_cpp not installed). Falling back to heuristics.")
+            return
         with self._lock:  # Acquire the lock (other threads will wait here)
             # Check if model is already loaded (another thread may have loaded it while we waited)
             if self.llm is not None:
@@ -546,6 +687,13 @@ class LocalAI:
                 return True
             if len(lowered) < 6:
                 return True
+            # IP / endpoint fragments from teleconference templates should not become agenda items.
+            if re.search(r"\b\d{1,3}(?:\.\d{1,3}){3}\b", lowered):
+                return True
+            if _looks_like_teleconference_endpoint_line(lowered):
+                return True
+            if re.search(r"\b(us west|us east)\b", lowered):
+                return True
             if looks_like_spaced_ocr(lowered):
                 return True
             if lowered.startswith("http://") or lowered.startswith("https://"):
@@ -561,6 +709,10 @@ class LocalAI:
             if re.search(r"\b\d{2,6}\s+[A-Za-z].*(street|st|avenue|ave|road|rd|blvd|boulevard)\b", lowered):
                 return True
             if "mayor" in lowered or "councilmembers" in lowered:
+                return True
+            # Participation/COVID/ADA boilerplate often looks like a "numbered item".
+            # This keeps it out of structured agenda output.
+            if _looks_like_agenda_segmentation_boilerplate(lowered):
                 return True
             # Common accessibility / participation boilerplate.
             if re.search(r"\b(disability[- ]related|accommodation\\(s\\)|auxiliary aids|interpreters?)\b", lowered):
@@ -752,6 +904,29 @@ class LocalAI:
                         and (person_like_count / len(numbered_lines)) >= 0.5
                     )
 
+                    # If a numbered block is mostly participation/COVID/ADA boilerplate,
+                    # treat it as a template section and do not convert it into items.
+                    noise_like_count = sum(
+                        1 for m in numbered_lines
+                        if is_noise_title(m.group(2).strip())
+                        or _looks_like_agenda_segmentation_boilerplate(m.group(2).strip())
+                    )
+                    mostly_noise_numbered_list = (
+                        len(numbered_lines) >= 4
+                        and (noise_like_count / len(numbered_lines)) >= 0.5
+                    )
+                    if mostly_noise_numbered_list:
+                        logger.debug(
+                            "agenda_segmentation.skip_numbered_block",
+                            extra={
+                                "page": page_num,
+                                "numbered_lines": len(numbered_lines),
+                                "noise_like": noise_like_count,
+                            },
+                        )
+                        # Fall through to paragraph parsing for this page (and later pages).
+                        numbered_lines = []
+
                     for idx, match in enumerate(numbered_lines):
                         marker = match.group(1)
                         title = match.group(2).strip()
@@ -774,7 +949,8 @@ class LocalAI:
                             f"Agenda section {marker}",
                             result=vote_result
                         )
-                    continue
+                    if numbered_lines:
+                        continue
 
                 # Fallback for unnumbered formats: use paragraph starts carefully.
                 paragraphs = [p.strip() for p in page_content.split("\n\n") if 10 < len(p.strip()) < 1000]

@@ -108,6 +108,10 @@ Outputs:
 Summary format:
 - Stored and displayed as plain text with a `BLUF:` line and `- ` bullets (no Markdown rendering).
 
+Segmentation noise suppression:
+- Agenda segmentation suppresses common participation template blocks (teleconference/COVID/ADA/how-to-join instructions).
+- If you have old segmented items that include boilerplate, re-segment the catalog after upgrading.
+
 Extracted text normalization:
 - After extraction, we postprocess text to reduce common artifacts like spaced-letter ALLCAPS
   (`P R O C L A M A T I O N` -> `PROCLAMATION`). This improves both summaries and topics.
