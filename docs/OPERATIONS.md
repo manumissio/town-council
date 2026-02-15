@@ -74,6 +74,15 @@ Docker dev default key:
 Frontend must set:
 - `NEXT_PUBLIC_API_AUTH_KEY` (for browser-triggered protected actions)
 
+## Local AI tuning (Gemma 3)
+Default local model: Gemma 3 270M (trained for up to 32K context).
+
+We default to a smaller context window for Docker stability/performance. Tune via env vars (worker reads them):
+- `LLM_CONTEXT_WINDOW` (default `16384`, max for this model: `32768`)
+- `LLM_SUMMARY_MAX_TEXT` (default `30000`)
+- `LLM_SUMMARY_MAX_TOKENS` (default `512`)
+- `LLM_AGENDA_MAX_TEXT` (default `60000`)
+
 Security logging rule:
 - Do not log API key values or key fragments. Log only path/client metadata on auth failures.
 

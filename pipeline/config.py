@@ -72,20 +72,21 @@ NLP_MAX_TEXT_LENGTH = 100000
 # These control the local AI model behavior (Gemma 3 270M)
 
 # Context window size - how much text the model can "see" at once
-# 2048 tokens ≈ 1500 words, chosen for stability in Docker containers
-LLM_CONTEXT_WINDOW = 2048
+# Default is conservative for Docker stability/perf. Gemma 3 270M supports up to 32K.
+# Override via env when you want higher quality and can afford the extra KV cache.
+LLM_CONTEXT_WINDOW = int(os.getenv("LLM_CONTEXT_WINDOW", "16384"))
 
-# Maximum input text for summarization (4000 chars ≈ 800 words)
-# This fits comfortably in the context window with room for the response
-LLM_SUMMARY_MAX_TEXT = 4000
+# Maximum input text for summarization (chars).
+# Char-based truncation is an approximation; we keep a buffer for prompt/response tokens.
+LLM_SUMMARY_MAX_TEXT = int(os.getenv("LLM_SUMMARY_MAX_TEXT", "30000"))
 
-# Maximum tokens in summary response (256 tokens ≈ 190 words)
-# Limits response length to 3-4 bullet points as intended
-LLM_SUMMARY_MAX_TOKENS = 256
+# Maximum tokens in summary response.
+# Slightly larger default helps avoid clipped narrative summaries.
+LLM_SUMMARY_MAX_TOKENS = int(os.getenv("LLM_SUMMARY_MAX_TOKENS", "512"))
 
-# Maximum input text for agenda extraction (6000 chars ≈ 1200 words)
-# Larger than summary because we need to see multiple agenda items at once
-LLM_AGENDA_MAX_TEXT = 6000
+# Maximum input text for agenda extraction (chars).
+# Larger than summary because we need enough context to see multiple items and headers.
+LLM_AGENDA_MAX_TEXT = int(os.getenv("LLM_AGENDA_MAX_TEXT", "60000"))
 
 # Maximum tokens in agenda response (1500 tokens ≈ 1125 words)
 # Needs to be large enough to return 10-15 agenda items with descriptions

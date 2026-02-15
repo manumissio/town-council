@@ -130,6 +130,15 @@ Summary format:
 ### Startup purge behavior (dev)
 If `STARTUP_PURGE_DERIVED=true`, startup clears derived data (summary/topics/agenda items/content hashes) for deterministic local runs while preserving source ingest records.
 
+### Local AI context + input limits
+The default local model is Gemma 3 270M (trained for up to 32K context). We default to a smaller context window for Docker stability/performance.
+
+You can tune these via env vars (worker reads them):
+- `LLM_CONTEXT_WINDOW` (default `16384`, max for this model: `32768`)
+- `LLM_SUMMARY_MAX_TEXT` (default `30000`)
+- `LLM_SUMMARY_MAX_TOKENS` (default `512`)
+- `LLM_AGENDA_MAX_TEXT` (default `60000`)
+
 ## Documentation Map
 - Operations runbook: [`docs/OPERATIONS.md`](docs/OPERATIONS.md)
 - Performance metrics + reproducibility: [`docs/PERFORMANCE.md`](docs/PERFORMANCE.md)

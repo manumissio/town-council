@@ -110,6 +110,11 @@ services:
       - TC_WORKER_METRICS_PORT=8001
       - APP_ENV=${APP_ENV:-dev}
       - STARTUP_PURGE_DERIVED=${STARTUP_PURGE_DERIVED:-true}
+      # Local AI (Gemma 3) tuning. Defaults are safe but configurable.
+      - LLM_CONTEXT_WINDOW=${LLM_CONTEXT_WINDOW:-16384}
+      - LLM_SUMMARY_MAX_TEXT=${LLM_SUMMARY_MAX_TEXT:-30000}
+      - LLM_SUMMARY_MAX_TOKENS=${LLM_SUMMARY_MAX_TOKENS:-512}
+      - LLM_AGENDA_MAX_TEXT=${LLM_AGENDA_MAX_TEXT:-60000}
     depends_on:
       - redis
       - postgres
