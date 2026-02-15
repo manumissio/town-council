@@ -80,6 +80,7 @@ def test_indexer_flushes_agenda_final_batch_once(mocker):
     fake_index.update_filterable_attributes.return_value = {"taskUid": 1}
     fake_index.update_sortable_attributes.return_value = {"taskUid": 2}
     fake_index.update_searchable_attributes.return_value = {"taskUid": 3}
+    fake_index.update_ranking_rules.return_value = {"taskUid": 4}
     fake_client = MagicMock()
     fake_client.index.return_value = fake_index
     mocker.patch.object(indexer, "db_session", fake_db_session)
@@ -89,7 +90,7 @@ def test_indexer_flushes_agenda_final_batch_once(mocker):
     indexer.index_documents()
 
     fake_index.update_sortable_attributes.assert_called_with(["date"])
-    assert fake_client.wait_for_task.call_count == 3
+    assert fake_client.wait_for_task.call_count == 4
     assert fake_index.add_documents.call_count == 1
     sent_batch = fake_index.add_documents.call_args[0][0]
     assert len(sent_batch) == 2

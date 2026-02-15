@@ -89,26 +89,34 @@ def main() -> int:
         print(f"null_date_hits={null_dates}/{len(hits)}")
 
         if s == "newest":
-            print(f"monotonic_desc={_is_monotonic([d for d in parsed_dates], 'desc')}")
+            newest_ok = _is_monotonic([d for d in parsed_dates], 'desc')
+            print(f"monotonic_desc={newest_ok}")
         if s == "oldest":
-            print(f"monotonic_asc={_is_monotonic([d for d in parsed_dates], 'asc')}")
+            oldest_ok = _is_monotonic([d for d in parsed_dates], 'asc')
+            print(f"monotonic_asc={oldest_ok}")
 
+    # Heuristic warning: if either monotonic check fails and dates are present, sorting
+    # is likely not dominating relevance (common when rankingRules doesn't prioritize "sort").
     newest_dates = [_parse_iso_date(h.get("date")) for h in results["newest"]]
     oldest_dates = [_parse_iso_date(h.get("date")) for h in results["oldest"]]
     newest_dates = [d for d in newest_dates if d is not None]
     oldest_dates = [d for d in oldest_dates if d is not None]
 
-    if newest_dates and oldest_dates:
-        if newest_dates[:1] == oldest_dates[:1] and len(newest_dates) >= 3 and len(oldest_dates) >= 3:
-            print(
-                "\nWARNING: newest and oldest top dates are identical; sorting may be ineffective or dates may be null-heavy.",
-                file=sys.stderr,
-            )
-            return 1
+    if newest_dates and not _is_monotonic(newest_dates, "desc"):
+        print(
+            "\nWARNING: newest results are not monotonically descending by date. Sorting may be ineffective.",
+            file=sys.stderr,
+        )
+        return 1
+    if oldest_dates and not _is_monotonic(oldest_dates, "asc"):
+        print(
+            "\nWARNING: oldest results are not monotonically ascending by date. Sorting may be ineffective.",
+            file=sys.stderr,
+        )
+        return 1
 
     return 0
 
 
 if __name__ == "__main__":
     raise SystemExit(main())
-

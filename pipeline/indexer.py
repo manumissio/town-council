@@ -100,6 +100,17 @@ def _apply_index_settings(client, index) -> None:
         'organization', 'people'
     ])))
 
+    # Ranking rules control how Meilisearch orders results. We put "sort" first so
+    # /search?sort=newest|oldest behaves like a real date sort (not just a tie-breaker).
+    task_ids.append(_task_uid(index.update_ranking_rules([
+        "sort",
+        "words",
+        "typo",
+        "proximity",
+        "attribute",
+        "exactness",
+    ])))
+
     for uid in [t for t in task_ids if isinstance(t, int)]:
         try:
             client.wait_for_task(uid)
