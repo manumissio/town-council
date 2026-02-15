@@ -288,10 +288,14 @@ export default function ResultCard({ hit, onPersonClick, onTopicClick }) {
       if (data.status === 'cached' && data.items) {
         setAgendaItems(data.items);
         setIsSegmenting(false);
+        // Refresh derived status so "Not generated yet" clears immediately after segmentation.
+        fetchDerivedStatus();
       } else if (data.task_id) {
         pollTaskStatus(data.task_id, (result) => {
           setAgendaItems(result);
           setIsSegmenting(false);
+          // Segmentation creates AgendaItem rows; update derived status so badges stay in sync.
+          fetchDerivedStatus();
         }, () => setIsSegmenting(false), 'agenda');
       } else {
         setIsSegmenting(false);
