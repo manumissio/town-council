@@ -569,13 +569,6 @@ export default function ResultCard({ hit, onPersonClick, onTopicClick }) {
                 >
                   Full Text
                 </button>
-                <button 
-                  onClick={() => setViewMode("summary")}
-                  className={`px-4 py-2 text-xs font-bold rounded-lg transition-all flex items-center gap-2 whitespace-nowrap ${viewMode === "summary" ? 'bg-purple-600 text-white shadow-sm' : 'text-gray-500 hover:bg-gray-50'}`}
-                >
-                  <Sparkles className={`w-3.5 h-3.5 ${viewMode === "summary" ? 'text-white' : 'text-purple-500'}`} />
-                  AI Summary
-                </button>
                 {!isAgendaItem && (
                   <button 
                     onClick={() => setViewMode("agenda")}
@@ -585,6 +578,13 @@ export default function ResultCard({ hit, onPersonClick, onTopicClick }) {
                     Structured Agenda
                   </button>
                 )}
+                <button 
+                  onClick={() => setViewMode("summary")}
+                  className={`px-4 py-2 text-xs font-bold rounded-lg transition-all flex items-center gap-2 whitespace-nowrap ${viewMode === "summary" ? 'bg-purple-600 text-white shadow-sm' : 'text-gray-500 hover:bg-gray-50'}`}
+                >
+                  <Sparkles className={`w-3.5 h-3.5 ${viewMode === "summary" ? 'text-white' : 'text-purple-500'}`} />
+                  AI Summary
+                </button>
               </div>
 	              <span className="hidden sm:block px-4 text-[10px] font-bold text-gray-400 uppercase tracking-widest">
 	                {demoMode ? "Demo Mode" : (viewMode === "text" ? "Extracted Text" : "Local AI")}

@@ -210,40 +210,54 @@ def generate_summary_task(self, catalog_id: int, force: bool = False):
             # Keep the old summary visible, but mark it as out-of-date.
             return {"status": "stale", "summary": catalog.summary}
 
-        # If agenda items already exist, prefer a deterministic agenda-style summary instead
-        # of relying entirely on the LLM. This is fast, stable, and avoids "how to attend"
-        # boilerplate dominating the output.
-        #
-        # This is intentionally simple: we list the first few agenda item titles in order.
+        # Agenda summaries are derived from segmented agenda items (not raw PDF text) so the
+        # AI Summary and Structured Agenda tabs cannot drift.
         used_model_summary = True
         if doc_kind == "agenda":
+            # Agenda summaries must be derived from segmented agenda items so the
+            # AI Summary and Structured Agenda tabs cannot drift.
             existing_items = (
                 db.query(AgendaItem)
                 .filter_by(catalog_id=catalog_id)
                 .order_by(AgendaItem.order)
-                .limit(6)
                 .all()
             )
-            if existing_items:
-                titles = [it.title.strip() for it in existing_items if it.title and it.title.strip()]
-                titles = titles[:3]
-                if titles:
-                    # Keep summary format consistent: BLUF + plain-text bullets (no Markdown).
-                    bluf = f"BLUF: Agenda covers {len(existing_items)} main items."
-                    summary = "\n".join([bluf] + [f"- {t}" for t in titles])
-                    used_model_summary = False
-                else:
-                    summary = local_ai.summarize(postprocess_extracted_text(catalog.content), doc_kind=doc_kind)
-            else:
-                # Fallback: try to extract a few agenda titles directly from the text before invoking the model.
-                cleaned = postprocess_extracted_text(catalog.content)
-                title_matches = _extract_agenda_titles_from_text(cleaned, max_titles=3)
-                if title_matches:
-                    bluf = f"BLUF: Agenda covers {len(title_matches)} highlighted items."
-                    summary = "\n".join([bluf] + [f"- {t}" for t in title_matches])
-                    used_model_summary = False
-                else:
-                    summary = local_ai.summarize(cleaned, doc_kind=doc_kind)
+            if not existing_items:
+                return {
+                    "status": "not_generated_yet",
+                    "reason": "Agenda summary requires segmented agenda items. Run segmentation first.",
+                    "summary": None,
+                }
+
+            # Filter obvious boilerplate titles defensively in case old polluted rows exist.
+            from pipeline.llm import _looks_like_agenda_segmentation_boilerplate
+            titles = []
+            for it in existing_items:
+                title = (it.title or "").strip()
+                if not title:
+                    continue
+                if _looks_like_agenda_segmentation_boilerplate(title):
+                    continue
+                titles.append(title)
+
+            if not titles:
+                return {
+                    "status": "blocked_low_signal",
+                    "reason": "No substantive agenda items detected after boilerplate filtering. Re-segment the agenda.",
+                    "summary": None,
+                }
+
+            # Use all available titles, bounded only by model context. If we must truncate,
+            # we disclose it in the prompt requirements.
+            summary = local_ai.summarize_agenda_items(
+                meeting_title=(doc.event.name if doc and doc.event and doc.event.name else ""),
+                meeting_date=(str(doc.event.record_date) if doc and doc.event and doc.event.record_date else ""),
+                items=titles,
+            )
+            # Agenda-item summaries are derived from structured titles, not raw text, so the
+            # lexical grounding check (against the full extracted PDF text) is too strict.
+            # We still rely on input quality gates + boilerplate filtering to prevent junk.
+            used_model_summary = False
         else:
             summary = local_ai.summarize(postprocess_extracted_text(catalog.content), doc_kind=doc_kind)
         
@@ -253,6 +267,9 @@ def generate_summary_task(self, catalog_id: int, force: bool = False):
 
         # Guardrail: block ungrounded model claims (deterministic agenda-title summaries are exempt).
         if used_model_summary:
+            # Ground against the extracted text. This is conservative and may block on
+            # paraphrases; if it becomes too strict for agenda-item summaries, we can
+            # switch to grounding against the agenda-items payload instead.
             grounding = is_summary_grounded(summary, postprocess_extracted_text(catalog.content))
             if not grounding.is_grounded:
                 reason = (

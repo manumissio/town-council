@@ -198,6 +198,53 @@ def _looks_like_agenda_segmentation_boilerplate(line: str) -> bool:
     if any(frag in lowered for frag in accessibility_fragments):
         return True
 
+    # Broadcast/streaming availability notices and similar "how to watch" headers.
+    # These are often visually prominent and get misclassified as agenda items.
+    broadcast_fragments = (
+        "live captioned",
+        "captioned broadcast",
+        "captioned broadcasts",
+        "broadcasts of council meetings",
+        "council meetings are available",
+        "b-tv",
+        "channel 33",
+        "kpfa",
+        "kpbf",  # occasionally OCR'd
+        "radio 89.3",
+        "internet video stream",
+        "video stream",
+        "webcast",
+        "livestream",
+        "live stream",
+    )
+    if any(frag in lowered for frag in broadcast_fragments):
+        return True
+
+    # Hybrid meeting participation blurbs (not substantive agenda items).
+    hybrid_fragments = (
+        "hybrid model",
+        "virtual attendance",
+        "in-person and virtual",
+        "attend this meeting",
+        "attend the meeting remotely",
+        "meeting will be conducted in a hybrid",
+    )
+    if any(frag in lowered for frag in hybrid_fragments):
+        return True
+
+    # Presentation/polling app instructions are not agenda items.
+    poll_fragments = (
+        "mentimeter",
+        "slido",
+        "poll",
+        "survey",
+        "enter code",
+        "mobile device",
+        "qr code",
+    )
+    if any(frag in lowered for frag in poll_fragments):
+        return True
+
     return False
 
 
@@ -553,6 +600,47 @@ def prepare_summary_prompt(text: str, doc_kind: str = "unknown") -> str:
         "<start_of_turn>model\n"
     )
 
+
+def prepare_agenda_items_summary_prompt(meeting_title: str, meeting_date: str, items: list[str]) -> str:
+    """
+    Build a prompt for summarizing an agenda based on *segmented agenda items* (not raw PDF text).
+
+    Why:
+    Agenda PDFs often contain large template sections (hybrid attendance, broadcast availability,
+    ADA/public participation instructions). Summarizing from extracted items keeps output aligned
+    with Structured Agenda and reduces boilerplate dominance.
+    """
+    title = (meeting_title or "").strip()
+    date = (meeting_date or "").strip()
+    header_parts = [p for p in [title, date] if p]
+    header = " - ".join(header_parts) if header_parts else "Meeting agenda"
+
+    safe_items = [(" ".join((it or "").strip().split())) for it in (items or []) if (it or "").strip()]
+    lines = [f"{i+1}. {it}" for i, it in enumerate(safe_items)]
+    items_block = "\n".join(lines) if lines else ""
+
+    instruction = (
+        "Write a plain-text executive summary of this meeting agenda based ONLY on the agenda items below.\n"
+        "Format requirements:\n"
+        "- 1 to 2 paragraphs total.\n"
+        "- First sentence must be a BLUF-style takeaway.\n"
+        "- Plain text only (no Markdown markers like *, **, headings).\n"
+        "Content requirements:\n"
+        "- Focus on substantive agenda items.\n"
+        "- Do NOT include teleconference/Zoom/ADA/how-to-attend/broadcast/polling-app instructions.\n"
+        "- Do NOT invent outcomes; use neutral language like 'scheduled to consider' when needed.\n"
+        "If you were only given a partial item list due to context limits, say so explicitly.\n"
+    )
+
+    return (
+        "<start_of_turn>user\n"
+        f"{instruction}\n"
+        f"Meeting: {header}\n\n"
+        f"Agenda items:\n{items_block}\n"
+        "<end_of_turn>\n"
+        "<start_of_turn>model\n"
+    )
+
 class LocalAI:
     """
     The 'Brain' of our application.
@@ -659,6 +747,37 @@ class LocalAI:
                 return None
             finally:
                 if self.llm: self.llm.reset()
+
+    def summarize_agenda_items(self, meeting_title: str, meeting_date: str, items: list[str]) -> str | None:
+        """
+        Generate a narrative agenda summary from segmented agenda item titles.
+
+        Why this exists:
+        Agenda summaries should align with Structured Agenda output. Raw agenda PDFs are
+        boilerplate-heavy (hybrid attendance, broadcast availability, ADA/public comment),
+        which makes "summarize the PDF" drift-prone.
+        """
+        self._load_model()
+        if not self.llm:
+            return None
+
+        prompt = prepare_agenda_items_summary_prompt(meeting_title, meeting_date, items)
+
+        with self._lock:
+            try:
+                response = self.llm(prompt, max_tokens=LLM_SUMMARY_MAX_TOKENS, temperature=0.1)
+                raw = (response["choices"][0]["text"] or "").strip()
+                # Keep plain text, strip simple Markdown emphasis if the model slips it in.
+                cleaned = _strip_markdown_emphasis(raw).strip()
+                # Drop any leading bullet markers; narrative output should be paragraphs.
+                cleaned = re.sub(r"(?m)^\\s*[\\*\\-\\u2022]+\\s*", "", cleaned).strip()
+                return cleaned or raw
+            except Exception as e:
+                logger.error(f"AI Agenda Items Summarization failed: {e}")
+                return None
+            finally:
+                if self.llm:
+                    self.llm.reset()
 
     def extract_agenda(self, text):
         """

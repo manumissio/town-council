@@ -127,6 +127,10 @@ The agenda extractor now suppresses common template boilerplate blocks so they d
 Summary format:
 - Stored and displayed as plain text with a `BLUF:` line and `- ` bullets (no Markdown rendering).
 
+Agenda summary contract:
+- For `Document.category == "agenda"`, summaries are derived from segmented agenda items (Structured Agenda).
+- If an agenda has not been segmented yet, summary generation returns `not_generated_yet` and prompts you to segment first.
+
 ### Startup purge behavior (dev)
 If `STARTUP_PURGE_DERIVED=true`, startup clears derived data (summary/topics/agenda items/content hashes) for deterministic local runs while preserving source ingest records.
 

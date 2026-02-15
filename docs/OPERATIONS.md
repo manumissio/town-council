@@ -117,6 +117,10 @@ Outputs:
 Summary format:
 - Stored and displayed as plain text with a `BLUF:` line and `- ` bullets (no Markdown rendering).
 
+Agenda summary contract:
+- For `Document.category == "agenda"`, summaries are derived from segmented agenda items (Structured Agenda) to avoid drift.
+- If an agenda has not been segmented yet, summary generation returns `not_generated_yet` and prompts you to segment first.
+
 Segmentation noise suppression:
 - Agenda segmentation suppresses common participation template blocks (teleconference/COVID/ADA/how-to-join instructions).
 - If you have old segmented items that include boilerplate, re-segment the catalog after upgrading.

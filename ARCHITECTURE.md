@@ -142,6 +142,10 @@ Summary rendering contract:
 - `catalog.summary` is stored as plain text in a BLUF-first format (`BLUF:` line + `- ` bullets).
 - This avoids Markdown/HTML rendering in the UI and keeps output predictable.
 
+Agenda summary contract:
+- For `Document.category == "agenda"`, summaries are derived from segmented agenda items (Structured Agenda) to prevent drift.
+- If an agenda has not been segmented yet, summary generation returns `not_generated_yet` and prompts segmentation first.
+
 Re-extraction is explicit and uses existing downloaded file only (no redownload).
 
 ## Startup Purge Model (Dev)

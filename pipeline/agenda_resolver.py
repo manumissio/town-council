@@ -66,6 +66,24 @@ def agenda_quality_score(items: List[Any]) -> int:
             boilerplate_hits += 1
             score -= 10
 
+        # Broadcast availability and "how to watch" notices are not agenda items.
+        if re.search(
+            r"\b(live captioned|captioned broadcasts?|broadcasts of council meetings|webcast|livestream|live stream|internet video stream|b-tv|channel 33|kpfa|radio 89\.3)\b",
+            key,
+        ):
+            boilerplate_hits += 1
+            score -= 10
+
+        # Presentation/polling app instructions (e.g. Mentimeter) are not agenda items.
+        if re.search(r"\b(mentimeter|slido|qr code|enter code|mobile device)\b", key):
+            boilerplate_hits += 1
+            score -= 10
+
+        # Hybrid attendance participation blurbs are usually template noise.
+        if re.search(r"\b(hybrid model|virtual attendance|attend this meeting)\b", key):
+            boilerplate_hits += 1
+            score -= 8
+
         # A pure person name (often from speaker lists) is rarely a useful agenda title.
         # Example: "Leslie Sakai" or "Kirk McCarthy (2)".
         if re.fullmatch(r"[A-Z][a-z]+(?: [A-Z]\.)?(?: [A-Z][a-z]+)+(?: \\(\\d+\\))?", title):
