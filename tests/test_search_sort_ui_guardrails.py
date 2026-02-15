@@ -11,3 +11,8 @@ def test_search_hub_renders_sort_pill():
     assert "Sort: Newest" in source
     assert "cycleSortMode" in source
 
+
+def test_home_page_surfaces_search_errors():
+    source = Path("frontend/app/page.js").read_text(encoding="utf-8")
+    assert "searchError" in source
+    assert "Search failed (" in source

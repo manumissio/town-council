@@ -4,6 +4,7 @@ from fastapi import HTTPException
 import sys
 import os
 from unittest.mock import MagicMock
+from meilisearch.errors import MeilisearchError
 
 # Add the project root to the path so we can import from api/main.py
 sys.path.append(os.path.join(os.path.dirname(__file__), '..'))
@@ -112,6 +113,16 @@ def test_search_sort_invalid_returns_400(mocker):
 
     response = client.get("/search?q=zoning&sort=wat", headers={"X-API-Key": VALID_KEY})
     assert response.status_code == 400
+
+
+def test_search_sort_rejected_by_meilisearch_returns_actionable_400(mocker):
+    mock_index = mocker.Mock()
+    mock_index.search.side_effect = MeilisearchError("Attribute `date` is not sortable. Invalid sort.")
+    mocker.patch("api.main.client.index", return_value=mock_index)
+
+    response = client.get("/search?q=zoning&sort=newest", headers={"X-API-Key": VALID_KEY})
+    assert response.status_code == 400
+    assert "reindex_only.py" in response.json()["detail"]
 
 def test_search_injection_protection(mocker):
     """

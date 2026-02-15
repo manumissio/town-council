@@ -70,6 +70,44 @@ def _flush_batch(index, documents_batch, count, label):
         print(f"Error indexing {label} batch: {e}")
         return count
 
+
+def _task_uid(task_result) -> int | None:
+    if isinstance(task_result, dict):
+        return task_result.get("taskUid") or task_result.get("uid")
+    return None
+
+
+def _apply_index_settings(client, index) -> None:
+    """
+    Apply Meilisearch index settings and wait for completion.
+
+    Why:
+    Settings updates are asynchronous in Meilisearch. If we don't wait, users can
+    observe confusing behavior (for example, sort being rejected immediately after reindex).
+    """
+    task_ids = []
+
+    task_ids.append(_task_uid(index.update_filterable_attributes([
+        'city', 'meeting_type', 'meeting_category', 'organization',
+        'people', 'date', 'organizations', 'result_type'
+    ])))
+
+    task_ids.append(_task_uid(index.update_sortable_attributes(['date'])))
+
+    task_ids.append(_task_uid(index.update_searchable_attributes([
+        'content', 'event_name', 'title', 'description', 'filename',
+        'summary', 'organizations', 'locations', 'meeting_category',
+        'organization', 'people'
+    ])))
+
+    for uid in [t for t in task_ids if isinstance(t, int)]:
+        try:
+            client.wait_for_task(uid)
+        except Exception:
+            # Best-effort: settings should still apply eventually, but waiting makes it deterministic.
+            pass
+
+
 def index_documents():
     """
     Sync processed meetings and agenda items into Meilisearch.
@@ -85,22 +123,7 @@ def index_documents():
         
     index = client.index('documents')
     
-    # Fields usable in filter queries.
-    index.update_filterable_attributes([
-        'city', 'meeting_type', 'meeting_category', 'organization', 
-        'people', 'date', 'organizations', 'result_type'
-    ])
-
-    # Sortable attributes (used by /search?sort=newest|oldest).
-    # Date is stored as ISO-8601 (YYYY-MM-DD), so lexicographic ordering matches chronological ordering.
-    index.update_sortable_attributes(['date'])
-    
-    # Fields used for full-text search ranking.
-    index.update_searchable_attributes([
-        'content', 'event_name', 'title', 'description', 'filename', 
-        'summary', 'organizations', 'locations', 'meeting_category', 
-        'organization', 'people'
-    ])
+    _apply_index_settings(client, index)
 
     with db_session() as session:
         documents_batch = []
@@ -243,17 +266,7 @@ def reindex_catalog(catalog_id: int) -> dict:
         pass
 
     index = client.index('documents')
-    # Keep index settings consistent. These calls are idempotent in Meilisearch.
-    index.update_filterable_attributes([
-        'city', 'meeting_type', 'meeting_category', 'organization',
-        'people', 'date', 'organizations', 'result_type'
-    ])
-    index.update_sortable_attributes(['date'])
-    index.update_searchable_attributes([
-        'content', 'event_name', 'title', 'description', 'filename',
-        'summary', 'organizations', 'locations', 'meeting_category',
-        'organization', 'people'
-    ])
+    _apply_index_settings(client, index)
 
     with db_session() as session:
         docs = session.query(Document, Catalog, Event, Place, Organization).join(

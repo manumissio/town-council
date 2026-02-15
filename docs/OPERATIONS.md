@@ -151,6 +151,23 @@ Search behavior:
 - The UI defaults to sorting by date (newest first). Sorting requires `date` to be configured as a sortable attribute in Meilisearch.
   If you changed indexing logic or rebuilt the index from scratch, run `python reindex_only.py` to reapply settings.
 
+### Diagnosing date sorting
+If Newest/Oldest/Relevance look identical, treat it as a diagnostics problem first (don’t guess).
+
+1. Reapply Meilisearch settings + reindex:
+```bash
+docker compose run --rm pipeline python reindex_only.py
+```
+
+2. Print evidence for all sort modes:
+```bash
+docker compose run --rm pipeline python diagnose_search_sort.py --query zoning --limit 10
+```
+
+Notes:
+- In Docker, the script uses `http://api:8000` by default.
+- On host, use `--base-url http://localhost:8000`.
+
 Segmentation noise suppression:
 - Agenda segmentation suppresses common participation template blocks (teleconference/COVID/ADA/how-to-join instructions).
 - If you have old segmented items that include boilerplate, re-segment the catalog after upgrading.

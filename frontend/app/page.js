@@ -18,6 +18,7 @@ export default function Home() {
   const [hasMore, setHasMore] = useState(false);
   const [loading, setLoading] = useState(false);
   const [isSearching, setIsSearching] = useState(false);
+  const [searchError, setSearchError] = useState("");
   
   // Filter State
   const [cityFilter, setCityFilter] = useState("");
@@ -47,6 +48,7 @@ export default function Home() {
         setResults([]);
         setTotalHits(0);
       }
+      setSearchError("");
       return;
     }
     
@@ -54,10 +56,22 @@ export default function Home() {
     if (!isLoadMore) setIsSearching(true);
 
     try {
+      setSearchError("");
       const currentOffset = isLoadMore ? offset + 20 : 0;
 
       if (demoMode) {
         const res = await fetch(buildApiUrl("/search"));
+        if (!res.ok) {
+          let detail = res.statusText || "Unknown error";
+          try {
+            const payload = await res.json();
+            detail = payload?.detail || detail;
+          } catch (e) {
+            // ignore JSON parsing errors in demo mode
+          }
+          setSearchError(`Search failed (${res.status}): ${detail}`);
+          return;
+        }
         const data = await res.json();
         const allHits = data.hits || [];
         const normalizedQuery = query.trim().toLowerCase();
@@ -122,6 +136,18 @@ export default function Home() {
       const res = await fetch(url, {
         headers: getApiHeaders({ useAuth: true })
       });
+      if (!res.ok) {
+        let detail = res.statusText || "Unknown error";
+        try {
+          const payload = await res.json();
+          detail = payload?.detail || detail;
+        } catch (e) {
+          // ignore JSON parsing errors
+        }
+        setSearchError(`Search failed (${res.status}): ${detail}`);
+        return;
+      }
+
       const data = await res.json();
       
       const newHits = data.hits || [];
@@ -133,6 +159,7 @@ export default function Home() {
       setHasMore(newHits.length === 20); 
     } catch (error) {
       console.error("Search failed:", error);
+      setSearchError("Search failed: network error");
     } finally {
       setLoading(false);
       setIsSearching(false);
@@ -173,6 +200,7 @@ export default function Home() {
     setSortMode("newest");
     setOffset(0);
     setHasMore(false);
+    setSearchError("");
   };
 
   return (
@@ -218,6 +246,13 @@ export default function Home() {
             availableCities={availableCities} availableOrgs={availableOrgs}
             isSearching={isSearching} resetApp={resetApp}
           />
+          {searchError && (
+            <div className="max-w-6xl mx-auto px-4 mt-4">
+              <div className="rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900">
+                {searchError}
+              </div>
+            </div>
+          )}
 
           <div className="max-w-5xl mx-auto px-4 py-12">
             <div className="space-y-8">

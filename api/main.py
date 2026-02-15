@@ -4,6 +4,7 @@ import logging
 import hmac
 import re
 import meilisearch
+from meilisearch.errors import MeilisearchCommunicationError, MeilisearchTimeoutError, MeilisearchError
 from fastapi import FastAPI, HTTPException, Query, Path, Depends, Header, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import ORJSONResponse
@@ -279,7 +280,28 @@ def search_documents(
         if not search_params['filter']:
             del search_params['filter']
 
-        results = index.search(q, search_params)
+        try:
+            results = index.search(q, search_params)
+        except MeilisearchTimeoutError as e:
+            logger.error(f"Search failed (Meilisearch timeout): {e}")
+            raise HTTPException(status_code=503, detail="Search engine timed out")
+        except MeilisearchCommunicationError as e:
+            logger.error(f"Search failed (Meilisearch unavailable): {e}")
+            raise HTTPException(status_code=503, detail="Search engine unavailable")
+        except MeilisearchError as e:
+            # Actionable error: Meilisearch rejects sorting/filtering if index settings don't allow it.
+            msg = str(e)
+            lowered = msg.lower()
+            if "sort" in lowered and ("sortable" in lowered or "attribute" in lowered):
+                raise HTTPException(
+                    status_code=400,
+                    detail=(
+                        "Meilisearch is not configured to sort by `date`. "
+                        "Run `docker compose run --rm pipeline python reindex_only.py` and retry."
+                    ),
+                )
+            logger.error(f"Search failed (Meilisearch error): {e}")
+            raise HTTPException(status_code=500, detail="Internal search engine error")
         
         # Performance: Truncate people_metadata to top 10 to keep response size under control
         for hit in results['hits']:

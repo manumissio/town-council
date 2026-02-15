@@ -87,6 +87,8 @@ The UI defaults to **Newest** first (date descending). Use the **Sort** pill to 
 - Oldest
 - Relevance
 
+If sorting appears to have no effect, see the runbook section in [`docs/OPERATIONS.md`](docs/OPERATIONS.md) ("Diagnosing date sorting").
+
 ## GitHub Pages Demo
 
 The Pages site is a static product demo powered by local JSON fixtures.
