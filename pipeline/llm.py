@@ -118,6 +118,7 @@ def _looks_like_agenda_segmentation_boilerplate(line: str) -> bool:
         return False
 
     lowered = (line or "").strip().lower()
+    compact = re.sub(r"[^a-z0-9]+", "", lowered)
 
     # Reuse the summarization boilerplate filter first.
     if _looks_like_attendance_boilerplate(lowered):
@@ -135,6 +136,9 @@ def _looks_like_agenda_segmentation_boilerplate(line: str) -> bool:
         "order no.",
     )
     if any(frag in lowered for frag in covid_fragments):
+        return True
+    covid_compact = tuple(re.sub(r"[^a-z0-9]+", "", frag) for frag in covid_fragments)
+    if any(frag and frag in compact for frag in covid_compact):
         return True
 
     # Remote meeting platform mechanics and browser requirements.
@@ -168,6 +172,9 @@ def _looks_like_agenda_segmentation_boilerplate(line: str) -> bool:
     )
     if any(frag in lowered for frag in platform_fragments):
         return True
+    platform_compact = tuple(re.sub(r"[^a-z0-9]+", "", frag) for frag in platform_fragments)
+    if any(frag and frag in compact for frag in platform_compact):
+        return True
 
     # Registration templates often include privacy/identity instructions that are not agenda topics.
     if "email address" in lowered:
@@ -197,10 +204,14 @@ def _looks_like_agenda_segmentation_boilerplate(line: str) -> bool:
     )
     if any(frag in lowered for frag in accessibility_fragments):
         return True
+    accessibility_compact = tuple(re.sub(r"[^a-z0-9]+", "", frag) for frag in accessibility_fragments)
+    if any(frag and frag in compact for frag in accessibility_compact):
+        return True
 
     # Broadcast/streaming availability notices and similar "how to watch" headers.
     # These are often visually prominent and get misclassified as agenda items.
     broadcast_fragments = (
+        "public advisory",
         "live captioned",
         "captioned broadcast",
         "captioned broadcasts",
@@ -219,6 +230,9 @@ def _looks_like_agenda_segmentation_boilerplate(line: str) -> bool:
     )
     if any(frag in lowered for frag in broadcast_fragments):
         return True
+    broadcast_compact = tuple(re.sub(r"[^a-z0-9]+", "", frag) for frag in broadcast_fragments)
+    if any(frag and frag in compact for frag in broadcast_compact):
+        return True
 
     # Hybrid meeting participation blurbs (not substantive agenda items).
     hybrid_fragments = (
@@ -228,8 +242,29 @@ def _looks_like_agenda_segmentation_boilerplate(line: str) -> bool:
         "attend this meeting",
         "attend the meeting remotely",
         "meeting will be conducted in a hybrid",
+        "to access the meeting",
+        "to access the meeting remotely",
+        "join from a pc",
+        "please use this url",
     )
     if any(frag in lowered for frag in hybrid_fragments):
+        return True
+    hybrid_compact = tuple(re.sub(r"[^a-z0-9]+", "", frag) for frag in hybrid_fragments)
+    if any(frag and frag in compact for frag in hybrid_compact):
+        return True
+
+    # Prominent cover/heading blocks that are not agenda items.
+    heading_fragments = (
+        "annotated agenda",
+        "special meeting of the",
+        "calling a special meeting",
+        "city council",
+        "proclamation",
+    )
+    if any(frag in lowered for frag in heading_fragments):
+        return True
+    heading_compact = tuple(re.sub(r"[^a-z0-9]+", "", frag) for frag in heading_fragments)
+    if any(frag and frag in compact for frag in heading_compact):
         return True
 
     # Presentation/polling app instructions are not agenda items.
@@ -243,6 +278,9 @@ def _looks_like_agenda_segmentation_boilerplate(line: str) -> bool:
         "qr code",
     )
     if any(frag in lowered for frag in poll_fragments):
+        return True
+    poll_compact = tuple(re.sub(r"[^a-z0-9]+", "", frag) for frag in poll_fragments)
+    if any(frag and frag in compact for frag in poll_compact):
         return True
 
     return False
