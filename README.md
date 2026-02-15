@@ -62,6 +62,12 @@ docker compose run --rm crawler scrapy crawl cupertino
 docker compose run --rm pipeline python run_pipeline.py
 ```
 
+### Optional: Reindex Meilisearch only (no extraction/AI)
+If you changed indexing logic (or want to refresh search results without re-running the full pipeline):
+```bash
+docker compose run --rm pipeline python reindex_only.py
+```
+
 ## Access URLs
 - UI: [http://localhost:3000](http://localhost:3000)
 - API docs: [http://localhost:8000/docs](http://localhost:8000/docs)

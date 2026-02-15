@@ -44,6 +44,12 @@ docker compose run --rm crawler scrapy crawl cupertino
 docker compose run --rm pipeline python run_pipeline.py
 ```
 
+### Optional: Reindex Meilisearch only (no extraction/AI)
+If you changed indexing logic (or you want to refresh search after cleaning up bad HTML in stored titles):
+```bash
+docker compose run --rm pipeline python reindex_only.py
+```
+
 ## GitHub Pages static demo
 
 The Pages build is demo-only and uses fixtures from `frontend/public/demo`.
