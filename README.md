@@ -89,6 +89,16 @@ The UI defaults to **Newest** first (date descending). Use the **Sort** pill to 
 
 If sorting appears to have no effect, see the runbook section in [`docs/OPERATIONS.md`](docs/OPERATIONS.md) ("Diagnosing date sorting").
 
+## Semantic Search (Milestone B)
+Semantic search is opt-in and feature-flagged.
+
+- Endpoint: `GET /search/semantic`
+- Feature flag: `SEMANTIC_ENABLED` (default `false`)
+- Backend: `SEMANTIC_BACKEND=faiss` for MVP
+
+Keyword search (`/search`) remains the default and is unchanged.
+For setup, rebuild, diagnostics, and guardrails, use [`docs/OPERATIONS.md`](docs/OPERATIONS.md).
+
 ## Vote/Outcome Extraction (Milestone A)
 Vote and outcome extraction is available as an async post-processing stage for segmented agenda items.
 

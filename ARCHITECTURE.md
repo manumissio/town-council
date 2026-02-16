@@ -60,6 +60,7 @@ flowchart LR
 
     subgraph Search["Search + UI"]
         Meili["Meilisearch"]
+        Semantic["Semantic Backend (FAISS MVP)"]
         UI["Next.js UI"]
     end
 
@@ -75,9 +76,11 @@ flowchart LR
     Core --> Download --> Extract --> NLP --> Topics --> Link --> People
     Link --> Core
     Core --> Index --> Meili
+    Core -->|"reindex_semantic.py"| Semantic
     Agenda --> Index
 
     UI -->|"search/read"| API --> Meili
+    UI -->|"GET /search/semantic"| API --> Semantic
     UI -->|"POST /summarize /segment /topics /extract /votes"| API
     API <--> Queue --> Worker --> LocalAI
     Worker --> Resolver
@@ -180,6 +183,12 @@ Search index doc types:
 - Meetings are indexed as `result_type="meeting"`.
 - Individual `agenda_item` rows are also indexed as `result_type="agenda_item"` for drilldown searches.
 - The API defaults to meeting-only search results; agenda-item hits are opt-in (`include_agenda_items=true`).
+
+Semantic search (Milestone B):
+- `GET /search/semantic` is additive; keyword `/search` behavior remains unchanged.
+- Retrieval uses adaptive over-fetch + in-memory filters, then de-duplicates by `catalog_id`
+  before pagination so one meeting with many chunks cannot starve other results.
+- FAISS artifacts are file-backed in B1; pgvector is a B2 backend path behind config.
 
 Re-extraction is explicit and uses existing downloaded file only (no redownload).
 

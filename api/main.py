@@ -3,6 +3,7 @@ import os
 import logging
 import hmac
 import re
+import time
 import meilisearch
 from meilisearch.errors import MeilisearchCommunicationError, MeilisearchTimeoutError, MeilisearchError
 from fastapi import FastAPI, HTTPException, Query, Path, Depends, Header, Request
@@ -14,7 +15,15 @@ from sqlalchemy.orm import Session as SQLAlchemySession, sessionmaker, joinedloa
 from slowapi import Limiter, _rate_limit_exceeded_handler
 from slowapi.util import get_remote_address
 from slowapi.errors import RateLimitExceeded
+from sqlalchemy import text
 from api.cache import cached
+from pipeline.config import (
+    SEMANTIC_ENABLED,
+    SEMANTIC_BASE_TOP_K,
+    SEMANTIC_FILTER_EXPANSION_FACTOR,
+    SEMANTIC_MAX_TOP_K,
+)
+from pipeline.semantic_index import get_semantic_backend, SemanticConfigError
 
 # Metrics are internal-only and are scraped by Prometheus from the Docker network.
 from api.metrics import instrument_app
@@ -94,6 +103,14 @@ async def check_security_config():
     # Startup purge is lock-protected. If another service already purged, we skip.
     purge_result = run_startup_purge_if_enabled()
     logger.info(f"startup_purge_result={purge_result}")
+    if SEMANTIC_ENABLED:
+        try:
+            # Semantic backend is process-local and memory-heavy; validate startup safety early.
+            health = get_semantic_backend().health()
+            logger.info(f"semantic_backend_health={health}")
+        except SemanticConfigError as exc:
+            logger.critical(f"Semantic backend misconfiguration: {exc}")
+            raise
 
 
 # Add Rate Limit handler to the app
@@ -143,9 +160,6 @@ client = meilisearch.Client(MEILI_HOST, MEILI_MASTER_KEY, timeout=5)
 def read_root():
     return {"status": "ok", "message": "Town Council API is running. Go to /docs for the Swagger UI."}
 
-from sqlalchemy import text
-import re
-
 # ... existing imports ...
 
 # Add Date Validation Helper
@@ -153,6 +167,91 @@ def validate_date_format(date_str: str):
     """Ensures date is YYYY-MM-DD"""
     if not re.match(r'^\d{4}-\d{2}-\d{2}$', date_str):
         raise HTTPException(status_code=400, detail="Invalid date format. Use YYYY-MM-DD.")
+
+
+def sanitize_filter(val: str) -> str:
+    """Escape quotes in user input before using it in query-style filters."""
+    return str(val).replace('"', '\\"')
+
+
+def normalize_city_filter(val: str) -> str:
+    """
+    Accept either human labels ("Cupertino") or indexed keys ("ca_cupertino").
+    """
+    raw = (val or "").strip()
+    lowered = raw.lower()
+    if re.search(r'[^a-z0-9_\-\s]', lowered):
+        return lowered
+    slug = re.sub(r"[\s\-]+", "_", lowered).strip("_")
+    if re.match(r"^[a-z]{2}_.+", slug):
+        return slug
+    return f"ca_{slug}" if slug else lowered
+
+
+def _build_filter_values(
+    city: Optional[str],
+    meeting_type: Optional[str],
+    org: Optional[str],
+    date_from: Optional[str],
+    date_to: Optional[str],
+    include_agenda_items: bool,
+) -> dict:
+    """
+    Build normalized filter values once so keyword and semantic search stay consistent.
+    """
+    normalized_city = normalize_city_filter(city) if city else None
+    return {
+        "city": normalized_city,
+        "meeting_type": meeting_type,
+        "org": org,
+        "date_from": date_from,
+        "date_to": date_to,
+        "include_agenda_items": include_agenda_items,
+    }
+
+
+def _semantic_candidate_matches_filters(meta: dict, filters: dict) -> bool:
+    result_type = str(meta.get("result_type") or "")
+    if not filters.get("include_agenda_items") and result_type != "meeting":
+        return False
+    city = filters.get("city")
+    if city and str(meta.get("city") or "").lower() != str(city).lower():
+        return False
+    meeting_type = filters.get("meeting_type")
+    if meeting_type and str(meta.get("meeting_category") or "").lower() != str(meeting_type).lower():
+        return False
+    org = filters.get("org")
+    if org and str(meta.get("organization") or "").lower() != str(org).lower():
+        return False
+    date_val = str(meta.get("date") or "")
+    date_from = filters.get("date_from")
+    date_to = filters.get("date_to")
+    if date_from and (not date_val or date_val < date_from):
+        return False
+    if date_to and (not date_val or date_val > date_to):
+        return False
+    return True
+
+
+def _dedupe_semantic_candidates(candidates):
+    """
+    Deduplicate by parent meeting (`catalog_id`) before pagination.
+    Without this, one meeting with many chunk vectors can starve other results.
+    """
+    best_by_key = {}
+    for cand in candidates:
+        meta = cand.metadata
+        result_type = str(meta.get("result_type") or "meeting")
+        if result_type == "meeting":
+            key = ("meeting", int(meta.get("catalog_id") or 0))
+        else:
+            key = ("agenda_item", int(meta.get("db_id") or 0))
+        existing = best_by_key.get(key)
+        if existing is None or cand.score > existing.score:
+            best_by_key[key] = cand
+    deduped = list(best_by_key.values())
+    deduped.sort(key=lambda c: c.score, reverse=True)
+    return deduped
 
 
 @app.get("/health")
@@ -223,41 +322,6 @@ def search_documents(
             else:
                 raise HTTPException(status_code=400, detail="Invalid sort mode. Use newest|oldest|relevance.")
         
-        # SECURITY: We sanitize inputs by escaping double quotes.
-        # This prevents 'Filter Injection' attacks where a user might try to 
-        # bypass search logic using malicious query strings.
-        def sanitize_filter(val):
-            return str(val).replace('"', '\\"')
-
-        def normalize_city_filter(val: str) -> str:
-            """
-            The UI sends human-readable city labels (e.g., "Cupertino").
-            The search index stores normalized keys (e.g., "ca_cupertino").
-
-            This helper makes the /search endpoint accept either form so the UI
-            doesn't have to know how the index stores city keys.
-
-            Safety note:
-            - We only "pretty->key" normalize when the input is simple (letters/spaces/dashes).
-            - If the input contains suspicious characters, we leave it unchanged and rely on
-              sanitize_filter() to prevent filter injection.
-            """
-            raw = (val or "").strip()
-            lowered = raw.lower()
-
-            # If the value contains suspicious characters, don't try to normalize it.
-            if re.search(r'[^a-z0-9_\\-\\s]', lowered):
-                return lowered
-
-            slug = re.sub(r"[\\s\\-]+", "_", lowered).strip("_")
-
-            # Allow direct facet keys (e.g., "ca_cupertino", "ny_buffalo") to pass through.
-            if re.match(r"^[a-z]{2}_.+", slug):
-                return slug
-
-            # Default to CA for simple city labels, since this repo currently seeds CA cities.
-            return f"ca_{slug}" if slug else lowered
-
         # Default: search meeting records only. Agenda items are opt-in because they otherwise
         # appear as separate search entries and confuse city-level browsing (especially Legistar cities).
         if not include_agenda_items:
@@ -318,6 +382,225 @@ def search_documents(
     except Exception as e:
         logger.error(f"Search failed: {e}")
         raise HTTPException(status_code=500, detail="Internal search engine error")
+
+
+def _hydrate_meeting_hits(db: SQLAlchemySession, candidates: list) -> list[dict]:
+    doc_ids = [int(c.metadata.get("db_id") or 0) for c in candidates if int(c.metadata.get("db_id") or 0) > 0]
+    if not doc_ids:
+        return []
+    rows = (
+        db.query(Document, Catalog, Event, Place, Organization)
+        .join(Catalog, Document.catalog_id == Catalog.id)
+        .join(Event, Document.event_id == Event.id)
+        .join(Place, Document.place_id == Place.id)
+        .outerjoin(Organization, Event.organization_id == Organization.id)
+        .filter(Document.id.in_(doc_ids))
+        .all()
+    )
+    by_doc_id = {}
+    for doc, catalog, event, place, organization in rows:
+        by_doc_id[doc.id] = {
+            "id": f"doc_{doc.id}",
+            "db_id": doc.id,
+            "ocd_id": event.ocd_id,
+            "result_type": "meeting",
+            "catalog_id": catalog.id,
+            "filename": catalog.filename,
+            "url": catalog.url,
+            "content": (catalog.content or "")[:5000] if catalog.content else None,
+            "summary": catalog.summary,
+            "summary_extractive": catalog.summary_extractive,
+            "topics": catalog.topics,
+            "related_ids": catalog.related_ids,
+            "summary_is_stale": bool(
+                catalog.summary and (not catalog.content_hash or catalog.summary_source_hash != catalog.content_hash)
+            ),
+            "topics_is_stale": bool(
+                catalog.topics is not None and (not catalog.content_hash or catalog.topics_source_hash != catalog.content_hash)
+            ),
+            "people_metadata": [],
+            "event_name": event.name,
+            "meeting_category": event.meeting_type or "Other",
+            "organization": organization.name if organization else "City Council",
+            "date": event.record_date.isoformat() if event.record_date else None,
+            "city": place.display_name or place.name,
+            "state": place.state,
+        }
+
+    hydrated = []
+    for cand in candidates:
+        doc_id = int(cand.metadata.get("db_id") or 0)
+        hit = by_doc_id.get(doc_id)
+        if not hit:
+            continue
+        enriched = dict(hit)
+        enriched["semantic_score"] = round(float(cand.score), 6)
+        hydrated.append(enriched)
+    return hydrated
+
+
+def _hydrate_agenda_hits(db: SQLAlchemySession, candidates: list) -> list[dict]:
+    item_ids = [int(c.metadata.get("db_id") or 0) for c in candidates if int(c.metadata.get("db_id") or 0) > 0]
+    if not item_ids:
+        return []
+    rows = (
+        db.query(AgendaItem, Event, Place, Organization)
+        .join(Event, AgendaItem.event_id == Event.id)
+        .join(Place, Event.place_id == Place.id)
+        .outerjoin(Organization, Event.organization_id == Organization.id)
+        .filter(AgendaItem.id.in_(item_ids))
+        .all()
+    )
+    by_item_id = {}
+    for item, event, place, org in rows:
+        by_item_id[item.id] = {
+            "id": f"item_{item.id}",
+            "db_id": item.id,
+            "ocd_id": item.ocd_id,
+            "result_type": "agenda_item",
+            "title": item.title,
+            "description": item.description,
+            "classification": item.classification,
+            "result": item.result,
+            "page_number": item.page_number,
+            "event_name": event.name,
+            "date": event.record_date.isoformat() if event.record_date else None,
+            "city": place.display_name or place.name,
+            "organization": org.name if org else "City Council",
+            "meeting_category": event.meeting_type or "Other",
+            "catalog_id": item.catalog_id,
+            "url": item.catalog.url if item.catalog else None,
+        }
+    hydrated = []
+    for cand in candidates:
+        item_id = int(cand.metadata.get("db_id") or 0)
+        hit = by_item_id.get(item_id)
+        if not hit:
+            continue
+        enriched = dict(hit)
+        enriched["semantic_score"] = round(float(cand.score), 6)
+        hydrated.append(enriched)
+    return hydrated
+
+
+@app.get("/search/semantic")
+def search_documents_semantic(
+    q: str = Query(..., min_length=1, description="The semantic search query (e.g., 'housing density')"),
+    city: Optional[str] = Query(None),
+    include_agenda_items: bool = Query(False, description="Include individual agenda items in search hits"),
+    meeting_type: Optional[str] = Query(None),
+    org: Optional[str] = Query(None),
+    date_from: Optional[str] = Query(None),
+    date_to: Optional[str] = Query(None),
+    limit: int = Query(20, ge=1, le=100),
+    offset: int = Query(0, ge=0),
+    db: SQLAlchemySession = Depends(get_db),
+):
+    """
+    Semantic search endpoint (Milestone B MVP).
+    We intentionally do not fall back to keyword search so failures stay observable.
+    """
+    if not SEMANTIC_ENABLED:
+        raise HTTPException(
+            status_code=503,
+            detail="Semantic search is disabled. Set SEMANTIC_ENABLED=true and build artifacts.",
+        )
+    if date_from:
+        validate_date_format(date_from)
+    if date_to:
+        validate_date_format(date_to)
+
+    filters = _build_filter_values(
+        city=city,
+        meeting_type=meeting_type,
+        org=org,
+        date_from=date_from,
+        date_to=date_to,
+        include_agenda_items=include_agenda_items,
+    )
+
+    target = offset + limit
+    k = max(SEMANTIC_BASE_TOP_K, target * SEMANTIC_FILTER_EXPANSION_FACTOR)
+    k = min(k, SEMANTIC_MAX_TOP_K)
+    expansion_steps = 0
+    t0 = time.perf_counter()
+    backend = get_semantic_backend()
+
+    try:
+        deduped = []
+        raw_count = 0
+        filtered_count = 0
+        while True:
+            candidates = backend.query(q, k)
+            raw_count = len(candidates)
+            filtered = [c for c in candidates if _semantic_candidate_matches_filters(c.metadata, filters)]
+            filtered_count = len(filtered)
+            deduped = _dedupe_semantic_candidates(filtered)
+            if len(deduped) >= target or k >= SEMANTIC_MAX_TOP_K:
+                break
+            next_k = min(SEMANTIC_MAX_TOP_K, max(k + 1, k * 2))
+            if next_k == k:
+                break
+            k = next_k
+            expansion_steps += 1
+    except FileNotFoundError as e:
+        raise HTTPException(
+            status_code=503,
+            detail=(
+                "Semantic index artifacts are missing. "
+                "Run `docker compose run --rm pipeline python reindex_semantic.py` and retry."
+            ),
+        ) from e
+    except SemanticConfigError as e:
+        raise HTTPException(status_code=503, detail=str(e)) from e
+    except Exception as e:
+        logger.error(f"Semantic search failed: {e}")
+        raise HTTPException(status_code=500, detail="Internal semantic search error")
+
+    page_candidates = deduped[offset : offset + limit]
+    meeting_candidates = [c for c in page_candidates if str(c.metadata.get("result_type") or "meeting") == "meeting"]
+    agenda_candidates = [c for c in page_candidates if str(c.metadata.get("result_type")) == "agenda_item"]
+
+    meeting_hits = _hydrate_meeting_hits(db, meeting_candidates)
+    agenda_hits = _hydrate_agenda_hits(db, agenda_candidates)
+    meeting_by_db = {hit["db_id"]: hit for hit in meeting_hits}
+    agenda_by_db = {hit["db_id"]: hit for hit in agenda_hits}
+    hits = []
+    for cand in page_candidates:
+        result_type = str(cand.metadata.get("result_type") or "meeting")
+        db_id = int(cand.metadata.get("db_id") or 0)
+        if result_type == "meeting":
+            hit = meeting_by_db.get(db_id)
+        else:
+            hit = agenda_by_db.get(db_id)
+        if hit:
+            hits.append(hit)
+    elapsed_ms = round((time.perf_counter() - t0) * 1000.0, 2)
+    logger.info(
+        "semantic_search query='%s' raw=%s filtered=%s dedup=%s returned=%s k=%s steps=%s latency_ms=%s",
+        q,
+        raw_count,
+        filtered_count,
+        len(deduped),
+        len(hits),
+        k,
+        expansion_steps,
+        elapsed_ms,
+    )
+    return {
+        "hits": hits,
+        "estimatedTotalHits": len(deduped),
+        "limit": limit,
+        "offset": offset,
+        "semantic_diagnostics": {
+            "raw_candidates": raw_count,
+            "filtered_candidates": filtered_count,
+            "dedup_candidates": len(deduped),
+            "k_used": k,
+            "expansion_steps": expansion_steps,
+            "latency_ms": elapsed_ms,
+        },
+    }
 
 @app.get("/metadata")
 @cached(expire=3600, key_prefix="metadata") # PERFORMANCE: Cache for 1 hour
@@ -455,7 +738,6 @@ from pipeline.tasks import (
     app as celery_app,
 )
 from celery.result import AsyncResult
-
 @app.post("/summarize/{catalog_id}", dependencies=[Depends(verify_api_key)])
 @limiter.limit("20/minute") # Higher limit since it's non-blocking
 def summarize_document(

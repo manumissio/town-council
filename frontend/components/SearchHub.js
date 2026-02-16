@@ -13,6 +13,7 @@ export default function SearchHub({
   orgFilter, setOrgFilter,
   meetingTypeFilter, setMeetingTypeFilter,
   includeAgendaItems, setIncludeAgendaItems,
+  searchMode, setSearchMode,
   sortMode, setSortMode,
   availableCities, availableOrgs,
   isSearching, resetApp
@@ -122,6 +123,18 @@ export default function SearchHub({
         <div className="mt-10 flex flex-wrap justify-center gap-3 items-center">
           <button
             type="button"
+            onClick={() => setSearchMode(searchMode === "semantic" ? "keyword" : "semantic")}
+            className={`px-5 py-2.5 border text-[11px] font-black uppercase tracking-widest rounded-full transition-all ${
+              searchMode === "semantic"
+                ? "bg-indigo-600 text-white border-indigo-600 shadow-sm"
+                : "bg-white text-gray-500 border-gray-200 hover:border-indigo-400 hover:text-indigo-600"
+            }`}
+            title="Semantic mode uses vector similarity instead of keyword matching."
+          >
+            {searchMode === "semantic" ? "Mode: Semantic" : "Mode: Keyword"}
+          </button>
+          <button
+            type="button"
             onClick={() => setIncludeAgendaItems(!includeAgendaItems)}
             className={`px-5 py-2.5 border text-[11px] font-black uppercase tracking-widest rounded-full transition-all ${
               includeAgendaItems
@@ -132,14 +145,23 @@ export default function SearchHub({
           >
             {includeAgendaItems ? "Agenda Items: On" : "Agenda Items: Off"}
           </button>
-          <button
-            type="button"
-            onClick={cycleSortMode}
-            className="px-5 py-2.5 border text-[11px] font-black uppercase tracking-widest rounded-full transition-all bg-white text-gray-500 border-gray-200 hover:border-blue-400 hover:text-blue-600"
-            title="Cycle sort mode: newest, oldest, relevance."
-          >
-            {sortLabel}
-          </button>
+          {searchMode !== "semantic" ? (
+            <button
+              type="button"
+              onClick={cycleSortMode}
+              className="px-5 py-2.5 border text-[11px] font-black uppercase tracking-widest rounded-full transition-all bg-white text-gray-500 border-gray-200 hover:border-blue-400 hover:text-blue-600"
+              title="Cycle sort mode: newest, oldest, relevance."
+            >
+              {sortLabel}
+            </button>
+          ) : (
+            <span
+              className="px-5 py-2.5 border text-[11px] font-black uppercase tracking-widest rounded-full bg-gray-100 text-gray-400 border-gray-200"
+              title="Sort is disabled in semantic mode (ranked by semantic score)."
+            >
+              Sort: Semantic
+            </span>
+          )}
           {["Zoning", "Housing", "Budget", "Police", "Biking"].map(tag => (
             <button 
               key={tag} 

@@ -106,6 +106,39 @@ Override (not recommended):
 Security logging rule:
 - Do not log API key values or key fragments. Log only path/client metadata on auth failures.
 
+## Semantic Search (Milestone B)
+
+Semantic search is additive and disabled by default.
+
+### Enable
+Set:
+- `SEMANTIC_ENABLED=true`
+- `SEMANTIC_BACKEND=faiss`
+
+### Build semantic artifacts
+```bash
+docker compose run --rm pipeline python reindex_semantic.py
+```
+
+### Diagnose semantic search
+```bash
+docker compose run --rm pipeline python diagnose_semantic_search.py --query zoning --limit 10
+```
+
+### Common failures
+- `503 Semantic search is disabled`:
+  - enable `SEMANTIC_ENABLED=true`.
+- `503 Semantic index artifacts are missing`:
+  - run `python reindex_semantic.py`.
+- semantic mode returns too few records with strict filters:
+  - check `semantic_diagnostics` fields (`k_used`, `expansion_steps`) in response.
+
+### Guardrail note
+FAISS + sentence-transformers memory is process-local. Keep single-process runtime
+unless you intentionally override:
+- `SEMANTIC_REQUIRE_SINGLE_PROCESS=true` (default)
+- `SEMANTIC_ALLOW_MULTIPROCESS=false` (default)
+
 ## Agenda QA loop
 
 Report only:

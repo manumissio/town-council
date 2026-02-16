@@ -26,6 +26,20 @@ Note:
 | `GET /metadata` | 1.40 | 1.89 | 1.06 | 10.57 |
 | `GET /people?limit=50` | 4.08 | 4.58 | 2.76 | 20.46 |
 
+## Semantic Endpoint Timing (Milestone B)
+
+Semantic endpoint timing should be measured after:
+1. `SEMANTIC_ENABLED=true`
+2. semantic artifacts are built (`python reindex_semantic.py`)
+
+Suggested benchmark endpoint:
+- `GET /search/semantic?q=zoning&limit=20`
+
+Track:
+- p50/p95 latency
+- `semantic_diagnostics.k_used`
+- `semantic_diagnostics.expansion_steps`
+
 ## Developer Microbenchmarks
 
 Measured via:
@@ -54,6 +68,7 @@ import time, statistics, urllib.request
 base='http://api:8000'
 endpoints=[
     ('search_newest','/search?q=zoning&sort=newest&limit=20'),
+    ('search_semantic','/search/semantic?q=zoning&limit=20'),
     ('metadata','/metadata'),
     ('people','/people?limit=50')
 ]
