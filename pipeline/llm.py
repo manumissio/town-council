@@ -4,6 +4,7 @@ import logging
 import threading
 import re
 import multiprocessing
+from rapidfuzz import fuzz
 try:
     # Optional dependency: we still want the pipeline to run (heuristic fallbacks)
     # even if llama-cpp isn't installed in the current environment.
@@ -20,6 +21,11 @@ from pipeline.config import (
     AGENDA_FALLBACK_MAX_ITEMS_PER_DOC,
     AGENDA_FALLBACK_MAX_ITEMS_PER_PAGE_PARAGRAPH,
     AGENDA_FALLBACK_MAX_CONSECUTIVE_REJECTS_PER_PAGE,
+    AGENDA_SEGMENTATION_MODE,
+    AGENDA_MIN_TITLE_CHARS,
+    AGENDA_MIN_SUBSTANTIVE_DESC_CHARS,
+    AGENDA_TOC_DEDUP_FUZZ,
+    AGENDA_PROCEDURAL_REJECT_ENABLED,
     LOCAL_AI_ALLOW_MULTIPROCESS,
 )
 
@@ -71,6 +77,244 @@ def _dedupe_lines_preserve_order(lines):
         seen.add(key)
         out.append(line)
     return out
+
+
+def _normalize_spaces(value: str) -> str:
+    if value is None:
+        raw = ""
+    elif isinstance(value, str):
+        raw = value
+    else:
+        # Some tests use MagicMock placeholders for optional fields.
+        raw = str(value)
+    return re.sub(r"\s+", " ", raw).strip()
+
+
+def _normalized_title_key(value: str) -> str:
+    # Strip leading numbering so TOC/body variants compare consistently.
+    title = _normalize_spaces(value).lower()
+    title = re.sub(r"^\s*(?:item\s*)?#?\s*\d+(?:\.\d+)?[\.\):]\s*", "", title)
+    return title.strip(" -:\t")
+
+def _first_alpha_char(value: str) -> str | None:
+    """
+    Return the first alphabetical character in a string, or None when absent.
+    """
+    match = re.search(r"[a-zA-Z]", value or "")
+    return match.group(0) if match else None
+
+
+def _is_probable_line_fragment_title(title: str) -> bool:
+    """
+    Detect line-fragment titles from pleading-paper numbering/OCR artifacts.
+
+    Why this is fallback-scoped:
+    Heuristic fallback parsing sees raw lines like "16 in the appropriate ...".
+    We only apply this trap there, not to direct LLM-parsed items.
+    """
+    normalized = _normalize_spaces(title)
+    if not normalized:
+        return True
+
+    first_alpha = _first_alpha_char(normalized)
+    if not first_alpha:
+        return True
+
+    lowered = normalized.lower()
+    legislative_cues = (
+        "subject:",
+        "approve",
+        "adopt",
+        "permit",
+        "ordinance",
+        "resolution",
+        "hearing",
+        "zoning",
+        "budget",
+        "contract",
+        "amendment",
+    )
+    if any(cue in lowered for cue in legislative_cues):
+        return False
+
+    return first_alpha.islower()
+
+
+def _is_procedural_noise_title(title: str) -> bool:
+    """
+    Return True for procedural placeholders that should not be treated as legislative items.
+
+    Important: keep this precise. Broad substring matching (for example "approval")
+    causes silent drops of substantive titles such as "Approval of Contract ...".
+    """
+    if not AGENDA_PROCEDURAL_REJECT_ENABLED:
+        return False
+
+    normalized = _normalized_title_key(title)
+    if not normalized:
+        return True
+
+    exact_titles = {
+        "call to order",
+        "roll call",
+        "pledge of allegiance",
+        "public comment",
+        "adjournment",
+        "closed session",
+        "land acknowledgment",
+        "land acknowledgement",
+        "approval of minutes",
+        "approval of the minutes",
+        "approval of agenda",
+        "approval of the agenda",
+    }
+    if normalized in exact_titles:
+        return True
+
+    anchored = (
+        r"^public comment(?:\s+period)?$",
+        r"^ceremonial matters$",
+        r"^presentations?$",
+        r"^announcements?$",
+    )
+    return any(re.match(pattern, normalized) for pattern in anchored)
+
+
+def _is_contact_or_letterhead_noise(title: str, desc: str = "") -> bool:
+    """
+    Return True for contact/letterhead metadata commonly mis-read as agenda items.
+    """
+    title_norm = _normalize_spaces(title).lower()
+    desc_norm = _normalize_spaces(desc).lower()
+    combined = f"{title_norm} {desc_norm}".strip()
+    if not combined:
+        return False
+
+    if re.search(r"\b(tel|phone|fax|e-?mail|email|website)\s*:", combined):
+        return True
+    if re.search(r"\b[\w\.-]+@[\w\.-]+\.\w+\b", combined):
+        return True
+    if "http://" in combined or "https://" in combined or "www." in combined:
+        return True
+    if re.search(r"\b\d{3}[-\.\s]?\d{3}[-\.\s]?\d{4}\b", combined):
+        return True
+    if re.match(r"^\s*(from:|to:|cc:)\s*", title_norm):
+        return True
+    if re.search(r"\b\d{2,6}\s+[a-z][a-z\.\s]+(street|st|avenue|ave|road|rd|blvd|boulevard)\b", combined):
+        return True
+    if "office of the city manager" in combined:
+        return True
+    return False
+
+
+def _llm_item_substance_score(title: str, desc: str = "") -> float:
+    """
+    Score how likely this looks like a substantive legislative item (0.0-1.0).
+    """
+    title_norm = _normalize_spaces(title)
+    desc_norm = _normalize_spaces(desc)
+    lowered = f"{title_norm} {desc_norm}".lower()
+    score = 0.20
+
+    if len(title_norm) >= AGENDA_MIN_TITLE_CHARS:
+        score += 0.15
+
+    if _is_procedural_noise_title(title_norm):
+        score -= 0.45
+    if _is_contact_or_letterhead_noise(title_norm, desc_norm):
+        score -= 0.45
+
+    legislative_terms = (
+        "ordinance", "resolution", "contract", "budget", "zoning", "amendment",
+        "plan", "program", "agreement", "hearing", "permit", "funding",
+        "project", "recommendation", "policy", "appeal", "allocation",
+    )
+    if any(term in lowered for term in legislative_terms):
+        score += 0.35
+
+    action_terms = ("approve", "adopt", "authorize", "consider", "review", "receive", "vote")
+    if any(term in lowered for term in action_terms):
+        score += 0.15
+
+    if len(desc_norm) >= AGENDA_MIN_SUBSTANTIVE_DESC_CHARS:
+        score += 0.20
+
+    return max(0.0, min(1.0, score))
+
+
+def _should_accept_llm_item(item: dict, mode: str = "balanced") -> bool:
+    """
+    Acceptance gate for LLM-parsed items only.
+    """
+    title = _normalize_spaces(item.get("title", ""))
+    desc = _normalize_spaces(item.get("description", ""))
+    context = item.get("context") if isinstance(item, dict) else None
+    if len(title) < AGENDA_MIN_TITLE_CHARS:
+        return False
+    if _is_procedural_noise_title(title):
+        return False
+    if _is_contact_or_letterhead_noise(title, desc):
+        return False
+    if _is_tabular_fragment(title, desc, context=context):
+        return False
+
+    threshold_map = {"recall": 0.28, "balanced": 0.45, "aggressive": 0.58}
+    threshold = threshold_map.get((mode or "balanced").lower(), threshold_map["balanced"])
+    score = _llm_item_substance_score(title, desc)
+
+    # Why this branch exists: fallback parsers sometimes use short synthetic descriptions
+    # like "Agenda section 2". We only enforce desc quality on direct LLM output.
+    if len(desc) < AGENDA_MIN_SUBSTANTIVE_DESC_CHARS and score < threshold:
+        return False
+    return score >= threshold
+
+
+def _dedupe_agenda_items_for_document(items: list[dict]) -> tuple[list[dict], int]:
+    """
+    Collapse near-duplicate agenda titles within one document (for example TOC + body).
+
+    Why per-document only: cross-document fuzzy matching is incorrect and expensive.
+    """
+    if not items:
+        return items, 0
+
+    groups: list[list[tuple[int, dict]]] = []
+    for idx, item in enumerate(items):
+        title_key = _normalized_title_key(item.get("title", ""))
+        if not title_key:
+            continue
+        matched = None
+        for group_idx, group in enumerate(groups):
+            ref_key = _normalized_title_key(group[0][1].get("title", ""))
+            if fuzz.token_sort_ratio(title_key, ref_key) >= AGENDA_TOC_DEDUP_FUZZ:
+                matched = group_idx
+                break
+        if matched is None:
+            groups.append([(idx, item)])
+        else:
+            groups[matched].append((idx, item))
+
+    winners: list[tuple[int, dict]] = []
+    duplicates_removed = 0
+    for group in groups:
+        if len(group) > 1:
+            duplicates_removed += len(group) - 1
+
+        # Why we prefer higher pages: TOC entries often appear first; body pages carry context.
+        winner = max(
+            group,
+            key=lambda pair: (
+                int(pair[1].get("page_number") or 0),
+                _llm_item_substance_score(pair[1].get("title", ""), pair[1].get("description", "")),
+                len(_normalize_spaces(pair[1].get("description", ""))),
+                -pair[0],
+            ),
+        )
+        winners.append(winner)
+
+    # Preserve stable extraction order among survivors.
+    winners.sort(key=lambda pair: pair[0])
+    return [item for _, item in winners], duplicates_removed
 
 
 def _looks_like_attendance_boilerplate(line: str) -> bool:
@@ -288,13 +532,50 @@ def _looks_like_agenda_segmentation_boilerplate(line: str) -> bool:
     if any(frag and frag in compact for frag in hybrid_compact):
         return True
 
+    # Public records / speaker-card notice blocks are template legal language, not agenda topics.
+    notice_fragments = (
+        "important notice",
+        "any writings or documents provided to a majority",
+        "supplemental material to the agendized item",
+        "agendized item",
+        "made publicly available on the city website",
+        "wish to address the planning commission",
+        "speaker request card",
+        "when you are called, proceed to the podium",
+        "any other item not on the agenda",
+        "comments to three",
+        "for questions on any items in the agenda",
+        "meeting agendas and writings distributed",
+        "described in the notice",
+        "consideration of that item",
+        "request card located in front",
+        "prior to discussion of the",
+        "proceed to the podium",
+        "address the planning commission",
+        "government code section 84308",
+        "levine act",
+        "parties to a proceeding involving a license, permit, or other",
+        "in accordance with the authority in me vested",
+        "i do hereby call the berkeley city council",
+        "presiding officer may remove",
+        "disrupting the meeting",
+        "failure to cease their behavior",
+        "this proclamation serves as the official agenda",
+        "cause personal notice to be given",
+    )
+    if any(frag in lowered for frag in notice_fragments):
+        return True
+    notice_compact = tuple(re.sub(r"[^a-z0-9]+", "", frag) for frag in notice_fragments)
+    if any(frag and frag in compact for frag in notice_compact):
+        return True
+
     # Prominent cover/heading blocks that are not agenda items.
     heading_fragments = (
         "annotated agenda",
         "special meeting of the",
         "calling a special meeting",
-        "city council",
         "proclamation",
+        "planning commission agenda",
     )
     if any(frag in lowered for frag in heading_fragments):
         return True
@@ -351,6 +632,128 @@ def _looks_like_teleconference_endpoint_line(line: str) -> bool:
     if tail.startswith("("):
         return True
     return False
+
+
+def _looks_like_sub_marker_title(value: str) -> bool:
+    """
+    Detect likely nested list markers (A., 1a., i.) that often represent child rows.
+    """
+    title = _normalize_spaces(value)
+    return bool(re.match(r"^(?:[A-Z]\.|[0-9]{1,2}[a-z]\.|[ivxlcdm]+\.)\s+", title, flags=re.IGNORECASE))
+
+
+def _is_tabular_fragment(title: str, desc: str = "", context: dict | None = None) -> bool:
+    """
+    Detect flattened table/list rows that should not be promoted to top-level agenda items.
+
+    Primary signal:
+    - low alpha-character density on short text.
+
+    Secondary signals (weak alone):
+    - column-like whitespace artifacts
+    - sub-marker under active parent context
+    - row-like token shape (number/symbol heavy, low verb density)
+    """
+    raw_title = title or ""
+    raw_desc = desc or ""
+    raw_combined = f"{raw_title} {raw_desc}".strip()
+    combined = _normalize_spaces(raw_combined)
+    if not combined:
+        return False
+    if len(combined) > 180:
+        return False
+
+    total_chars = len(combined)
+    alpha_chars = sum(1 for c in combined if c.isalpha())
+    alpha_density = (alpha_chars / total_chars) if total_chars else 1.0
+
+    tokens = [t for t in re.split(r"\s+", combined.lower()) if t]
+    number_symbol_ratio = 0.0
+    if tokens:
+        number_symbol_tokens = sum(1 for t in tokens if re.search(r"[0-9$%/|#]", t))
+        number_symbol_ratio = number_symbol_tokens / len(tokens)
+
+    # Primary signal should be driven by low alpha density + clearly row-like token makeup.
+    strong_primary = len(combined) <= 150 and alpha_density < 0.60 and number_symbol_ratio >= 0.25
+
+    secondary_signals = 0
+    if "\t" in raw_combined or re.search(r" {3,}", raw_combined):
+        secondary_signals += 1
+
+    has_active_parent = bool((context or {}).get("has_active_parent"))
+    if has_active_parent and _looks_like_sub_marker_title(raw_title):
+        secondary_signals += 1
+
+    if tokens:
+        number_symbol_tokens = sum(1 for t in tokens if re.search(r"[0-9$%/|#]", t))
+        if (number_symbol_tokens / len(tokens)) >= 0.35:
+            secondary_signals += 1
+        verb_like_tokens = (
+            "approve", "adopt", "authorize", "consider", "review", "receive", "conduct",
+            "hold", "amend", "create", "repeal", "establish", "select",
+        )
+        if len(tokens) >= 5 and not any(v in " ".join(tokens) for v in verb_like_tokens):
+            secondary_signals += 1
+
+    if strong_primary:
+        return True
+    if has_active_parent and secondary_signals >= 2:
+        return True
+    if secondary_signals >= 3 and len(combined) <= 120:
+        return True
+    return False
+
+
+def _looks_like_end_marker_line(line: str) -> bool:
+    lowered = _normalize_spaces(line).lower()
+    if not lowered:
+        return False
+    marker_patterns = (
+        r"^adjournment$",
+        r"^attest\b",
+        r"^notice concerning your legal rights\b",
+        r"\bin witness whereof\b",
+        r"\bofficial seal\b",
+        r"public notice.*official agenda",
+    )
+    return any(re.search(pattern, lowered) for pattern in marker_patterns)
+
+
+def _should_stop_after_marker(current_line: str, lookahead_window: str) -> bool:
+    """
+    Composite end-of-agenda detector.
+
+    Adjournment alone is insufficient; we require legal/attestation tail evidence.
+    """
+    line = _normalize_spaces(current_line).lower()
+    window = (lookahead_window or "").lower()
+    if not line:
+        return False
+
+    legal_tail_markers = (
+        "attest",
+        "in witness whereof",
+        "official seal",
+        "notice concerning your legal rights",
+        "cause personal notice",
+        "city clerk",
+        "date:",
+        "public notice",
+    )
+    legal_hits = sum(1 for marker in legal_tail_markers if marker in window)
+
+    substantive_signals = (
+        "subject:",
+        "recommendation:",
+        "action calendar",
+        "financial implications",
+        "conduct a public hearing",
+    )
+    has_substantive_after = any(signal in window for signal in substantive_signals)
+
+    if "adjournment" in line:
+        return legal_hits >= 2 and not has_substantive_after
+    return legal_hits >= 2
 
 
 def _strip_summary_output_boilerplate(summary: str) -> str:
@@ -778,6 +1181,38 @@ def _deterministic_agenda_items_summary(items: list[str], max_bullets: int = 25)
         bullets = (bullets + f"\n- (+{remaining} more)") if bullets else f"- (+{remaining} more)"
     return "\n".join([part for part in [bluf, narrative, bullets] if part]).strip()
 
+
+def _split_agenda_summary_item(value: str) -> tuple[str, str]:
+    """
+    Split a serialized agenda item into (title, description) for summary filtering.
+    """
+    text = _normalize_spaces(value)
+    if not text:
+        return "", ""
+    if " - " in text:
+        left, right = text.split(" - ", 1)
+        return left.strip(), right.strip()
+    return text, ""
+
+
+def _should_drop_from_agenda_summary(item_text: str) -> bool:
+    """
+    Residual summary safety-net:
+    drop only when title looks like boilerplate/fragment AND description is short.
+    """
+    title, desc = _split_agenda_summary_item(item_text)
+    if not title:
+        return True
+    title_looks_noisy = (
+        _looks_like_agenda_segmentation_boilerplate(title)
+        or _is_procedural_noise_title(title)
+        or _is_contact_or_letterhead_noise(title, desc)
+        or _is_probable_line_fragment_title(title)
+    )
+    if not title_looks_noisy:
+        return False
+    return len(_normalize_spaces(desc)) < AGENDA_MIN_SUBSTANTIVE_DESC_CHARS
+
 def _strip_llm_acknowledgements(text: str) -> str:
     """
     Remove common "acknowledgement" / compliance preambles from LLM output.
@@ -1109,7 +1544,21 @@ class LocalAI:
         if not self.llm:
             return None
 
-        prompt = prepare_agenda_items_summary_prompt(meeting_title, meeting_date, items)
+        filtered_items = []
+        summary_filtered_notice_fragments = 0
+        for item in items or []:
+            if _should_drop_from_agenda_summary(item):
+                summary_filtered_notice_fragments += 1
+                continue
+            filtered_items.append(item)
+        logger.info(
+            "agenda_summary.counters total_items=%s kept_items=%s summary_filtered_notice_fragments=%s",
+            len(items or []),
+            len(filtered_items),
+            summary_filtered_notice_fragments,
+        )
+
+        prompt = prepare_agenda_items_summary_prompt(meeting_title, meeting_date, filtered_items)
 
         with self._lock:
             try:
@@ -1123,8 +1572,8 @@ class LocalAI:
                     # Last resort: agenda summaries are expected to begin with BLUF.
                     cleaned = f"BLUF: Agenda summary. {cleaned}"
                 if _agenda_items_summary_is_too_short(cleaned):
-                    return _deterministic_agenda_items_summary(items)
-                return cleaned or _deterministic_agenda_items_summary(items)
+                    return _deterministic_agenda_items_summary(filtered_items)
+                return cleaned or _deterministic_agenda_items_summary(filtered_items)
             except Exception as e:
                 logger.error(f"AI Agenda Items Summarization failed: {e}")
                 return None
@@ -1180,10 +1629,31 @@ class LocalAI:
         self._load_model()
 
         items = []
-        seen_titles = set()
+        mode = (AGENDA_SEGMENTATION_MODE or "balanced").strip().lower()
+        stats = {
+            "rejected_procedural": 0,
+            "rejected_contact": 0,
+            "rejected_low_substance": 0,
+            "rejected_lowercase_fragment": 0,
+            "rejected_notice_fragment": 0,
+            "rejected_tabular_fragment": 0,
+            "rejected_nested_subitem": 0,
+            "context_carryover_pages": 0,
+            "stop_marker_candidates": 0,
+            "stopped_after_end_marker": 0,
+            "rejected_noise": 0,
+            "deduped_toc_duplicates": 0,
+            "accepted_items_final": 0,
+        }
+        parse_state = {
+            "active_parent_item": None,
+            "active_parent_page": None,
+            "parent_context_confidence": 0.0,
+            "seen_top_level_items": 0,
+        }
 
         def normalize_spaces(value):
-            return re.sub(r"\s+", " ", (value or "")).strip()
+            return _normalize_spaces(value)
 
         def looks_like_spaced_ocr(value):
             tokens = [t for t in normalize_spaces(value).split(" ") if t]
@@ -1196,7 +1666,11 @@ class LocalAI:
             lowered = normalize_spaces(title).lower()
             if not lowered:
                 return True
-            if len(lowered) < 6:
+            if len(lowered) < AGENDA_MIN_TITLE_CHARS:
+                return True
+            if _is_procedural_noise_title(lowered):
+                return True
+            if _is_contact_or_letterhead_noise(lowered, ""):
                 return True
             # IP / endpoint fragments from teleconference templates should not become agenda items.
             if re.search(r"\b\d{1,3}(?:\.\d{1,3}){3}\b", lowered):
@@ -1247,7 +1721,6 @@ class LocalAI:
             header_noise = [
                 "special closed meeting",
                 "calling a special meeting",
-                "city council",
                 "agenda packet",
                 "table of contents",
                 "supplemental communications",
@@ -1255,30 +1728,51 @@ class LocalAI:
             ]
             if any(token in lowered for token in header_noise):
                 return True
-            if re.match(r"^district\s+\d+\b", lowered):
+            # Narrow legal-notice boilerplate pattern (Berkeley Levine Act block).
+            if "government code section 84308" in lowered or "levine act" in lowered:
                 return True
-
-            # Generic procedural placeholders are not user-meaningful topics.
-            generic_blacklist = [
-                "call to order",
-                "roll call",
-                "adjournment",
-                "pledge of allegiance",
-            ]
-            if any(token in lowered for token in generic_blacklist):
+            if "parties to a proceeding involving a license, permit, or other" in lowered:
+                return True
+            if re.match(r"^district\s+\d+\b", lowered):
                 return True
 
             return False
 
-        def add_item(order, title, page_number, description, result=""):
+        def add_item(order, title, page_number, description, result="", source_type="fallback", context=None):
             clean_title = normalize_spaces(title)
             clean_description = normalize_spaces(description) if description else ""
+            if source_type == "fallback" and _is_probable_line_fragment_title(clean_title):
+                stats["rejected_lowercase_fragment"] += 1
+                return
+            if _is_tabular_fragment(clean_title, clean_description, context=context):
+                stats["rejected_tabular_fragment"] += 1
+                return
+            if _looks_like_agenda_segmentation_boilerplate(clean_title):
+                stats["rejected_notice_fragment"] += 1
+                return
             if is_noise_title(clean_title):
+                stats["rejected_noise"] += 1
                 return
-            dedupe_key = clean_title.lower()
-            if dedupe_key in seen_titles:
-                return
-            seen_titles.add(dedupe_key)
+
+            if source_type == "llm":
+                if _is_procedural_noise_title(clean_title):
+                    stats["rejected_procedural"] += 1
+                    return
+                if _is_contact_or_letterhead_noise(clean_title, clean_description):
+                    stats["rejected_contact"] += 1
+                    return
+                if not _should_accept_llm_item(
+                    {
+                        "title": clean_title,
+                        "description": clean_description,
+                        "page_number": page_number,
+                        "context": context or {},
+                    },
+                    mode=mode,
+                ):
+                    stats["rejected_low_substance"] += 1
+                    return
+
             items.append({
                 "order": order,
                 "title": clean_title,
@@ -1315,6 +1809,41 @@ class LocalAI:
                 if 2 <= len(tokens) <= 8 and all(re.match(r"^[A-Z][A-Za-z'’\.\-]*$", t) for t in tokens):
                     return True
             return False
+
+        def _merge_wrapped_title_lines(base_title: str, block_text: str) -> str:
+            """
+            Merge wrapped title continuation lines for fallback parsing.
+
+            Some PDFs split a single long agenda title across multiple lines. We collect
+            immediate continuation lines until we hit known section boundaries.
+            """
+            title = normalize_spaces(base_title)
+            if not block_text:
+                return title
+
+            boundary_re = re.compile(
+                r"(?i)^\s*(from|recommendation|recommended action|financial implications|contact|vote|result|action|subject)\s*:"
+            )
+            # Stop if we hit a new numbered/lettered list entry.
+            list_item_re = re.compile(r"^\s*(?:item\s*)?#?\s*(\d{1,2}(?:\.\d+)?|[A-Z]|[IVXLC]+)[\.\):]\s+")
+
+            added = 0
+            for raw_line in (block_text or "").splitlines():
+                line = raw_line.strip()
+                if not line:
+                    if added > 0:
+                        break
+                    continue
+                if boundary_re.match(line) or list_item_re.match(line):
+                    break
+                if len(line) < 3:
+                    break
+                title = normalize_spaces(f"{title} {line}")
+                added += 1
+                # Keep title stitching conservative.
+                if added >= 2:
+                    break
+            return title
 
         def split_text_by_page_markers(raw_text):
             """
@@ -1357,7 +1886,14 @@ class LocalAI:
                 "<start_of_turn>user\n"
                 "Extract ONLY the real agenda items from this meeting document. "
                 "Include the page number where each item starts. "
-                "Format: ITEM [Order]: [Title] (Page [X]) - [Brief Summary]\n\n"
+                "Format: ITEM [Order]: [Title] (Page [X]) - [Brief Summary]\n"
+                "Rules:\n"
+                "- Do NOT extract procedural placeholders (Call to Order, Roll Call, Adjournment, Public Comment).\n"
+                "- Do NOT extract teleconference/Zoom/ADA/how-to-attend instructions.\n"
+                "- Do NOT extract Table of Contents entries.\n"
+                "- Do NOT extract contact/letterhead metadata (addresses, phone/fax, email, website, From:/To: lines).\n\n"
+                "- HIERARCHY RULE: If a primary item contains a table/list/subparts, extract ONLY the parent item. "
+                "Do not emit each row/sub-part as a separate item.\n\n"
                 f"Text:\n{safe_text}<end_of_turn>\n"
                 "<start_of_turn>model\n"
                 "ITEM 1:"
@@ -1385,6 +1921,8 @@ class LocalAI:
                             parsed["title"],
                             parsed["page_number"],
                             parsed["description"],
+                            source_type="llm",
+                            context={"has_active_parent": False},
                         )
                 except Exception as e:
                     # AI agenda extraction errors: Same rationale as above
@@ -1397,7 +1935,34 @@ class LocalAI:
 
         # FALLBACK: If AI fails, use text heuristics with page-aware chunking.
         if not items:
-            for page_num, page_content in split_text_by_page_markers(text):
+            page_chunks = split_text_by_page_markers(text)
+            for page_idx, (page_num, page_content) in enumerate(page_chunks):
+                if parse_state["active_parent_item"] is not None and page_idx > 0:
+                    previous_page_num = page_chunks[page_idx - 1][0]
+                    if previous_page_num != page_num:
+                        stats["context_carryover_pages"] += 1
+
+                trailing_text = "\n".join(chunk for _, chunk in page_chunks[page_idx:])
+                truncated_page_content = page_content
+                stop_after_page = False
+                lines = page_content.splitlines(keepends=True)
+                cursor = 0
+                for line_idx, raw_line in enumerate(lines):
+                    candidate_line = raw_line.strip()
+                    line_len = len(raw_line)
+                    if not _looks_like_end_marker_line(candidate_line):
+                        cursor += line_len
+                        continue
+                    stats["stop_marker_candidates"] += 1
+                    lookahead_window = "".join(lines[line_idx : line_idx + 25]) + "\n" + trailing_text[:2500]
+                    if _should_stop_after_marker(candidate_line, lookahead_window):
+                        truncated_page_content = page_content[:cursor]
+                        stats["stopped_after_end_marker"] += 1
+                        stop_after_page = True
+                        break
+                    cursor += line_len
+
+                page_content = truncated_page_content
                 page_lower = page_content.lower()
                 speaker_context = (
                     "communications" in page_lower
@@ -1409,7 +1974,7 @@ class LocalAI:
 
                 # Prefer explicit numbered agenda lines when available.
                 numbered_line_pattern = re.compile(
-                    r"(?m)^\s*(?:item\s*)?#?\s*(\d{1,2}(?:\.\d+)?|[A-Z]|[IVXLC]+)[\.\):]\s+(.{6,200})$"
+                    r"(?m)^\s*(?:item\s*)?#?\s*(\d{1,2}(?:\.\d+)?|[A-Z]|[IVXLC]+)[\.\):]\s+(.{6,400})$"
                 )
 
                 numbered_lines = list(numbered_line_pattern.finditer(page_content))
@@ -1449,28 +2014,69 @@ class LocalAI:
                     for idx, match in enumerate(numbered_lines):
                         marker = match.group(1)
                         title = match.group(2).strip()
+                        marker_normalized = (marker or "").strip()
+                        marker_upper = marker_normalized.upper()
+                        is_top_level_numeric = bool(re.fullmatch(r"\d{1,2}(?:\.\d+)?", marker_normalized))
+                        preceding_window = page_content[max(0, match.start() - 500):match.start()].lower()
+                        looks_like_nested_numeric_recommendation = bool(
+                            parse_state["active_parent_item"]
+                            and is_top_level_numeric
+                            and "recommendation:" in preceding_window
+                            and ("would:" in preceding_window or "following action" in preceding_window)
+                            and "subject:" not in preceding_window[-160:]
+                        )
+                        is_contextual_subitem = bool(
+                            parse_state["active_parent_item"]
+                            and (
+                                re.fullmatch(r"[A-Z]", marker_upper)
+                                or re.fullmatch(r"[IVXLC]+", marker_upper)
+                                or re.fullmatch(r"\d{1,2}[A-Za-z]", marker_normalized)
+                                or looks_like_nested_numeric_recommendation
+                            )
+                        )
+                        if is_contextual_subitem:
+                            stats["rejected_nested_subitem"] += 1
+                            continue
                         if is_probable_person_name(title) and (
                             speaker_context or person_heavy_numbered_list
                         ):
                             # Do not promote speaker-name roll calls into agenda topics.
                             continue
+                        if _is_procedural_noise_title(title):
+                            continue
+                        if _is_contact_or_letterhead_noise(title, ""):
+                            continue
 
                         block_start = match.end()
                         block_end = numbered_lines[idx + 1].start() if idx + 1 < len(numbered_lines) else len(page_content)
                         block_text = page_content[block_start:block_end]
+                        title = _merge_wrapped_title_lines(title, block_text)
                         vote_match = re.search(r"(?im)\bVote:\s*([^\n\r]+)", block_text)
                         vote_result = vote_match.group(1) if vote_match else ""
 
+                        before_count = len(items)
                         add_item(
                             len(items) + 1,
                             title,
                             page_num,
                             f"Agenda section {marker}",
-                            result=vote_result
+                            result=vote_result,
+                            context={
+                                "has_active_parent": parse_state["active_parent_item"] is not None,
+                                "parent_context_confidence": parse_state["parent_context_confidence"],
+                                "seen_top_level_items": parse_state["seen_top_level_items"],
+                            },
                         )
+                        if len(items) > before_count and is_top_level_numeric:
+                            parse_state["active_parent_item"] = normalize_spaces(title)
+                            parse_state["active_parent_page"] = page_num
+                            parse_state["parent_context_confidence"] = 1.0
+                            parse_state["seen_top_level_items"] += 1
                         if len(items) >= AGENDA_FALLBACK_MAX_ITEMS_PER_DOC:
                             break
                     if numbered_lines:
+                        if stop_after_page:
+                            break
                         continue
 
                 # Fallback for unnumbered formats: use paragraph starts carefully.
@@ -1518,7 +2124,17 @@ class LocalAI:
 
                     desc = (p[:500] + "...") if len(p) > 500 else p
                     before = len(items)
-                    add_item(len(items) + 1, title, page_num, desc)
+                    add_item(
+                        len(items) + 1,
+                        title,
+                        page_num,
+                        desc,
+                        context={
+                            "has_active_parent": parse_state["active_parent_item"] is not None,
+                            "parent_context_confidence": parse_state["parent_context_confidence"],
+                            "seen_top_level_items": parse_state["seen_top_level_items"],
+                        },
+                    )
                     if len(items) > before:
                         added_from_paragraphs += 1
                         consecutive_rejects = 0
@@ -1529,5 +2145,27 @@ class LocalAI:
 
                 if len(items) >= AGENDA_FALLBACK_MAX_ITEMS_PER_DOC:
                     break
-        
+                if stop_after_page:
+                    break
+
+        items, deduped = _dedupe_agenda_items_for_document(items)
+        stats["deduped_toc_duplicates"] = deduped
+        stats["accepted_items_final"] = len(items)
+        logger.info(
+            "agenda_segmentation.counters mode=%s accepted_items_final=%s rejected_procedural=%s rejected_contact=%s rejected_low_substance=%s rejected_lowercase_fragment=%s rejected_notice_fragment=%s rejected_tabular_fragment=%s rejected_nested_subitem=%s context_carryover_pages=%s stop_marker_candidates=%s stopped_after_end_marker=%s rejected_noise=%s deduped_toc_duplicates=%s",
+            mode,
+            stats["accepted_items_final"],
+            stats["rejected_procedural"],
+            stats["rejected_contact"],
+            stats["rejected_low_substance"],
+            stats["rejected_lowercase_fragment"],
+            stats["rejected_notice_fragment"],
+            stats["rejected_tabular_fragment"],
+            stats["rejected_nested_subitem"],
+            stats["context_carryover_pages"],
+            stats["stop_marker_candidates"],
+            stats["stopped_after_end_marker"],
+            stats["rejected_noise"],
+            stats["deduped_toc_duplicates"],
+        )
         return items

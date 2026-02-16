@@ -167,6 +167,37 @@ Outputs:
 - `data/reports/agenda_qa_<timestamp>.json`
 - `data/reports/agenda_qa_<timestamp>.csv`
 
+## Agenda Segmentation Precision Tuning
+
+Segmentation precision is configurable and defaults to balanced behavior.
+
+### Mode
+- `AGENDA_SEGMENTATION_MODE=balanced|aggressive|recall` (default `balanced`)
+  - `balanced`: default precision/recall tradeoff
+  - `aggressive`: stronger filtering for procedural/contact/TOC-like noise
+  - `recall`: looser filtering when documents are sparse/irregular
+
+### Supporting thresholds
+- `AGENDA_MIN_TITLE_CHARS` (default `10`)
+- `AGENDA_MIN_SUBSTANTIVE_DESC_CHARS` (default `24`, LLM-parsed descriptions only)
+- `AGENDA_TOC_DEDUP_FUZZ` (default `92`, per-document title dedupe threshold)
+- `AGENDA_PROCEDURAL_REJECT_ENABLED` (default `true`)
+
+### Re-segment after tuning
+```bash
+curl -X POST "http://localhost:8000/segment/<CATALOG_ID>?force=true" \
+  -H "X-API-Key: dev_secret_key_change_me"
+```
+
+Notes:
+- TOC/body dedupe runs only within the current document extraction set.
+- Procedural filtering uses exact/anchored phrases to avoid dropping substantive titles such as contract approvals.
+- Fallback parsing rejects numbered lowercase line fragments (for example `16. in the appropriate...`) by checking the first alphabetical character, not the first character.
+- Agenda summary generation applies a residual safety net: title must look like notice/procedural noise **and** description must be short before the item is dropped from summary bullets.
+- Parent-item context now carries across page boundaries, so sub-markers (`A.`, `1a.`, `i.`) after a page break are still treated as nested content.
+- Tabular-fragment rejection is weighted: low alpha density is the primary signal; whitespace artifacts are auxiliary only.
+- End-of-agenda stop uses composite evidence (legal/attestation tail). `Adjournment` alone does not terminate parsing.
+
 ## Vote/Outcome Extraction (Milestone A)
 
 Vote extraction is an optional async stage that runs on segmented agenda items.
@@ -235,6 +266,9 @@ Agenda summary contract:
 - For `Document.category == "agenda"`, summaries are derived from segmented agenda items (Structured Agenda) to avoid drift.
 - If an agenda has not been segmented yet, summary generation returns `not_generated_yet` and prompts you to segment first.
 - If the model output is too short or missing bullets, the system falls back to a deterministic summary built from agenda item titles.
+- Existing catalogs do not update retroactively. Re-run both steps after tuning:
+  - `POST /segment/{catalog_id}?force=true`
+  - `POST /summarize/{catalog_id}?force=true`
 
 Search behavior:
 - `/search` returns meeting records only by default.

@@ -134,6 +134,12 @@ Quality safeguards:
 - low-quality cached items can be regenerated
 - fallback parser suppresses speaker-roll/name-list pollution
 - fallback parser suppresses participation template boilerplate (teleconference/COVID/ADA/how-to-join instructions)
+- fallback parser rejects pleading-paper lowercase fragments using a first-alpha trap (for example `16. in the ...`)
+- fallback parser carries parent-item context across page boundaries so nested sub-markers are not promoted when a list/table spans pages
+- tabular-fragment suppression is weighted with alpha-density as the primary signal (whitespace artifacts are secondary)
+- end-of-agenda termination requires composite legal/attestation evidence rather than `Adjournment` alone
+- LLM agenda candidates pass a deterministic acceptance gate (procedural/contact rejection + substance thresholding)
+- TOC/body duplicate suppression runs per document and prefers higher-page body entries over cover/TOC duplicates
 - HTML cross-check parsing uses a DOM parser (not regex sanitization) before line extraction
 - vote lines (`Vote:`) are mapped into agenda item `result` when available
 - page context uses both `[PAGE N]` markers and inline `Page N` headers
@@ -177,6 +183,7 @@ Summary rendering contract:
 
 Agenda summary contract:
 - For `Document.category == "agenda"`, summaries are derived from segmented agenda items (Structured Agenda) to prevent drift.
+- Summary generation includes a residual filter so notice/procedural fragments with short descriptions do not leak into user-visible bullets.
 - If an agenda has not been segmented yet, summary generation returns `not_generated_yet` and prompts segmentation first.
 - If the model output is too short or noncompliant, the system falls back to a deterministic summary built from agenda item titles.
 

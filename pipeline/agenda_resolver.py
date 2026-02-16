@@ -5,6 +5,7 @@ from rapidfuzz import fuzz, process
 
 from pipeline.agenda_crosscheck import merge_ai_with_eagenda, parse_eagenda_items_from_file
 from pipeline.agenda_legistar import fetch_legistar_agenda_items
+from pipeline.llm import _is_contact_or_letterhead_noise, _is_procedural_noise_title
 from pipeline.models import Document, Catalog
 
 
@@ -15,7 +16,14 @@ def _get_value(item: Any, key: str):
 
 
 def _normalize_title(title: str) -> str:
-    return re.sub(r"\s+", " ", (title or "")).strip()
+    if title is None:
+        raw = ""
+    elif isinstance(title, str):
+        raw = title
+    else:
+        # Some tests pass MagicMock placeholders for optional fields.
+        raw = str(title)
+    return re.sub(r"\s+", " ", raw).strip()
 
 
 def agenda_quality_score(items: List[Any]) -> int:
@@ -27,8 +35,11 @@ def agenda_quality_score(items: List[Any]) -> int:
 
     score = 100
     seen = set()
+    normalized_titles = []
     page_one_count = 0
     boilerplate_hits = 0
+    procedural_hits = 0
+    contact_hits = 0
     name_like_hits = 0
 
     for item in items:
@@ -46,6 +57,15 @@ def agenda_quality_score(items: List[Any]) -> int:
         if key in seen:
             score -= 15
         seen.add(key)
+        normalized_titles.append(key)
+
+        if _is_procedural_noise_title(title):
+            procedural_hits += 1
+            score -= 14
+
+        if _is_contact_or_letterhead_noise(title, _get_value(item, "description") or ""):
+            contact_hits += 1
+            score -= 14
 
         # These patterns are common in meeting *headers* and legal notices, not agenda items.
         # We keep this generic and phrase-based (not city-specific) so it applies across jurisdictions.
@@ -102,6 +122,12 @@ def agenda_quality_score(items: List[Any]) -> int:
         if len(title) < 6:
             score -= 15
 
+        # Vote/result text is an optional confidence signal only.
+        # We never require it, but if present it usually indicates a substantive item block.
+        result_text = _normalize_title(_get_value(item, "result") or "")
+        if result_text:
+            score += 2
+
     # If almost everything is on page 1, we likely lost page detection or are extracting headers.
     if page_one_count >= max(1, int(len(items) * 0.8)):
         score -= 20
@@ -110,8 +136,18 @@ def agenda_quality_score(items: List[Any]) -> int:
     if len(items) >= 3:
         if boilerplate_hits >= 1 and boilerplate_hits >= int(len(items) * 0.34):
             score -= 15
+        if procedural_hits >= max(1, int(len(items) * 0.34)):
+            score -= 12
+        if contact_hits >= max(1, int(len(items) * 0.25)):
+            score -= 14
         if name_like_hits >= 2 and name_like_hits >= int(len(items) * 0.5):
             score -= 15
+
+        # Duplicate-heavy sets often indicate TOC/body double extraction noise.
+        unique_titles = len(set(normalized_titles))
+        duplicate_ratio = 1.0 - (unique_titles / max(1, len(normalized_titles)))
+        if duplicate_ratio >= 0.25:
+            score -= 10
 
     return max(0, min(100, score))
 

@@ -131,6 +131,9 @@ npx serve out
 - If sort order looks wrong, run the “Diagnosing date sorting” flow in `docs/OPERATIONS.md`.
 - If Structured Agenda is empty, run segmentation first (`POST /segment/{catalog_id}`).
 - If extracted text still shows chunked ALLCAPS heading artifacts, re-extract and review extraction tuning flags in `docs/OPERATIONS.md`.
+- If Structured Agenda is too noisy (TOC/procedural/contact items), review `AGENDA_SEGMENTATION_MODE` and segmentation tuning in `docs/OPERATIONS.md`.
+- If Cupertino-style notice fragments leak into summaries, re-run segmentation and summary for that catalog; summary generation now applies a residual title+description safety filter.
+- If table rows or subparts are showing as separate agenda items, re-run segmentation; hierarchy-aware parsing now keeps only top-level items and treats nested rows as child content.
 
 For complete troubleshooting (auth, stale/blocked/not-generated states, startup purge, LocalAI tuning, and observability), use:
 - [`docs/OPERATIONS.md`](docs/OPERATIONS.md)

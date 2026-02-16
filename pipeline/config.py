@@ -219,6 +219,26 @@ AGENDA_FALLBACK_MAX_CONSECUTIVE_REJECTS_PER_PAGE = int(
     os.getenv("AGENDA_FALLBACK_MAX_CONSECUTIVE_REJECTS_PER_PAGE", "15")
 )
 
+# Agenda segmentation strictness controls.
+# - balanced: default precision/recall tradeoff
+# - aggressive: stricter filtering to reduce false positives
+# - recall: looser filtering to keep more candidates
+AGENDA_SEGMENTATION_MODE = (os.getenv("AGENDA_SEGMENTATION_MODE", "balanced").strip().lower() or "balanced")
+if AGENDA_SEGMENTATION_MODE not in {"balanced", "aggressive", "recall"}:
+    AGENDA_SEGMENTATION_MODE = "balanced"
+
+# Minimum useful title length for agenda candidates.
+AGENDA_MIN_TITLE_CHARS = int(os.getenv("AGENDA_MIN_TITLE_CHARS", "10"))
+
+# Minimum meaningful LLM description length; applies only to LLM-parsed descriptions.
+AGENDA_MIN_SUBSTANTIVE_DESC_CHARS = int(os.getenv("AGENDA_MIN_SUBSTANTIVE_DESC_CHARS", "24"))
+
+# Similar-title threshold for TOC/body duplicate collapsing within one document.
+AGENDA_TOC_DEDUP_FUZZ = int(os.getenv("AGENDA_TOC_DEDUP_FUZZ", "92"))
+
+# Enable procedural placeholder rejection during segmentation.
+AGENDA_PROCEDURAL_REJECT_ENABLED = os.getenv("AGENDA_PROCEDURAL_REJECT_ENABLED", "true").strip().lower() in {"1", "true", "yes"}
+
 # Batch size for text extraction commits
 # How many documents to extract before committing to database
 # Smaller batches = more frequent saves, Larger batches = better performance
