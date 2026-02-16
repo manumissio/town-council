@@ -9,6 +9,9 @@ VALID_KEY = "dev_secret_key_change_me"
 
 
 class _AdaptiveBackend:
+    def health(self):
+        return {"status": "ok", "engine": "faiss"}
+
     def query(self, _q, k):
         rows = []
         # Top 200 are wrong city; only later rows satisfy city filter.

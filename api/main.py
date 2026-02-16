@@ -576,6 +576,8 @@ def search_documents_semantic(
         if hit:
             hits.append(hit)
     elapsed_ms = round((time.perf_counter() - t0) * 1000.0, 2)
+    backend_health = backend.health()
+    engine = backend_health.get("engine")
     logger.info(
         "semantic_search query='%s' raw=%s filtered=%s dedup=%s returned=%s k=%s steps=%s latency_ms=%s",
         q,
@@ -599,6 +601,8 @@ def search_documents_semantic(
             "k_used": k,
             "expansion_steps": expansion_steps,
             "latency_ms": elapsed_ms,
+            # Exposing engine here makes "semantic feels slow" debuggable from one API response.
+            "engine": engine,
         },
     }
 

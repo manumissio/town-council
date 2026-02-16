@@ -51,3 +51,35 @@ def test_semantic_index_build_uses_summary_then_agenda_fallback(db_session, monk
     assert result.source_counts["agenda_item"] >= 1
     assert isinstance(captured["rows"], list)
     assert captured["meta"]["row_count"] == result.row_count
+
+
+def test_semantic_index_build_uses_agenda_items_when_catalog_text_is_empty(db_session, monkeypatch):
+    place = Place(
+        id=11,
+        name="berkeley",
+        display_name="ca_berkeley",
+        state="CA",
+        ocd_division_id="ocd-division/country:us/state:ca/place:berkeley",
+    )
+    org = Organization(id=11, name="City Council", place_id=11)
+    event = Event(id=11, place_id=11, organization_id=11, name="Meeting C")
+    catalog = Catalog(id=11, url_hash="u11", content=None, summary=None, summary_extractive=None)
+    document = Document(id=11, place_id=11, event_id=11, catalog_id=11)
+    agenda_item = AgendaItem(
+        id=11,
+        event_id=11,
+        catalog_id=11,
+        title="Adopt climate action ordinance",
+        description="Council will consider adoption language and implementation milestones.",
+    )
+    db_session.add_all([place, org, event, catalog, document, agenda_item])
+    db_session.commit()
+
+    backend = FaissSemanticBackend()
+    monkeypatch.setattr(backend, "_encode", lambda texts: np.ones((len(texts), 4), dtype=np.float32))
+    monkeypatch.setattr(backend, "_write_artifacts", lambda vectors, rows, meta: None)
+    monkeypatch.setattr(backend, "_load_artifacts", lambda: None)
+
+    result = backend.build_index(db_session)
+    assert result.row_count >= 1
+    assert result.source_counts["agenda_item"] >= 1

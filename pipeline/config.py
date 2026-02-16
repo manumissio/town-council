@@ -95,6 +95,8 @@ SEMANTIC_FILTER_EXPANSION_FACTOR = int(os.getenv("SEMANTIC_FILTER_EXPANSION_FACT
 # FAISS + sentence-transformers loads significant RAM in-process. Keep single-process by default.
 SEMANTIC_REQUIRE_SINGLE_PROCESS = os.getenv("SEMANTIC_REQUIRE_SINGLE_PROCESS", "true").strip().lower() in {"1", "true", "yes"}
 SEMANTIC_ALLOW_MULTIPROCESS = os.getenv("SEMANTIC_ALLOW_MULTIPROCESS", "false").strip().lower() in {"1", "true", "yes"}
+# Optional strict mode: require FAISS at runtime instead of falling back to NumPy.
+SEMANTIC_REQUIRE_FAISS = os.getenv("SEMANTIC_REQUIRE_FAISS", "false").strip().lower() in {"1", "true", "yes"}
 
 # Context window size - how much text the model can "see" at once
 # Default is conservative for Docker stability/perf. Gemma 3 270M supports up to 32K.

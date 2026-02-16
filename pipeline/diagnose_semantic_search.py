@@ -9,10 +9,12 @@ from __future__ import annotations
 
 import argparse
 import json
+from pathlib import Path
 import urllib.parse
 import urllib.request
 
 from pipeline.semantic_index import get_semantic_backend
+from pipeline.config import SEMANTIC_INDEX_DIR
 
 
 def _fetch_json(url: str, headers: dict[str, str]) -> tuple[int, dict]:
@@ -36,6 +38,13 @@ def main() -> int:
     health = backend.health()
     print("=== backend health ===")
     print(json.dumps(health, indent=2))
+    base = Path(SEMANTIC_INDEX_DIR)
+    print("\n=== artifact files ===")
+    print(f"index_dir={base}")
+    print(f"faiss_exists={(base / 'semantic_index.faiss').exists()}")
+    print(f"npy_exists={(base / 'semantic_index.npy').exists()}")
+    print(f"ids_exists={(base / 'semantic_ids.json').exists()}")
+    print(f"meta_exists={(base / 'semantic_meta.json').exists()}")
 
     params = {"q": args.query, "limit": str(args.limit), "offset": "0"}
     if args.city:
@@ -48,7 +57,14 @@ def main() -> int:
         status, payload = _fetch_json(url, headers={"X-API-Key": args.api_key})
         print(f"status={status}")
         print(f"estimatedTotalHits={payload.get('estimatedTotalHits')}")
-        print(f"diagnostics={payload.get('semantic_diagnostics')}")
+        diagnostics = payload.get("semantic_diagnostics") or {}
+        print(f"diagnostics={diagnostics}")
+        engine = diagnostics.get("engine")
+        if engine == "numpy":
+            print(
+                "remediation=Running on numpy fallback. For faster retrieval, install/repair faiss-cpu "
+                "and rebuild with: docker compose run --rm pipeline python reindex_semantic.py"
+            )
         for hit in (payload.get("hits") or [])[: args.limit]:
             print(
                 f"{hit.get('id')}  score={hit.get('semantic_score')}  date={hit.get('date')}  "

@@ -3,7 +3,6 @@ from __future__ import annotations
 import hashlib
 import json
 import logging
-import multiprocessing
 import os
 import threading
 from dataclasses import dataclass
@@ -19,6 +18,7 @@ from pipeline.config import (
     SEMANTIC_CONTENT_MAX_CHARS,
     SEMANTIC_INDEX_DIR,
     SEMANTIC_MODEL_NAME,
+    SEMANTIC_REQUIRE_FAISS,
     SEMANTIC_REQUIRE_SINGLE_PROCESS,
 )
 from pipeline.models import AgendaItem, Catalog, Document, Event, Organization, Place
@@ -73,13 +73,10 @@ def _looks_like_multiprocess_worker() -> bool:
     Local embedding and FAISS index memory is process-local.
     We fail fast by default when a runtime looks multiprocess to avoid OOM surprises.
     """
-    try:
-        if multiprocessing.current_process().name != "MainProcess":
-            return True
-    except Exception:
-        pass
-
-    for key in ("UVICORN_WORKERS", "WEB_CONCURRENCY", "WORKER_CONCURRENCY"):
+    # Do not use process-name heuristics here: uvicorn --reload runs child processes
+    # even with a single serving worker, which caused false-positive startup failures.
+    # We gate on explicit worker concurrency envs instead.
+    for key in ("UVICORN_WORKERS", "WEB_CONCURRENCY", "WORKER_CONCURRENCY", "CELERYD_CONCURRENCY"):
         val = os.getenv(key)
         if not val:
             continue
@@ -135,17 +132,25 @@ class FaissSemanticBackend(SemanticBackend):
                     cls._instance = super(FaissSemanticBackend, cls).__new__(cls)
                     cls._instance._model = None
                     cls._instance._index = None
+                    cls._instance._matrix = None
                     cls._instance._metadata = []
                     cls._instance._meta = {}
         return cls._instance
 
     def _guard_runtime(self) -> None:
         if SEMANTIC_ALLOW_MULTIPROCESS:
-            return
-        if SEMANTIC_REQUIRE_SINGLE_PROCESS and _looks_like_multiprocess_worker():
+            pass
+        elif SEMANTIC_REQUIRE_SINGLE_PROCESS and _looks_like_multiprocess_worker():
             raise SemanticConfigError(
                 "Unsafe semantic backend configuration detected (multiprocess runtime). "
                 "Use a single worker/process for FAISS mode or set SEMANTIC_ALLOW_MULTIPROCESS=true explicitly."
+            )
+        # Operators can force strict FAISS mode when they want predictable performance.
+        # Default remains resilient fallback so semantic search still works if FAISS wheels are unavailable.
+        if SEMANTIC_REQUIRE_FAISS and faiss is None:
+            raise SemanticConfigError(
+                "SEMANTIC_REQUIRE_FAISS=true but faiss-cpu is unavailable in this runtime. "
+                "Install/repair faiss-cpu or set SEMANTIC_REQUIRE_FAISS=false to allow numpy fallback."
             )
 
     def _index_path(self) -> Path:
@@ -177,6 +182,7 @@ class FaissSemanticBackend(SemanticBackend):
         return {
             "dir": base,
             "faiss": base / "semantic_index.faiss",
+            "npy": base / "semantic_index.npy",
             "ids": base / "semantic_ids.json",
             "meta": base / "semantic_meta.json",
         }
@@ -185,36 +191,59 @@ class FaissSemanticBackend(SemanticBackend):
         self._guard_runtime()
         if self._index is not None and self._metadata:
             return
-        if faiss is None:
-            raise SemanticConfigError("faiss-cpu is not installed in this environment.")
         paths = self._artifact_paths()
-        if not paths["faiss"].exists() or not paths["ids"].exists() or not paths["meta"].exists():
+        if not paths["ids"].exists() or not paths["meta"].exists():
             raise FileNotFoundError("Semantic artifacts are missing. Run `python reindex_semantic.py`.")
         with self._lock:
             if self._index is None:
-                self._index = faiss.read_index(str(paths["faiss"]))
                 self._metadata = json.loads(paths["ids"].read_text(encoding="utf-8"))
                 self._meta = json.loads(paths["meta"].read_text(encoding="utf-8"))
+                if faiss is not None and paths["faiss"].exists():
+                    self._index = faiss.read_index(str(paths["faiss"]))
+                    self._matrix = None
+                elif paths["npy"].exists():
+                    # Fallback path for environments where faiss-cpu wheels are unavailable.
+                    # We still support semantic retrieval via normalized cosine-dot search.
+                    self._matrix = np.load(paths["npy"], allow_pickle=False)
+                    self._index = self._matrix
+                else:
+                    raise FileNotFoundError(
+                        "Semantic index vectors are missing. Run `python reindex_semantic.py`."
+                    )
 
     def _write_artifacts(self, vectors: np.ndarray, metadata_rows: list[dict[str, Any]], build_meta: dict[str, Any]) -> None:
-        if faiss is None:
-            raise SemanticConfigError("faiss-cpu is not installed in this environment.")
         paths = self._artifact_paths()
         paths["dir"].mkdir(parents=True, exist_ok=True)
 
         temp_faiss = paths["faiss"].with_suffix(".faiss.tmp")
+        temp_npy = paths["npy"].with_suffix(".npy.tmp")
         temp_ids = paths["ids"].with_suffix(".json.tmp")
         temp_meta = paths["meta"].with_suffix(".json.tmp")
 
-        dim = vectors.shape[1]
-        index = faiss.IndexFlatIP(dim)
-        index.add(vectors)
-        faiss.write_index(index, str(temp_faiss))
+        if faiss is not None:
+            dim = vectors.shape[1]
+            index = faiss.IndexFlatIP(dim)
+            index.add(vectors)
+            faiss.write_index(index, str(temp_faiss))
+            build_meta["engine"] = "faiss"
+        else:
+            logger.warning("faiss-cpu is unavailable; using numpy semantic index fallback.")
+            with open(temp_npy, "wb") as fh:
+                np.save(fh, vectors)
+            build_meta["engine"] = "numpy"
+
         temp_ids.write_text(json.dumps(metadata_rows, ensure_ascii=False), encoding="utf-8")
         temp_meta.write_text(json.dumps(build_meta, ensure_ascii=False), encoding="utf-8")
 
         # Atomic rename avoids serving partially-written artifacts while a rebuild is in-flight.
-        os.replace(temp_faiss, paths["faiss"])
+        if faiss is not None:
+            os.replace(temp_faiss, paths["faiss"])
+            if paths["npy"].exists():
+                os.remove(paths["npy"])
+        else:
+            os.replace(temp_npy, paths["npy"])
+            if paths["faiss"].exists():
+                os.remove(paths["faiss"])
         os.replace(temp_ids, paths["ids"])
         os.replace(temp_meta, paths["meta"])
 
@@ -229,7 +258,6 @@ class FaissSemanticBackend(SemanticBackend):
             .join(Event, Document.event_id == Event.id)
             .join(Place, Document.place_id == Place.id)
             .outerjoin(Organization, Event.organization_id == Organization.id)
-            .filter(Catalog.content.isnot(None), Catalog.content != "")
             .yield_per(50)
         )
         for doc, catalog, event, place, org in query:
@@ -353,6 +381,7 @@ class FaissSemanticBackend(SemanticBackend):
         # Reload fresh artifacts so the active process serves the latest index immediately.
         with self._lock:
             self._index = None
+            self._matrix = None
             self._metadata = []
             self._meta = {}
         self._load_artifacts()
@@ -376,7 +405,14 @@ class FaissSemanticBackend(SemanticBackend):
             return []
         query_vec = self._encode([q])
         k = max(1, min(int(top_k), len(self._metadata)))
-        scores, indices = self._index.search(query_vec, k)
+        if faiss is not None and hasattr(self._index, "search"):
+            scores, indices = self._index.search(query_vec, k)
+        else:
+            matrix = self._matrix if self._matrix is not None else np.asarray(self._index, dtype=np.float32)
+            sims = np.dot(matrix, query_vec[0])
+            top_idx = np.argsort(-sims)[:k]
+            scores = np.array([sims[top_idx]], dtype=np.float32)
+            indices = np.array([top_idx], dtype=np.int64)
         out: list[SemanticCandidate] = []
         for score, idx in zip(scores[0], indices[0]):
             if idx < 0:
@@ -396,11 +432,22 @@ class FaissSemanticBackend(SemanticBackend):
         self._guard_runtime()
         try:
             self._load_artifacts()
+            paths = self._artifact_paths()
+            engine = self._meta.get("engine")
+            if not engine:
+                engine = "faiss" if faiss is not None else "numpy"
             return {
                 "status": "ok",
                 "row_count": len(self._metadata),
                 "model_name": self._meta.get("model_name"),
                 "built_at": self._meta.get("built_at"),
+                "engine": engine,
+                "artifacts": {
+                    "faiss": paths["faiss"].exists(),
+                    "npy": paths["npy"].exists(),
+                    "ids": paths["ids"].exists(),
+                    "meta": paths["meta"].exists(),
+                },
             }
         except Exception as exc:
             return {"status": "error", "error": exc.__class__.__name__, "detail": str(exc)}

@@ -95,6 +95,7 @@ Semantic search is opt-in and feature-flagged.
 - Endpoint: `GET /search/semantic`
 - Feature flag: `SEMANTIC_ENABLED` (default `false`)
 - Backend: `SEMANTIC_BACKEND=faiss` for MVP
+- Runtime engine can be `faiss` (preferred) or `numpy` (fallback when FAISS is unavailable)
 
 Keyword search (`/search`) remains the default and is unchanged.
 For setup, rebuild, diagnostics, and guardrails, use [`docs/OPERATIONS.md`](docs/OPERATIONS.md).

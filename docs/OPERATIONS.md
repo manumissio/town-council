@@ -120,6 +120,11 @@ Set:
 docker compose run --rm pipeline python reindex_semantic.py
 ```
 
+### Verify FAISS runtime availability
+```bash
+docker compose run --rm pipeline python check_faiss_runtime.py
+```
+
 ### Diagnose semantic search
 ```bash
 docker compose run --rm pipeline python diagnose_semantic_search.py --query zoning --limit 10
@@ -132,12 +137,19 @@ docker compose run --rm pipeline python diagnose_semantic_search.py --query zoni
   - run `python reindex_semantic.py`.
 - semantic mode returns too few records with strict filters:
   - check `semantic_diagnostics` fields (`k_used`, `expansion_steps`) in response.
+- semantic mode works but is slower than expected:
+  - check `semantic_diagnostics.engine`; `numpy` means fallback mode (FAISS unavailable in runtime).
+  - fix FAISS install/import, then rebuild artifacts with `python reindex_semantic.py`.
 
 ### Guardrail note
 FAISS + sentence-transformers memory is process-local. Keep single-process runtime
 unless you intentionally override:
 - `SEMANTIC_REQUIRE_SINGLE_PROCESS=true` (default)
 - `SEMANTIC_ALLOW_MULTIPROCESS=false` (default)
+
+Optional strict mode:
+- `SEMANTIC_REQUIRE_FAISS=true`
+  - fail fast if `faiss-cpu` is missing instead of using NumPy fallback.
 
 ## Agenda QA loop
 

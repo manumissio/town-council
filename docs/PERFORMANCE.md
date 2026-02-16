@@ -39,6 +39,7 @@ Track:
 - p50/p95 latency
 - `semantic_diagnostics.k_used`
 - `semantic_diagnostics.expansion_steps`
+- `semantic_diagnostics.engine` (`faiss` preferred; `numpy` fallback is expected to be slower)
 
 ## Developer Microbenchmarks
 

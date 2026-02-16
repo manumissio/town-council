@@ -15,6 +15,9 @@ class _Backend:
     def query(self, _q, _k):
         return list(self.candidates)
 
+    def health(self):
+        return {"status": "ok", "engine": "faiss"}
+
 
 def test_semantic_search_success_with_filters(mocker):
     db = MagicMock()
@@ -38,6 +41,7 @@ def test_semantic_search_success_with_filters(mocker):
         data = resp.json()
         assert data["estimatedTotalHits"] == 1
         assert data["hits"][0]["id"] == "doc_10"
+        assert data["semantic_diagnostics"]["engine"] == "faiss"
     finally:
         del app.dependency_overrides[get_db]
 
