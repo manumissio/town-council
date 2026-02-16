@@ -12,7 +12,7 @@ Update `city_metadata/list_of_cities.csv` with:
 - `ocd_division_id`
 - display name
 - crawler metadata
-- hosting service fields (for example Legistar/laserfiche)
+- hosting service fields (for example `granicus|legistar|city`)
 
 ### 2) Implement spider
 Create spider file under:

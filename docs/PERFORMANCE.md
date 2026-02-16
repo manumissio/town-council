@@ -7,11 +7,16 @@ For operational troubleshooting and sorting diagnostics, use `docs/OPERATIONS.md
 
 ## Measurement Environment
 - Date: 2026-02-16
+- Measured commit: `ba42bae`
 - Mode: local Docker Compose stack
+- Host platform: macOS 26.2 (arm64)
 - API target for endpoint timing: `http://api:8000` (inside Docker network)
 - Benchmark harness:
   - `pytest ../tests/test_benchmarks.py`
   - repeated endpoint timing loop (30 requests per endpoint)
+
+Note:
+- Docker daemon version was not captured in this measurement run.
 
 ## API Endpoint Timing (E2E, 30 samples each)
 

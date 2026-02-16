@@ -15,7 +15,7 @@ This project ingests agendas/minutes, extracts text, indexes search content, and
 - Docker Desktop (Mac/Windows) or Docker Engine (Linux)
 - `docker compose`
 
-### 2) Start core services and initialize DB
+### 2) Start stack and initialize DB
 ```bash
 docker compose up -d --build
 docker compose run --rm pipeline python db_init.py
@@ -104,73 +104,15 @@ NEXT_PUBLIC_DEMO_MODE=true STATIC_EXPORT=true npm run build
 npx serve out
 ```
 
-## Common Troubleshooting
+## Common Troubleshooting (Quick)
 
-### 401 on summary/segment/topics/extract
-Protected write endpoints require `X-API-Key`.
+- Protected write actions (`/summarize`, `/segment`, `/topics`, `/extract`) require `X-API-Key`.
+- If Full Text looks missing after restart, check whether `STARTUP_PURGE_DERIVED=true` and re-extract.
+- If sort order looks wrong, run the “Diagnosing date sorting” flow in `docs/OPERATIONS.md`.
+- If Structured Agenda is empty, run segmentation first (`POST /segment/{catalog_id}`).
 
-- Backend key (Docker default): `dev_secret_key_change_me`
-- Frontend must set `NEXT_PUBLIC_API_AUTH_KEY` to call protected actions from browser.
-- Unauthorized requests are logged without storing API key values or key fragments.
-
-### Structured Agenda is empty
-This is expected until segmentation runs.
-
-- UI: click **Segment Agenda Items**
-- API: `POST /segment/{catalog_id}` with API key
-
-### Text looks bad or too short
-Use **Re-extract text** in Full Text tab.
-
-- Uses existing downloaded file only (no re-download)
-- OCR fallback is slower and optional
-- Re-extraction updates `catalog.content` and reindexes that catalog
-
-Note: the `pipeline` Docker image does not include `curl`. Run health checks from your host shell, or use Python inside a container:
-```bash
-docker compose run --rm pipeline python - <<'PY'
-import urllib.request
-print(urllib.request.urlopen("http://api:8000/health", timeout=5).read().decode())
-PY
-```
-
-### Stale / Not generated yet / Blocked states
-- **Stale**: extracted text changed after summary/topics were generated
-- **Not generated yet**: derived fields not created yet (common after startup purge)
-- **Blocked**: extracted text too low-signal for reliable summary/topics
-- **Agenda empty**: agenda segmentation ran but detected 0 substantive agenda items (no infinite reprocessing)
-
-### Segmentation includes teleconference/ADA/COVID boilerplate
-If structured agenda items look like participation instructions (teleconference/COVID/ADA text), re-run segmentation after upgrading.
-The agenda extractor now suppresses common template boilerplate blocks so they do not become agenda items.
-
-Summary format:
-- Stored and displayed as plain text with a `BLUF:` line and `- ` bullets (no Markdown rendering).
-
-Agenda summary contract:
-- For `Document.category == "agenda"`, summaries are derived from segmented agenda items (Structured Agenda).
-- If an agenda has not been segmented yet, summary generation returns `not_generated_yet` and prompts you to segment first.
-
-### Startup purge behavior (dev)
-If `STARTUP_PURGE_DERIVED=true`, startup clears derived data (summary/topics/agenda items/content hashes) for deterministic local runs while preserving source ingest records.
-
-### Local AI context + input limits
-The default local model is Gemma 3 270M (trained for up to 32K context). We default to a smaller context window for Docker stability/performance.
-
-You can tune these via env vars (worker reads them):
-- `LLM_CONTEXT_WINDOW` (default `16384`, max for this model: `32768`)
-- `LLM_SUMMARY_MAX_TEXT` (default `30000`)
-- `LLM_SUMMARY_MAX_TOKENS` (default `512`)
-- `LLM_AGENDA_MAX_TEXT` (default `60000`)
-
-Local dev memory guardrail:
-- LocalAI (llama.cpp) is **per-process**. Celery prefork/multiprocessing spawns multiple processes; each would load its own model copy.
-- Keep the Celery worker single-process (Compose uses `--concurrency=1 --pool=solo`).
-- Guardrails will fail fast if the worker is started in a multiprocess configuration. Override only if you know what you're doing:
-  - `LOCAL_AI_ALLOW_MULTIPROCESS=true` (not recommended; can OOM)
-
-Scaling note:
-- If you want to scale inference beyond a single process, run a dedicated inference server (for example Ollama, llama.cpp server, or vLLM) and switch the app to HTTP-based inference (future work).
+For complete troubleshooting (auth, stale/blocked/not-generated states, startup purge, LocalAI tuning, and observability), use:
+- [`docs/OPERATIONS.md`](docs/OPERATIONS.md)
 
 ## Documentation Map
 - Operations runbook: [`docs/OPERATIONS.md`](docs/OPERATIONS.md)
