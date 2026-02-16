@@ -1,54 +1,137 @@
+import logging
 import re
+from difflib import SequenceMatcher
 
+from pipeline.config import (
+    TEXT_REPAIR_ENABLE_LLM_ESCALATION,
+    TEXT_REPAIR_LLM_MAX_LINES_PER_DOC,
+    TEXT_REPAIR_MIN_IMPLAUSIBILITY_SCORE,
+)
+
+
+logger = logging.getLogger("text-cleaning")
 
 _SPACED_ALLCAPS_RE = re.compile(r"\b(?:[A-Z]\s+){2,}[A-Z]\b")
-_ALLCAPS_TOKEN_RE = re.compile(r"^[A-Z]{1,5}$")
+_ALLCAPS_TOKEN_RE = re.compile(r"^[A-Z]{1,6}$")
+_SAFE_LINE_BLOCKERS = (
+    re.compile(r"https?://|www\.|@"),
+    re.compile(r"\b\d{1,3}(?:\.\d{1,3}){3}\b"),
+    re.compile(r"\b\d{3}[-\.\s]?\d{3}[-\.\s]?\d{4}\b"),
+    re.compile(r"\b(?:JAN|FEB|MAR|APR|MAY|JUN|JUL|AUG|SEP|OCT|NOV|DEC)[A-Z]*\b"),
+    re.compile(r"\b\d{1,2}[:/]\d{1,2}\b"),
+)
+_CIVIC_LEXICON = {
+    # function words
+    "A", "AN", "AND", "AS", "AT", "BY", "FOR", "FROM", "IN", "IS", "OF", "ON", "OR", "THE", "TO", "WITH", "WILL",
+    "THIS", "THAT",
+    # civic / meeting terms
+    "AGENDA", "ANNOTATED", "CITY", "COUNCIL", "MEETING", "SPECIAL", "PROCLAMATION", "CALLING",
+    "SESSION", "REGULAR", "PUBLIC", "HEARING", "RESOLUTION", "ORDINANCE", "COMMISSION", "BOARD",
+    "PLANNING", "ZONING", "ITEM", "CLOSED",
+    # common local names in current corpus
+    "BERKELEY", "CUPERTINO", "PABLO", "AVENUE", "CORRIDORS", "CA",
+}
 
 
 def _collapse_spaced_allcaps(text: str) -> str:
     """
     Collapse spaced-out ALLCAPS words like:
     "P R O C L A M A T I O N" -> "PROCLAMATION"
-
-    Why this exists:
-    Some PDF extraction paths (and some OCR outputs) insert spaces between letters.
-    That breaks downstream NLP (topics/summaries) by turning one real word into many tokens.
     """
     if not text:
         return ""
 
     def _join(match: re.Match) -> str:
         raw = match.group(0)
-        # Preserve word boundaries when the extraction inserted extra spacing between words
-        # (e.g. "C I T Y  C O U N C I L" should become "CITY COUNCIL", not "CITYCOUNCIL").
         raw = raw.replace("\n", "  ")
-        raw = re.sub(r"\s{2,}", "|", raw)  # word breaks
-        raw = re.sub(r"\s+", "", raw)      # letter spacing
+        raw = re.sub(r"\s{2,}", "|", raw)
+        raw = re.sub(r"\s+", "", raw)
         raw = raw.replace("|", " ")
         return raw.strip()
 
     return _SPACED_ALLCAPS_RE.sub(_join, text)
 
-def _collapse_chunked_allcaps_line(line: str) -> str:
+
+def _is_line_safe_for_repair(line: str) -> bool:
     """
-    Collapse chunked ALLCAPS header artifacts like:
-    - "ANN OT AT ED" -> "ANNOTATED"
-    - "B ER K EL EY" -> "BERKELEY"
-
-    Why this exists:
-    Some PDFs extract ALLCAPS words as small chunks (1-5 letters) separated by spaces.
-    This is different from letter-by-letter spacing, so _collapse_spaced_allcaps won't catch it.
-
-    Safety: We only collapse runs that look like broken-up ALLCAPS words (conservative thresholds)
-    to avoid merging normal phrases like "CITY OF CA".
+    Restrict deterministic repair to probable header lines.
+    We avoid metadata-heavy lines so we don't rewrite IDs/URLs/phone numbers.
     """
-    if not line:
-        return ""
+    if not line or len(line) > 220:
+        return False
+    if any(rx.search(line) for rx in _SAFE_LINE_BLOCKERS):
+        return False
+    letters = re.sub(r"[^A-Za-z]", "", line)
+    if len(letters) < 8:
+        return False
+    uppercase_ratio = sum(1 for ch in letters if ch.isupper()) / max(1, len(letters))
+    return uppercase_ratio >= 0.8
 
-    tokens = line.split()
+
+def _line_fragmentation_score(line: str) -> float:
+    """
+    Score how likely a line is a broken ALL-CAPS header.
+    Higher is worse; threshold-based escalation keeps repairs conservative.
+    """
+    tokens = [t for t in line.split() if t]
     if len(tokens) < 3:
+        return 0.0
+    caps_tokens = [t for t in tokens if _ALLCAPS_TOKEN_RE.match(t)]
+    if len(caps_tokens) < 3:
+        return 0.0
+    short_ratio = sum(1 for t in caps_tokens if len(t) <= 2) / len(caps_tokens)
+    single_ratio = sum(1 for t in caps_tokens if len(t) == 1) / len(caps_tokens)
+    caps_ratio = len(caps_tokens) / len(tokens)
+    run_boost = 0.2 if len(caps_tokens) >= 6 else 0.0
+    score = (0.45 * short_ratio) + (0.25 * single_ratio) + (0.30 * caps_ratio) + run_boost
+    return max(0.0, min(score, 1.0))
+
+
+def _split_with_lexicon(joined: str) -> list[str]:
+    """
+    Deterministically split merged uppercase text using a small civic lexicon.
+    Unknown spans are allowed but penalized, so we avoid aggressive rewriting.
+    """
+    n = len(joined)
+    if n == 0:
+        return []
+
+    max_word = min(20, n)
+    # dp[i] -> (cost, parts to i)
+    dp: list[tuple[float, list[str]] | None] = [None] * (n + 1)
+    dp[0] = (0.0, [])
+    for i in range(n):
+        if dp[i] is None:
+            continue
+        base_cost, base_parts = dp[i]
+        for j in range(i + 1, min(n, i + max_word) + 1):
+            part = joined[i:j]
+            if part in _CIVIC_LEXICON:
+                cost = base_cost + 0.1
+            elif len(part) == 1:
+                cost = base_cost + 2.0
+            else:
+                # Unknown chunks are allowed but penalized by length.
+                cost = base_cost + 1.0 + (len(part) / 10.0)
+            cand = (cost, base_parts + [part])
+            if dp[j] is None or cand[0] < dp[j][0]:
+                dp[j] = cand
+    return dp[n][1] if dp[n] else [joined]
+
+
+def _repair_chunked_allcaps_line(line: str) -> str:
+    """
+    Repair chunked ALL-CAPS artifacts while rejecting risky merges.
+    """
+    if not _is_line_safe_for_repair(line):
+        return line
+    before_score = _line_fragmentation_score(line)
+    # Deterministic repair should run on moderately-fragmented lines.
+    # LLM escalation uses a stricter threshold configured separately.
+    if before_score < 0.50:
         return line
 
+    tokens = line.split()
     out: list[str] = []
     i = 0
     while i < len(tokens):
@@ -58,61 +141,106 @@ def _collapse_chunked_allcaps_line(line: str) -> str:
             continue
 
         j = i
-        has_single_letter = False
-        has_long_chunk = False
         while j < len(tokens) and _ALLCAPS_TOKEN_RE.match(tokens[j]):
-            if len(tokens[j]) == 1:
-                has_single_letter = True
-            if len(tokens[j]) >= 3:
-                has_long_chunk = True
             j += 1
-
         run = tokens[i:j]
-        run_len = len(run)
-        # Conservative: If a run mixes a single-letter token with longer chunks (>=3),
-        # it's often multiple words smashed together (e.g., "... ION C AL LING ...").
-        # Collapsing that produces unreadable gibberish, so skip collapsing in that case.
-        should_collapse = ((run_len >= 4) or (run_len >= 3 and has_single_letter)) and not (
-            has_single_letter and has_long_chunk
-        )
-        if should_collapse:
-            joined = "".join(run)
-            # If the run is very long, it's likely multiple words smashed together by extraction.
-            # Collapsing it into one token produces unreadable gibberish (e.g., PROCLAMATIONCALLING...).
-            # In that case, keep the original spacing and let downstream filters handle it.
-            if len(joined) <= 20:
-                out.append(joined)
-            else:
-                out.extend(run)
-        else:
+        if len(run) < 3:
             out.extend(run)
+            i = j
+            continue
 
+        joined = "".join(run)
+        # Lexicon split avoids mega-token gibberish and can recover merged boundaries
+        # like ANNOTATEDAGENDA -> ANNOTATED AGENDA.
+        split_parts = _split_with_lexicon(joined)
+        if len(joined) <= 20 and len(split_parts) == 1 and len(run) <= 3:
+            # Keep short all-caps phrases conservative unless we can split confidently.
+            out.extend(run)
+        else:
+            out.extend(split_parts)
         i = j
 
-    return " ".join(out)
+    candidate = " ".join(out)
+    # Reject changes that do not materially improve fragmentation.
+    after_score = _line_fragmentation_score(candidate)
+    if after_score > (before_score - 0.15):
+        return line
+    # Guardrail: avoid giant merged tokens that are usually wrong.
+    if any(len(tok) > 26 for tok in candidate.split()):
+        return line
+    return candidate
 
 
-def postprocess_extracted_text(text: str) -> str:
+def _default_llm_repair(line: str) -> str | None:
+    try:
+        from pipeline.llm import LocalAI
+
+        return LocalAI().repair_title_spacing(line)
+    except Exception:
+        return None
+
+
+def _is_valid_spacing_only_repair(source: str, candidate: str) -> bool:
+    if not candidate:
+        return False
+    src = re.sub(r"\s+", "", source or "")
+    dst = re.sub(r"\s+", "", candidate or "")
+    # Spacing-only means same non-space content.
+    if src != dst:
+        return False
+    # Guard against pathological retokenization.
+    src_tokens = max(1, len((source or "").split()))
+    dst_tokens = len((candidate or "").split())
+    if dst_tokens > (src_tokens * 2):
+        return False
+    # Similarity guard keeps accidental formatting noise low.
+    ratio = SequenceMatcher(None, source, candidate).ratio()
+    return ratio >= 0.55
+
+
+def postprocess_extracted_text(text: str, llm_repair_fn=None) -> str:
     """
     Clean extracted text for downstream NLP without changing semantics.
-
-    This runs after Tika extraction and before we feed content into:
-    - topic tagging
-    - summarization
-    - agenda segmentation
-
-    Design goal:
-    Fix common extraction artifacts (especially spaced-letter ALLCAPS) while keeping
-    the original ordering and meaning of the text.
     """
     if not text:
         return ""
 
-    value = text
-    value = _collapse_spaced_allcaps(value)
-    # Chunked-ALLCAPS artifacts are line-local and should stay line-local to reduce accidental merges.
-    value = "\n".join(_collapse_chunked_allcaps_line(line) for line in value.splitlines())
-    # Normalize excessive whitespace but keep paragraph breaks.
+    value = _collapse_spaced_allcaps(text)
+    lines = value.splitlines()
+    counters = {
+        "lines_scanned": 0,
+        "lines_repaired_deterministic": 0,
+        "lines_escalated_llm": 0,
+        "lines_repair_rejected": 0,
+    }
+    llm_budget = TEXT_REPAIR_LLM_MAX_LINES_PER_DOC
+    repair_callable = llm_repair_fn or _default_llm_repair
+
+    repaired_lines: list[str] = []
+    for line in lines:
+        counters["lines_scanned"] += 1
+        repaired = _repair_chunked_allcaps_line(line)
+        if repaired != line:
+            counters["lines_repaired_deterministic"] += 1
+
+        # LLM escalation is opt-in and capped for throughput predictability.
+        if (
+            TEXT_REPAIR_ENABLE_LLM_ESCALATION
+            and llm_budget > 0
+            and _line_fragmentation_score(repaired) >= TEXT_REPAIR_MIN_IMPLAUSIBILITY_SCORE
+        ):
+            llm_candidate = repair_callable(repaired)
+            if _is_valid_spacing_only_repair(repaired, llm_candidate or ""):
+                repaired = (llm_candidate or "").strip()
+                counters["lines_escalated_llm"] += 1
+                llm_budget -= 1
+            else:
+                counters["lines_repair_rejected"] += 1
+
+        repaired_lines.append(repaired)
+
+    value = "\n".join(repaired_lines)
     value = re.sub(r"[ \t]+\n", "\n", value)
     value = re.sub(r"\n{4,}", "\n\n\n", value)
+    logger.debug("text_cleaning.counters=%s", counters)
     return value.strip()

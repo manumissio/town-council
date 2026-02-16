@@ -12,6 +12,8 @@ from pipeline.config import (
     TIKA_RETRY_BACKOFF_MULTIPLIER,
     TIKA_OCR_FALLBACK_ENABLED,
     TIKA_MIN_EXTRACTED_CHARS_FOR_NO_OCR,
+    TIKA_PDF_SPACING_TOLERANCE,
+    TIKA_PDF_AVG_CHAR_TOLERANCE,
     EXTRACTION_BATCH_SIZE
 )
 
@@ -109,6 +111,12 @@ def extract_text(file_path, *, ocr_fallback_enabled=None, min_chars_threshold=No
                     "X-Tika-PDFOcrStrategy": ocr_strategy,
                     "Accept": "application/xhtml+xml",
                 }
+                # Optional PDFBox spacing controls for kerning-heavy headers.
+                # Keep off by default because these tolerances can shift split-vs-merged spacing behavior.
+                if TIKA_PDF_SPACING_TOLERANCE:
+                    headers["X-Tika-PDFspacingTolerance"] = str(TIKA_PDF_SPACING_TOLERANCE)
+                if TIKA_PDF_AVG_CHAR_TOLERANCE:
+                    headers["X-Tika-PDFaverageCharTolerance"] = str(TIKA_PDF_AVG_CHAR_TOLERANCE)
                 parsed = parser.from_file(
                     file_path,
                     serverEndpoint=TIKA_SERVER_ENDPOINT,

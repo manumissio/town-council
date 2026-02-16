@@ -130,6 +130,7 @@ npx serve out
 - If Full Text looks missing after restart, check whether `STARTUP_PURGE_DERIVED=true` and re-extract.
 - If sort order looks wrong, run the “Diagnosing date sorting” flow in `docs/OPERATIONS.md`.
 - If Structured Agenda is empty, run segmentation first (`POST /segment/{catalog_id}`).
+- If extracted text still shows chunked ALLCAPS heading artifacts, re-extract and review extraction tuning flags in `docs/OPERATIONS.md`.
 
 For complete troubleshooting (auth, stale/blocked/not-generated states, startup purge, LocalAI tuning, and observability), use:
 - [`docs/OPERATIONS.md`](docs/OPERATIONS.md)

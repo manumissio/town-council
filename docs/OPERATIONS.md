@@ -270,6 +270,13 @@ Extracted text normalization:
 - Some PDFs also extract ALLCAPS headers as small chunks (for example `ANN OT AT ED` or `B ER K EL EY`).
   This is also fixed during extraction-time postprocessing, but you must **re-extract** a catalog to apply it
   to already-stored content.
+- Optional extraction tuning (off by default) for kerning-heavy PDFs:
+  - `TIKA_PDF_SPACING_TOLERANCE`
+  - `TIKA_PDF_AVG_CHAR_TOLERANCE`
+- Optional LLM escalation (off by default) if deterministic repair still leaves implausible lines:
+  - `TEXT_REPAIR_ENABLE_LLM_ESCALATION=true`
+  - `TEXT_REPAIR_LLM_MAX_LINES_PER_DOC=10`
+  - `TEXT_REPAIR_MIN_IMPLAUSIBILITY_SCORE=0.65`
 
 Topic tagging notes:
 - Per-catalog topics use TF-IDF over a bounded, same-city corpus.

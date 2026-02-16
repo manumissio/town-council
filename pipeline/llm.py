@@ -1132,6 +1132,45 @@ class LocalAI:
                 if self.llm:
                     self.llm.reset()
 
+    def repair_title_spacing(self, raw_line: str) -> str | None:
+        """
+        Repair spacing/kerning artifacts in a single heading-like line.
+
+        Contract:
+        - spacing-only edits
+        - no word substitutions
+        - single-line plain-text output
+        """
+        self._load_model()
+        if not self.llm:
+            return None
+        source = (raw_line or "").strip()
+        if not source:
+            return None
+        prompt = (
+            "<start_of_turn>user\n"
+            "Fix spacing/kerning errors in this ALL-CAPS meeting heading.\n"
+            "Rules:\n"
+            "- Do not change words.\n"
+            "- Do not add or remove punctuation.\n"
+            "- Only fix spaces between letters/words.\n"
+            "- Output one plain-text line only.\n\n"
+            f"Input: {source}\n"
+            "<end_of_turn>\n"
+            "<start_of_turn>model\n"
+        )
+        with self._lock:
+            try:
+                response = self.llm(prompt, max_tokens=64, temperature=0.0)
+                text = (response["choices"][0]["text"] or "").strip()
+                return " ".join(text.splitlines()).strip()
+            except Exception as e:
+                logger.error(f"AI title spacing repair failed: {e}")
+                return None
+            finally:
+                if self.llm:
+                    self.llm.reset()
+
     def extract_agenda(self, text):
         """
         Extracts individual agenda items from meeting text using the local AI model.

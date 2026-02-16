@@ -247,10 +247,24 @@ TIKA_OCR_FALLBACK_ENABLED = os.getenv("TIKA_OCR_FALLBACK_ENABLED", "false").stri
 # If we extract fewer characters than this and OCR fallback is enabled, we retry with OCR.
 TIKA_MIN_EXTRACTED_CHARS_FOR_NO_OCR = int(os.getenv("TIKA_MIN_EXTRACTED_CHARS_FOR_NO_OCR", "800"))
 
+# Optional PDFBox spacing tuning knobs passed through Tika headers.
+# Keep unset by default to avoid changing extraction behavior unexpectedly.
+TIKA_PDF_SPACING_TOLERANCE = os.getenv("TIKA_PDF_SPACING_TOLERANCE", "").strip()
+TIKA_PDF_AVG_CHAR_TOLERANCE = os.getenv("TIKA_PDF_AVG_CHAR_TOLERANCE", "").strip()
+
 # Retry backoff multiplier for Tika requests
 # When Tika fails, we wait (attempt × multiplier) seconds before retrying
 # Attempt 1: wait 2s, Attempt 2: wait 4s
 TIKA_RETRY_BACKOFF_MULTIPLIER = 2
+
+
+# =============================================================================
+# EXTRACTION TEXT-REPAIR CONFIGURATION
+# =============================================================================
+# Deterministic fragmented-heading repair is always on; these settings gate optional LLM escalation.
+TEXT_REPAIR_ENABLE_LLM_ESCALATION = os.getenv("TEXT_REPAIR_ENABLE_LLM_ESCALATION", "false").strip().lower() in {"1", "true", "yes"}
+TEXT_REPAIR_LLM_MAX_LINES_PER_DOC = int(os.getenv("TEXT_REPAIR_LLM_MAX_LINES_PER_DOC", "10"))
+TEXT_REPAIR_MIN_IMPLAUSIBILITY_SCORE = float(os.getenv("TEXT_REPAIR_MIN_IMPLAUSIBILITY_SCORE", "0.65"))
 
 
 # =============================================================================

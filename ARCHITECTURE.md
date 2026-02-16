@@ -104,7 +104,8 @@ flowchart LR
 
 ### 2) Batch enrichment
 1. Text extraction writes document text to `catalog.content` and postprocesses common extraction artifacts
-   (for example, spaced-letter ALLCAPS) to improve downstream summaries/topics.
+   (for example, spaced-letter/chunked ALLCAPS) with a deterministic repair pass, plus optional
+   LLM escalation for residual improbable heading lines.
 2. NLP/entity and topic workers enrich catalog records.
 3. Person linker resolves official profiles and memberships.
 4. Indexer publishes documents and agenda items to Meilisearch.
