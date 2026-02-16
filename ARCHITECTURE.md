@@ -1,7 +1,8 @@
 # Town Council Architecture (2026)
 
 This document describes system structure, data flow, and reliability/security design choices.
-Operational commands live in [`docs/OPERATIONS.md`](docs/OPERATIONS.md). Benchmark details live in [`docs/PERFORMANCE.md`](docs/PERFORMANCE.md).
+Operational commands and troubleshooting live in [`docs/OPERATIONS.md`](docs/OPERATIONS.md).
+Empirical benchmark outputs and reproduction steps live in [`docs/PERFORMANCE.md`](docs/PERFORMANCE.md).
 
 ## System Boundaries
 
@@ -211,6 +212,7 @@ Grafana dashboards are provisioned from repository files under `monitoring/grafa
 
 ## Document Ownership
 
+- Entrypoint and quickstart: [`README.md`](README.md)
 - Architecture and design intent: this file (`ARCHITECTURE.md`)
 - Operator runbook and commands: [`docs/OPERATIONS.md`](docs/OPERATIONS.md)
 - Benchmark numbers and reproduction: [`docs/PERFORMANCE.md`](docs/PERFORMANCE.md)

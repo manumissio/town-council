@@ -1,47 +1,67 @@
 # Performance
 
-Last verified: 2026-02-12
+Last verified: 2026-02-16
 
-## User-facing benchmarks (local full stack)
+This page lists current empirical measurements for local Docker runs.
+For operational troubleshooting and sorting diagnostics, use `docs/OPERATIONS.md`.
 
-| Operation | Previous | Optimized (E2E) | Engine Latency | Improvement |
-| :--- | :--- | :--- | :--- | :--- |
-| Search (Full Text) | 2000ms | 1.3s | 11ms | ~2x |
-| City Metadata | 500ms | 5ms | <1ms | 100x |
-| Official Profiles | 500ms | 10ms | 2ms | 50x |
-| JSON Serialization | 125ms | 2ms | N/A | 60x |
+## Measurement Environment
+- Date: 2026-02-16
+- Mode: local Docker Compose stack
+- API target for endpoint timing: `http://api:8000` (inside Docker network)
+- Benchmark harness:
+  - `pytest ../tests/test_benchmarks.py`
+  - repeated endpoint timing loop (30 requests per endpoint)
 
-Notes:
-- These are local-machine measurements.
-- E2E includes API/network/serialization overhead.
-- Engine latency isolates backend compute/query time.
-- GitHub Pages demo metrics are not equivalent: Pages runs static fixtures and bypasses backend services.
+## API Endpoint Timing (E2E, 30 samples each)
 
-## Developer microbenchmarks
+| Endpoint | p50 (ms) | p95 (ms) | Min (ms) | Max (ms) |
+| :--- | ---: | ---: | ---: | ---: |
+| `GET /search?q=zoning&sort=newest&limit=20` | 117.31 | 130.27 | 115.08 | 163.85 |
+| `GET /metadata` | 1.40 | 1.89 | 1.06 | 10.57 |
+| `GET /people?limit=50` | 4.08 | 4.58 | 2.76 | 20.46 |
 
-| Operation | Mean Latency | Throughput | Improvement |
-| :--- | :--- | :--- | :--- |
-| Fuzzy Name Matching (`find_best_person_match`) | 65.56 us | 15.25 K ops/s | Baseline |
-| Regex Agenda Extraction | 778.98 us | 1.28 K ops/s | Baseline |
-| Standard JSON Serialization (`json.dumps`) | 157.92 us | 6.33 K ops/s | Baseline |
-| Rust JSON Serialization (`orjson.dumps`) | 8.56 us | 116.84 K ops/s | ~18.5x faster than stdlib JSON |
+## Developer Microbenchmarks
 
-## How to reproduce
-
-### Benchmark tests
+Measured via:
 ```bash
-# Note: the pipeline container runs from /app/pipeline, tests live in /app/tests.
-docker compose run --rm pipeline pytest ../tests/test_benchmarks.py
+docker compose run --rm pipeline pytest ../tests/test_benchmarks.py -q
 ```
 
-### API load test (Locust)
+| Benchmark | Mean | Throughput |
+| :--- | ---: | ---: |
+| `test_benchmark_orjson_serialization` | 17.53 us | 57.04 K ops/s |
+| `test_benchmark_fuzzy_matching` | 48.48 us | 20.63 K ops/s |
+| `test_benchmark_standard_json_serialization` | 168.55 us | 5.93 K ops/s |
+| `test_benchmark_regex_extraction` | 766.74 us | 1.30 K ops/s |
+
+## Reproduce
+
+### Microbenchmarks
 ```bash
-# Locust is installed in the pipeline image. The locust file lives under /app/tests.
-docker compose run --rm pipeline locust -f ../tests/locustfile.py --headless -u 50 -r 5 --run-time 1m --host http://api:8000
+docker compose run --rm pipeline pytest ../tests/test_benchmarks.py -q
 ```
 
-## Optimization mechanisms currently in use
-- Meilisearch payload controls (`attributesToRetrieve`, `attributesToCrop`)
-- Redis caching for metadata/read-heavy paths
-- SQLAlchemy eager loading (`joinedload`) for profile paths
-- `orjson` for faster API serialization
+### Endpoint timing
+```bash
+docker compose run --rm pipeline python - <<'PY'
+import time, statistics, urllib.request
+base='http://api:8000'
+endpoints=[
+    ('search_newest','/search?q=zoning&sort=newest&limit=20'),
+    ('metadata','/metadata'),
+    ('people','/people?limit=50')
+]
+N=30
+for name,path in endpoints:
+    samples=[]
+    for _ in range(N):
+        t0=time.perf_counter()
+        with urllib.request.urlopen(base+path, timeout=10) as r:
+            r.read()
+        samples.append((time.perf_counter()-t0)*1000)
+    p50=statistics.median(samples)
+    p95=sorted(samples)[int(0.95*len(samples))-1]
+    print(f"{name} p50_ms={p50:.2f} p95_ms={p95:.2f} min_ms={min(samples):.2f} max_ms={max(samples):.2f}")
+PY
+```

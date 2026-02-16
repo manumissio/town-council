@@ -29,6 +29,11 @@ Ensure emitted items include:
 - source URL
 - document links (agenda/minutes where available)
 
+Important validation behavior:
+- `record_date` must be a real Python `date` value in crawler output.
+- Invalid `record_date` values are dropped by crawler validation in
+  `council_crawler/council_crawler/pipelines.py`.
+
 ### 4) Seed + process
 ```bash
 docker compose run --rm pipeline python seed_places.py
@@ -46,3 +51,7 @@ Add/extend tests with invariant checks (not brittle exact output):
 - seed places includes city record
 - spider handles missing optional doc links cleanly
 - mapping from source payload -> internal fields remains valid
+
+## Related Docs
+- Crawler internals: `council_crawler/council_crawler_readme.md`
+- Operator runbook: `docs/OPERATIONS.md`

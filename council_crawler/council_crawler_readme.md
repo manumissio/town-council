@@ -18,6 +18,8 @@ docker compose run --rm crawler scrapy crawl cupertino
 Notes:
 * The crawler uses `DATABASE_URL` (set in `docker-compose.yml`) to write to Postgres.
 * The repo root `README.md` documents the end-to-end runbook (crawler + pipeline).
+* City onboarding and crawler extension workflow is documented in `docs/CONTRIBUTING_CITIES.md`.
+* Operational troubleshooting and runtime checks are documented in `docs/OPERATIONS.md`.
 
 ## Where Crawler Data Goes
 The crawler persists via Scrapy item pipelines (not a standalone `pipeline.py` file):

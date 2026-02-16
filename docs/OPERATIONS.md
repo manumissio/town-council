@@ -1,6 +1,6 @@
 # Operations Runbook
 
-Last verified: 2026-02-12
+Last verified: 2026-02-16
 
 ## Core workflow
 
@@ -167,6 +167,7 @@ docker compose run --rm pipeline python diagnose_search_sort.py --query zoning -
 Notes:
 - In Docker, the script uses `http://api:8000` by default.
 - On host, use `--base-url http://localhost:8000`.
+- If sort order is still wrong after `reindex_only.py`, inspect `/search` sort handling and current Meilisearch index settings.
 
 Segmentation noise suppression:
 - Agenda segmentation suppresses common participation template blocks (teleconference/COVID/ADA/how-to-join instructions).

@@ -186,7 +186,9 @@ Update docs when you change:
 4. Quickstart commands or required dependencies
 
 ## Project History
-Originally led by @chooliu and @bstarling in 2017. Modernized in 2026 to improve civic transparency through structured data and local-first AI workflows.
+Originally led by @chooliu and @bstarling in 2017, with early work in the Data4Democracy ecosystem.
+Historical provenance for Open Civic Data division-ID discussion is captured in [Data4Democracy issue #4](https://github.com/Data4Democracy/town-council/issues/4).
+The project was modernized in 2026 to improve civic transparency through structured data and local-first AI workflows.
 
 ## License
 MIT. See [`LICENSE`](LICENSE).

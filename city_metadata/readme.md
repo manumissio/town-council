@@ -1,25 +1,26 @@
-## city_metadata
+# City Metadata
 
-The city_metadata folder currently contains city metadata for the pilot cities (twenty Bay Area municipalities)
-used to develop the round of scraping infrastructure.
+This folder contains the canonical city seed file used by the pipeline.
 
-These cities were manually curated by the project maintainers / project partners, but in the future we envision users
-submitting their own municipalities of interest / scrapers for addition to the database.
+## How This Is Used
+- `pipeline/seed_places.py` reads `city_metadata/list_of_cities.csv` and seeds `place` records.
+- Crawler and pipeline flows depend on these place records for city normalization and filtering.
+- For provenance/history context, see `README.md` -> `Project History`.
 
-## fields
+## CSV Schema
+Current header in `city_metadata/list_of_cities.csv`:
 
-The metadata collected on each city is limited at present:
-in practice other fields aren't necesary for our web/document scraping infrastructure at present.
+`city,state,country,display_name,ocd_division_id,city_council_url,hosting_services`
 
-We may consider more detailed fields (developed in accordance with [Open Civic Data](https://open-civic-data.readthedocs.io/en/latest/index.html)
-standards in the future with more manpower + interest. (let us know if there's anything else you'd like to see here!)
+Field descriptions:
+- `city`: city or municipality name (slug-friendly, lowercase).
+- `state`: two-letter state or territory code (for example `ca`).
+- `country`: country code (currently `us` for seeded rows).
+- `display_name`: canonical key used across the app (for example `ca_cupertino`).
+- `ocd_division_id`: Open Civic Data division identifier.
+- `city_council_url`: primary council meetings/agenda landing page.
+- `hosting_services`: pipe-delimited platform/services hints (for example `granicus|legistar|city`).
 
-* `city` : name of city/municipality.
-* `state` : state or territory postal abbreviation.
-* `country` : limited to the united states (US) for now.
-* `display_name` : to be used for scraper names (join `city` and `state`, replace punctation and spaces with underlines).
-* `ocd_division_id` : Open Civic Data division identifier. see comments in [issue #4](https://github.com/Data4Democracy/town-council/issues/4) for tools to make sure that these are in the correct format. currently not being collected beyond the city ("place") resolution.
-* `city_council_url` : URL to where agendas and meetings can be found for the city. (note: some cities have distinct archive pages for each year; these link to the most recent year / most recent postings for now)
-* `hosting_services` : this field's intent is to catalgoue cities that use legislative platform services (namely, Granicus, Legistar, and SIRE)
-    * we may eventually attempt to write general scrapers that target these (somewhat standardized) hosting services.
-    * documents hosted by Google Docs, AWS are also noted because they may cause redirect issues (currently being troubleshooted).
+## Updating Cities
+When adding or changing city rows, follow:
+- `docs/CONTRIBUTING_CITIES.md` for ingestion workflow and validation checks.
