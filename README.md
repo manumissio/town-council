@@ -92,6 +92,10 @@ If sorting appears to have no effect, see the runbook section in [`docs/OPERATIO
 ## Semantic Search (Milestone B)
 Semantic search is opt-in and feature-flagged.
 
+Status:
+- `Milestone B1 (FAISS backend)`: **Complete**
+- `Milestone B2 (pgvector backend)`: **Planned / not implemented yet**
+
 - Endpoint: `GET /search/semantic`
 - Feature flag: `SEMANTIC_ENABLED` (default `false`)
 - Backend: `SEMANTIC_BACKEND=faiss` for MVP
@@ -103,9 +107,16 @@ For setup, rebuild, diagnostics, and guardrails, use [`docs/OPERATIONS.md`](docs
 ## Vote/Outcome Extraction (Milestone A)
 Vote and outcome extraction is available as an async post-processing stage for segmented agenda items.
 
+Status:
+- `Milestone A`: **Complete**
+
 - Feature flag: `ENABLE_VOTE_EXTRACTION` (default `false`)
 - Async endpoint: `POST /votes/{catalog_id}` (supports `force=true`)
 - Storage: normalized outcome in `AgendaItem.result`, structured details in `AgendaItem.votes`
+
+## Recent Completed Work
+- AI Summary quality hardening: grounded decision-brief summaries with deterministic fallback.
+- Contextual AI disclaimers in UI: shown only when AI payload is present (Summary and AI-derived Structured Agenda).
 
 This README keeps the feature overview concise. For rollout, troubleshooting, and counter interpretation, use [`docs/OPERATIONS.md`](docs/OPERATIONS.md).
 
@@ -140,6 +151,7 @@ For complete troubleshooting (auth, stale/blocked/not-generated states, startup 
 - [`docs/OPERATIONS.md`](docs/OPERATIONS.md)
 
 ## Documentation Map
+- Roadmap / milestone status: [`ROADMAP.md`](ROADMAP.md)
 - Operations runbook: [`docs/OPERATIONS.md`](docs/OPERATIONS.md)
 - Performance metrics + reproducibility: [`docs/PERFORMANCE.md`](docs/PERFORMANCE.md)
 - Adding a new city crawler: [`docs/CONTRIBUTING_CITIES.md`](docs/CONTRIBUTING_CITIES.md)

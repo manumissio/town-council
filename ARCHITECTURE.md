@@ -146,6 +146,9 @@ Quality safeguards:
 
 ## Vote Extraction Design (Milestone A)
 
+Status:
+- `Milestone A`: **Complete**
+
 Vote extraction is intentionally separated from segmentation so failures in outcome parsing do not roll back agenda-item creation.
 
 Flow:
@@ -201,6 +204,9 @@ Search index doc types:
 - The API defaults to meeting-only search results; agenda-item hits are opt-in (`include_agenda_items=true`).
 
 Semantic search (Milestone B):
+- Status:
+  - `Milestone B1 (FAISS backend)`: **Complete**
+  - `Milestone B2 (pgvector backend)`: **Planned / not implemented yet**
 - `GET /search/semantic` is additive; keyword `/search` behavior remains unchanged.
 - Retrieval uses adaptive over-fetch + in-memory filters, then de-duplicates by `catalog_id`
   before pagination so one meeting with many chunks cannot starve other results.
