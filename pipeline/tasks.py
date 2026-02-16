@@ -17,6 +17,7 @@ from pipeline.config import (
     TIKA_MIN_EXTRACTED_CHARS_FOR_NO_OCR,
     LOCAL_AI_ALLOW_MULTIPROCESS,
     LOCAL_AI_REQUIRE_SOLO_POOL,
+    ENABLE_VOTE_EXTRACTION,
 )
 from pipeline.extraction_service import reextract_catalog_content
 from pipeline.indexer import reindex_catalog
@@ -30,6 +31,7 @@ from pipeline.summary_quality import (
 )
 from pipeline.text_cleaning import postprocess_extracted_text
 from pipeline.startup_purge import run_startup_purge_if_enabled
+from pipeline.vote_extractor import run_vote_extraction_for_catalog
 
 # Register worker metrics (safe in non-worker contexts; the HTTP server only starts
 # when TC_WORKER_METRICS_PORT is set and the Celery worker is ready).
@@ -619,6 +621,14 @@ def segment_agenda_task(self, catalog_id: int):
         items_data = resolved["items"]
         
         count = 0
+        vote_extraction = {
+            "status": "disabled",
+            "processed_items": 0,
+            "updated_items": 0,
+            "skipped_items": 0,
+            "failed_items": 0,
+            "skip_reasons": {},
+        }
         items_to_return = []
         if items_data:
             created_items = persist_agenda_items(db, catalog_id, doc.event_id, items_data)
@@ -633,6 +643,35 @@ def segment_agenda_task(self, catalog_id: int):
                     "source": resolved["source_used"],
                 })
                 count += 1
+
+            # Vote/outcome extraction is a separate post-segmentation stage.
+            # Keep segmentation successful even if vote extraction later fails.
+            if ENABLE_VOTE_EXTRACTION:
+                try:
+                    vote_counters = run_vote_extraction_for_catalog(
+                        db,
+                        local_ai,
+                        catalog,
+                        doc,
+                        force=False,
+                        agenda_items=created_items,
+                    )
+                    vote_extraction = {"status": "complete", **vote_counters}
+                except Exception as vote_exc:
+                    logger.warning(
+                        "vote_extraction.post_segment_failed catalog_id=%s error=%s",
+                        catalog_id,
+                        vote_exc.__class__.__name__,
+                    )
+                    vote_extraction = {
+                        "status": "failed",
+                        "error": vote_exc.__class__.__name__,
+                        "processed_items": 0,
+                        "updated_items": 0,
+                        "skipped_items": 0,
+                        "failed_items": 0,
+                        "skip_reasons": {},
+                    }
             
             catalog.agenda_segmentation_status = "complete"
             catalog.agenda_segmentation_item_count = count
@@ -646,6 +685,14 @@ def segment_agenda_task(self, catalog_id: int):
             catalog.agenda_segmentation_attempted_at = datetime.now(timezone.utc)
             catalog.agenda_segmentation_error = None
             db.commit()
+            vote_extraction = {
+                "status": "skipped_no_items",
+                "processed_items": 0,
+                "updated_items": 0,
+                "skipped_items": 0,
+                "failed_items": 0,
+                "skip_reasons": {},
+            }
             
         logger.info(f"Segmentation complete: {count} items found (source={resolved['source_used']})")
         return {
@@ -654,6 +701,7 @@ def segment_agenda_task(self, catalog_id: int):
             "items": items_to_return,
             "source_used": resolved["source_used"],
             "quality_score": resolved["quality_score"],
+            "vote_extraction": vote_extraction,
         }
 
     except LocalAIConfigError as e:
@@ -684,6 +732,79 @@ def segment_agenda_task(self, catalog_id: int):
                 db.commit()
         except Exception:
             db.rollback()
+        raise self.retry(exc=e, countdown=60)
+    finally:
+        db.close()
+
+
+@app.task(bind=True, max_retries=3)
+def extract_votes_task(self, catalog_id: int, force: bool = False):
+    """
+    Background task: extract agenda-item outcomes/vote tallies from catalog text.
+    """
+    db = SessionLocal()
+    local_ai = LocalAI()
+
+    try:
+        catalog = db.get(Catalog, catalog_id)
+        if not catalog:
+            return {"error": "Catalog not found"}
+
+        doc = db.query(Document).filter_by(catalog_id=catalog_id).first()
+        if not doc:
+            return {"error": "Document not linked to catalog"}
+
+        if not ENABLE_VOTE_EXTRACTION and not force:
+            return {
+                "status": "disabled",
+                "reason": "Vote extraction is disabled. Set ENABLE_VOTE_EXTRACTION=true or run with force=true.",
+                "processed_items": 0,
+                "updated_items": 0,
+                "skipped_items": 0,
+                "failed_items": 0,
+                "skip_reasons": {},
+            }
+
+        existing_items = (
+            db.query(AgendaItem)
+            .filter_by(catalog_id=catalog_id)
+            .order_by(AgendaItem.order)
+            .all()
+        )
+        if not existing_items:
+            return {
+                "status": "not_generated_yet",
+                "reason": "Vote extraction requires segmented agenda items. Run segmentation first.",
+                "processed_items": 0,
+                "updated_items": 0,
+                "skipped_items": 0,
+                "failed_items": 0,
+                "skip_reasons": {},
+            }
+
+        counters = run_vote_extraction_for_catalog(
+            db,
+            local_ai,
+            catalog,
+            doc,
+            force=force,
+            agenda_items=existing_items,
+        )
+        db.commit()
+
+        try:
+            reindex_catalog(catalog_id)
+        except Exception:
+            pass
+
+        return {"status": "complete", **counters}
+    except LocalAIConfigError as e:
+        logger.critical(f"LocalAI misconfiguration: {e}")
+        db.rollback()
+        return {"status": "error", "error": str(e)}
+    except (SQLAlchemyError, RuntimeError, ValueError) as e:
+        logger.error(f"Vote extraction task failed: {e}")
+        db.rollback()
         raise self.retry(exc=e, countdown=60)
     finally:
         db.close()

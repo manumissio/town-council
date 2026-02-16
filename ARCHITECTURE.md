@@ -78,7 +78,7 @@ flowchart LR
     Agenda --> Index
 
     UI -->|"search/read"| API --> Meili
-    UI -->|"POST /summarize /segment /topics /extract"| API
+    UI -->|"POST /summarize /segment /topics /extract /votes"| API
     API <--> Queue --> Worker --> LocalAI
     Worker --> Resolver
     Legi --> Resolver
@@ -105,9 +105,10 @@ flowchart LR
 2. NLP/entity and topic workers enrich catalog records.
 3. Person linker resolves official profiles and memberships.
 4. Indexer publishes documents and agenda items to Meilisearch.
+5. Optional vote extraction stage writes normalized outcomes/tallies to agenda-item fields.
 
 ### 3) Async user-triggered generation
-1. UI calls protected API endpoints (`/summarize`, `/segment`, `/topics`, `/extract`).
+1. UI calls protected API endpoints (`/summarize`, `/segment`, `/topics`, `/extract`, `/votes`).
 2. API enqueues Celery tasks in Redis.
 3. Worker executes task, writes DB updates, then reindexes affected catalog/entity.
 4. UI polls `/tasks/{id}` for completion.
@@ -132,6 +133,26 @@ Quality safeguards:
 - HTML cross-check parsing uses a DOM parser (not regex sanitization) before line extraction
 - vote lines (`Vote:`) are mapped into agenda item `result` when available
 - page context uses both `[PAGE N]` markers and inline `Page N` headers
+
+## Vote Extraction Design (Milestone A)
+
+Vote extraction is intentionally separated from segmentation so failures in outcome parsing do not roll back agenda-item creation.
+
+Flow:
+1. Segment agenda/minutes content into `agenda_item` rows.
+2. Run vote extraction over item-level context.
+3. Validate model output against a strict JSON contract.
+4. Persist only high-confidence, non-ambiguous outcomes.
+
+Write hierarchy:
+- `manual` and `legistar` vote sources are authoritative and are never overwritten by LLM extraction.
+- LLM extraction backfills only unknown/empty results unless forced.
+
+Persistence:
+- `agenda_item.result` stores normalized outcome text (`Passed`, `Failed`, etc.).
+- `agenda_item.votes` stores structured payload and extraction metadata (`source=llm_extracted`, `confidence`, tally fields).
+
+Operational procedures and rollout controls for this stage live in [`docs/OPERATIONS.md`](docs/OPERATIONS.md).
 
 ## Derived Data Lifecycle
 

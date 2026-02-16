@@ -1060,6 +1060,42 @@ class LocalAI:
             finally:
                 if self.llm: self.llm.reset()
 
+    def generate_json(self, prompt: str, max_tokens: int = 256) -> str | None:
+        """
+        Generate a JSON object from the local model.
+
+        We attempt llama.cpp JSON-response enforcement first, then fall back to
+        plain generation so callers can still apply strict post-parse validation.
+        """
+        self._load_model()
+        if not self.llm:
+            return None
+
+        with self._lock:
+            try:
+                response = None
+                # Best-effort JSON-mode enforcement (llama_cpp API varies by version).
+                try:
+                    response = self.llm(
+                        prompt,
+                        max_tokens=max_tokens,
+                        temperature=0.0,
+                        response_format={"type": "json_object"},
+                    )
+                except TypeError:
+                    response = self.llm(prompt, max_tokens=max_tokens, temperature=0.0)
+                text = (response["choices"][0]["text"] or "").strip() if response else ""
+                if text.startswith("{"):
+                    return text
+                # Some prompts seed the first "{", while llama returns continuation only.
+                return "{" + text if text else text
+            except Exception as e:
+                logger.error(f"AI JSON generation failed: {e}")
+                return None
+            finally:
+                if self.llm:
+                    self.llm.reset()
+
     def summarize_agenda_items(self, meeting_title: str, meeting_date: str, items: list[str]) -> str | None:
         """
         Generate a narrative agenda summary from segmented agenda item titles.

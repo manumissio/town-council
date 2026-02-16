@@ -102,6 +102,24 @@ LLM_AGENDA_MAX_TEXT = int(os.getenv("LLM_AGENDA_MAX_TEXT", "60000"))
 # Needs to be large enough to return 10-15 agenda items with descriptions
 LLM_AGENDA_MAX_TOKENS = 1500
 
+# Enable vote/outcome extraction stage after agenda segmentation.
+# Off by default for staged rollout and quality validation.
+ENABLE_VOTE_EXTRACTION = os.getenv("ENABLE_VOTE_EXTRACTION", "false").strip().lower() in {"1", "true", "yes"}
+
+# Vote extraction output budget (JSON + short evidence snippet).
+VOTE_EXTRACTION_MAX_TOKENS = int(os.getenv("VOTE_EXTRACTION_MAX_TOKENS", "256"))
+
+# Minimum text length required before we attempt vote extraction on an item.
+VOTE_EXTRACTION_MIN_TEXT_CHARS = int(os.getenv("VOTE_EXTRACTION_MIN_TEXT_CHARS", "200"))
+
+# Minimum confidence required before we persist LLM-extracted vote/outcome data.
+VOTE_EXTRACTION_CONFIDENCE_THRESHOLD = float(os.getenv("VOTE_EXTRACTION_CONFIDENCE_THRESHOLD", "0.70"))
+
+# Context window around title match in catalog.content for vote/outcome extraction.
+# We keep fixed asymmetric bounds for throughput on local inference.
+VOTE_EXTRACTION_CONTEXT_BEFORE_CHARS = int(os.getenv("VOTE_EXTRACTION_CONTEXT_BEFORE_CHARS", "500"))
+VOTE_EXTRACTION_CONTEXT_AFTER_CHARS = int(os.getenv("VOTE_EXTRACTION_CONTEXT_AFTER_CHARS", "1000"))
+
 # Quality gates for AI-derived fields.
 # These block generation when extracted text is too short/noisy to trust.
 SUMMARY_MIN_CHARS = int(os.getenv("SUMMARY_MIN_CHARS", "80"))

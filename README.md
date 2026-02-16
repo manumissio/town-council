@@ -89,6 +89,15 @@ The UI defaults to **Newest** first (date descending). Use the **Sort** pill to 
 
 If sorting appears to have no effect, see the runbook section in [`docs/OPERATIONS.md`](docs/OPERATIONS.md) ("Diagnosing date sorting").
 
+## Vote/Outcome Extraction (Milestone A)
+Vote and outcome extraction is available as an async post-processing stage for segmented agenda items.
+
+- Feature flag: `ENABLE_VOTE_EXTRACTION` (default `false`)
+- Async endpoint: `POST /votes/{catalog_id}` (supports `force=true`)
+- Storage: normalized outcome in `AgendaItem.result`, structured details in `AgendaItem.votes`
+
+This README keeps the feature overview concise. For rollout, troubleshooting, and counter interpretation, use [`docs/OPERATIONS.md`](docs/OPERATIONS.md).
+
 ## GitHub Pages Demo
 
 The Pages site is a static product demo powered by local JSON fixtures.

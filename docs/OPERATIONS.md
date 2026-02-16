@@ -72,6 +72,7 @@ These routes require `X-API-Key`:
 - `POST /segment/{catalog_id}`
 - `POST /topics/{catalog_id}`
 - `POST /extract/{catalog_id}`
+- `POST /votes/{catalog_id}`
 - `POST /report-issue`
 
 Docker dev default key:
@@ -120,6 +121,51 @@ docker compose run --rm pipeline python run_agenda_qa.py --regenerate --max 50
 Outputs:
 - `data/reports/agenda_qa_<timestamp>.json`
 - `data/reports/agenda_qa_<timestamp>.csv`
+
+## Vote/Outcome Extraction (Milestone A)
+
+Vote extraction is an optional async stage that runs on segmented agenda items.
+
+### Enable the stage
+Set:
+- `ENABLE_VOTE_EXTRACTION=true`
+
+Default is `false` for staged rollout.
+
+### Trigger one catalog
+```bash
+curl -X POST "http://localhost:8000/votes/<CATALOG_ID>" \
+  -H "X-API-Key: dev_secret_key_change_me"
+```
+
+Force run (bypasses feature-flag gate and high-confidence LLM idempotency):
+```bash
+curl -X POST "http://localhost:8000/votes/<CATALOG_ID>?force=true" \
+  -H "X-API-Key: dev_secret_key_change_me"
+```
+
+Poll:
+```bash
+curl "http://localhost:8000/tasks/<TASK_ID>" \
+  -H "X-API-Key: dev_secret_key_change_me"
+```
+
+### Expected task result counters
+- `processed_items`: items sent to the extractor
+- `updated_items`: items persisted with new vote/outcome data
+- `skipped_items`: items intentionally not processed or not persisted
+- `failed_items`: extraction/parse failures
+- `skip_reasons`: reason histogram, commonly:
+  - `trusted_source` (`manual`/`legistar` source preserved)
+  - `existing_result` (non-unknown result already present)
+  - `already_high_confidence` (idempotency for prior LLM extraction)
+  - `insufficient_text` (below minimum context threshold)
+  - `low_confidence`
+  - `unknown_no_tally`
+
+### Source hierarchy (non-negotiable)
+- `manual > legistar > llm_extracted`
+- LLM extraction never overwrites trusted vote sources.
 
 ## Re-extraction + regeneration
 

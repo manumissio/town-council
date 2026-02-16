@@ -245,6 +245,30 @@ def test_segment_returns_cached_when_not_forced_and_quality_ok(mocker):
         del app.dependency_overrides[get_db]
 
 
+def test_votes_endpoint_enqueues_async_task(mocker):
+    from api.main import get_db
+
+    catalog = MagicMock(id=777, content="Meeting text")
+    db = MagicMock()
+    db.get.return_value = catalog
+
+    def _mock_get_db():
+        yield db
+
+    app.dependency_overrides[get_db] = _mock_get_db
+    fake_task = MagicMock()
+    fake_task.id = "task-votes-777"
+    mocker.patch("api.main.extract_votes_task.delay", return_value=fake_task)
+    try:
+        resp = client.post("/votes/777", headers={"X-API-Key": VALID_KEY})
+        assert resp.status_code == 200
+        payload = resp.json()
+        assert payload["status"] == "processing"
+        assert payload["task_id"] == "task-votes-777"
+    finally:
+        del app.dependency_overrides[get_db]
+
+
 def test_summarize_force_bypasses_cache(mocker):
     """
     If a cached summary exists, `force=true` should still enqueue regeneration.

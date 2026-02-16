@@ -450,6 +450,7 @@ from pipeline.tasks import (
     generate_summary_task,
     generate_topics_task,
     segment_agenda_task,
+    extract_votes_task,
     extract_text_task,
     app as celery_app,
 )
@@ -556,6 +557,36 @@ def segment_agenda(
         "status": "processing",
         "task_id": str(task.id),
         "poll_url": f"/tasks/{task.id}"
+    }
+
+
+@app.post("/votes/{catalog_id}", dependencies=[Depends(verify_api_key)])
+@limiter.limit("20/minute")
+def extract_votes(
+    request: Request,
+    catalog_id: int = Path(..., ge=1),
+    force: bool = Query(
+        False,
+        description=(
+            "Force vote extraction even when the feature flag is disabled or items already have "
+            "high-confidence LLM vote data."
+        ),
+    ),
+    db: SQLAlchemySession = Depends(get_db),
+):
+    """
+    Async AI: Requests vote/outcome extraction for segmented agenda items.
+    Returns a Task ID immediately.
+    """
+    catalog = db.get(Catalog, catalog_id)
+    if not catalog:
+        raise HTTPException(status_code=404, detail="Document not found")
+
+    task = extract_votes_task.delay(catalog_id, force=force)
+    return {
+        "status": "processing",
+        "task_id": str(task.id),
+        "poll_url": f"/tasks/{task.id}",
     }
 
 
