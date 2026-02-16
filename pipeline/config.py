@@ -149,6 +149,31 @@ TOPICS_MIN_DISTINCT_TOKENS = int(os.getenv("TOPICS_MIN_DISTINCT_TOKENS", "10"))
 # 0.45 means nearly half of meaningful claim tokens must exist in source text.
 SUMMARY_GROUNDING_MIN_COVERAGE = float(os.getenv("SUMMARY_GROUNDING_MIN_COVERAGE", "0.45"))
 
+# Agenda-summary generation controls (decision brief synthesis from segmented items).
+AGENDA_SUMMARY_PROFILE = (os.getenv("AGENDA_SUMMARY_PROFILE", "decision_brief").strip().lower() or "decision_brief")
+if AGENDA_SUMMARY_PROFILE not in {"decision_brief", "item_digest", "risk_first"}:
+    AGENDA_SUMMARY_PROFILE = "decision_brief"
+
+# Description floor used when deciding whether a row has enough context for brief synthesis.
+AGENDA_SUMMARY_MIN_ITEM_DESC_CHARS = int(os.getenv("AGENDA_SUMMARY_MIN_ITEM_DESC_CHARS", "24"))
+
+# Max bullets we ask the model to produce in agenda decision-brief mode.
+AGENDA_SUMMARY_MAX_BULLETS = int(os.getenv("AGENDA_SUMMARY_MAX_BULLETS", "10"))
+
+# Single-item agenda summaries should usually become a deep brief, not forced themes.
+AGENDA_SUMMARY_SINGLE_ITEM_MODE = (os.getenv("AGENDA_SUMMARY_SINGLE_ITEM_MODE", "deep_brief").strip().lower() or "deep_brief")
+if AGENDA_SUMMARY_SINGLE_ITEM_MODE not in {"deep_brief", "minimal"}:
+    AGENDA_SUMMARY_SINGLE_ITEM_MODE = "deep_brief"
+
+# Slightly higher than extraction tasks to allow synthesis while still grounded/pruned.
+AGENDA_SUMMARY_TEMPERATURE = float(os.getenv("AGENDA_SUMMARY_TEMPERATURE", "0.3"))
+
+# Hard input budget for agenda summary prompt assembly (runtime safety guardrail).
+AGENDA_SUMMARY_MAX_INPUT_CHARS = int(os.getenv("AGENDA_SUMMARY_MAX_INPUT_CHARS", "12000"))
+
+# Reserve output headroom so prompt+response stays safely within context budget.
+AGENDA_SUMMARY_MIN_RESERVED_OUTPUT_CHARS = int(os.getenv("AGENDA_SUMMARY_MIN_RESERVED_OUTPUT_CHARS", "2000"))
+
 
 # =============================================================================
 # FILE DOWNLOAD CONFIGURATION

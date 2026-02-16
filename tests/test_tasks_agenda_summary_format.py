@@ -26,9 +26,9 @@ def test_generate_summary_task_agenda_requires_segmentation_and_calls_agenda_ite
 
     items_query = MagicMock()
     items_query.filter_by.return_value.order_by.return_value.all.return_value = [
-        MagicMock(title="Item One"),
-        MagicMock(title="Item Two"),
-        MagicMock(title="Item Three"),
+        MagicMock(title="Item One", description="Description one", classification="Agenda Item", result="", page_number=1),
+        MagicMock(title="Item Two", description="Description two", classification="Agenda Item", result="", page_number=2),
+        MagicMock(title="Item Three", description="Description three", classification="Agenda Item", result="", page_number=3),
     ]
 
     def _query_side_effect(model):
@@ -50,6 +50,11 @@ def test_generate_summary_task_agenda_requires_segmentation_and_calls_agenda_ite
     summary = result["summary"]
     assert summary.startswith("BLUF:")
     mock_ai.summarize_agenda_items.assert_called_once()
+    kwargs = mock_ai.summarize_agenda_items.call_args.kwargs
+    assert isinstance(kwargs["items"], list)
+    assert kwargs["items"][0]["title"] == "Item One"
+    assert kwargs["items"][0]["description"] == "Description one"
+    assert kwargs["truncation_meta"]["items_total"] == 3
 
 
 def test_generate_summary_task_agenda_returns_not_generated_yet_when_no_items(mocker):

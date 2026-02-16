@@ -132,7 +132,8 @@ npx serve out
 - If Structured Agenda is empty, run segmentation first (`POST /segment/{catalog_id}`).
 - If extracted text still shows chunked ALLCAPS heading artifacts, re-extract and review extraction tuning flags in `docs/OPERATIONS.md`.
 - If Structured Agenda is too noisy (TOC/procedural/contact items), review `AGENDA_SEGMENTATION_MODE` and segmentation tuning in `docs/OPERATIONS.md`.
-- If Cupertino-style notice fragments leak into summaries, re-run segmentation and summary for that catalog; summary generation now applies a residual title+description safety filter.
+- If AI Summary looks like title regurgitation, re-run segmentation and summary for that catalog; agenda summaries now use a structured decision-brief scaffold with grounding/pruning and deterministic fallback.
+- Large agendas may be partially summarized to stay within local model context limits; AI Summary discloses partial coverage in the `Unknowns` section.
 - If table rows or subparts are showing as separate agenda items, re-run segmentation; hierarchy-aware parsing now keeps only top-level items and treats nested rows as child content.
 
 For complete troubleshooting (auth, stale/blocked/not-generated states, startup purge, LocalAI tuning, and observability), use:

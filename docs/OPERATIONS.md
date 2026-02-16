@@ -193,7 +193,11 @@ Notes:
 - TOC/body dedupe runs only within the current document extraction set.
 - Procedural filtering uses exact/anchored phrases to avoid dropping substantive titles such as contract approvals.
 - Fallback parsing rejects numbered lowercase line fragments (for example `16. in the appropriate...`) by checking the first alphabetical character, not the first character.
-- Agenda summary generation applies a residual safety net: title must look like notice/procedural noise **and** description must be short before the item is dropped from summary bullets.
+- Agenda summary generation now builds a structured decision brief from segmented agenda items:
+  - deterministic scaffold (`BLUF`, `Why this matters`, `Top actions`, `Potential impacts`, `Unknowns`)
+  - constrained LLM synthesis
+  - grounding/pruning of unsupported lines
+  - deterministic fallback when synthesis is weak.
 - Parent-item context now carries across page boundaries, so sub-markers (`A.`, `1a.`, `i.`) after a page break are still treated as nested content.
 - Tabular-fragment rejection is weighted: low alpha density is the primary signal; whitespace artifacts are auxiliary only.
 - End-of-agenda stop uses composite evidence (legal/attestation tail). `Adjournment` alone does not terminate parsing.
@@ -260,12 +264,19 @@ curl "http://localhost:8000/tasks/<TASK_ID>" \
   - `agenda_segmentation_status=failed`: attempted, but task errored and is eligible for retry
 
 Summary format:
-- Stored and displayed as plain text with a `BLUF:` line and `- ` bullets (no Markdown rendering).
+- Stored and displayed as plain text in sectioned decision-brief format (no Markdown rendering):
+  - `BLUF:`
+  - `Why this matters:`
+  - `Top actions:`
+  - `Potential impacts:`
+  - `Unknowns:`
 
 Agenda summary contract:
 - For `Document.category == "agenda"`, summaries are derived from segmented agenda items (Structured Agenda) to avoid drift.
+- Agenda summary input uses structured fields (`title`, `description`, `classification`, `result`, `page_number`) and is hard-capped for context safety.
+- If input is truncated for context budget, summary output discloses partial coverage (`first N of M agenda items`) in `Unknowns`.
 - If an agenda has not been segmented yet, summary generation returns `not_generated_yet` and prompts you to segment first.
-- If the model output is too short or missing bullets, the system falls back to a deterministic summary built from agenda item titles.
+- If model output is too short/noncompliant/ungrounded, the system falls back to deterministic decision-brief output.
 - Existing catalogs do not update retroactively. Re-run both steps after tuning:
   - `POST /segment/{catalog_id}?force=true`
   - `POST /summarize/{catalog_id}?force=true`

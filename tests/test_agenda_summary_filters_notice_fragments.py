@@ -23,7 +23,10 @@ def test_summarize_agenda_items_filters_notice_fragments_before_fallback_summary
     )
 
     lowered = (summary or "").lower()
-    assert "bluf: agenda includes 1 substantive item." in lowered
+    assert lowered.startswith("bluf:")
+    assert "why this matters:" in lowered
+    assert "top actions:" in lowered
+    assert "unknowns:" in lowered
     assert "approve the tentative map" in lowered
     assert "described in the notice" not in lowered
     assert "request card located in front" not in lowered

@@ -3,13 +3,14 @@ import DOMPurify from "isomorphic-dompurify";
 import { 
   MapPin, Calendar, FileText, ExternalLink, ChevronUp, ChevronDown, 
   Sparkles, Building2, UserCircle, Table as TableIcon, Loader2, Link2,
-  Flag, AlertCircle, CheckCircle
+  Flag, AlertCircle, CheckCircle, Info
 } from "lucide-react";
 import DataTable from "./DataTable";
 import { API_BASE_URL, buildApiUrl, getApiHeaders, isDemoMode } from "../lib/api";
 import textFormatter from "../lib/textFormatter";
 
 const { renderFormattedExtractedText } = textFormatter;
+const AI_DISCLAIMER_TEXT = "AI-generated content may be incomplete or inaccurate. Verify against source documents.";
 
 // Poll background tasks until complete/failed.
 async function pollTaskStatus(taskId, callback, onError, type = "summary") {
@@ -101,6 +102,22 @@ export default function ResultCard({ hit, onPersonClick, onTopicClick }) {
   const agendaNotGeneratedYet = (derivedStatus && derivedStatus.agenda_not_generated_yet) || false;
   const effectiveSummaryBlockReason = (derivedStatus && derivedStatus.summary_blocked_reason) || summaryBlockReason;
   const effectiveTopicsBlockReason = (derivedStatus && derivedStatus.topics_blocked_reason) || topicsBlockReason;
+  const summaryHasUnknowns = /\bunknowns:\b/i.test(summary || "");
+  const summaryIsDeepBrief = /\bwhy this matters:\b/i.test(summary || "") && /\bdecision\/action requested:\b/i.test(summary || "");
+  const summaryPartialMatch = (summary || "").match(/first\s+(\d+)\s+of\s+(\d+)\s+agenda items/i);
+  const summaryPartialLabel = summaryPartialMatch ? `Partial (${summaryPartialMatch[1]}/${summaryPartialMatch[2]} items)` : null;
+  const summaryGrounded = Boolean(summary && !effectiveSummaryBlockReason && !summaryIsStale);
+  const hasSummaryPayload = Boolean((summary && summary.trim()) || (hit.summary_extractive && hit.summary_extractive.trim()));
+  const hasTopicsPayload = Boolean(topics && topics.length > 0);
+  const showAiDisclaimer = viewMode === "summary" && (hasSummaryPayload || hasTopicsPayload);
+  const hasAiDerivedAgendaPayload = Boolean(
+    agendaItems &&
+      agendaItems.some((item) => {
+        const source = ((item && item.source) || "").toString().toLowerCase();
+        return source.includes("llm") || source.includes("fallback");
+      })
+  );
+  const showAgendaAiDisclaimer = viewMode === "agenda" && hasAiDerivedAgendaPayload;
   const handleTopicClick = (topic) => {
     // Topics are meant to be a quick way to narrow the search.
     // We keep this simple: clicking a topic sets the main search query
@@ -608,6 +625,14 @@ export default function ResultCard({ hit, onPersonClick, onTopicClick }) {
                         <Sparkles className="w-4 h-4" />
                         Executive Summary
                       </div>
+                      {showAiDisclaimer && (
+                        <div className="rounded-xl border border-slate-200 bg-slate-50 px-3 py-2">
+                          <p className="text-[12px] text-slate-600 flex items-center gap-2">
+                            <Info className="w-3.5 h-3.5 shrink-0 text-slate-500" />
+                            <span>{AI_DISCLAIMER_TEXT}</span>
+                          </p>
+                        </div>
+                      )}
 		                    {summary ? (
 		                        <div className="space-y-4">
 		                        <div className="flex items-center gap-2">
@@ -617,13 +642,33 @@ export default function ResultCard({ hit, onPersonClick, onTopicClick }) {
 		                              Stale
 		                            </span>
 		                          )}
+                              {summaryGrounded && (
+                                <span className="bg-green-100 text-green-700 text-[9px] font-black uppercase px-1.5 py-0.5 rounded shadow-sm">
+                                  Grounded
+                                </span>
+                              )}
+                              {summaryIsDeepBrief && (
+                                <span className="bg-indigo-100 text-indigo-700 text-[9px] font-black uppercase px-1.5 py-0.5 rounded shadow-sm">
+                                  Single-item deep brief
+                                </span>
+                              )}
+                              {summaryHasUnknowns && (
+                                <span className="bg-slate-100 text-slate-700 text-[9px] font-black uppercase px-1.5 py-0.5 rounded shadow-sm">
+                                  Unknowns present
+                                </span>
+                              )}
+                              {summaryPartialLabel && (
+                                <span className="bg-blue-100 text-blue-700 text-[9px] font-black uppercase px-1.5 py-0.5 rounded shadow-sm">
+                                  {summaryPartialLabel}
+                                </span>
+                              )}
                               {summaryNotGeneratedYet && !summaryIsStale && !effectiveSummaryBlockReason && (
                                 <span className="bg-slate-100 text-slate-700 text-[9px] font-black uppercase px-1.5 py-0.5 rounded shadow-sm">
                                   Not generated yet
                                 </span>
                               )}
 		                        </div>
-		                        <p className="text-gray-800 text-[15px] whitespace-pre-line leading-relaxed italic">
+		                        <p className="text-gray-800 text-[15px] whitespace-pre-line leading-relaxed">
 		                          {summary}
 		                        </p>
 	                        <button
@@ -792,6 +837,14 @@ export default function ResultCard({ hit, onPersonClick, onTopicClick }) {
                         </span>
                       )}
                     </div>
+                    {showAgendaAiDisclaimer && (
+                      <div className="rounded-xl border border-slate-200 bg-slate-50 px-3 py-2">
+                        <p className="text-[12px] text-slate-600 flex items-center gap-2">
+                          <Info className="w-3.5 h-3.5 shrink-0 text-slate-500" />
+                          <span>{AI_DISCLAIMER_TEXT}</span>
+                        </p>
+                      </div>
+                    )}
                     {agendaItems && agendaItems.length > 0 ? (
                       <div className="grid gap-4">
                         {agendaItems.map((item, i) => (

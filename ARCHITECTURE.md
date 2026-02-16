@@ -178,14 +178,22 @@ States exposed to UI:
 - **agenda empty**: agenda segmentation ran but detected 0 substantive items (tracked on `catalog`)
 
 Summary rendering contract:
-- `catalog.summary` is stored as plain text in a BLUF-first format (`BLUF:` line + `- ` bullets).
+- `catalog.summary` is stored as plain text in a sectioned decision-brief format:
+  - `BLUF:`
+  - `Why this matters:`
+  - `Top actions:`
+  - `Potential impacts:`
+  - `Unknowns:`
 - This avoids Markdown/HTML rendering in the UI and keeps output predictable.
 
 Agenda summary contract:
 - For `Document.category == "agenda"`, summaries are derived from segmented agenda items (Structured Agenda) to prevent drift.
-- Summary generation includes a residual filter so notice/procedural fragments with short descriptions do not leak into user-visible bullets.
+- Summary generation uses a hybrid path: deterministic scaffold + constrained LLM synthesis.
+- Structured payload includes title/description/classification/result/page for each retained item.
+- Input assembly is hard-capped to avoid context-window overflow; partial coverage is disclosed in `Unknowns`.
+- Grounding/pruning removes unsupported claim lines before persistence; weak output falls back to deterministic scaffold text.
 - If an agenda has not been segmented yet, summary generation returns `not_generated_yet` and prompts segmentation first.
-- If the model output is too short or noncompliant, the system falls back to a deterministic summary built from agenda item titles.
+- If the model output is too short/noncompliant/ungrounded, the system falls back to deterministic decision-brief output.
 
 Search index doc types:
 - Meetings are indexed as `result_type="meeting"`.

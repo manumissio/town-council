@@ -1,6 +1,6 @@
 import re
 from dataclasses import dataclass
-from typing import List
+from typing import List, Tuple
 
 from pipeline.config import (
     SUMMARY_GROUNDING_MIN_COVERAGE,
@@ -36,6 +36,14 @@ _STOPWORDS = {
     "a", "an", "and", "are", "as", "at", "be", "by", "for", "from", "in", "is",
     "it", "of", "on", "or", "that", "the", "to", "was", "were", "with", "this",
     "these", "those", "will", "would", "can", "could", "may", "might",
+}
+_SECTION_HEADERS = {
+    "why this matters:",
+    "top actions:",
+    "potential impacts:",
+    "unknowns:",
+    "major themes:",
+    "decision/action requested:",
 }
 
 
@@ -159,6 +167,11 @@ def extract_claim_lines(summary: str) -> List[str]:
         lowered = line.lower()
         if lowered.startswith("bluf:"):
             continue
+        if lowered in _SECTION_HEADERS:
+            continue
+        if lowered.endswith(":") and len(_WORD_RE.findall(lowered)) <= 6:
+            # Section labels are structural hints, not factual claims.
+            continue
         # Drop generic preambles that models often add before actual claims.
         if lowered.startswith("here") and "summary" in lowered:
             continue
@@ -172,6 +185,47 @@ def extract_claim_lines(summary: str) -> List[str]:
             continue
         lines.append(line)
     return lines
+
+
+def prune_unsupported_summary_lines(summary: str, source_text: str) -> Tuple[str, int]:
+    """
+    Remove unsupported claim lines while preserving BLUF/section structure.
+
+    Returns:
+      (pruned_summary, removed_count)
+    """
+    if not (summary or "").strip():
+        return "", 0
+
+    source_tokens = set(_tokenize(source_text or ""))
+    if not source_tokens:
+        return summary.strip(), 0
+    source_prefixes = {tok[:5] for tok in source_tokens if len(tok) >= 5}
+
+    removed = 0
+    kept_lines: List[str] = []
+    for raw in (summary or "").splitlines():
+        line = (raw or "").rstrip()
+        stripped = line.strip()
+        lowered = stripped.lower()
+        if not stripped:
+            kept_lines.append(line)
+            continue
+        if lowered.startswith("bluf:") or lowered in _SECTION_HEADERS:
+            kept_lines.append(line)
+            continue
+
+        candidate = re.sub(r"^\s*[\*\-\u2022]+\s*", "", stripped).strip()
+        if not candidate:
+            kept_lines.append(line)
+            continue
+        coverage = _claim_coverage(candidate, source_tokens, source_prefixes)
+        if coverage < SUMMARY_GROUNDING_MIN_COVERAGE:
+            removed += 1
+            continue
+        kept_lines.append(line)
+
+    return "\n".join(kept_lines).strip(), removed
 
 
 def _claim_coverage(claim: str, source_tokens: set, source_prefixes: set) -> float:

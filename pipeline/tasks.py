@@ -18,6 +18,8 @@ from pipeline.config import (
     LOCAL_AI_ALLOW_MULTIPROCESS,
     LOCAL_AI_REQUIRE_SOLO_POOL,
     ENABLE_VOTE_EXTRACTION,
+    AGENDA_SUMMARY_MAX_INPUT_CHARS,
+    AGENDA_SUMMARY_MIN_RESERVED_OUTPUT_CHARS,
 )
 from pipeline.extraction_service import reextract_catalog_content
 from pipeline.indexer import reindex_catalog
@@ -299,17 +301,44 @@ def generate_summary_task(self, catalog_id: int, force: bool = False):
                 }
 
             # Filter obvious boilerplate titles defensively in case old polluted rows exist.
-            from pipeline.llm import _looks_like_agenda_segmentation_boilerplate
-            titles = []
+            from pipeline.llm import _looks_like_agenda_segmentation_boilerplate, _should_drop_from_agenda_summary
+            summary_items = []
+            candidate_items_total = 0
+            input_chars = 0
+            max_input_chars = max(1000, AGENDA_SUMMARY_MAX_INPUT_CHARS - AGENDA_SUMMARY_MIN_RESERVED_OUTPUT_CHARS)
+            # Why this branch exists: we must cap prompt size to avoid llama.cpp context overflow
+            # when councils publish many long agenda descriptions.
             for it in existing_items:
                 title = (it.title or "").strip()
                 if not title:
                     continue
                 if _looks_like_agenda_segmentation_boilerplate(title):
                     continue
-                titles.append(title)
+                description = (it.description or "").strip()
+                serialized = title if not description else f"{title} - {description}"
+                if _should_drop_from_agenda_summary(serialized):
+                    continue
+                candidate_items_total += 1
+                item_payload = {
+                    "title": title,
+                    "description": description,
+                    "classification": (it.classification or "").strip(),
+                    "result": (it.result or "").strip(),
+                    "page_number": int(it.page_number or 0),
+                }
+                item_block = (
+                    f"Title: {item_payload['title']}\n"
+                    f"Description: {item_payload['description']}\n"
+                    f"Classification: {item_payload['classification']}\n"
+                    f"Result: {item_payload['result']}\n"
+                    f"Page: {item_payload['page_number']}\n\n"
+                )
+                if (input_chars + len(item_block)) > max_input_chars:
+                    break
+                summary_items.append(item_payload)
+                input_chars += len(item_block)
 
-            if not titles:
+            if not summary_items:
                 return {
                     "status": "blocked_low_signal",
                     "reason": "No substantive agenda items detected after boilerplate filtering. Re-segment the agenda.",
@@ -321,7 +350,13 @@ def generate_summary_task(self, catalog_id: int, force: bool = False):
             summary = local_ai.summarize_agenda_items(
                 meeting_title=(doc.event.name if doc and doc.event and doc.event.name else ""),
                 meeting_date=(str(doc.event.record_date) if doc and doc.event and doc.event.record_date else ""),
-                items=titles,
+                items=summary_items,
+                truncation_meta={
+                    "items_total": candidate_items_total,
+                    "items_included": len(summary_items),
+                    "items_truncated": max(0, candidate_items_total - len(summary_items)),
+                    "input_chars": input_chars,
+                },
             )
             # Agenda summaries are derived from structured titles, not raw text.
             do_grounding_check = False

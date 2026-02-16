@@ -26,8 +26,14 @@ from pipeline.config import (
     AGENDA_MIN_SUBSTANTIVE_DESC_CHARS,
     AGENDA_TOC_DEDUP_FUZZ,
     AGENDA_PROCEDURAL_REJECT_ENABLED,
+    AGENDA_SUMMARY_PROFILE,
+    AGENDA_SUMMARY_MIN_ITEM_DESC_CHARS,
+    AGENDA_SUMMARY_MAX_BULLETS,
+    AGENDA_SUMMARY_SINGLE_ITEM_MODE,
+    AGENDA_SUMMARY_TEMPERATURE,
     LOCAL_AI_ALLOW_MULTIPROCESS,
 )
+from pipeline.summary_quality import is_summary_grounded, prune_unsupported_summary_lines
 
 # Setup logging
 logger = logging.getLogger("local-ai")
@@ -1077,50 +1083,252 @@ def prepare_summary_prompt(text: str, doc_kind: str = "unknown") -> str:
     )
 
 
-def prepare_agenda_items_summary_prompt(meeting_title: str, meeting_date: str, items: list[str]) -> str:
+def _coerce_agenda_summary_item(item, idx: int = 0) -> dict:
     """
-    Build a prompt for summarizing an agenda based on *segmented agenda items* (not raw PDF text).
+    Normalize agenda summary input into a structured record.
+    """
+    if isinstance(item, dict):
+        title = _normalize_spaces(item.get("title", ""))
+        desc = _normalize_spaces(item.get("description", ""))
+        classification = _normalize_spaces(item.get("classification", ""))
+        result = _normalize_spaces(item.get("result", ""))
+        try:
+            page_number = int(item.get("page_number") or 0)
+        except Exception:
+            page_number = 0
+    else:
+        title, desc = _split_agenda_summary_item(_normalize_spaces(item or ""))
+        classification = ""
+        result = ""
+        page_number = 0
+    return {
+        "order": idx + 1,
+        "title": title,
+        "description": desc,
+        "classification": classification,
+        "result": result,
+        "page_number": page_number,
+    }
 
-    Why:
-    Agenda PDFs often contain large template sections (hybrid attendance, broadcast availability,
-    ADA/public participation instructions). Summarizing from extracted items keeps output aligned
-    with Structured Agenda and reduces boilerplate dominance.
+
+def _extract_money_snippets(text: str) -> list[str]:
+    """
+    Pull short money references to ground "impact" language in civic summaries.
+    """
+    matches = re.findall(r"\$\s?\d[\d,]*(?:\.\d{2})?(?:\s*(?:million|billion|thousand|m|k))?", text or "", flags=re.IGNORECASE)
+    seen = set()
+    out = []
+    for m in matches:
+        key = m.strip().lower()
+        if not key or key in seen:
+            continue
+        seen.add(key)
+        out.append(m.strip())
+        if len(out) >= 5:
+            break
+    return out
+
+
+def _agenda_items_source_text(items: list[dict]) -> str:
+    """
+    Serialize structured agenda items for lexical grounding checks.
+    """
+    lines = []
+    for it in items:
+        bits = [f"Title: {it.get('title', '')}"]
+        if it.get("description"):
+            bits.append(f"Description: {it['description']}")
+        if it.get("classification"):
+            bits.append(f"Classification: {it['classification']}")
+        if it.get("result"):
+            bits.append(f"Result: {it['result']}")
+        if it.get("page_number"):
+            bits.append(f"Page: {it['page_number']}")
+        lines.append(" | ".join(bits))
+    return "\n".join(lines).strip()
+
+
+def _build_agenda_summary_scaffold(
+    items: list[dict],
+    truncation_meta: dict | None = None,
+    profile: str = "decision_brief",
+) -> dict:
+    """
+    Deterministic scaffold for agenda brief synthesis.
+    """
+    total = len(items)
+    titles = [it.get("title", "") for it in items if it.get("title")]
+    combined = " ".join(
+        [f"{it.get('title', '')} {it.get('description', '')} {it.get('result', '')}" for it in items]
+    ).strip()
+    money_refs = _extract_money_snippets(combined)
+
+    bluf = f"Agenda includes {total} substantive item{'s' if total != 1 else ''}."
+    if money_refs:
+        bluf += f" Mentioned monetary figures include {', '.join(money_refs[:2])}."
+
+    top_actions = []
+    for it in items[: max(3, min(6, AGENDA_SUMMARY_MAX_BULLETS))]:
+        title = _normalize_spaces(it.get("title", ""))
+        if not title:
+            continue
+        desc = _normalize_spaces(it.get("description", ""))
+        page = it.get("page_number") or 0
+        page_hint = f" (p.{page})" if page else ""
+        if desc and len(desc) >= AGENDA_SUMMARY_MIN_ITEM_DESC_CHARS:
+            top_actions.append(f"{title}{page_hint}: {desc}")
+        else:
+            top_actions.append(f"{title}{page_hint}")
+
+    potential_impacts = {
+        "budget": "Potential fiscal impact is not clearly stated in the agenda text.",
+        "policy": "Potential policy or regulatory implications are not fully specified in the agenda text.",
+        "process": "The agenda indicates scheduled consideration; final outcomes are not yet available.",
+    }
+    lowered = combined.lower()
+    if money_refs or any(w in lowered for w in ("budget", "fund", "appropriation", "contract", "grant", "cost")):
+        potential_impacts["budget"] = "Budget/funding considerations appear likely based on the agenda language."
+    if any(w in lowered for w in ("ordinance", "resolution", "zoning", "amendment", "permit", "policy")):
+        potential_impacts["policy"] = "Policy/regulatory changes may be considered based on listed agenda items."
+    if any(w in lowered for w in ("hearing", "appeal", "review", "consider", "adopt", "approve")):
+        potential_impacts["process"] = "The meeting is positioned for formal review/consideration actions."
+
+    unknowns = []
+    if not money_refs:
+        unknowns.append("Specific dollar amounts are not clearly disclosed across the listed items.")
+    if not any(_normalize_spaces(it.get("result", "")) for it in items):
+        unknowns.append("Vote outcomes are not provided in agenda-stage records.")
+    if truncation_meta and (truncation_meta.get("items_truncated") or 0) > 0:
+        unknowns.append(
+            f"Summary generated from first {truncation_meta.get('items_included', 0)} of {truncation_meta.get('items_total', 0)} agenda items due to context limits."
+        )
+
+    single_item_mode = bool(total == 1 and AGENDA_SUMMARY_SINGLE_ITEM_MODE == "deep_brief")
+    why_this_matters = ""
+    if single_item_mode and titles:
+        why_this_matters = (
+            f"The meeting appears centered on a single high-priority decision: {titles[0]}. "
+            "This can concentrate policy attention and public scrutiny on one action item."
+        )
+    elif profile == "risk_first":
+        why_this_matters = (
+            "The agenda suggests decisions with potential downstream risk and compliance impacts. "
+            "Focus on where action language is specific and where details remain undefined."
+        )
+    else:
+        why_this_matters = (
+            "The agenda indicates upcoming decisions with potential fiscal, policy, or procedural effects. "
+            "Residents should focus on listed action items and stated recommendations."
+        )
+
+    return {
+        "bluf_seed": bluf.strip(),
+        "why_this_matters": why_this_matters.strip(),
+        "top_actions": top_actions[:AGENDA_SUMMARY_MAX_BULLETS],
+        "potential_impacts": potential_impacts,
+        "unknowns": unknowns or ["Some details remain unspecified in agenda-stage text."],
+        "single_item_mode": single_item_mode,
+    }
+
+
+def _prepare_structured_agenda_items_summary_prompt(
+    meeting_title: str,
+    meeting_date: str,
+    items: list[dict],
+    scaffold: dict,
+    truncation_meta: dict | None = None,
+) -> str:
+    """
+    Build a constrained decision-brief prompt from structured agenda items.
     """
     title = (meeting_title or "").strip()
     date = (meeting_date or "").strip()
     header_parts = [p for p in [title, date] if p]
     header = " - ".join(header_parts) if header_parts else "Meeting agenda"
 
-    safe_items = [(" ".join((it or "").strip().split())) for it in (items or []) if (it or "").strip()]
-    lines = [f"{i+1}. {it}" for i, it in enumerate(safe_items)]
-    items_block = "\n".join(lines) if lines else ""
-    total_items = len(safe_items)
+    lines = []
+    for i, it in enumerate(items):
+        title_txt = _normalize_spaces(it.get("title", ""))
+        desc_txt = _normalize_spaces(it.get("description", ""))
+        class_txt = _normalize_spaces(it.get("classification", ""))
+        result_txt = _normalize_spaces(it.get("result", ""))
+        page = it.get("page_number") or 0
+        lines.append(
+            f"{i+1}. Title: {title_txt} | Description: {desc_txt or '(none)'} | "
+            f"Classification: {class_txt or '(none)'} | Result: {result_txt or '(none)'} | Page: {page or '(unknown)'}"
+        )
+    items_block = "\n".join(lines)
+
+    top_actions_seed = "\n".join([f"- {v}" for v in scaffold.get("top_actions", [])]) or "- (none)"
+    impacts = scaffold.get("potential_impacts", {})
+    unknowns_seed = "\n".join([f"- {v}" for v in scaffold.get("unknowns", [])]) or "- (none)"
+    truncation_note = ""
+    if truncation_meta and (truncation_meta.get("items_truncated") or 0) > 0:
+        truncation_note = (
+            f"Input truncation: included {truncation_meta.get('items_included', 0)} of "
+            f"{truncation_meta.get('items_total', 0)} items.\n"
+        )
 
     instruction = (
-        "Write a plain-text executive summary of this meeting agenda based ONLY on the agenda items below.\n"
-        "Format requirements:\n"
-        "- First output must begin exactly with: BLUF: <one-sentence takeaway>\n"
-        "- Then write a short narrative paragraph (2 to 4 sentences).\n"
-        "- Then write 6 to 12 bullets, one per line, each starting with '- '.\n"
-        "- Plain text only. Do not use Markdown markers like '*', '**', headings, or numbering.\n"
-        "- Do not acknowledge the prompt. Do not say things like 'Okay' or 'I understand'. Start immediately.\n"
-        "Content requirements:\n"
-        "- Focus on substantive agenda items.\n"
-        "- Do NOT include teleconference/Zoom/ADA/how-to-attend/broadcast/polling-app instructions.\n"
-        "- Do NOT invent outcomes; use neutral language like 'scheduled to consider' when needed.\n"
-        "- The bullets must each reference a specific agenda item (by describing it, not by quoting page numbers).\n"
-        f"Metadata: Total items provided to you: {total_items}.\n"
-        "If you were only given a partial item list due to context limits, say so explicitly.\n"
+        "Write a plain-text executive decision brief for a city meeting agenda.\n"
+        "STRICT RULES:\n"
+        "- Do NOT restate items chronologically.\n"
+        "- Do NOT invent outcomes or facts not present in input.\n"
+        "- Use only provided agenda item fields.\n"
+        "- Keep content concrete and concise.\n"
+        "REQUIRED FORMAT (exact section headers):\n"
+        "BLUF: <one-sentence takeaway>\n"
+        "Why this matters:\n"
+        "- <1 to 2 bullets>\n"
+        "Top actions:\n"
+        "- <2 to 6 bullets tied to specific items>\n"
+        "Potential impacts:\n"
+        "- Budget: <line>\n"
+        "- Policy: <line>\n"
+        "- Process: <line>\n"
+        "Unknowns:\n"
+        "- <at least one unknown>\n"
+        "If input is truncated, Unknowns must mention partial coverage explicitly.\n"
     )
+    if scaffold.get("single_item_mode"):
+        instruction += (
+            "Single-item mode is active. Include this section as well:\n"
+            "Decision/action requested:\n"
+            "- <one concrete action line>\n"
+        )
 
     return (
         "<start_of_turn>user\n"
         f"{instruction}\n"
-        f"Meeting: {header}\n\n"
+        f"Meeting: {header}\n"
+        f"{truncation_note}"
+        f"Scaffold BLUF seed: {scaffold.get('bluf_seed', '')}\n"
+        f"Scaffold Why this matters: {scaffold.get('why_this_matters', '')}\n"
+        f"Scaffold Top actions:\n{top_actions_seed}\n"
+        "Scaffold Potential impacts:\n"
+        f"- Budget: {impacts.get('budget', '')}\n"
+        f"- Policy: {impacts.get('policy', '')}\n"
+        f"- Process: {impacts.get('process', '')}\n"
+        f"Scaffold Unknowns:\n{unknowns_seed}\n\n"
         f"Agenda items:\n{items_block}\n"
         "<end_of_turn>\n"
         "<start_of_turn>model\n"
         "BLUF:"
+    )
+
+
+def prepare_agenda_items_summary_prompt(meeting_title: str, meeting_date: str, items: list[str]) -> str:
+    """
+    Backwards-compatible wrapper for legacy tests/callers.
+    """
+    structured = [_coerce_agenda_summary_item(item, idx=i) for i, item in enumerate(items or [])]
+    scaffold = _build_agenda_summary_scaffold(structured, truncation_meta=None, profile=AGENDA_SUMMARY_PROFILE)
+    return _prepare_structured_agenda_items_summary_prompt(
+        meeting_title=meeting_title,
+        meeting_date=meeting_date,
+        items=structured,
+        scaffold=scaffold,
+        truncation_meta=None,
     )
 
 
@@ -1147,39 +1355,84 @@ def _agenda_items_summary_is_too_short(text: str) -> bool:
     if not text:
         return True
     t = text.strip()
-    if len(t) < 200:
+    if len(t) < 220:
+        return True
+    lower = t.lower()
+    required_sections = ("why this matters:", "top actions:", "potential impacts:", "unknowns:")
+    if any(section not in lower for section in required_sections):
         return True
     bullet_lines = [ln for ln in t.splitlines() if ln.strip().startswith("- ")]
-    if len(bullet_lines) < 3:
+    if len(bullet_lines) < 5:
         return True
-    sentence_count = len(re.findall(r"[.!?]\s", t)) + (1 if re.search(r"[.!?]$", t) else 0)
-    if sentence_count < 2:
+    top_actions = 0
+    in_top_actions = False
+    for ln in t.splitlines():
+        stripped = ln.strip().lower()
+        if stripped == "top actions:":
+            in_top_actions = True
+            continue
+        if stripped.endswith(":") and stripped != "top actions:":
+            in_top_actions = False
+        if in_top_actions and ln.strip().startswith("- "):
+            top_actions += 1
+    if top_actions < 2:
         return True
     return False
 
 
-def _deterministic_agenda_items_summary(items: list[str], max_bullets: int = 25) -> str:
+def _ensure_single_item_decision_section(text: str, scaffold: dict) -> str:
     """
-    Deterministic fallback summary for agendas.
-
-    Why:
-    If the model output is clipped or noncompliant, we still want a usable result
-    without re-running inference.
+    For single-item deep briefs, guarantee a 'Decision/action requested' section exists.
     """
-    safe_items = [(" ".join((it or "").strip().split())) for it in (items or []) if (it or "").strip()]
-    n = len(safe_items)
-    shown = safe_items[:max_bullets]
-    remaining = max(0, n - len(shown))
+    value = (text or "").strip()
+    if not value:
+        return value
+    if not scaffold.get("single_item_mode"):
+        return value
+    if re.search(r"(?im)^decision/action requested:\s*$", value):
+        return value
+    actions = scaffold.get("top_actions", [])
+    default_line = actions[0] if actions else "The agenda focuses on one primary action item."
+    block = f"Decision/action requested:\n- {default_line}\n"
+    if re.search(r"(?im)^top actions:\s*$", value):
+        return re.sub(r"(?im)^top actions:\s*$", block + "Top actions:", value, count=1)
+    return value + "\n" + block
 
-    bluf = f"BLUF: Agenda includes {n} substantive item{'s' if n != 1 else ''}."
-    narrative = ""
+
+def _deterministic_agenda_items_summary(
+    items,
+    max_bullets: int = 25,
+    truncation_meta: dict | None = None,
+) -> str:
+    """
+    Deterministic fallback summary for agendas (sectioned decision brief).
+    """
+    structured = [_coerce_agenda_summary_item(item, idx=i) for i, item in enumerate(items or [])]
+    scaffold = _build_agenda_summary_scaffold(structured, truncation_meta=truncation_meta)
+    shown = scaffold.get("top_actions", [])[:max_bullets]
+
+    out_lines = [f"BLUF: {scaffold.get('bluf_seed', 'Agenda summary unavailable.')}"]
+    out_lines.append("Why this matters:")
+    out_lines.append(f"- {scaffold.get('why_this_matters', 'This agenda includes planned council actions.')}")
+    out_lines.append("Top actions:")
     if shown:
-        sample = ", ".join(shown[:3])
-        narrative = f"This meeting is scheduled to cover items including: {sample}."
-    bullets = "\n".join([f"- {it}" for it in shown])
-    if remaining > 0:
-        bullets = (bullets + f"\n- (+{remaining} more)") if bullets else f"- (+{remaining} more)"
-    return "\n".join([part for part in [bluf, narrative, bullets] if part]).strip()
+        out_lines.extend([f"- {it}" for it in shown])
+    else:
+        out_lines.append("- No substantive actions were retained after filtering.")
+    if scaffold.get("single_item_mode"):
+        out_lines.append("Decision/action requested:")
+        out_lines.append(f"- {(shown[0] if shown else 'The agenda focuses on one primary action item.')}")
+
+    impacts = scaffold.get("potential_impacts", {})
+    out_lines.append("Potential impacts:")
+    out_lines.append(f"- Budget: {impacts.get('budget', 'Not clearly stated.')}")
+    out_lines.append(f"- Policy: {impacts.get('policy', 'Not clearly stated.')}")
+    out_lines.append(f"- Process: {impacts.get('process', 'Not clearly stated.')}")
+
+    out_lines.append("Unknowns:")
+    for unknown in scaffold.get("unknowns", []):
+        out_lines.append(f"- {unknown}")
+    return "\n".join(out_lines).strip()
 
 
 def _split_agenda_summary_item(value: str) -> tuple[str, str]:
@@ -1531,49 +1784,114 @@ class LocalAI:
                 if self.llm:
                     self.llm.reset()
 
-    def summarize_agenda_items(self, meeting_title: str, meeting_date: str, items: list[str]) -> str | None:
+    def summarize_agenda_items(
+        self,
+        meeting_title: str,
+        meeting_date: str,
+        items,
+        truncation_meta: dict | None = None,
+    ) -> str | None:
         """
-        Generate a narrative agenda summary from segmented agenda item titles.
-
-        Why this exists:
-        Agenda summaries should align with Structured Agenda output. Raw agenda PDFs are
-        boilerplate-heavy (hybrid attendance, broadcast availability, ADA/public comment),
-        which makes "summarize the PDF" drift-prone.
+        Generate a grounded decision-brief summary from structured agenda items.
         """
         self._load_model()
         if not self.llm:
             return None
 
+        structured_items = [_coerce_agenda_summary_item(item, idx=i) for i, item in enumerate(items or [])]
         filtered_items = []
         summary_filtered_notice_fragments = 0
-        for item in items or []:
-            if _should_drop_from_agenda_summary(item):
+        for item in structured_items:
+            serialized = item.get("title", "")
+            if item.get("description"):
+                serialized = f"{serialized} - {item['description']}"
+            if _should_drop_from_agenda_summary(serialized):
                 summary_filtered_notice_fragments += 1
                 continue
             filtered_items.append(item)
+
+        counters = {
+            "agenda_summary_items_total": len(structured_items),
+            "agenda_summary_items_included": len(filtered_items),
+            "agenda_summary_items_truncated": int((truncation_meta or {}).get("items_truncated", 0)),
+            "agenda_summary_input_chars": int((truncation_meta or {}).get("input_chars", 0)),
+            "agenda_summary_single_item_mode": 0,
+            "agenda_summary_unknowns_count": 0,
+            "agenda_summary_grounding_pruned_lines": 0,
+            "agenda_summary_fallback_deterministic": 0,
+        }
+
+        scaffold = _build_agenda_summary_scaffold(
+            filtered_items,
+            truncation_meta=truncation_meta,
+            profile=AGENDA_SUMMARY_PROFILE,
+        )
+        counters["agenda_summary_single_item_mode"] = int(bool(scaffold.get("single_item_mode")))
+        counters["agenda_summary_unknowns_count"] = len(scaffold.get("unknowns", []))
+
         logger.info(
-            "agenda_summary.counters total_items=%s kept_items=%s summary_filtered_notice_fragments=%s",
-            len(items or []),
+            "agenda_summary.counters total_items=%s kept_items=%s summary_filtered_notice_fragments=%s "
+            "agenda_summary_items_total=%s agenda_summary_items_included=%s agenda_summary_items_truncated=%s "
+            "agenda_summary_input_chars=%s agenda_summary_single_item_mode=%s agenda_summary_unknowns_count=%s",
+            len(structured_items),
             len(filtered_items),
             summary_filtered_notice_fragments,
+            counters["agenda_summary_items_total"],
+            counters["agenda_summary_items_included"],
+            counters["agenda_summary_items_truncated"],
+            counters["agenda_summary_input_chars"],
+            counters["agenda_summary_single_item_mode"],
+            counters["agenda_summary_unknowns_count"],
         )
 
-        prompt = prepare_agenda_items_summary_prompt(meeting_title, meeting_date, filtered_items)
+        if not filtered_items:
+            counters["agenda_summary_fallback_deterministic"] = 1
+            logger.info("agenda_summary.counters agenda_summary_fallback_deterministic=%s", 1)
+            return _deterministic_agenda_items_summary([], truncation_meta=truncation_meta)
+
+        prompt = _prepare_structured_agenda_items_summary_prompt(
+            meeting_title=meeting_title,
+            meeting_date=meeting_date,
+            items=filtered_items,
+            scaffold=scaffold,
+            truncation_meta=truncation_meta,
+        )
+        grounding_source = _agenda_items_source_text(filtered_items)
 
         with self._lock:
             try:
-                response = self.llm(prompt, max_tokens=LLM_SUMMARY_MAX_TOKENS, temperature=0.1)
+                response = self.llm(
+                    prompt,
+                    max_tokens=LLM_SUMMARY_MAX_TOKENS,
+                    temperature=AGENDA_SUMMARY_TEMPERATURE,
+                )
                 raw = (response["choices"][0]["text"] or "").strip()
-                # Keep plain text, strip simple Markdown emphasis if the model slips it in.
                 cleaned = _strip_markdown_emphasis(raw).strip()
                 cleaned = _strip_llm_acknowledgements(cleaned).strip()
                 cleaned = _normalize_bullets_to_dash(cleaned).strip()
                 if cleaned and not cleaned.startswith("BLUF:"):
-                    # Last resort: agenda summaries are expected to begin with BLUF.
-                    cleaned = f"BLUF: Agenda summary. {cleaned}"
-                if _agenda_items_summary_is_too_short(cleaned):
-                    return _deterministic_agenda_items_summary(filtered_items)
-                return cleaned or _deterministic_agenda_items_summary(filtered_items)
+                    cleaned = f"BLUF: {scaffold.get('bluf_seed', 'Agenda summary.')}"
+                cleaned = _ensure_single_item_decision_section(cleaned, scaffold)
+
+                pruned, removed_count = prune_unsupported_summary_lines(cleaned, grounding_source)
+                counters["agenda_summary_grounding_pruned_lines"] = int(removed_count)
+                if removed_count:
+                    logger.info(
+                        "agenda_summary.counters agenda_summary_grounding_pruned_lines=%s",
+                        removed_count,
+                    )
+                cleaned = pruned or cleaned
+
+                grounded = is_summary_grounded(cleaned, grounding_source)
+                if (not grounded.is_grounded) or _agenda_items_summary_is_too_short(cleaned):
+                    counters["agenda_summary_fallback_deterministic"] = 1
+                    logger.info("agenda_summary.counters agenda_summary_fallback_deterministic=%s", 1)
+                    return _deterministic_agenda_items_summary(
+                        filtered_items,
+                        max_bullets=AGENDA_SUMMARY_MAX_BULLETS,
+                        truncation_meta=truncation_meta,
+                    )
+                return cleaned
             except Exception as e:
                 logger.error(f"AI Agenda Items Summarization failed: {e}")
                 return None
