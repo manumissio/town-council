@@ -413,7 +413,13 @@ class FaissSemanticBackend(SemanticBackend):
         else:
             matrix = self._matrix if self._matrix is not None else np.asarray(self._index, dtype=np.float32)
             sims = np.dot(matrix, query_vec[0])
-            top_idx = np.argsort(-sims)[:k]
+            # NumPy fallback: select top-k without fully sorting the whole array.
+            # This reduces work from O(N log N) to near O(N), then sorts only k items.
+            if k >= sims.shape[0]:
+                top_idx = np.argsort(-sims)
+            else:
+                top_idx = np.argpartition(-sims, k - 1)[:k]
+                top_idx = top_idx[np.argsort(-sims[top_idx])]
             scores = np.array([sims[top_idx]], dtype=np.float32)
             indices = np.array([top_idx], dtype=np.int64)
         out: list[SemanticCandidate] = []

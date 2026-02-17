@@ -145,6 +145,7 @@ docker compose run --rm pipeline python diagnose_semantic_search.py --query zoni
   - check `semantic_diagnostics` fields (`k_used`, `expansion_steps`) in response.
 - semantic mode works but is slower than expected:
   - check `semantic_diagnostics.engine`; `numpy` means fallback mode (FAISS unavailable in runtime).
+  - NumPy fallback now uses partial top-k selection (`argpartition`) to reduce ranking overhead.
   - fix FAISS install/import, then rebuild artifacts with `python reindex_semantic.py`.
   - when using pgvector, verify Postgres has `vector` extension and `semantic_embedding` HNSW index.
 
