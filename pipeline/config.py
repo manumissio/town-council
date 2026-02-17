@@ -95,6 +95,11 @@ SEMANTIC_MAX_TOP_K = int(os.getenv("SEMANTIC_MAX_TOP_K", "10000"))
 SEMANTIC_FILTER_EXPANSION_FACTOR = int(os.getenv("SEMANTIC_FILTER_EXPANSION_FACTOR", "8"))
 SEMANTIC_RERANK_CANDIDATE_LIMIT = int(os.getenv("SEMANTIC_RERANK_CANDIDATE_LIMIT", "200"))
 
+# Milestone C feature flag and lineage controls.
+FEATURE_TRENDS_DASHBOARD = os.getenv("FEATURE_TRENDS_DASHBOARD", "false").strip().lower() in {"1", "true", "yes"}
+LINEAGE_MIN_EDGE_CONFIDENCE = float(os.getenv("LINEAGE_MIN_EDGE_CONFIDENCE", "0.5"))
+LINEAGE_REQUIRE_MUTUAL_EDGES = os.getenv("LINEAGE_REQUIRE_MUTUAL_EDGES", "false").strip().lower() in {"1", "true", "yes"}
+
 # FAISS + sentence-transformers loads significant RAM in-process. Keep single-process by default.
 SEMANTIC_REQUIRE_SINGLE_PROCESS = os.getenv("SEMANTIC_REQUIRE_SINGLE_PROCESS", "true").strip().lower() in {"1", "true", "yes"}
 SEMANTIC_ALLOW_MULTIPROCESS = os.getenv("SEMANTIC_ALLOW_MULTIPROCESS", "false").strip().lower() in {"1", "true", "yes"}

@@ -2,6 +2,7 @@
 // Keep secret handling explicit: only send auth header when a key is configured.
 
 export const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
+export const TRENDS_DASHBOARD_ENABLED = process.env.NEXT_PUBLIC_FEATURE_TRENDS_DASHBOARD === "true";
 const DEMO_MODE = process.env.NEXT_PUBLIC_DEMO_MODE === "true";
 
 export function isDemoMode() {

@@ -4,11 +4,14 @@ import logging
 import hmac
 import re
 import time
+import csv
+import io
+from datetime import date, datetime, timedelta
 import meilisearch
 from meilisearch.errors import MeilisearchCommunicationError, MeilisearchTimeoutError, MeilisearchError
 from fastapi import FastAPI, HTTPException, Query, Path, Depends, Header, Request
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import ORJSONResponse
+from fastapi.responses import ORJSONResponse, Response
 from typing import List, Optional
 from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session as SQLAlchemySession, sessionmaker, joinedload
@@ -24,6 +27,7 @@ from pipeline.config import (
     SEMANTIC_FILTER_EXPANSION_FACTOR,
     SEMANTIC_MAX_TOP_K,
     SEMANTIC_RERANK_CANDIDATE_LIMIT,
+    FEATURE_TRENDS_DASHBOARD,
 )
 from pipeline.semantic_index import get_semantic_backend, SemanticConfigError, PgvectorSemanticBackend
 
@@ -238,6 +242,145 @@ def _build_meilisearch_filter_clauses(
     elif date_to:
         clauses.append(f'date <= "{sanitize_filter(date_to)}"')
     return clauses
+
+
+def _require_trends_feature() -> None:
+    if not FEATURE_TRENDS_DASHBOARD:
+        raise HTTPException(status_code=503, detail="Trends dashboard is disabled")
+
+
+def _bucket_start(value: date, granularity: str) -> date:
+    if granularity == "quarter":
+        q_month = ((value.month - 1) // 3) * 3 + 1
+        return date(value.year, q_month, 1)
+    return date(value.year, value.month, 1)
+
+
+def _next_bucket_start(value: date, granularity: str) -> date:
+    if granularity == "quarter":
+        month = value.month + 3
+    else:
+        month = value.month + 1
+    year = value.year
+    while month > 12:
+        month -= 12
+        year += 1
+    return date(year, month, 1)
+
+
+def _iter_time_buckets(start: date, end: date, granularity: str) -> list[tuple[date, date]]:
+    cursor = _bucket_start(start, granularity)
+    out: list[tuple[date, date]] = []
+    while cursor <= end:
+        nxt = _next_bucket_start(cursor, granularity)
+        bucket_end = min(end, nxt - timedelta(days=1))
+        out.append((cursor, bucket_end))
+        cursor = nxt
+    return out
+
+
+def _facet_topics(city: Optional[str], date_from: Optional[str], date_to: Optional[str]) -> dict:
+    index = client.index("documents")
+    filters = _build_meilisearch_filter_clauses(
+        city=city,
+        meeting_type=None,
+        org=None,
+        date_from=date_from,
+        date_to=date_to,
+        include_agenda_items=False,
+    )
+    params = {
+        "limit": 0,
+        "facets": ["topics"],
+    }
+    if filters:
+        params["filter"] = filters
+    result = index.search("", params)
+    return result.get("facetDistribution", {}).get("topics", {}) or {}
+
+
+def _parse_iso_date(value: Optional[str]) -> Optional[date]:
+    if not value:
+        return None
+    try:
+        return datetime.strptime(value[:10], "%Y-%m-%d").date()
+    except Exception:
+        return None
+
+
+def _collect_meeting_docs(city: Optional[str], scan_limit: int = 2000) -> list[dict]:
+    """
+    Fetch meeting docs from Meilisearch for application-side trend aggregation.
+    """
+    index = client.index("documents")
+    filters = _build_meilisearch_filter_clauses(
+        city=city,
+        meeting_type=None,
+        org=None,
+        date_from=None,
+        date_to=None,
+        include_agenda_items=False,
+    )
+    out: list[dict] = []
+    offset = 0
+    page_size = 200
+    while offset < scan_limit:
+        params = {
+            "limit": min(page_size, scan_limit - offset),
+            "offset": offset,
+            "attributesToRetrieve": ["topics", "date", "city"],
+            "filter": filters,
+        }
+        if not filters:
+            del params["filter"]
+        page = index.search("", params)
+        hits = page.get("hits", []) or []
+        out.extend(hits)
+        if len(hits) < page_size:
+            break
+        offset += len(hits)
+    return out
+
+
+def _count_topics_from_docs(
+    docs: list[dict],
+    date_from: Optional[str],
+    date_to: Optional[str],
+) -> dict[str, int]:
+    start = _parse_iso_date(date_from)
+    end = _parse_iso_date(date_to)
+    counts: dict[str, int] = {}
+    for row in docs:
+        row_date = _parse_iso_date(row.get("date"))
+        if start and (row_date is None or row_date < start):
+            continue
+        if end and (row_date is None or row_date > end):
+            continue
+        topics = row.get("topics") or []
+        if isinstance(topics, list):
+            for topic in topics:
+                name = str(topic).strip()
+                if not name:
+                    continue
+                counts[name] = counts.get(name, 0) + 1
+    return counts
+
+
+def _lineage_rows(
+    db: SQLAlchemySession,
+    lineage_id: str,
+    min_confidence: Optional[float] = None,
+):
+    query = (
+        db.query(Catalog, Document, Event, Place)
+        .join(Document, Document.catalog_id == Catalog.id)
+        .join(Event, Event.id == Document.event_id)
+        .join(Place, Place.id == Event.place_id)
+        .filter(Catalog.lineage_id == lineage_id)
+    )
+    if min_confidence is not None:
+        query = query.filter(Catalog.lineage_confidence >= float(min_confidence))
+    return query.order_by(Event.record_date.desc(), Catalog.id.desc()).all()
 
 
 def _semantic_candidate_matches_filters(meta: dict, filters: dict) -> bool:
@@ -717,6 +860,205 @@ def get_metadata():
     except Exception as e:
         logger.error(f"Metadata retrieval failed: {e}")
         return {"cities": [], "organizations": [], "meeting_types": []}
+
+
+@app.get("/trends/topics")
+@limiter.limit("60/minute")
+def get_trends_topics(
+    request: Request,
+    city: Optional[str] = Query(None),
+    date_from: Optional[str] = Query(None),
+    date_to: Optional[str] = Query(None),
+    limit: int = Query(10, ge=1, le=50),
+):
+    _ = request
+    _require_trends_feature()
+    if date_from:
+        validate_date_format(date_from)
+    if date_to:
+        validate_date_format(date_to)
+    if date_from or date_to:
+        docs = _collect_meeting_docs(city=city)
+        topic_counts = _count_topics_from_docs(docs, date_from=date_from, date_to=date_to)
+    else:
+        topic_counts = _facet_topics(city=city, date_from=date_from, date_to=date_to)
+    rows = sorted(topic_counts.items(), key=lambda kv: (-int(kv[1]), str(kv[0]).lower()))[:limit]
+    return {
+        "city": normalize_city_filter(city) if city else None,
+        "date_from": date_from,
+        "date_to": date_to,
+        "items": [{"topic": topic, "count": int(count)} for topic, count in rows],
+    }
+
+
+@app.get("/trends/compare")
+@limiter.limit("30/minute")
+def get_trends_compare(
+    request: Request,
+    cities: List[str] = Query(...),
+    date_from: str = Query(...),
+    date_to: str = Query(...),
+    granularity: str = Query("month", pattern="^(month|quarter)$"),
+    limit: int = Query(5, ge=1, le=20),
+):
+    _ = request
+    _require_trends_feature()
+    validate_date_format(date_from)
+    validate_date_format(date_to)
+    start = datetime.strptime(date_from, "%Y-%m-%d").date()
+    end = datetime.strptime(date_to, "%Y-%m-%d").date()
+    if end < start:
+        raise HTTPException(status_code=400, detail="date_to must be >= date_from")
+    if len(cities) < 2:
+        raise HTTPException(status_code=400, detail="Provide at least two cities")
+
+    normalized_cities = [normalize_city_filter(c) for c in cities]
+    buckets = _iter_time_buckets(start=start, end=end, granularity=granularity)
+
+    docs_by_city = {city: _collect_meeting_docs(city=city) for city in normalized_cities}
+
+    # Discover shared high-signal topics first to keep comparison compact.
+    pooled: dict[str, int] = {}
+    for city, docs in docs_by_city.items():
+        counts = _count_topics_from_docs(docs, date_from=date_from, date_to=date_to)
+        for topic, count in counts.items():
+            pooled[topic] = pooled.get(topic, 0) + int(count)
+    top_topics = [name for name, _ in sorted(pooled.items(), key=lambda kv: (-kv[1], kv[0].lower()))[:limit]]
+
+    series = []
+    for city in normalized_cities:
+        docs = docs_by_city.get(city, [])
+        for bucket_start, bucket_end in buckets:
+            counts = _count_topics_from_docs(
+                docs,
+                date_from=bucket_start.isoformat(),
+                date_to=bucket_end.isoformat(),
+            )
+            series.append(
+                {
+                    "city": city,
+                    "bucket": bucket_start.isoformat(),
+                    "topics": {topic: int(counts.get(topic, 0)) for topic in top_topics},
+                }
+            )
+    return {
+        "granularity": granularity,
+        "date_from": date_from,
+        "date_to": date_to,
+        "topics": top_topics,
+        "series": series,
+    }
+
+
+@app.get("/trends/export")
+@limiter.limit("10/minute")
+def export_trends(
+    request: Request,
+    city: Optional[str] = Query(None),
+    date_from: Optional[str] = Query(None),
+    date_to: Optional[str] = Query(None),
+    format: str = Query("json", pattern="^(json|csv)$"),
+    limit: int = Query(50, ge=1, le=500),
+):
+    _ = request
+    _require_trends_feature()
+    if date_from:
+        validate_date_format(date_from)
+    if date_to:
+        validate_date_format(date_to)
+    if date_from or date_to:
+        docs = _collect_meeting_docs(city=city)
+        topic_counts = _count_topics_from_docs(docs, date_from=date_from, date_to=date_to)
+    else:
+        topic_counts = _facet_topics(city=city, date_from=date_from, date_to=date_to)
+    rows = sorted(topic_counts.items(), key=lambda kv: (-int(kv[1]), str(kv[0]).lower()))[:limit]
+
+    if format == "csv":
+        buffer = io.StringIO()
+        writer = csv.writer(buffer)
+        writer.writerow(["topic", "count", "city", "date_from", "date_to"])
+        normalized_city = normalize_city_filter(city) if city else ""
+        for topic, count in rows:
+            writer.writerow([topic, int(count), normalized_city, date_from or "", date_to or ""])
+        return Response(content=buffer.getvalue(), media_type="text/csv")
+
+    return {
+        "city": normalize_city_filter(city) if city else None,
+        "date_from": date_from,
+        "date_to": date_to,
+        "items": [{"topic": topic, "count": int(count)} for topic, count in rows],
+    }
+
+
+@app.get("/lineage/{lineage_id}")
+@limiter.limit("60/minute")
+def get_lineage(
+    request: Request,
+    lineage_id: str,
+    min_confidence: Optional[float] = Query(None, ge=0.0, le=1.0),
+    db: SQLAlchemySession = Depends(get_db),
+):
+    _ = request
+    _require_trends_feature()
+    rows = _lineage_rows(db, lineage_id=lineage_id, min_confidence=min_confidence)
+    if not rows:
+        raise HTTPException(status_code=404, detail="Lineage not found")
+    meetings = []
+    for catalog, _doc, event, place in rows:
+        meetings.append(
+            {
+                "catalog_id": catalog.id,
+                "lineage_id": catalog.lineage_id,
+                "lineage_confidence": float(catalog.lineage_confidence or 0.0),
+                "lineage_updated_at": catalog.lineage_updated_at.isoformat() if catalog.lineage_updated_at else None,
+                "event_name": event.name,
+                "date": event.record_date.isoformat() if event.record_date else None,
+                "city": place.display_name or place.name,
+                "summary": catalog.summary,
+            }
+        )
+    return {"lineage_id": lineage_id, "count": len(meetings), "meetings": meetings}
+
+
+@app.get("/catalog/{catalog_id}/lineage")
+@limiter.limit("60/minute")
+def get_catalog_lineage(
+    request: Request,
+    catalog_id: int = Path(..., ge=1),
+    min_confidence: Optional[float] = Query(None, ge=0.0, le=1.0),
+    db: SQLAlchemySession = Depends(get_db),
+):
+    _ = request
+    _require_trends_feature()
+    catalog = db.get(Catalog, catalog_id)
+    if not catalog:
+        raise HTTPException(status_code=404, detail="Catalog not found")
+    if not catalog.lineage_id:
+        return {
+            "catalog_id": catalog_id,
+            "lineage_id": None,
+            "count": 0,
+            "meetings": [],
+        }
+    rows = _lineage_rows(db, lineage_id=catalog.lineage_id, min_confidence=min_confidence)
+    meetings = []
+    for c_row, _doc, event, place in rows:
+        meetings.append(
+            {
+                "catalog_id": c_row.id,
+                "lineage_confidence": float(c_row.lineage_confidence or 0.0),
+                "date": event.record_date.isoformat() if event.record_date else None,
+                "event_name": event.name,
+                "city": place.display_name or place.name,
+            }
+        )
+    return {
+        "catalog_id": catalog_id,
+        "lineage_id": catalog.lineage_id,
+        "lineage_confidence": float(catalog.lineage_confidence or 0.0),
+        "count": len(meetings),
+        "meetings": meetings,
+    }
 
 @app.get("/people")
 def list_people(

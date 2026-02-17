@@ -21,6 +21,14 @@ WORKDIR /app
 COPY --from=deps /app/node_modules ./node_modules
 COPY . .
 
+# NEXT_PUBLIC_* values used by client components are inlined at build time.
+ARG NEXT_PUBLIC_API_URL=http://localhost:8000
+ARG NEXT_PUBLIC_API_AUTH_KEY=
+ARG NEXT_PUBLIC_FEATURE_TRENDS_DASHBOARD=false
+ENV NEXT_PUBLIC_API_URL=${NEXT_PUBLIC_API_URL}
+ENV NEXT_PUBLIC_API_AUTH_KEY=${NEXT_PUBLIC_API_AUTH_KEY}
+ENV NEXT_PUBLIC_FEATURE_TRENDS_DASHBOARD=${NEXT_PUBLIC_FEATURE_TRENDS_DASHBOARD}
+
 # Next.js collects completely anonymous telemetry data about general usage.
 # Learn more here: https://nextjs.org/telemetry
 ENV NEXT_TELEMETRY_DISABLED 1

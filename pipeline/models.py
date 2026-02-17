@@ -3,7 +3,7 @@ import os
 import json
 
 from sqlalchemy import create_engine, func
-from sqlalchemy import Column, Boolean, String, Integer, Date, DateTime, JSON, Text, CheckConstraint
+from sqlalchemy import Column, Boolean, String, Integer, Date, DateTime, JSON, Text, CheckConstraint, Float
 from sqlalchemy import ForeignKey
 from sqlalchemy.orm import relationship, DeclarativeBase
 from sqlalchemy.schema import Index
@@ -330,6 +330,9 @@ class Catalog(Base):
     # Hash of the `content` version that `topics` were generated from.
     topics_source_hash = Column(String(64), nullable=True)
     related_ids = Column(JSON, nullable=True)
+    lineage_id = Column(String(64), nullable=True, index=True)
+    lineage_confidence = Column(Float, nullable=True, index=True)
+    lineage_updated_at = Column(DateTime, nullable=True)
 
     # Agenda segmentation status for this catalog.
     # This prevents "poison pill" reprocessing when a document genuinely yields 0 items.

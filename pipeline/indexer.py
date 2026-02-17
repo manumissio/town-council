@@ -89,7 +89,7 @@ def _apply_index_settings(client, index) -> None:
 
     task_ids.append(_task_uid(index.update_filterable_attributes([
         'city', 'meeting_type', 'meeting_category', 'organization',
-        'people', 'date', 'organizations', 'result_type'
+        'people', 'date', 'organizations', 'result_type', 'topics', 'lineage_id'
     ])))
 
     task_ids.append(_task_uid(index.update_sortable_attributes(['date'])))
@@ -198,6 +198,8 @@ def index_documents():
                     and (not catalog.content_hash or catalog.topics_source_hash != catalog.content_hash)
                 ),
                 'related_ids': catalog.related_ids,
+                'lineage_id': catalog.lineage_id,
+                'lineage_confidence': catalog.lineage_confidence,
                 'people_metadata': people_list,
                 'people': [p['name'] for p in people_list],
                 'event_name': event.name,

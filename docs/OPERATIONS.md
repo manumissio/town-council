@@ -218,6 +218,27 @@ Vote extraction is an optional async stage that runs on segmented agenda items.
 Set:
 - `ENABLE_VOTE_EXTRACTION=true`
 
+## Trends + Lineage (Milestone C v1)
+
+Feature flag:
+- `FEATURE_TRENDS_DASHBOARD=true`
+
+API smoke checks:
+```bash
+curl -fsS "http://localhost:8000/trends/topics?limit=5"
+curl -fsS "http://localhost:8000/trends/compare?cities=berkeley&cities=cupertino&date_from=2025-01-01&date_to=2025-12-31"
+curl -fsS "http://localhost:8000/catalog/<CATALOG_ID>/lineage"
+```
+
+Manual lineage recompute task:
+```bash
+docker compose exec -T worker celery -A pipeline.tasks call pipeline.tasks.compute_lineage_task
+```
+
+Notes:
+- Trends are served from Meilisearch facets (`topics`) in v1.
+- Lineage recompute is full-graph and lock-protected to handle cascading component merges safely.
+
 Default is `false` for staged rollout.
 
 ### Trigger one catalog

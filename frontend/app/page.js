@@ -255,6 +255,9 @@ export default function Home() {
             availableCities={availableCities} availableOrgs={availableOrgs}
             isSearching={isSearching} resetApp={resetApp}
           />
+          {/* Product decision (temporary):
+             We are pausing Topic Momentum/Civic Signals to reduce first-screen ambiguity.
+             Keep the initial interaction focused on search input and result cards. */}
           {searchError && (
             <div className="max-w-6xl mx-auto px-4 mt-4">
               <div className="rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900">

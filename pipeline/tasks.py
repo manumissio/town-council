@@ -7,6 +7,7 @@ import re
 from datetime import datetime, timezone
 from sqlalchemy.orm import sessionmaker
 from sqlalchemy.exc import SQLAlchemyError
+from sqlalchemy import text
 
 from pipeline.models import db_connect, Catalog, Document, SemanticEmbedding
 from pipeline.llm import LocalAI, LocalAIConfigError
@@ -24,10 +25,14 @@ from pipeline.config import (
     SEMANTIC_BACKEND,
     SEMANTIC_MODEL_NAME,
     SEMANTIC_CONTENT_MAX_CHARS,
+    LINEAGE_MIN_EDGE_CONFIDENCE,
+    LINEAGE_REQUIRE_MUTUAL_EDGES,
 )
 from pipeline.extraction_service import reextract_catalog_content
 from pipeline.indexer import reindex_catalog
 from pipeline.content_hash import compute_content_hash
+from pipeline.lineage_service import compute_lineage_assignments
+from pipeline.metrics import record_lineage_recompute
 from pipeline.summary_quality import (
     analyze_source_text,
     build_low_signal_message,
@@ -957,3 +962,57 @@ def extract_text_task(self, catalog_id: int, force: bool = False, ocr_fallback: 
         raise self.retry(exc=e, countdown=60)
     finally:
         db.close()
+
+
+@app.task(bind=True, max_retries=3)
+def compute_lineage_task(self):
+    """
+    Recompute meeting-level lineage assignments from related_ids.
+    """
+    db = SessionLocal()
+    lock_key = 90412031
+    lock_acquired = False
+    try:
+        is_postgres = db.get_bind().dialect.name == "postgresql"
+        if is_postgres:
+            row = db.execute(text("SELECT pg_try_advisory_lock(:k)"), {"k": lock_key}).first()
+            lock_acquired = bool(row and row[0])
+            if not lock_acquired:
+                return {"status": "skipped", "reason": "lineage_recompute_in_progress"}
+
+        # Full recompute is intentional: one new bridge edge can merge multiple prior components.
+        result = compute_lineage_assignments(
+            db,
+            min_edge_confidence=LINEAGE_MIN_EDGE_CONFIDENCE,
+            require_mutual_edges=LINEAGE_REQUIRE_MUTUAL_EDGES,
+        )
+        db.commit()
+        record_lineage_recompute(updated_count=result.updated_count, merge_count=result.merge_count)
+        return {
+            "status": "complete",
+            "catalog_count": result.catalog_count,
+            "component_count": result.component_count,
+            "merge_count": result.merge_count,
+            "updated_count": result.updated_count,
+        }
+    except (SQLAlchemyError, RuntimeError, ValueError) as e:
+        db.rollback()
+        logger.error("compute_lineage_task failed: %s", e)
+        raise self.retry(exc=e, countdown=30)
+    finally:
+        if lock_acquired:
+            try:
+                db.execute(text("SELECT pg_advisory_unlock(:k)"), {"k": lock_key})
+                db.commit()
+            except Exception:
+                db.rollback()
+        db.close()
+
+
+@app.task(bind=True, max_retries=1)
+def compute_lineage_for_catalog_task(self, catalog_id: int):
+    """
+    Catalog-triggered lineage update wrapper.
+    """
+    _ = catalog_id
+    return compute_lineage_task.run(self)

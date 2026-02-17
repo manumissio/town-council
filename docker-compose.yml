@@ -237,6 +237,7 @@ services:
       - ALLOWED_ORIGINS=${ALLOWED_ORIGINS:-http://localhost:3000}
       - APP_ENV=${APP_ENV:-dev}
       - STARTUP_PURGE_DERIVED=${STARTUP_PURGE_DERIVED:-true}
+      - FEATURE_TRENDS_DASHBOARD=${FEATURE_TRENDS_DASHBOARD:-false}
       # Semantic search API settings.
       - SEMANTIC_ENABLED=${SEMANTIC_ENABLED:-false}
       - SEMANTIC_BACKEND=${SEMANTIC_BACKEND:-faiss}
@@ -259,11 +260,16 @@ services:
     build:
       context: ./frontend
       dockerfile: Dockerfile
+      args:
+        - NEXT_PUBLIC_API_URL=${NEXT_PUBLIC_API_URL:-http://localhost:8000}
+        - NEXT_PUBLIC_API_AUTH_KEY=${NEXT_PUBLIC_API_AUTH_KEY:-}
+        - NEXT_PUBLIC_FEATURE_TRENDS_DASHBOARD=${NEXT_PUBLIC_FEATURE_TRENDS_DASHBOARD:-false}
     ports:
       - "3000:3000"
     environment:
       - NEXT_PUBLIC_API_URL=${NEXT_PUBLIC_API_URL:-http://localhost:8000}
       - NEXT_PUBLIC_API_AUTH_KEY=${NEXT_PUBLIC_API_AUTH_KEY:-}
+      - NEXT_PUBLIC_FEATURE_TRENDS_DASHBOARD=${NEXT_PUBLIC_FEATURE_TRENDS_DASHBOARD:-false}
     depends_on:
       - api
 

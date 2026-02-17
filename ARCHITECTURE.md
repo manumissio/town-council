@@ -214,6 +214,11 @@ Semantic search (Milestone B):
 - FAISS artifacts remain a temporary fallback bridge during B2 hydration/validation.
 - pgvector stores vectors in Postgres (`semantic_embedding`) and reranks lexical candidates.
 
+Lineage + trends (Milestone C v1):
+- `catalog.lineage_id`, `catalog.lineage_confidence`, and `catalog.lineage_updated_at` persist meeting-level lineage.
+- Lineage recompute runs as a Celery task and uses a DB advisory lock to keep one authoritative writer.
+- Trends endpoints are computed from Meilisearch facet distribution on `topics` (v1 avoids SQL trend-cache state).
+
 Re-extraction is explicit and uses existing downloaded file only (no redownload).
 
 ## Startup Purge Model (Dev)

@@ -41,6 +41,18 @@ Track:
 - `semantic_diagnostics.expansion_steps`
 - `semantic_diagnostics.engine` (`faiss` preferred; `numpy` fallback is expected to be slower)
 
+## Trends + Lineage Endpoint Timing (Milestone C v1)
+
+Suggested benchmark endpoints:
+- `GET /trends/topics?limit=10`
+- `GET /trends/compare?cities=berkeley&cities=cupertino&date_from=2025-01-01&date_to=2025-12-31`
+- `GET /catalog/<CATALOG_ID>/lineage`
+
+Track:
+- p50/p95 latency
+- trends request volume and error rate
+- lineage recompute counters (`tc_lineage_recompute_runs_total`, `tc_lineage_catalog_updates_total`)
+
 ## Developer Microbenchmarks
 
 Measured via:

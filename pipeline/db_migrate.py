@@ -17,6 +17,7 @@ from sqlalchemy import text
 
 from pipeline.models import db_connect
 from pipeline import migrate_v8
+from pipeline import migrate_v9
 
 logger = logging.getLogger("db-migrate")
 
@@ -94,6 +95,12 @@ def migrate() -> None:
     except Exception as exc:
         # Keep core additive migrations available even when pgvector is not active.
         logger.warning("migrate_v8 skipped: %s", exc)
+
+    # Milestone C lineage columns.
+    try:
+        migrate_v9.migrate()
+    except Exception as exc:
+        logger.warning("migrate_v9 skipped: %s", exc)
 
 
 if __name__ == "__main__":

@@ -44,7 +44,7 @@ Re-baseline note after recent pushes:
 - `catalog.embedding` and/or separate `embedding_chunk` table
 - `agenda_item.embedding` (if item-level semantic retrieval is required)
 - `subscription` table (+ delivery log table for idempotent notifications)
-- Optional `trend_topic` materialization table for precomputed aggregates
+- `catalog.lineage_id`, `catalog.lineage_confidence`, `catalog.lineage_updated_at` (Milestone C v1)
 
 ### Internal interfaces
 - `LocalAIProvider` abstraction:
@@ -125,37 +125,41 @@ FAISS is removed in a fast-follow PR after all gates pass:
 - API: `semantic=true` returns expected structure without breaking existing clients
 - Performance: p50/p95 impact under local load
 
-## Milestone C: Longitudinal Issue Lineage + Trends UI
+## Milestone C: Meilisearch-Faceted Trends + Merge-Safe Lineage (Meeting-Level v1)
 
-Status: **Planned (re-baselined)**
-
-Baseline dependency updates:
-- Requires Milestone B semantic retrieval foundations.
-- Incorporates completed summary trust layer outputs (grounded summaries, cleaner segmented agenda artifacts) as upstream inputs for clearer lineage/trend UX.
+Status: **In implementation (re-baselined)**
 
 ### Scope
-Link related agenda items over time and expose city/topic trends.
+1. Meeting-level lineage threads users can follow across records.
+2. City/topic trend comparison endpoints with no extra SQL cache layer in v1.
+3. Lightweight UI panels behind feature flag.
 
-### Implementation
-1. Extend similarity engine:
-   - cluster by semantic similarity + shared entities + normalized title tokens
-2. Build lineage representation:
-   - `lineage_id` / issue-thread grouping
-3. Implement trends endpoints:
-   - `/trends/topics`, `/trends/compare`, `/trends/export`
-4. Frontend:
-   - “Compare Cities” dashboard
-   - “Issue Timeline” panel from lineage groups
+Why this matters:
+- users can follow one issue across meetings instead of scanning records one-by-one;
+- users can compare topic momentum across cities without manual spreadsheets.
+
+### Implementation (re-baselined)
+1. Feature-gate with `FEATURE_TRENDS_DASHBOARD`.
+2. Persist lineage only (`catalog.lineage_id`, `lineage_confidence`, `lineage_updated_at`).
+3. Recompute lineage in Celery (`pipeline/tasks.py`) with a DB advisory lock and deterministic full-graph assignment.
+4. Serve trends from Meilisearch facets (`topics`) via:
+   - `GET /trends/topics`
+   - `GET /trends/compare`
+   - `GET /trends/export`
+5. Expose lineage via:
+   - `GET /lineage/{lineage_id}`
+   - `GET /catalog/{catalog_id}/lineage`
+6. Apply rate limits to all new read routes.
 
 ### Edge handling
-- False merges: use confidence scoring and minimum evidence thresholds.
-- City data sparsity: show low-confidence badge, not hard claims.
+- Cascading bridge merges rewrite lineage IDs across affected components in one authoritative recompute.
+- Sparse cities/date windows return empty trend series, not errors.
+- Low-confidence lineage remains visible with confidence metadata.
 
 ### Tests
-- Unit: lineage clustering determinism
-- Integration: aggregate math by date bucket/city/topic
-- Frontend: chart/export parity tests
-- Regression: existing search and segmentation UI flows
+- lineage connected-component determinism and merge rewrite behavior
+- trends endpoints (topics/compare/export) and feature-flag gating
+- UI contract checks for Trends panel and Lineage timeline wiring
 
 ## Milestone D: Civic Alerts + Inference Server Scaling
 

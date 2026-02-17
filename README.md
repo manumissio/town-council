@@ -115,6 +115,19 @@ Status:
 - Async endpoint: `POST /votes/{catalog_id}` (supports `force=true`)
 - Storage: normalized outcome in `AgendaItem.result`, structured details in `AgendaItem.votes`
 
+## Lineage + Trends (Milestone C v1)
+Milestone C v1 is feature-flagged.
+
+- Feature flag: `FEATURE_TRENDS_DASHBOARD` (default `false`)
+- Endpoints:
+  - `GET /trends/topics`
+  - `GET /trends/compare`
+  - `GET /trends/export`
+  - `GET /lineage/{lineage_id}`
+  - `GET /catalog/{catalog_id}/lineage`
+- Trends source: Meilisearch facets (`topics`) in v1 (no SQL trend cache table).
+- Lineage source: deterministic connected components from `catalog.related_ids`, persisted on `catalog.lineage_*`.
+
 ## Recent Completed Work
 - AI Summary quality hardening: grounded decision-brief summaries with deterministic fallback.
 - Contextual AI disclaimers in UI: shown only when AI payload is present (Summary and AI-derived Structured Agenda).

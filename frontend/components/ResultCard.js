@@ -6,7 +6,8 @@ import {
   Flag, AlertCircle, CheckCircle, Info
 } from "lucide-react";
 import DataTable from "./DataTable";
-import { API_BASE_URL, buildApiUrl, getApiHeaders, isDemoMode } from "../lib/api";
+import LineageTimeline from "./LineageTimeline";
+import { API_BASE_URL, buildApiUrl, getApiHeaders, isDemoMode, TRENDS_DASHBOARD_ENABLED } from "../lib/api";
 import textFormatter from "../lib/textFormatter";
 
 const { renderFormattedExtractedText } = textFormatter;
@@ -1025,6 +1026,11 @@ export default function ResultCard({ hit, onPersonClick, onTopicClick }) {
                 )}
               </div>
             )}
+
+            <LineageTimeline
+              catalogId={hit.catalog_id}
+              enabled={Boolean(TRENDS_DASHBOARD_ENABLED && !isAgendaItem)}
+            />
           </div>
         )}
 
