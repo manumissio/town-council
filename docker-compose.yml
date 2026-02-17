@@ -42,6 +42,11 @@ services:
       - DATA_DIR=/app/data
       - APP_ENV=${APP_ENV:-dev}
       - STARTUP_PURGE_DERIVED=${STARTUP_PURGE_DERIVED:-true}
+      - LOCAL_AI_BACKEND=${LOCAL_AI_BACKEND:-http}
+      - LOCAL_AI_HTTP_BASE_URL=${LOCAL_AI_HTTP_BASE_URL:-http://inference:11434}
+      - LOCAL_AI_HTTP_TIMEOUT_SECONDS=${LOCAL_AI_HTTP_TIMEOUT_SECONDS:-45}
+      - LOCAL_AI_HTTP_MAX_RETRIES=${LOCAL_AI_HTTP_MAX_RETRIES:-2}
+      - LOCAL_AI_HTTP_MODEL=${LOCAL_AI_HTTP_MODEL:-gemma3:1b}
       # Semantic search (Milestone B) config. Endpoint is disabled by default.
       - SEMANTIC_ENABLED=${SEMANTIC_ENABLED:-false}
       - SEMANTIC_BACKEND=${SEMANTIC_BACKEND:-faiss}
@@ -64,6 +69,7 @@ services:
       - meilisearch
       - redis
       - tika
+      - inference
 
   # Apache Tika Server for high-performance text extraction.
   tika:
@@ -105,9 +111,10 @@ services:
       - .:/app
       - data:/app/data
     working_dir: /app
-    # Use a single-process pool so the worker's metrics endpoint reports the same
-    # process that executes tasks (prefork would hide child process metrics).
-    command: celery -A pipeline.tasks worker --loglevel=info --concurrency=1 --pool=solo
+    # Conservative D2-lite default: use HTTP inference backend with bounded parallelism.
+    # Why this branch exists: lifting concurrency while keeping in-process llama.cpp would
+    # duplicate model memory per process and destabilize shared hosts.
+    command: celery -A pipeline.tasks worker --loglevel=info --concurrency=${WORKER_CONCURRENCY:-3} --pool=${WORKER_POOL:-prefork}
     environment:
       - PYTHONUNBUFFERED=1
       - PYTHONPATH=/app
@@ -122,6 +129,11 @@ services:
       - TC_WORKER_METRICS_PORT=8001
       - APP_ENV=${APP_ENV:-dev}
       - STARTUP_PURGE_DERIVED=${STARTUP_PURGE_DERIVED:-true}
+      - LOCAL_AI_BACKEND=${LOCAL_AI_BACKEND:-http}
+      - LOCAL_AI_HTTP_BASE_URL=${LOCAL_AI_HTTP_BASE_URL:-http://inference:11434}
+      - LOCAL_AI_HTTP_TIMEOUT_SECONDS=${LOCAL_AI_HTTP_TIMEOUT_SECONDS:-45}
+      - LOCAL_AI_HTTP_MAX_RETRIES=${LOCAL_AI_HTTP_MAX_RETRIES:-2}
+      - LOCAL_AI_HTTP_MODEL=${LOCAL_AI_HTTP_MODEL:-gemma3:1b}
       # Local AI (Gemma 3) tuning. Defaults are safe but configurable.
       - LLM_CONTEXT_WINDOW=${LLM_CONTEXT_WINDOW:-16384}
       - LLM_SUMMARY_MAX_TEXT=${LLM_SUMMARY_MAX_TEXT:-30000}
@@ -143,6 +155,7 @@ services:
       - redis
       - postgres
       - tika
+      - inference
 
   # NLP Worker: Uses SpaCy to extract Organizations and Locations from text.
   nlp:
@@ -238,6 +251,11 @@ services:
       - APP_ENV=${APP_ENV:-dev}
       - STARTUP_PURGE_DERIVED=${STARTUP_PURGE_DERIVED:-true}
       - FEATURE_TRENDS_DASHBOARD=${FEATURE_TRENDS_DASHBOARD:-false}
+      - LOCAL_AI_BACKEND=${LOCAL_AI_BACKEND:-http}
+      - LOCAL_AI_HTTP_BASE_URL=${LOCAL_AI_HTTP_BASE_URL:-http://inference:11434}
+      - LOCAL_AI_HTTP_TIMEOUT_SECONDS=${LOCAL_AI_HTTP_TIMEOUT_SECONDS:-45}
+      - LOCAL_AI_HTTP_MAX_RETRIES=${LOCAL_AI_HTTP_MAX_RETRIES:-2}
+      - LOCAL_AI_HTTP_MODEL=${LOCAL_AI_HTTP_MODEL:-gemma3:1b}
       # Semantic search API settings.
       - SEMANTIC_ENABLED=${SEMANTIC_ENABLED:-false}
       - SEMANTIC_BACKEND=${SEMANTIC_BACKEND:-faiss}
@@ -254,6 +272,18 @@ services:
       - meilisearch
       - postgres
       - redis
+      - inference
+
+  # Dedicated inference runtime for D2-lite (HTTP backend).
+  inference:
+    image: ollama/ollama:latest
+    command: ["serve"]
+    environment:
+      - OLLAMA_HOST=0.0.0.0:11434
+    mem_limit: 4G
+    cpus: 2.0
+    volumes:
+      - ollama_data:/root/.ollama
 
   # Next.js Frontend: The user interface for searching and viewing results.
   frontend:
@@ -358,3 +388,5 @@ volumes:
   grafana_data:
   # Persistent storage for Redis cache
   redis_data:
+  # Persistent storage for inference model blobs
+  ollama_data:

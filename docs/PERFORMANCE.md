@@ -41,6 +41,28 @@ Track:
 - `semantic_diagnostics.expansion_steps`
 - `semantic_diagnostics.engine` (`faiss` preferred; `numpy` fallback is expected to be slower)
 
+## D2-lite Runtime Profile (Milestone D)
+
+Default conservative profile for rollout:
+- `LOCAL_AI_BACKEND=http`
+- worker concurrency: `3`
+- inference service caps: ~4GB RAM / 2 CPU
+
+Promotion rule:
+- move to a balanced profile only after one week of clean SLOs.
+
+## A/B Experiment Artifacts
+
+For `270M vs 1B` balanced runs, evaluate:
+- section compliance delta
+- fallback and grounding deltas
+- summary/segment p95 deltas
+- failure-rate delta
+
+Primary outputs:
+- `experiments/results/ab_report_v1.md`
+- `experiments/results/ab_score_<runs>.json`
+
 ## Trends + Lineage Endpoint Timing (Milestone C v1)
 
 Suggested benchmark endpoints:

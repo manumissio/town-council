@@ -4,6 +4,7 @@ import logging
 import threading
 import re
 import multiprocessing
+import requests
 from rapidfuzz import fuzz
 try:
     # Optional dependency: we still want the pipeline to run (heuristic fallbacks)
@@ -32,6 +33,11 @@ from pipeline.config import (
     AGENDA_SUMMARY_SINGLE_ITEM_MODE,
     AGENDA_SUMMARY_TEMPERATURE,
     LOCAL_AI_ALLOW_MULTIPROCESS,
+    LOCAL_AI_BACKEND,
+    LOCAL_AI_HTTP_BASE_URL,
+    LOCAL_AI_HTTP_TIMEOUT_SECONDS,
+    LOCAL_AI_HTTP_MAX_RETRIES,
+    LOCAL_AI_HTTP_MODEL,
 )
 from pipeline.summary_quality import is_summary_grounded, prune_unsupported_summary_lines
 
@@ -1273,6 +1279,7 @@ def _prepare_structured_agenda_items_summary_prompt(
         "Write a plain-text executive decision brief for a city meeting agenda.\n"
         "STRICT RULES:\n"
         "- Do NOT restate items chronologically.\n"
+        "- Do not acknowledge the prompt.\n"
         "- Do NOT invent outcomes or facts not present in input.\n"
         "- Use only provided agenda item fields.\n"
         "- Keep content concrete and concise.\n"
@@ -1629,6 +1636,101 @@ def iter_fallback_paragraphs(page_content: str) -> list[str]:
         paras.append("\n".join(current).strip())
     return [p for p in paras if p]
 
+
+class InProcessLlamaProvider:
+    """
+    In-process llama.cpp provider.
+    """
+
+    name = "inprocess"
+
+    def __init__(self, owner: "LocalAI"):
+        self.owner = owner
+
+    def generate(
+        self,
+        prompt: str,
+        *,
+        max_tokens: int,
+        temperature: float,
+        response_format: dict | None = None,
+    ) -> str | None:
+        self.owner._load_model()
+        if not self.owner.llm:
+            return None
+        with self.owner._lock:
+            try:
+                if response_format is not None:
+                    try:
+                        response = self.owner.llm(
+                            prompt,
+                            max_tokens=max_tokens,
+                            temperature=temperature,
+                            response_format=response_format,
+                        )
+                    except TypeError:
+                        response = self.owner.llm(
+                            prompt,
+                            max_tokens=max_tokens,
+                            temperature=temperature,
+                        )
+                else:
+                    response = self.owner.llm(
+                        prompt,
+                        max_tokens=max_tokens,
+                        temperature=temperature,
+                    )
+                return ((response or {}).get("choices") or [{}])[0].get("text", "")
+            finally:
+                if self.owner.llm:
+                    self.owner.llm.reset()
+
+
+class HttpInferenceProvider:
+    """
+    HTTP provider (Ollama-compatible /api/generate).
+    """
+
+    name = "http"
+
+    def __init__(self):
+        self.base_url = LOCAL_AI_HTTP_BASE_URL
+        self.timeout_seconds = max(5, LOCAL_AI_HTTP_TIMEOUT_SECONDS)
+        self.max_retries = max(0, LOCAL_AI_HTTP_MAX_RETRIES)
+        self.model_name = LOCAL_AI_HTTP_MODEL
+
+    def generate(
+        self,
+        prompt: str,
+        *,
+        max_tokens: int,
+        temperature: float,
+        response_format: dict | None = None,  # kept for interface parity
+    ) -> str | None:
+        _ = response_format
+        payload = {
+            "model": self.model_name,
+            "prompt": prompt,
+            "stream": False,
+            "options": {
+                "num_predict": int(max_tokens),
+                "temperature": float(temperature),
+            },
+        }
+        url = f"{self.base_url}/api/generate"
+        last_error = None
+        for _attempt in range(self.max_retries + 1):
+            try:
+                response = requests.post(url, json=payload, timeout=self.timeout_seconds)
+                response.raise_for_status()
+                data = response.json()
+                return (data.get("response") or "").strip()
+            except Exception as exc:
+                last_error = exc
+        if last_error is not None:
+            raise RuntimeError(f"HTTP inference failed: {last_error}") from last_error
+        return None
+
 class LocalAI:
     """
     The 'Brain' of our application.
@@ -1658,7 +1760,22 @@ class LocalAI:
                 if cls._instance is None:
                     cls._instance = super(LocalAI, cls).__new__(cls)
                     cls._instance.llm = None  # Initialize the model as None (we'll load it later)
+                    cls._instance._provider = None
+                    cls._instance._provider_backend = None
         return cls._instance
+
+    def _get_provider(self):
+        backend = (LOCAL_AI_BACKEND or "inprocess").strip().lower()
+        if backend not in {"inprocess", "http"}:
+            backend = "inprocess"
+        # Why this branch exists: backend mode is env-driven and can change between test runs.
+        if self._provider is None or self._provider_backend != backend:
+            if backend == "http":
+                self._provider = HttpInferenceProvider()
+            else:
+                self._provider = InProcessLlamaProvider(self)
+            self._provider_backend = backend
+        return self._provider
 
     def _load_model(self):
         """
@@ -1669,6 +1786,9 @@ class LocalAI:
         2. If two threads try to load simultaneously, we'd waste RAM and cause errors
         3. The lock ensures only ONE thread loads the model, others wait
         """
+        if (LOCAL_AI_BACKEND or "inprocess").strip().lower() == "http":
+            return
+
         # Guardrail: llama.cpp loads the model into the *current process*. In a multiprocess
         # worker (Celery prefork), this will duplicate the model per process and can OOM.
         if not LOCAL_AI_ALLOW_MULTIPROCESS and _looks_like_multiprocess_worker():
@@ -1721,32 +1841,25 @@ class LocalAI:
 
         We truncate the input text to avoid exceeding the model's context window.
         """
-        self._load_model()
-        if not self.llm: return None
-
+        provider = self._get_provider()
         prompt = prepare_summary_prompt(text, doc_kind=doc_kind)
 
-        with self._lock:
-            try:
-                response = self.llm(prompt, max_tokens=LLM_SUMMARY_MAX_TOKENS, temperature=0.1)
-                raw = response["choices"][0]["text"].strip()
-                normalized = _normalize_summary_output_to_bluf(raw, source_text=text)
-                # If normalization fails unexpectedly, fall back to the raw output so the
-                # caller can decide how to handle it (e.g., store raw, retry, etc.).
-                return normalized or raw
-            except Exception as e:
-                # AI inference errors: Why keep this broad?
-                # During text generation, the model can fail in unpredictable ways:
-                # - RuntimeError: Model context overflow, generation timeout
-                # - KeyError: Unexpected response format (model behavior changed)
-                # - MemoryError: Generated text too large
-                # - CUDA errors: GPU issues during generation
-                # DECISION: Catch all errors and return None. The caller handles gracefully.
-                # Better to skip summarization than crash the entire pipeline.
-                logger.error(f"AI Summarization failed: {e}")
+        try:
+            raw = (
+                provider.generate(
+                    prompt,
+                    max_tokens=LLM_SUMMARY_MAX_TOKENS,
+                    temperature=0.1,
+                )
+                or ""
+            ).strip()
+            if not raw:
                 return None
-            finally:
-                if self.llm: self.llm.reset()
+            normalized = _normalize_summary_output_to_bluf(raw, source_text=text)
+            return normalized or raw
+        except Exception as e:
+            logger.error(f"AI Summarization failed: {e}")
+            return None
 
     def generate_json(self, prompt: str, max_tokens: int = 256) -> str | None:
         """
@@ -1755,34 +1868,25 @@ class LocalAI:
         We attempt llama.cpp JSON-response enforcement first, then fall back to
         plain generation so callers can still apply strict post-parse validation.
         """
-        self._load_model()
-        if not self.llm:
-            return None
-
-        with self._lock:
-            try:
-                response = None
-                # Best-effort JSON-mode enforcement (llama_cpp API varies by version).
-                try:
-                    response = self.llm(
-                        prompt,
-                        max_tokens=max_tokens,
-                        temperature=0.0,
-                        response_format={"type": "json_object"},
-                    )
-                except TypeError:
-                    response = self.llm(prompt, max_tokens=max_tokens, temperature=0.0)
-                text = (response["choices"][0]["text"] or "").strip() if response else ""
-                if text.startswith("{"):
-                    return text
-                # Some prompts seed the first "{", while llama returns continuation only.
-                return "{" + text if text else text
-            except Exception as e:
-                logger.error(f"AI JSON generation failed: {e}")
+        provider = self._get_provider()
+        try:
+            text = (
+                provider.generate(
+                    prompt,
+                    max_tokens=max_tokens,
+                    temperature=0.0,
+                    response_format={"type": "json_object"},
+                )
+                or ""
+            ).strip()
+            if not text:
                 return None
-            finally:
-                if self.llm:
-                    self.llm.reset()
+            if text.startswith("{"):
+                return text
+            return "{" + text
+        except Exception as e:
+            logger.error(f"AI JSON generation failed: {e}")
+            return None
 
     def summarize_agenda_items(
         self,
@@ -1794,9 +1898,7 @@ class LocalAI:
         """
         Generate a grounded decision-brief summary from structured agenda items.
         """
-        self._load_model()
-        if not self.llm:
-            return None
+        provider = self._get_provider()
 
         structured_items = [_coerce_agenda_summary_item(item, idx=i) for i, item in enumerate(items or [])]
         filtered_items = []
@@ -1858,46 +1960,44 @@ class LocalAI:
         )
         grounding_source = _agenda_items_source_text(filtered_items)
 
-        with self._lock:
-            try:
-                response = self.llm(
+        try:
+            raw = (
+                provider.generate(
                     prompt,
                     max_tokens=LLM_SUMMARY_MAX_TOKENS,
                     temperature=AGENDA_SUMMARY_TEMPERATURE,
                 )
-                raw = (response["choices"][0]["text"] or "").strip()
-                cleaned = _strip_markdown_emphasis(raw).strip()
-                cleaned = _strip_llm_acknowledgements(cleaned).strip()
-                cleaned = _normalize_bullets_to_dash(cleaned).strip()
-                if cleaned and not cleaned.startswith("BLUF:"):
-                    cleaned = f"BLUF: {scaffold.get('bluf_seed', 'Agenda summary.')}"
-                cleaned = _ensure_single_item_decision_section(cleaned, scaffold)
+                or ""
+            ).strip()
+            cleaned = _strip_markdown_emphasis(raw).strip()
+            cleaned = _strip_llm_acknowledgements(cleaned).strip()
+            cleaned = _normalize_bullets_to_dash(cleaned).strip()
+            if cleaned and not cleaned.startswith("BLUF:"):
+                cleaned = f"BLUF: {scaffold.get('bluf_seed', 'Agenda summary.')}"
+            cleaned = _ensure_single_item_decision_section(cleaned, scaffold)
 
-                pruned, removed_count = prune_unsupported_summary_lines(cleaned, grounding_source)
-                counters["agenda_summary_grounding_pruned_lines"] = int(removed_count)
-                if removed_count:
-                    logger.info(
-                        "agenda_summary.counters agenda_summary_grounding_pruned_lines=%s",
-                        removed_count,
-                    )
-                cleaned = pruned or cleaned
+            pruned, removed_count = prune_unsupported_summary_lines(cleaned, grounding_source)
+            counters["agenda_summary_grounding_pruned_lines"] = int(removed_count)
+            if removed_count:
+                logger.info(
+                    "agenda_summary.counters agenda_summary_grounding_pruned_lines=%s",
+                    removed_count,
+                )
+            cleaned = pruned or cleaned
 
-                grounded = is_summary_grounded(cleaned, grounding_source)
-                if (not grounded.is_grounded) or _agenda_items_summary_is_too_short(cleaned):
-                    counters["agenda_summary_fallback_deterministic"] = 1
-                    logger.info("agenda_summary.counters agenda_summary_fallback_deterministic=%s", 1)
-                    return _deterministic_agenda_items_summary(
-                        filtered_items,
-                        max_bullets=AGENDA_SUMMARY_MAX_BULLETS,
-                        truncation_meta=truncation_meta,
-                    )
-                return cleaned
-            except Exception as e:
-                logger.error(f"AI Agenda Items Summarization failed: {e}")
-                return None
-            finally:
-                if self.llm:
-                    self.llm.reset()
+            grounded = is_summary_grounded(cleaned, grounding_source)
+            if (not grounded.is_grounded) or _agenda_items_summary_is_too_short(cleaned):
+                counters["agenda_summary_fallback_deterministic"] = 1
+                logger.info("agenda_summary.counters agenda_summary_fallback_deterministic=%s", 1)
+                return _deterministic_agenda_items_summary(
+                    filtered_items,
+                    max_bullets=AGENDA_SUMMARY_MAX_BULLETS,
+                    truncation_meta=truncation_meta,
+                )
+            return cleaned
+        except Exception as e:
+            logger.error(f"AI Agenda Items Summarization failed: {e}")
+            return None
 
     def repair_title_spacing(self, raw_line: str) -> str | None:
         """
@@ -1908,9 +2008,7 @@ class LocalAI:
         - no word substitutions
         - single-line plain-text output
         """
-        self._load_model()
-        if not self.llm:
-            return None
+        provider = self._get_provider()
         source = (raw_line or "").strip()
         if not source:
             return None
@@ -1926,17 +2024,19 @@ class LocalAI:
             "<end_of_turn>\n"
             "<start_of_turn>model\n"
         )
-        with self._lock:
-            try:
-                response = self.llm(prompt, max_tokens=64, temperature=0.0)
-                text = (response["choices"][0]["text"] or "").strip()
-                return " ".join(text.splitlines()).strip()
-            except Exception as e:
-                logger.error(f"AI title spacing repair failed: {e}")
-                return None
-            finally:
-                if self.llm:
-                    self.llm.reset()
+        try:
+            text = (
+                provider.generate(
+                    prompt,
+                    max_tokens=64,
+                    temperature=0.0,
+                )
+                or ""
+            ).strip()
+            return " ".join(text.splitlines()).strip()
+        except Exception as e:
+            logger.error(f"AI title spacing repair failed: {e}")
+            return None
 
     def extract_agenda(self, text):
         """
@@ -1944,7 +2044,7 @@ class LocalAI:
 
         Returns a list of agenda items with titles, page numbers, and descriptions.
         """
-        self._load_model()
+        provider = self._get_provider()
 
         items = []
         mode = (AGENDA_SEGMENTATION_MODE or "balanced").strip().lower()
@@ -2194,7 +2294,7 @@ class LocalAI:
                     chunks.append((page_num, chunk))
             return chunks or [(1, raw_text)]
 
-        if self.llm:
+        if provider is not None:
             # We increase context slightly to catch more items, focusing on the start
             safe_text = text[:LLM_AGENDA_MAX_TEXT]
             
@@ -2217,39 +2317,42 @@ class LocalAI:
                 "ITEM 1:"
             )
             
-            with self._lock:
-                try:
-                    response = self.llm(prompt, max_tokens=LLM_AGENDA_MAX_TOKENS, temperature=0.1)
-                    raw_content = response["choices"][0]["text"].strip()
-                    # The prompt pins the model's output stream at "ITEM 1:", but llama.cpp
-                    # returns only the continuation text. Only reconstruct "ITEM 1:" when the
-                    # continuation looks like it actually followed the requested format.
-                    content = raw_content
-                    if (
-                        "(page" in raw_content.lower()
-                        or re.search(r"(?im)^\s*ITEM\s+\d+\s*:", raw_content)
-                        or re.search(r"(?im)\n\s*ITEM\s+\d+\s*:", raw_content)
-                    ):
-                        content = "ITEM 1:" + raw_content
+            try:
+                raw_content = (
+                    provider.generate(
+                        prompt,
+                        max_tokens=LLM_AGENDA_MAX_TOKENS,
+                        temperature=0.1,
+                    )
+                    or ""
+                ).strip()
+                # The prompt pins the model's output stream at "ITEM 1:", but llama.cpp
+                # returns only the continuation text. Only reconstruct "ITEM 1:" when the
+                # continuation looks like it actually followed the requested format.
+                content = raw_content
+                if (
+                    "(page" in raw_content.lower()
+                    or re.search(r"(?im)^\s*ITEM\s+\d+\s*:", raw_content)
+                    or re.search(r"(?im)\n\s*ITEM\s+\d+\s*:", raw_content)
+                ):
+                    content = "ITEM 1:" + raw_content
 
-                    # Parse across the full model output so we don't drop multi-line descriptions.
-                    for parsed in parse_llm_agenda_items(content):
-                        add_item(
-                            parsed["order"],
-                            parsed["title"],
-                            parsed["page_number"],
-                            parsed["description"],
-                            source_type="llm",
-                            context={"has_active_parent": False},
-                        )
-                except Exception as e:
-                    # AI agenda extraction errors: Same rationale as above
-                    # The model can fail during generation, response parsing, or regex matching
-                    # DECISION: Log the error but return partial results (items extracted so far)
-                    # rather than crashing. The fallback heuristic will catch items anyway.
-                    logger.error(f"AI Agenda Extraction failed: {e}")
-                finally:
-                    if self.llm: self.llm.reset()
+                # Parse across the full model output so we don't drop multi-line descriptions.
+                for parsed in parse_llm_agenda_items(content):
+                    add_item(
+                        parsed["order"],
+                        parsed["title"],
+                        parsed["page_number"],
+                        parsed["description"],
+                        source_type="llm",
+                        context={"has_active_parent": False},
+                    )
+            except Exception as e:
+                # AI agenda extraction errors: Same rationale as above
+                # The model can fail during generation, response parsing, or regex matching
+                # DECISION: Log the error but return partial results (items extracted so far)
+                # rather than crashing. The fallback heuristic will catch items anyway.
+                logger.error(f"AI Agenda Extraction failed: {e}")
 
         # FALLBACK: If AI fails, use text heuristics with page-aware chunking.
         if not items:

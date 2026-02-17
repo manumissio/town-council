@@ -128,6 +128,27 @@ Milestone C v1 is feature-flagged.
 - Trends source: Meilisearch facets (`topics`) in v1 (no SQL trend cache table).
 - Lineage source: deterministic connected components from `catalog.related_ids`, persisted on `catalog.lineage_*`.
 
+## Inference Scaling (Milestone D2-lite)
+Milestone D2-lite is the required precursor to multi-city expansion.
+
+- Config switch: `LOCAL_AI_BACKEND=inprocess|http`
+- Conservative default profile in Compose:
+  - worker concurrency: `3`
+  - inference service caps: ~4GB RAM / 2 CPU
+- Rollback:
+  - `LOCAL_AI_BACKEND=inprocess`
+  - worker concurrency back to `1`
+
+City onboarding is tracked in:
+- [`docs/city-onboarding-status.md`](docs/city-onboarding-status.md)
+
+Model A/B evaluation scripts:
+- `scripts/setup_ollama_270m.sh`
+- `scripts/run_ab_eval.sh`
+- `scripts/collect_ab_results.py`
+- `scripts/score_ab_results.py`
+- `scripts/sample_ab_manual_review.py`
+
 ## Recent Completed Work
 - AI Summary quality hardening: grounded decision-brief summaries with deterministic fallback.
 - Contextual AI disclaimers in UI: shown only when AI payload is present (Summary and AI-derived Structured Agenda).

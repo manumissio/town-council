@@ -1,0 +1,8 @@
+# Freeze the exact CID list here before a decision-grade run.
+# One CID per line, comments allowed.
+# Required for full run target: 60 CIDs (30 agenda + 30 minutes/unknown).
+# Known smoke IDs (replace/extend):
+3
+609
+933
+996

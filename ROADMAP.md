@@ -6,8 +6,8 @@ This roadmap is the canonical A/B/C/D plan and dependency order for feature expa
 
 - Milestone A: **Complete**
 - Milestone B: **Partially complete** (`B1 complete`, `B2 planned`)
-- Milestone C: **Planned (re-baselined)**
-- Milestone D: **Planned (re-baselined)**
+- Milestone C: **Complete (v1)**
+- Milestone D: **Planned (D2-lite first)**
 
 ## Summary
 
@@ -16,7 +16,10 @@ This roadmap turns feature ideas into an implementation sequence that fits the c
 1. **Milestone A (High ROI, low risk):** vote/outcome extraction hardening + scorecards foundation
 2. **Milestone B (Search upgrade):** semantic retrieval (hybrid keyword + vector)
 3. **Milestone C (Discovery UX):** longitudinal issue lineage + trends UI
-4. **Milestone D (Engagement + Scaling):** civic subscriptions/alerts + dedicated inference server backend
+4. **Milestone D2-lite (Scaling first):** HTTP inference backend + conservative concurrency profile
+5. **City Expansion Waves:** Wave 1 (existing spiders) then Wave 2 (new spiders)
+6. **Milestone C2 (Discovery UX deepening):** agenda-level lineage + Civic Signals
+7. **Milestone D1 (Engagement):** civic subscriptions/alerts after city breadth stabilizes
 
 It aligns with current architecture facts:
 - `AgendaItem.result`, `AgendaItem.votes`, and `raw_history` already exist.
@@ -127,7 +130,7 @@ FAISS is removed in a fast-follow PR after all gates pass:
 
 ## Milestone C: Meilisearch-Faceted Trends + Merge-Safe Lineage (Meeting-Level v1)
 
-Status: **In implementation (re-baselined)**
+Status: **Complete**
 
 ### Scope
 1. Meeting-level lineage threads users can follow across records.
@@ -161,53 +164,128 @@ Why this matters:
 - trends endpoints (topics/compare/export) and feature-flag gating
 - UI contract checks for Trends panel and Lineage timeline wiring
 
-## Milestone D: Civic Alerts + Inference Server Scaling
+## Milestone C2: Discovery UX Deepening (Agenda-Level Lineage + Civic Signals)
 
-Status: **Planned (re-baselined)**
+Status: **Planned**
+
+### Scope
+1. Add agenda-item-level lineage so users can follow a specific action/policy thread, not just meeting-level relatedness.
+2. Reintroduce trends as a differentiated product surface (`Civic Signals`), focused on change-over-time instead of static top terms.
+3. Connect trends directly to action paths (open lineage thread, compare cities, subscribe/watch).
+
+Why this matters:
+- meeting-level lineage answers "what else is related?";
+- agenda-level lineage answers "what happened to this exact issue over time?"
+- civic signals should answer "what changed and why should I care now?"
+
+### Implementation
+1. Add agenda-level lineage model and assignment logic with confidence and deterministic IDs.
+2. Add change-aware signals:
+   - rising/new/declining topics over configurable windows
+   - city-to-city comparative deltas
+3. Add topic normalization/curation to suppress low-value generic tokens.
+4. Add UI affordances:
+   - explicit "Open thread" from signal cards
+   - "Watch this signal" hook for Milestone D subscriptions.
+5. Keep all C2 surfaces feature-flagged until validation completes.
+
+### Edge handling
+- avoid false merges by requiring stronger evidence at agenda-item granularity;
+- sparse date windows produce low-confidence/insufficient-data states, not hard claims;
+- preserve fallback to existing meeting-level lineage when agenda-level evidence is weak.
+
+### Tests
+- agenda-lineage determinism + merge rewrite tests;
+- signal delta math tests (windowing and comparison correctness);
+- regression tests proving C2 does not degrade C v1 search and lineage behavior.
+
+### Acceptance criteria
+1. Users can open an agenda-level issue thread and see chronological progression with stable IDs.
+2. Civic Signals surfaces change-over-time (not static counts) with reproducible calculations.
+3. Signal cards reliably deep-link to relevant lineage/search views.
+4. False-positive rate remains bounded via confidence thresholds and deterministic fallbacks.
+
+## Milestone D2-lite: Inference Backend Decoupling + Conservative Runtime Profile
+
+Status: **Planned (next)**
 
 Baseline dependency updates:
 - Preserve parity with the new summary contract when inference backend changes.
 - Preserve grounding/pruning behavior and UI disclaimer assumptions for any HTTP inference backend rollout.
 
 ### Scope
-1. User subscriptions and notifications.
-2. Decouple inference from Celery worker processes.
+1. Decouple inference from Celery worker processes before city expansion.
+2. Lift worker concurrency conservatively (default profile) with explicit rollback.
 
 ### Implementation
-#### Subscriptions
-1. Add `subscription` and `notification_delivery` tables.
-2. Matching worker compares new/updated indexed items against active subscriptions.
-3. Delivery backend:
-   - Phase 1: webhook only
-   - Phase 2: email provider optional
-4. UI/API subscription management.
-
-#### Inference server
 1. Introduce provider abstraction in `pipeline/llm.py`.
 2. Keep current in-process backend as default.
-3. Add HTTP backend container (Ollama or compatible).
+3. Add HTTP backend container (Ollama-compatible) in Compose.
 4. Config switch:
    - `LOCAL_AI_BACKEND=inprocess|http`
-5. After HTTP backend stable, permit higher Celery concurrency for non-LLM tasks and optionally LLM calls through HTTP.
+5. Conservative runtime profile defaults:
+   - inference service caps: ~4GB RAM, 2 CPU
+   - worker concurrency: 3
+6. Promotion rule:
+   - move from Conservative to Balanced only after 1 week of clean SLOs.
 
 ### Edge handling
-- Delivery retries + idempotency keys.
 - Inference server unavailable: fallback or explicit task failure with retry policy.
+- Immediate rollback: `LOCAL_AI_BACKEND=inprocess`, worker concurrency back to `1`.
 
 ### Tests
-- Unit: subscription matching logic
-- Integration: notification enqueue + retry idempotency
 - Integration: HTTP inference backend parity with in-process output contracts
   - sectioned summary format parity (`BLUF`, `Why this matters`, `Top actions`, `Potential impacts`, `Unknowns`)
   - grounding/pruning parity on unsupported claims
 - Load test: compare throughput before/after backend switch
 
-## Rollout Strategy
+## City Expansion (after D2-lite gates)
+
+### Wave 1 (existing spiders only)
+- fremont
+- hayward
+- san_mateo
+- sunnyvale
+- san_leandro
+- mtn_view
+- moraga
+- belmont
+
+### Wave 2 (new spiders; provider-clustered)
+- orinda (IQM2)
+- brisbane
+- danville
+- los_gatos
+- los_altos
+- palo_alto
+- san_bruno
+- east_palo_alto
+- santa_clara (SIRE/custom last)
+
+Per-city quality gates:
+- crawl success >=95% over 3 runs
+- non-empty extraction >=90%
+- segmentation complete/empty >=95% (failed <5%)
+- searchable in API and Meilisearch facets
+
+## Milestone D1: Civic Alerts (deferred)
+
+Status: **Planned (after city breadth stabilizes)**
+
+Start criteria:
+1. >=12 active cities stable for 14 days.
+2. Queue/API/search SLOs remain within target on conservative profile.
+3. No P1/P2 ingestion regressions for 2 consecutive weeks.
+
+## Rollout Strategy (re-baselined)
 
 1. **A first (votes/outcomes):** immediate user-visible value with minimal architectural change.
 2. **B next (hybrid semantic):** additive and feature-flagged.
-3. **C then (lineage/trends):** builds directly on B embeddings.
-4. **D last (alerts + inference scaling):** larger ops surface area; do after metric baselines exist.
+3. **C then (meeting-level lineage + trends endpoints):** builds directly on B embeddings.
+4. **D2-lite next (HTTP inference + conservative profile):** remove single-process bottleneck safely.
+5. **City Wave 1 then Wave 2:** controlled onboarding with per-city reversible gates.
+6. **C2 next (agenda-level lineage + Civic Signals UX):** deepen discovery once expanded data baselines are stable.
+7. **D1 last (alerts/subscriptions):** launch engagement after breadth + stability criteria pass.
 
 Use feature flags for:
 - `FEATURE_SEMANTIC_SEARCH`
@@ -219,7 +297,7 @@ Use feature flags for:
 
 - `README.md`: user-facing feature availability and flags
 - `ARCHITECTURE.md`: data flow and component changes
-- `docs/OPERATIONS.md`: runbook for new workers/jobs, alert retries, inference backend ops
+- `docs/OPERATIONS.md`: runbook for backend mode switch, conservative profile, city wave gates
 - `docs/PERFORMANCE.md`: before/after benchmark tables for hybrid search and HTTP inference
 
 ## Acceptance Criteria (Program-Level)
@@ -227,8 +305,9 @@ Use feature flags for:
 1. Vote/outcome extraction populates meaningful structured fields without hallucinated tallies.
 2. Semantic search improves conceptual recall while preserving lexical fallback.
 3. Trends and lineage views produce reproducible aggregates and coherent item threads.
-4. Subscriptions deliver notifications idempotently and are auditable.
+4. C2 delivers agenda-level issue threads and change-aware signals with bounded false positives.
 5. Inference scaling path no longer depends on in-process singleton assumptions; Celery concurrency can be increased safely when using HTTP inference backend.
+6. Subscriptions deliver notifications idempotently and are auditable after D1 activation criteria pass.
 
 ## Explicit Assumptions and Defaults
 

@@ -18,6 +18,7 @@ from pipeline.config import (
     TIKA_MIN_EXTRACTED_CHARS_FOR_NO_OCR,
     LOCAL_AI_ALLOW_MULTIPROCESS,
     LOCAL_AI_REQUIRE_SOLO_POOL,
+    LOCAL_AI_BACKEND,
     ENABLE_VOTE_EXTRACTION,
     AGENDA_SUMMARY_MAX_INPUT_CHARS,
     AGENDA_SUMMARY_MIN_RESERVED_OUTPUT_CHARS,
@@ -198,12 +199,13 @@ def _run_startup_purge_on_worker_ready(sender=None, **kwargs):
     # concurrency > 1 (or a multiprocessing pool), each process will load its own model.
     # This can OOM a dev machine quickly.
     try:
+        backend = (LOCAL_AI_BACKEND or "inprocess").strip().lower()
         concurrency = getattr(sender, "concurrency", None)
         if concurrency is None and sender is not None:
             concurrency = getattr(getattr(sender, "app", None), "conf", {}).get("worker_concurrency")  # type: ignore[attr-defined]
         pool = _get_celery_pool_from_argv(getattr(sender, "argv", None) or sys.argv)  # type: ignore[arg-type]
 
-        if not LOCAL_AI_ALLOW_MULTIPROCESS:
+        if backend == "inprocess" and not LOCAL_AI_ALLOW_MULTIPROCESS:
             # Default stance: LocalAI runs in-process via llama.cpp, which loads the model
             # into the current process's RAM. Multiprocess pools will duplicate the model.
             if LOCAL_AI_REQUIRE_SOLO_POOL and pool and pool != "solo":

@@ -1,0 +1,28 @@
+experiment_name: gemma-270m-vs-1b-v1
+objective: balanced
+scope: staging-local
+arms:
+  A:
+    model: gemma-3-270m-custom
+  B:
+    model: gemma3:1b
+default_backend: http
+worker_concurrency: 3
+worker_pool: prefork
+full_run_expected_catalogs: 60
+full_run_repetitions_per_arm: 3
+quality_gates:
+  section_compliance_improvement_pp: 5.0
+  fallback_increase_pp_max: 1.0
+  grounding_drop_pp_max: 1.0
+  manual_review_median_improvement_min: 0.5
+performance_gates:
+  summary_p95_increase_pct_max: 25.0
+  segment_p95_increase_pct_max: 25.0
+  failure_rate_increase_pp_max: 1.0
+  queue_wait_p95_minutes_max: 10.0
+  search_p95_regression_pct_max: 15.0
+abort_conditions:
+  failures_first_15_pct_max: 5.0
+  queue_wait_p95_minutes_abort: 20.0
+  queue_wait_abort_sustain_minutes: 10

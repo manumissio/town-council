@@ -96,8 +96,12 @@ LocalAI (llama.cpp) loads the GGUF model into the current *process*.
 Celery's default prefork worker model uses multiple processes, which would duplicate the model in RAM and can OOM the host.
 This repo fails fast by default if the worker is started with an unsafe pool/concurrency configuration.
 
-Safe default (Compose):
-- `--pool=solo --concurrency=1`
+Backend-aware defaults:
+- `LOCAL_AI_BACKEND=inprocess`:
+  - use `--pool=solo --concurrency=1`
+- `LOCAL_AI_BACKEND=http` (D2-lite conservative profile):
+  - use `--pool=prefork --concurrency=3`
+  - inference service caps: ~4GB RAM / 2 CPU
 
 Override (not recommended):
 - `LOCAL_AI_ALLOW_MULTIPROCESS=true`
@@ -238,6 +242,83 @@ docker compose exec -T worker celery -A pipeline.tasks call pipeline.tasks.compu
 Notes:
 - Trends are served from Meilisearch facets (`topics`) in v1.
 - Lineage recompute is full-graph and lock-protected to handle cascading component merges safely.
+
+## D2-lite Rollout (before city expansion)
+
+1. Enable HTTP backend:
+```bash
+LOCAL_AI_BACKEND=http docker compose up -d --build worker api pipeline inference
+```
+2. Pull the inference model once:
+```bash
+docker compose exec -T inference ollama pull "${LOCAL_AI_HTTP_MODEL:-gemma3:1b}"
+```
+3. Run backend parity tests:
+```bash
+.venv/bin/pytest -q tests/test_llm_backend_parity_*.py
+```
+4. If parity or SLOs regress, rollback immediately:
+```bash
+LOCAL_AI_BACKEND=inprocess WORKER_CONCURRENCY=1 WORKER_POOL=solo docker compose up -d --build worker api pipeline
+```
+
+City onboarding helper:
+```bash
+DRY_RUN=1 ./scripts/onboard_city_wave.sh wave1
+```
+
+## A/B Model Evaluation (270M vs 1B, staging-local)
+
+This runbook executes a balanced A/B evaluation under the HTTP backend so results
+are not confounded by backend differences.
+
+1) One-time setup for 270M custom model in Ollama:
+```bash
+./scripts/setup_ollama_270m.sh /models/gemma-3-270m-it-Q4_K_M.gguf
+```
+
+2) Run Arm A (control):
+```bash
+LOCAL_AI_BACKEND=http LOCAL_AI_HTTP_MODEL=gemma-3-270m-custom WORKER_CONCURRENCY=3 WORKER_POOL=prefork docker compose up -d --build inference worker api pipeline
+./scripts/run_ab_eval.sh --arm A --catalog-file experiments/ab_catalogs_v1.txt --run-id A_run1
+python scripts/collect_ab_results.py --run-id A_run1
+```
+
+3) Run Arm B (treatment):
+```bash
+LOCAL_AI_BACKEND=http LOCAL_AI_HTTP_MODEL=gemma3:1b WORKER_CONCURRENCY=3 WORKER_POOL=prefork docker compose up -d --build inference worker api pipeline
+./scripts/run_ab_eval.sh --arm B --catalog-file experiments/ab_catalogs_v1.txt --run-id B_run1
+python scripts/collect_ab_results.py --run-id B_run1
+```
+
+4) Score gates and generate report:
+```bash
+python scripts/score_ab_results.py \
+  --runs A_run1,B_run1 \
+  --queue-wait-p95-minutes <PROM_QUEUE_WAIT_P95_MINUTES> \
+  --search-p95-regression-pct <SEARCH_P95_REGRESSION_PCT>
+```
+
+5) Optional blinded manual review pack:
+```bash
+python scripts/sample_ab_manual_review.py --runs A_run1,B_run1 --sample-size 20
+```
+
+After reviewers fill `manual_review_blind_v1.csv`, re-run scorer with manual inputs:
+```bash
+python scripts/score_ab_results.py \
+  --runs A_run1,B_run1 \
+  --queue-wait-p95-minutes <PROM_QUEUE_WAIT_P95_MINUTES> \
+  --search-p95-regression-pct <SEARCH_P95_REGRESSION_PCT> \
+  --manual-review-csv experiments/results/manual_review_blind_v1.csv \
+  --manual-review-key-csv experiments/results/manual_review_key_v1.csv
+```
+
+Artifacts:
+- `experiments/results/<run_id>/tasks.jsonl`
+- `experiments/results/<run_id>/ab_rows.csv`
+- `experiments/results/<run_id>/ab_rows.json`
+- `experiments/results/ab_report_v1.md`
 
 Default is `false` for staged rollout.
 

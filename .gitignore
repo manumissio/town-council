@@ -141,3 +141,6 @@ coverage.xml
 pipeline/.benchmarks/
 file:testdb
 pipeline/file:testdb
+
+# Experiment outputs (keep manifests/config tracked, ignore generated run artifacts)
+experiments/results/*

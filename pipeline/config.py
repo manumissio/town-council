@@ -80,6 +80,13 @@ NLP_MAX_TEXT_LENGTH = 100000
 
 LOCAL_AI_ALLOW_MULTIPROCESS = os.getenv("LOCAL_AI_ALLOW_MULTIPROCESS", "false").strip().lower() in {"1", "true", "yes"}
 LOCAL_AI_REQUIRE_SOLO_POOL = os.getenv("LOCAL_AI_REQUIRE_SOLO_POOL", "true").strip().lower() in {"1", "true", "yes"}
+LOCAL_AI_BACKEND = (os.getenv("LOCAL_AI_BACKEND", "inprocess").strip().lower() or "inprocess")
+if LOCAL_AI_BACKEND not in {"inprocess", "http"}:
+    LOCAL_AI_BACKEND = "inprocess"
+LOCAL_AI_HTTP_BASE_URL = (os.getenv("LOCAL_AI_HTTP_BASE_URL", "http://inference:11434").strip() or "http://inference:11434").rstrip("/")
+LOCAL_AI_HTTP_TIMEOUT_SECONDS = int(os.getenv("LOCAL_AI_HTTP_TIMEOUT_SECONDS", "45"))
+LOCAL_AI_HTTP_MAX_RETRIES = int(os.getenv("LOCAL_AI_HTTP_MAX_RETRIES", "2"))
+LOCAL_AI_HTTP_MODEL = (os.getenv("LOCAL_AI_HTTP_MODEL", "gemma3:1b").strip() or "gemma3:1b")
 
 # Semantic search (Milestone B) feature flags and retrieval tuning.
 # During B2 rollout we support dual backends:
