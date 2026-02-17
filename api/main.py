@@ -19,11 +19,13 @@ from sqlalchemy import text
 from api.cache import cached
 from pipeline.config import (
     SEMANTIC_ENABLED,
+    SEMANTIC_BACKEND,
     SEMANTIC_BASE_TOP_K,
     SEMANTIC_FILTER_EXPANSION_FACTOR,
     SEMANTIC_MAX_TOP_K,
+    SEMANTIC_RERANK_CANDIDATE_LIMIT,
 )
-from pipeline.semantic_index import get_semantic_backend, SemanticConfigError
+from pipeline.semantic_index import get_semantic_backend, SemanticConfigError, PgvectorSemanticBackend
 
 # Metrics are internal-only and are scraped by Prometheus from the Docker network.
 from api.metrics import instrument_app
@@ -210,6 +212,34 @@ def _build_filter_values(
     }
 
 
+def _build_meilisearch_filter_clauses(
+    city: Optional[str],
+    meeting_type: Optional[str],
+    org: Optional[str],
+    date_from: Optional[str],
+    date_to: Optional[str],
+    include_agenda_items: bool,
+) -> list[str]:
+    clauses: list[str] = []
+    if not include_agenda_items:
+        clauses.append('result_type = "meeting"')
+    if city:
+        clauses.append(f'city = "{sanitize_filter(normalize_city_filter(city))}"')
+    if meeting_type:
+        clauses.append(f'meeting_category = "{sanitize_filter(meeting_type)}"')
+    if org:
+        clauses.append(f'organization = "{sanitize_filter(org)}"')
+    if date_from and date_to:
+        clauses.append(
+            f'date >= "{sanitize_filter(date_from)}" AND date <= "{sanitize_filter(date_to)}"'
+        )
+    elif date_from:
+        clauses.append(f'date >= "{sanitize_filter(date_from)}"')
+    elif date_to:
+        clauses.append(f'date <= "{sanitize_filter(date_to)}"')
+    return clauses
+
+
 def _semantic_candidate_matches_filters(meta: dict, filters: dict) -> bool:
     result_type = str(meta.get("result_type") or "")
     if not filters.get("include_agenda_items") and result_type != "meeting":
@@ -271,6 +301,7 @@ def health_check(db: SQLAlchemySession = Depends(get_db)):
 @app.get("/search")
 def search_documents(
     q: str = Query(..., min_length=1, description="The search query (e.g., 'zoning')"),
+    semantic: bool = Query(False, description="Enable semantic rerank (hybrid lexical + vector)"),
     city: Optional[str] = Query(None),
     include_agenda_items: bool = Query(False, description="Include individual agenda items in search hits"),
     sort: Optional[str] = Query(None, description="Sort mode: newest|oldest|relevance"),
@@ -279,7 +310,7 @@ def search_documents(
     date_from: Optional[str] = Query(None),
     date_to: Optional[str] = Query(None),
     limit: int = Query(20, ge=1, le=100), # Security: Enforce min/max limits
-    offset: int = Query(0, ge=0)
+    offset: int = Query(0, ge=0),
 ):
     """
     Search for text within meeting minutes using Meilisearch.
@@ -287,6 +318,26 @@ def search_documents(
     # VALIDATION: Strict Date Checks
     if date_from: validate_date_format(date_from)
     if date_to: validate_date_format(date_to)
+
+    if semantic:
+        if not is_db_ready():
+            raise HTTPException(status_code=503, detail="Database service is unavailable")
+        db = SessionLocal()
+        try:
+            return search_documents_semantic(
+                q=q,
+                city=city,
+                include_agenda_items=include_agenda_items,
+                meeting_type=meeting_type,
+                org=org,
+                date_from=date_from,
+                date_to=date_to,
+                limit=limit,
+                offset=offset,
+                db=db,
+            )
+        finally:
+            db.close()
 
     try:
         index = client.index('documents')
@@ -322,24 +373,14 @@ def search_documents(
             else:
                 raise HTTPException(status_code=400, detail="Invalid sort mode. Use newest|oldest|relevance.")
         
-        # Default: search meeting records only. Agenda items are opt-in because they otherwise
-        # appear as separate search entries and confuse city-level browsing (especially Legistar cities).
-        if not include_agenda_items:
-            search_params['filter'].append('result_type = "meeting"')
-
-        # Normalize city to match the indexed display_name (e.g., "ca_cupertino").
-        if city:
-            normalized_city = normalize_city_filter(city)
-            search_params['filter'].append(f'city = "{sanitize_filter(normalized_city)}"')
-        if meeting_type: search_params['filter'].append(f'meeting_category = "{sanitize_filter(meeting_type)}"')
-        if org: search_params['filter'].append(f'organization = "{sanitize_filter(org)}"')
-
-        if date_from and date_to:
-            search_params['filter'].append(f'date >= "{sanitize_filter(date_from)}" AND date <= "{sanitize_filter(date_to)}"')
-        elif date_from:
-            search_params['filter'].append(f'date >= "{sanitize_filter(date_from)}"')
-        elif date_to:
-            search_params['filter'].append(f'date <= "{sanitize_filter(date_to)}"')
+        search_params['filter'] = _build_meilisearch_filter_clauses(
+            city=city,
+            meeting_type=meeting_type,
+            org=org,
+            date_from=date_from,
+            date_to=date_to,
+            include_agenda_items=include_agenda_items,
+        )
 
         if not search_params['filter']:
             del search_params['filter']
@@ -497,8 +538,9 @@ def search_documents_semantic(
     db: SQLAlchemySession = Depends(get_db),
 ):
     """
-    Semantic search endpoint (Milestone B MVP).
-    We intentionally do not fall back to keyword search so failures stay observable.
+    Semantic search endpoint.
+    B2 uses hybrid retrieval for pgvector (lexical recall + vector rerank).
+    Legacy FAISS backend keeps direct semantic query behavior during transition.
     """
     if not SEMANTIC_ENABLED:
         raise HTTPException(
@@ -530,19 +572,60 @@ def search_documents_semantic(
         deduped = []
         raw_count = 0
         filtered_count = 0
-        while True:
-            candidates = backend.query(q, k)
-            raw_count = len(candidates)
+
+        # B2 path: hybrid retrieval for pgvector (lexical recall -> vector rerank).
+        if isinstance(backend, PgvectorSemanticBackend) or (SEMANTIC_BACKEND == "pgvector"):
+            index = client.index("documents")
+            lexical_limit = min(
+                SEMANTIC_MAX_TOP_K,
+                max(target * SEMANTIC_FILTER_EXPANSION_FACTOR, SEMANTIC_RERANK_CANDIDATE_LIMIT),
+            )
+            lexical_params = {
+                "limit": lexical_limit,
+                "offset": 0,
+                "attributesToRetrieve": [
+                    "id",
+                    "db_id",
+                    "event_id",
+                    "catalog_id",
+                    "result_type",
+                    "city",
+                    "meeting_category",
+                    "organization",
+                    "date",
+                ],
+                "filter": _build_meilisearch_filter_clauses(
+                    city=city,
+                    meeting_type=meeting_type,
+                    org=org,
+                    date_from=date_from,
+                    date_to=date_to,
+                    include_agenda_items=include_agenda_items,
+                ),
+            }
+            if not lexical_params["filter"]:
+                del lexical_params["filter"]
+            lexical_results = index.search(q, lexical_params)
+            lexical_hits = lexical_results.get("hits", []) or []
+            raw_count = len(lexical_hits)
+            candidates = backend.rerank_candidates(db, q, lexical_hits, top_k=k)
             filtered = [c for c in candidates if _semantic_candidate_matches_filters(c.metadata, filters)]
             filtered_count = len(filtered)
             deduped = _dedupe_semantic_candidates(filtered)
-            if len(deduped) >= target or k >= SEMANTIC_MAX_TOP_K:
-                break
-            next_k = min(SEMANTIC_MAX_TOP_K, max(k + 1, k * 2))
-            if next_k == k:
-                break
-            k = next_k
-            expansion_steps += 1
+        else:
+            while True:
+                candidates = backend.query(q, k)
+                raw_count = len(candidates)
+                filtered = [c for c in candidates if _semantic_candidate_matches_filters(c.metadata, filters)]
+                filtered_count = len(filtered)
+                deduped = _dedupe_semantic_candidates(filtered)
+                if len(deduped) >= target or k >= SEMANTIC_MAX_TOP_K:
+                    break
+                next_k = min(SEMANTIC_MAX_TOP_K, max(k + 1, k * 2))
+                if next_k == k:
+                    break
+                k = next_k
+                expansion_steps += 1
     except FileNotFoundError as e:
         raise HTTPException(
             status_code=503,
@@ -553,6 +636,8 @@ def search_documents_semantic(
         ) from e
     except SemanticConfigError as e:
         raise HTTPException(status_code=503, detail=str(e)) from e
+    except MeilisearchError as e:
+        raise HTTPException(status_code=503, detail=f"Hybrid recall failed: {e}") from e
     except Exception as e:
         logger.error(f"Semantic search failed: {e}")
         raise HTTPException(status_code=500, detail="Internal semantic search error")

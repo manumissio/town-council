@@ -60,7 +60,7 @@ flowchart LR
 
     subgraph Search["Search + UI"]
         Meili["Meilisearch"]
-        Semantic["Semantic Backend (FAISS MVP)"]
+        Semantic["Semantic Backend (FAISS transition -> pgvector target)"]
         UI["Next.js UI"]
     end
 
@@ -206,11 +206,13 @@ Search index doc types:
 Semantic search (Milestone B):
 - Status:
   - `Milestone B1 (FAISS backend)`: **Complete**
-  - `Milestone B2 (pgvector backend)`: **Planned / not implemented yet**
+  - `Milestone B2 (pgvector backend)`: **In rollout**
 - `GET /search/semantic` is additive; keyword `/search` behavior remains unchanged.
+- `/search?semantic=true` enables hybrid semantic rerank on the main search endpoint.
 - Retrieval uses adaptive over-fetch + in-memory filters, then de-duplicates by `catalog_id`
   before pagination so one meeting with many chunks cannot starve other results.
-- FAISS artifacts are file-backed in B1; pgvector is a B2 backend path behind config.
+- FAISS artifacts remain a temporary fallback bridge during B2 hydration/validation.
+- pgvector stores vectors in Postgres (`semantic_embedding`) and reranks lexical candidates.
 
 Re-extraction is explicit and uses existing downloaded file only (no redownload).
 

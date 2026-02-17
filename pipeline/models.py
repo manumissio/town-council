@@ -1,11 +1,45 @@
 import datetime
 import os
+import json
 
 from sqlalchemy import create_engine, func
-from sqlalchemy import Column, Boolean, String, Integer, Date, DateTime, JSON, Text
+from sqlalchemy import Column, Boolean, String, Integer, Date, DateTime, JSON, Text, CheckConstraint
 from sqlalchemy import ForeignKey
 from sqlalchemy.orm import relationship, DeclarativeBase
 from sqlalchemy.schema import Index
+from sqlalchemy.types import TypeDecorator
+
+try:
+    from pgvector.sqlalchemy import Vector
+except Exception:  # pragma: no cover
+    class Vector(TypeDecorator):
+        """
+        Lightweight fallback so local imports/tests do not crash when pgvector is absent.
+        """
+
+        impl = Text
+        cache_ok = True
+
+        def __init__(self, *args, **kwargs):
+            super().__init__()
+
+        def process_bind_param(self, value, dialect):
+            if value is None:
+                return None
+            if isinstance(value, (list, tuple)):
+                return json.dumps(list(value))
+            return str(value)
+
+        def process_result_value(self, value, dialect):
+            if value is None:
+                return None
+            try:
+                parsed = json.loads(value)
+                if isinstance(parsed, list):
+                    return parsed
+            except Exception:
+                pass
+            return value
 
 # Modern SQLAlchemy 2.0 style: Subclassing DeclarativeBase instead of calling a function.
 # This makes the code more robust and compatible with modern Python tools.
@@ -229,6 +263,34 @@ class AgendaItem(Base):
 
     event = relationship('Event', back_populates='agenda_items')
     catalog = relationship('Catalog', back_populates='agenda_items')
+    semantic_embeddings = relationship("SemanticEmbedding", back_populates="agenda_item", cascade="all, delete-orphan")
+
+
+class SemanticEmbedding(Base):
+    __tablename__ = "semantic_embedding"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    catalog_id = Column(Integer, ForeignKey("catalog.id", ondelete="CASCADE"), nullable=True)
+    agenda_item_id = Column(Integer, ForeignKey("agenda_item.id", ondelete="CASCADE"), nullable=True)
+    model_name = Column(String(120), nullable=False, default="all-MiniLM-L6-v2")
+    embedding_dim = Column(Integer, nullable=False, default=384)
+    embedding = Column(Vector(384), nullable=True)
+    # Hash of the exact text payload used to create this vector.
+    source_hash = Column(String(64), nullable=True)
+    updated_at = Column(DateTime, default=func.now(), onupdate=func.now())
+
+    catalog = relationship("Catalog", back_populates="semantic_embeddings")
+    agenda_item = relationship("AgendaItem", back_populates="semantic_embeddings")
+
+    __table_args__ = (
+        CheckConstraint(
+            "(catalog_id IS NOT NULL AND agenda_item_id IS NULL) OR "
+            "(catalog_id IS NULL AND agenda_item_id IS NOT NULL)",
+            name="check_single_entity_reference",
+        ),
+        Index("ix_semantic_embedding_catalog_model", "catalog_id", "model_name", unique=True),
+        Index("ix_semantic_embedding_item_model", "agenda_item_id", "model_name", unique=True),
+    )
 
 
 class UrlStageHist(Base):
@@ -282,6 +344,7 @@ class Catalog(Base):
 
     document = relationship("Document", back_populates="catalog", uselist=False)
     agenda_items = relationship("AgendaItem", back_populates="catalog", cascade="all, delete-orphan")
+    semantic_embeddings = relationship("SemanticEmbedding", back_populates="catalog", cascade="all, delete-orphan")
 
     __table_args__ = (
         Index('idx_catalog_hash', 'url_hash'),

@@ -3,6 +3,7 @@ requests==2.32.4
 tika==2.6.0
 meilisearch==0.31.0
 psycopg2-binary==2.9.10
+pgvector>=0.2.5
 # We use llama-cpp-python to run AI models locally on the CPU.
 # This replaces the need for a Google API key and keeps data private.
 llama-cpp-python==0.3.16

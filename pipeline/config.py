@@ -82,7 +82,9 @@ LOCAL_AI_ALLOW_MULTIPROCESS = os.getenv("LOCAL_AI_ALLOW_MULTIPROCESS", "false").
 LOCAL_AI_REQUIRE_SOLO_POOL = os.getenv("LOCAL_AI_REQUIRE_SOLO_POOL", "true").strip().lower() in {"1", "true", "yes"}
 
 # Semantic search (Milestone B) feature flags and retrieval tuning.
-# We keep semantic search opt-in while the FAISS backend is validated.
+# During B2 rollout we support dual backends:
+# - faiss: temporary fallback bridge
+# - pgvector: target backend
 SEMANTIC_ENABLED = os.getenv("SEMANTIC_ENABLED", "false").strip().lower() in {"1", "true", "yes"}
 SEMANTIC_BACKEND = os.getenv("SEMANTIC_BACKEND", "faiss").strip().lower() or "faiss"
 SEMANTIC_MODEL_NAME = os.getenv("SEMANTIC_MODEL_NAME", "all-MiniLM-L6-v2")
@@ -91,6 +93,7 @@ SEMANTIC_CONTENT_MAX_CHARS = int(os.getenv("SEMANTIC_CONTENT_MAX_CHARS", "4000")
 SEMANTIC_BASE_TOP_K = int(os.getenv("SEMANTIC_BASE_TOP_K", "200"))
 SEMANTIC_MAX_TOP_K = int(os.getenv("SEMANTIC_MAX_TOP_K", "10000"))
 SEMANTIC_FILTER_EXPANSION_FACTOR = int(os.getenv("SEMANTIC_FILTER_EXPANSION_FACTOR", "8"))
+SEMANTIC_RERANK_CANDIDATE_LIMIT = int(os.getenv("SEMANTIC_RERANK_CANDIDATE_LIMIT", "200"))
 
 # FAISS + sentence-transformers loads significant RAM in-process. Keep single-process by default.
 SEMANTIC_REQUIRE_SINGLE_PROCESS = os.getenv("SEMANTIC_REQUIRE_SINGLE_PROCESS", "true").strip().lower() in {"1", "true", "yes"}

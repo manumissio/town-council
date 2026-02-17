@@ -8,7 +8,7 @@ from datetime import datetime, timezone
 from sqlalchemy.orm import sessionmaker
 from sqlalchemy.exc import SQLAlchemyError
 
-from pipeline.models import db_connect, Catalog, Document
+from pipeline.models import db_connect, Catalog, Document, SemanticEmbedding
 from pipeline.llm import LocalAI, LocalAIConfigError
 from pipeline.agenda_service import persist_agenda_items
 from pipeline.agenda_resolver import resolve_agenda_items
@@ -20,6 +20,10 @@ from pipeline.config import (
     ENABLE_VOTE_EXTRACTION,
     AGENDA_SUMMARY_MAX_INPUT_CHARS,
     AGENDA_SUMMARY_MIN_RESERVED_OUTPUT_CHARS,
+    SEMANTIC_ENABLED,
+    SEMANTIC_BACKEND,
+    SEMANTIC_MODEL_NAME,
+    SEMANTIC_CONTENT_MAX_CHARS,
 )
 from pipeline.extraction_service import reextract_catalog_content
 from pipeline.indexer import reindex_catalog
@@ -399,6 +403,13 @@ def generate_summary_task(self, catalog_id: int, force: bool = False):
         except Exception:
             pass
         
+        # Fire-and-forget embedding update for semantic B2. We do not block summary success
+        # on embedding failures; search can safely fall back to lexical until vectors hydrate.
+        try:
+            embed_catalog_task.delay(catalog_id)
+        except Exception as exc:
+            logger.warning("embed_catalog_task.dispatch_failed catalog_id=%s error=%s", catalog_id, exc)
+
         logger.info(f"Summarization complete for Catalog ID {catalog_id}")
         return {"status": "complete", "summary": summary}
 
@@ -411,6 +422,63 @@ def generate_summary_task(self, catalog_id: int, force: bool = False):
         logger.error(f"Task failed: {e}")
         db.rollback()
         raise self.retry(exc=e, countdown=60)
+    finally:
+        db.close()
+
+
+@app.task(bind=True, max_retries=2)
+def embed_catalog_task(self, catalog_id: int, force: bool = False):
+    """
+    B2 embedding task: store catalog-summary vectors in semantic_embedding for pgvector rerank.
+    """
+    if not SEMANTIC_ENABLED:
+        return {"status": "skipped", "reason": "semantic_disabled"}
+    if (SEMANTIC_BACKEND or "").strip().lower() != "pgvector":
+        return {"status": "skipped", "reason": f"backend_{SEMANTIC_BACKEND}"}
+
+    db = SessionLocal()
+    try:
+        catalog = db.get(Catalog, catalog_id)
+        if not catalog:
+            return {"status": "skipped", "reason": "catalog_missing"}
+        text_payload = ((catalog.summary or "").strip())[:SEMANTIC_CONTENT_MAX_CHARS]
+        if len(text_payload) < 20:
+            return {"status": "skipped", "reason": "summary_too_short"}
+
+        source_hash = compute_content_hash(text_payload)
+        existing = (
+            db.query(SemanticEmbedding)
+            .filter(
+                SemanticEmbedding.catalog_id == catalog_id,
+                SemanticEmbedding.model_name == SEMANTIC_MODEL_NAME,
+            )
+            .first()
+        )
+        if existing and existing.source_hash == source_hash and not force:
+            return {"status": "cached", "catalog_id": catalog_id}
+
+        # Import lazily to avoid startup hard dependency when semantic mode is disabled.
+        from pipeline.semantic_index import PgvectorSemanticBackend
+
+        backend = PgvectorSemanticBackend()
+        vector = backend._encode([text_payload])[0].tolist()  # noqa: SLF001 (internal helper by design)
+
+        if existing is None:
+            existing = SemanticEmbedding(
+                catalog_id=catalog_id,
+                model_name=SEMANTIC_MODEL_NAME,
+                embedding_dim=len(vector),
+            )
+            db.add(existing)
+        existing.embedding = vector
+        existing.embedding_dim = len(vector)
+        existing.source_hash = source_hash
+        db.commit()
+        return {"status": "updated", "catalog_id": catalog_id, "embedding_dim": len(vector)}
+    except Exception as e:
+        db.rollback()
+        logger.error("embed_catalog_task failed catalog_id=%s error=%s", catalog_id, e)
+        raise self.retry(exc=e, countdown=30)
     finally:
         db.close()
 

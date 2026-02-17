@@ -94,12 +94,13 @@ Semantic search is opt-in and feature-flagged.
 
 Status:
 - `Milestone B1 (FAISS backend)`: **Complete**
-- `Milestone B2 (pgvector backend)`: **Planned / not implemented yet**
+- `Milestone B2 (pgvector backend)`: **In rollout (dual-backend transition)**
 
 - Endpoint: `GET /search/semantic`
+- Optional hybrid mode on keyword endpoint: `GET /search?semantic=true`
 - Feature flag: `SEMANTIC_ENABLED` (default `false`)
-- Backend: `SEMANTIC_BACKEND=faiss` for MVP
-- Runtime engine can be `faiss` (preferred) or `numpy` (fallback when FAISS is unavailable)
+- Backend during rollout: `SEMANTIC_BACKEND=faiss|pgvector`
+- FAISS is temporary fallback only and will be retired after hydration + SLO + cutover + 72h stability gates.
 
 Keyword search (`/search`) remains the default and is unchanged.
 For setup, rebuild, diagnostics, and guardrails, use [`docs/OPERATIONS.md`](docs/OPERATIONS.md).

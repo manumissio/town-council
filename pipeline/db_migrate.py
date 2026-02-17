@@ -12,11 +12,11 @@ dev databases can keep working without requiring destructive resets.
 
 from __future__ import annotations
 
-import os
 import logging
 from sqlalchemy import text
 
 from pipeline.models import db_connect
+from pipeline import migrate_v8
 
 logger = logging.getLogger("db-migrate")
 
@@ -88,15 +88,12 @@ def migrate() -> None:
                 text("ALTER TABLE catalog ADD COLUMN agenda_segmentation_error TEXT")
             )
 
-        # Milestone B (Phase B2 scaffold): only apply pgvector DDL when explicitly requested.
-        if (os.getenv("SEMANTIC_BACKEND", "faiss").strip().lower() or "faiss") == "pgvector":
-            try:
-                conn.execute(text("CREATE EXTENSION IF NOT EXISTS vector"))
-                if not _postgres_column_exists(conn, "catalog", "semantic_embedding"):
-                    conn.execute(text("ALTER TABLE catalog ADD COLUMN semantic_embedding vector(384)"))
-            except Exception as exc:
-                # Keep migration additive and non-fatal in environments without pgvector support.
-                logger.warning("pgvector migration scaffold skipped: %s", exc)
+    # Milestone B2 (pgvector backend): run dedicated migration with strict ordering.
+    try:
+        migrate_v8.migrate()
+    except Exception as exc:
+        # Keep core additive migrations available even when pgvector is not active.
+        logger.warning("migrate_v8 skipped: %s", exc)
 
 
 if __name__ == "__main__":

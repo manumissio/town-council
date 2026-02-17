@@ -11,6 +11,7 @@ from pathlib import Path
 from typing import Any
 
 import numpy as np
+from sqlalchemy import text, bindparam
 
 from pipeline.config import (
     SEMANTIC_ALLOW_MULTIPROCESS,
@@ -18,10 +19,12 @@ from pipeline.config import (
     SEMANTIC_CONTENT_MAX_CHARS,
     SEMANTIC_INDEX_DIR,
     SEMANTIC_MODEL_NAME,
+    SEMANTIC_RERANK_CANDIDATE_LIMIT,
     SEMANTIC_REQUIRE_FAISS,
     SEMANTIC_REQUIRE_SINGLE_PROCESS,
 )
-from pipeline.models import AgendaItem, Catalog, Document, Event, Organization, Place
+from pipeline.content_hash import compute_content_hash
+from pipeline.models import AgendaItem, Catalog, Document, Event, Organization, Place, SemanticEmbedding
 
 logger = logging.getLogger("semantic-index")
 
@@ -454,18 +457,229 @@ class FaissSemanticBackend(SemanticBackend):
 
 
 class PgvectorSemanticBackend(SemanticBackend):
+    _model = None
+    _lock = threading.Lock()
+
+    def _ensure_model(self):
+        if SentenceTransformer is None:
+            raise SemanticConfigError("sentence-transformers is not installed in this environment.")
+        if self._model is not None:
+            return self._model
+        with self._lock:
+            if self._model is None:
+                self._model = SentenceTransformer(SEMANTIC_MODEL_NAME)
+        return self._model
+
+    def _encode(self, texts: list[str]) -> np.ndarray:
+        model = self._ensure_model()
+        vectors = model.encode(texts, batch_size=32, show_progress_bar=False)
+        arr = np.asarray(vectors, dtype=np.float32)
+        if arr.ndim == 1:
+            arr = arr.reshape(1, -1)
+        norms = np.linalg.norm(arr, axis=1, keepdims=True)
+        norms[norms == 0] = 1.0
+        return arr / norms
+
+    @staticmethod
+    def _vector_literal(vector: np.ndarray) -> str:
+        return "[" + ",".join(f"{float(v):.8f}" for v in vector.tolist()) + "]"
+
+    def _collect_catalog_summary_rows(self, db) -> list[dict[str, Any]]:
+        rows = (
+            db.query(Document, Catalog, Event, Place, Organization)
+            .join(Catalog, Document.catalog_id == Catalog.id)
+            .join(Event, Document.event_id == Event.id)
+            .join(Place, Document.place_id == Place.id)
+            .outerjoin(Organization, Event.organization_id == Organization.id)
+            .filter(Catalog.summary.isnot(None))
+            .all()
+        )
+        out: list[dict[str, Any]] = []
+        seen_catalogs: set[int] = set()
+        for doc, catalog, event, place, org in rows:
+            if catalog.id in seen_catalogs:
+                continue
+            seen_catalogs.add(catalog.id)
+            summary = _safe_text(catalog.summary)[:SEMANTIC_CONTENT_MAX_CHARS]
+            if len(summary) < 20:
+                continue
+            out.append(
+                {
+                    "catalog_id": catalog.id,
+                    "doc_id": doc.id,
+                    "event_id": event.id,
+                    "city": (place.display_name or place.name or "").lower(),
+                    "meeting_category": (event.meeting_type or "Other"),
+                    "organization": org.name if org else "City Council",
+                    "date": event.record_date.isoformat() if event.record_date else None,
+                    "text": summary,
+                    "source_hash": compute_content_hash(summary),
+                }
+            )
+        return out
+
     def build_index(self, db) -> BuildResult:
-        raise SemanticConfigError(
-            "pgvector backend is not implemented yet. Use SEMANTIC_BACKEND=faiss for Milestone B1."
+        rows = self._collect_catalog_summary_rows(db)
+        if not rows:
+            raise SemanticConfigError("No catalog summaries available to embed for pgvector.")
+
+        embeddings = self._encode([row["text"] for row in rows])
+        catalog_ids = [int(r["catalog_id"]) for r in rows]
+        existing = (
+            db.query(SemanticEmbedding)
+            .filter(
+                SemanticEmbedding.catalog_id.in_(catalog_ids),
+                SemanticEmbedding.model_name == SEMANTIC_MODEL_NAME,
+            )
+            .all()
+        )
+        existing_by_catalog = {int(e.catalog_id): e for e in existing if e.catalog_id is not None}
+
+        changed = 0
+        for row, vec in zip(rows, embeddings):
+            catalog_id = int(row["catalog_id"])
+            source_hash = row["source_hash"]
+            rec = existing_by_catalog.get(catalog_id)
+            if rec and rec.source_hash == source_hash:
+                continue
+            if rec is None:
+                rec = SemanticEmbedding(
+                    catalog_id=catalog_id,
+                    model_name=SEMANTIC_MODEL_NAME,
+                    embedding_dim=int(vec.shape[0]),
+                )
+                db.add(rec)
+            rec.embedding = vec.tolist()
+            rec.embedding_dim = int(vec.shape[0])
+            rec.source_hash = source_hash
+            changed += 1
+        db.commit()
+
+        source_payload = json.dumps(
+            [{"catalog_id": r["catalog_id"], "source_hash": r["source_hash"]} for r in rows], sort_keys=True
+        ).encode("utf-8")
+        corpus_hash = hashlib.sha256(source_payload).hexdigest()
+        now_iso = datetime.now(UTC).isoformat().replace("+00:00", "Z")
+        source_counts = {"summary": len(rows), "agenda_item": 0, "content_chunk": 0, "agenda_item_result": 0}
+        logger.info(
+            "pgvector_reindex_complete rows=%s changed=%s model=%s",
+            len(rows),
+            changed,
+            SEMANTIC_MODEL_NAME,
+        )
+        return BuildResult(
+            row_count=len(rows),
+            catalog_count=len({int(r["catalog_id"]) for r in rows}),
+            source_counts=source_counts,
+            corpus_hash=corpus_hash,
+            model_name=SEMANTIC_MODEL_NAME,
+            built_at=now_iso,
         )
 
     def query(self, query_text: str, top_k: int) -> list[SemanticCandidate]:
         raise SemanticConfigError(
-            "pgvector backend is not implemented yet. Use SEMANTIC_BACKEND=faiss for Milestone B1."
+            "pgvector backend requires hybrid rerank with lexical candidates. "
+            "Use /search with semantic=true or /search/semantic."
         )
 
+    def rerank_candidates(self, db, query_text: str, lexical_hits: list[dict], top_k: int) -> list[SemanticCandidate]:
+        """
+        Hybrid stage-2 rerank: score only lexical meeting candidates via pgvector.
+        """
+        if not lexical_hits:
+            return []
+        q = _safe_text(query_text)
+        if not q:
+            return []
+        query_vec = self._encode([q])[0]
+        query_literal = self._vector_literal(query_vec)
+
+        candidate_rows = []
+        for hit in lexical_hits:
+            result_type = str(hit.get("result_type") or "")
+            if result_type != "meeting":
+                continue
+            db_id = hit.get("db_id")
+            if db_id is None:
+                raw_id = str(hit.get("id") or "")
+                if raw_id.startswith("doc_"):
+                    try:
+                        db_id = int(raw_id.split("_", 1)[1])
+                    except Exception:
+                        db_id = None
+            catalog_id = hit.get("catalog_id")
+            if db_id is None or catalog_id is None:
+                continue
+            candidate_rows.append(
+                {
+                    "db_id": int(db_id),
+                    "catalog_id": int(catalog_id),
+                    "meta": {
+                        "result_type": "meeting",
+                        "catalog_id": int(catalog_id),
+                        "db_id": int(db_id),
+                        "event_id": hit.get("event_id"),
+                        "city": str(hit.get("city") or "").lower(),
+                        "meeting_category": hit.get("meeting_category") or "Other",
+                        "organization": hit.get("organization") or "City Council",
+                        "date": hit.get("date"),
+                        "source_type": "summary",
+                    },
+                }
+            )
+        if not candidate_rows:
+            return []
+
+        by_catalog: dict[int, dict] = {}
+        for row in candidate_rows:
+            by_catalog[int(row["catalog_id"])] = row
+        catalog_ids = list(by_catalog.keys())[: max(1, SEMANTIC_RERANK_CANDIDATE_LIMIT)]
+        if not catalog_ids:
+            return []
+
+        stmt = (
+            text(
+                """
+                SELECT
+                  se.catalog_id AS catalog_id,
+                  (1 - (se.embedding <=> CAST(:query_vec AS vector))) AS score
+                FROM semantic_embedding se
+                WHERE se.catalog_id IN :catalog_ids
+                  AND se.model_name = :model_name
+                  AND se.embedding IS NOT NULL
+                ORDER BY se.embedding <=> CAST(:query_vec AS vector)
+                LIMIT :limit
+                """
+            )
+            .bindparams(bindparam("catalog_ids", expanding=True))
+        )
+        scored_rows = db.execute(
+            stmt,
+            {
+                "query_vec": query_literal,
+                "catalog_ids": catalog_ids,
+                "model_name": SEMANTIC_MODEL_NAME,
+                "limit": max(1, int(top_k)),
+            },
+        ).mappings()
+
+        candidates: list[SemanticCandidate] = []
+        for idx, row in enumerate(scored_rows):
+            catalog_id = int(row["catalog_id"])
+            base = by_catalog.get(catalog_id)
+            if not base:
+                continue
+            candidates.append(
+                SemanticCandidate(
+                    row_id=idx,
+                    score=float(row.get("score") or 0.0),
+                    metadata=base["meta"],
+                )
+            )
+        return candidates
+
     def health(self) -> dict[str, Any]:
-        return {"status": "not_implemented", "backend": "pgvector"}
+        return {"status": "ok", "engine": "pgvector", "model_name": SEMANTIC_MODEL_NAME}
 
 
 def get_semantic_backend() -> SemanticBackend:

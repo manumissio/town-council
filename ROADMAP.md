@@ -87,7 +87,7 @@ Status: **Complete**
 
 ## Milestone B: Semantic Search (Hybrid Retrieval)
 
-Status: **Partially Complete** (`B1 complete`, `B2 planned`)
+Status: **In Rollout** (`B1 complete`, `B2 implementation in progress`)
 
 ### Scope
 Enable conceptual search while preserving current keyword precision and performance.
@@ -107,6 +107,17 @@ Enable conceptual search while preserving current keyword precision and performa
 ### Edge handling
 - Missing embeddings: fallback to lexical-only.
 - Low-quality/empty summaries: skip embedding, log reason.
+
+### Transitional backend policy (explicit)
+- FAISS remains a temporary fallback during B2 hydration/validation.
+- pgvector is the target backend for hybrid rerank.
+
+### FAISS retirement gates (mandatory)
+FAISS is removed in a fast-follow PR after all gates pass:
+1. Hydration complete: `semantic_embedding` populated for historical catalog summaries.
+2. Performance validated: pgvector hybrid search meets p50/p95 SLO targets.
+3. Cutover complete: production uses `SEMANTIC_BACKEND=pgvector` successfully.
+4. Stability window: 72 hours with no semantic-search incidents.
 
 ### Tests
 - Unit: embedding generation and cosine thresholding

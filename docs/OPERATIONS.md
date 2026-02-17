@@ -113,14 +113,20 @@ Semantic search is additive and disabled by default.
 ### Enable
 Set:
 - `SEMANTIC_ENABLED=true`
-- `SEMANTIC_BACKEND=faiss`
+- `SEMANTIC_BACKEND=faiss|pgvector`
+
+Recommended rollout sequence:
+1. Keep `SEMANTIC_BACKEND=faiss` while pgvector schema/backfill is deployed.
+2. Validate pgvector quality/perf with `SEMANTIC_BACKEND=pgvector` in staging/dev.
+3. Cut over production to pgvector.
+4. Remove FAISS code path after 72h stable runtime and no incidents.
 
 ### Build semantic artifacts
 ```bash
 docker compose run --rm pipeline python reindex_semantic.py
 ```
 
-### Verify FAISS runtime availability
+### Verify FAISS runtime availability (transitional only)
 ```bash
 docker compose run --rm pipeline python check_faiss_runtime.py
 ```
@@ -140,6 +146,7 @@ docker compose run --rm pipeline python diagnose_semantic_search.py --query zoni
 - semantic mode works but is slower than expected:
   - check `semantic_diagnostics.engine`; `numpy` means fallback mode (FAISS unavailable in runtime).
   - fix FAISS install/import, then rebuild artifacts with `python reindex_semantic.py`.
+  - when using pgvector, verify Postgres has `vector` extension and `semantic_embedding` HNSW index.
 
 ### Guardrail note
 FAISS + sentence-transformers memory is process-local. Keep single-process runtime
