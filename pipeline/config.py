@@ -84,8 +84,14 @@ LOCAL_AI_BACKEND = (os.getenv("LOCAL_AI_BACKEND", "inprocess").strip().lower() o
 if LOCAL_AI_BACKEND not in {"inprocess", "http"}:
     LOCAL_AI_BACKEND = "inprocess"
 LOCAL_AI_HTTP_BASE_URL = (os.getenv("LOCAL_AI_HTTP_BASE_URL", "http://inference:11434").strip() or "http://inference:11434").rstrip("/")
-LOCAL_AI_HTTP_TIMEOUT_SECONDS = int(os.getenv("LOCAL_AI_HTTP_TIMEOUT_SECONDS", "45"))
-LOCAL_AI_HTTP_MAX_RETRIES = int(os.getenv("LOCAL_AI_HTTP_MAX_RETRIES", "2"))
+LOCAL_AI_HTTP_PROFILE = (os.getenv("LOCAL_AI_HTTP_PROFILE", "conservative").strip().lower() or "conservative")
+if LOCAL_AI_HTTP_PROFILE not in {"conservative", "balanced"}:
+    LOCAL_AI_HTTP_PROFILE = "conservative"
+# Profile defaults keep runtime behavior predictable during staged rollout.
+_HTTP_TIMEOUT_DEFAULT = "60" if LOCAL_AI_HTTP_PROFILE == "conservative" else "45"
+_HTTP_RETRIES_DEFAULT = "1" if LOCAL_AI_HTTP_PROFILE == "conservative" else "2"
+LOCAL_AI_HTTP_TIMEOUT_SECONDS = int(os.getenv("LOCAL_AI_HTTP_TIMEOUT_SECONDS", _HTTP_TIMEOUT_DEFAULT))
+LOCAL_AI_HTTP_MAX_RETRIES = int(os.getenv("LOCAL_AI_HTTP_MAX_RETRIES", _HTTP_RETRIES_DEFAULT))
 LOCAL_AI_HTTP_MODEL = (os.getenv("LOCAL_AI_HTTP_MODEL", "gemma3:1b").strip() or "gemma3:1b")
 
 # Semantic search (Milestone B) feature flags and retrieval tuning.

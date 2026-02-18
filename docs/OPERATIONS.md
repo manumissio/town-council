@@ -102,6 +102,10 @@ Backend-aware defaults:
 - `LOCAL_AI_BACKEND=http` (D2-lite conservative profile):
   - use `--pool=prefork --concurrency=3`
   - inference service caps: ~4GB RAM / 2 CPU
+  - `LOCAL_AI_HTTP_PROFILE=conservative` (default)
+    - longer timeout, lower retry budget
+  - `LOCAL_AI_HTTP_PROFILE=balanced`
+    - shorter timeout, higher retry budget after SLO gate pass
 
 Override (not recommended):
 - `LOCAL_AI_ALLOW_MULTIPROCESS=true`
@@ -109,6 +113,16 @@ Override (not recommended):
 
 Security logging rule:
 - Do not log API key values or key fragments. Log only path/client metadata on auth failures.
+
+Provider error policy:
+- Provider transport code raises typed errors (`ProviderTimeoutError`, `ProviderUnavailableError`, `ProviderResponseError`).
+- Orchestrator mapping:
+  - timeout/unavailable => retry path
+  - response error => deterministic fallback path
+
+Shared filter semantics:
+- `/search` and `/trends/*` now use one QueryBuilder path.
+- Procedural/contact/trend-noise rules come from a centralized lexicon module to avoid cross-surface drift.
 
 ## Semantic Search (Milestone B)
 

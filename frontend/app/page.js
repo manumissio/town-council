@@ -8,10 +8,26 @@ import ResultCard from "../components/ResultCard";
 import PersonProfile from "../components/PersonProfile";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { buildApiUrl, getApiHeaders, isDemoMode } from "../lib/api";
+import { SearchStateProvider, useSearchState } from "../state/search-state";
 
-export default function Home() {
+function HomeContent() {
+  const {
+    query,
+    setQuery,
+    cityFilter,
+    setCityFilter,
+    meetingTypeFilter,
+    setMeetingTypeFilter,
+    orgFilter,
+    setOrgFilter,
+    includeAgendaItems,
+    setIncludeAgendaItems,
+    searchMode,
+    setSearchMode,
+    sortMode,
+    setSortMode,
+  } = useSearchState();
   // Search State
-  const [query, setQuery] = useState("");
   const [results, setResults] = useState([]);
   const [totalHits, setTotalHits] = useState(0); 
   const [offset, setOffset] = useState(0);
@@ -19,14 +35,6 @@ export default function Home() {
   const [loading, setLoading] = useState(false);
   const [isSearching, setIsSearching] = useState(false);
   const [searchError, setSearchError] = useState("");
-  
-  // Filter State
-  const [cityFilter, setCityFilter] = useState("");
-  const [meetingTypeFilter, setMeetingTypeFilter] = useState("");
-  const [orgFilter, setOrgFilter] = useState("");
-  const [includeAgendaItems, setIncludeAgendaItems] = useState(false);
-  const [searchMode, setSearchMode] = useState("keyword"); // keyword | semantic
-  const [sortMode, setSortMode] = useState("newest"); // newest | oldest | relevance
   
   // Metadata State
   const [availableCities, setAvailableCities] = useState([]);
@@ -245,13 +253,6 @@ export default function Home() {
         <main className="flex-1">
           {/* Hero / Search Unit */}
           <SearchHub 
-            query={query} setQuery={setQuery}
-            cityFilter={cityFilter} setCityFilter={setCityFilter}
-            orgFilter={orgFilter} setOrgFilter={setOrgFilter}
-            meetingTypeFilter={meetingTypeFilter} setMeetingTypeFilter={setMeetingTypeFilter}
-            includeAgendaItems={includeAgendaItems} setIncludeAgendaItems={setIncludeAgendaItems}
-            searchMode={searchMode} setSearchMode={setSearchMode}
-            sortMode={sortMode} setSortMode={setSortMode}
             availableCities={availableCities} availableOrgs={availableOrgs}
             isSearching={isSearching} resetApp={resetApp}
           />
@@ -355,5 +356,15 @@ export default function Home() {
         />
       </div>
     </TooltipProvider>
+  );
+}
+
+export default function Home() {
+  // Shared search/filter state is intentionally centralized here so future
+  // multi-panel views (when Signals resumes) stay synchronized.
+  return (
+    <SearchStateProvider>
+      <HomeContent />
+    </SearchStateProvider>
   );
 }

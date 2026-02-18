@@ -218,6 +218,16 @@ Lineage + trends (Milestone C v1):
 - `catalog.lineage_id`, `catalog.lineage_confidence`, and `catalog.lineage_updated_at` persist meeting-level lineage.
 - Lineage recompute runs as a Celery task and uses a DB advisory lock to keep one authoritative writer.
 - Trends endpoints are computed from Meilisearch facet distribution on `topics` (v1 avoids SQL trend-cache state).
+- Search and trends route filters are built from a shared QueryBuilder contract to prevent semantic drift.
+- Procedural/contact/trend-noise rules are centralized in `pipeline/lexicon.py` and imported by both pipeline and API code.
+
+Inference provider architecture (D2-lite hardening):
+- `LocalAI` is orchestration-only (prompting, grounding, fallback policy).
+- Transport lives behind a provider protocol (`InferenceProvider`) with interchangeable backends:
+  - `InProcessLlamaProvider`
+  - `HttpInferenceProvider`
+- Providers raise typed errors (`ProviderTimeoutError`, `ProviderUnavailableError`, `ProviderResponseError`)
+  so orchestration can choose retry vs deterministic fallback consistently.
 
 Re-extraction is explicit and uses existing downloaded file only (no redownload).
 

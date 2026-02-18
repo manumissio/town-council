@@ -30,6 +30,12 @@ from pipeline.config import (
     FEATURE_TRENDS_DASHBOARD,
 )
 from pipeline.semantic_index import get_semantic_backend, SemanticConfigError, PgvectorSemanticBackend
+from pipeline.lexicon import is_trend_noise_topic
+from api.search.query_builder import (
+    normalize_city_filter,
+    normalize_filters,
+    build_meili_filter_clauses,
+)
 
 # Metrics are internal-only and are scraped by Prometheus from the Docker network.
 from api.metrics import instrument_app
@@ -175,25 +181,6 @@ def validate_date_format(date_str: str):
         raise HTTPException(status_code=400, detail="Invalid date format. Use YYYY-MM-DD.")
 
 
-def sanitize_filter(val: str) -> str:
-    """Escape quotes in user input before using it in query-style filters."""
-    return str(val).replace('"', '\\"')
-
-
-def normalize_city_filter(val: str) -> str:
-    """
-    Accept either human labels ("Cupertino") or indexed keys ("ca_cupertino").
-    """
-    raw = (val or "").strip()
-    lowered = raw.lower()
-    if re.search(r'[^a-z0-9_\-\s]', lowered):
-        return lowered
-    slug = re.sub(r"[\s\-]+", "_", lowered).strip("_")
-    if re.match(r"^[a-z]{2}_.+", slug):
-        return slug
-    return f"ca_{slug}" if slug else lowered
-
-
 def _build_filter_values(
     city: Optional[str],
     meeting_type: Optional[str],
@@ -205,9 +192,16 @@ def _build_filter_values(
     """
     Build normalized filter values once so keyword and semantic search stay consistent.
     """
-    normalized_city = normalize_city_filter(city) if city else None
+    filters = normalize_filters(
+        city=city,
+        meeting_type=meeting_type,
+        org=org,
+        date_from=date_from,
+        date_to=date_to,
+        include_agenda_items=include_agenda_items,
+    )
     return {
-        "city": normalized_city,
+        "city": filters.city,
         "meeting_type": meeting_type,
         "org": org,
         "date_from": date_from,
@@ -224,24 +218,17 @@ def _build_meilisearch_filter_clauses(
     date_to: Optional[str],
     include_agenda_items: bool,
 ) -> list[str]:
-    clauses: list[str] = []
-    if not include_agenda_items:
-        clauses.append('result_type = "meeting"')
-    if city:
-        clauses.append(f'city = "{sanitize_filter(normalize_city_filter(city))}"')
-    if meeting_type:
-        clauses.append(f'meeting_category = "{sanitize_filter(meeting_type)}"')
-    if org:
-        clauses.append(f'organization = "{sanitize_filter(org)}"')
-    if date_from and date_to:
-        clauses.append(
-            f'date >= "{sanitize_filter(date_from)}" AND date <= "{sanitize_filter(date_to)}"'
+    # Single shared QueryBuilder contract keeps /search and /trends in sync.
+    return build_meili_filter_clauses(
+        normalize_filters(
+            city=city,
+            meeting_type=meeting_type,
+            org=org,
+            date_from=date_from,
+            date_to=date_to,
+            include_agenda_items=include_agenda_items,
         )
-    elif date_from:
-        clauses.append(f'date >= "{sanitize_filter(date_from)}"')
-    elif date_to:
-        clauses.append(f'date <= "{sanitize_filter(date_to)}"')
-    return clauses
+    )
 
 
 def _require_trends_feature() -> None:
@@ -361,6 +348,8 @@ def _count_topics_from_docs(
             for topic in topics:
                 name = str(topic).strip()
                 if not name:
+                    continue
+                if is_trend_noise_topic(name):
                     continue
                 counts[name] = counts.get(name, 0) + 1
     return counts
@@ -882,7 +871,10 @@ def get_trends_topics(
         topic_counts = _count_topics_from_docs(docs, date_from=date_from, date_to=date_to)
     else:
         topic_counts = _facet_topics(city=city, date_from=date_from, date_to=date_to)
-    rows = sorted(topic_counts.items(), key=lambda kv: (-int(kv[1]), str(kv[0]).lower()))[:limit]
+    rows = sorted(
+        [(topic, count) for topic, count in topic_counts.items() if not is_trend_noise_topic(topic)],
+        key=lambda kv: (-int(kv[1]), str(kv[0]).lower()),
+    )[:limit]
     return {
         "city": normalize_city_filter(city) if city else None,
         "date_from": date_from,
@@ -971,7 +963,10 @@ def export_trends(
         topic_counts = _count_topics_from_docs(docs, date_from=date_from, date_to=date_to)
     else:
         topic_counts = _facet_topics(city=city, date_from=date_from, date_to=date_to)
-    rows = sorted(topic_counts.items(), key=lambda kv: (-int(kv[1]), str(kv[0]).lower()))[:limit]
+    rows = sorted(
+        [(topic, count) for topic, count in topic_counts.items() if not is_trend_noise_topic(topic)],
+        key=lambda kv: (-int(kv[1]), str(kv[0]).lower()),
+    )[:limit]
 
     if format == "csv":
         buffer = io.StringIO()

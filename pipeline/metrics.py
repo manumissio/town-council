@@ -52,6 +52,31 @@ LINEAGE_COMPONENT_MERGES_TOTAL = Counter(
     "Total connected-component lineage merges observed during recompute.",
 )
 
+PROVIDER_REQUESTS_TOTAL = Counter(
+    "tc_provider_requests_total",
+    "Total inference provider requests.",
+    labelnames=("provider", "operation", "model", "outcome"),
+)
+
+PROVIDER_REQUEST_DURATION_MS = Histogram(
+    "tc_provider_request_duration_ms",
+    "Inference provider request duration in milliseconds.",
+    labelnames=("provider", "operation", "model", "outcome"),
+    buckets=(50, 100, 250, 500, 1000, 2500, 5000, 10000, 20000, 45000, 90000),
+)
+
+PROVIDER_TIMEOUTS_TOTAL = Counter(
+    "tc_provider_timeouts_total",
+    "Total inference provider timeouts.",
+    labelnames=("provider", "operation", "model"),
+)
+
+PROVIDER_RETRIES_TOTAL = Counter(
+    "tc_provider_retries_total",
+    "Total inference provider retries.",
+    labelnames=("provider", "operation", "model"),
+)
+
 
 _TASK_START: Dict[str, float] = {}
 
@@ -74,6 +99,23 @@ def record_lineage_recompute(updated_count: int, merge_count: int) -> None:
         LINEAGE_CATALOG_UPDATES_TOTAL.inc(updated_count)
     if merge_count > 0:
         LINEAGE_COMPONENT_MERGES_TOTAL.inc(merge_count)
+
+
+def record_provider_request(provider: str, operation: str, model: str, outcome: str, duration_ms: float) -> None:
+    PROVIDER_REQUESTS_TOTAL.labels(
+        provider=provider, operation=operation, model=model, outcome=outcome
+    ).inc()
+    PROVIDER_REQUEST_DURATION_MS.labels(
+        provider=provider, operation=operation, model=model, outcome=outcome
+    ).observe(max(0.0, duration_ms))
+
+
+def record_provider_timeout(provider: str, operation: str, model: str) -> None:
+    PROVIDER_TIMEOUTS_TOTAL.labels(provider=provider, operation=operation, model=model).inc()
+
+
+def record_provider_retry(provider: str, operation: str, model: str) -> None:
+    PROVIDER_RETRIES_TOTAL.labels(provider=provider, operation=operation, model=model).inc()
 
 
 @signals.worker_ready.connect

@@ -5,7 +5,7 @@ from rapidfuzz import fuzz, process
 
 from pipeline.agenda_crosscheck import merge_ai_with_eagenda, parse_eagenda_items_from_file
 from pipeline.agenda_legistar import fetch_legistar_agenda_items
-from pipeline.llm import _is_contact_or_letterhead_noise, _is_procedural_noise_title
+from pipeline.lexicon import is_contact_or_letterhead_noise, is_procedural_title
 from pipeline.models import Document, Catalog
 
 
@@ -59,11 +59,11 @@ def agenda_quality_score(items: List[Any]) -> int:
         seen.add(key)
         normalized_titles.append(key)
 
-        if _is_procedural_noise_title(title):
+        if is_procedural_title(title):
             procedural_hits += 1
             score -= 14
 
-        if _is_contact_or_letterhead_noise(title, _get_value(item, "description") or ""):
+        if is_contact_or_letterhead_noise(title, _get_value(item, "description") or ""):
             contact_hits += 1
             score -= 14
 

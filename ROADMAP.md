@@ -167,6 +167,7 @@ Why this matters:
 ## Milestone C2: Discovery UX Deepening (Agenda-Level Lineage + Civic Signals)
 
 Status: **Planned**
+Prerequisite lock: complete foundation-first refactor (central lexicon + shared QueryBuilder + provider protocol + shared UI search state) before re-enabling Signals UI.
 
 ### Scope
 1. Add agenda-item-level lineage so users can follow a specific action/policy thread, not just meeting-level relatedness.

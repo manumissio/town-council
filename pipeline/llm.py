@@ -4,7 +4,6 @@ import logging
 import threading
 import re
 import multiprocessing
-import requests
 from rapidfuzz import fuzz
 try:
     # Optional dependency: we still want the pipeline to run (heuristic fallbacks)
@@ -34,12 +33,21 @@ from pipeline.config import (
     AGENDA_SUMMARY_TEMPERATURE,
     LOCAL_AI_ALLOW_MULTIPROCESS,
     LOCAL_AI_BACKEND,
-    LOCAL_AI_HTTP_BASE_URL,
-    LOCAL_AI_HTTP_TIMEOUT_SECONDS,
-    LOCAL_AI_HTTP_MAX_RETRIES,
-    LOCAL_AI_HTTP_MODEL,
 )
 from pipeline.summary_quality import is_summary_grounded, prune_unsupported_summary_lines
+from pipeline.lexicon import (
+    is_procedural_title as lexicon_is_procedural_title,
+    is_contact_or_letterhead_noise as lexicon_is_contact_or_letterhead_noise,
+    normalize_title_key as lexicon_normalize_title_key,
+)
+from pipeline.llm_provider import (
+    InferenceProvider,
+    InProcessLlamaProvider,
+    HttpInferenceProvider,
+    ProviderTimeoutError,
+    ProviderUnavailableError,
+    ProviderResponseError,
+)
 
 # Setup logging
 logger = logging.getLogger("local-ai")
@@ -103,10 +111,8 @@ def _normalize_spaces(value: str) -> str:
 
 
 def _normalized_title_key(value: str) -> str:
-    # Strip leading numbering so TOC/body variants compare consistently.
-    title = _normalize_spaces(value).lower()
-    title = re.sub(r"^\s*(?:item\s*)?#?\s*\d+(?:\.\d+)?[\.\):]\s*", "", title)
-    return title.strip(" -:\t")
+    # Single lexicon source keeps normalization consistent across pipeline/API.
+    return lexicon_normalize_title_key(_normalize_spaces(value))
 
 def _first_alpha_char(value: str) -> str | None:
     """
@@ -159,64 +165,14 @@ def _is_procedural_noise_title(title: str) -> bool:
     Important: keep this precise. Broad substring matching (for example "approval")
     causes silent drops of substantive titles such as "Approval of Contract ...".
     """
-    if not AGENDA_PROCEDURAL_REJECT_ENABLED:
-        return False
-
-    normalized = _normalized_title_key(title)
-    if not normalized:
-        return True
-
-    exact_titles = {
-        "call to order",
-        "roll call",
-        "pledge of allegiance",
-        "public comment",
-        "adjournment",
-        "closed session",
-        "land acknowledgment",
-        "land acknowledgement",
-        "approval of minutes",
-        "approval of the minutes",
-        "approval of agenda",
-        "approval of the agenda",
-    }
-    if normalized in exact_titles:
-        return True
-
-    anchored = (
-        r"^public comment(?:\s+period)?$",
-        r"^ceremonial matters$",
-        r"^presentations?$",
-        r"^announcements?$",
-    )
-    return any(re.match(pattern, normalized) for pattern in anchored)
+    return lexicon_is_procedural_title(title, reject_enabled=AGENDA_PROCEDURAL_REJECT_ENABLED)
 
 
 def _is_contact_or_letterhead_noise(title: str, desc: str = "") -> bool:
     """
     Return True for contact/letterhead metadata commonly mis-read as agenda items.
     """
-    title_norm = _normalize_spaces(title).lower()
-    desc_norm = _normalize_spaces(desc).lower()
-    combined = f"{title_norm} {desc_norm}".strip()
-    if not combined:
-        return False
-
-    if re.search(r"\b(tel|phone|fax|e-?mail|email|website)\s*:", combined):
-        return True
-    if re.search(r"\b[\w\.-]+@[\w\.-]+\.\w+\b", combined):
-        return True
-    if "http://" in combined or "https://" in combined or "www." in combined:
-        return True
-    if re.search(r"\b\d{3}[-\.\s]?\d{3}[-\.\s]?\d{4}\b", combined):
-        return True
-    if re.match(r"^\s*(from:|to:|cc:)\s*", title_norm):
-        return True
-    if re.search(r"\b\d{2,6}\s+[a-z][a-z\.\s]+(street|st|avenue|ave|road|rd|blvd|boulevard)\b", combined):
-        return True
-    if "office of the city manager" in combined:
-        return True
-    return False
+    return lexicon_is_contact_or_letterhead_noise(_normalize_spaces(title), _normalize_spaces(desc))
 
 
 def _llm_item_substance_score(title: str, desc: str = "") -> float:
@@ -1637,100 +1593,6 @@ def iter_fallback_paragraphs(page_content: str) -> list[str]:
     return [p for p in paras if p]
 
 
-class InProcessLlamaProvider:
-    """
-    In-process llama.cpp provider.
-    """
-
-    name = "inprocess"
-
-    def __init__(self, owner: "LocalAI"):
-        self.owner = owner
-
-    def generate(
-        self,
-        prompt: str,
-        *,
-        max_tokens: int,
-        temperature: float,
-        response_format: dict | None = None,
-    ) -> str | None:
-        self.owner._load_model()
-        if not self.owner.llm:
-            return None
-        with self.owner._lock:
-            try:
-                if response_format is not None:
-                    try:
-                        response = self.owner.llm(
-                            prompt,
-                            max_tokens=max_tokens,
-                            temperature=temperature,
-                            response_format=response_format,
-                        )
-                    except TypeError:
-                        response = self.owner.llm(
-                            prompt,
-                            max_tokens=max_tokens,
-                            temperature=temperature,
-                        )
-                else:
-                    response = self.owner.llm(
-                        prompt,
-                        max_tokens=max_tokens,
-                        temperature=temperature,
-                    )
-                return ((response or {}).get("choices") or [{}])[0].get("text", "")
-            finally:
-                if self.owner.llm:
-                    self.owner.llm.reset()
-
-
-class HttpInferenceProvider:
-    """
-    HTTP provider (Ollama-compatible /api/generate).
-    """
-
-    name = "http"
-
-    def __init__(self):
-        self.base_url = LOCAL_AI_HTTP_BASE_URL
-        self.timeout_seconds = max(5, LOCAL_AI_HTTP_TIMEOUT_SECONDS)
-        self.max_retries = max(0, LOCAL_AI_HTTP_MAX_RETRIES)
-        self.model_name = LOCAL_AI_HTTP_MODEL
-
-    def generate(
-        self,
-        prompt: str,
-        *,
-        max_tokens: int,
-        temperature: float,
-        response_format: dict | None = None,  # kept for interface parity
-    ) -> str | None:
-        _ = response_format
-        payload = {
-            "model": self.model_name,
-            "prompt": prompt,
-            "stream": False,
-            "options": {
-                "num_predict": int(max_tokens),
-                "temperature": float(temperature),
-            },
-        }
-        url = f"{self.base_url}/api/generate"
-        last_error = None
-        for _attempt in range(self.max_retries + 1):
-            try:
-                response = requests.post(url, json=payload, timeout=self.timeout_seconds)
-                response.raise_for_status()
-                data = response.json()
-                return (data.get("response") or "").strip()
-            except Exception as exc:
-                last_error = exc
-        if last_error is not None:
-            raise RuntimeError(f"HTTP inference failed: {last_error}") from last_error
-        return None
-
 class LocalAI:
     """
     The 'Brain' of our application.
@@ -1846,7 +1708,7 @@ class LocalAI:
 
         try:
             raw = (
-                provider.generate(
+                provider.summarize_text(
                     prompt,
                     max_tokens=LLM_SUMMARY_MAX_TOKENS,
                     temperature=0.1,
@@ -1857,6 +1719,9 @@ class LocalAI:
                 return None
             normalized = _normalize_summary_output_to_bluf(raw, source_text=text)
             return normalized or raw
+        except (ProviderTimeoutError, ProviderUnavailableError, ProviderResponseError) as e:
+            logger.error(f"AI Summarization failed: {e}")
+            return None
         except Exception as e:
             logger.error(f"AI Summarization failed: {e}")
             return None
@@ -1870,20 +1735,25 @@ class LocalAI:
         """
         provider = self._get_provider()
         try:
-            text = (
-                provider.generate(
-                    prompt,
-                    max_tokens=max_tokens,
-                    temperature=0.0,
-                    response_format={"type": "json_object"},
-                )
-                or ""
-            ).strip()
+            if hasattr(provider, "generate_json"):
+                text = (provider.generate_json(prompt, max_tokens=max_tokens) or "").strip()
+            else:
+                text = (
+                    provider.summarize_text(
+                        prompt,
+                        max_tokens=max_tokens,
+                        temperature=0.0,
+                    )
+                    or ""
+                ).strip()
             if not text:
                 return None
             if text.startswith("{"):
                 return text
             return "{" + text
+        except (ProviderTimeoutError, ProviderUnavailableError, ProviderResponseError) as e:
+            logger.error(f"AI JSON generation failed: {e}")
+            return None
         except Exception as e:
             logger.error(f"AI JSON generation failed: {e}")
             return None
@@ -1962,7 +1832,7 @@ class LocalAI:
 
         try:
             raw = (
-                provider.generate(
+                provider.summarize_agenda_items(
                     prompt,
                     max_tokens=LLM_SUMMARY_MAX_TOKENS,
                     temperature=AGENDA_SUMMARY_TEMPERATURE,
@@ -1995,6 +1865,18 @@ class LocalAI:
                     truncation_meta=truncation_meta,
                 )
             return cleaned
+        except ProviderResponseError as e:
+            logger.error(f"AI Agenda Items Summarization failed (response): {e}")
+            counters["agenda_summary_fallback_deterministic"] = 1
+            logger.info("agenda_summary.counters agenda_summary_fallback_deterministic=%s", 1)
+            return _deterministic_agenda_items_summary(
+                filtered_items,
+                max_bullets=AGENDA_SUMMARY_MAX_BULLETS,
+                truncation_meta=truncation_meta,
+            )
+        except (ProviderTimeoutError, ProviderUnavailableError) as e:
+            logger.error(f"AI Agenda Items Summarization failed: {e}")
+            return None
         except Exception as e:
             logger.error(f"AI Agenda Items Summarization failed: {e}")
             return None
@@ -2026,7 +1908,7 @@ class LocalAI:
         )
         try:
             text = (
-                provider.generate(
+                provider.summarize_text(
                     prompt,
                     max_tokens=64,
                     temperature=0.0,
@@ -2034,6 +1916,9 @@ class LocalAI:
                 or ""
             ).strip()
             return " ".join(text.splitlines()).strip()
+        except (ProviderTimeoutError, ProviderUnavailableError, ProviderResponseError) as e:
+            logger.error(f"AI title spacing repair failed: {e}")
+            return None
         except Exception as e:
             logger.error(f"AI title spacing repair failed: {e}")
             return None
@@ -2319,7 +2204,7 @@ class LocalAI:
             
             try:
                 raw_content = (
-                    provider.generate(
+                    provider.extract_agenda(
                         prompt,
                         max_tokens=LLM_AGENDA_MAX_TOKENS,
                         temperature=0.1,
@@ -2347,6 +2232,8 @@ class LocalAI:
                         source_type="llm",
                         context={"has_active_parent": False},
                     )
+            except (ProviderTimeoutError, ProviderUnavailableError, ProviderResponseError) as e:
+                logger.error(f"AI Agenda Extraction failed: {e}")
             except Exception as e:
                 # AI agenda extraction errors: Same rationale as above
                 # The model can fail during generation, response parsing, or regex matching

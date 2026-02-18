@@ -132,9 +132,13 @@ Milestone C v1 is feature-flagged.
 Milestone D2-lite is the required precursor to multi-city expansion.
 
 - Config switch: `LOCAL_AI_BACKEND=inprocess|http`
+- Runtime profile: `LOCAL_AI_HTTP_PROFILE=conservative|balanced` (default `conservative`)
 - Conservative default profile in Compose:
   - worker concurrency: `3`
   - inference service caps: ~4GB RAM / 2 CPU
+- Provider transport contract: `typing.Protocol` + typed provider errors for retry vs fallback mapping.
+- Shared query semantics: `/search` and `/trends/*` use one QueryBuilder path.
+- Shared lexical semantics: procedural/contact/trend noise rules are centralized in `pipeline/lexicon.py`.
 - Rollback:
   - `LOCAL_AI_BACKEND=inprocess`
   - worker concurrency back to `1`

@@ -1,4 +1,5 @@
 import { Search, X, Loader2, ChevronDown } from "lucide-react";
+import { useSearchState } from "../state/search-state";
 
 /**
  * SearchHub Component
@@ -7,17 +8,16 @@ import { Search, X, Loader2, ChevronDown } from "lucide-react";
  * It uses a single, massive, horizontal bar where filters are integrated
  * as minimal segments without excessive labels or complex dropdowns.
  */
-export default function SearchHub({ 
-  query, setQuery, 
-  cityFilter, setCityFilter, 
-  orgFilter, setOrgFilter,
-  meetingTypeFilter, setMeetingTypeFilter,
-  includeAgendaItems, setIncludeAgendaItems,
-  searchMode, setSearchMode,
-  sortMode, setSortMode,
-  availableCities, availableOrgs,
-  isSearching, resetApp
-}) {
+export default function SearchHub({ availableCities, availableOrgs, isSearching, resetApp }) {
+  const {
+    query, setQuery,
+    cityFilter, setCityFilter,
+    orgFilter, setOrgFilter,
+    meetingTypeFilter, setMeetingTypeFilter,
+    includeAgendaItems, setIncludeAgendaItems,
+    searchMode, setSearchMode,
+    sortMode, setSortMode,
+  } = useSearchState();
   const cycleSortMode = () => {
     const current = (sortMode || "newest").toLowerCase();
     if (current === "newest") return setSortMode("oldest");

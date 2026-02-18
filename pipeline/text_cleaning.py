@@ -7,6 +7,7 @@ from pipeline.config import (
     TEXT_REPAIR_LLM_MAX_LINES_PER_DOC,
     TEXT_REPAIR_MIN_IMPLAUSIBILITY_SCORE,
 )
+from pipeline.lexicon import TEXT_REPAIR_CIVIC_LEXICON
 
 
 logger = logging.getLogger("text-cleaning")
@@ -20,18 +21,6 @@ _SAFE_LINE_BLOCKERS = (
     re.compile(r"\b(?:JAN|FEB|MAR|APR|MAY|JUN|JUL|AUG|SEP|OCT|NOV|DEC)[A-Z]*\b"),
     re.compile(r"\b\d{1,2}[:/]\d{1,2}\b"),
 )
-_CIVIC_LEXICON = {
-    # function words
-    "A", "AN", "AND", "AS", "AT", "BY", "FOR", "FROM", "IN", "IS", "OF", "ON", "OR", "THE", "TO", "WITH", "WILL",
-    "THIS", "THAT",
-    # civic / meeting terms
-    "AGENDA", "ANNOTATED", "CITY", "COUNCIL", "MEETING", "SPECIAL", "PROCLAMATION", "CALLING",
-    "SESSION", "REGULAR", "PUBLIC", "HEARING", "RESOLUTION", "ORDINANCE", "COMMISSION", "BOARD",
-    "PLANNING", "ZONING", "ITEM", "CLOSED",
-    # common local names in current corpus
-    "BERKELEY", "CUPERTINO", "PABLO", "AVENUE", "CORRIDORS", "CA",
-}
-
 
 def _collapse_spaced_allcaps(text: str) -> str:
     """
@@ -106,7 +95,7 @@ def _split_with_lexicon(joined: str) -> list[str]:
         base_cost, base_parts = dp[i]
         for j in range(i + 1, min(n, i + max_word) + 1):
             part = joined[i:j]
-            if part in _CIVIC_LEXICON:
+            if part in TEXT_REPAIR_CIVIC_LEXICON:
                 cost = base_cost + 0.1
             elif len(part) == 1:
                 cost = base_cost + 2.0

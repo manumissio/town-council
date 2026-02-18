@@ -51,6 +51,16 @@ Default conservative profile for rollout:
 Promotion rule:
 - move to a balanced profile only after one week of clean SLOs.
 
+Provider telemetry for promotion gate:
+- `tc_provider_requests_total` by `{provider,operation,model,outcome}`
+- `tc_provider_request_duration_ms` histogram
+- `tc_provider_timeouts_total`
+- `tc_provider_retries_total`
+
+Interpretation:
+- sustained timeout/retry growth under `LOCAL_AI_HTTP_PROFILE=conservative` blocks promotion.
+- balanced profile is only eligible when provider timeout/retry counters remain low and task failure rates stay stable.
+
 ## A/B Experiment Artifacts
 
 For `270M vs 1B` balanced runs, evaluate:
