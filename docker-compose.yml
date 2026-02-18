@@ -280,6 +280,8 @@ services:
     command: ["serve"]
     environment:
       - OLLAMA_HOST=0.0.0.0:11434
+      # Infra-level concurrency control: keep app layer hardware-agnostic.
+      - OLLAMA_NUM_PARALLEL=${OLLAMA_NUM_PARALLEL:-1}
     mem_limit: 4G
     cpus: 2.0
     volumes:

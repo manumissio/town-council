@@ -281,6 +281,29 @@ City onboarding helper:
 DRY_RUN=1 ./scripts/onboard_city_wave.sh wave1
 ```
 
+### Host profiles (recommended)
+
+M1 conservative:
+```bash
+docker compose --env-file env/profiles/m1_conservative.env up -d --build inference worker api pipeline frontend
+```
+
+Desktop balanced:
+```bash
+docker compose --env-file env/profiles/desktop_balanced.env up -d --build inference worker api pipeline frontend
+```
+
+### Queue-aware timeout math (why conservative timeout is high)
+
+When `WORKER_CONCURRENCY=3` and `OLLAMA_NUM_PARALLEL=1`, three workers can enqueue
+requests at once but only one is processed immediately. Timeout must cover:
+- waiting behind earlier requests in Ollama's internal queue, plus
+- generation time of the current request.
+
+Because this is an infrastructure queueing effect, concurrency control is handled
+at the inference service layer (`OLLAMA_NUM_PARALLEL`) rather than with model locks
+in application code.
+
 ## A/B Runtime Profile Evaluation (270M-only, staging-local)
 
 This runbook evaluates `conservative` vs `balanced` runtime profiles under the

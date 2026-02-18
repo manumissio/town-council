@@ -227,7 +227,9 @@ Baseline dependency updates:
    - `LOCAL_AI_BACKEND=inprocess|http`
 5. Conservative runtime profile defaults:
    - inference service caps: ~4GB RAM, 2 CPU
+   - inference queue throttling via `OLLAMA_NUM_PARALLEL=1` on constrained hosts
    - worker concurrency: 3
+   - timeout budget must include inference queue wait on constrained hosts
 6. Promotion rule:
    - move from Conservative to Balanced only after 1 week of clean SLOs.
 

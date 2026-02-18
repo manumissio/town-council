@@ -47,6 +47,8 @@ Default conservative profile for rollout:
 - `LOCAL_AI_BACKEND=http`
 - worker concurrency: `3`
 - inference service caps: ~4GB RAM / 2 CPU
+- inference parallelism: `OLLAMA_NUM_PARALLEL=1`
+- timeout budget includes internal inference queue wait (`LOCAL_AI_HTTP_TIMEOUT_SECONDS=300` on M1 profile)
 
 Promotion rule:
 - move to a balanced profile only after one week of clean SLOs.
@@ -60,10 +62,11 @@ Provider telemetry for promotion gate:
 Interpretation:
 - sustained timeout/retry growth under `LOCAL_AI_HTTP_PROFILE=conservative` blocks promotion.
 - balanced profile is only eligible when provider timeout/retry counters remain low and task failure rates stay stable.
+- concurrency throttling belongs in inference infrastructure (`OLLAMA_NUM_PARALLEL`), not in model-identity app logic.
 
 ## A/B Experiment Artifacts
 
-For `270M vs 1B` balanced runs, evaluate:
+For `270M` runtime-profile runs (`conservative` vs `balanced`), evaluate:
 - section compliance delta
 - fallback and grounding deltas
 - summary/segment p95 deltas

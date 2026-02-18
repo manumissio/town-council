@@ -136,6 +136,7 @@ Milestone D2-lite is the required precursor to multi-city expansion.
 - Conservative default profile in Compose:
   - worker concurrency: `3`
   - inference service caps: ~4GB RAM / 2 CPU
+  - inference parallelism: `OLLAMA_NUM_PARALLEL=1`
 - Provider transport contract: `typing.Protocol` + typed provider errors for retry vs fallback mapping.
 - Shared query semantics: `/search` and `/trends/*` use one QueryBuilder path.
 - Shared lexical semantics: procedural/contact/trend noise rules are centralized in `pipeline/lexicon.py`.
@@ -157,6 +158,13 @@ Current policy:
 - runtime defaults are 270M-only (`LOCAL_AI_HTTP_MODEL=gemma-3-270m-custom`);
 - active executable A/B is runtime-profile tuning (`conservative` vs `balanced`);
 - model-selection A/B is deferred/disabled until a new candidate model is intentionally reintroduced.
+- concurrency control is infrastructure-level (inference service/env profiles), not model-specific locks in application code.
+
+Runtime profile commands:
+```bash
+docker compose --env-file env/profiles/m1_conservative.env up -d --build inference worker api pipeline frontend
+docker compose --env-file env/profiles/desktop_balanced.env up -d --build inference worker api pipeline frontend
+```
 
 ## Recent Completed Work
 - AI Summary quality hardening: grounded decision-brief summaries with deterministic fallback.
