@@ -213,6 +213,7 @@ Status: **Planned (next)**
 Baseline dependency updates:
 - Preserve parity with the new summary contract when inference backend changes.
 - Preserve grounding/pruning behavior and UI disclaimer assumptions for any HTTP inference backend rollout.
+- Runtime model policy is 270M-only by default; model-selection A/B is deferred until a new candidate model is explicitly reintroduced.
 
 ### Scope
 1. Decouple inference from Celery worker processes before city expansion.
@@ -239,6 +240,7 @@ Baseline dependency updates:
   - sectioned summary format parity (`BLUF`, `Why this matters`, `Top actions`, `Potential impacts`, `Unknowns`)
   - grounding/pruning parity on unsupported claims
 - Load test: compare throughput before/after backend switch
+- Runtime profile A/B (`conservative` vs `balanced`) is the active tuning path while model-selection A/B remains disabled.
 
 ## City Expansion (after D2-lite gates)
 

@@ -1,11 +1,11 @@
-experiment_name: gemma-270m-vs-1b-v1
+experiment_name: gemma-270m-profile-ab-v1
 objective: balanced
 scope: staging-local
 arms:
   A:
     model: gemma-3-270m-custom
   B:
-    model: gemma3:1b
+    model: gemma-3-270m-custom
 default_backend: http
 worker_concurrency: 3
 worker_pool: prefork

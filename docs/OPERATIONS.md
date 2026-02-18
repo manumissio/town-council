@@ -265,7 +265,7 @@ LOCAL_AI_BACKEND=http docker compose up -d --build worker api pipeline inference
 ```
 2. Pull the inference model once:
 ```bash
-docker compose exec -T inference ollama pull "${LOCAL_AI_HTTP_MODEL:-gemma3:1b}"
+docker compose exec -T inference ollama pull "${LOCAL_AI_HTTP_MODEL:-gemma-3-270m-custom}"
 ```
 3. Run backend parity tests:
 ```bash
@@ -281,26 +281,26 @@ City onboarding helper:
 DRY_RUN=1 ./scripts/onboard_city_wave.sh wave1
 ```
 
-## A/B Model Evaluation (270M vs 1B, staging-local)
+## A/B Runtime Profile Evaluation (270M-only, staging-local)
 
-This runbook executes a balanced A/B evaluation under the HTTP backend so results
-are not confounded by backend differences.
+This runbook evaluates `conservative` vs `balanced` runtime profiles under the
+same 270M model.
 
 1) One-time setup for 270M custom model in Ollama:
 ```bash
 ./scripts/setup_ollama_270m.sh /models/gemma-3-270m-it-Q4_K_M.gguf
 ```
 
-2) Run Arm A (control):
+2) Run Arm A (control, conservative):
 ```bash
-LOCAL_AI_BACKEND=http LOCAL_AI_HTTP_MODEL=gemma-3-270m-custom WORKER_CONCURRENCY=3 WORKER_POOL=prefork docker compose up -d --build inference worker api pipeline
+LOCAL_AI_BACKEND=http LOCAL_AI_HTTP_MODEL=gemma-3-270m-custom LOCAL_AI_HTTP_PROFILE=conservative WORKER_CONCURRENCY=3 WORKER_POOL=prefork docker compose up -d --build inference worker api pipeline
 ./scripts/run_ab_eval.sh --arm A --catalog-file experiments/ab_catalogs_v1.txt --run-id A_run1
 python scripts/collect_ab_results.py --run-id A_run1
 ```
 
-3) Run Arm B (treatment):
+3) Run Arm B (treatment, balanced):
 ```bash
-LOCAL_AI_BACKEND=http LOCAL_AI_HTTP_MODEL=gemma3:1b WORKER_CONCURRENCY=3 WORKER_POOL=prefork docker compose up -d --build inference worker api pipeline
+LOCAL_AI_BACKEND=http LOCAL_AI_HTTP_MODEL=gemma-3-270m-custom LOCAL_AI_HTTP_PROFILE=balanced WORKER_CONCURRENCY=3 WORKER_POOL=prefork docker compose up -d --build inference worker api pipeline
 ./scripts/run_ab_eval.sh --arm B --catalog-file experiments/ab_catalogs_v1.txt --run-id B_run1
 python scripts/collect_ab_results.py --run-id B_run1
 ```
@@ -333,6 +333,17 @@ Artifacts:
 - `experiments/results/<run_id>/ab_rows.csv`
 - `experiments/results/<run_id>/ab_rows.json`
 - `experiments/results/ab_report_v1.md`
+
+## Deferred Model-Selection A/B (disabled by policy)
+
+Model-selection A/B (for example `270M vs <candidate>`) is intentionally disabled
+until a new candidate model is explicitly approved and reintroduced.
+
+Current policy:
+- runtime defaults remain 270M-only (`LOCAL_AI_HTTP_MODEL=gemma-3-270m-custom`);
+- executable A/B in this repo is profile-level (`conservative` vs `balanced`);
+- model-selection A/B resumes only with an explicit roadmap decision and candidate
+  reintroduction PR.
 
 Default is `false` for staged rollout.
 

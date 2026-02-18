@@ -153,6 +153,11 @@ Model A/B evaluation scripts:
 - `scripts/score_ab_results.py`
 - `scripts/sample_ab_manual_review.py`
 
+Current policy:
+- runtime defaults are 270M-only (`LOCAL_AI_HTTP_MODEL=gemma-3-270m-custom`);
+- active executable A/B is runtime-profile tuning (`conservative` vs `balanced`);
+- model-selection A/B is deferred/disabled until a new candidate model is intentionally reintroduced.
+
 ## Recent Completed Work
 - AI Summary quality hardening: grounded decision-brief summaries with deterministic fallback.
 - Contextual AI disclaimers in UI: shown only when AI payload is present (Summary and AI-derived Structured Agenda).
