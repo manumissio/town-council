@@ -37,6 +37,7 @@ What it does *not* do:
 
 Note on Full Text after restart:
 If `STARTUP_PURGE_DERIVED=true` (default in this repo’s `docker-compose.yml`), extracted text is cleared from the DB on startup.
+(`pipeline/config.py` defaults to `false` outside Compose unless env is explicitly set.)
 The UI Full Text tab pulls canonical text from Postgres (`/catalog/{id}/content`), so it may show **Not extracted yet** until you click **Re-extract text** for that record.
 
 ### 2.5) Verify containers are using the latest image
@@ -89,81 +90,21 @@ The UI defaults to **Newest** first (date descending). Use the **Sort** pill to 
 
 If sorting appears to have no effect, see the runbook section in [`docs/OPERATIONS.md`](docs/OPERATIONS.md) ("Diagnosing date sorting").
 
-## Semantic Search (Milestone B)
-Semantic search is opt-in and feature-flagged.
-
-Status:
-- `Milestone B1 (FAISS backend)`: **Complete**
-- `Milestone B2 (pgvector backend)`: **In rollout (dual-backend transition)**
-
-- Endpoint: `GET /search/semantic`
-- Optional hybrid mode on keyword endpoint: `GET /search?semantic=true`
-- Feature flag: `SEMANTIC_ENABLED` (default `false`)
-- Backend during rollout: `SEMANTIC_BACKEND=faiss|pgvector`
-- FAISS is temporary fallback only and will be retired after hydration + SLO + cutover + 72h stability gates.
-
-Keyword search (`/search`) remains the default and is unchanged.
-For setup, rebuild, diagnostics, and guardrails, use [`docs/OPERATIONS.md`](docs/OPERATIONS.md).
-
-## Vote/Outcome Extraction (Milestone A)
-Vote and outcome extraction is available as an async post-processing stage for segmented agenda items.
-
-Status:
-- `Milestone A`: **Complete**
-
-- Feature flag: `ENABLE_VOTE_EXTRACTION` (default `false`)
-- Async endpoint: `POST /votes/{catalog_id}` (supports `force=true`)
-- Storage: normalized outcome in `AgendaItem.result`, structured details in `AgendaItem.votes`
-
-## Lineage + Trends (Milestone C v1)
-Milestone C v1 is feature-flagged.
-
-- Feature flag: `FEATURE_TRENDS_DASHBOARD` (default `false`)
-- Endpoints:
-  - `GET /trends/topics`
-  - `GET /trends/compare`
-  - `GET /trends/export`
-  - `GET /lineage/{lineage_id}`
-  - `GET /catalog/{catalog_id}/lineage`
-- Trends source: Meilisearch facets (`topics`) in v1 (no SQL trend cache table).
-- Lineage source: deterministic connected components from `catalog.related_ids`, persisted on `catalog.lineage_*`.
-
-## Inference Scaling (Milestone D2-lite)
-Milestone D2-lite is the required precursor to multi-city expansion.
-
-- Config switch: `LOCAL_AI_BACKEND=inprocess|http`
-- Runtime profile: `LOCAL_AI_HTTP_PROFILE=conservative|balanced` (default `conservative`)
-- Operation-specific timeout controls:
+## Feature Flags (Quick Reference)
+- `SEMANTIC_ENABLED` + `SEMANTIC_BACKEND=faiss|pgvector`:
+  - enables semantic retrieval paths (`/search/semantic`, optional `/search?semantic=true`)
+- `ENABLE_VOTE_EXTRACTION`:
+  - enables async vote extraction (`POST /votes/{catalog_id}`)
+- `FEATURE_TRENDS_DASHBOARD`:
+  - enables trends/lineage read endpoints and UI surfaces
+- `LOCAL_AI_BACKEND=inprocess|http`:
+  - switches LocalAI transport mode
+- `LOCAL_AI_HTTP_PROFILE=conservative|balanced`:
+  - selects HTTP inference runtime profile
+- timeout overrides (optional):
   - `LOCAL_AI_HTTP_TIMEOUT_SEGMENT_SECONDS`
   - `LOCAL_AI_HTTP_TIMEOUT_SUMMARY_SECONDS`
   - `LOCAL_AI_HTTP_TIMEOUT_TOPICS_SECONDS`
-  - each falls back to `LOCAL_AI_HTTP_TIMEOUT_SECONDS` when unset.
-- Conservative default profile in Compose:
-  - worker concurrency: `3`
-  - inference service caps: ~4GB RAM / 2 CPU
-  - inference parallelism: `OLLAMA_NUM_PARALLEL=1`
-- Provider transport contract: `typing.Protocol` + typed provider errors for retry vs fallback mapping.
-- Shared query semantics: `/search` and `/trends/*` use one QueryBuilder path.
-- Shared lexical semantics: procedural/contact/trend noise rules are centralized in `pipeline/lexicon.py`.
-- Rollback:
-  - `LOCAL_AI_BACKEND=inprocess`
-  - worker concurrency back to `1`
-
-City onboarding is tracked in:
-- [`docs/city-onboarding-status.md`](docs/city-onboarding-status.md)
-
-Model A/B evaluation scripts:
-- `scripts/setup_ollama_270m.sh`
-- `scripts/run_ab_eval.sh`
-- `scripts/collect_ab_results.py`
-- `scripts/score_ab_results.py`
-- `scripts/sample_ab_manual_review.py`
-
-Current policy:
-- runtime defaults are 270M-only (`LOCAL_AI_HTTP_MODEL=gemma-3-270m-custom`);
-- active executable A/B is runtime-profile tuning (`conservative` vs `balanced`);
-- model-selection A/B is deferred/disabled until a new candidate model is intentionally reintroduced.
-- concurrency control is infrastructure-level (inference service/env profiles), not model-specific locks in application code.
 
 Runtime profile commands:
 ```bash
@@ -171,11 +112,18 @@ docker compose --env-file env/profiles/m1_conservative.env up -d --build inferen
 docker compose --env-file env/profiles/desktop_balanced.env up -d --build inference worker api pipeline frontend
 ```
 
-## Recent Completed Work
-- AI Summary quality hardening: grounded decision-brief summaries with deterministic fallback.
-- Contextual AI disclaimers in UI: shown only when AI payload is present (Summary and AI-derived Structured Agenda).
+For detailed rollout status, milestones, and policy:
+- [`ROADMAP.md`](ROADMAP.md)
+- [`docs/OPERATIONS.md`](docs/OPERATIONS.md)
+- [`docs/PERFORMANCE.md`](docs/PERFORMANCE.md)
+- [`docs/city-onboarding-status.md`](docs/city-onboarding-status.md)
 
-This README keeps the feature overview concise. For rollout, troubleshooting, and counter interpretation, use [`docs/OPERATIONS.md`](docs/OPERATIONS.md).
+Model A/B tooling:
+- `scripts/setup_ollama_270m.sh`
+- `scripts/run_ab_eval.sh`
+- `scripts/collect_ab_results.py`
+- `scripts/score_ab_results.py`
+- `scripts/sample_ab_manual_review.py`
 
 ## GitHub Pages Demo
 
