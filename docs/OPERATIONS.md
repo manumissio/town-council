@@ -124,6 +124,21 @@ Provider error policy:
   - timeout/unavailable => retry path
   - response error => deterministic fallback path
 
+Provider token/latency telemetry (HTTP backend):
+- Additional best-effort fields are emitted when backend stats are available:
+  - `ttft_ms`
+  - `prompt_tokens`
+  - `completion_tokens`
+  - `tokens_per_sec`
+  - `prompt_eval_duration_ms`
+  - `eval_duration_ms`
+- Metrics:
+  - `tc_provider_ttft_ms`
+  - `tc_provider_tokens_per_sec`
+  - `tc_provider_prompt_tokens_total`
+  - `tc_provider_completion_tokens_total`
+- These are observational only; they do not change retry/timeout behavior.
+
 Shared filter semantics:
 - `/search` and `/trends/*` now use one QueryBuilder path.
 - Procedural/contact/trend-noise rules come from a centralized lexicon module to avoid cross-surface drift.

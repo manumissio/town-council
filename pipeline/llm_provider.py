@@ -16,8 +16,11 @@ from pipeline.config import (
     LOCAL_AI_HTTP_MODEL,
 )
 from pipeline.metrics import (
+    record_provider_token_counts,
+    record_provider_tokens_per_sec,
     record_provider_request,
     record_provider_retry,
+    record_provider_ttft,
     record_provider_timeout,
 )
 
@@ -232,10 +235,41 @@ class HttpInferenceProvider:
             timeout_seconds = self._timeout_for_operation(operation)
             t0 = time.perf_counter()
             outcome = "ok"
+            prompt_tokens = None
+            completion_tokens = None
+            total_tokens = None
+            prompt_eval_duration_ms = None
+            eval_duration_ms = None
+            ttft_ms = None
+            tokens_per_sec = None
             try:
                 response = requests.post(url, json=payload, timeout=timeout_seconds)
                 response.raise_for_status()
                 data = response.json()
+                prompt_eval_count = data.get("prompt_eval_count")
+                eval_count = data.get("eval_count")
+                prompt_eval_duration_ns = data.get("prompt_eval_duration")
+                eval_duration_ns = data.get("eval_duration")
+                total_duration_ns = data.get("total_duration")
+
+                if isinstance(prompt_eval_count, int):
+                    prompt_tokens = max(0, prompt_eval_count)
+                if isinstance(eval_count, int):
+                    completion_tokens = max(0, eval_count)
+                if prompt_tokens is not None or completion_tokens is not None:
+                    total_tokens = (prompt_tokens or 0) + (completion_tokens or 0)
+
+                if isinstance(prompt_eval_duration_ns, (int, float)) and prompt_eval_duration_ns > 0:
+                    prompt_eval_duration_ms = float(prompt_eval_duration_ns) / 1_000_000.0
+                    ttft_ms = prompt_eval_duration_ms
+                if isinstance(eval_duration_ns, (int, float)) and eval_duration_ns > 0:
+                    eval_duration_ms = float(eval_duration_ns) / 1_000_000.0
+                    eval_duration_s = float(eval_duration_ns) / 1_000_000_000.0
+                    if completion_tokens is not None and eval_duration_s > 0:
+                        tokens_per_sec = completion_tokens / eval_duration_s
+                elif isinstance(total_duration_ns, (int, float)) and total_duration_ns > 0:
+                    eval_duration_ms = float(total_duration_ns) / 1_000_000.0
+
                 text = (data.get("response") or "").strip()
                 if text is None:
                     outcome = "response_error"
@@ -261,15 +295,35 @@ class HttpInferenceProvider:
             finally:
                 duration_ms = (time.perf_counter() - t0) * 1000.0
                 logger.info(
-                    "provider_request provider=%s model=%s operation=%s attempt=%s outcome=%s duration_ms=%.2f",
+                    "provider_request provider=%s model=%s operation=%s attempt=%s outcome=%s duration_ms=%.2f ttft_ms=%s prompt_tokens=%s completion_tokens=%s total_tokens=%s tokens_per_sec=%s prompt_eval_duration_ms=%s eval_duration_ms=%s",
                     self.name,
                     self.model_name,
                     operation,
                     attempt + 1,
                     outcome,
                     duration_ms,
+                    "" if ttft_ms is None else f"{ttft_ms:.2f}",
+                    "" if prompt_tokens is None else str(prompt_tokens),
+                    "" if completion_tokens is None else str(completion_tokens),
+                    "" if total_tokens is None else str(total_tokens),
+                    "" if tokens_per_sec is None else f"{tokens_per_sec:.4f}",
+                    "" if prompt_eval_duration_ms is None else f"{prompt_eval_duration_ms:.2f}",
+                    "" if eval_duration_ms is None else f"{eval_duration_ms:.2f}",
                 )
                 record_provider_request(self.name, operation, self.model_name, outcome, duration_ms)
+                if ttft_ms is not None:
+                    record_provider_ttft(self.name, operation, self.model_name, outcome, ttft_ms)
+                if tokens_per_sec is not None:
+                    record_provider_tokens_per_sec(self.name, operation, self.model_name, outcome, tokens_per_sec)
+                if prompt_tokens is not None and completion_tokens is not None:
+                    record_provider_token_counts(
+                        self.name,
+                        operation,
+                        self.model_name,
+                        outcome,
+                        prompt_tokens,
+                        completion_tokens,
+                    )
 
         if isinstance(last_error, ProviderResponseError):
             raise last_error

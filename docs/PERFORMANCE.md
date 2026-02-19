@@ -62,6 +62,20 @@ Provider telemetry for promotion gate:
 - `tc_provider_request_duration_ms` histogram
 - `tc_provider_timeouts_total`
 - `tc_provider_retries_total`
+- `tc_provider_ttft_ms` histogram
+- `tc_provider_tokens_per_sec` histogram
+- `tc_provider_prompt_tokens_total`
+- `tc_provider_completion_tokens_total`
+
+Token/throughput formulas (HTTP provider, best-effort):
+- `ttft_ms = prompt_eval_duration_ns / 1_000_000`
+- `tokens_per_sec = eval_count / (eval_duration_ns / 1_000_000_000)` when `eval_duration_ns > 0`
+- `prompt_tokens = prompt_eval_count`
+- `completion_tokens = eval_count`
+
+Notes:
+- These fields are emitted only when the inference backend returns the corresponding stats.
+- Missing stats do not affect task success; baseline request metrics still emit.
 
 Interpretation:
 - sustained timeout/retry growth under `LOCAL_AI_HTTP_PROFILE=conservative` blocks promotion.
