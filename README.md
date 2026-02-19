@@ -133,6 +133,11 @@ Milestone D2-lite is the required precursor to multi-city expansion.
 
 - Config switch: `LOCAL_AI_BACKEND=inprocess|http`
 - Runtime profile: `LOCAL_AI_HTTP_PROFILE=conservative|balanced` (default `conservative`)
+- Operation-specific timeout controls:
+  - `LOCAL_AI_HTTP_TIMEOUT_SEGMENT_SECONDS`
+  - `LOCAL_AI_HTTP_TIMEOUT_SUMMARY_SECONDS`
+  - `LOCAL_AI_HTTP_TIMEOUT_TOPICS_SECONDS`
+  - each falls back to `LOCAL_AI_HTTP_TIMEOUT_SECONDS` when unset.
 - Conservative default profile in Compose:
   - worker concurrency: `3`
   - inference service caps: ~4GB RAM / 2 CPU

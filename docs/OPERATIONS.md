@@ -106,6 +106,10 @@ Backend-aware defaults:
     - longer timeout, lower retry budget
   - `LOCAL_AI_HTTP_PROFILE=balanced`
     - shorter timeout, higher retry budget after SLO gate pass
+  - operation-specific timeout overrides (fallback to global timeout if unset):
+    - `LOCAL_AI_HTTP_TIMEOUT_SEGMENT_SECONDS`
+    - `LOCAL_AI_HTTP_TIMEOUT_SUMMARY_SECONDS`
+    - `LOCAL_AI_HTTP_TIMEOUT_TOPICS_SECONDS`
 
 Override (not recommended):
 - `LOCAL_AI_ALLOW_MULTIPROCESS=true`
@@ -299,6 +303,10 @@ When `WORKER_CONCURRENCY=3` and `OLLAMA_NUM_PARALLEL=1`, three workers can enque
 requests at once but only one is processed immediately. Timeout must cover:
 - waiting behind earlier requests in Ollama's internal queue, plus
 - generation time of the current request.
+
+Recommended split on constrained hosts:
+- segmentation timeout higher (read-heavy, long TTFT),
+- summary/topics timeout lower (write-heavy, fail faster if stalled).
 
 Because this is an infrastructure queueing effect, concurrency control is handled
 at the inference service layer (`OLLAMA_NUM_PARALLEL`) rather than with model locks

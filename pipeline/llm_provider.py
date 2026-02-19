@@ -9,6 +9,9 @@ import requests
 from pipeline.config import (
     LOCAL_AI_HTTP_BASE_URL,
     LOCAL_AI_HTTP_TIMEOUT_SECONDS,
+    LOCAL_AI_HTTP_TIMEOUT_SEGMENT_SECONDS,
+    LOCAL_AI_HTTP_TIMEOUT_SUMMARY_SECONDS,
+    LOCAL_AI_HTTP_TIMEOUT_TOPICS_SECONDS,
     LOCAL_AI_HTTP_MAX_RETRIES,
     LOCAL_AI_HTTP_MODEL,
 )
@@ -152,8 +155,12 @@ class HttpInferenceProvider:
     def __init__(self):
         self.base_url = LOCAL_AI_HTTP_BASE_URL
         self.timeout_seconds = max(5, LOCAL_AI_HTTP_TIMEOUT_SECONDS)
+        self.timeout_segment_seconds = max(5, LOCAL_AI_HTTP_TIMEOUT_SEGMENT_SECONDS)
+        self.timeout_summary_seconds = max(5, LOCAL_AI_HTTP_TIMEOUT_SUMMARY_SECONDS)
+        self.timeout_topics_seconds = max(5, LOCAL_AI_HTTP_TIMEOUT_TOPICS_SECONDS)
         self.max_retries = max(0, LOCAL_AI_HTTP_MAX_RETRIES)
         self.model_name = LOCAL_AI_HTTP_MODEL
+        self._operation_hint = "generate"
 
     def health_check(self) -> bool:
         try:
@@ -172,7 +179,35 @@ class HttpInferenceProvider:
         response_format: dict | None = None,
     ) -> str | None:
         _ = response_format
-        return self._generate("generate", prompt, max_tokens=max_tokens, temperature=temperature)
+        operation = self._operation_hint or "generate"
+        return self._generate(operation, prompt, max_tokens=max_tokens, temperature=temperature)
+
+    def _call_with_operation(
+        self,
+        operation: str,
+        prompt: str,
+        *,
+        max_tokens: int,
+        temperature: float,
+    ) -> str | None:
+        prev = self._operation_hint
+        self._operation_hint = operation
+        try:
+            # Use public generate() so test monkeypatches continue to work.
+            return self.generate(prompt, max_tokens=max_tokens, temperature=temperature)
+        finally:
+            self._operation_hint = prev
+
+    def _timeout_for_operation(self, operation: str) -> int:
+        # Keep transport policy hardware-agnostic: workload classes pick timeout budgets,
+        # while actual concurrency control stays in infra profiles (OLLAMA_NUM_PARALLEL).
+        if operation in {"extract_agenda", "segment_agenda", "generate_json"}:
+            return self.timeout_segment_seconds
+        if operation in {"summarize_agenda_items", "summarize_text", "generate"}:
+            return self.timeout_summary_seconds
+        if operation in {"generate_topics"}:
+            return self.timeout_topics_seconds
+        return self.timeout_seconds
 
     def _generate(
         self,
@@ -194,10 +229,11 @@ class HttpInferenceProvider:
         url = f"{self.base_url}/api/generate"
         last_error = None
         for attempt in range(self.max_retries + 1):
+            timeout_seconds = self._timeout_for_operation(operation)
             t0 = time.perf_counter()
             outcome = "ok"
             try:
-                response = requests.post(url, json=payload, timeout=self.timeout_seconds)
+                response = requests.post(url, json=payload, timeout=timeout_seconds)
                 response.raise_for_status()
                 data = response.json()
                 text = (data.get("response") or "").strip()
@@ -244,16 +280,36 @@ class HttpInferenceProvider:
         raise ProviderUnavailableError("HTTP inference unavailable")
 
     def extract_agenda(self, prompt: str, *, temperature: float, max_tokens: int) -> str | None:
-        return self.generate(prompt, max_tokens=max_tokens, temperature=temperature)
+        return self._call_with_operation(
+            "extract_agenda",
+            prompt,
+            max_tokens=max_tokens,
+            temperature=temperature,
+        )
 
     def summarize_agenda_items(self, prompt: str, *, temperature: float, max_tokens: int) -> str | None:
-        return self.generate(prompt, max_tokens=max_tokens, temperature=temperature)
+        return self._call_with_operation(
+            "summarize_agenda_items",
+            prompt,
+            max_tokens=max_tokens,
+            temperature=temperature,
+        )
 
     def summarize_text(self, prompt: str, *, temperature: float, max_tokens: int) -> str | None:
-        return self.generate(prompt, max_tokens=max_tokens, temperature=temperature)
+        return self._call_with_operation(
+            "summarize_text",
+            prompt,
+            max_tokens=max_tokens,
+            temperature=temperature,
+        )
 
     def generate_topics(self, prompt: str, *, temperature: float, max_tokens: int) -> str | None:
-        return self.generate(prompt, max_tokens=max_tokens, temperature=temperature)
+        return self._call_with_operation(
+            "generate_topics",
+            prompt,
+            max_tokens=max_tokens,
+            temperature=temperature,
+        )
 
     def generate_json(self, prompt: str, *, max_tokens: int) -> str | None:
         return self._generate("generate_json", prompt, max_tokens=max_tokens, temperature=0.0)

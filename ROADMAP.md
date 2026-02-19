@@ -230,6 +230,7 @@ Baseline dependency updates:
    - inference queue throttling via `OLLAMA_NUM_PARALLEL=1` on constrained hosts
    - worker concurrency: 3
    - timeout budget must include inference queue wait on constrained hosts
+   - use operation-specific HTTP timeout budgets (segment vs summary/topics) when needed
 6. Promotion rule:
    - move from Conservative to Balanced only after 1 week of clean SLOs.
 

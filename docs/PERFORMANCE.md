@@ -49,6 +49,10 @@ Default conservative profile for rollout:
 - inference service caps: ~4GB RAM / 2 CPU
 - inference parallelism: `OLLAMA_NUM_PARALLEL=1`
 - timeout budget includes internal inference queue wait (`LOCAL_AI_HTTP_TIMEOUT_SECONDS=300` on M1 profile)
+- operation budgets can be split:
+  - `LOCAL_AI_HTTP_TIMEOUT_SEGMENT_SECONDS` (usually highest)
+  - `LOCAL_AI_HTTP_TIMEOUT_SUMMARY_SECONDS`
+  - `LOCAL_AI_HTTP_TIMEOUT_TOPICS_SECONDS`
 
 Promotion rule:
 - move to a balanced profile only after one week of clean SLOs.

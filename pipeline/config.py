@@ -91,6 +91,17 @@ if LOCAL_AI_HTTP_PROFILE not in {"conservative", "balanced"}:
 _HTTP_TIMEOUT_DEFAULT = "60" if LOCAL_AI_HTTP_PROFILE == "conservative" else "45"
 _HTTP_RETRIES_DEFAULT = "1" if LOCAL_AI_HTTP_PROFILE == "conservative" else "2"
 LOCAL_AI_HTTP_TIMEOUT_SECONDS = int(os.getenv("LOCAL_AI_HTTP_TIMEOUT_SECONDS", _HTTP_TIMEOUT_DEFAULT))
+# Operation-specific timeout overrides keep heavy read tasks patient while allowing
+# write tasks to fail faster when stalled. Missing values fall back to global timeout.
+LOCAL_AI_HTTP_TIMEOUT_SEGMENT_SECONDS = int(
+    os.getenv("LOCAL_AI_HTTP_TIMEOUT_SEGMENT_SECONDS", str(LOCAL_AI_HTTP_TIMEOUT_SECONDS))
+)
+LOCAL_AI_HTTP_TIMEOUT_SUMMARY_SECONDS = int(
+    os.getenv("LOCAL_AI_HTTP_TIMEOUT_SUMMARY_SECONDS", str(LOCAL_AI_HTTP_TIMEOUT_SECONDS))
+)
+LOCAL_AI_HTTP_TIMEOUT_TOPICS_SECONDS = int(
+    os.getenv("LOCAL_AI_HTTP_TIMEOUT_TOPICS_SECONDS", str(LOCAL_AI_HTTP_TIMEOUT_SECONDS))
+)
 LOCAL_AI_HTTP_MAX_RETRIES = int(os.getenv("LOCAL_AI_HTTP_MAX_RETRIES", _HTTP_RETRIES_DEFAULT))
 # Keep 270M as the only default HTTP model to avoid slow 1B timeout loops in shared envs.
 LOCAL_AI_HTTP_MODEL = (os.getenv("LOCAL_AI_HTTP_MODEL", "gemma-3-270m-custom").strip() or "gemma-3-270m-custom")

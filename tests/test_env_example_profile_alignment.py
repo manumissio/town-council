@@ -7,6 +7,9 @@ def test_env_example_contains_profile_alignment_keys():
     assert "LOCAL_AI_HTTP_PROFILE=conservative" in text
     assert "OLLAMA_NUM_PARALLEL=1" in text
     assert "LOCAL_AI_HTTP_TIMEOUT_SECONDS=60" in text
+    assert "LOCAL_AI_HTTP_TIMEOUT_SEGMENT_SECONDS=60" in text
+    assert "LOCAL_AI_HTTP_TIMEOUT_SUMMARY_SECONDS=60" in text
+    assert "LOCAL_AI_HTTP_TIMEOUT_TOPICS_SECONDS=60" in text
     assert "LOCAL_AI_HTTP_MAX_RETRIES=1" in text
 
 
