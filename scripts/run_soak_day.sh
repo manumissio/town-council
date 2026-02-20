@@ -7,7 +7,7 @@ OUTPUT_DIR="experiments/results/soak"
 API_URL="${API_URL:-http://localhost:8000}"
 API_KEY="${API_KEY:-dev_secret_key_change_me}"
 WAIT_SECONDS="${WAIT_SECONDS:-2}"
-HEALTH_TIMEOUT_SECONDS="${HEALTH_TIMEOUT_SECONDS:-10}"
+HEALTH_TIMEOUT_SECONDS="${HEALTH_TIMEOUT_SECONDS:-60}"
 TASK_MAX_WAIT_SECONDS="${TASK_MAX_WAIT_SECONDS:-900}"
 
 usage() {
@@ -63,10 +63,12 @@ health_ok() {
 preflight_status="healthy"
 if ! health_ok; then
   preflight_status="recovering"
-  if [[ -f "scripts/dev_up.sh" ]]; then
-    bash scripts/dev_up.sh || true
-  else
-    docker compose up -d --build inference worker api pipeline frontend || true
+  # Prefer a fast, no-build recovery path for scheduled soak runs.
+  # Full dev_up rebuilds are slower and increase false stack_offline failures.
+  if ! docker compose up -d inference worker api pipeline frontend; then
+    if [[ -f "scripts/dev_up.sh" ]]; then
+      bash scripts/dev_up.sh || true
+    fi
   fi
   if ! health_ok; then
     preflight_status="stack_offline"

@@ -9,7 +9,7 @@ def test_run_soak_day_script_contract():
     assert "TASK_MAX_WAIT_SECONDS" in text
     assert "scripts/dev_up.sh" in text
     assert "[[ -f \"scripts/dev_up.sh\" ]]" in text
-    assert "docker compose up -d --build inference worker api pipeline frontend" in text
+    assert "docker compose up -d inference worker api pipeline frontend" in text
     assert "stack_offline" in text
     assert "task_poll_timeout" in text
     assert "extract/$cid?force=true&ocr_fallback=false" in text
