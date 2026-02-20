@@ -193,7 +193,7 @@ Scripts:
   - one self-heal attempt via `scripts/dev_up.sh` if stack is offline
   - marks day `stack_offline` and exits cleanly if recovery fails
   - runs `extract -> segment -> summarize` for each CID
-  - continues on per-task failures and marks day failed
+  - continues on per-task failures; extract failures are non-gating warnings while segment/summarize failures are gating
 - `scripts/collect_soak_metrics.py`
   - stores raw snapshots:
     - `experiments/results/soak/<run_id>/api_metrics.prom`
@@ -208,32 +208,32 @@ Scripts:
 
 Manual run:
 ```bash
-cd /Users/dennisshah/Documents/GitHub/town-council && RUN_ID="soak_$(date +%Y%m%d)" && ./scripts/run_soak_day.sh --run-id "$RUN_ID" --catalog-file experiments/soak_catalogs_m1_v1.txt --output-dir experiments/results/soak || true; PYTHONPATH=. .venv/bin/python scripts/collect_soak_metrics.py --run-id "$RUN_ID" --output-dir experiments/results/soak
+cd /Users/dennisshah/GitHub/town-council && RUN_ID="soak_$(date +%Y%m%d)" && ./scripts/run_soak_day.sh --run-id "$RUN_ID" --catalog-file experiments/soak_catalogs_m1_v1.txt --output-dir experiments/results/soak || true; PYTHONPATH=. .venv/bin/python scripts/collect_soak_metrics.py --run-id "$RUN_ID" --output-dir experiments/results/soak
 ```
 
 Weekly evaluation:
 ```bash
-cd /Users/dennisshah/Documents/GitHub/town-council && PYTHONPATH=. .venv/bin/python scripts/evaluate_soak_week.py --input-dir experiments/results/soak --window-days 7
+cd /Users/dennisshah/GitHub/town-council && PYTHONPATH=. .venv/bin/python scripts/evaluate_soak_week.py --input-dir experiments/results/soak --window-days 7
 ```
 
 ### Wake policy for local schedule (required)
 
 To reduce missed runs on macOS laptops:
 ```bash
-sudo pmset repeat wake MTWRFSU 02:55:00
+sudo pmset repeat wake MTWRFSU 19:50:00
 ```
 
 Install the daily launchd job:
 ```bash
-launchctl bootstrap gui/$(id -u) /Users/dennisshah/Documents/GitHub/town-council/ops/launchd/com.towncouncil.soak.daily.plist && launchctl enable gui/$(id -u)/com.towncouncil.soak.daily
+launchctl bootstrap gui/$(id -u) /Users/dennisshah/GitHub/town-council/ops/launchd/com.towncouncil.soak.daily.plist && launchctl enable gui/$(id -u)/com.towncouncil.soak.daily
 ```
 
 Notes:
 - Schedule is system local timezone.
-- launchd target time is 03:00 daily.
+- launchd target time is 19:55 daily (system local timezone).
 - Logs:
-  - `/tmp/towncouncil_soak_daily.out`
-  - `/tmp/towncouncil_soak_daily.err`
+  - `/Users/dennisshah/GitHub/town-council/experiments/results/soak/launchd.out.log`
+  - `/Users/dennisshah/GitHub/town-council/experiments/results/soak/launchd.err.log`
 
 Shared filter semantics:
 - `/search` and `/trends/*` now use one QueryBuilder path.

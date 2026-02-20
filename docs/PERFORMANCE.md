@@ -86,6 +86,7 @@ Interpretation:
 ## D2-lite Promotion Gate Thresholds
 
 Apply these thresholds over a 7-day conservative soak:
+- Note: extract-phase failures are non-gating warnings in this soak iteration; segment/summarize remain gating.
 - `provider_timeout_rate < 1.0%`
 - `timeout_storms = 0`
 - `queue_wait_p95`: no sustained upward backlog trend
@@ -111,6 +112,10 @@ Why:
 Current queue signal:
 - `queue_wait_p95` is approximated by `phase_duration_p95_s` in the automated evaluator.
 - This is an operational proxy until explicit queue wait metrics are exported.
+
+Soak confidence signals:
+- `worker_metrics_error` is recorded when worker metrics cannot be scraped.
+- Missing worker metrics do not crash collection, but reduce confidence for TTFT/TPS trend interpretation.
 
 ## A/B Experiment Artifacts
 

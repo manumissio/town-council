@@ -19,13 +19,13 @@ def _fetch_text(url: str, timeout: int = 10) -> str:
         return resp.read().decode("utf-8", errors="replace")
 
 
-def _fetch_worker_metrics_via_docker() -> str:
+def _fetch_worker_metrics_via_docker() -> tuple[str, str | None]:
     cmd = ["docker", "compose", "exec", "-T", "worker", "curl", "-fsS", "http://localhost:8001/metrics"]
     try:
         raw = subprocess.check_output(cmd, text=True, stderr=subprocess.STDOUT, timeout=30)
-        return raw
-    except Exception:
-        return ""
+        return raw, None
+    except Exception as exc:
+        return "", str(exc)
 
 
 def _parse_labels(text: str | None) -> dict[str, str]:
@@ -157,7 +157,7 @@ def main() -> int:
     except Exception:
         api_metrics_raw = ""
 
-    worker_metrics_raw = _fetch_worker_metrics_via_docker()
+    worker_metrics_raw, worker_metrics_error = _fetch_worker_metrics_via_docker()
 
     (run_dir / "api_metrics.prom").write_text(api_metrics_raw, encoding="utf-8")
     (run_dir / "worker_metrics.prom").write_text(worker_metrics_raw, encoding="utf-8")
@@ -203,6 +203,7 @@ def main() -> int:
                 "api_metrics_available": bool(api_metrics_raw.strip()),
                 "worker_metrics_available": bool(worker_metrics_raw.strip()),
             },
+            "worker_metrics_error": worker_metrics_error,
         }
     )
 

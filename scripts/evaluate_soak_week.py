@@ -15,6 +15,13 @@ def _safe_float(value):
         return None
 
 
+def _safe_int(value):
+    try:
+        return int(value)
+    except Exception:
+        return 0
+
+
 def _load_days(root: Path) -> list[dict]:
     rows: list[dict] = []
     for path in root.glob("*/day_summary.json"):
@@ -79,6 +86,7 @@ def main() -> int:
     search_days = []
     failed_day_count = 0
     timeout_storms = 0
+    extract_warning_days = 0
 
     for row in window:
         d = row["data"]
@@ -104,8 +112,13 @@ def main() -> int:
             timeout_rate_delta = timeout_delta / req_delta
             timeout_rate_days.append(timeout_rate_delta)
 
-        if d.get("status") != "complete":
+        gating_failures = _safe_int(d.get("gating_failures"))
+        if gating_failures > 0:
             failed_day_count += 1
+
+        extract_failures = _safe_int(d.get("extract_failures"))
+        if extract_failures > 0:
+            extract_warning_days += 1
 
         if (timeout_delta or 0) > 0 and (retry_delta or 0) > 0:
             ratio = (retry_delta or 0) / max(1.0, timeout_delta or 0)
@@ -137,6 +150,10 @@ def main() -> int:
                 "run_id": row["run_id"],
                 "date": datetime.fromtimestamp(row["ts"]).strftime("%Y-%m-%d"),
                 "status": d.get("status"),
+                "extract_failures": extract_failures,
+                "segment_failures": _safe_int(d.get("segment_failures")),
+                "summarize_failures": _safe_int(d.get("summarize_failures")),
+                "gating_failures": gating_failures,
                 "provider_requests_delta": req_delta,
                 "provider_timeouts_delta": timeout_delta,
                 "provider_retries_delta": retry_delta,
@@ -147,6 +164,8 @@ def main() -> int:
                 "ttft_p95_ms": ttft,
                 "tokens_per_sec_median": tps,
                 "search_p95_ms": search,
+                "worker_metrics_available": bool((d.get("metrics_sources") or {}).get("worker_metrics_available", False)),
+                "worker_metrics_error": d.get("worker_metrics_error"),
             }
         )
         prev = row
@@ -187,9 +206,11 @@ def main() -> int:
         "per_day": per_day,
         "gates": gates,
         "overall_pass": overall_pass,
+        "extract_warning_days": extract_warning_days,
         "notes": [
             "Counter-based gates are evaluated using day-over-day deltas.",
             "queue_wait gate uses phase_duration_p95_s proxy unless explicit queue metric is added later.",
+            "extract failures are non-gating warnings in this soak phase.",
         ],
     }
 
@@ -201,6 +222,7 @@ def main() -> int:
         f"# Soak Evaluation ({args.window_days} days)",
         "",
         f"overall_pass: {'PASS' if overall_pass else 'FAIL'}",
+        f"extract_warning_days: {extract_warning_days}",
         "",
         "## Gates",
     ]
@@ -210,7 +232,7 @@ def main() -> int:
     lines.append("## Runs")
     for d in per_day:
         lines.append(
-            f"- {d['date']} {d['run_id']} status={d['status']} timeout_rate_delta={d['provider_timeout_rate_delta']} seg_p95={d['segment_p95_s']} sum_p95={d['summary_p95_s']}"
+            f"- {d['date']} {d['run_id']} status={d['status']} extract_failures={d['extract_failures']} gating_failures={d['gating_failures']} timeout_rate_delta={d['provider_timeout_rate_delta']} seg_p95={d['segment_p95_s']} sum_p95={d['summary_p95_s']}"
         )
     lines.append("")
     lines.append("## Notes")

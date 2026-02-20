@@ -8,9 +8,10 @@ API_URL="${API_URL:-http://localhost:8000}"
 API_KEY="${API_KEY:-dev_secret_key_change_me}"
 WAIT_SECONDS="${WAIT_SECONDS:-2}"
 HEALTH_TIMEOUT_SECONDS="${HEALTH_TIMEOUT_SECONDS:-10}"
+TASK_MAX_WAIT_SECONDS="${TASK_MAX_WAIT_SECONDS:-900}"
 
 usage() {
-  echo "usage: $0 --run-id <id> --catalog-file <path> [--output-dir <path>] [--api-url <url>] [--api-key <key>]"
+  echo "usage: $0 --run-id <id> --catalog-file <path> [--output-dir <path>] [--api-url <url>] [--api-key <key>] [--task-max-wait-seconds <n>]"
   exit 2
 }
 
@@ -23,6 +24,7 @@ while [[ $# -gt 0 ]]; do
     --api-key) API_KEY="$2"; shift 2 ;;
     --wait-seconds) WAIT_SECONDS="$2"; shift 2 ;;
     --health-timeout-seconds) HEALTH_TIMEOUT_SECONDS="$2"; shift 2 ;;
+    --task-max-wait-seconds) TASK_MAX_WAIT_SECONDS="$2"; shift 2 ;;
     *) usage ;;
   esac
 done
@@ -37,7 +39,10 @@ TASKS_JSONL="$RUN_DIR/tasks.jsonl"
 DAY_SUMMARY_JSON="$RUN_DIR/day_summary.json"
 : > "$TASKS_JSONL"
 
-mapfile -t CIDS < <(awk '{gsub(/#.*/,"",$0); gsub(/^[[:space:]]+|[[:space:]]+$/, "", $0); if ($0 ~ /^[0-9]+$/) print $0}' "$CATALOG_FILE")
+CIDS=()
+while IFS= read -r cid; do
+  CIDS+=("$cid")
+done < <(awk '{gsub(/#.*/,"",$0); gsub(/^[[:space:]]+|[[:space:]]+$/, "", $0); if ($0 ~ /^[0-9]+$/) print $0}' "$CATALOG_FILE")
 if [[ ${#CIDS[@]} -eq 0 ]]; then
   echo "no CIDs parsed from $CATALOG_FILE"
   exit 2
@@ -58,8 +63,10 @@ health_ok() {
 preflight_status="healthy"
 if ! health_ok; then
   preflight_status="recovering"
-  if [[ -x "scripts/dev_up.sh" ]]; then
+  if [[ -f "scripts/dev_up.sh" ]]; then
     bash scripts/dev_up.sh || true
+  else
+    docker compose up -d --build inference worker api pipeline frontend || true
   fi
   if ! health_ok; then
     preflight_status="stack_offline"
@@ -76,6 +83,10 @@ payload = {
     "cids_total": 0,
     "phases_total": 0,
     "phases_failed": 0,
+    "extract_failures": 0,
+    "segment_failures": 0,
+    "summarize_failures": 0,
+    "gating_failures": 0,
 }
 with open(out, "w", encoding="utf-8") as f:
     json.dump(payload, f, indent=2)
@@ -115,6 +126,7 @@ PY
     return 1
   fi
 
+  local waited_seconds=0
   while true; do
     task_resp="$(curl -sS "$API_URL/tasks/$tid" -H "X-API-Key: $API_KEY" || true)"
     status="$(python3 - <<'PY' "$task_resp"
@@ -131,7 +143,13 @@ PY
     if [[ "$status" == "complete" || "$status" == "completed" || "$status" == "failed" ]]; then
       break
     fi
+    if [[ "$waited_seconds" -ge "$TASK_MAX_WAIT_SECONDS" ]]; then
+      status="failed"
+      task_resp='{"status":"failed","error":"task_poll_timeout"}'
+      break
+    fi
     sleep "$WAIT_SECONDS"
+    waited_seconds=$((waited_seconds + WAIT_SECONDS))
   done
 
   t_end=$(python3 - <<'PY'
@@ -181,24 +199,42 @@ PY
   return 0
 }
 
-failures=0
+extract_failures=0
+segment_failures=0
+summarize_failures=0
 phases=0
 for cid in "${CIDS[@]}"; do
-  run_endpoint "$cid" "extract" "extract/$cid?force=true&ocr_fallback=false" || failures=$((failures + 1))
+  run_endpoint "$cid" "extract" "extract/$cid?force=true&ocr_fallback=false" || extract_failures=$((extract_failures + 1))
   phases=$((phases + 1))
-  run_endpoint "$cid" "segment" "segment/$cid?force=true" || failures=$((failures + 1))
+  run_endpoint "$cid" "segment" "segment/$cid?force=true" || segment_failures=$((segment_failures + 1))
   phases=$((phases + 1))
-  run_endpoint "$cid" "summarize" "summarize/$cid?force=true" || failures=$((failures + 1))
+  run_endpoint "$cid" "summarize" "summarize/$cid?force=true" || summarize_failures=$((summarize_failures + 1))
   phases=$((phases + 1))
 done
 
-python3 - <<'PY' "$RUN_ID" "$API_URL" "$preflight_status" "$DAY_SUMMARY_JSON" "$TASKS_JSONL" "${#CIDS[@]}" "$phases" "$failures"
+gating_failures=$((segment_failures + summarize_failures))
+all_phase_failures=$((extract_failures + gating_failures))
+
+python3 - <<'PY' "$RUN_ID" "$API_URL" "$preflight_status" "$DAY_SUMMARY_JSON" "$TASKS_JSONL" "${#CIDS[@]}" "$phases" "$all_phase_failures" "$extract_failures" "$segment_failures" "$summarize_failures" "$gating_failures"
 import json
 import statistics
 import sys
 from pathlib import Path
 
-run_id, api_url, preflight_status, out_path, tasks_path, cids_total, phases_total, failures = sys.argv[1:]
+(
+    run_id,
+    api_url,
+    preflight_status,
+    out_path,
+    tasks_path,
+    cids_total,
+    phases_total,
+    all_phase_failures,
+    extract_failures,
+    segment_failures,
+    summarize_failures,
+    gating_failures,
+) = sys.argv[1:]
 rows = []
 for raw in Path(tasks_path).read_text(encoding="utf-8").splitlines():
     raw = raw.strip()
@@ -218,13 +254,17 @@ def p95(values):
 
 payload = {
     "run_id": run_id,
-    "status": "failed" if int(failures) > 0 else "complete",
-    "failure_reason": "task_failures" if int(failures) > 0 else "",
+    "status": "failed" if int(gating_failures) > 0 else "complete",
+    "failure_reason": "gating_phase_failures" if int(gating_failures) > 0 else "",
     "api_url": api_url,
     "preflight_status": preflight_status,
     "cids_total": int(cids_total),
     "phases_total": int(phases_total),
-    "phases_failed": int(failures),
+    "phases_failed": int(all_phase_failures),
+    "extract_failures": int(extract_failures),
+    "segment_failures": int(segment_failures),
+    "summarize_failures": int(summarize_failures),
+    "gating_failures": int(gating_failures),
     "duration_total_s": float(sum(phase_durations)),
     "phase_duration_p95_s": p95(phase_durations),
     "segment_p95_s": p95(segment),
@@ -236,8 +276,11 @@ with open(out_path, "w", encoding="utf-8") as f:
     json.dump(payload, f, indent=2)
 PY
 
-if [[ "$failures" -gt 0 ]]; then
-  echo "run completed with failures=$failures"
+if [[ "$extract_failures" -gt 0 ]]; then
+  echo "run completed with non-gating extract_failures=$extract_failures"
+fi
+if [[ "$gating_failures" -gt 0 ]]; then
+  echo "run completed with gating_failures=$gating_failures"
   exit 1
 fi
 

@@ -1,4 +1,5 @@
 import importlib.util
+import subprocess
 from pathlib import Path
 
 
@@ -21,3 +22,12 @@ def test_parse_metrics_reads_labeled_rows():
 def test_hist_quantile_handles_missing_data():
     assert mod._hist_quantile([], "tc_provider_ttft_ms", {}, 0.95) is None
 
+
+def test_fetch_worker_metrics_returns_error_string_on_failure(monkeypatch):
+    def _boom(*_args, **_kwargs):
+        raise subprocess.CalledProcessError(1, "docker compose exec")
+
+    monkeypatch.setattr(subprocess, "check_output", _boom)
+    raw, err = mod._fetch_worker_metrics_via_docker()
+    assert raw == ""
+    assert err is not None
