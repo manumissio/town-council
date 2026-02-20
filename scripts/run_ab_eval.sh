@@ -62,7 +62,7 @@ run_endpoint() {
   local phase="$2"
   local ep="$3"
 
-  local t_start t_end tid status payload
+  local t_start t_end tid status payload task_resp
   t_start=$(python3 - <<'PY'
 import time
 print(f"{time.time():.6f}")
@@ -77,7 +77,8 @@ PY
   fi
 
   while true; do
-    status=$(curl -fsS "$API_URL/tasks/$tid" -H "X-API-Key: $API_KEY" | python3 -c 'import sys,json; print((json.load(sys.stdin).get("status") or "").lower())')
+    task_resp=$(curl -fsS "$API_URL/tasks/$tid" -H "X-API-Key: $API_KEY")
+    status=$(python3 -c 'import sys,json; print((json.load(sys.stdin).get("status") or "").lower())' <<< "$task_resp")
     if [[ "$status" == "complete" || "$status" == "completed" || "$status" == "failed" ]]; then
       break
     fi
@@ -101,8 +102,66 @@ PY
   local failed="false"
   [[ "$status" == "failed" ]] && failed="true"
 
-  payload=$(printf '{"run_id":"%s","arm":"%s","catalog_id":%s,"phase":"%s","task_id":"%s","status":"%s","duration_s":%s,"task_failed":%s}' \
-    "$RUN_ID" "$ARM" "$cid" "$phase" "$tid" "$status" "$duration" "$failed")
+  payload=$(python3 - <<'PY' "$RUN_ID" "$ARM" "$cid" "$phase" "$tid" "$status" "$duration" "$failed" "$task_resp"
+import json
+import sys
+
+run_id, arm, cid, phase, tid, status, duration, failed, task_resp = sys.argv[1:]
+
+payload = {
+    "run_id": run_id,
+    "arm": arm,
+    "catalog_id": int(cid),
+    "phase": phase,
+    "task_id": tid,
+    "status": status,
+    "duration_s": float(duration),
+    "task_failed": failed.lower() == "true",
+}
+
+task_result = None
+try:
+    task_obj = json.loads(task_resp)
+    maybe_result = task_obj.get("result") if isinstance(task_obj, dict) else None
+    if isinstance(maybe_result, dict):
+        task_result = maybe_result
+except Exception:
+    task_result = None
+
+payload["task_result"] = task_result
+
+candidates = []
+if isinstance(task_result, dict):
+    candidates.append(task_result)
+    for key in ("telemetry", "provider_metrics", "metrics"):
+        nested = task_result.get(key)
+        if isinstance(nested, dict):
+            candidates.append(nested)
+
+def pick(key):
+    for cand in candidates:
+        value = cand.get(key)
+        if value is not None:
+            return value
+    return None
+
+prompt_tokens = pick("prompt_tokens")
+completion_tokens = pick("completion_tokens")
+total_tokens = pick("total_tokens")
+if total_tokens is None and (prompt_tokens is not None or completion_tokens is not None):
+    total_tokens = (prompt_tokens or 0) + (completion_tokens or 0)
+
+payload["ttft_ms"] = pick("ttft_ms")
+payload["tokens_per_sec"] = pick("tokens_per_sec")
+payload["prompt_tokens"] = prompt_tokens
+payload["completion_tokens"] = completion_tokens
+payload["total_tokens"] = total_tokens
+payload["prompt_eval_duration_ms"] = pick("prompt_eval_duration_ms")
+payload["eval_duration_ms"] = pick("eval_duration_ms")
+
+print(json.dumps(payload, separators=(",", ":")))
+PY
+)
   echo "$payload" >> "$TASKS_JSONL"
 
   if [[ "$status" == "failed" ]]; then

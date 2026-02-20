@@ -42,6 +42,41 @@ def _detect_partial_coverage(summary: str) -> bool:
     return any(re.search(p, text) for p in patterns)
 
 
+def _to_float(value):
+    try:
+        return float(value)
+    except Exception:
+        return None
+
+
+def _to_int(value):
+    try:
+        return int(value)
+    except Exception:
+        return None
+
+
+def _provider_metric_from_phase_row(row: dict, metric_name: str):
+    # Prefer flattened fields from run_ab_eval; fall back to task_result payload.
+    direct = row.get(metric_name)
+    if direct not in (None, ""):
+        return direct
+
+    task_result = row.get("task_result")
+    candidates = []
+    if isinstance(task_result, dict):
+        candidates.append(task_result)
+        for key in ("telemetry", "provider_metrics", "metrics"):
+            nested = task_result.get(key)
+            if isinstance(nested, dict):
+                candidates.append(nested)
+    for cand in candidates:
+        value = cand.get(metric_name)
+        if value not in (None, ""):
+            return value
+    return None
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description="Collect A/B run results into CSV/JSON artifacts")
     parser.add_argument("--run-id", required=True)
@@ -108,6 +143,13 @@ def main() -> int:
 
             seg = by_cid_phase.get((cid, "segment"), {})
             summ = by_cid_phase.get((cid, "summarize"), {})
+            telemetry_source = summ if summ else seg
+
+            prompt_tokens = _to_int(_provider_metric_from_phase_row(telemetry_source, "prompt_tokens"))
+            completion_tokens = _to_int(_provider_metric_from_phase_row(telemetry_source, "completion_tokens"))
+            total_tokens = _to_int(_provider_metric_from_phase_row(telemetry_source, "total_tokens"))
+            if total_tokens is None and (prompt_tokens is not None or completion_tokens is not None):
+                total_tokens = (prompt_tokens or 0) + (completion_tokens or 0)
 
             any_failed = bool(seg.get("task_failed")) or bool(summ.get("task_failed"))
             status = "failed" if any_failed else "complete"
@@ -129,6 +171,15 @@ def main() -> int:
                     "grounding_pass": bool(grounding.is_grounded),
                     "fallback_used": _detect_fallback(summary_text),
                     "partial_coverage_disclosed": _detect_partial_coverage(summary_text),
+                    "ttft_ms": _to_float(_provider_metric_from_phase_row(telemetry_source, "ttft_ms")),
+                    "tokens_per_sec": _to_float(_provider_metric_from_phase_row(telemetry_source, "tokens_per_sec")),
+                    "prompt_tokens": prompt_tokens,
+                    "completion_tokens": completion_tokens,
+                    "total_tokens": total_tokens,
+                    "prompt_eval_duration_ms": _to_float(
+                        _provider_metric_from_phase_row(telemetry_source, "prompt_eval_duration_ms")
+                    ),
+                    "eval_duration_ms": _to_float(_provider_metric_from_phase_row(telemetry_source, "eval_duration_ms")),
                 }
             )
     finally:
@@ -152,6 +203,13 @@ def main() -> int:
         "grounding_pass",
         "fallback_used",
         "partial_coverage_disclosed",
+        "ttft_ms",
+        "tokens_per_sec",
+        "prompt_tokens",
+        "completion_tokens",
+        "total_tokens",
+        "prompt_eval_duration_ms",
+        "eval_duration_ms",
     ]
 
     with csv_path.open("w", encoding="utf-8", newline="") as f:

@@ -58,3 +58,32 @@ def test_compare_arms_fails_when_section_improvement_too_small():
     out = mod.compare_arms(control, treatment)
     assert out["checks"]["section_compliance"] is False
     assert out["all_pass"] is False
+
+
+def test_provider_telemetry_deltas_are_non_gating():
+    control = {
+        "n": 50,
+        "section_compliance_rate": 0.70,
+        "fallback_rate": 0.10,
+        "grounding_rate": 0.95,
+        "failure_rate": 0.02,
+        "summary_p95_s": 10.0,
+        "segment_p95_s": 20.0,
+        "partial_disclosure_rate": 0.05,
+    }
+    treatment = {
+        **control,
+        "ttft_median_ms": 99999.0,
+        "tokens_per_sec_median": 0.01,
+    }
+    out = mod.compare_arms(control, treatment)
+    assert "ttft_median_ms_delta" in out["deltas"]
+    assert "tokens_per_sec_median_delta" in out["deltas"]
+    assert set(out["checks"].keys()) == {
+        "section_compliance",
+        "fallback",
+        "grounding",
+        "summary_p95",
+        "segment_p95",
+        "failure_rate",
+    }

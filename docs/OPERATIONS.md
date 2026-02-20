@@ -139,6 +139,12 @@ Provider token/latency telemetry (HTTP backend):
   - `tc_provider_completion_tokens_total`
 - These are observational only; they do not change retry/timeout behavior.
 
+A/B artifact integration (v1):
+- `scripts/run_ab_eval.sh` captures best-effort provider telemetry from final task payloads.
+- `scripts/collect_ab_results.py` carries telemetry into `ab_rows.csv` / `ab_rows.json`.
+- `scripts/score_ab_results.py` reports TTFT/TPS/token rollups and deltas.
+- These telemetry metrics are reporting-only in this phase and are not part of pass/fail gates.
+
 Shared filter semantics:
 - `/search` and `/trends/*` now use one QueryBuilder path.
 - Procedural/contact/trend-noise rules come from a centralized lexicon module to avoid cross-surface drift.

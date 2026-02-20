@@ -22,6 +22,14 @@ performance_gates:
   failure_rate_increase_pp_max: 1.0
   queue_wait_p95_minutes_max: 10.0
   search_p95_regression_pct_max: 15.0
+# Observational telemetry fields (non-gating in v1):
+# - ttft_ms
+# - tokens_per_sec
+# - prompt_tokens
+# - completion_tokens
+# - total_tokens
+# - prompt_eval_duration_ms
+# - eval_duration_ms
 abort_conditions:
   failures_first_15_pct_max: 5.0
   queue_wait_p95_minutes_abort: 20.0

@@ -56,6 +56,14 @@ def aggregate_arm(rows):
             "summary_p95_s": 0.0,
             "segment_p95_s": 0.0,
             "partial_disclosure_rate": 0.0,
+            "ttft_median_ms": 0.0,
+            "ttft_p95_ms": 0.0,
+            "ttft_n": 0,
+            "tokens_per_sec_median": 0.0,
+            "tokens_per_sec_n": 0,
+            "prompt_tokens_total": 0,
+            "completion_tokens_total": 0,
+            "total_tokens_total": 0,
         }
 
     section = sum(1 for r in rows if _to_bool(r.get("section_compliance_pass"))) / total
@@ -66,6 +74,11 @@ def aggregate_arm(rows):
 
     summary_p95 = _p95([_to_float(r.get("summary_duration_s")) for r in rows])
     segment_p95 = _p95([_to_float(r.get("segment_duration_s")) for r in rows])
+    ttft_values = [_to_float(r.get("ttft_ms")) for r in rows if _to_float(r.get("ttft_ms")) > 0]
+    tps_values = [_to_float(r.get("tokens_per_sec")) for r in rows if _to_float(r.get("tokens_per_sec")) > 0]
+    prompt_tokens_total = sum(int(_to_float(r.get("prompt_tokens"), 0.0)) for r in rows)
+    completion_tokens_total = sum(int(_to_float(r.get("completion_tokens"), 0.0)) for r in rows)
+    total_tokens_total = sum(int(_to_float(r.get("total_tokens"), 0.0)) for r in rows)
 
     return {
         "n": total,
@@ -76,22 +89,38 @@ def aggregate_arm(rows):
         "summary_p95_s": summary_p95,
         "segment_p95_s": segment_p95,
         "partial_disclosure_rate": partial,
+        "ttft_median_ms": float(median(ttft_values)) if ttft_values else 0.0,
+        "ttft_p95_ms": _p95(ttft_values) if ttft_values else 0.0,
+        "ttft_n": len(ttft_values),
+        "tokens_per_sec_median": float(median(tps_values)) if tps_values else 0.0,
+        "tokens_per_sec_n": len(tps_values),
+        "prompt_tokens_total": prompt_tokens_total,
+        "completion_tokens_total": completion_tokens_total,
+        "total_tokens_total": total_tokens_total,
     }
 
 
 def compare_arms(control, treatment, gates=None):
     gates = gates or DEFAULT_GATES
+    c = lambda k, d=0.0: float(control.get(k, d))
+    t = lambda k, d=0.0: float(treatment.get(k, d))
 
     def pct(v):
         return float(v) * 100.0
 
     deltas = {
-        "section_compliance_pp": pct(treatment["section_compliance_rate"] - control["section_compliance_rate"]),
-        "fallback_pp": pct(treatment["fallback_rate"] - control["fallback_rate"]),
-        "grounding_pp": pct(treatment["grounding_rate"] - control["grounding_rate"]),
-        "failure_rate_pp": pct(treatment["failure_rate"] - control["failure_rate"]),
-        "summary_p95_pct": ((treatment["summary_p95_s"] - control["summary_p95_s"]) / control["summary_p95_s"] * 100.0) if control["summary_p95_s"] else 0.0,
-        "segment_p95_pct": ((treatment["segment_p95_s"] - control["segment_p95_s"]) / control["segment_p95_s"] * 100.0) if control["segment_p95_s"] else 0.0,
+        "section_compliance_pp": pct(t("section_compliance_rate") - c("section_compliance_rate")),
+        "fallback_pp": pct(t("fallback_rate") - c("fallback_rate")),
+        "grounding_pp": pct(t("grounding_rate") - c("grounding_rate")),
+        "failure_rate_pp": pct(t("failure_rate") - c("failure_rate")),
+        "summary_p95_pct": ((t("summary_p95_s") - c("summary_p95_s")) / c("summary_p95_s") * 100.0) if c("summary_p95_s") else 0.0,
+        "segment_p95_pct": ((t("segment_p95_s") - c("segment_p95_s")) / c("segment_p95_s") * 100.0) if c("segment_p95_s") else 0.0,
+        "ttft_median_ms_delta": t("ttft_median_ms") - c("ttft_median_ms"),
+        "ttft_p95_ms_delta": t("ttft_p95_ms") - c("ttft_p95_ms"),
+        "tokens_per_sec_median_delta": t("tokens_per_sec_median") - c("tokens_per_sec_median"),
+        "prompt_tokens_total_delta": t("prompt_tokens_total") - c("prompt_tokens_total"),
+        "completion_tokens_total_delta": t("completion_tokens_total") - c("completion_tokens_total"),
+        "total_tokens_total_delta": t("total_tokens_total") - c("total_tokens_total"),
     }
 
     checks = {
@@ -192,6 +221,14 @@ def _render_report(control, treatment, comparison, run_ids):
         ("Failure rate %", control["failure_rate"] * 100, treatment["failure_rate"] * 100),
         ("Summary p95 (s)", control["summary_p95_s"], treatment["summary_p95_s"]),
         ("Segment p95 (s)", control["segment_p95_s"], treatment["segment_p95_s"]),
+        ("TTFT median (ms)", control["ttft_median_ms"], treatment["ttft_median_ms"]),
+        ("TTFT p95 (ms)", control["ttft_p95_ms"], treatment["ttft_p95_ms"]),
+        ("TTFT sample count", control["ttft_n"], treatment["ttft_n"]),
+        ("TPS median", control["tokens_per_sec_median"], treatment["tokens_per_sec_median"]),
+        ("TPS sample count", control["tokens_per_sec_n"], treatment["tokens_per_sec_n"]),
+        ("Prompt tokens total", control["prompt_tokens_total"], treatment["prompt_tokens_total"]),
+        ("Completion tokens total", control["completion_tokens_total"], treatment["completion_tokens_total"]),
+        ("Total tokens total", control["total_tokens_total"], treatment["total_tokens_total"]),
     ]
     for name, a, b in rows:
         lines.append(f"| {name} | {a:.2f} | {b:.2f} |" if isinstance(a, float) or isinstance(b, float) else f"| {name} | {a} | {b} |")

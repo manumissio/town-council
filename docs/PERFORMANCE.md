@@ -89,6 +89,10 @@ For `270M` runtime-profile runs (`conservative` vs `balanced`), evaluate:
 - fallback and grounding deltas
 - summary/segment p95 deltas
 - failure-rate delta
+- observational telemetry rollups (non-gating):
+  - TTFT median/p95 (`ttft_ms`)
+  - throughput median (`tokens_per_sec`)
+  - prompt/completion/total token totals
 
 Primary outputs:
 - `experiments/results/ab_report_v1.md`
