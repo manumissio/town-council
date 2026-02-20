@@ -26,7 +26,7 @@ Note:
 | `GET /metadata` | 1.40 | 1.89 | 1.06 | 10.57 |
 | `GET /people?limit=50` | 4.08 | 4.58 | 2.76 | 20.46 |
 
-## Semantic Endpoint Timing (Milestone B)
+## Hybrid Semantic Discovery (`B`): Semantic Endpoint Timing
 
 Semantic endpoint timing should be measured after:
 1. `SEMANTIC_ENABLED=true`
@@ -41,7 +41,7 @@ Track:
 - `semantic_diagnostics.expansion_steps`
 - `semantic_diagnostics.engine` (`faiss` preferred; `numpy` fallback is expected to be slower)
 
-## D2-lite Runtime Profile (Milestone D)
+## Inference Decoupling & Throughput Stabilization (`D2-lite`): Runtime Profile
 
 Default conservative profile for rollout:
 - `LOCAL_AI_BACKEND=http`
@@ -56,6 +56,7 @@ Default conservative profile for rollout:
 
 Promotion rule:
 - move to a balanced profile only after one week of clean SLOs.
+- no new feature rollout during the D2-lite conservative soak window.
 
 Provider telemetry for promotion gate:
 - `tc_provider_requests_total` by `{provider,operation,model,outcome}`
@@ -82,6 +83,19 @@ Interpretation:
 - balanced profile is only eligible when provider timeout/retry counters remain low and task failure rates stay stable.
 - concurrency throttling belongs in inference infrastructure (`OLLAMA_NUM_PARALLEL`), not in model-identity app logic.
 
+## D2-lite Promotion Gate Thresholds
+
+Apply these thresholds over a 7-day conservative soak:
+- `provider_timeout_rate < 1.0%`
+- `timeout_storms = 0`
+- `queue_wait_p95`: no sustained upward backlog trend
+- `search_p95_regression_pct <= 15%`
+- segment/summary p95: stable vs baseline (no persistent degradation)
+- `ttft_ms` and `tokens_per_sec`: no persistent adverse drift
+
+Fail policy:
+- if any gate fails, remain conservative and tune infra before re-running soak.
+
 ## A/B Experiment Artifacts
 
 For `270M` runtime-profile runs (`conservative` vs `balanced`), evaluate:
@@ -98,7 +112,7 @@ Primary outputs:
 - `experiments/results/ab_report_v1.md`
 - `experiments/results/ab_score_<runs>.json`
 
-## Trends + Lineage Endpoint Timing (Milestone C v1)
+## Issue Threads Foundation (`C v1`): Trends + Lineage Endpoint Timing
 
 Suggested benchmark endpoints:
 - `GET /trends/topics?limit=10`

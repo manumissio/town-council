@@ -145,11 +145,47 @@ A/B artifact integration (v1):
 - `scripts/score_ab_results.py` reports TTFT/TPS/token rollups and deltas.
 - These telemetry metrics are reporting-only in this phase and are not part of pass/fail gates.
 
+## D2-lite 7-Day Soak Gate (Conservative -> Balanced)
+
+Run profile:
+- `env/profiles/m1_conservative.env` on M1 Pro.
+- No new feature rollout during the soak window.
+
+Promotion gate table:
+- `provider_timeout_rate`:
+  - source: `tc_provider_timeouts_total / tc_provider_requests_total`
+  - threshold: `< 1.0%` for 7 consecutive days
+  - fail action: remain conservative; investigate latency/queue
+- `timeout_storms`:
+  - source: retry/timeout log correlation
+  - threshold: `0`
+  - fail action: block promotion; tune infra limits
+- `queue_wait_p95`:
+  - source: worker queue latency trend
+  - threshold: no sustained upward backlog trend
+  - fail action: hold promotion; tune `OLLAMA_NUM_PARALLEL` or concurrency
+- `segment_p95_s` and `summary_p95_s`:
+  - source: task timing rollups
+  - threshold: stable vs baseline (no persistent degradation)
+  - fail action: hold promotion; investigate workload/profile
+- `search_p95_regression_pct`:
+  - source: API performance checks
+  - threshold: `<= 15%` regression
+  - fail action: hold promotion; prioritize API responsiveness
+- `ttft_ms` and `tokens_per_sec` drift:
+  - source: provider telemetry
+  - threshold: no persistent adverse drift
+  - fail action: hold promotion; investigate context/workload mix
+
+Decision rule:
+- Promote to `LOCAL_AI_HTTP_PROFILE=balanced` only if all gates pass continuously through day 7.
+- If any gate fails, remain conservative and rerun soak after tuning.
+
 Shared filter semantics:
 - `/search` and `/trends/*` now use one QueryBuilder path.
 - Procedural/contact/trend-noise rules come from a centralized lexicon module to avoid cross-surface drift.
 
-## Semantic Search (Milestone B)
+## Hybrid Semantic Discovery (`B`): Semantic Search
 
 Semantic search is additive and disabled by default.
 
@@ -253,7 +289,7 @@ Notes:
 - Tabular-fragment rejection is weighted: low alpha density is the primary signal; whitespace artifacts are auxiliary only.
 - End-of-agenda stop uses composite evidence (legal/attestation tail). `Adjournment` alone does not terminate parsing.
 
-## Vote/Outcome Extraction (Milestone A)
+## Decision Integrity (`A`): Vote/Outcome Extraction
 
 Vote extraction is an optional async stage that runs on segmented agenda items.
 
@@ -261,7 +297,7 @@ Vote extraction is an optional async stage that runs on segmented agenda items.
 Set:
 - `ENABLE_VOTE_EXTRACTION=true`
 
-## Trends + Lineage (Milestone C v1)
+## Issue Threads Foundation (`C v1`): Trends + Lineage
 
 Feature flag:
 - `FEATURE_TRENDS_DASHBOARD=true`
