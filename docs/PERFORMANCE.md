@@ -96,6 +96,22 @@ Apply these thresholds over a 7-day conservative soak:
 Fail policy:
 - if any gate fails, remain conservative and tune infra before re-running soak.
 
+## Soak automation metric semantics
+
+The soak harness writes one `day_summary.json` per run under:
+- `experiments/results/soak/<run_id>/day_summary.json`
+
+Weekly evaluation (`scripts/evaluate_soak_week.py`) uses:
+- `delta(day_n) = counter(day_n) - counter(day_n-1)` for counters
+- reset handling: when counter decreases after restart, `delta(day_n) = counter(day_n)`
+
+Why:
+- Prometheus counters are cumulative; absolute values would incorrectly fail later days after a single early timeout.
+
+Current queue signal:
+- `queue_wait_p95` is approximated by `phase_duration_p95_s` in the automated evaluator.
+- This is an operational proxy until explicit queue wait metrics are exported.
+
 ## A/B Experiment Artifacts
 
 For `270M` runtime-profile runs (`conservative` vs `balanced`), evaluate:

@@ -181,6 +181,60 @@ Decision rule:
 - Promote to `LOCAL_AI_HTTP_PROFILE=balanced` only if all gates pass continuously through day 7.
 - If any gate fails, remain conservative and rerun soak after tuning.
 
+### Automated daily soak harness (local M1 Pro)
+
+Fixed manifest:
+- `experiments/soak_catalogs_m1_v1.txt`
+  - current cycle: `609`, `933`
+
+Scripts:
+- `scripts/run_soak_day.sh`
+  - preflight `/health` poll for 10 seconds
+  - one self-heal attempt via `scripts/dev_up.sh` if stack is offline
+  - marks day `stack_offline` and exits cleanly if recovery fails
+  - runs `extract -> segment -> summarize` for each CID
+  - continues on per-task failures and marks day failed
+- `scripts/collect_soak_metrics.py`
+  - stores raw snapshots:
+    - `experiments/results/soak/<run_id>/api_metrics.prom`
+    - `experiments/results/soak/<run_id>/worker_metrics.prom`
+  - updates `experiments/results/soak/<run_id>/day_summary.json`
+- `scripts/evaluate_soak_week.py`
+  - reads 7-day window and emits:
+    - `experiments/results/soak/soak_eval_7d.json`
+    - `experiments/results/soak/soak_eval_7d.md`
+  - uses day-over-day counter deltas (not absolute counter values)
+  - handles counter reset after restarts by re-baselining deltas
+
+Manual run:
+```bash
+cd /Users/dennisshah/Documents/GitHub/town-council && RUN_ID="soak_$(date +%Y%m%d)" && ./scripts/run_soak_day.sh --run-id "$RUN_ID" --catalog-file experiments/soak_catalogs_m1_v1.txt --output-dir experiments/results/soak || true; PYTHONPATH=. .venv/bin/python scripts/collect_soak_metrics.py --run-id "$RUN_ID" --output-dir experiments/results/soak
+```
+
+Weekly evaluation:
+```bash
+cd /Users/dennisshah/Documents/GitHub/town-council && PYTHONPATH=. .venv/bin/python scripts/evaluate_soak_week.py --input-dir experiments/results/soak --window-days 7
+```
+
+### Wake policy for local schedule (required)
+
+To reduce missed runs on macOS laptops:
+```bash
+sudo pmset repeat wake MTWRFSU 02:55:00
+```
+
+Install the daily launchd job:
+```bash
+launchctl bootstrap gui/$(id -u) /Users/dennisshah/Documents/GitHub/town-council/ops/launchd/com.towncouncil.soak.daily.plist && launchctl enable gui/$(id -u)/com.towncouncil.soak.daily
+```
+
+Notes:
+- Schedule is system local timezone.
+- launchd target time is 03:00 daily.
+- Logs:
+  - `/tmp/towncouncil_soak_daily.out`
+  - `/tmp/towncouncil_soak_daily.err`
+
 Shared filter semantics:
 - `/search` and `/trends/*` now use one QueryBuilder path.
 - Procedural/contact/trend-noise rules come from a centralized lexicon module to avoid cross-surface drift.

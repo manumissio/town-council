@@ -1,0 +1,4 @@
+# Fixed soak manifest for M1 Pro conservative profile.
+# One catalog ID per line.
+609
+933
