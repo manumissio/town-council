@@ -68,6 +68,11 @@ Provider telemetry for promotion gate:
 - `tc_provider_prompt_tokens_total`
 - `tc_provider_completion_tokens_total`
 
+Prefork note:
+- Provider telemetry is mirrored to a Redis-backed aggregate so `tc_provider_*` series are visible
+  from the worker metrics endpoint under `WORKER_POOL=prefork`.
+- This keeps D2-lite runtime behavior unchanged while preserving TTFT/TPS observability.
+
 Token/throughput formulas (HTTP provider, best-effort):
 - `ttft_ms = prompt_eval_duration_ns / 1_000_000`
 - `tokens_per_sec = eval_count / (eval_duration_ns / 1_000_000_000)` when `eval_duration_ns > 0`
@@ -121,6 +126,7 @@ Current queue signal:
 Soak confidence signals:
 - `worker_metrics_error` is recorded when worker metrics cannot be scraped.
 - Missing worker metrics do not crash collection, but reduce confidence for TTFT/TPS trend interpretation.
+- Weekly evaluator emits `telemetry_confidence` and `degraded_telemetry_days` to make this explicit.
 
 ## A/B Experiment Artifacts
 

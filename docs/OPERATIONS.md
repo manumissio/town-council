@@ -199,6 +199,8 @@ Scripts:
   - stores raw snapshots:
     - `experiments/results/soak/<run_id>/api_metrics.prom`
     - `experiments/results/soak/<run_id>/worker_metrics.prom`
+  - scrapes worker metrics by executing Python inside the worker container
+    (does not depend on `curl`/`wget` being installed in the image)
   - updates `experiments/results/soak/<run_id>/day_summary.json`
 - `scripts/evaluate_soak_week.py`
   - reads 7-day window and emits:
@@ -206,6 +208,8 @@ Scripts:
     - `experiments/results/soak/soak_eval_7d.md`
   - uses day-over-day counter deltas (not absolute counter values)
   - handles counter reset after restarts by re-baselining deltas
+  - annotates `telemetry_confidence` (`high|degraded`) based on worker metrics availability
+    and whether provider requests were observed during successful phases
 
 Manual run:
 ```bash

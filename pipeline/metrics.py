@@ -1,21 +1,26 @@
 """
 Prometheus metrics for background workers (Celery).
 
-Important constraint:
-The worker runs with a single-process pool (solo) in docker-compose so that the
-metrics HTTP endpoint can expose task timings from the same process that
-executes tasks. If the worker used a prefork pool, each child would have its own
-in-memory metrics, and the endpoint would only report the parent's values.
+Provider metrics are additionally mirrored to Redis so prefork worker processes
+can be aggregated into one metrics endpoint.
 """
 
 from __future__ import annotations
 
+import math
 import os
 import time
 from typing import Dict
+from urllib.parse import quote, unquote
 
 from celery import signals
-from prometheus_client import Counter, Histogram, start_http_server
+from prometheus_client import Counter, Histogram, REGISTRY, start_http_server
+from prometheus_client.core import Metric
+
+try:
+    import redis  # type: ignore
+except Exception:
+    redis = None
 
 
 CELERY_TASK_DURATION_SECONDS = Histogram(
@@ -103,8 +108,263 @@ PROVIDER_RETRIES_TOTAL = Counter(
     labelnames=("provider", "operation", "model"),
 )
 
+TTFT_BUCKETS = (10.0, 25.0, 50.0, 100.0, 250.0, 500.0, 1000.0, 2500.0, 5000.0, 10000.0, 20000.0, math.inf)
+TPS_BUCKETS = (1.0, 2.0, 5.0, 10.0, 20.0, 30.0, 40.0, 60.0, 80.0, 120.0, 200.0, math.inf)
+
 
 _TASK_START: Dict[str, float] = {}
+_REDIS_CLIENT = None
+_REDIS_INIT = False
+_REDIS_WARNED = False
+_REDIS_BACKEND_UP = 0.0
+
+
+def _encode(value: str) -> str:
+    return quote(str(value), safe="")
+
+
+def _decode(value: str) -> str:
+    return unquote(value)
+
+
+def _provider_labels_key(provider: str, operation: str, model: str, outcome: str) -> str:
+    return ":".join((_encode(provider), _encode(operation), _encode(model), _encode(outcome)))
+
+
+def _provider_base_labels_key(provider: str, operation: str, model: str) -> str:
+    return ":".join((_encode(provider), _encode(operation), _encode(model)))
+
+
+def _redis_client():
+    global _REDIS_CLIENT, _REDIS_INIT, _REDIS_WARNED, _REDIS_BACKEND_UP
+    if _REDIS_INIT:
+        return _REDIS_CLIENT
+    _REDIS_INIT = True
+
+    if redis is None:
+        if not _REDIS_WARNED:
+            print("[metrics] redis module unavailable; provider metrics backend degraded")
+            _REDIS_WARNED = True
+        _REDIS_BACKEND_UP = 0.0
+        return None
+
+    host = os.getenv("REDIS_HOST", "redis")
+    port = int(os.getenv("REDIS_PORT", "6379"))
+    password = os.getenv("REDIS_PASSWORD", "") or None
+    try:
+        _REDIS_CLIENT = redis.Redis(host=host, port=port, password=password, db=0, decode_responses=True)
+        _REDIS_CLIENT.ping()
+        _REDIS_BACKEND_UP = 1.0
+        return _REDIS_CLIENT
+    except Exception as exc:
+        if not _REDIS_WARNED:
+            print(f"[metrics] redis backend unavailable; falling back to local metrics only: {exc}")
+            _REDIS_WARNED = True
+        _REDIS_BACKEND_UP = 0.0
+        _REDIS_CLIENT = None
+        return None
+
+
+def _redis_incr(key: str, amount: int = 1) -> None:
+    global _REDIS_BACKEND_UP
+    client = _redis_client()
+    if client is None:
+        return
+    try:
+        client.incrby(key, int(amount))
+    except Exception:
+        _REDIS_BACKEND_UP = 0.0
+
+
+def _redis_hincrby(key: str, field: str, amount: int = 1) -> None:
+    global _REDIS_BACKEND_UP
+    client = _redis_client()
+    if client is None:
+        return
+    try:
+        client.hincrby(key, field, int(amount))
+    except Exception:
+        _REDIS_BACKEND_UP = 0.0
+
+
+def _redis_hincrbyfloat(key: str, field: str, amount: float) -> None:
+    global _REDIS_BACKEND_UP
+    client = _redis_client()
+    if client is None:
+        return
+    try:
+        client.hincrbyfloat(key, field, float(amount))
+    except Exception:
+        _REDIS_BACKEND_UP = 0.0
+
+
+def _hist_bucket(value: float, buckets: tuple[float, ...]) -> str:
+    for upper in buckets:
+        if value <= upper:
+            if math.isinf(upper):
+                return "+Inf"
+            return str(float(upper))
+    return "+Inf"
+
+
+def _mirror_histogram(metric_prefix: str, labels_key: str, value: float, buckets: tuple[float, ...]) -> None:
+    bucket_key = f"{metric_prefix}:bucket:{labels_key}"
+    meta_key = f"{metric_prefix}:meta:{labels_key}"
+    _redis_hincrby(bucket_key, _hist_bucket(value, buckets), 1)
+    _redis_hincrby(meta_key, "count", 1)
+    _redis_hincrbyfloat(meta_key, "sum", float(value))
+
+
+def _split_labels_key(labels_key: str, expected_parts: int):
+    parts = labels_key.split(":")
+    if len(parts) != expected_parts:
+        return None
+    return tuple(_decode(p) for p in parts)
+
+
+class RedisProviderMetricsCollector:
+    """
+    Export prefork-safe provider telemetry from Redis into Prometheus exposition.
+    """
+
+    def collect(self):
+        client = _redis_client()
+        backend_metric = Metric(
+            "tc_provider_metrics_backend_up",
+            "Whether Redis-backed provider telemetry backend is available (1=yes, 0=no).",
+            "gauge",
+        )
+        backend_metric.add_sample("tc_provider_metrics_backend_up", labels={}, value=float(_REDIS_BACKEND_UP if client is None else 1.0))
+        yield backend_metric
+        if client is None:
+            return
+
+        req_metric = Metric("tc_provider_requests_total", "Total inference provider requests.", "counter")
+        timeout_metric = Metric("tc_provider_timeouts_total", "Total inference provider timeouts.", "counter")
+        retry_metric = Metric("tc_provider_retries_total", "Total inference provider retries.", "counter")
+        prompt_metric = Metric("tc_provider_prompt_tokens_total", "Total prompt tokens processed by inference provider.", "counter")
+        completion_metric = Metric("tc_provider_completion_tokens_total", "Total completion tokens generated by inference provider.", "counter")
+        ttft_metric = Metric("tc_provider_ttft_ms", "Inference provider time-to-first-token (prompt evaluation) in milliseconds.", "histogram")
+        tps_metric = Metric("tc_provider_tokens_per_sec", "Inference provider completion throughput in tokens per second.", "histogram")
+
+        for key in client.scan_iter(match="tc:provider:req_total:*"):
+            labels_key = key.split("tc:provider:req_total:", 1)[1]
+            labels = _split_labels_key(labels_key, 4)
+            if not labels:
+                continue
+            provider, operation, model, outcome = labels
+            value = float(client.get(key) or 0.0)
+            req_metric.add_sample(
+                "tc_provider_requests_total",
+                labels={"provider": provider, "operation": operation, "model": model, "outcome": outcome},
+                value=value,
+            )
+
+        for key in client.scan_iter(match="tc:provider:timeouts_total:*"):
+            labels_key = key.split("tc:provider:timeouts_total:", 1)[1]
+            labels = _split_labels_key(labels_key, 3)
+            if not labels:
+                continue
+            provider, operation, model = labels
+            value = float(client.get(key) or 0.0)
+            timeout_metric.add_sample(
+                "tc_provider_timeouts_total",
+                labels={"provider": provider, "operation": operation, "model": model},
+                value=value,
+            )
+
+        for key in client.scan_iter(match="tc:provider:retries_total:*"):
+            labels_key = key.split("tc:provider:retries_total:", 1)[1]
+            labels = _split_labels_key(labels_key, 3)
+            if not labels:
+                continue
+            provider, operation, model = labels
+            value = float(client.get(key) or 0.0)
+            retry_metric.add_sample(
+                "tc_provider_retries_total",
+                labels={"provider": provider, "operation": operation, "model": model},
+                value=value,
+            )
+
+        for key in client.scan_iter(match="tc:provider:prompt_tokens_total:*"):
+            labels_key = key.split("tc:provider:prompt_tokens_total:", 1)[1]
+            labels = _split_labels_key(labels_key, 4)
+            if not labels:
+                continue
+            provider, operation, model, outcome = labels
+            value = float(client.get(key) or 0.0)
+            prompt_metric.add_sample(
+                "tc_provider_prompt_tokens_total",
+                labels={"provider": provider, "operation": operation, "model": model, "outcome": outcome},
+                value=value,
+            )
+
+        for key in client.scan_iter(match="tc:provider:completion_tokens_total:*"):
+            labels_key = key.split("tc:provider:completion_tokens_total:", 1)[1]
+            labels = _split_labels_key(labels_key, 4)
+            if not labels:
+                continue
+            provider, operation, model, outcome = labels
+            value = float(client.get(key) or 0.0)
+            completion_metric.add_sample(
+                "tc_provider_completion_tokens_total",
+                labels={"provider": provider, "operation": operation, "model": model, "outcome": outcome},
+                value=value,
+            )
+
+        for prefix, metric, buckets in (
+            ("tc:provider:ttft_ms", ttft_metric, TTFT_BUCKETS),
+            ("tc:provider:tps", tps_metric, TPS_BUCKETS),
+        ):
+            for bucket_key in client.scan_iter(match=f"{prefix}:bucket:*"):
+                labels_key = bucket_key.split(f"{prefix}:bucket:", 1)[1]
+                labels = _split_labels_key(labels_key, 4)
+                if not labels:
+                    continue
+                provider, operation, model, outcome = labels
+                hash_values = client.hgetall(bucket_key) or {}
+                per_bucket = {str(k): float(v) for k, v in hash_values.items()}
+                cumulative = 0.0
+                for upper in buckets:
+                    le = "+Inf" if math.isinf(upper) else str(float(upper))
+                    cumulative += per_bucket.get(le, 0.0)
+                    metric.add_sample(
+                        f"{metric.name}_bucket",
+                        labels={
+                            "provider": provider,
+                            "operation": operation,
+                            "model": model,
+                            "outcome": outcome,
+                            "le": le,
+                        },
+                        value=cumulative,
+                    )
+                meta = client.hgetall(f"{prefix}:meta:{labels_key}") or {}
+                metric.add_sample(
+                    f"{metric.name}_count",
+                    labels={"provider": provider, "operation": operation, "model": model, "outcome": outcome},
+                    value=float(meta.get("count", 0.0)),
+                )
+                metric.add_sample(
+                    f"{metric.name}_sum",
+                    labels={"provider": provider, "operation": operation, "model": model, "outcome": outcome},
+                    value=float(meta.get("sum", 0.0)),
+                )
+
+        yield req_metric
+        yield timeout_metric
+        yield retry_metric
+        yield prompt_metric
+        yield completion_metric
+        yield ttft_metric
+        yield tps_metric
+
+
+try:
+    REGISTRY.register(RedisProviderMetricsCollector())
+except ValueError:
+    # Safe during repeated imports in tests.
+    pass
 
 
 def record_task_duration(task_name: str, status: str, duration_s: float) -> None:
@@ -134,18 +394,24 @@ def record_provider_request(provider: str, operation: str, model: str, outcome: 
     PROVIDER_REQUEST_DURATION_MS.labels(
         provider=provider, operation=operation, model=model, outcome=outcome
     ).observe(max(0.0, duration_ms))
+    labels_key = _provider_labels_key(provider, operation, model, outcome)
+    _redis_incr(f"tc:provider:req_total:{labels_key}", 1)
 
 
 def record_provider_ttft(provider: str, operation: str, model: str, outcome: str, ttft_ms: float) -> None:
     PROVIDER_TTFT_MS.labels(provider=provider, operation=operation, model=model, outcome=outcome).observe(
         max(0.0, ttft_ms)
     )
+    labels_key = _provider_labels_key(provider, operation, model, outcome)
+    _mirror_histogram("tc:provider:ttft_ms", labels_key, float(max(0.0, ttft_ms)), TTFT_BUCKETS)
 
 
 def record_provider_tokens_per_sec(provider: str, operation: str, model: str, outcome: str, tokens_per_sec: float) -> None:
     PROVIDER_TOKENS_PER_SEC.labels(
         provider=provider, operation=operation, model=model, outcome=outcome
     ).observe(max(0.0, tokens_per_sec))
+    labels_key = _provider_labels_key(provider, operation, model, outcome)
+    _mirror_histogram("tc:provider:tps", labels_key, float(max(0.0, tokens_per_sec)), TPS_BUCKETS)
 
 
 def record_provider_token_counts(
@@ -162,14 +428,21 @@ def record_provider_token_counts(
     PROVIDER_COMPLETION_TOKENS_TOTAL.labels(
         provider=provider, operation=operation, model=model, outcome=outcome
     ).inc(max(0, int(completion_tokens)))
+    labels_key = _provider_labels_key(provider, operation, model, outcome)
+    _redis_incr(f"tc:provider:prompt_tokens_total:{labels_key}", max(0, int(prompt_tokens)))
+    _redis_incr(f"tc:provider:completion_tokens_total:{labels_key}", max(0, int(completion_tokens)))
 
 
 def record_provider_timeout(provider: str, operation: str, model: str) -> None:
     PROVIDER_TIMEOUTS_TOTAL.labels(provider=provider, operation=operation, model=model).inc()
+    base_key = _provider_base_labels_key(provider, operation, model)
+    _redis_incr(f"tc:provider:timeouts_total:{base_key}", 1)
 
 
 def record_provider_retry(provider: str, operation: str, model: str) -> None:
     PROVIDER_RETRIES_TOTAL.labels(provider=provider, operation=operation, model=model).inc()
+    base_key = _provider_base_labels_key(provider, operation, model)
+    _redis_incr(f"tc:provider:retries_total:{base_key}", 1)
 
 
 @signals.worker_ready.connect

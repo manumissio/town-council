@@ -87,6 +87,7 @@ def main() -> int:
     failed_day_count = 0
     timeout_storms = 0
     extract_warning_days = 0
+    degraded_telemetry_days = 0
 
     for row in window:
         d = row["data"]
@@ -119,6 +120,14 @@ def main() -> int:
         extract_failures = _safe_int(d.get("extract_failures"))
         if extract_failures > 0:
             extract_warning_days += 1
+
+        worker_metrics_available = bool((d.get("metrics_sources") or {}).get("worker_metrics_available", False))
+        phases_total = _safe_int(d.get("phases_total"))
+        requests_total_value = _safe_float(d.get("provider_requests_total")) or 0.0
+        telemetry_confidence = "high"
+        if (not worker_metrics_available) or (phases_total > 0 and requests_total_value <= 0.0):
+            telemetry_confidence = "degraded"
+            degraded_telemetry_days += 1
 
         if (timeout_delta or 0) > 0 and (retry_delta or 0) > 0:
             ratio = (retry_delta or 0) / max(1.0, timeout_delta or 0)
@@ -164,8 +173,9 @@ def main() -> int:
                 "ttft_p95_ms": ttft,
                 "tokens_per_sec_median": tps,
                 "search_p95_ms": search,
-                "worker_metrics_available": bool((d.get("metrics_sources") or {}).get("worker_metrics_available", False)),
+                "worker_metrics_available": worker_metrics_available,
                 "worker_metrics_error": d.get("worker_metrics_error"),
+                "telemetry_confidence": telemetry_confidence,
             }
         )
         prev = row
@@ -207,6 +217,8 @@ def main() -> int:
         "gates": gates,
         "overall_pass": overall_pass,
         "extract_warning_days": extract_warning_days,
+        "telemetry_confidence": "degraded" if degraded_telemetry_days > 0 else "high",
+        "degraded_telemetry_days": degraded_telemetry_days,
         "notes": [
             "Counter-based gates are evaluated using day-over-day deltas.",
             "queue_wait gate uses phase_duration_p95_s proxy unless explicit queue metric is added later.",
@@ -223,6 +235,8 @@ def main() -> int:
         "",
         f"overall_pass: {'PASS' if overall_pass else 'FAIL'}",
         f"extract_warning_days: {extract_warning_days}",
+        f"telemetry_confidence: {'degraded' if degraded_telemetry_days > 0 else 'high'}",
+        f"degraded_telemetry_days: {degraded_telemetry_days}",
         "",
         "## Gates",
     ]
@@ -232,7 +246,7 @@ def main() -> int:
     lines.append("## Runs")
     for d in per_day:
         lines.append(
-            f"- {d['date']} {d['run_id']} status={d['status']} extract_failures={d['extract_failures']} gating_failures={d['gating_failures']} timeout_rate_delta={d['provider_timeout_rate_delta']} seg_p95={d['segment_p95_s']} sum_p95={d['summary_p95_s']}"
+            f"- {d['date']} {d['run_id']} status={d['status']} telemetry={d['telemetry_confidence']} extract_failures={d['extract_failures']} gating_failures={d['gating_failures']} timeout_rate_delta={d['provider_timeout_rate_delta']} seg_p95={d['segment_p95_s']} sum_p95={d['summary_p95_s']}"
         )
     lines.append("")
     lines.append("## Notes")

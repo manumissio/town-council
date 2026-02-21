@@ -20,7 +20,20 @@ def _fetch_text(url: str, timeout: int = 10) -> str:
 
 
 def _fetch_worker_metrics_via_docker() -> tuple[str, str | None]:
-    cmd = ["docker", "compose", "exec", "-T", "worker", "curl", "-fsS", "http://localhost:8001/metrics"]
+    cmd = [
+        "docker",
+        "compose",
+        "exec",
+        "-T",
+        "worker",
+        "python",
+        "-c",
+        (
+            "import urllib.request; "
+            "print(urllib.request.urlopen('http://localhost:8001/metrics', timeout=10)"
+            ".read().decode('utf-8', errors='replace'))"
+        ),
+    ]
     try:
         raw = subprocess.check_output(cmd, text=True, stderr=subprocess.STDOUT, timeout=30)
         return raw, None

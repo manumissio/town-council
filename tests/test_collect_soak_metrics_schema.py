@@ -31,3 +31,17 @@ def test_fetch_worker_metrics_returns_error_string_on_failure(monkeypatch):
     raw, err = mod._fetch_worker_metrics_via_docker()
     assert raw == ""
     assert err is not None
+
+
+def test_fetch_worker_metrics_uses_python_probe(monkeypatch):
+    captured = {}
+
+    def _ok(cmd, **_kwargs):
+        captured["cmd"] = cmd
+        return "metric 1\n"
+
+    monkeypatch.setattr(subprocess, "check_output", _ok)
+    raw, err = mod._fetch_worker_metrics_via_docker()
+    assert raw == "metric 1\n"
+    assert err is None
+    assert captured["cmd"][:6] == ["docker", "compose", "exec", "-T", "worker", "python"]
