@@ -77,6 +77,19 @@ def _task_uid(task_result) -> int | None:
     return None
 
 
+def _truncate_content_for_index(content: str | None) -> tuple[str | None, bool, int, int]:
+    """
+    Truncate content for search indexing and return observability metadata.
+    """
+    if not content:
+        return None, False, 0, 0
+
+    original_chars = len(content)
+    indexed_content = content[:MAX_CONTENT_LENGTH]
+    indexed_chars = len(indexed_content)
+    return indexed_content, original_chars > indexed_chars, original_chars, indexed_chars
+
+
 def _apply_index_settings(client, index) -> None:
     """
     Apply Meilisearch index settings and wait for completion.
@@ -139,6 +152,8 @@ def index_documents():
     with db_session() as session:
         documents_batch = []
         count = 0
+        indexed_meeting_docs = 0
+        truncated_meeting_docs = 0
 
         print("Step 1: Indexing Full Meeting Documents...")
         doc_query = session.query(Document, Catalog, Event, Place, Organization).join(
@@ -158,6 +173,10 @@ def index_documents():
         ).yield_per(20)
 
         for doc, catalog, event, place, organization in doc_query:
+            indexed_content, is_content_truncated, original_chars, indexed_chars = _truncate_content_for_index(catalog.content)
+            indexed_meeting_docs += 1
+            if is_content_truncated:
+                truncated_meeting_docs += 1
             people_list = []
             if organization:
                 chosen = _select_official_memberships_for_event(organization, event.record_date)
@@ -183,7 +202,10 @@ def index_documents():
                 'catalog_id': catalog.id,
                 'filename': catalog.filename,
                 'url': catalog.url,
-                'content': catalog.content[:MAX_CONTENT_LENGTH] if catalog.content else None,
+                'content': indexed_content,
+                'content_truncated': is_content_truncated,
+                'original_content_chars': original_chars,
+                'indexed_content_chars': indexed_chars,
                 'summary': catalog.summary,
                 'summary_extractive': catalog.summary_extractive,
                 'topics': catalog.topics,
@@ -216,6 +238,11 @@ def index_documents():
 
         count = _flush_batch(index, documents_batch, count, "document")
         documents_batch = []
+        if indexed_meeting_docs:
+            print(
+                f"Document truncation summary: {truncated_meeting_docs}/{indexed_meeting_docs} "
+                f"({(truncated_meeting_docs / indexed_meeting_docs) * 100:.1f}%) meeting docs truncated"
+            )
 
         print("Step 2: Indexing Individual Agenda Items...")
 

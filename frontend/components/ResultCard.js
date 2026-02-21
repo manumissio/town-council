@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo } from "react";
+import { useState, useEffect, useMemo, useRef } from "react";
 import DOMPurify from "isomorphic-dompurify";
 import { 
   MapPin, Calendar, FileText, ExternalLink, ChevronUp, ChevronDown, 
@@ -12,10 +12,25 @@ import textFormatter from "../lib/textFormatter";
 
 const { renderFormattedExtractedText } = textFormatter;
 const AI_DISCLAIMER_TEXT = "AI-generated content may be incomplete or inaccurate. Verify against source documents.";
+const TASK_POLL_INITIAL_INTERVAL_MS = 1500;
+const TASK_POLL_MAX_INTERVAL_MS = 5000;
+const TASK_POLL_MAX_ATTEMPTS = 45;
 
 // Poll background tasks until complete/failed.
-async function pollTaskStatus(taskId, callback, onError, type = "summary") {
+function pollTaskStatus(taskId, callback, onError, type = "summary") {
+  let active = true;
+  let timeoutId = null;
+
+  const stop = () => {
+    active = false;
+    if (timeoutId) {
+      clearTimeout(timeoutId);
+      timeoutId = null;
+    }
+  };
+
   const checkStatus = async () => {
+    if (!active) return true;
     try {
       const res = await fetch(buildApiUrl(`/tasks/${taskId}`));
       const data = await res.json();
@@ -42,10 +57,27 @@ async function pollTaskStatus(taskId, callback, onError, type = "summary") {
     }
   };
 
-  const interval = setInterval(async () => {
+  const tick = async (attempt = 1, intervalMs = TASK_POLL_INITIAL_INTERVAL_MS) => {
     const isDone = await checkStatus();
-    if (isDone) clearInterval(interval);
-  }, 2000);
+    if (isDone || !active) {
+      stop();
+      return;
+    }
+
+    if (attempt >= TASK_POLL_MAX_ATTEMPTS) {
+      stop();
+      if (onError) onError("task_poll_timeout");
+      return;
+    }
+
+    const nextIntervalMs = Math.min(Math.round(intervalMs * 1.35), TASK_POLL_MAX_INTERVAL_MS);
+    timeoutId = setTimeout(() => {
+      void tick(attempt + 1, nextIntervalMs);
+    }, intervalMs);
+  };
+
+  void tick();
+  return stop;
 }
 
 /**
@@ -55,6 +87,7 @@ async function pollTaskStatus(taskId, callback, onError, type = "summary") {
  * All AI features are "On-Demand" to minimize API costs and respect rate limits.
  */
 export default function ResultCard({ hit, onPersonClick, onTopicClick }) {
+  const activePollStopsRef = useRef([]);
   const [isExpanded, setIsExpanded] = useState(false);
   const [showAllOfficials, setShowAllOfficials] = useState(false);
   const [viewMode, setViewMode] = useState("text"); // 'text', 'summary', 'agenda'
@@ -119,6 +152,11 @@ export default function ResultCard({ hit, onPersonClick, onTopicClick }) {
       })
   );
   const showAgendaAiDisclaimer = viewMode === "agenda" && hasAiDerivedAgendaPayload;
+  const addPollStop = (stopFn) => {
+    if (typeof stopFn === "function") {
+      activePollStopsRef.current.push(stopFn);
+    }
+  };
   const handleTopicClick = (topic) => {
     // Topics are meant to be a quick way to narrow the search.
     // We keep this simple: clicking a topic sets the main search query
@@ -175,6 +213,19 @@ export default function ResultCard({ hit, onPersonClick, onTopicClick }) {
     if (!isExpanded || !hit.catalog_id) return;
     fetchCanonicalContent();
   }, [isExpanded, hit.catalog_id]);
+
+  useEffect(() => {
+    return () => {
+      for (const stop of activePollStopsRef.current) {
+        try {
+          stop();
+        } catch {
+          // Best-effort cleanup only.
+        }
+      }
+      activePollStopsRef.current = [];
+    };
+  }, []);
 
   const fetchDerivedStatus = async () => {
     if (!hit.catalog_id) return;
@@ -269,7 +320,7 @@ export default function ResultCard({ hit, onPersonClick, onTopicClick }) {
         setIsGenerating(false);
         fetchDerivedStatus();
       } else if (data.task_id) {
-        pollTaskStatus(data.task_id, (result) => {
+        addPollStop(pollTaskStatus(data.task_id, (result) => {
           if (result && (result.status === "blocked_low_signal" || result.status === "blocked_ungrounded")) {
             setSummary(null);
             setSummaryBlockReason(result.reason || "Not enough extracted text to generate a reliable summary.");
@@ -279,7 +330,7 @@ export default function ResultCard({ hit, onPersonClick, onTopicClick }) {
           }
           setIsGenerating(false);
           fetchDerivedStatus();
-        }, () => setIsGenerating(false), 'summary');
+        }, () => setIsGenerating(false), 'summary'));
       } else {
         setIsGenerating(false);
       }
@@ -313,7 +364,7 @@ export default function ResultCard({ hit, onPersonClick, onTopicClick }) {
         setIsTaggingTopics(false);
         fetchDerivedStatus();
       } else if (data.task_id) {
-        pollTaskStatus(
+        addPollStop(pollTaskStatus(
           data.task_id,
           (result) => {
             if (result && result.status === "blocked_low_signal") {
@@ -328,7 +379,7 @@ export default function ResultCard({ hit, onPersonClick, onTopicClick }) {
           },
           () => setIsTaggingTopics(false),
           "topics"
-        );
+        ));
       } else {
         setIsTaggingTopics(false);
       }
@@ -358,12 +409,12 @@ export default function ResultCard({ hit, onPersonClick, onTopicClick }) {
         // Refresh derived status so "Not generated yet" clears immediately after segmentation.
         fetchDerivedStatus();
       } else if (data.task_id) {
-        pollTaskStatus(data.task_id, (result) => {
+        addPollStop(pollTaskStatus(data.task_id, (result) => {
           setAgendaItems(result);
           setIsSegmenting(false);
           // Segmentation creates AgendaItem rows; update derived status so badges stay in sync.
           fetchDerivedStatus();
-        }, () => setIsSegmenting(false), 'agenda');
+        }, () => setIsSegmenting(false), 'agenda'));
       } else {
         setIsSegmenting(false);
       }
@@ -395,7 +446,7 @@ export default function ResultCard({ hit, onPersonClick, onTopicClick }) {
       }
 
       if (data.task_id) {
-        pollTaskStatus(
+        addPollStop(pollTaskStatus(
           data.task_id,
           async () => {
             await fetchCanonicalContent();
@@ -404,7 +455,7 @@ export default function ResultCard({ hit, onPersonClick, onTopicClick }) {
           },
           () => setIsExtracting(false),
           "extract"
-        );
+        ));
         return;
       }
 
@@ -454,6 +505,11 @@ export default function ResultCard({ hit, onPersonClick, onTopicClick }) {
               {!isAgendaItem && (
                 <span className="inline-flex items-center gap-1.5 opacity-75">
                   <FileText className="w-4 h-4 text-gray-400" /> {hit.filename}
+                </span>
+              )}
+              {!isAgendaItem && Boolean(hit.content_truncated) && (
+                <span className="bg-amber-50 text-amber-700 px-2 py-0.5 rounded text-[10px] font-bold uppercase">
+                  Search text truncated
                 </span>
               )}
             </div>

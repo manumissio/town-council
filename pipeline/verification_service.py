@@ -22,22 +22,20 @@ class VerificationService:
     To provide a 'Verified' badge on search results and ensure deep-link accuracy.
     """
     
-    def __init__(self):
-        self.db = SessionLocal()
-
     def verify_all(self):
         """Processes all items that have ground truth but no spatial alignment yet."""
-        items = self.db.query(AgendaItem).filter(
-            AgendaItem.raw_history != None,
-            AgendaItem.spatial_coords == None
-        ).all()
-        
-        logger.info(f"Found {len(items)} items pending spatial verification.")
-        
-        for item in items:
-            self.verify_item(item)
+        with SessionLocal() as db:
+            items = db.query(AgendaItem).filter(
+                AgendaItem.raw_history != None,
+                AgendaItem.spatial_coords == None
+            ).all()
+
+            logger.info(f"Found {len(items)} items pending spatial verification.")
+
+            for item in items:
+                self.verify_item(item, db=db)
             
-    def verify_item(self, item):
+    def verify_item(self, item, *, db=None):
         """
         Attempts to find the API action text within the physical PDF.
 
@@ -47,9 +45,12 @@ class VerificationService:
         - This function finds WHERE in the PDF that text appears (page number and coordinates)
         - This lets us show users exactly where to look in the document
         """
+        owns_session = db is None
+        session = db or SessionLocal()
+
         try:
             # STEP 1: Get the PDF file path from our catalog
-            catalog = self.db.get(Catalog, item.catalog_id)
+            catalog = session.get(Catalog, item.catalog_id)
             if not catalog or not catalog.location:
                 return  # Can't verify without a PDF file
 
@@ -71,7 +72,7 @@ class VerificationService:
                     item.result = item.votes["result"]
 
                 # COMMIT: Save the verification to the database
-                self.db.commit()
+                session.commit()
             else:
                 # FALLBACK: If exact match failed, try searching for just the vote tally
                 # (Sometimes "Ayes: Smith, Jones" appears even if other text differs)
@@ -86,7 +87,7 @@ class VerificationService:
                         logger.info(f"Verified item (alt-search): {item.title[:40]}...")
                         item.spatial_coords = locations
                         # COMMIT: Save the verification result
-                        self.db.commit()
+                        session.commit()
                     else:
                         # We couldn't find the text anywhere in the PDF
                         logger.warning(f"Could not locate ground truth in PDF for item {item.id}")
@@ -98,8 +99,11 @@ class VerificationService:
             # - ValueError: Invalid coordinates or malformed PDF structure
             # Why rollback? Partial verification is worse than no verification
             # ROLLBACK: Undo any partial database changes to prevent saving corrupted data
-            self.db.rollback()
+            session.rollback()
             logger.error(f"Error verifying item {item.id}: {e}")
+        finally:
+            if owns_session:
+                session.close()
 
 if __name__ == "__main__":
     service = VerificationService()

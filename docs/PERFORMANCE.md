@@ -77,6 +77,11 @@ Token/throughput formulas (HTTP provider, best-effort):
 Notes:
 - These fields are emitted only when the inference backend returns the corresponding stats.
 - Missing stats do not affect task success; baseline request metrics still emit.
+- Search indexing now exposes truncation observability metadata:
+  - `content_truncated`
+  - `original_content_chars`
+  - `indexed_content_chars`
+  Monitor truncated-document ratio from indexer logs to assess recall impact of `MAX_CONTENT_LENGTH`.
 
 Interpretation:
 - sustained timeout/retry growth under `LOCAL_AI_HTTP_PROFILE=conservative` blocks promotion.

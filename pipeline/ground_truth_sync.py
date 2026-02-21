@@ -27,7 +27,6 @@ class GroundTruthSync:
     
     def __init__(self):
         self.session = requests.Session()
-        self.db = SessionLocal()
 
     def get_city_name(self, place):
         """Standardizes city name for Legistar API (e.g. 'mountain_view' -> 'mountainview')"""
@@ -90,21 +89,22 @@ class GroundTruthSync:
 
     def sync_all(self):
         """Iterates through cities and fetches history for recent events."""
-        places = self.db.query(Place).filter(Place.legistar_client != None).all()
-        
-        for place in places:
-            city_api_name = place.legistar_client
-            logger.info(f"Processing city: {place.name} (API: {city_api_name})")
-            
-            # Fetch events for this city that have documents
-            events = self.db.query(Event).filter(Event.place_id == place.id).order_by(Event.record_date.desc()).all()
-            
-            for event in events:
-                self.sync_event_history(city_api_name, event)
-                # Friendly Neighbor Throttling: respect the API
-                time.sleep(0.5)
+        with SessionLocal() as db:
+            places = db.query(Place).filter(Place.legistar_client != None).all()
 
-    def sync_event_history(self, city_api_name, event):
+            for place in places:
+                city_api_name = place.legistar_client
+                logger.info(f"Processing city: {place.name} (API: {city_api_name})")
+
+                # Fetch events for this city that have documents
+                events = db.query(Event).filter(Event.place_id == place.id).order_by(Event.record_date.desc()).all()
+
+                for event in events:
+                    self.sync_event_history(db, city_api_name, event)
+                    # Friendly Neighbor Throttling: respect the API
+                    time.sleep(0.5)
+
+    def sync_event_history(self, db, city_api_name, event):
         """Fetches history for all items in an event by finding the Legistar EventId first."""
         # 1. Fetch recent events from API to find a date match
         api_url = f"https://webapi.legistar.com/v1/{city_api_name}/events?$filter=EventDate eq datetime'{event.record_date.isoformat()}'"
@@ -141,7 +141,7 @@ class GroundTruthSync:
                 # This handles cases where the PDF title and API title differ by a few characters.
                 from rapidfuzz import process, fuzz
                 
-                local_items = self.db.query(AgendaItem).filter(AgendaItem.event_id == event.id).all()
+                local_items = db.query(AgendaItem).filter(AgendaItem.event_id == event.id).all()
                 if not local_items: continue
                 
                 # Create a mapping of title -> item for the matcher
@@ -160,7 +160,7 @@ class GroundTruthSync:
                     
                     # Only fetch if we haven't already stored the official record
                     if not local_item.raw_history:
-                        self.fetch_matter_history(city_api_name, matter_id, local_item)
+                        self.fetch_matter_history(db, city_api_name, matter_id, local_item)
                         time.sleep(0.1)  # Brief pause to be respectful to the API
 
         except (requests.RequestException, SQLAlchemyError, ValueError) as e:
@@ -172,7 +172,7 @@ class GroundTruthSync:
             # The failed city will be retried on the next sync run
             logger.error(f"Error syncing {city_api_name} event on {event.record_date}: {e}")
 
-    def fetch_matter_history(self, city_name, matter_id, agenda_item):
+    def fetch_matter_history(self, db, city_name, matter_id, agenda_item):
         """
         Fetches the detailed history/votes for a specific matter.
 
@@ -204,7 +204,7 @@ class GroundTruthSync:
                         agenda_item.legistar_matter_id = matter_id
 
                         # COMMIT: Save these changes to the database permanently
-                        self.db.commit()
+                        db.commit()
                         break  # Stop after finding the first decisive action
 
         except (requests.RequestException, SQLAlchemyError, KeyError, ValueError) as e:
@@ -215,7 +215,7 @@ class GroundTruthSync:
             # - ValueError: Invalid data format (can't parse votes)
             # Why rollback? If we got partial data, don't save incomplete records
             # ROLLBACK: Undo any partial changes to keep the database in a consistent state
-            self.db.rollback()
+            db.rollback()
             logger.error(f"Error fetching matter {matter_id}: {e}")
 
 if __name__ == "__main__":

@@ -189,8 +189,9 @@ Fixed manifest:
 
 Scripts:
 - `scripts/run_soak_day.sh`
-  - preflight `/health` poll for 10 seconds
-  - one self-heal attempt via `scripts/dev_up.sh` if stack is offline
+  - preflight `/health` poll for 60 seconds (default)
+  - one fast self-heal attempt via `docker compose up -d inference worker api pipeline frontend`
+  - falls back to `scripts/dev_up.sh` only if fast recovery fails
   - marks day `stack_offline` and exits cleanly if recovery fails
   - runs `extract -> segment -> summarize` for each CID
   - continues on per-task failures; extract failures are non-gating warnings while segment/summarize failures are gating
@@ -563,6 +564,16 @@ Search behavior:
 - To include agenda items as independent search hits, enable the UI toggle (**Agenda Items: On**) or set `include_agenda_items=true`.
 - The UI defaults to sorting by date (newest first). Sorting requires `date` to be configured as a sortable attribute in Meilisearch.
   If you changed indexing logic or rebuilt the index from scratch, run `python reindex_only.py` to reapply settings.
+- Meeting hits now include truncation observability fields:
+  - `content_truncated` (boolean)
+  - `original_content_chars` (int)
+  - `indexed_content_chars` (int)
+  Use these to identify search misses caused by indexed-content limits.
+
+Frontend security headers:
+- Next.js now emits security headers for all routes, including a CSP rollout mode.
+- Default is report-only CSP; enforce mode requires:
+  - `NEXT_CSP_ENFORCE=true`
 
 ### Diagnosing date sorting
 If Newest/Oldest/Relevance look identical, treat it as a diagnostics problem first (don’t guess).
