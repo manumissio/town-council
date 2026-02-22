@@ -6,6 +6,12 @@ This file is the AI collaboration contract for this repository.
 Town Council is a local-first civic data platform for crawling, extracting, indexing, and analyzing local meeting records. Treat `README.md`, `ARCHITECTURE.md`, `docs/OPERATIONS.md`, `docs/PERFORMANCE.md`, and `ROADMAP.md` as canonical references.
 </project_identity>
 
+<hierarchy_of_truth>
+1. Code for Behavior: For implementation details, function signatures, schemas, and active defaults, the codebase and tests are the descriptive ground truth. If documentation contradicts the code regarding how a feature works, assume the code is correct and update the documentation.
+2. AGENTS.md for Policy: For project constraints (e.g., local-first architecture, no silent remote fallbacks), this document is the prescriptive ground truth.
+3. Asymmetric Conflict Resolution: If you observe the code violating a stated policy invariant in this file, DO NOT immediately rewrite the code. You must flag the violation to the user, ask if the policy is still current, and only enforce the constraint if the user confirms it.
+</hierarchy_of_truth>
+
 <hard_invariants>
 Do:
 - Keep local-first defaults for contributor workflows.
