@@ -187,6 +187,7 @@ For complete troubleshooting (auth, stale/blocked/not-generated states, startup 
 - Performance metrics + reproducibility: [`docs/PERFORMANCE.md`](docs/PERFORMANCE.md)
 - Adding a new city crawler: [`docs/CONTRIBUTING_CITIES.md`](docs/CONTRIBUTING_CITIES.md)
 - System architecture: [`ARCHITECTURE.md`](ARCHITECTURE.md)
+- AI collaboration contract: [`AGENTS.md`](AGENTS.md)
 
 ## Documentation Maintenance Checklist
 Update docs when you change:
