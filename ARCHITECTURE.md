@@ -228,6 +228,9 @@ Inference provider architecture (D2-lite hardening):
   - `HttpInferenceProvider`
 - Providers raise typed errors (`ProviderTimeoutError`, `ProviderUnavailableError`, `ProviderResponseError`)
   so orchestration can choose retry vs deterministic fallback consistently.
+- Under prefork workers, provider telemetry is mirrored to Redis-backed aggregate keys so
+  `tc_provider_*` series remain visible from the worker metrics endpoint.
+- This telemetry path supports observability only; it does not change inference retry/timeout policy.
 
 Re-extraction is explicit and uses existing downloaded file only (no redownload).
 
@@ -276,6 +279,10 @@ Prometheus scrapes:
 - PostgreSQL exporter
 - Redis exporter
 - cAdvisor
+
+Provider telemetry note:
+- Worker `tc_provider_*` telemetry is exported from prefork-safe aggregate data so TTFT/TPS and
+  token counters are available even when requests execute in child worker processes.
 
 Grafana dashboards are provisioned from repository files under `monitoring/grafana/`.
 

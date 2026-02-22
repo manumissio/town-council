@@ -1,6 +1,6 @@
 # Performance
 
-Last verified: 2026-02-16
+Last updated: 2026-02-22
 
 This page lists current empirical measurements for local Docker runs.
 For operational troubleshooting and sorting diagnostics, use `docs/OPERATIONS.md`.
@@ -127,6 +127,20 @@ Soak confidence signals:
 - `worker_metrics_error` is recorded when worker metrics cannot be scraped.
 - Missing worker metrics do not crash collection, but reduce confidence for TTFT/TPS trend interpretation.
 - Weekly evaluator emits `telemetry_confidence` and `degraded_telemetry_days` to make this explicit.
+
+## Baseline interpretation
+
+- `baseline-valid` runs:
+  - consistent local baseline conditions across the soak window
+  - suitable for promotion-gate interpretation
+- `non-baseline` runs:
+  - manual probes, experiments, or mixed runtime conditions
+  - useful for diagnostics, not for baseline promotion decisions
+
+Metric interpretation policy:
+- Gate-driving metrics: timeout rate, timeout storms, queue proxy trend, search regression, segment/summary stability.
+- Observational metrics: TTFT/TPS/token telemetry and related confidence annotations.
+- Existing gate thresholds in this document are unchanged by this docs sync.
 
 ## A/B Experiment Artifacts
 

@@ -112,6 +112,23 @@ docker compose --env-file env/profiles/m1_conservative.env up -d --build inferen
 docker compose --env-file env/profiles/desktop_balanced.env up -d --build inference worker api pipeline frontend
 ```
 
+## Runtime Modes
+- Local default:
+  - required path for all contributors
+  - all tracked defaults target local compose services
+- Soak baseline mode:
+  - use local baseline profile and keep run conditions consistent day-to-day
+  - do not mix optional remote acceleration into baseline soak windows
+- Optional personal remote acceleration:
+  - explicit opt-in only
+  - fail-fast when the remote inference target is unreachable
+  - not required for contributors and not used by shared default commands
+
+### Optional Personal Offload
+- Use this only for personal development acceleration.
+- Keep contributor setup local-first.
+- Do not rely on silent fallback between remote and local inference modes.
+
 For detailed rollout status, milestones, and policy:
 - [`ROADMAP.md`](ROADMAP.md)
 - [`docs/OPERATIONS.md`](docs/OPERATIONS.md)

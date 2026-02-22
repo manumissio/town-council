@@ -7,7 +7,7 @@ This roadmap is the canonical feature expansion plan and dependency order.
 - Decision Integrity (`A`): **Complete**
 - Hybrid Semantic Discovery (`B`): **Partially complete** (`B1 complete`, `B2 planned`)
 - Issue Threads Foundation (`C v1`): **Complete**
-- Inference Decoupling & Throughput Stabilization (`D2-lite`): **Planned (next)**
+- Inference Decoupling & Throughput Stabilization (`D2-lite`): **Active stabilization soak**
 
 ## Summary
 

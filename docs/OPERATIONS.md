@@ -1,8 +1,15 @@
 # Operations Runbook
 
-Last verified: 2026-02-16
+Last updated: 2026-02-22
 
 ## Core workflow
+
+Path note:
+- Set `REPO_ROOT` once to avoid machine-specific absolute paths in commands:
+```bash
+REPO_ROOT="/Users/dennisshah/GitHub/town-council"
+cd "$REPO_ROOT"
+```
 
 ### 1) Start stack
 ```bash
@@ -147,6 +154,11 @@ A/B artifact integration (v1):
 
 ## D2-lite 7-Day Soak Gate (Conservative -> Balanced)
 
+Policy guardrails:
+- Shared workflows are local-first by default.
+- Optional remote acceleration is personal/opt-in and should fail fast if unreachable.
+- Baseline soak integrity depends on consistent baseline target conditions across days.
+
 Run profile:
 - `env/profiles/m1_conservative.env` on M1 Pro.
 - No new feature rollout during the soak window.
@@ -213,12 +225,12 @@ Scripts:
 
 Manual run:
 ```bash
-cd /Users/dennisshah/GitHub/town-council && RUN_ID="soak_$(date +%Y%m%d)" && ./scripts/run_soak_day.sh --run-id "$RUN_ID" --catalog-file experiments/soak_catalogs_m1_v1.txt --output-dir experiments/results/soak || true; PYTHONPATH=. .venv/bin/python scripts/collect_soak_metrics.py --run-id "$RUN_ID" --output-dir experiments/results/soak
+cd "$REPO_ROOT" && RUN_ID="soak_$(date +%Y%m%d)" && ./scripts/run_soak_day.sh --run-id "$RUN_ID" --catalog-file experiments/soak_catalogs_m1_v1.txt --output-dir experiments/results/soak || true; PYTHONPATH=. .venv/bin/python scripts/collect_soak_metrics.py --run-id "$RUN_ID" --output-dir experiments/results/soak
 ```
 
 Weekly evaluation:
 ```bash
-cd /Users/dennisshah/GitHub/town-council && PYTHONPATH=. .venv/bin/python scripts/evaluate_soak_week.py --input-dir experiments/results/soak --window-days 7
+cd "$REPO_ROOT" && PYTHONPATH=. .venv/bin/python scripts/evaluate_soak_week.py --input-dir experiments/results/soak --window-days 7
 ```
 
 ### Wake policy for local schedule (required)
