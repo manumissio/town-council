@@ -1,8 +1,18 @@
 # Town Council Architecture (2026)
 
-This document describes system structure, data flow, and reliability/security design choices.
-Operational commands and troubleshooting live in [`docs/OPERATIONS.md`](docs/OPERATIONS.md).
-Empirical benchmark outputs and reproduction steps live in [`docs/PERFORMANCE.md`](docs/PERFORMANCE.md).
+Last updated: 2026-02-27
+
+This document defines stable architecture intent, data boundaries, and core contracts.
+Operational tuning, rollout state, and troubleshooting are maintained in:
+- [`docs/OPERATIONS.md`](docs/OPERATIONS.md)
+- [`docs/PERFORMANCE.md`](docs/PERFORMANCE.md)
+- [`ROADMAP.md`](ROADMAP.md) (canonical milestone status and sequencing)
+
+## Scope Guardrails
+
+- This file documents stable architecture behavior and interfaces.
+- Runtime defaults and policy language must remain aligned with [`AGENTS.md`](AGENTS.md).
+- Do not treat this file as the source of operational run commands or milestone completion status.
 
 ## System Boundaries
 
@@ -12,15 +22,16 @@ Empirical benchmark outputs and reproduction steps live in [`docs/PERFORMANCE.md
 
 ### Internal services
 - `crawler` (Scrapy ingestion)
-- `pipeline` (download, extraction, NLP, indexing)
-- `api` (FastAPI)
-- `worker` (Celery async tasks)
-- `postgres` (system of record)
-- `redis` (task queue/result backend + cache)
-- `meilisearch` (search index)
+- `pipeline` (batch enrichment and indexing)
+- `api` (FastAPI read/write endpoints)
+- `worker` (Celery async task execution)
+- `inference` (HTTP LLM service when `LOCAL_AI_BACKEND=http`)
+- `postgres` (system of record, including semantic and lineage data)
+- `redis` (Celery queue/result backend + provider metrics aggregation)
+- `meilisearch` (lexical search index)
 - `prometheus` + `grafana` (observability)
 
-## Architecture Diagram
+## Topology Diagram
 
 ```mermaid
 flowchart LR
@@ -39,28 +50,25 @@ flowchart LR
         Core[("event + document + catalog")]
         Agenda[("agenda_item")]
         People[("person + membership")]
-    end
-
-    subgraph Batch["Batch Pipeline (run_pipeline.py)"]
-        Download["downloader.py"]
-        Extract["extractor/Tika"]
-        NLP["nlp_worker.py"]
-        Topics["topic_worker.py"]
-        Link["person_linker.py"]
-        Index["indexer.py"]
+        Sem[("semantic_embedding")]
     end
 
     subgraph Async["Async (FastAPI + Celery + Redis)"]
         API["FastAPI"]
         Queue[("Redis queue/result")]
         Worker["Celery worker"]
-        Resolver["Agenda resolver\nLegistar -> HTML -> LLM"]
-        LocalAI["Local AI (Gemma/llama-cpp)"]
+        LocalAI["LocalAI Orchestrator"]
+    end
+
+    subgraph Inference["Inference Runtime Modes"]
+        InProc["InProcessLlamaProvider\n(LOCAL_AI_BACKEND=inprocess)"]
+        HttpProv["HttpInferenceProvider\n(LOCAL_AI_BACKEND=http)"]
+        HttpSvc["inference service (Ollama/vLLM/llama.cpp server)"]
     end
 
     subgraph Search["Search + UI"]
         Meili["Meilisearch"]
-        Semantic["Semantic Backend (FAISS transition -> pgvector target)"]
+        Semantic["Semantic backend\n(FAISS bridge -> pgvector target)"]
         UI["Next.js UI"]
     end
 
@@ -73,19 +81,17 @@ flowchart LR
     Legi --> Spider
     Spider --> Stage --> Promote --> Core
 
-    Core --> Download --> Extract --> NLP --> Topics --> Link --> People
-    Link --> Core
-    Core --> Index --> Meili
-    Core -->|"reindex_semantic.py"| Semantic
-    Agenda --> Index
+    Core -->|"run_pipeline.py"| Meili
+    Core --> Sem
+    Agenda --> Meili
 
-    UI -->|"search/read"| API --> Meili
-    UI -->|"GET /search/semantic"| API --> Semantic
-    UI -->|"POST /summarize /segment /topics /extract /votes"| API
+    UI -->|"search/read"| API
+    API --> Meili
+    API --> Semantic
+    UI -->|"POST summarize/segment/topics/extract/votes"| API
     API <--> Queue --> Worker --> LocalAI
-    Worker --> Resolver
-    Legi --> Resolver
-    Resolver --> Agenda
+    LocalAI --> InProc
+    LocalAI --> HttpProv --> HttpSvc
     Worker --> Core
     UI -->|"GET /tasks/{id}"| API
     UI -->|"GET /catalog/{id}/derived_status"| API
@@ -98,198 +104,178 @@ flowchart LR
 ## Data Flow
 
 ### 1) Ingestion and normalization
-1. Crawler collects meeting metadata and document URLs into staging tables.
-2. Promotion step writes canonical `event` and `document` rows.
-3. Downloader stores files and links documents to `catalog` rows.
+1. Crawler writes meeting metadata and document URLs into staging tables.
+2. Promotion creates canonical `event` and `document` rows.
+3. Downloader stores files and links them to `catalog`.
 
 ### 2) Batch enrichment
-1. Text extraction writes document text to `catalog.content` and postprocesses common extraction artifacts
-   (for example, spaced-letter/chunked ALLCAPS) with a deterministic repair pass, plus optional
-   LLM escalation for residual improbable heading lines.
-2. NLP/entity and topic workers enrich catalog records.
-3. Person linker resolves official profiles and memberships.
-4. Indexer publishes documents and agenda items to Meilisearch.
-5. Optional vote extraction stage writes normalized outcomes/tallies to agenda-item fields.
+1. Extraction writes canonical text to `catalog.content` and computes `content_hash`.
+2. Topic/entity and linking stages enrich records.
+3. Indexer publishes meeting and agenda-item documents to Meilisearch.
+4. Semantic embedding hydration populates `semantic_embedding`.
 
 ### 3) Async user-triggered generation
-1. UI calls protected API endpoints (`/summarize`, `/segment`, `/topics`, `/extract`, `/votes`).
+1. UI calls protected write endpoints.
 2. API enqueues Celery tasks in Redis.
-3. Worker executes task, writes DB updates, then reindexes affected catalog/entity.
-4. UI polls `/tasks/{id}` for completion.
+3. Worker executes task and persists updates.
+4. UI polls `/tasks/{id}` with bounded retry logic.
 
-Local AI process model note:
-- `LocalAI` (llama.cpp) is a singleton **per Python process**, not a cross-process singleton.
-- Celery prefork/multiprocessing spawns multiple worker processes; each would load its own GGUF model copy into RAM.
-- In-process backend guardrails still enforce `--pool=solo --concurrency=1`.
-- D2-lite adds an HTTP inference backend (`LOCAL_AI_BACKEND=http`) so workers can run conservative parallelism (`concurrency=3`) without process-local model duplication.
+## Architecture Contracts
+
+### API behavior contract
+
+| Contract | Routes | Auth | Async | Primary owners |
+|---|---|---|---|---|
+| Search/read | `GET /search`, `GET /search/semantic`, `GET /catalog/{id}/lineage`, `GET /lineage/{lineage_id}` | none | no | `api/main.py`, `api/search/query_builder.py` |
+| Protected generation writes | `POST /summarize/{catalog_id}`, `POST /segment/{catalog_id}`, `POST /topics/{catalog_id}`, `POST /extract/{catalog_id}`, `POST /votes/{catalog_id}` | `X-API-Key` | yes (task id returned) | `api/main.py`, `pipeline/tasks.py` |
+| Task lifecycle | `GET /tasks/{task_id}` | none | n/a | `api/main.py`, Celery task backend |
+| Derived status/readability | `GET /catalog/{catalog_id}/derived_status`, `GET /catalog/{catalog_id}/content` | `X-API-Key` | no | `api/main.py` |
+
+### Data contract
+
+| Entity/field | Contract | Primary owners |
+|---|---|---|
+| `catalog.content_hash` | Canonical hash for extracted text used to detect staleness | `pipeline/content_hash.py`, `pipeline/extraction_service.py`, `pipeline/tasks.py` |
+| `catalog.summary_source_hash` | Hash of source text used to generate current summary | `pipeline/tasks.py`, `api/main.py` |
+| `catalog.topics_source_hash` | Hash of source text used to generate current topics | `pipeline/tasks.py`, `pipeline/topic_worker.py`, `api/main.py` |
+| `agenda_item.result` | Normalized outcome field for agenda/vote interpretation | `pipeline/models.py`, `pipeline/tasks.py` |
+| `agenda_item.votes` | Structured vote payload with extraction metadata | `pipeline/models.py`, `pipeline/tasks.py`, `pipeline/ground_truth_sync.py` |
+| `catalog.lineage_id`, `catalog.lineage_confidence`, `catalog.lineage_updated_at` | Meeting-level lineage identity and confidence | `pipeline/lineage_service.py`, `api/main.py` |
+| `semantic_embedding` | pgvector-backed embedding storage for hybrid semantic retrieval | `pipeline/models.py`, `pipeline/semantic_index.py`, `pipeline/tasks.py` |
+
+### Observability contract
+
+| Contract | Metric/endpoint | Primary owners |
+|---|---|---|
+| API service metrics | `GET /metrics` on API | `api/metrics.py`, `api/main.py` |
+| Worker service metrics | `GET /metrics` on worker exporter | `pipeline/metrics.py` |
+| Provider transport telemetry | `tc_provider_*` (requests, duration, retries, timeouts, TTFT/TPS, token counters) | `pipeline/llm_provider.py`, `pipeline/metrics.py` |
+| Prefork-safe provider visibility | Redis-backed provider metric aggregates | `pipeline/metrics.py` |
 
 ## Agenda Segmentation Design
 
-The resolver uses a maintainable source priority:
-1. Legistar agenda items (when `place.legistar_client` exists)
+Source priority:
+1. Legistar agenda items when `place.legistar_client` exists
 2. Generic HTML agenda parsing
-3. Local LLM fallback
+3. Local LLM fallback with deterministic acceptance gates
 
-Quality safeguards:
-- low-quality cached items can be regenerated
-- fallback parser suppresses speaker-roll/name-list pollution
-- fallback parser suppresses participation template boilerplate (teleconference/COVID/ADA/how-to-join instructions)
-- fallback parser rejects pleading-paper lowercase fragments using a first-alpha trap (for example `16. in the ...`)
-- fallback parser carries parent-item context across page boundaries so nested sub-markers are not promoted when a list/table spans pages
-- tabular-fragment suppression is weighted with alpha-density as the primary signal (whitespace artifacts are secondary)
-- end-of-agenda termination requires composite legal/attestation evidence rather than `Adjournment` alone
-- LLM agenda candidates pass a deterministic acceptance gate (procedural/contact rejection + substance thresholding)
-- TOC/body duplicate suppression runs per document and prefers higher-page body entries over cover/TOC duplicates
-- HTML cross-check parsing uses a DOM parser (not regex sanitization) before line extraction
-- vote lines (`Vote:`) are mapped into agenda item `result` when available
-- page context uses both `[PAGE N]` markers and inline `Page N` headers
+Key safeguards:
+- procedural/contact boilerplate suppression
+- TOC/body duplicate suppression
+- context-aware page boundary handling
+- deterministic rejection for low-substance candidates
 
-## Vote Extraction Design (Milestone A)
+Primary owners:
+- `pipeline/llm.py`
+- `pipeline/agenda_resolver.py`
 
-Status:
-- `Milestone A`: **Complete**
+## Vote Extraction Design (Decision Integrity)
 
-Vote extraction is intentionally separated from segmentation so failures in outcome parsing do not roll back agenda-item creation.
+Vote extraction is intentionally separated from segmentation so outcome parsing failures do not roll back item creation.
 
 Flow:
-1. Segment agenda/minutes content into `agenda_item` rows.
+1. Segment agenda/minutes into `agenda_item` rows.
 2. Run vote extraction over item-level context.
-3. Validate model output against a strict JSON contract.
-4. Persist only high-confidence, non-ambiguous outcomes.
+3. Validate output against strict JSON contract.
+4. Persist high-confidence, non-ambiguous outcomes.
 
 Write hierarchy:
-- `manual` and `legistar` vote sources are authoritative and are never overwritten by LLM extraction.
-- LLM extraction backfills only unknown/empty results unless forced.
+- `manual` and `legistar` sources are authoritative and never overwritten by LLM extraction.
+- LLM extraction backfills unknown/empty fields unless forced.
 
-Persistence:
-- `agenda_item.result` stores normalized outcome text (`Passed`, `Failed`, etc.).
-- `agenda_item.votes` stores structured payload and extraction metadata (`source=llm_extracted`, `confidence`, tally fields).
+Primary owners:
+- `pipeline/tasks.py`
+- `pipeline/models.py`
 
-Operational procedures and rollout controls for this stage live in [`docs/OPERATIONS.md`](docs/OPERATIONS.md).
+## Semantic Search Design (Hybrid Semantic Discovery)
 
-## Derived Data Lifecycle
+- `GET /search/semantic` is additive; keyword `/search` remains stable.
+- `/search?semantic=true` enables hybrid semantic reranking on the main search endpoint.
+- Retrieval over-fetches candidates and de-duplicates by `catalog_id` before pagination.
+- FAISS is a temporary bridge path while pgvector is hydrated and validated.
 
-Derived fields are tied to extracted text by hashes:
-- `catalog.content_hash`
-- `catalog.summary_source_hash`
-- `catalog.topics_source_hash`
+Primary owners:
+- `api/main.py`
+- `pipeline/semantic_index.py`
+- `pipeline/migrate_v8.py`
 
-States exposed to UI:
-- **stale**: source hash mismatch after text changes
-- **blocked**: generation rejected for low-signal input (or ungrounded summary output)
-- **not generated yet**: derived field absent
-- **agenda empty**: agenda segmentation ran but detected 0 substantive items (tracked on `catalog`)
+## Lineage + Trends Design (Issue Threads Foundation)
 
-Summary rendering contract:
-- `catalog.summary` is stored as plain text in a sectioned decision-brief format:
-  - `BLUF:`
-  - `Why this matters:`
-  - `Top actions:`
-  - `Potential impacts:`
-  - `Unknowns:`
-- This avoids Markdown/HTML rendering in the UI and keeps output predictable.
+- Meeting-level lineage persists in `catalog.lineage_*`.
+- Lineage recompute runs as a Celery task with advisory-lock single-writer semantics.
+- Trends endpoints derive from Meilisearch facets in v1 (no SQL trend-cache layer).
+- QueryBuilder contract is shared to avoid filter drift between search and trends.
 
-Agenda summary contract:
-- For `Document.category == "agenda"`, summaries are derived from segmented agenda items (Structured Agenda) to prevent drift.
-- Summary generation uses a hybrid path: deterministic scaffold + constrained LLM synthesis.
-- Structured payload includes title/description/classification/result/page for each retained item.
-- Input assembly is hard-capped to avoid context-window overflow; partial coverage is disclosed in `Unknowns`.
-- Grounding/pruning removes unsupported claim lines before persistence; weak output falls back to deterministic scaffold text.
-- If an agenda has not been segmented yet, summary generation returns `not_generated_yet` and prompts segmentation first.
-- If the model output is too short/noncompliant/ungrounded, the system falls back to deterministic decision-brief output.
+Primary owners:
+- `pipeline/lineage_service.py`
+- `pipeline/tasks.py`
+- `api/main.py`
+- `api/search/query_builder.py`
 
-Search index doc types:
-- Meetings are indexed as `result_type="meeting"`.
-- Individual `agenda_item` rows are also indexed as `result_type="agenda_item"` for drilldown searches.
-- The API defaults to meeting-only search results; agenda-item hits are opt-in (`include_agenda_items=true`).
+## Inference Provider Architecture (Inference Decoupling & Throughput Stabilization)
 
-Semantic search (Milestone B):
-- Status:
-  - `Milestone B1 (FAISS backend)`: **Complete**
-  - `Milestone B2 (pgvector backend)`: **In rollout**
-- `GET /search/semantic` is additive; keyword `/search` behavior remains unchanged.
-- `/search?semantic=true` enables hybrid semantic rerank on the main search endpoint.
-- Retrieval uses adaptive over-fetch + in-memory filters, then de-duplicates by `catalog_id`
-  before pagination so one meeting with many chunks cannot starve other results.
-- FAISS artifacts remain a temporary fallback bridge during B2 hydration/validation.
-- pgvector stores vectors in Postgres (`semantic_embedding`) and reranks lexical candidates.
-
-Lineage + trends (Milestone C v1):
-- `catalog.lineage_id`, `catalog.lineage_confidence`, and `catalog.lineage_updated_at` persist meeting-level lineage.
-- Lineage recompute runs as a Celery task and uses a DB advisory lock to keep one authoritative writer.
-- Trends endpoints are computed from Meilisearch facet distribution on `topics` (v1 avoids SQL trend-cache state).
-- Search and trends route filters are built from a shared QueryBuilder contract to prevent semantic drift.
-- Procedural/contact/trend-noise rules are centralized in `pipeline/lexicon.py` and imported by both pipeline and API code.
-
-Inference provider architecture (D2-lite hardening):
-- `LocalAI` is orchestration-only (prompting, grounding, fallback policy).
-- Transport lives behind a provider protocol (`InferenceProvider`) with interchangeable backends:
+- `LocalAI` handles orchestration (prompting, grounding, fallback policy).
+- Transport is abstracted behind `InferenceProvider`:
   - `InProcessLlamaProvider`
   - `HttpInferenceProvider`
-- Providers raise typed errors (`ProviderTimeoutError`, `ProviderUnavailableError`, `ProviderResponseError`)
-  so orchestration can choose retry vs deterministic fallback consistently.
-- Under prefork workers, provider telemetry is mirrored to Redis-backed aggregate keys so
-  `tc_provider_*` series remain visible from the worker metrics endpoint.
-- This telemetry path supports observability only; it does not change inference retry/timeout policy.
+- Providers emit typed errors (`ProviderTimeoutError`, `ProviderUnavailableError`, `ProviderResponseError`) so orchestration can distinguish retryable paths from deterministic fallback paths.
+- Under prefork workers, provider telemetry is mirrored to Redis-backed aggregates so `tc_provider_*` series remain visible.
 
-Re-extraction is explicit and uses existing downloaded file only (no redownload).
+### Hardware topology
 
-## Startup Purge Model (Dev)
+- Default topology is local-first: worker and inference runtime are co-located on contributor machines.
+- Optional personal acceleration can point `HttpInferenceProvider` at a remote HTTP endpoint (for example, within a private tailnet).
+- Remote acceleration is fail-fast if unreachable; there is no silent fallback between remote and local modes.
 
-When enabled (`STARTUP_PURGE_DERIVED=true`), startup purges derived state for deterministic local testing.
+### Future direction (non-baseline)
 
-Purged:
-- `agenda_item` rows
-- derived `catalog` fields (`content`, summaries, topics, entities, related IDs, tables)
-- content/source hash fields
+Compute triage/model cascading may be introduced in future roadmap phases, but it is not baseline policy today.
+Current baseline defaults remain 270M-first and local-first unless roadmap/runbook policy explicitly changes.
 
-Safety:
-- blocked outside `APP_ENV=dev` unless explicitly overridden
-- PostgreSQL advisory lock ensures one purge executor per startup wave
+Primary owners:
+- `pipeline/llm.py`
+- `pipeline/llm_provider.py`
+- `pipeline/config.py`
 
-## Full Text Rendering Contract
+## Frontend Architecture
 
-- Raw extraction remains canonical in DB/API (`catalog.content`).
-- Full Text readability formatting is client-side only (whitespace cleanup + `Page N` headers).
-- This avoids changing data used by indexing, summarization, and segmentation.
-- The UI fetches canonical Full Text from Postgres (`GET /catalog/{id}/content`), not from Meilisearch search snippets.
-  This prevents “stale snippet” confusion after startup purge clears extracted text.
+- Framework: Next.js app (`frontend/app/page.js`) with client components for interactive search and result workflows.
+- Shared state: centralized `SearchStateContext` (`frontend/state/search-state.js`) for query/filter/sort/search-mode coordination.
+- Defensive polling: bounded task polling with increasing interval and timeout signaling (`TASK_POLL_MAX_ATTEMPTS`, interval cap, `task_poll_timeout`) in `frontend/components/ResultCard.js`.
+- Security rendering contract:
+  - CSP/security headers configured in `frontend/next.config.js`
+  - untrusted HTML rendering paths sanitized with DOMPurify before `dangerouslySetInnerHTML` in `frontend/components/ResultCard.js`
 
 ## Security and Reliability Model
 
 ### Security controls
 - Protected write endpoints require `X-API-Key`.
-- Auth failure logs include request metadata only and never include API key material.
-- API key comparison uses constant-time `compare_digest` semantics.
-- CORS origin allowlist is environment-controlled.
-- File re-extraction path is guarded by safe-path validation.
-- Frontend sends auth header only when explicitly configured.
+- API key checks use constant-time comparison (`compare_digest` semantics).
+- Unauthorized access logs include request metadata only, never key material.
+- CORS allowlist is environment-controlled.
+- Re-extraction paths are validated before file access.
 
 ### Reliability controls
-- API and worker use async task model to keep request latency predictable.
-- Task polling has explicit terminal handling for failure/error states.
-- DB writes use rollback-safe transaction patterns.
-- Startup health checks and fail-soft behavior keep read/search paths available when AI tasks fail.
-
-## Observability Architecture
-
-Prometheus scrapes:
-- API metrics endpoint
-- worker metrics endpoint
-- PostgreSQL exporter
-- Redis exporter
-- cAdvisor
-
-Provider telemetry note:
-- Worker `tc_provider_*` telemetry is exported from prefork-safe aggregate data so TTFT/TPS and
-  token counters are available even when requests execute in child worker processes.
-
-Grafana dashboards are provisioned from repository files under `monitoring/grafana/`.
+- Read/search routes are decoupled from write-heavy AI generation via async tasks.
+- Task status has explicit terminal states (complete/failed/error).
+- DB writes are transaction-safe.
+- Startup purge and semantic startup checks are guarded for deterministic behavior.
 
 ## Document Ownership
 
 - Entrypoint and quickstart: [`README.md`](README.md)
 - Architecture and design intent: this file (`ARCHITECTURE.md`)
 - Operator runbook and commands: [`docs/OPERATIONS.md`](docs/OPERATIONS.md)
-- Benchmark numbers and reproduction: [`docs/PERFORMANCE.md`](docs/PERFORMANCE.md)
+- Benchmark numbers and reproducibility: [`docs/PERFORMANCE.md`](docs/PERFORMANCE.md)
+- Milestone sequencing and status: [`ROADMAP.md`](ROADMAP.md)
 - City onboarding workflow: [`docs/CONTRIBUTING_CITIES.md`](docs/CONTRIBUTING_CITIES.md)
+
+## When to Update This File
+
+Update `ARCHITECTURE.md` when any of these change:
+- service boundaries or runtime topology
+- durable data contracts (`catalog`/`agenda_item`/`semantic_embedding`/lineage contracts)
+- trust boundaries or auth model
+- observability architecture contracts (`tc_provider_*` visibility paths, metrics ownership)
+
+For operational tuning, troubleshooting, and benchmark deltas, update runbook/performance docs instead of expanding this file.
