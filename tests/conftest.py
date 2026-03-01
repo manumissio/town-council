@@ -4,9 +4,10 @@ import os
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 
-# We use a shared in-memory database so multiple connections can see the same tables.
-# This is critical because workers create their own engines.
-TEST_DB_URL = "sqlite:///file:testdb?mode=memory&cache=shared"
+# Use a process-unique shared in-memory database:
+# - shared within one pytest process (workers create their own engines)
+# - isolated across concurrent pytest processes (avoids DDL races on drop/create)
+TEST_DB_URL = f"sqlite:///file:tc_testdb_{os.getpid()}?mode=memory&cache=shared&uri=true"
 
 @pytest.fixture(scope="session", autouse=True)
 def shared_engine():
