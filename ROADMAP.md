@@ -78,6 +78,16 @@ Status: **Complete**
 2. Normalize outcomes and tally votes from item-local context.
 3. Expose reliable aggregated voting stats for official profiles.
 
+Why this matters:
+- agenda-level vote/outcome structure turns narrative meeting text into auditable decision data;
+- scorecard-ready outputs enable consistent official-level comparisons from the same source fields;
+- this stage improves downstream trust before adding broader discovery surfaces.
+
+Tradeoff note:
+- Chosen path: deterministic-first extraction with LLM fallback and confidence gating.
+- No documented alternative path found in current repo artifacts.
+- Why chosen now: the implementation and tests already enforce non-fabrication and source-backed outcomes (`ROADMAP.md` -> Decision Integrity -> Edge handling/Tests).
+
 ### Implementation
 1. Add extraction module (`pipeline/vote_extractor.py`) using deterministic-first parsing + LLM fallback.
 2. Integrate into Celery flow after `segment_agenda_task` completion or as separate `extract_votes_task`.
@@ -107,6 +117,16 @@ Status: **In Rollout** (Phase 1 complete, Phase 2 implementation in progress)
 
 ### Scope
 Enable conceptual search while preserving current keyword precision and performance.
+
+Why this matters:
+- lexical-only search misses semantically related records when exact term overlap is low;
+- hybrid retrieval raises conceptual recall while preserving predictable keyword behavior;
+- phased enablement (`semantic=false` default) reduces rollout risk for existing clients.
+
+Tradeoff note:
+- Chosen path: pgvector-targeted hybrid rerank with temporary FAISS fallback during hydration/validation.
+- Alternative considered: keeping FAISS as the long-term primary backend (source: `ROADMAP.md` -> Hybrid Semantic Discovery -> Transitional backend policy + FAISS retirement gates).
+- Why chosen now: the roadmap explicitly targets pgvector and defines concrete retirement gates for FAISS, indicating FAISS is transitional rather than strategic.
 
 ### Implementation
 1. Add pgvector extension and migration.
@@ -232,6 +252,16 @@ Baseline dependency updates:
 1. Decouple inference from Celery worker processes before city expansion.
 2. Lift worker concurrency conservatively (default profile) with explicit rollback.
 
+Why this matters:
+- in-process inference can constrain concurrency and increase resource coupling risk in worker scaling;
+- decoupling inference transport creates a safer path to throughput gains before city expansion;
+- conservative-to-balanced gating protects baseline comparability and rollback safety.
+
+Tradeoff note:
+- Chosen path: runtime-profile A/B (`conservative` vs `balanced`) with model-selection A/B deferred.
+- Alternative considered: model-selection/cascading experimentation as baseline tuning path (source: `ROADMAP.md` -> Inference Decoupling & Throughput Stabilization -> Baseline dependency updates/Tests; `AGENTS.md` -> runtime_policy).
+- Why chosen now: repo policy and roadmap both prioritize runtime-profile stabilization first to avoid policy drift during soak.
+
 ### Implementation
 1. Introduce provider abstraction in `pipeline/llm.py`.
 2. Keep current in-process backend as default.
@@ -259,6 +289,16 @@ Baseline dependency updates:
 - Runtime profile A/B (`conservative` vs `balanced`) is the active tuning path while model-selection A/B remains disabled.
 
 ## City Coverage Expansion (after inference stabilization gates)
+
+Why this matters:
+- expansion after stabilization limits compounding failure modes during onboarding of new municipalities;
+- phased coverage improves reversibility (wave-level rollback/isolation) and quality control;
+- quality gates keep ingestion/search integrity comparable across cities.
+
+Tradeoff note:
+- Chosen path: two-wave expansion (existing spiders first, new spiders/provider-clustered second).
+- No documented alternative path found in current repo artifacts.
+- Why chosen now: wave sequencing is explicitly encoded in the roadmap and supports controlled expansion with per-wave quality gates.
 
 ### City Coverage Expansion I (existing spiders only)
 - fremont
@@ -291,12 +331,32 @@ Per-city quality gates:
 
 Status: **Planned (after city breadth stabilizes)**
 
+Why this matters:
+- alerts are high-trust user-facing features and should depend on stable upstream data breadth/quality;
+- delaying activation until stability criteria are met reduces noisy or misleading notifications;
+- start criteria tie launch readiness to measurable reliability signals.
+
+Tradeoff note:
+- Chosen path: defer subscriptions until city breadth and stability thresholds are met.
+- No documented alternative path found in current repo artifacts.
+- Why chosen now: the roadmap defines explicit start criteria and positions this milestone last in rollout order.
+
 Start criteria:
 1. >=12 active cities stable for 14 days.
 2. Queue/API/search SLOs remain within target on conservative profile.
 3. No P1/P2 ingestion regressions for 2 consecutive weeks.
 
 ## Rollout Strategy (re-baselined, inference stabilization first)
+
+Why this matters:
+- sequencing high-confidence data quality features before breadth/engagement reduces downstream correction cost;
+- staged rollout keeps each milestone reversible and measurable;
+- infrastructure stabilization before expansion lowers operational risk during city onboarding.
+
+Tradeoff note:
+- Chosen path: phased, feature-flag-first rollout.
+- Alternative considered: big-bang migration across multiple milestones (source: `ROADMAP.md` -> Explicit Assumptions and Defaults #5).
+- Why chosen now: current constraints favor controlled blast radius, explicit gates, and incremental verification.
 
 1. **Decision Integrity first:** immediate user-visible value with minimal architectural change.
 2. **Hybrid Semantic Discovery next:** additive and feature-flagged.
@@ -318,6 +378,19 @@ Use feature flags for:
 - `ARCHITECTURE.md`: data flow and component changes
 - `docs/OPERATIONS.md`: runbook for backend mode switch, conservative profile, city wave gates
 - `docs/PERFORMANCE.md`: before/after benchmark tables for hybrid search and HTTP inference
+
+## Rationale Evidence Sources
+
+Tradeoff and rationale notes in this roadmap are grounded in current repository artifacts:
+- `ROADMAP.md` section-local evidence:
+  - Hybrid Semantic Discovery -> Transitional backend policy + FAISS retirement gates
+  - Inference Decoupling & Throughput Stabilization -> Baseline dependency updates + Tests
+  - City Coverage Expansion I/II split
+  - Civic Alerts start criteria and rollout ordering
+  - Explicit Assumptions and Defaults #5
+- `AGENTS.md` policy evidence:
+  - `runtime_policy` (model-selection/cascading is not baseline policy)
+  - soak baseline and telemetry rules used by inference-stabilization rationale
 
 ## Acceptance Criteria (Program-Level)
 
