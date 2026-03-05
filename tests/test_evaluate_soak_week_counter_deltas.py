@@ -21,3 +21,11 @@ def test_has_adverse_drift_higher_is_worse():
 def test_safe_int_defaults_zero():
     assert mod._safe_int("3") == 3
     assert mod._safe_int(None) == 0
+
+
+def test_status_helpers():
+    assert mod._status_from_bool(True) == mod.GATE_PASS
+    assert mod._status_from_bool(False) == mod.GATE_FAIL
+    assert mod._overall_status({"a": mod.GATE_PASS, "b": mod.GATE_PASS}) == mod.GATE_PASS
+    assert mod._overall_status({"a": mod.GATE_INCONCLUSIVE, "b": mod.GATE_PASS}) == mod.GATE_INCONCLUSIVE
+    assert mod._overall_status({"a": mod.GATE_INCONCLUSIVE, "b": mod.GATE_FAIL}) == mod.GATE_FAIL

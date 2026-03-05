@@ -38,6 +38,7 @@ mkdir -p "$RUN_DIR"
 TASKS_JSONL="$RUN_DIR/tasks.jsonl"
 DAY_SUMMARY_JSON="$RUN_DIR/day_summary.json"
 : > "$TASKS_JSONL"
+LAST_FAILURE_REASON=""
 
 CIDS=()
 while IFS= read -r cid; do
@@ -123,6 +124,7 @@ print(obj.get("task_id", "") if isinstance(obj, dict) else "")
 PY
 )"
   if [[ -z "$tid" ]]; then
+    LAST_FAILURE_REASON="task_submission_failure"
     payload=$(printf '{"run_id":"%s","catalog_id":%s,"phase":"%s","status":"failed","task_failed":true,"error":"missing_task_id"}' "$RUN_ID" "$cid" "$phase")
     echo "$payload" >> "$TASKS_JSONL"
     return 1
@@ -148,6 +150,7 @@ PY
     if [[ "$waited_seconds" -ge "$TASK_MAX_WAIT_SECONDS" ]]; then
       status="failed"
       task_resp='{"status":"failed","error":"task_poll_timeout"}'
+      LAST_FAILURE_REASON="task_poll_timeout"
       break
     fi
     sleep "$WAIT_SECONDS"
@@ -197,27 +200,46 @@ PY
 )
   echo "$payload" >> "$TASKS_JSONL"
 
-  [[ "$status" == "failed" ]] && return 1
+  if [[ "$status" == "failed" ]]; then
+    if [[ -z "$LAST_FAILURE_REASON" ]]; then
+      LAST_FAILURE_REASON="task_failed"
+    fi
+    return 1
+  fi
   return 0
 }
 
 extract_failures=0
 segment_failures=0
 summarize_failures=0
+task_submission_failures=0
+task_poll_timeouts=0
 phases=0
 for cid in "${CIDS[@]}"; do
-  run_endpoint "$cid" "extract" "extract/$cid?force=true&ocr_fallback=false" || extract_failures=$((extract_failures + 1))
+  if ! run_endpoint "$cid" "extract" "extract/$cid?force=true&ocr_fallback=false"; then
+    extract_failures=$((extract_failures + 1))
+    [[ "$LAST_FAILURE_REASON" == "task_submission_failure" ]] && task_submission_failures=$((task_submission_failures + 1))
+    [[ "$LAST_FAILURE_REASON" == "task_poll_timeout" ]] && task_poll_timeouts=$((task_poll_timeouts + 1))
+  fi
   phases=$((phases + 1))
-  run_endpoint "$cid" "segment" "segment/$cid?force=true" || segment_failures=$((segment_failures + 1))
+  if ! run_endpoint "$cid" "segment" "segment/$cid?force=true"; then
+    segment_failures=$((segment_failures + 1))
+    [[ "$LAST_FAILURE_REASON" == "task_submission_failure" ]] && task_submission_failures=$((task_submission_failures + 1))
+    [[ "$LAST_FAILURE_REASON" == "task_poll_timeout" ]] && task_poll_timeouts=$((task_poll_timeouts + 1))
+  fi
   phases=$((phases + 1))
-  run_endpoint "$cid" "summarize" "summarize/$cid?force=true" || summarize_failures=$((summarize_failures + 1))
+  if ! run_endpoint "$cid" "summarize" "summarize/$cid?force=true"; then
+    summarize_failures=$((summarize_failures + 1))
+    [[ "$LAST_FAILURE_REASON" == "task_submission_failure" ]] && task_submission_failures=$((task_submission_failures + 1))
+    [[ "$LAST_FAILURE_REASON" == "task_poll_timeout" ]] && task_poll_timeouts=$((task_poll_timeouts + 1))
+  fi
   phases=$((phases + 1))
 done
 
 gating_failures=$((segment_failures + summarize_failures))
 all_phase_failures=$((extract_failures + gating_failures))
 
-python3 - <<'PY' "$RUN_ID" "$API_URL" "$preflight_status" "$DAY_SUMMARY_JSON" "$TASKS_JSONL" "${#CIDS[@]}" "$phases" "$all_phase_failures" "$extract_failures" "$segment_failures" "$summarize_failures" "$gating_failures"
+python3 - <<'PY' "$RUN_ID" "$API_URL" "$preflight_status" "$DAY_SUMMARY_JSON" "$TASKS_JSONL" "${#CIDS[@]}" "$phases" "$all_phase_failures" "$extract_failures" "$segment_failures" "$summarize_failures" "$gating_failures" "$task_submission_failures" "$task_poll_timeouts" "$TASK_MAX_WAIT_SECONDS"
 import json
 import statistics
 import sys
@@ -236,6 +258,9 @@ from pathlib import Path
     segment_failures,
     summarize_failures,
     gating_failures,
+    task_submission_failures,
+    task_poll_timeouts,
+    task_max_wait_seconds,
 ) = sys.argv[1:]
 rows = []
 for raw in Path(tasks_path).read_text(encoding="utf-8").splitlines():
@@ -246,6 +271,7 @@ for raw in Path(tasks_path).read_text(encoding="utf-8").splitlines():
 phase_durations = [float(r.get("duration_s") or 0.0) for r in rows]
 segment = [float(r.get("duration_s") or 0.0) for r in rows if r.get("phase") == "segment"]
 summary = [float(r.get("duration_s") or 0.0) for r in rows if r.get("phase") == "summarize"]
+cap_seconds = float(task_max_wait_seconds)
 
 def p95(values):
     if not values:
@@ -254,10 +280,19 @@ def p95(values):
     idx = max(0, int((0.95 * len(ordered)) + 0.999999) - 1)
     return float(ordered[idx])
 
+failure_reason = ""
+if int(gating_failures) > 0:
+    if int(task_submission_failures) > 0:
+        failure_reason = "task_submission_failures"
+    elif int(task_poll_timeouts) > 0:
+        failure_reason = "task_poll_timeout"
+    else:
+        failure_reason = "gating_phase_failures"
+
 payload = {
     "run_id": run_id,
     "status": "failed" if int(gating_failures) > 0 else "complete",
-    "failure_reason": "gating_phase_failures" if int(gating_failures) > 0 else "",
+    "failure_reason": failure_reason,
     "api_url": api_url,
     "preflight_status": preflight_status,
     "cids_total": int(cids_total),
@@ -267,8 +302,12 @@ payload = {
     "segment_failures": int(segment_failures),
     "summarize_failures": int(summarize_failures),
     "gating_failures": int(gating_failures),
+    "task_submission_failures": int(task_submission_failures),
+    "task_poll_timeouts": int(task_poll_timeouts),
     "duration_total_s": float(sum(phase_durations)),
     "phase_duration_p95_s": p95(phase_durations),
+    # Keep raw phase p95 and a capped variant for queue proxy drift analysis.
+    "phase_duration_p95_s_capped": p95([min(v, cap_seconds) for v in phase_durations]),
     "segment_p95_s": p95(segment),
     "summary_p95_s": p95(summary),
     "segment_median_s": float(statistics.median(segment)) if segment else 0.0,

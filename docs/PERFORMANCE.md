@@ -105,6 +105,7 @@ Apply these thresholds over a 7-day conservative soak:
 
 Fail policy:
 - if any gate fails, remain conservative and tune infra before re-running soak.
+- if any gate is `INCONCLUSIVE` (insufficient telemetry evidence), remain conservative and restore telemetry quality before re-running soak.
 
 ## Soak automation metric semantics
 
@@ -119,13 +120,15 @@ Why:
 - Prometheus counters are cumulative; absolute values would incorrectly fail later days after a single early timeout.
 
 Current queue signal:
-- `queue_wait_p95` is approximated by `phase_duration_p95_s` in the automated evaluator.
+- `queue_wait_p95` is approximated by `phase_duration_p95_s_capped` when available, otherwise `phase_duration_p95_s`.
 - This is an operational proxy until explicit queue wait metrics are exported.
 
 Soak confidence signals:
 - `worker_metrics_error` is recorded when worker metrics cannot be scraped.
+- `provider_metrics_present` and `provider_metrics_reason` classify whether provider series were observed (`ok`, `worker_scrape_failed`, `no_provider_series`).
 - Missing worker metrics do not crash collection, but reduce confidence for TTFT/TPS trend interpretation.
 - Weekly evaluator emits `telemetry_confidence` and `degraded_telemetry_days` to make this explicit.
+- Weekly evaluator now reports per-gate status as `PASS|FAIL|INCONCLUSIVE` with machine-readable `gate_reasons`.
 
 ## Baseline interpretation
 

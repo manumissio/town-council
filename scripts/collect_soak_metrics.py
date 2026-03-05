@@ -137,6 +137,15 @@ def _hist_quantile(rows: list[dict[str, Any]], base_name: str, labels: dict[str,
     return float(prev_bound)
 
 
+def _provider_metrics_state(rows: list[dict[str, Any]], worker_metrics_error: str | None) -> tuple[bool, str]:
+    if worker_metrics_error:
+        return False, "worker_scrape_failed"
+    provider_series_present = any(str(row.get("name", "")).startswith("tc_provider_") for row in rows)
+    if provider_series_present:
+        return True, "ok"
+    return False, "no_provider_series"
+
+
 def _search_p95_ms(api_url: str) -> float | None:
     samples: list[float] = []
     url = f"{api_url.rstrip('/')}/search?q=zoning&limit=10"
@@ -176,6 +185,7 @@ def main() -> int:
     (run_dir / "worker_metrics.prom").write_text(worker_metrics_raw, encoding="utf-8")
 
     worker_rows = _parse_metrics(worker_metrics_raw)
+    provider_metrics_present, provider_metrics_reason = _provider_metrics_state(worker_rows, worker_metrics_error)
 
     provider_requests_total = _sum_metric(worker_rows, "tc_provider_requests_total")
     provider_timeouts_total = _sum_metric(worker_rows, "tc_provider_timeouts_total")
@@ -212,6 +222,8 @@ def main() -> int:
             "prompt_tokens_total": prompt_tokens_total,
             "completion_tokens_total": completion_tokens_total,
             "search_p95_ms": _search_p95_ms(args.api_url),
+            "provider_metrics_present": provider_metrics_present,
+            "provider_metrics_reason": provider_metrics_reason,
             "metrics_sources": {
                 "api_metrics_available": bool(api_metrics_raw.strip()),
                 "worker_metrics_available": bool(worker_metrics_raw.strip()),

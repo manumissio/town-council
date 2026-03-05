@@ -19,4 +19,7 @@ def test_run_soak_day_script_contract():
     assert "segment_failures" in text
     assert "summarize_failures" in text
     assert "gating_failures" in text
+    assert "task_submission_failures" in text
+    assert "task_poll_timeouts" in text
+    assert "phase_duration_p95_s_capped" in text
     assert "non-gating extract_failures" in text

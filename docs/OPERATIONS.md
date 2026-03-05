@@ -191,6 +191,7 @@ Promotion gate table:
 Decision rule:
 - Promote to `LOCAL_AI_HTTP_PROFILE=balanced` only if all gates pass continuously through day 7.
 - If any gate fails, remain conservative and rerun soak after tuning.
+- If any gate is `INCONCLUSIVE`, treat as promotion-blocking until telemetry evidence is restored.
 
 ### Automated daily soak harness (local M1 Pro)
 
@@ -206,12 +207,20 @@ Scripts:
   - marks day `stack_offline` and exits cleanly if recovery fails
   - runs `extract -> segment -> summarize` for each CID
   - continues on per-task failures; extract failures are non-gating warnings while segment/summarize failures are gating
+  - records additional failure diagnostics in `day_summary.json`:
+    - `task_submission_failures`
+    - `task_poll_timeouts`
+    - refined `failure_reason` (`task_submission_failures`, `task_poll_timeout`, `gating_phase_failures`)
+  - records `phase_duration_p95_s_capped` for queue-proxy drift analysis while retaining raw p95 fields
 - `scripts/collect_soak_metrics.py`
   - stores raw snapshots:
     - `experiments/results/soak/<run_id>/api_metrics.prom`
     - `experiments/results/soak/<run_id>/worker_metrics.prom`
   - scrapes worker metrics by executing Python inside the worker container
     (does not depend on `curl`/`wget` being installed in the image)
+  - annotates provider telemetry availability:
+    - `provider_metrics_present`
+    - `provider_metrics_reason` (`ok`, `worker_scrape_failed`, `no_provider_series`)
   - updates `experiments/results/soak/<run_id>/day_summary.json`
 - `scripts/evaluate_soak_week.py`
   - reads 7-day window and emits:
@@ -219,6 +228,9 @@ Scripts:
     - `experiments/results/soak/soak_eval_7d.md`
   - uses day-over-day counter deltas (not absolute counter values)
   - handles counter reset after restarts by re-baselining deltas
+  - emits `overall_status` (`PASS|FAIL|INCONCLUSIVE`) while keeping `overall_pass` for compatibility
+  - emits per-gate `gate_statuses` and `gate_reasons`
+  - marks timeout-rate gate `INCONCLUSIVE` when provider request deltas are unavailable
   - annotates `telemetry_confidence` (`high|degraded`) based on worker metrics availability
     and whether provider requests were observed during successful phases
 

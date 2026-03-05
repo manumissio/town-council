@@ -45,3 +45,12 @@ def test_fetch_worker_metrics_uses_python_probe(monkeypatch):
     assert raw == "metric 1\n"
     assert err is None
     assert captured["cmd"][:6] == ["docker", "compose", "exec", "-T", "worker", "python"]
+
+
+def test_provider_metrics_state_prefers_scrape_failure():
+    present, reason = mod._provider_metrics_state(
+        [{"name": "tc_provider_requests_total", "labels": {}, "value": 1.0}],
+        "timeout",
+    )
+    assert not present
+    assert reason == "worker_scrape_failed"

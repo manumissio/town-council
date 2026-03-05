@@ -7,6 +7,10 @@ from datetime import datetime
 from pathlib import Path
 from statistics import median
 
+GATE_PASS = "PASS"
+GATE_FAIL = "FAIL"
+GATE_INCONCLUSIVE = "INCONCLUSIVE"
+
 
 def _safe_float(value):
     try:
@@ -62,6 +66,19 @@ def _has_adverse_drift(values: list[float], higher_is_worse: bool, tolerance: fl
     return change < -tolerance
 
 
+def _status_from_bool(value: bool) -> str:
+    return GATE_PASS if value else GATE_FAIL
+
+
+def _overall_status(gate_statuses: dict[str, str]) -> str:
+    values = list(gate_statuses.values())
+    if any(v == GATE_FAIL for v in values):
+        return GATE_FAIL
+    if any(v == GATE_INCONCLUSIVE for v in values):
+        return GATE_INCONCLUSIVE
+    return GATE_PASS
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description="Evaluate 7-day soak promotion gates")
     parser.add_argument("--input-dir", default="experiments/results/soak")
@@ -88,6 +105,7 @@ def main() -> int:
     timeout_storms = 0
     extract_warning_days = 0
     degraded_telemetry_days = 0
+    queue_proxy_capped_used_days = 0
 
     for row in window:
         d = row["data"]
@@ -138,7 +156,13 @@ def main() -> int:
         tps = _safe_float(d.get("tokens_per_sec_median"))
         seg = _safe_float(d.get("segment_p95_s"))
         summ = _safe_float(d.get("summary_p95_s"))
-        queue_proxy = _safe_float(d.get("phase_duration_p95_s"))
+        queue_proxy = _safe_float(d.get("phase_duration_p95_s_capped"))
+        queue_proxy_source = "phase_duration_p95_s_capped"
+        if queue_proxy is None:
+            queue_proxy = _safe_float(d.get("phase_duration_p95_s"))
+            queue_proxy_source = "phase_duration_p95_s"
+        else:
+            queue_proxy_capped_used_days += 1
         search = _safe_float(d.get("search_p95_ms"))
 
         if ttft is not None:
@@ -170,6 +194,7 @@ def main() -> int:
                 "segment_p95_s": seg,
                 "summary_p95_s": summ,
                 "phase_duration_p95_s": queue_proxy,
+                "queue_proxy_source": queue_proxy_source,
                 "ttft_p95_ms": ttft,
                 "tokens_per_sec_median": tps,
                 "search_p95_ms": search,
@@ -180,7 +205,15 @@ def main() -> int:
         )
         prev = row
 
-    gate_provider_timeout = bool(timeout_rate_days) and all(x < 0.01 for x in timeout_rate_days)
+    # Missing timeout-rate deltas mean we do not have decision-grade evidence for this gate.
+    if timeout_rate_days:
+        gate_provider_timeout = all(x < 0.01 for x in timeout_rate_days)
+        gate_provider_timeout_status = _status_from_bool(gate_provider_timeout)
+        gate_provider_timeout_reason = "ok" if gate_provider_timeout else "timeout_rate_threshold_exceeded"
+    else:
+        gate_provider_timeout = False
+        gate_provider_timeout_status = GATE_INCONCLUSIVE
+        gate_provider_timeout_reason = "missing_provider_request_deltas"
     gate_timeout_storms = timeout_storms == 0
     gate_day_failures = failed_day_count == 0
 
@@ -209,19 +242,48 @@ def main() -> int:
         "ttft_tps_no_persistent_adverse_drift": gate_telemetry_drift,
     }
 
-    overall_pass = all(gates.values())
+    gate_statuses = {
+        "provider_timeout_rate_lt_1pct": gate_provider_timeout_status,
+        "timeout_storms_zero": _status_from_bool(gate_timeout_storms),
+        "no_failed_days": _status_from_bool(gate_day_failures),
+        "queue_wait_proxy_no_upward_trend": _status_from_bool(gate_queue_trend),
+        "segment_p95_stable": _status_from_bool(gate_segment_stable),
+        "summary_p95_stable": _status_from_bool(gate_summary_stable),
+        "search_p95_regression_le_15pct": _status_from_bool(gate_search),
+        "ttft_tps_no_persistent_adverse_drift": _status_from_bool(gate_telemetry_drift),
+    }
+    gate_reasons = {
+        "provider_timeout_rate_lt_1pct": gate_provider_timeout_reason,
+        "timeout_storms_zero": "ok" if gate_timeout_storms else "retry_timeout_storm_detected",
+        "no_failed_days": "ok" if gate_day_failures else "gating_failures_detected",
+        "queue_wait_proxy_no_upward_trend": (
+            "ok_using_capped_proxy" if gate_queue_trend and queue_proxy_capped_used_days > 0
+            else ("ok" if gate_queue_trend else "queue_proxy_upward_drift")
+        ),
+        "segment_p95_stable": "ok" if gate_segment_stable else "segment_p95_upward_drift",
+        "summary_p95_stable": "ok" if gate_summary_stable else "summary_p95_upward_drift",
+        "search_p95_regression_le_15pct": "ok" if gate_search else "search_p95_regression_exceeded",
+        "ttft_tps_no_persistent_adverse_drift": "ok" if gate_telemetry_drift else "ttft_tps_adverse_drift",
+    }
+
+    overall_status = _overall_status(gate_statuses)
+    overall_pass = overall_status == GATE_PASS
     out = {
         "window_days": args.window_days,
         "evaluated_runs": [r["run_id"] for r in window],
         "per_day": per_day,
         "gates": gates,
+        "gate_statuses": gate_statuses,
+        "gate_reasons": gate_reasons,
+        "overall_status": overall_status,
         "overall_pass": overall_pass,
         "extract_warning_days": extract_warning_days,
         "telemetry_confidence": "degraded" if degraded_telemetry_days > 0 else "high",
         "degraded_telemetry_days": degraded_telemetry_days,
+        "queue_proxy_capped_used_days": queue_proxy_capped_used_days,
         "notes": [
             "Counter-based gates are evaluated using day-over-day deltas.",
-            "queue_wait gate uses phase_duration_p95_s proxy unless explicit queue metric is added later.",
+            "queue_wait gate uses phase_duration_p95_s_capped when present, else phase_duration_p95_s proxy.",
             "extract failures are non-gating warnings in this soak phase.",
         ],
     }
@@ -233,6 +295,7 @@ def main() -> int:
     lines = [
         f"# Soak Evaluation ({args.window_days} days)",
         "",
+        f"overall_status: {overall_status}",
         f"overall_pass: {'PASS' if overall_pass else 'FAIL'}",
         f"extract_warning_days: {extract_warning_days}",
         f"telemetry_confidence: {'degraded' if degraded_telemetry_days > 0 else 'high'}",
@@ -241,7 +304,9 @@ def main() -> int:
         "## Gates",
     ]
     for k, v in gates.items():
-        lines.append(f"- {k}: {'PASS' if v else 'FAIL'}")
+        status = gate_statuses.get(k, _status_from_bool(v))
+        reason = gate_reasons.get(k, "n/a")
+        lines.append(f"- {k}: {status} (bool={'PASS' if v else 'FAIL'}, reason={reason})")
     lines.append("")
     lines.append("## Runs")
     for d in per_day:
@@ -256,6 +321,7 @@ def main() -> int:
 
     print(f"wrote: {out_json}")
     print(f"wrote: {out_md}")
+    print(f"overall_status={overall_status}")
     print(f"overall_pass={overall_pass}")
     return 0
 
