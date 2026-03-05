@@ -135,14 +135,14 @@ For detailed rollout status, milestones, and policy:
 - [`docs/PERFORMANCE.md`](docs/PERFORMANCE.md)
 - [`docs/city-onboarding-status.md`](docs/city-onboarding-status.md)
 
-Canonical milestone names (legacy aliases in `ROADMAP.md`):
-- Decision Integrity (`A`)
-- Hybrid Semantic Discovery (`B`)
-- Issue Threads Foundation (`C v1`)
-- Inference Decoupling & Throughput Stabilization (`D2-lite`)
-- City Coverage Expansion I/II (`Wave 1` / `Wave 2`)
-- Signal Intelligence (`C2`)
-- Civic Alerts & Subscriptions (`D1`)
+Canonical initiative names:
+- Decision Integrity
+- Hybrid Semantic Discovery
+- Issue Threads Foundation
+- Inference Decoupling & Throughput Stabilization
+- City Coverage Expansion I/II
+- Signal Intelligence
+- Civic Alerts & Subscriptions
 
 Model A/B tooling:
 - `scripts/setup_ollama_270m.sh`

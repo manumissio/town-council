@@ -1,6 +1,6 @@
 # Operations Runbook
 
-Last updated: 2026-02-22
+Last updated: 2026-03-04
 
 ## Core workflow
 
@@ -106,7 +106,7 @@ This repo fails fast by default if the worker is started with an unsafe pool/con
 Backend-aware defaults:
 - `LOCAL_AI_BACKEND=inprocess`:
   - use `--pool=solo --concurrency=1`
-- `LOCAL_AI_BACKEND=http` (D2-lite conservative profile):
+- `LOCAL_AI_BACKEND=http` (conservative profile for inference decoupling and throughput stabilization):
   - use `--pool=prefork --concurrency=3`
   - inference service caps: ~4GB RAM / 2 CPU
   - `LOCAL_AI_HTTP_PROFILE=conservative` (default)
@@ -152,7 +152,7 @@ A/B artifact integration (v1):
 - `scripts/score_ab_results.py` reports TTFT/TPS/token rollups and deltas.
 - These telemetry metrics are reporting-only in this phase and are not part of pass/fail gates.
 
-## D2-lite 7-Day Soak Gate (Conservative -> Balanced)
+## Inference Decoupling & Throughput Stabilization 7-Day Soak Gate (Conservative -> Balanced)
 
 Policy guardrails:
 - Shared workflows are local-first by default.
@@ -161,7 +161,6 @@ Policy guardrails:
 
 Run profile:
 - `env/profiles/m1_conservative.env` on M1 Pro.
-- No new feature rollout during the soak window.
 
 Promotion gate table:
 - `provider_timeout_rate`:
@@ -389,7 +388,7 @@ Notes:
 - Trends are served from Meilisearch facets (`topics`) in v1.
 - Lineage recompute is full-graph and lock-protected to handle cascading component merges safely.
 
-## D2-lite Rollout (before city expansion)
+## Inference Decoupling & Throughput Stabilization Rollout (before city expansion)
 
 1. Enable HTTP backend:
 ```bash

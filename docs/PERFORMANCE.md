@@ -1,6 +1,6 @@
 # Performance
 
-Last updated: 2026-02-22
+Last updated: 2026-03-04
 
 This page lists current empirical measurements for local Docker runs.
 For operational troubleshooting and sorting diagnostics, use `docs/OPERATIONS.md`.
@@ -26,7 +26,7 @@ Note:
 | `GET /metadata` | 1.40 | 1.89 | 1.06 | 10.57 |
 | `GET /people?limit=50` | 4.08 | 4.58 | 2.76 | 20.46 |
 
-## Hybrid Semantic Discovery (`B`): Semantic Endpoint Timing
+## Hybrid Semantic Discovery: Semantic Endpoint Timing
 
 Semantic endpoint timing should be measured after:
 1. `SEMANTIC_ENABLED=true`
@@ -41,7 +41,7 @@ Track:
 - `semantic_diagnostics.expansion_steps`
 - `semantic_diagnostics.engine` (`faiss` preferred; `numpy` fallback is expected to be slower)
 
-## Inference Decoupling & Throughput Stabilization (`D2-lite`): Runtime Profile
+## Inference Decoupling & Throughput Stabilization: Runtime Profile
 
 Default conservative profile for rollout:
 - `LOCAL_AI_BACKEND=http`
@@ -56,7 +56,6 @@ Default conservative profile for rollout:
 
 Promotion rule:
 - move to a balanced profile only after one week of clean SLOs.
-- no new feature rollout during the D2-lite conservative soak window.
 
 Provider telemetry for promotion gate:
 - `tc_provider_requests_total` by `{provider,operation,model,outcome}`
@@ -71,7 +70,7 @@ Provider telemetry for promotion gate:
 Prefork note:
 - Provider telemetry is mirrored to a Redis-backed aggregate so `tc_provider_*` series are visible
   from the worker metrics endpoint under `WORKER_POOL=prefork`.
-- This keeps D2-lite runtime behavior unchanged while preserving TTFT/TPS observability.
+- This keeps runtime behavior unchanged while preserving TTFT/TPS observability.
 
 Token/throughput formulas (HTTP provider, best-effort):
 - `ttft_ms = prompt_eval_duration_ns / 1_000_000`
@@ -93,7 +92,7 @@ Interpretation:
 - balanced profile is only eligible when provider timeout/retry counters remain low and task failure rates stay stable.
 - concurrency throttling belongs in inference infrastructure (`OLLAMA_NUM_PARALLEL`), not in model-identity app logic.
 
-## D2-lite Promotion Gate Thresholds
+## Inference Decoupling & Throughput Stabilization Promotion Gate Thresholds
 
 Apply these thresholds over a 7-day conservative soak:
 - Note: extract-phase failures are non-gating warnings in this soak iteration; segment/summarize remain gating.

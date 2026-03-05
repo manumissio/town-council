@@ -4,23 +4,23 @@ This roadmap is the canonical feature expansion plan and dependency order.
 
 ## Current Status Snapshot
 
-- Decision Integrity (`A`): **Complete**
-- Hybrid Semantic Discovery (`B`): **Partially complete** (`B1 complete`, `B2 planned`)
-- Issue Threads Foundation (`C v1`): **Complete**
-- Inference Decoupling & Throughput Stabilization (`D2-lite`): **Active stabilization soak**
+- Decision Integrity: **Complete**
+- Hybrid Semantic Discovery: **Partially complete** (Phase 1 complete, Phase 2 planned)
+- Issue Threads Foundation: **Complete**
+- Inference Decoupling & Throughput Stabilization: **Active stabilization soak**
 
 ## Summary
 
 This roadmap turns feature ideas into an implementation sequence that fits the current codebase and avoids unnecessary rewrites.
 
-1. **Decision Integrity (`A`)**: vote/outcome extraction hardening + scorecards foundation
-2. **Hybrid Semantic Discovery (`B`)**: semantic retrieval (hybrid keyword + vector)
-3. **Issue Threads Foundation (`C v1`)**: meeting-level lineage + trends endpoints
-4. **Inference Decoupling & Throughput Stabilization (`D2-lite`)**: HTTP inference backend + conservative runtime profile
-5. **City Coverage Expansion I (`Wave 1`)**: existing spiders only
-6. **City Coverage Expansion II (`Wave 2`)**: new spiders / provider-clustered
-7. **Signal Intelligence (`C2`)**: agenda-level lineage + Civic Signals UX
-8. **Civic Alerts & Subscriptions (`D1`)**: engagement layer after city breadth stabilizes
+1. **Decision Integrity**: vote/outcome extraction hardening + scorecards foundation
+2. **Hybrid Semantic Discovery**: semantic retrieval (hybrid keyword + vector)
+3. **Issue Threads Foundation**: meeting-level lineage + trends endpoints
+4. **Inference Decoupling & Throughput Stabilization**: HTTP inference backend + conservative runtime profile
+5. **City Coverage Expansion I**: existing spiders only
+6. **City Coverage Expansion II**: new spiders / provider-clustered
+7. **Signal Intelligence**: agenda-level lineage + Civic Signals UX
+8. **Civic Alerts & Subscriptions**: engagement layer after city breadth stabilizes
 
 It aligns with current architecture facts:
 - `AgendaItem.result`, `AgendaItem.votes`, and `raw_history` already exist.
@@ -29,22 +29,19 @@ It aligns with current architecture facts:
 
 Re-baseline note after recent pushes:
 - Summary trust/quality hardening is now complete (grounded decision-brief summaries + contextual AI disclaimers).
-- This work is treated as a prerequisite layer and does **not** replace Issue Threads Foundation (`C v1`) or Inference Decoupling & Throughput Stabilization (`D2-lite`) scope.
+- This work is treated as a prerequisite layer and does **not** replace Issue Threads Foundation or Inference Decoupling & Throughput Stabilization scope.
 
-## Canonical Milestone Names
+## Canonical Initiative Names
 
 Use these names in roadmap, docs, and release communication:
-1. **Decision Integrity** (`A`)
-2. **Hybrid Semantic Discovery** (`B`)
-3. **Issue Threads Foundation** (`C v1`)
-4. **Inference Decoupling & Throughput Stabilization** (`D2-lite`)
-5. **City Coverage Expansion I** (`Wave 1`)
-6. **City Coverage Expansion II** (`Wave 2`)
-7. **Signal Intelligence** (`C2`)
-8. **Civic Alerts & Subscriptions** (`D1`)
-
-Transition policy:
-- Keep legacy aliases in parentheses for one transition cycle, then remove aliases.
+1. **Decision Integrity**
+2. **Hybrid Semantic Discovery**
+3. **Issue Threads Foundation**
+4. **Inference Decoupling & Throughput Stabilization**
+5. **City Coverage Expansion I**
+6. **City Coverage Expansion II**
+7. **Signal Intelligence**
+8. **Civic Alerts & Subscriptions**
 
 ## Important Public API / Interface / Type Changes
 
@@ -72,7 +69,7 @@ Transition policy:
 - `embedding_worker.py` for offline embedding generation
 - `vote_worker.py` (or extend existing agenda task pipeline) for structured vote extraction
 
-## Decision Integrity (`A`): Vote/Outcome Extraction + Scorecard Foundations
+## Decision Integrity: Vote/Outcome Extraction + Scorecard Foundations
 
 Status: **Complete**
 
@@ -104,9 +101,9 @@ Status: **Complete**
 - API: scorecard metrics correctness
 - Regression: existing agenda QA tests (especially `votes_missed` behavior)
 
-## Hybrid Semantic Discovery (`B`): Semantic Search (Hybrid Retrieval)
+## Hybrid Semantic Discovery: Semantic Search (Hybrid Retrieval)
 
-Status: **In Rollout** (`B1 complete`, `B2 implementation in progress`)
+Status: **In Rollout** (Phase 1 complete, Phase 2 implementation in progress)
 
 ### Scope
 Enable conceptual search while preserving current keyword precision and performance.
@@ -128,7 +125,7 @@ Enable conceptual search while preserving current keyword precision and performa
 - Low-quality/empty summaries: skip embedding, log reason.
 
 ### Transitional backend policy (explicit)
-- FAISS remains a temporary fallback during B2 hydration/validation.
+- FAISS remains a temporary fallback during Phase 2 hydration/validation.
 - pgvector is the target backend for hybrid rerank.
 
 ### FAISS retirement gates (mandatory)
@@ -144,7 +141,7 @@ FAISS is removed in a fast-follow PR after all gates pass:
 - API: `semantic=true` returns expected structure without breaking existing clients
 - Performance: p50/p95 impact under local load
 
-## Issue Threads Foundation (`C v1`): Meilisearch-Faceted Trends + Merge-Safe Lineage
+## Issue Threads Foundation: Meilisearch-Faceted Trends + Merge-Safe Lineage
 
 Status: **Complete**
 
@@ -180,7 +177,7 @@ Why this matters:
 - trends endpoints (topics/compare/export) and feature-flag gating
 - UI contract checks for Trends panel and Lineage timeline wiring
 
-## Signal Intelligence (`C2`): Discovery UX Deepening (Agenda-Level Lineage + Civic Signals)
+## Signal Intelligence: Discovery UX Deepening (Agenda-Level Lineage + Civic Signals)
 
 Status: **Planned**
 Prerequisite lock: complete foundation-first refactor (central lexicon + shared QueryBuilder + provider protocol + shared UI search state) before re-enabling Signals UI.
@@ -203,7 +200,7 @@ Why this matters:
 3. Add topic normalization/curation to suppress low-value generic tokens.
 4. Add UI affordances:
    - explicit "Open thread" from signal cards
-   - "Watch this signal" hook for Civic Alerts & Subscriptions (`D1`).
+   - "Watch this signal" hook for Civic Alerts & Subscriptions.
 5. Keep all C2 surfaces feature-flagged until validation completes.
 
 ### Edge handling
@@ -222,7 +219,7 @@ Why this matters:
 3. Signal cards reliably deep-link to relevant lineage/search views.
 4. False-positive rate remains bounded via confidence thresholds and deterministic fallbacks.
 
-## Inference Decoupling & Throughput Stabilization (`D2-lite`)
+## Inference Decoupling & Throughput Stabilization
 
 Status: **Planned (next)**
 
@@ -261,9 +258,9 @@ Baseline dependency updates:
 - Load test: compare throughput before/after backend switch
 - Runtime profile A/B (`conservative` vs `balanced`) is the active tuning path while model-selection A/B remains disabled.
 
-## City Coverage Expansion (after D2-lite gates)
+## City Coverage Expansion (after inference stabilization gates)
 
-### City Coverage Expansion I (`Wave 1`, existing spiders only)
+### City Coverage Expansion I (existing spiders only)
 - fremont
 - hayward
 - san_mateo
@@ -273,7 +270,7 @@ Baseline dependency updates:
 - moraga
 - belmont
 
-### City Coverage Expansion II (`Wave 2`, new spiders; provider-clustered)
+### City Coverage Expansion II (new spiders; provider-clustered)
 - orinda (IQM2)
 - brisbane
 - danville
@@ -290,7 +287,7 @@ Per-city quality gates:
 - segmentation complete/empty >=95% (failed <5%)
 - searchable in API and Meilisearch facets
 
-## Civic Alerts & Subscriptions (`D1`, deferred)
+## Civic Alerts & Subscriptions (deferred)
 
 Status: **Planned (after city breadth stabilizes)**
 
@@ -299,16 +296,15 @@ Start criteria:
 2. Queue/API/search SLOs remain within target on conservative profile.
 3. No P1/P2 ingestion regressions for 2 consecutive weeks.
 
-## Rollout Strategy (re-baselined, D2-lite first)
+## Rollout Strategy (re-baselined, inference stabilization first)
 
-1. **Decision Integrity (`A`) first:** immediate user-visible value with minimal architectural change.
-2. **Hybrid Semantic Discovery (`B`) next:** additive and feature-flagged.
-3. **Issue Threads Foundation (`C v1`) then:** reproducible meeting-level lineage + trends endpoints.
-4. **Inference Decoupling & Throughput Stabilization (`D2-lite`) next:** remove bottleneck safely before expansion.
-5. **No new feature rollout during D2-lite soak:** hold feature scope while stability gates are evaluated.
-6. **City Coverage Expansion I then II:** controlled onboarding with per-city reversible gates.
-7. **Signal Intelligence (`C2`) next:** deepen discovery once expanded data baselines are stable.
-8. **Civic Alerts & Subscriptions (`D1`) last:** launch engagement after breadth + stability criteria pass.
+1. **Decision Integrity first:** immediate user-visible value with minimal architectural change.
+2. **Hybrid Semantic Discovery next:** additive and feature-flagged.
+3. **Issue Threads Foundation then:** reproducible meeting-level lineage + trends endpoints.
+4. **Inference Decoupling & Throughput Stabilization next:** remove bottleneck safely before expansion.
+5. **City Coverage Expansion I then II:** controlled onboarding with per-city reversible gates.
+6. **Signal Intelligence next:** deepen discovery once expanded data baselines are stable.
+7. **Civic Alerts & Subscriptions last:** launch engagement after breadth + stability criteria pass.
 
 Use feature flags for:
 - `FEATURE_SEMANTIC_SEARCH`
@@ -328,9 +324,9 @@ Use feature flags for:
 1. Vote/outcome extraction populates meaningful structured fields without hallucinated tallies.
 2. Semantic search improves conceptual recall while preserving lexical fallback.
 3. Trends and lineage views produce reproducible aggregates and coherent item threads.
-4. Signal Intelligence (`C2`) delivers agenda-level issue threads and change-aware signals with bounded false positives.
+4. Signal Intelligence delivers agenda-level issue threads and change-aware signals with bounded false positives.
 5. Inference scaling path no longer depends on in-process singleton assumptions; Celery concurrency can be increased safely when using HTTP inference backend.
-6. Civic Alerts & Subscriptions (`D1`) deliver notifications idempotently and are auditable after activation criteria pass.
+6. Civic Alerts & Subscriptions deliver notifications idempotently and are auditable after activation criteria pass.
 
 ## Explicit Assumptions and Defaults
 
