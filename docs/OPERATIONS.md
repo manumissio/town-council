@@ -4,6 +4,9 @@ Last updated: 2026-03-04
 
 ## Core workflow
 
+Pipeline internals note:
+- For an onboarding-oriented deep dive on batch + async pipeline behavior (including design rationale), see [`docs/PIPELINE.md`](docs/PIPELINE.md).
+
 Path note:
 - Set `REPO_ROOT` once to avoid machine-specific absolute paths in commands:
 ```bash

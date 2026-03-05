@@ -183,6 +183,7 @@ For complete troubleshooting (auth, stale/blocked/not-generated states, startup 
 
 ## Documentation Map
 - Roadmap / milestone status: [`ROADMAP.md`](ROADMAP.md)
+- Pipeline deep-dive (batch + async): [`docs/PIPELINE.md`](docs/PIPELINE.md)
 - Operations runbook: [`docs/OPERATIONS.md`](docs/OPERATIONS.md)
 - Performance metrics + reproducibility: [`docs/PERFORMANCE.md`](docs/PERFORMANCE.md)
 - Adding a new city crawler: [`docs/CONTRIBUTING_CITIES.md`](docs/CONTRIBUTING_CITIES.md)

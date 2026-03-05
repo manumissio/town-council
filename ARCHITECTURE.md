@@ -30,6 +30,7 @@ Operational tuning, rollout state, and troubleshooting are maintained in:
 
 - Product/system entrypoint: [`README.md`](README.md)
 - Stable architecture intent and contracts: this file (`ARCHITECTURE.md`)
+- Pipeline behavior and rationale walkthrough: [`docs/PIPELINE.md`](docs/PIPELINE.md)
 - Policy constraints and defaults: [`AGENTS.md`](AGENTS.md)
 - Operations and run procedures: [`docs/OPERATIONS.md`](docs/OPERATIONS.md)
 - Performance numbers and reproducibility: [`docs/PERFORMANCE.md`](docs/PERFORMANCE.md)
