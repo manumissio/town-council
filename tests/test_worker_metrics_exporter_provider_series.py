@@ -72,3 +72,36 @@ def test_redis_collector_exports_provider_series(monkeypatch):
         "tc_provider_tokens_per_sec_count",
         labels,
     ) == 3.0
+
+
+def test_redis_collector_backend_gauge_reflects_degraded_state(monkeypatch):
+    mod = importlib.import_module("pipeline.metrics")
+
+    monkeypatch.setattr(mod, "_REDIS_INIT", True)
+    monkeypatch.setattr(mod, "_REDIS_BACKEND_UP", 0.0)
+    monkeypatch.setattr(mod, "_REDIS_CLIENT", _FakeRedis())
+
+    collector = mod.RedisProviderMetricsCollector()
+    metrics = {m.name: m for m in collector.collect()}
+    backend = metrics["tc_provider_metrics_backend_up"]
+    value = _sample_value(backend, "tc_provider_metrics_backend_up", {})
+    assert value == 0.0
+
+
+def test_redis_collector_handles_scan_errors_without_raising(monkeypatch):
+    mod = importlib.import_module("pipeline.metrics")
+
+    class _BrokenRedis:
+        def scan_iter(self, match=None):
+            _ = match
+            raise RuntimeError("scan failed")
+
+    monkeypatch.setattr(mod, "_REDIS_INIT", True)
+    monkeypatch.setattr(mod, "_REDIS_BACKEND_UP", 1.0)
+    monkeypatch.setattr(mod, "_REDIS_CLIENT", _BrokenRedis())
+
+    collector = mod.RedisProviderMetricsCollector()
+    metrics = list(collector.collect())
+    names = [m.name for m in metrics]
+    assert "tc_provider_metrics_backend_up" in names
+    assert mod._REDIS_BACKEND_UP == 0.0

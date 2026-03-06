@@ -228,16 +228,41 @@ class RedisProviderMetricsCollector:
     """
 
     def collect(self):
+        global _REDIS_BACKEND_UP
         client = _redis_client()
         backend_metric = Metric(
             "tc_provider_metrics_backend_up",
             "Whether Redis-backed provider telemetry backend is available (1=yes, 0=no).",
             "gauge",
         )
-        backend_metric.add_sample("tc_provider_metrics_backend_up", labels={}, value=float(_REDIS_BACKEND_UP if client is None else 1.0))
+        backend_metric.add_sample("tc_provider_metrics_backend_up", labels={}, value=float(_REDIS_BACKEND_UP))
         yield backend_metric
         if client is None:
             return
+
+        def _safe_scan(match: str):
+            global _REDIS_BACKEND_UP
+            try:
+                return list(client.scan_iter(match=match))
+            except Exception:
+                _REDIS_BACKEND_UP = 0.0
+                return []
+
+        def _safe_get_float(key: str) -> float:
+            global _REDIS_BACKEND_UP
+            try:
+                return float(client.get(key) or 0.0)
+            except Exception:
+                _REDIS_BACKEND_UP = 0.0
+                return 0.0
+
+        def _safe_hgetall(key: str) -> dict:
+            global _REDIS_BACKEND_UP
+            try:
+                return client.hgetall(key) or {}
+            except Exception:
+                _REDIS_BACKEND_UP = 0.0
+                return {}
 
         req_metric = Metric("tc_provider_requests_total", "Total inference provider requests.", "counter")
         timeout_metric = Metric("tc_provider_timeouts_total", "Total inference provider timeouts.", "counter")
@@ -247,65 +272,65 @@ class RedisProviderMetricsCollector:
         ttft_metric = Metric("tc_provider_ttft_ms", "Inference provider time-to-first-token (prompt evaluation) in milliseconds.", "histogram")
         tps_metric = Metric("tc_provider_tokens_per_sec", "Inference provider completion throughput in tokens per second.", "histogram")
 
-        for key in client.scan_iter(match="tc:provider:req_total:*"):
+        for key in _safe_scan("tc:provider:req_total:*"):
             labels_key = key.split("tc:provider:req_total:", 1)[1]
             labels = _split_labels_key(labels_key, 4)
             if not labels:
                 continue
             provider, operation, model, outcome = labels
-            value = float(client.get(key) or 0.0)
+            value = _safe_get_float(key)
             req_metric.add_sample(
                 "tc_provider_requests_total",
                 labels={"provider": provider, "operation": operation, "model": model, "outcome": outcome},
                 value=value,
             )
 
-        for key in client.scan_iter(match="tc:provider:timeouts_total:*"):
+        for key in _safe_scan("tc:provider:timeouts_total:*"):
             labels_key = key.split("tc:provider:timeouts_total:", 1)[1]
             labels = _split_labels_key(labels_key, 3)
             if not labels:
                 continue
             provider, operation, model = labels
-            value = float(client.get(key) or 0.0)
+            value = _safe_get_float(key)
             timeout_metric.add_sample(
                 "tc_provider_timeouts_total",
                 labels={"provider": provider, "operation": operation, "model": model},
                 value=value,
             )
 
-        for key in client.scan_iter(match="tc:provider:retries_total:*"):
+        for key in _safe_scan("tc:provider:retries_total:*"):
             labels_key = key.split("tc:provider:retries_total:", 1)[1]
             labels = _split_labels_key(labels_key, 3)
             if not labels:
                 continue
             provider, operation, model = labels
-            value = float(client.get(key) or 0.0)
+            value = _safe_get_float(key)
             retry_metric.add_sample(
                 "tc_provider_retries_total",
                 labels={"provider": provider, "operation": operation, "model": model},
                 value=value,
             )
 
-        for key in client.scan_iter(match="tc:provider:prompt_tokens_total:*"):
+        for key in _safe_scan("tc:provider:prompt_tokens_total:*"):
             labels_key = key.split("tc:provider:prompt_tokens_total:", 1)[1]
             labels = _split_labels_key(labels_key, 4)
             if not labels:
                 continue
             provider, operation, model, outcome = labels
-            value = float(client.get(key) or 0.0)
+            value = _safe_get_float(key)
             prompt_metric.add_sample(
                 "tc_provider_prompt_tokens_total",
                 labels={"provider": provider, "operation": operation, "model": model, "outcome": outcome},
                 value=value,
             )
 
-        for key in client.scan_iter(match="tc:provider:completion_tokens_total:*"):
+        for key in _safe_scan("tc:provider:completion_tokens_total:*"):
             labels_key = key.split("tc:provider:completion_tokens_total:", 1)[1]
             labels = _split_labels_key(labels_key, 4)
             if not labels:
                 continue
             provider, operation, model, outcome = labels
-            value = float(client.get(key) or 0.0)
+            value = _safe_get_float(key)
             completion_metric.add_sample(
                 "tc_provider_completion_tokens_total",
                 labels={"provider": provider, "operation": operation, "model": model, "outcome": outcome},
@@ -316,14 +341,19 @@ class RedisProviderMetricsCollector:
             ("tc:provider:ttft_ms", ttft_metric, TTFT_BUCKETS),
             ("tc:provider:tps", tps_metric, TPS_BUCKETS),
         ):
-            for bucket_key in client.scan_iter(match=f"{prefix}:bucket:*"):
+            for bucket_key in _safe_scan(f"{prefix}:bucket:*"):
                 labels_key = bucket_key.split(f"{prefix}:bucket:", 1)[1]
                 labels = _split_labels_key(labels_key, 4)
                 if not labels:
                     continue
                 provider, operation, model, outcome = labels
-                hash_values = client.hgetall(bucket_key) or {}
-                per_bucket = {str(k): float(v) for k, v in hash_values.items()}
+                hash_values = _safe_hgetall(bucket_key)
+                per_bucket = {}
+                for k, v in hash_values.items():
+                    try:
+                        per_bucket[str(k)] = float(v)
+                    except Exception:
+                        _REDIS_BACKEND_UP = 0.0
                 cumulative = 0.0
                 for upper in buckets:
                     le = "+Inf" if math.isinf(upper) else str(float(upper))
@@ -339,16 +369,26 @@ class RedisProviderMetricsCollector:
                         },
                         value=cumulative,
                     )
-                meta = client.hgetall(f"{prefix}:meta:{labels_key}") or {}
+                meta = _safe_hgetall(f"{prefix}:meta:{labels_key}")
+                try:
+                    count_value = float(meta.get("count", 0.0))
+                except Exception:
+                    _REDIS_BACKEND_UP = 0.0
+                    count_value = 0.0
+                try:
+                    sum_value = float(meta.get("sum", 0.0))
+                except Exception:
+                    _REDIS_BACKEND_UP = 0.0
+                    sum_value = 0.0
                 metric.add_sample(
                     f"{metric.name}_count",
                     labels={"provider": provider, "operation": operation, "model": model, "outcome": outcome},
-                    value=float(meta.get("count", 0.0)),
+                    value=count_value,
                 )
                 metric.add_sample(
                     f"{metric.name}_sum",
                     labels={"provider": provider, "operation": operation, "model": model, "outcome": outcome},
-                    value=float(meta.get("sum", 0.0)),
+                    value=sum_value,
                 )
 
         yield req_metric
