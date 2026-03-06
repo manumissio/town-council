@@ -1,6 +1,6 @@
 # Operations Runbook
 
-Last updated: 2026-03-07
+Last updated: 2026-03-06
 
 ## Core workflow
 
@@ -442,6 +442,23 @@ City onboarding helper:
 ```bash
 DRY_RUN=1 ./scripts/onboard_city_wave.sh wave1
 ```
+
+Wave 1 targeted slice (Hayward + San Mateo):
+```bash
+RUN_ID="city_wave1_hayward_sanmateo_$(date +%Y%m%d_%H%M%S)"
+DRY_RUN=1 ./scripts/onboard_city_wave.sh wave1 --cities hayward,san_mateo --runs 3 --run-id "$RUN_ID" --output-dir experiments/results/city_onboarding
+DRY_RUN=0 ./scripts/onboard_city_wave.sh wave1 --cities hayward,san_mateo --runs 3 --run-id "$RUN_ID" --output-dir experiments/results/city_onboarding
+docker compose run --rm -w /app -e STARTUP_PURGE_DERIVED=false pipeline python scripts/evaluate_city_onboarding.py --run-id "$RUN_ID" --cities hayward,san_mateo --output-dir experiments/results/city_onboarding
+```
+
+Artifacts:
+- `experiments/results/city_onboarding/<run_id>/runs.jsonl`
+- `experiments/results/city_onboarding/<run_id>/city_gate_eval.json`
+- `experiments/results/city_onboarding/<run_id>/city_gate_eval.md`
+
+Notes:
+- `scripts/onboard_city_wave.sh` runs pipeline with `STARTUP_PURGE_DERIVED=false` to avoid wiping derived state between onboarding attempts.
+- Keep `enabled=no` for a city until `city_gate_eval.json` shows `quality_gate=pass`.
 
 ### Host profiles (recommended)
 
