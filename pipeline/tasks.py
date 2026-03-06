@@ -203,22 +203,27 @@ def _run_startup_purge_on_worker_ready(sender=None, **kwargs):
         concurrency = getattr(sender, "concurrency", None)
         if concurrency is None and sender is not None:
             concurrency = getattr(getattr(sender, "app", None), "conf", {}).get("worker_concurrency")  # type: ignore[attr-defined]
+        try:
+            if concurrency is not None:
+                concurrency = int(concurrency)
+        except Exception:
+            concurrency = None
         pool = _get_celery_pool_from_argv(getattr(sender, "argv", None) or sys.argv)  # type: ignore[arg-type]
 
         if backend == "inprocess" and not LOCAL_AI_ALLOW_MULTIPROCESS:
             # Default stance: LocalAI runs in-process via llama.cpp, which loads the model
             # into the current process's RAM. Multiprocess pools will duplicate the model.
-            if LOCAL_AI_REQUIRE_SOLO_POOL and pool and pool != "solo":
+            if LOCAL_AI_REQUIRE_SOLO_POOL and pool != "solo":
                 logger.critical(
                     "Unsafe worker pool for LocalAI: pool=%s. "
-                    "Run Celery with --pool=solo (and typically --concurrency=1), or use an inference server backend.",
+                    "Run Celery with --pool=solo --concurrency=1, or set LOCAL_AI_BACKEND=http for a dedicated inference service.",
                     pool,
                 )
                 raise SystemExit(1)
-            if isinstance(concurrency, int) and concurrency > 1 and (pool is None or pool != "solo"):
+            if isinstance(concurrency, int) and concurrency > 1:
                 logger.critical(
                     "Unsafe worker concurrency for LocalAI: concurrency=%s pool=%s. "
-                    "Run Celery with --concurrency=1 --pool=solo, or use an inference server backend.",
+                    "Run Celery with --concurrency=1 --pool=solo, or set LOCAL_AI_BACKEND=http for a dedicated inference service.",
                     concurrency,
                     pool,
                 )
