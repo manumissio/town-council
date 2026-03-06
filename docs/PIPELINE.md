@@ -146,6 +146,11 @@ Why this exists:
 - `ProviderUnavailableError`
 - `ProviderResponseError`
 
+Provider mapping semantics:
+- `ProviderTimeoutError` / `ProviderUnavailableError`: retryable transport path.
+- `ProviderResponseError`: deterministic response-contract failure path (no transport retry loop).
+- HTTP payload/contract failures (for example malformed JSON, missing/empty response field, HTTP 4xx) are treated as `ProviderResponseError`.
+
 Why this exists:
 - Task orchestration must distinguish retryable transport failures from deterministic response failures.
 
@@ -184,6 +189,7 @@ Why this exists:
 - API metrics endpoint (`/metrics`)
 - Worker metrics exporter
 - Provider telemetry series (`tc_provider_*`)
+- Provider telemetry backend health gauge (`tc_provider_metrics_backend_up`)
 - Task-level duration/failure/retry signals
 
 ### Soak integration points

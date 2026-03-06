@@ -26,3 +26,26 @@ def test_metrics_endpoint_exposes_prometheus_payload():
     assert "tc_http_request_duration_seconds" in body
     assert "tc_http_requests_in_flight" in body
 
+
+def test_metrics_endpoint_survives_partial_redis_provider_metric_failures(monkeypatch):
+    """
+    Regression: provider-metrics collector errors should degrade confidence, not break /metrics.
+    """
+    from api.main import app
+    import pipeline.metrics as worker_metrics
+
+    class _BrokenRedis:
+        def scan_iter(self, match=None):
+            _ = match
+            raise RuntimeError("scan failure")
+
+    monkeypatch.setattr(worker_metrics, "_REDIS_INIT", True)
+    monkeypatch.setattr(worker_metrics, "_REDIS_BACKEND_UP", 1.0)
+    monkeypatch.setattr(worker_metrics, "_REDIS_CLIENT", _BrokenRedis())
+
+    client = TestClient(app)
+    resp = client.get("/metrics")
+    assert resp.status_code == 200
+    body = resp.text
+    assert "tc_http_requests_total" in body
+    # API metrics endpoint should remain available even if worker-provider Redis reads degrade.

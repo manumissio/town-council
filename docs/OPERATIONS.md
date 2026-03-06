@@ -1,6 +1,6 @@
 # Operations Runbook
 
-Last updated: 2026-03-04
+Last updated: 2026-03-06
 
 ## Core workflow
 
@@ -132,7 +132,11 @@ Provider error policy:
 - Provider transport code raises typed errors (`ProviderTimeoutError`, `ProviderUnavailableError`, `ProviderResponseError`).
 - Orchestrator mapping:
   - timeout/unavailable => retry path
-  - response error => deterministic fallback path
+  - response error => deterministic fallback path (no transport retry loop)
+- HTTP provider classification:
+  - timeout => `ProviderTimeoutError` (retryable)
+  - transport/unreachable/5xx => `ProviderUnavailableError` (retryable)
+  - malformed JSON/payload shape errors/empty response/HTTP 4xx => `ProviderResponseError` (deterministic, non-retryable)
 
 Provider token/latency telemetry (HTTP backend):
 - Additional best-effort fields are emitted when backend stats are available:
@@ -420,6 +424,14 @@ docker compose exec -T inference ollama pull "${LOCAL_AI_HTTP_MODEL:-gemma-3-270
 4. If parity or SLOs regress, rollback immediately:
 ```bash
 LOCAL_AI_BACKEND=inprocess WORKER_CONCURRENCY=1 WORKER_POOL=solo docker compose up -d --build worker api pipeline
+```
+5. If the recent inference hardening commits cause regressions, rollback code explicitly:
+```bash
+git revert 85e2c66 d463e18 5ae10e2
+```
+6. If only telemetry collector hardening regresses scrape behavior:
+```bash
+git revert 85e2c66
 ```
 
 City onboarding helper:
