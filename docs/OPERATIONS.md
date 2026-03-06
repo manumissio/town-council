@@ -1,6 +1,6 @@
 # Operations Runbook
 
-Last updated: 2026-03-06
+Last updated: 2026-03-07
 
 ## Core workflow
 
@@ -225,6 +225,10 @@ Scripts:
     - `experiments/results/soak/<run_id>/worker_metrics.prom`
   - scrapes worker metrics by executing Python inside the worker container
     (does not depend on `curl`/`wget` being installed in the image)
+  - uses two scrape strategies with bounded retries:
+    - strategy A: HTTP probe to `http://localhost:8001/metrics` in the worker container
+    - strategy B: fallback to collector-based registry exposition in the worker container (`RedisProviderMetricsCollector`)
+  - marks `worker_scrape_failed` only when both strategies fail across retry attempts
   - annotates provider telemetry availability:
     - `provider_metrics_present`
     - `provider_metrics_reason` (`ok`, `worker_scrape_failed`, `no_provider_series`)

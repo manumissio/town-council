@@ -28,9 +28,12 @@ def test_fetch_worker_metrics_returns_error_string_on_failure(monkeypatch):
         raise subprocess.CalledProcessError(1, "docker compose exec")
 
     monkeypatch.setattr(subprocess, "check_output", _boom)
+    monkeypatch.setattr(mod.time, "sleep", lambda *_args, **_kwargs: None)
     raw, err = mod._fetch_worker_metrics_via_docker()
     assert raw == ""
     assert err is not None
+    assert "worker_http" in err
+    assert "worker_registry" in err
 
 
 def test_fetch_worker_metrics_uses_python_probe(monkeypatch):
@@ -45,6 +48,22 @@ def test_fetch_worker_metrics_uses_python_probe(monkeypatch):
     assert raw == "metric 1\n"
     assert err is None
     assert captured["cmd"][:6] == ["docker", "compose", "exec", "-T", "worker", "python"]
+
+
+def test_fetch_worker_metrics_retries_before_failure(monkeypatch):
+    calls = {"n": 0}
+
+    def _boom(*_args, **_kwargs):
+        calls["n"] += 1
+        raise subprocess.CalledProcessError(1, "docker compose exec")
+
+    monkeypatch.setattr(subprocess, "check_output", _boom)
+    monkeypatch.setattr(mod.time, "sleep", lambda *_args, **_kwargs: None)
+    raw, err = mod._fetch_worker_metrics_via_docker()
+    assert raw == ""
+    assert err is not None
+    # 2 strategies x 2 attempts each.
+    assert calls["n"] == 4
 
 
 def test_provider_metrics_state_prefers_scrape_failure():

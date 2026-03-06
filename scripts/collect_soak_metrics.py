@@ -12,6 +12,8 @@ from urllib import request
 
 
 PROM_LINE = re.compile(r'^(?P<name>[a-zA-Z_:][a-zA-Z0-9_:]*)(?:\{(?P<labels>[^}]*)\})?\s+(?P<value>-?[0-9]+(?:\.[0-9]+)?)$')
+WORKER_METRICS_SCRAPE_ATTEMPTS = 2
+WORKER_METRICS_BACKOFF_SECONDS = 0.5
 
 
 def _fetch_text(url: str, timeout: int = 10) -> str:
@@ -19,7 +21,7 @@ def _fetch_text(url: str, timeout: int = 10) -> str:
         return resp.read().decode("utf-8", errors="replace")
 
 
-def _fetch_worker_metrics_via_docker() -> tuple[str, str | None]:
+def _docker_exec_python(script: str) -> str:
     cmd = [
         "docker",
         "compose",
@@ -28,17 +30,61 @@ def _fetch_worker_metrics_via_docker() -> tuple[str, str | None]:
         "worker",
         "python",
         "-c",
+        script,
+    ]
+    return subprocess.check_output(cmd, text=True, stderr=subprocess.STDOUT, timeout=30)
+
+
+def _fetch_worker_metrics_via_docker() -> tuple[str, str | None]:
+    # Strategy order is intentional: prefer the worker metrics HTTP endpoint first,
+    # then fall back to direct process-registry exposition when the endpoint is unavailable.
+    strategies = [
         (
-            "import urllib.request; "
-            "print(urllib.request.urlopen('http://localhost:8001/metrics', timeout=10)"
-            ".read().decode('utf-8', errors='replace'))"
+            "worker_http",
+            (
+                "import urllib.request; "
+                "print(urllib.request.urlopen('http://localhost:8001/metrics', timeout=10)"
+                ".read().decode('utf-8', errors='replace'))"
+            ),
+        ),
+        (
+            "worker_registry",
+            (
+                "from prometheus_client import CollectorRegistry, generate_latest; "
+                "from pipeline.metrics import RedisProviderMetricsCollector; "
+                "registry = CollectorRegistry(); "
+                "registry.register(RedisProviderMetricsCollector()); "
+                "print(generate_latest(registry).decode('utf-8', errors='replace'))"
+            ),
         ),
     ]
+    errors: list[str] = []
+    for strategy_name, script in strategies:
+        for attempt in range(1, WORKER_METRICS_SCRAPE_ATTEMPTS + 1):
+            try:
+                raw = _docker_exec_python(script)
+                if raw.strip():
+                    # HTTP scrape can return generic process metrics without provider
+                    # series; in that case continue to the collector fallback path.
+                    if strategy_name == "worker_http":
+                        provider_sample_present = any(
+                            line.startswith("tc_provider_") and not line.startswith("#")
+                            for line in raw.splitlines()
+                        )
+                        if not provider_sample_present:
+                            errors.append(f"{strategy_name}[attempt={attempt}] missing_provider_series")
+                            continue
+                    return raw, None
+                errors.append(f"{strategy_name}[attempt={attempt}] empty_output")
+            except Exception as exc:
+                errors.append(f"{strategy_name}[attempt={attempt}] {exc}")
+            if attempt < WORKER_METRICS_SCRAPE_ATTEMPTS:
+                time.sleep(WORKER_METRICS_BACKOFF_SECONDS)
     try:
-        raw = subprocess.check_output(cmd, text=True, stderr=subprocess.STDOUT, timeout=30)
-        return raw, None
-    except Exception as exc:
-        return "", str(exc)
+        joined = "; ".join(errors).strip()
+        return "", joined or "worker metrics scrape failed"
+    except Exception:
+        return "", "worker metrics scrape failed"
 
 
 def _parse_labels(text: str | None) -> dict[str, str]:

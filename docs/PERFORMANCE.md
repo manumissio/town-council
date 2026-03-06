@@ -1,6 +1,6 @@
 # Performance
 
-Last updated: 2026-03-04
+Last updated: 2026-03-07
 
 This page lists current empirical measurements for local Docker runs.
 For operational troubleshooting and sorting diagnostics, use `docs/OPERATIONS.md`.
@@ -126,6 +126,7 @@ Current queue signal:
 Soak confidence signals:
 - `worker_metrics_error` is recorded when worker metrics cannot be scraped.
 - `provider_metrics_present` and `provider_metrics_reason` classify whether provider series were observed (`ok`, `worker_scrape_failed`, `no_provider_series`).
+- `worker_scrape_failed` means both worker scrape strategies failed (HTTP endpoint probe and process-registry fallback) after bounded retries.
 - Missing worker metrics do not crash collection, but reduce confidence for TTFT/TPS trend interpretation.
 - Weekly evaluator emits `telemetry_confidence` and `degraded_telemetry_days` to make this explicit.
 - Weekly evaluator now reports per-gate status as `PASS|FAIL|INCONCLUSIVE` with machine-readable `gate_reasons`.
