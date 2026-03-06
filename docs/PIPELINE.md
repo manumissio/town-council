@@ -1,6 +1,6 @@
 # Town Council Pipeline Guide
 
-Last updated: 2026-03-05
+Last updated: 2026-03-06
 
 ## 1) Purpose and Boundaries
 
@@ -94,7 +94,48 @@ In soak/task orchestration contexts, not all failures are weighted equally (for 
 Why this exists:
 - Keeps baseline reliability judgments tied to user-visible generation stages.
 
-## 5) Inference Layer and Policy
+## 5) OCR Extraction Path
+
+### OCR decision flow (`pipeline/extractor.py`)
+1. First pass always uses Tika with `X-Tika-PDFOcrStrategy: no_ocr` (fast, digital text layer only).
+2. If extracted text is present and has at least the minimum threshold, return it.
+3. If text is empty/too short and OCR fallback is enabled, retry with `X-Tika-PDFOcrStrategy: ocr_only` (slower, CPU-heavy).
+4. Apply text post-processing and persist cleaned text.
+5. Ensure extracted text contains `[PAGE N]` markers for deep-linking and downstream page-aware logic.
+
+Why this exists:
+- Most civic PDFs already contain selectable text; always-on OCR wastes time and CPU.
+- OCR fallback recovers scanned/image-heavy packets when digital text is missing or weak.
+
+### Where OCR is triggered
+
+| Path | Trigger | OCR behavior | Cache/force behavior |
+|---|---|---|---|
+| Batch pipeline (`pipeline/run_pipeline.py` -> extraction paths) | Batch processing records that need extraction | Uses config defaults through extractor (`TIKA_OCR_FALLBACK_ENABLED`) | No API force flag; behavior follows pipeline extraction conditions |
+| Async API (`POST /extract/{catalog_id}` in `api/main.py`) | User-triggered re-extraction, optional `ocr_fallback=true` | Passes `ocr_fallback` query flag into task | API short-circuits to `cached` when `force=false` and content length is already substantial |
+| Async task (`extract_text_task` in `pipeline/tasks.py`) | Celery worker execution for one catalog | Calls `reextract_catalog_content(..., ocr_fallback=...)`, which passes per-call OCR setting into extractor | Returns `cached` unless `force=true` when existing text meets minimum chars; updates content/hash only on successful extraction |
+
+### OCR/Tika config defaults (`pipeline/config.py`)
+
+| Variable | Default | Meaning |
+|---|---|---|
+| `TIKA_OCR_FALLBACK_ENABLED` | `false` | Enables second-pass OCR when first-pass text is empty/too short |
+| `TIKA_MIN_EXTRACTED_CHARS_FOR_NO_OCR` | `800` | Minimum chars for first-pass text to be considered good enough |
+| `TIKA_TIMEOUT_SECONDS` | `60` | Request timeout for a single Tika extraction call |
+| `TIKA_RETRY_BACKOFF_MULTIPLIER` | `2` | Backoff multiplier across up to 3 extractor attempts |
+| `TIKA_PDF_SPACING_TOLERANCE` | unset | Optional PDFBox spacing tuning header (off by default) |
+| `TIKA_PDF_AVG_CHAR_TOLERANCE` | unset | Optional PDFBox average-char tuning header (off by default) |
+
+### OCR failure and triage notes
+- Fail-fast cases (no retry path): catalog missing, missing/placeholder location, unsafe path, or missing file on disk.
+- Retryable extraction failure in async task flow: `"Extraction returned empty text"` is treated as transient and retried by Celery (`max_retries=3`).
+- Extractor-level retry behavior: each Tika strategy call retries up to 3 attempts with backoff.
+- Operational re-extraction entrypoint: see `docs/OPERATIONS.md` (`POST /extract/{catalog_id}?force=true&ocr_fallback=true`).
+
+Why this exists:
+- Makes OCR behavior explicit for debugging slow extraction, empty-text errors, and scan-heavy document recovery.
+
+## 6) Inference Layer and Policy
 
 ### Core modules
 - `pipeline/llm.py`: orchestration policy (prompting, grounding/fallback orchestration)
@@ -116,7 +157,7 @@ Why this exists:
 Why this exists:
 - Preserves reproducibility and avoids hidden mode shifts during baseline operations.
 
-## 6) Data Contracts and Freshness
+## 7) Data Contracts and Freshness
 
 ### Freshness keys and state contracts
 - `catalog.content_hash`: hash of extracted text version.
@@ -137,7 +178,7 @@ Agenda summaries are derived from segmented agenda items, not arbitrary raw text
 Why this exists:
 - Prevents drift between Structured Agenda and AI Summary.
 
-## 7) Observability and Soak Linkage
+## 8) Observability and Soak Linkage
 
 ### Pipeline observability surfaces
 - API metrics endpoint (`/metrics`)
@@ -153,7 +194,7 @@ Why this exists:
 ### Why confidence and inconclusive semantics exist
 Telemetry can be missing/degraded even when some tasks complete; promotion decisions need explicit confidence semantics (`PASS`/`FAIL`/`INCONCLUSIVE`) rather than collapsing missing evidence into ambiguous outcomes.
 
-## 8) Failure Mode Matrix
+## 9) Failure Mode Matrix
 
 | Signature | Likely Root Cause | First Places to Check | Why Check Order Works |
 |---|---|---|---|
@@ -166,7 +207,7 @@ Telemetry can be missing/degraded even when some tasks complete; promotion decis
 Why this exists:
 - Ordered triage reduces mean-time-to-isolation by checking contract boundaries first.
 
-## 9) How to Extend the Pipeline Safely
+## 10) How to Extend the Pipeline Safely
 
 ### Checklist for a new async generation stage
 1. Add protected API route in `api/main.py`.
@@ -180,7 +221,7 @@ Why this exists:
 ### Why this exists
 Most regressions come from partial stage additions (route without durable write semantics, or task without observability/tests).
 
-## 10) Source-of-Truth File Map
+## 11) Source-of-Truth File Map
 
 Use these files as primary references:
 - Batch orchestration: `pipeline/run_pipeline.py`
@@ -192,7 +233,7 @@ Use these files as primary references:
 - Metrics: `pipeline/metrics.py`
 - Runbook and troubleshooting: `docs/OPERATIONS.md`
 
-## 11) Related Docs
+## 12) Related Docs
 
 - Architecture contracts: `ARCHITECTURE.md`
 - Operations runbook: `docs/OPERATIONS.md`
