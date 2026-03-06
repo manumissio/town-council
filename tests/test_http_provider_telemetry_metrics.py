@@ -1,6 +1,7 @@
+import pytest
 import requests
 
-from pipeline.llm_provider import HttpInferenceProvider, ProviderTimeoutError
+from pipeline.llm_provider import HttpInferenceProvider, ProviderResponseError, ProviderTimeoutError
 
 
 def test_http_provider_timeout_emits_retry_and_timeout(monkeypatch):
@@ -74,3 +75,46 @@ def test_http_provider_missing_stats_skips_token_metrics(monkeypatch):
     assert events["ttft"] == 0
     assert events["tps"] == 0
     assert events["tokens"] == 0
+
+
+def test_http_provider_empty_response_payload_is_response_error_without_retry(monkeypatch):
+    events = {"retry": 0, "request": 0}
+
+    monkeypatch.setattr("pipeline.llm_provider.record_provider_retry", lambda *args, **kwargs: events.__setitem__("retry", events["retry"] + 1))
+    monkeypatch.setattr("pipeline.llm_provider.record_provider_request", lambda *args, **kwargs: events.__setitem__("request", events["request"] + 1))
+
+    monkeypatch.setattr(
+        requests,
+        "post",
+        lambda *args, **kwargs: _FakeResponse({"response": "   "}),
+    )
+
+    provider = HttpInferenceProvider()
+    provider.max_retries = 3
+    with pytest.raises(ProviderResponseError):
+        provider.summarize_text("hello", temperature=0.1, max_tokens=16)
+
+    # Deterministic response-shape failure should not trigger transport retries.
+    assert events["retry"] == 0
+    assert events["request"] == 1
+
+
+def test_http_provider_invalid_json_is_response_error_without_retry(monkeypatch):
+    events = {"retry": 0}
+
+    class _BadJsonResponse:
+        def raise_for_status(self):
+            return None
+
+        def json(self):
+            raise ValueError("bad json")
+
+    monkeypatch.setattr("pipeline.llm_provider.record_provider_retry", lambda *args, **kwargs: events.__setitem__("retry", events["retry"] + 1))
+    monkeypatch.setattr(requests, "post", lambda *args, **kwargs: _BadJsonResponse())
+
+    provider = HttpInferenceProvider()
+    provider.max_retries = 2
+    with pytest.raises(ProviderResponseError):
+        provider.summarize_text("hello", temperature=0.1, max_tokens=16)
+
+    assert events["retry"] == 0

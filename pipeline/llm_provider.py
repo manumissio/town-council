@@ -245,7 +245,14 @@ class HttpInferenceProvider:
             try:
                 response = requests.post(url, json=payload, timeout=timeout_seconds)
                 response.raise_for_status()
-                data = response.json()
+                try:
+                    data = response.json()
+                except ValueError as exc:
+                    outcome = "response_error"
+                    raise ProviderResponseError(f"Invalid JSON response payload: {exc}") from exc
+                if not isinstance(data, dict):
+                    outcome = "response_error"
+                    raise ProviderResponseError("Invalid response payload type")
                 prompt_eval_count = data.get("prompt_eval_count")
                 eval_count = data.get("eval_count")
                 prompt_eval_duration_ns = data.get("prompt_eval_duration")
@@ -270,11 +277,29 @@ class HttpInferenceProvider:
                 elif isinstance(total_duration_ns, (int, float)) and total_duration_ns > 0:
                     eval_duration_ms = float(total_duration_ns) / 1_000_000.0
 
-                text = (data.get("response") or "").strip()
-                if text is None:
+                raw_response = data.get("response")
+                if raw_response is None:
+                    outcome = "response_error"
+                    raise ProviderResponseError("Missing response field in payload")
+                if not isinstance(raw_response, str):
+                    outcome = "response_error"
+                    raise ProviderResponseError("Invalid response field type in payload")
+                text = raw_response.strip()
+                if not text:
                     outcome = "response_error"
                     raise ProviderResponseError("Empty response payload")
                 return text
+            except requests.exceptions.HTTPError as exc:
+                status_code = getattr(getattr(exc, "response", None), "status_code", None)
+                # 4xx means our request/contract is invalid, not a retryable transport fault.
+                if isinstance(status_code, int) and 400 <= status_code < 500:
+                    outcome = "response_error"
+                    last_error = ProviderResponseError(f"HTTP inference client error: status={status_code}")
+                    break
+                outcome = "unavailable"
+                last_error = exc
+                if attempt < self.max_retries:
+                    record_provider_retry(self.name, operation, self.model_name)
             except requests.exceptions.Timeout as exc:
                 outcome = "timeout"
                 last_error = exc
@@ -289,6 +314,7 @@ class HttpInferenceProvider:
             except ProviderError as exc:
                 outcome = "response_error"
                 last_error = exc
+                break
             except Exception as exc:
                 outcome = "error"
                 last_error = exc
@@ -326,6 +352,8 @@ class HttpInferenceProvider:
                     )
 
         if isinstance(last_error, ProviderResponseError):
+            raise last_error
+        if isinstance(last_error, ProviderUnavailableError):
             raise last_error
         if isinstance(last_error, requests.exceptions.Timeout):
             raise ProviderTimeoutError(f"HTTP inference timed out: {last_error}") from last_error
