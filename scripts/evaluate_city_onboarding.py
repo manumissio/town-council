@@ -25,6 +25,7 @@ class CityMetrics:
     crawl_success_count: int
     search_success_count: int
     catalog_total: int
+    agenda_catalog_total: int
     extraction_non_empty_count: int
     segmentation_complete_empty_count: int
     segmentation_failed_count: int
@@ -54,6 +55,17 @@ def _load_city_metadata_slugs() -> set[str]:
     return slugs
 
 
+def _source_aliases_for_city(city: str) -> set[str]:
+    aliases = {city}
+    legacy_aliases = {
+        "san_mateo": {"san mateo"},
+        "san_leandro": {"san leandro"},
+        "mtn_view": {"mountain view"},
+    }
+    aliases.update(legacy_aliases.get(city, set()))
+    return aliases
+
+
 def _load_runs(path: Path) -> list[dict[str, Any]]:
     runs: list[dict[str, Any]] = []
     if not path.exists():
@@ -73,6 +85,7 @@ def _collect_city_metrics(db_session, city: str, city_runs: list[dict[str, Any]]
     windows = []
     for run in city_runs:
         windows.append((run["started_dt"].replace(tzinfo=None), run["finished_dt"].replace(tzinfo=None)))
+    source_aliases = sorted(_source_aliases_for_city(city))
 
     crawl_success_count = sum(1 for run in city_runs if run.get("crawler_status") == "success")
     search_success_count = sum(1 for run in city_runs if run.get("search_status") == "success")
@@ -83,6 +96,7 @@ def _collect_city_metrics(db_session, city: str, city_runs: list[dict[str, Any]]
             crawl_success_count=0,
             search_success_count=0,
             catalog_total=0,
+            agenda_catalog_total=0,
             extraction_non_empty_count=0,
             segmentation_complete_empty_count=0,
             segmentation_failed_count=0,
@@ -96,7 +110,7 @@ def _collect_city_metrics(db_session, city: str, city_runs: list[dict[str, Any]]
     event_ids = [
         row[0]
         for row in db_session.query(Event.id)
-        .filter(Event.source == city)
+        .filter(Event.source.in_(source_aliases))
         .filter(or_(*window_filters))
         .all()
     ]
@@ -107,7 +121,7 @@ def _collect_city_metrics(db_session, city: str, city_runs: list[dict[str, Any]]
         event_ids = [
             row[0]
             for row in db_session.query(Event.id)
-            .filter(Event.source == city)
+            .filter(Event.source.in_(source_aliases))
             .all()
         ]
 
@@ -117,36 +131,41 @@ def _collect_city_metrics(db_session, city: str, city_runs: list[dict[str, Any]]
             crawl_success_count=crawl_success_count,
             search_success_count=search_success_count,
             catalog_total=0,
+            agenda_catalog_total=0,
             extraction_non_empty_count=0,
             segmentation_complete_empty_count=0,
             segmentation_failed_count=0,
         )
 
     catalog_rows = (
-        db_session.query(Catalog.content, Catalog.agenda_segmentation_status)
+        db_session.query(Document.category, Catalog.content, Catalog.agenda_segmentation_status)
         .join(Document, Document.catalog_id == Catalog.id)
         .filter(Document.event_id.in_(event_ids))
         .all()
     )
 
     catalog_total = len(catalog_rows)
+    agenda_catalog_total = sum(1 for category, _content, _status in catalog_rows if category == "agenda")
     extraction_non_empty_count = sum(
         1
-        for content, _status in catalog_rows
+        for _category, content, _status in catalog_rows
         if content is not None and str(content).strip() != ""
     )
     segmentation_complete_empty_count = sum(
         1
-        for _content, status in catalog_rows
-        if status in {"complete", "empty"}
+        for category, _content, status in catalog_rows
+        if category == "agenda" and status in {"complete", "empty"}
     )
-    segmentation_failed_count = sum(1 for _content, status in catalog_rows if status == "failed")
+    segmentation_failed_count = sum(
+        1 for category, _content, status in catalog_rows if category == "agenda" and status == "failed"
+    )
 
     return CityMetrics(
         run_count=len(city_runs),
         crawl_success_count=crawl_success_count,
         search_success_count=search_success_count,
         catalog_total=catalog_total,
+        agenda_catalog_total=agenda_catalog_total,
         extraction_non_empty_count=extraction_non_empty_count,
         segmentation_complete_empty_count=segmentation_complete_empty_count,
         segmentation_failed_count=segmentation_failed_count,
@@ -156,10 +175,10 @@ def _collect_city_metrics(db_session, city: str, city_runs: list[dict[str, Any]]
 def _evaluate_city(city: str, metrics: CityMetrics) -> dict[str, Any]:
     crawl_success_rate = _safe_rate(metrics.crawl_success_count, metrics.run_count)
     extraction_non_empty_rate = _safe_rate(metrics.extraction_non_empty_count, metrics.catalog_total)
-    segmentation_complete_empty_rate = _safe_rate(metrics.segmentation_complete_empty_count, metrics.catalog_total)
-    segmentation_failed_rate = _safe_rate(metrics.segmentation_failed_count, metrics.catalog_total)
+    segmentation_complete_empty_rate = _safe_rate(metrics.segmentation_complete_empty_count, metrics.agenda_catalog_total)
+    segmentation_failed_rate = _safe_rate(metrics.segmentation_failed_count, metrics.agenda_catalog_total)
 
-    insufficient_data = metrics.run_count <= 0 or metrics.catalog_total <= 0
+    insufficient_data = metrics.run_count <= 0 or metrics.catalog_total <= 0 or metrics.agenda_catalog_total <= 0
 
     gates = {
         "crawl_success_rate_gte_95pct": bool(crawl_success_rate is not None and crawl_success_rate >= 0.95),
@@ -184,6 +203,7 @@ def _evaluate_city(city: str, metrics: CityMetrics) -> dict[str, Any]:
         "crawl_success_count": metrics.crawl_success_count,
         "search_success_count": metrics.search_success_count,
         "catalog_total": metrics.catalog_total,
+        "agenda_catalog_total": metrics.agenda_catalog_total,
         "extraction_non_empty_count": metrics.extraction_non_empty_count,
         "segmentation_complete_empty_count": metrics.segmentation_complete_empty_count,
         "segmentation_failed_count": metrics.segmentation_failed_count,

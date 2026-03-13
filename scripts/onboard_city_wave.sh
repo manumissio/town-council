@@ -162,17 +162,18 @@ write_result() {
   local finished_at="$4"
   local crawler_status="$5"
   local pipeline_status="$6"
-  local search_status="$7"
-  local error_message="$8"
+  local segmentation_status="$7"
+  local search_status="$8"
+  local error_message="$9"
   local overall_status
 
-  if [[ "$crawler_status" == "success" && "$pipeline_status" == "success" && "$search_status" == "success" ]]; then
+  if [[ "$crawler_status" == "success" && "$pipeline_status" == "success" && "$segmentation_status" == "success" && "$search_status" == "success" ]]; then
     overall_status="success"
   else
     overall_status="failed"
   fi
 
-  "$PYTHON_BIN" - "$RESULTS_JSONL" "$city" "$run_index" "$started_at" "$finished_at" "$crawler_status" "$pipeline_status" "$search_status" "$overall_status" "$error_message" "$WAVE" "$RUN_ID" <<'PY'
+  "$PYTHON_BIN" - "$RESULTS_JSONL" "$city" "$run_index" "$started_at" "$finished_at" "$crawler_status" "$pipeline_status" "$segmentation_status" "$search_status" "$overall_status" "$error_message" "$WAVE" "$RUN_ID" <<'PY'
 import json
 import sys
 from pathlib import Path
@@ -185,11 +186,12 @@ row = {
     "finished_at_utc": sys.argv[5],
     "crawler_status": sys.argv[6],
     "pipeline_status": sys.argv[7],
-    "search_status": sys.argv[8],
-    "overall_status": sys.argv[9],
-    "error": sys.argv[10] or None,
-    "wave": sys.argv[11],
-    "run_id": sys.argv[12],
+    "segmentation_status": sys.argv[8],
+    "search_status": sys.argv[9],
+    "overall_status": sys.argv[10],
+    "error": sys.argv[11] or None,
+    "wave": sys.argv[12],
+    "run_id": sys.argv[13],
 }
 with path.open("a", encoding="utf-8") as f:
     f.write(json.dumps(row) + "\n")
@@ -202,6 +204,7 @@ for city in "${cities[@]}"; do
     started_at="$(date -u +"%Y-%m-%dT%H:%M:%SZ")"
     crawler_status="failed"
     pipeline_status="failed"
+    segmentation_status="failed"
     search_status="failed"
     error_message=""
 
@@ -211,11 +214,19 @@ for city in "${cities[@]}"; do
       # intact between attempts to avoid full-dataset reprocessing on each run.
       if run_cmd docker compose run --rm -e STARTUP_PURGE_DERIVED=false pipeline python run_pipeline.py; then
         pipeline_status="success"
-        if run_cmd curl -fsS "http://localhost:8000/search?q=zoning&city=$city" >/dev/null; then
-          search_status="success"
+        # Onboarding quality gates are only meaningful after segmentation has been
+        # attempted for the city's agenda corpus.
+        if run_cmd docker compose run --rm -w /app -e STARTUP_PURGE_DERIVED=false pipeline python scripts/segment_city_corpus.py --city "$city"; then
+          segmentation_status="success"
+          if run_cmd curl -fsS "http://localhost:8000/search?q=zoning&city=$city" >/dev/null; then
+            search_status="success"
+          else
+            search_status="failed"
+            error_message="search_smoke_failed"
+          fi
         else
-          search_status="failed"
-          error_message="search_smoke_failed"
+          segmentation_status="failed"
+          error_message="segmentation_failed"
         fi
       else
         pipeline_status="failed"
@@ -227,7 +238,7 @@ for city in "${cities[@]}"; do
     fi
 
     finished_at="$(date -u +"%Y-%m-%dT%H:%M:%SZ")"
-    write_result "$city" "$run_index" "$started_at" "$finished_at" "$crawler_status" "$pipeline_status" "$search_status" "$error_message"
+    write_result "$city" "$run_index" "$started_at" "$finished_at" "$crawler_status" "$pipeline_status" "$segmentation_status" "$search_status" "$error_message"
   done
 
   echo "gate checklist for $city"

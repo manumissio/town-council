@@ -485,6 +485,8 @@ Artifacts:
 
 Notes:
 - `scripts/onboard_city_wave.sh` runs pipeline with `STARTUP_PURGE_DERIVED=false` to avoid wiping derived state between onboarding attempts.
+- `scripts/onboard_city_wave.sh` now attempts city-scoped agenda segmentation after `run_pipeline.py` so segmentation gates reflect attempted outcomes instead of lingering `null` statuses.
+- Legistar CMS crawlers now write normalized slug `Event.source` values (for example `san_mateo`) while onboarding evaluation still tolerates legacy spaced-name rows during transition.
 - Keep `enabled=no` for a city until `city_gate_eval.json` shows `quality_gate=pass`.
 
 ### Host profiles (recommended)

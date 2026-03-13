@@ -27,6 +27,8 @@ def test_onboarding_runner_subset_and_runs_emit_artifacts(tmp_path):
     result = subprocess.run(cmd, text=True, capture_output=True, env=env, check=True)
 
     assert "Completed dry-run wave plan" in result.stdout
+    assert "scripts/segment_city_corpus.py --city hayward" in result.stdout
+    assert "scripts/segment_city_corpus.py --city san_mateo" in result.stdout
     runs_path = output_dir / run_id / "runs.jsonl"
     assert runs_path.exists()
 
@@ -34,6 +36,7 @@ def test_onboarding_runner_subset_and_runs_emit_artifacts(tmp_path):
     assert len(rows) == 6
     assert {row["city"] for row in rows} == {"hayward", "san_mateo"}
     assert {row["run_index"] for row in rows} == {1, 2, 3}
+    assert {row["segmentation_status"] for row in rows} == {"success"}
 
 
 def test_onboarding_runner_rejects_unknown_city(tmp_path):

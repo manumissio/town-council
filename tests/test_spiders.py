@@ -128,6 +128,23 @@ def test_legistar_template_parsing(mocker):
     assert "Testcity, CA" in event['name']
     assert event['meeting_type'] == "Regular Meeting"
 
+
+def test_legistar_template_normalizes_slug_source_but_keeps_display_name(mocker):
+    mocker.patch('templates.legistar_cms.LegistarCms._get_last_meeting_date', return_value=None)
+    spider = LegistarCms(legistar_url='https://test.legistar.com', city='san mateo', state='ca')
+
+    event = spider.create_event_item(
+        meeting_date=datetime.date(2026, 2, 10),
+        meeting_name="Regular Meeting",
+        source_url="https://test.legistar.com/Calendar.aspx",
+        documents=[],
+        meeting_type="Regular Meeting",
+    )
+
+    assert event['source'] == "san_mateo"
+    assert event['ocd_division_id'] == "ocd-division/country:us/state:ca/place:san_mateo"
+    assert event['name'] == "San Mateo, CA Regular Meeting"
+
 def test_belmont_delta_crawl(mocker):
     """
     Test: Does 'Delta Crawling' skip meetings we already have?

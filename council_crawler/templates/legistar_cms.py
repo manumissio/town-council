@@ -19,12 +19,26 @@ class LegistarCms(BaseCitySpider):
             raise ValueError('city is required')
         if not state:
             raise ValueError('state is required.')
-            
+
         self.start_urls = [legistar_url]
-        self.name = city.lower() # Used as the 'source' in the database
-        self.ocd_division_id = f'ocd-division/country:us/state:{state.lower()}/place:{self.name.replace(" ", "_")}'
-        
+        # Canonical source identity must stay slug-shaped so downstream onboarding
+        # and search filters do not depend on human-readable spacing variants.
+        self.city_display_name = city
+        self.name = city.lower().replace(" ", "_")
+        self.ocd_division_id = f'ocd-division/country:us/state:{state.lower()}/place:{self.name}'
+
         super().__init__(*args, **kwargs)
+
+    def create_event_item(self, meeting_date, meeting_name, source_url, documents, meeting_type=None):
+        event = super().create_event_item(
+            meeting_date=meeting_date,
+            meeting_name=meeting_name,
+            source_url=source_url,
+            documents=documents,
+            meeting_type=meeting_type,
+        )
+        event['name'] = f"{self.city_display_name.title()}, CA {meeting_name.strip()}"
+        return event
 
     def start_requests(self):
         for url in self.start_urls:
@@ -83,4 +97,3 @@ class LegistarCms(BaseCitySpider):
                 documents=documents,
                 meeting_type=meeting_type
             )
-

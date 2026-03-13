@@ -18,8 +18,9 @@ def test_gate_evaluator_pass_thresholds():
         crawl_success_count=3,
         search_success_count=3,
         catalog_total=20,
+        agenda_catalog_total=10,
         extraction_non_empty_count=19,
-        segmentation_complete_empty_count=19,
+        segmentation_complete_empty_count=10,
         segmentation_failed_count=0,
     )
     result = mod._evaluate_city("hayward", metrics)
@@ -34,8 +35,9 @@ def test_gate_evaluator_fail_thresholds():
         crawl_success_count=2,
         search_success_count=2,
         catalog_total=20,
+        agenda_catalog_total=10,
         extraction_non_empty_count=10,
-        segmentation_complete_empty_count=18,
+        segmentation_complete_empty_count=8,
         segmentation_failed_count=2,
     )
     result = mod._evaluate_city("san_mateo", metrics)
@@ -52,6 +54,7 @@ def test_gate_evaluator_marks_insufficient_data():
         crawl_success_count=3,
         search_success_count=3,
         catalog_total=0,
+        agenda_catalog_total=0,
         extraction_non_empty_count=0,
         segmentation_complete_empty_count=0,
         segmentation_failed_count=0,
@@ -72,8 +75,8 @@ def test_collect_city_metrics_falls_back_to_city_corpus_when_window_empty():
     q_window.filter.return_value.filter.return_value.all.return_value = []
     q_fallback.filter.return_value.all.return_value = [(101,), (102,)]
     q_catalog.join.return_value.filter.return_value.all.return_value = [
-        ("some extracted text", "complete"),
-        ("", "failed"),
+        ("agenda", "some extracted text", "complete"),
+        ("minutes", "", "failed"),
     ]
 
     city_runs = [
@@ -88,6 +91,11 @@ def test_collect_city_metrics_falls_back_to_city_corpus_when_window_empty():
     metrics = mod._collect_city_metrics(session, "hayward", city_runs)
 
     assert metrics.catalog_total == 2
+    assert metrics.agenda_catalog_total == 1
     assert metrics.extraction_non_empty_count == 1
     assert metrics.segmentation_complete_empty_count == 1
-    assert metrics.segmentation_failed_count == 1
+    assert metrics.segmentation_failed_count == 0
+
+
+def test_source_aliases_for_city_include_legacy_spaced_name():
+    assert mod._source_aliases_for_city("san_mateo") == {"san_mateo", "san mateo"}
