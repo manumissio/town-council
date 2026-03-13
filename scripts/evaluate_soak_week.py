@@ -42,6 +42,13 @@ def _load_days(root: Path) -> list[dict]:
     return rows
 
 
+def _run_float(data: dict, key: str) -> float | None:
+    value = _safe_float(data.get(key))
+    if value is None:
+        return None
+    return value
+
+
 def _counter_delta(curr: float | None, prev: float | None) -> float | None:
     if curr is None:
         return None
@@ -106,25 +113,32 @@ def main() -> int:
     extract_warning_days = 0
     degraded_telemetry_days = 0
     queue_proxy_capped_used_days = 0
+    baseline_artifact_days = 0
+    evidence_quality_reasons: list[str] = []
 
     for row in window:
         d = row["data"]
         requests_total = _safe_float(d.get("provider_requests_total"))
         timeouts_total = _safe_float(d.get("provider_timeouts_total"))
         retries_total = _safe_float(d.get("provider_retries_total"))
+        run_requests_delta = _run_float(d, "provider_requests_delta_run")
+        run_timeouts_delta = _run_float(d, "provider_timeouts_delta_run")
+        run_retries_delta = _run_float(d, "provider_retries_delta_run")
 
-        req_delta = _counter_delta(
-            requests_total,
-            None if prev is None else _safe_float(prev["data"].get("provider_requests_total")),
+        run_delta_present = (
+            run_requests_delta is not None
+            and run_timeouts_delta is not None
+            and run_retries_delta is not None
         )
-        timeout_delta = _counter_delta(
-            timeouts_total,
-            None if prev is None else _safe_float(prev["data"].get("provider_timeouts_total")),
-        )
-        retry_delta = _counter_delta(
-            retries_total,
-            None if prev is None else _safe_float(prev["data"].get("provider_retries_total")),
-        )
+        if run_delta_present:
+            baseline_artifact_days += 1
+            req_delta = run_requests_delta
+            timeout_delta = run_timeouts_delta
+            retry_delta = run_retries_delta
+        else:
+            req_delta = None
+            timeout_delta = None
+            retry_delta = None
 
         timeout_rate_delta = None
         if req_delta is not None and req_delta > 0 and timeout_delta is not None:
@@ -201,19 +215,22 @@ def main() -> int:
                 "worker_metrics_available": worker_metrics_available,
                 "worker_metrics_error": d.get("worker_metrics_error"),
                 "telemetry_confidence": telemetry_confidence,
+                "promotion_evidence_source": "run_delta" if run_delta_present else "legacy_cumulative_only",
             }
         )
         prev = row
 
-    # Missing timeout-rate deltas mean we do not have decision-grade evidence for this gate.
-    if timeout_rate_days:
+    # Run-local deltas make each soak day decision-grade on its own. Legacy summaries
+    # only have cumulative counters, which are diagnostic but not promotion-safe.
+    if timeout_rate_days and baseline_artifact_days == len(window):
         gate_provider_timeout = all(x < 0.01 for x in timeout_rate_days)
         gate_provider_timeout_status = _status_from_bool(gate_provider_timeout)
         gate_provider_timeout_reason = "ok" if gate_provider_timeout else "timeout_rate_threshold_exceeded"
     else:
         gate_provider_timeout = False
         gate_provider_timeout_status = GATE_INCONCLUSIVE
-        gate_provider_timeout_reason = "missing_provider_request_deltas"
+        gate_provider_timeout_reason = "missing_run_local_provider_deltas"
+        evidence_quality_reasons.append("baseline_contaminated")
     gate_timeout_storms = timeout_storms == 0
     gate_day_failures = failed_day_count == 0
 
@@ -268,6 +285,9 @@ def main() -> int:
 
     overall_status = _overall_status(gate_statuses)
     overall_pass = overall_status == GATE_PASS
+    if not gates["queue_wait_proxy_no_upward_trend"] or not gates["segment_p95_stable"] or not gates["summary_p95_stable"]:
+        evidence_quality_reasons.append("runtime_variability_detected")
+    evidence_quality_reasons = sorted(set(evidence_quality_reasons))
     out = {
         "window_days": args.window_days,
         "evaluated_runs": [r["run_id"] for r in window],
@@ -281,8 +301,12 @@ def main() -> int:
         "telemetry_confidence": "degraded" if degraded_telemetry_days > 0 else "high",
         "degraded_telemetry_days": degraded_telemetry_days,
         "queue_proxy_capped_used_days": queue_proxy_capped_used_days,
+        "baseline_artifact_days": baseline_artifact_days,
+        "baseline_valid": baseline_artifact_days == len(window),
+        "evidence_quality_reasons": evidence_quality_reasons,
         "notes": [
-            "Counter-based gates are evaluated using day-over-day deltas.",
+            "Run-local provider deltas are required for promotion-grade timeout evaluation.",
+            "Legacy summaries with cumulative-only provider counters are diagnostic and produce INCONCLUSIVE timeout gates.",
             "queue_wait gate uses phase_duration_p95_s_capped when present, else phase_duration_p95_s proxy.",
             "extract failures are non-gating warnings in this soak phase.",
         ],
@@ -300,6 +324,8 @@ def main() -> int:
         f"extract_warning_days: {extract_warning_days}",
         f"telemetry_confidence: {'degraded' if degraded_telemetry_days > 0 else 'high'}",
         f"degraded_telemetry_days: {degraded_telemetry_days}",
+        f"baseline_valid: {out['baseline_valid']}",
+        f"baseline_artifact_days: {baseline_artifact_days}/{len(window)}",
         "",
         "## Gates",
     ]
@@ -308,10 +334,17 @@ def main() -> int:
         reason = gate_reasons.get(k, "n/a")
         lines.append(f"- {k}: {status} (bool={'PASS' if v else 'FAIL'}, reason={reason})")
     lines.append("")
+    lines.append("## Evidence Quality")
+    if evidence_quality_reasons:
+        for reason in evidence_quality_reasons:
+            lines.append(f"- {reason}")
+    else:
+        lines.append("- ok")
+    lines.append("")
     lines.append("## Runs")
     for d in per_day:
         lines.append(
-            f"- {d['date']} {d['run_id']} status={d['status']} telemetry={d['telemetry_confidence']} extract_failures={d['extract_failures']} gating_failures={d['gating_failures']} timeout_rate_delta={d['provider_timeout_rate_delta']} seg_p95={d['segment_p95_s']} sum_p95={d['summary_p95_s']}"
+            f"- {d['date']} {d['run_id']} status={d['status']} telemetry={d['telemetry_confidence']} evidence={d['promotion_evidence_source']} extract_failures={d['extract_failures']} gating_failures={d['gating_failures']} timeout_rate_delta={d['provider_timeout_rate_delta']} seg_p95={d['segment_p95_s']} sum_p95={d['summary_p95_s']}"
         )
     lines.append("")
     lines.append("## Notes")

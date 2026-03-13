@@ -37,6 +37,7 @@ RUN_DIR="$OUTPUT_DIR/$RUN_ID"
 mkdir -p "$RUN_DIR"
 TASKS_JSONL="$RUN_DIR/tasks.jsonl"
 DAY_SUMMARY_JSON="$RUN_DIR/day_summary.json"
+RUN_MANIFEST_JSON="$RUN_DIR/run_manifest.json"
 : > "$TASKS_JSONL"
 LAST_FAILURE_REASON=""
 
@@ -48,6 +49,43 @@ if [[ ${#CIDS[@]} -eq 0 ]]; then
   echo "no CIDs parsed from $CATALOG_FILE"
   exit 2
 fi
+
+python3 - <<'PY' "$RUN_MANIFEST_JSON" "$RUN_ID" "$CATALOG_FILE" "${CIDS[@]}"
+import json
+import os
+import sys
+from pathlib import Path
+
+out_path = Path(sys.argv[1])
+run_id = sys.argv[2]
+catalog_file = sys.argv[3]
+catalog_ids = [int(value) for value in sys.argv[4:] if str(value).strip()]
+
+def _env_int(name: str, default: int | None = None) -> int | None:
+    raw = (os.getenv(name) or "").strip()
+    if not raw:
+        return default
+    try:
+        return int(raw)
+    except ValueError:
+        return default
+
+manifest = {
+    "run_id": run_id,
+    "catalog_file": catalog_file,
+    "catalog_ids": catalog_ids,
+    "catalog_count": len(catalog_ids),
+    "profile": {
+        "LOCAL_AI_BACKEND": (os.getenv("LOCAL_AI_BACKEND") or "").strip().lower() or "http",
+        "LOCAL_AI_HTTP_PROFILE": (os.getenv("LOCAL_AI_HTTP_PROFILE") or "").strip().lower() or "conservative",
+        "LOCAL_AI_HTTP_MODEL": (os.getenv("LOCAL_AI_HTTP_MODEL") or "").strip() or "gemma-3-270m-custom",
+        "WORKER_CONCURRENCY": _env_int("WORKER_CONCURRENCY", 3),
+        "WORKER_POOL": (os.getenv("WORKER_POOL") or "").strip().lower() or "prefork",
+        "OLLAMA_NUM_PARALLEL": _env_int("OLLAMA_NUM_PARALLEL", 1),
+    },
+}
+out_path.write_text(json.dumps(manifest, indent=2), encoding="utf-8")
+PY
 
 health_ok() {
   local elapsed=0
@@ -98,6 +136,48 @@ PY
     exit 1
   fi
 fi
+
+python3 - <<'PY' "$RUN_MANIFEST_JSON"
+import json
+import re
+import subprocess
+import sys
+from pathlib import Path
+
+manifest_path = Path(sys.argv[1])
+manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+pattern = re.compile(r'^(?P<name>tc_provider_(?:requests|timeouts|retries)_total)(?:\{[^}]*\})?\s+(?P<value>-?[0-9]+(?:\.[0-9]+)?)$')
+script = (
+    "import urllib.request; "
+    "print(urllib.request.urlopen('http://localhost:8001/metrics', timeout=10)"
+    ".read().decode('utf-8', errors='replace'))"
+)
+baseline = {
+    "provider_requests_total": None,
+    "provider_timeouts_total": None,
+    "provider_retries_total": None,
+}
+try:
+    raw = subprocess.check_output(
+        ["docker", "compose", "exec", "-T", "worker", "python", "-c", script],
+        text=True,
+        stderr=subprocess.STDOUT,
+        timeout=30,
+    )
+    for line in raw.splitlines():
+        match = pattern.match(line.strip())
+        if not match:
+            continue
+        baseline[match.group("name")] = float(baseline.get(match.group("name")) or 0.0) + float(match.group("value"))
+    manifest["provider_counters_before_run"] = baseline
+    manifest["provider_counters_before_run_available"] = all(value is not None for value in baseline.values())
+except Exception as exc:
+    manifest["provider_counters_before_run"] = baseline
+    manifest["provider_counters_before_run_available"] = False
+    manifest["provider_counters_before_run_error"] = str(exc)
+
+manifest_path.write_text(json.dumps(manifest, indent=2), encoding="utf-8")
+PY
 
 run_endpoint() {
   local cid="$1"

@@ -35,6 +35,33 @@ def test_day_summary_populates_ttft_tps_when_provider_metrics_exist(monkeypatch,
     monkeypatch.setattr(mod, "_fetch_text", _fake_fetch)
 
     run_id = "soak_test_ttft_tps"
+    run_dir = tmp_path / run_id
+    run_dir.mkdir(parents=True, exist_ok=True)
+    (run_dir / "run_manifest.json").write_text(
+        json.dumps(
+            {
+                "catalog_ids": [609, 933],
+                "catalog_count": 2,
+                "profile": {"LOCAL_AI_BACKEND": "http", "LOCAL_AI_HTTP_PROFILE": "conservative"},
+                "provider_counters_before_run": {
+                    "provider_requests_total": 1.0,
+                    "provider_timeouts_total": 0.0,
+                    "provider_retries_total": 0.0,
+                },
+            }
+        ),
+        encoding="utf-8",
+    )
+    (run_dir / "tasks.jsonl").write_text(
+        "\n".join(
+            [
+                json.dumps({"catalog_id": 609, "phase": "segment", "duration_s": 10.0}),
+                json.dumps({"catalog_id": 933, "phase": "summarize", "duration_s": 7.0}),
+            ]
+        )
+        + "\n",
+        encoding="utf-8",
+    )
     monkeypatch.setattr(
         "sys.argv",
         [
@@ -56,3 +83,7 @@ def test_day_summary_populates_ttft_tps_when_provider_metrics_exist(monkeypatch,
     assert day_summary["tokens_per_sec_median"] is not None
     assert day_summary["prompt_tokens_total"] == 300.0
     assert day_summary["completion_tokens_total"] == 120.0
+    assert day_summary["provider_requests_delta_run"] == 3.0
+    assert day_summary["provider_timeout_rate_run"] == 0.0
+    assert day_summary["segment_max_s"] == 10.0
+    assert day_summary["summary_max_s"] == 7.0

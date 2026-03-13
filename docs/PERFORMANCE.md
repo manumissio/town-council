@@ -1,6 +1,6 @@
 # Performance
 
-Last updated: 2026-03-07
+Last updated: 2026-03-13
 
 This page lists current empirical measurements for local Docker runs.
 For operational troubleshooting and sorting diagnostics, use `docs/OPERATIONS.md`.
@@ -56,6 +56,7 @@ Default conservative profile for rollout:
 
 Promotion rule:
 - move to a balanced profile only after one week of clean SLOs.
+- a passing conservative week makes balanced eligible for opt-in evaluation only; conservative remains the default recommendation.
 
 Provider telemetry for promotion gate:
 - `tc_provider_requests_total` by `{provider,operation,model,outcome}`
@@ -113,11 +114,11 @@ The soak harness writes one `day_summary.json` per run under:
 - `experiments/results/soak/<run_id>/day_summary.json`
 
 Weekly evaluation (`scripts/evaluate_soak_week.py`) uses:
-- `delta(day_n) = counter(day_n) - counter(day_n-1)` for counters
-- reset handling: when counter decreases after restart, `delta(day_n) = counter(day_n)`
+- run-local provider deltas captured from `run_manifest.json` baseline counters plus the post-run worker scrape
+- cumulative provider totals remain observational only
 
 Why:
-- Prometheus counters are cumulative; absolute values would incorrectly fail later days after a single early timeout.
+- Prometheus counters are cumulative across runs; promotion gates need per-run evidence so the first day of a window is not contaminated by pre-window history.
 
 Current queue signal:
 - `queue_wait_p95` is approximated by `phase_duration_p95_s_capped` when available, otherwise `phase_duration_p95_s`.
@@ -130,20 +131,27 @@ Soak confidence signals:
 - Missing worker metrics do not crash collection, but reduce confidence for TTFT/TPS trend interpretation.
 - Weekly evaluator emits `telemetry_confidence` and `degraded_telemetry_days` to make this explicit.
 - Weekly evaluator now reports per-gate status as `PASS|FAIL|INCONCLUSIVE` with machine-readable `gate_reasons`.
+- Weekly evaluator also reports `baseline_valid`, `baseline_artifact_days`, and `evidence_quality_reasons`.
 
 ## Baseline interpretation
 
 - `baseline-valid` runs:
   - consistent local baseline conditions across the soak window
+  - `run_manifest.json` present for each day
+  - run-local provider delta fields present for each day
   - suitable for promotion-gate interpretation
 - `non-baseline` runs:
-  - manual probes, experiments, or mixed runtime conditions
+  - manual probes, experiments, mixed runtime conditions, or legacy cumulative-only artifacts
   - useful for diagnostics, not for baseline promotion decisions
 
 Metric interpretation policy:
 - Gate-driving metrics: timeout rate, timeout storms, queue proxy trend, search regression, segment/summary stability.
 - Observational metrics: TTFT/TPS/token telemetry and related confidence annotations.
 - Existing gate thresholds in this document are unchanged by this docs sync.
+
+Current evidence note:
+- The March 6-12, 2026 conservative window remains diagnostically useful.
+- It is not promotion-grade after the artifact-contract hardening because it predates the run-local delta fields required for `baseline-valid` evaluation.
 
 ## A/B Experiment Artifacts
 

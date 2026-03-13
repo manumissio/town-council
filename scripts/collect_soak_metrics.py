@@ -16,6 +16,13 @@ WORKER_METRICS_SCRAPE_ATTEMPTS = 2
 WORKER_METRICS_BACKOFF_SECONDS = 0.5
 
 
+def _safe_float(value: Any) -> float | None:
+    try:
+        return float(value)
+    except Exception:
+        return None
+
+
 def _fetch_text(url: str, timeout: int = 10) -> str:
     with request.urlopen(url, timeout=timeout) as resp:
         return resp.read().decode("utf-8", errors="replace")
@@ -209,6 +216,130 @@ def _search_p95_ms(api_url: str) -> float | None:
     return float(ordered[idx])
 
 
+def _load_json_file(path: Path) -> dict[str, Any]:
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+    except Exception:
+        return {}
+    return data if isinstance(data, dict) else {}
+
+
+def _load_run_manifest(run_dir: Path) -> dict[str, Any]:
+    return _load_json_file(run_dir / "run_manifest.json")
+
+
+def _load_tasks_rows(run_dir: Path) -> list[dict[str, Any]]:
+    path = run_dir / "tasks.jsonl"
+    if not path.exists():
+        return []
+    rows: list[dict[str, Any]] = []
+    for raw in path.read_text(encoding="utf-8").splitlines():
+        line = raw.strip()
+        if not line:
+            continue
+        try:
+            payload = json.loads(line)
+        except Exception:
+            continue
+        if isinstance(payload, dict):
+            rows.append(payload)
+    return rows
+
+
+def _task_duration(rows: list[dict[str, Any]], phase: str) -> list[tuple[int | None, float]]:
+    out: list[tuple[int | None, float]] = []
+    for row in rows:
+        if row.get("phase") != phase:
+            continue
+        try:
+            duration = float(row.get("duration_s") or 0.0)
+        except Exception:
+            duration = 0.0
+        catalog_id = row.get("catalog_id")
+        try:
+            catalog_value = int(catalog_id)
+        except Exception:
+            catalog_value = None
+        out.append((catalog_value, duration))
+    return out
+
+
+def _slowest_task(rows: list[dict[str, Any]]) -> dict[str, Any]:
+    slowest_phase = ""
+    slowest_catalog_id = None
+    slowest_duration_s = 0.0
+    segment_max_s = 0.0
+    summary_max_s = 0.0
+
+    for row in rows:
+        try:
+            duration = float(row.get("duration_s") or 0.0)
+        except Exception:
+            duration = 0.0
+        phase = str(row.get("phase") or "")
+        catalog_id = row.get("catalog_id")
+        try:
+            catalog_value = int(catalog_id)
+        except Exception:
+            catalog_value = None
+
+        if duration >= slowest_duration_s:
+            slowest_phase = phase
+            slowest_catalog_id = catalog_value
+            slowest_duration_s = duration
+        if phase == "segment":
+            segment_max_s = max(segment_max_s, duration)
+        if phase == "summarize":
+            summary_max_s = max(summary_max_s, duration)
+
+    return {
+        "slowest_phase": slowest_phase or None,
+        "slowest_catalog_id": slowest_catalog_id,
+        "slowest_duration_s": float(slowest_duration_s),
+        "segment_max_s": float(segment_max_s),
+        "summary_max_s": float(summary_max_s),
+    }
+
+
+def _provider_run_deltas_from_manifest(
+    manifest: dict[str, Any],
+    *,
+    provider_requests_total: float,
+    provider_timeouts_total: float,
+    provider_retries_total: float,
+) -> dict[str, float | None]:
+    baseline = manifest.get("provider_counters_before_run")
+    if not isinstance(baseline, dict):
+        return {
+            "provider_requests_delta_run": None,
+            "provider_timeouts_delta_run": None,
+            "provider_retries_delta_run": None,
+            "provider_timeout_rate_run": None,
+        }
+
+    baseline_requests = _safe_float(baseline.get("provider_requests_total"))
+    baseline_timeouts = _safe_float(baseline.get("provider_timeouts_total"))
+    baseline_retries = _safe_float(baseline.get("provider_retries_total"))
+    if baseline_requests is None or baseline_timeouts is None or baseline_retries is None:
+        return {
+            "provider_requests_delta_run": None,
+            "provider_timeouts_delta_run": None,
+            "provider_retries_delta_run": None,
+            "provider_timeout_rate_run": None,
+        }
+
+    requests = max(0.0, float(provider_requests_total - baseline_requests))
+    timeouts = max(0.0, float(provider_timeouts_total - baseline_timeouts))
+    retries = max(0.0, float(provider_retries_total - baseline_retries))
+    timeout_rate = float(timeouts / requests) if requests > 0 else None
+    return {
+        "provider_requests_delta_run": requests,
+        "provider_timeouts_delta_run": timeouts,
+        "provider_retries_delta_run": retries,
+        "provider_timeout_rate_run": timeout_rate,
+    }
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description="Collect daily soak metrics snapshots")
     parser.add_argument("--run-id", required=True)
@@ -232,6 +363,9 @@ def main() -> int:
 
     worker_rows = _parse_metrics(worker_metrics_raw)
     provider_metrics_present, provider_metrics_reason = _provider_metrics_state(worker_rows, worker_metrics_error)
+    manifest = _load_run_manifest(run_dir)
+    task_rows = _load_tasks_rows(run_dir)
+    run_hotspots = _slowest_task(task_rows)
 
     provider_requests_total = _sum_metric(worker_rows, "tc_provider_requests_total")
     provider_timeouts_total = _sum_metric(worker_rows, "tc_provider_timeouts_total")
@@ -248,6 +382,12 @@ def main() -> int:
 
     prompt_tokens_total = _sum_metric(worker_rows, "tc_provider_prompt_tokens_total")
     completion_tokens_total = _sum_metric(worker_rows, "tc_provider_completion_tokens_total")
+    run_provider = _provider_run_deltas_from_manifest(
+        manifest,
+        provider_requests_total=provider_requests_total,
+        provider_timeouts_total=provider_timeouts_total,
+        provider_retries_total=provider_retries_total,
+    )
 
     day_summary = {}
     day_summary_path = run_dir / "day_summary.json"
@@ -270,11 +410,17 @@ def main() -> int:
             "search_p95_ms": _search_p95_ms(args.api_url),
             "provider_metrics_present": provider_metrics_present,
             "provider_metrics_reason": provider_metrics_reason,
+            "run_manifest_present": bool(manifest),
+            "run_profile": manifest.get("profile") if isinstance(manifest.get("profile"), dict) else None,
+            "catalog_ids": manifest.get("catalog_ids") if isinstance(manifest.get("catalog_ids"), list) else None,
+            "catalog_count": manifest.get("catalog_count"),
             "metrics_sources": {
                 "api_metrics_available": bool(api_metrics_raw.strip()),
                 "worker_metrics_available": bool(worker_metrics_raw.strip()),
             },
             "worker_metrics_error": worker_metrics_error,
+            **run_provider,
+            **run_hotspots,
         }
     )
 

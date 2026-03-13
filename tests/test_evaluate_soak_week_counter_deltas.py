@@ -29,3 +29,8 @@ def test_status_helpers():
     assert mod._overall_status({"a": mod.GATE_PASS, "b": mod.GATE_PASS}) == mod.GATE_PASS
     assert mod._overall_status({"a": mod.GATE_INCONCLUSIVE, "b": mod.GATE_PASS}) == mod.GATE_INCONCLUSIVE
     assert mod._overall_status({"a": mod.GATE_INCONCLUSIVE, "b": mod.GATE_FAIL}) == mod.GATE_FAIL
+
+
+def test_run_float_accepts_numbers_and_missing_values():
+    assert mod._run_float({"x": "2.5"}, "x") == 2.5
+    assert mod._run_float({}, "x") is None

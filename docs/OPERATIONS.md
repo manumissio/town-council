@@ -1,6 +1,6 @@
 # Operations Runbook
 
-Last updated: 2026-03-06
+Last updated: 2026-03-13
 
 ## Core workflow
 
@@ -199,6 +199,7 @@ Decision rule:
 - Promote to `LOCAL_AI_HTTP_PROFILE=balanced` only if all gates pass continuously through day 7.
 - If any gate fails, remain conservative and rerun soak after tuning.
 - If any gate is `INCONCLUSIVE`, treat as promotion-blocking until telemetry evidence is restored.
+- A clean conservative week makes balanced eligible for opt-in evaluation only; conservative remains the default recommendation.
 
 ### Automated daily soak harness (local M1 Pro)
 
@@ -208,6 +209,10 @@ Fixed manifest:
 
 Scripts:
 - `scripts/run_soak_day.sh`
+  - writes `experiments/results/soak/<run_id>/run_manifest.json` with:
+    - profile identity (`LOCAL_AI_BACKEND`, `LOCAL_AI_HTTP_PROFILE`, `LOCAL_AI_HTTP_MODEL`, `WORKER_CONCURRENCY`, `WORKER_POOL`, `OLLAMA_NUM_PARALLEL`)
+    - soak corpus identity (`catalog_ids`, `catalog_count`, source catalog file)
+    - pre-run worker-provider counters when available (`provider_counters_before_run`)
   - preflight `/health` poll for 60 seconds (default)
   - one fast self-heal attempt via `docker compose up -d inference worker api pipeline frontend`
   - falls back to `scripts/dev_up.sh` only if fast recovery fails
@@ -232,18 +237,40 @@ Scripts:
   - annotates provider telemetry availability:
     - `provider_metrics_present`
     - `provider_metrics_reason` (`ok`, `worker_scrape_failed`, `no_provider_series`)
+  - computes run-local provider deltas using the manifest baseline plus the post-run worker scrape:
+    - `provider_requests_delta_run`
+    - `provider_timeouts_delta_run`
+    - `provider_retries_delta_run`
+    - `provider_timeout_rate_run`
+  - adds hotspot diagnostics from `tasks.jsonl`:
+    - `slowest_phase`
+    - `slowest_catalog_id`
+    - `slowest_duration_s`
+    - `segment_max_s`
+    - `summary_max_s`
   - updates `experiments/results/soak/<run_id>/day_summary.json`
 - `scripts/evaluate_soak_week.py`
   - reads 7-day window and emits:
     - `experiments/results/soak/soak_eval_7d.json`
     - `experiments/results/soak/soak_eval_7d.md`
-  - uses day-over-day counter deltas (not absolute counter values)
-  - handles counter reset after restarts by re-baselining deltas
+  - treats run-local provider deltas as the only promotion-grade timeout evidence
+  - treats legacy cumulative-only summaries as diagnostic and marks timeout-rate gate `INCONCLUSIVE`
   - emits `overall_status` (`PASS|FAIL|INCONCLUSIVE`) while keeping `overall_pass` for compatibility
   - emits per-gate `gate_statuses` and `gate_reasons`
-  - marks timeout-rate gate `INCONCLUSIVE` when provider request deltas are unavailable
+  - emits `baseline_valid`, `baseline_artifact_days`, and `evidence_quality_reasons`
   - annotates `telemetry_confidence` (`high|degraded`) based on worker metrics availability
     and whether provider requests were observed during successful phases
+
+Baseline-valid week requirements:
+- same profile settings and soak corpus across all 7 days
+- `run_manifest.json` present for each day
+- `provider_requests_delta_run`, `provider_timeouts_delta_run`, and `provider_retries_delta_run` present for each day
+- evaluate a fresh hardened 7-day window only; do not mix pre-hardening and post-hardening artifacts for promotion
+
+Current interpretation:
+- the March 6-12, 2026 conservative window remains useful for diagnosis
+- it is not promotion-grade after the run-manifest delta hardening because it predates the new per-run evidence fields
+- balanced remains opt-in even after a future clean conservative week
 
 Manual run:
 ```bash

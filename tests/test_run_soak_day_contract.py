@@ -22,4 +22,7 @@ def test_run_soak_day_script_contract():
     assert "task_submission_failures" in text
     assert "task_poll_timeouts" in text
     assert "phase_duration_p95_s_capped" in text
+    assert "run_manifest.json" in text
+    assert "provider_counters_before_run" in text
+    assert "OLLAMA_NUM_PARALLEL" in text
     assert "non-gating extract_failures" in text
