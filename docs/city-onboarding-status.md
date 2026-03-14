@@ -10,7 +10,7 @@ This sheet tracks rollout readiness and quality gates per city.
 | cupertino | legistar | yes | yes | pass | 2026-02-17 |
 | fremont | existing | yes | no | pending | - |
 | hayward | existing | yes | no | pass | 2026-03-14 |
-| san_mateo | existing | yes | no | fail (crawler_empty) | 2026-03-14 |
+| san_mateo | existing | yes | no | fail (run-window quality) | 2026-03-14 |
 | sunnyvale | existing | yes | no | pending | - |
 | san_leandro | existing | yes | no | pending | - |
 | mtn_view | existing | yes | no | pending | - |
@@ -38,7 +38,7 @@ Activation workflow note:
 - Latest evidence runs:
   - `city_wave1_hayward_sanmateo_20260313_210210`
     - Hayward: `pass`
-  - `city_wave1_san_mateo_20260313_235900`
-    - San Mateo: `fail` with `crawler_empty` on all 3 runs after switching to the official Laserfiche legislative-records source
-    - Root cause in the latest run: Laserfiche returned repeated `500` responses from `CustomSearchService.aspx/GetSearchQuery`, and the crawl-evidence gate correctly blocked a false green onboarding result
-    - `city_gate_eval.json` still scores `fail` instead of `insufficient_data` because legacy San Mateo catalogs already exist in Postgres, so the evaluator is grading against historical attributable corpus even though the new crawl produced no fresh staged rows
+  - `city_wave1_san_mateo_20260314_003343`
+    - San Mateo: onboarding run completed `success` for crawl, pipeline, segmentation, and search smoke
+    - Gate result remains `fail`, but now for run-window quality instead of `crawler_empty`
+    - The evaluator grades extraction/segmentation against the run's touched San Mateo catalog set, while still reporting full historical totals as diagnostic backlog context

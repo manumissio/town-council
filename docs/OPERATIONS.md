@@ -1,6 +1,6 @@
 # Operations Runbook
 
-Last updated: 2026-03-13
+Last updated: 2026-03-14
 
 ## Core workflow
 
@@ -53,6 +53,12 @@ docker compose run --rm crawler scrapy crawl cupertino
 ```bash
 docker compose run --rm pipeline python run_pipeline.py
 ```
+
+### Onboarding-safe extraction mode
+- `scripts/onboard_city_wave.sh` runs the pipeline in an onboarding-scoped extraction mode.
+- That mode limits extraction to catalogs touched by the current city's staged URL set for the run window instead of waking up the full missing-content backlog.
+- It also reduces parallel extraction pressure (`PIPELINE_ONBOARDING_MAX_WORKERS=1`, smaller chunks) and disables OCR fallback for the onboarding pipeline run (`TIKA_OCR_FALLBACK_ENABLED=false`).
+- The goal is decision-grade city verification without destabilizing Tika on unrelated historical backlog.
 
 ### Optional: Reindex Meilisearch only (no extraction/AI)
 If you changed indexing logic (or you want to refresh search after cleaning up bad HTML in stored titles):
@@ -487,6 +493,7 @@ Notes:
 - `scripts/onboard_city_wave.sh` runs pipeline with `STARTUP_PURGE_DERIVED=false` to avoid wiping derived state between onboarding attempts.
 - `scripts/onboard_city_wave.sh` now attempts city-scoped agenda segmentation after `run_pipeline.py` so segmentation gates reflect attempted outcomes instead of lingering `null` statuses.
 - `scripts/onboard_city_wave.sh` now verifies that each crawl wrote city-attributable staging rows during the run window. A zero-exit crawl with no staged `event_stage`/`url_stage` evidence is recorded as `crawler_empty` and does not proceed to pipeline, segmentation, or search smoke.
+- `scripts/evaluate_city_onboarding.py` now grades extraction and segmentation quality against the onboarding run's touched catalog set for that city, not the city's full historical backlog. Historical totals remain in the artifacts as diagnostic context.
 - San Mateo now uses the official city Laserfiche legislative-records portal as its primary onboarding source instead of COSM/PrimeGov. PrimeGov remains out of scope because `sanmateo.primegov.com` is robots-blocked.
 - San Mateo's Laserfiche spider emits canonical `san_mateo` source identity, uses a bounded bootstrap window when no trustworthy delta anchor exists, and builds the known-good Laserfiche listing query directly instead of depending on `CustomSearchService.aspx/GetSearchQuery`.
 - Current San Mateo caveat: the crawl-evidence gate is working, but the official Laserfiche portal can still fail closed with session-limit responses during live onboarding runs. Treat `crawler_empty` on San Mateo as an upstream source-availability blocker until a fresh evidence run succeeds.
