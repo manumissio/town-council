@@ -303,6 +303,14 @@ AGENDA_PROCEDURAL_REJECT_ENABLED = os.getenv("AGENDA_PROCEDURAL_REJECT_ENABLED",
 EXTRACTION_BATCH_SIZE = 10
 
 
+# Onboarding extraction mode narrows pipeline work to a city's fresh crawl window so
+# decision-grade city checks do not trigger full-backlog extraction pressure.
+PIPELINE_ONBOARDING_CITY = os.getenv("PIPELINE_ONBOARDING_CITY", "").strip()
+PIPELINE_ONBOARDING_STARTED_AT_UTC = os.getenv("PIPELINE_ONBOARDING_STARTED_AT_UTC", "").strip()
+PIPELINE_ONBOARDING_DOCUMENT_CHUNK_SIZE = int(os.getenv("PIPELINE_ONBOARDING_DOCUMENT_CHUNK_SIZE", "0"))
+PIPELINE_ONBOARDING_MAX_WORKERS = int(os.getenv("PIPELINE_ONBOARDING_MAX_WORKERS", "0"))
+
+
 # =============================================================================
 # TIKA TEXT EXTRACTION CONFIGURATION
 # =============================================================================

@@ -34,6 +34,11 @@ def test_onboarding_runner_subset_and_runs_emit_artifacts(tmp_path):
     assert "Completed dry-run wave plan" in result.stdout
     assert "scripts/segment_city_corpus.py --city hayward" in result.stdout
     assert "scripts/segment_city_corpus.py --city san_mateo" in result.stdout
+    assert "PIPELINE_ONBOARDING_CITY=hayward" in result.stdout
+    assert "PIPELINE_ONBOARDING_CITY=san_mateo" in result.stdout
+    assert "PIPELINE_ONBOARDING_DOCUMENT_CHUNK_SIZE=5" in result.stdout
+    assert "PIPELINE_ONBOARDING_MAX_WORKERS=1" in result.stdout
+    assert "TIKA_OCR_FALLBACK_ENABLED=false" in result.stdout
     runs_path = output_dir / run_id / "runs.jsonl"
     assert runs_path.exists()
 

@@ -234,7 +234,14 @@ for city in "${cities[@]}"; do
         crawler_status="success"
         # Onboarding gates need city-specific stability signals. Keep derived state
         # intact between attempts to avoid full-dataset reprocessing on each run.
-        if run_cmd docker compose run --rm -e STARTUP_PURGE_DERIVED=false pipeline python run_pipeline.py; then
+        if run_cmd docker compose run --rm \
+          -e STARTUP_PURGE_DERIVED=false \
+          -e PIPELINE_ONBOARDING_CITY="$city" \
+          -e PIPELINE_ONBOARDING_STARTED_AT_UTC="$started_at" \
+          -e PIPELINE_ONBOARDING_DOCUMENT_CHUNK_SIZE=5 \
+          -e PIPELINE_ONBOARDING_MAX_WORKERS=1 \
+          -e TIKA_OCR_FALLBACK_ENABLED=false \
+          pipeline python run_pipeline.py; then
           pipeline_status="success"
           # Onboarding quality gates are only meaningful after segmentation has been
           # attempted for the city's agenda corpus.

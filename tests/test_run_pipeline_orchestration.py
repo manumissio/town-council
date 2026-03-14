@@ -2,9 +2,12 @@ import sys
 from unittest.mock import MagicMock
 
 import pytest
+from sqlalchemy import create_engine
+from sqlalchemy.orm import sessionmaker
 from sqlalchemy.exc import SQLAlchemyError
 
 from pipeline import run_pipeline
+from pipeline.models import Base, Catalog, Document, Event, Place, UrlStage, UrlStageHist
 
 
 def test_run_step_exits_on_subprocess_failure(mocker):
@@ -91,3 +94,179 @@ def test_process_document_chunk_returns_count_for_missing_rows(mocker):
 
     assert count == 0
     db.close.assert_called_once()
+
+
+def test_select_catalog_ids_for_processing_scopes_onboarding_city_and_run_window(mocker):
+    engine = create_engine("sqlite:///:memory:")
+    Base.metadata.create_all(engine)
+    Session = sessionmaker(bind=engine)
+    db = Session()
+
+    san_mateo = Place(
+        name="san mateo",
+        state="CA",
+        ocd_division_id="ocd-division/country:us/state:ca/place:san_mateo",
+        crawler_name="san_mateo",
+    )
+    hayward = Place(
+        name="hayward",
+        state="CA",
+        ocd_division_id="ocd-division/country:us/state:ca/place:hayward",
+        crawler_name="hayward",
+    )
+    db.add_all([san_mateo, hayward])
+    db.flush()
+
+    san_event = Event(place_id=san_mateo.id, ocd_division_id=san_mateo.ocd_division_id, name="San Mateo Council")
+    hay_event = Event(place_id=hayward.id, ocd_division_id=hayward.ocd_division_id, name="Hayward Council")
+    db.add_all([san_event, hay_event])
+    db.flush()
+
+    matching_catalog = Catalog(url_hash="match", location="/tmp/match.pdf", content=None, entities=None)
+    old_catalog = Catalog(url_hash="old", location="/tmp/old.pdf", content=None, entities=None)
+    other_city_catalog = Catalog(url_hash="other", location="/tmp/other.pdf", content=None, entities=None)
+    done_catalog = Catalog(url_hash="done", location="/tmp/done.pdf", content="done", entities={"ok": True})
+    db.add_all([matching_catalog, old_catalog, other_city_catalog, done_catalog])
+    db.flush()
+
+    db.add_all(
+        [
+            Document(
+                place_id=san_mateo.id,
+                event_id=san_event.id,
+                catalog_id=matching_catalog.id,
+                url="https://example.com/match",
+                created_at=run_pipeline.datetime(2026, 3, 13, 23, 0, 0),
+            ),
+            Document(
+                place_id=san_mateo.id,
+                event_id=san_event.id,
+                catalog_id=old_catalog.id,
+                url="https://example.com/old",
+                created_at=run_pipeline.datetime(2026, 3, 13, 23, 5, 0),
+            ),
+            Document(
+                place_id=hayward.id,
+                event_id=hay_event.id,
+                catalog_id=other_city_catalog.id,
+                url="https://example.com/other",
+                created_at=run_pipeline.datetime(2026, 3, 14, 0, 10, 0),
+            ),
+            Document(
+                place_id=san_mateo.id,
+                event_id=san_event.id,
+                catalog_id=done_catalog.id,
+                url="https://example.com/done",
+                created_at=run_pipeline.datetime(2026, 3, 13, 23, 10, 0),
+            ),
+        ]
+    )
+    db.add_all(
+        [
+            UrlStageHist(
+                ocd_division_id=san_mateo.ocd_division_id,
+                event="San Mateo Council",
+                event_date=run_pipeline.datetime(2026, 3, 14, 0, 0, 0).date(),
+                url="https://example.com/match",
+                url_hash="match",
+                category="agenda",
+                created_at=run_pipeline.datetime(2026, 3, 14, 0, 5, 0),
+            ),
+            UrlStageHist(
+                ocd_division_id=san_mateo.ocd_division_id,
+                event="San Mateo Council",
+                event_date=run_pipeline.datetime(2026, 3, 14, 0, 0, 0).date(),
+                url="https://example.com/old",
+                url_hash="old",
+                category="agenda",
+                created_at=run_pipeline.datetime(2026, 3, 14, 0, 6, 0),
+            ),
+            UrlStageHist(
+                ocd_division_id=hayward.ocd_division_id,
+                event="Hayward Council",
+                event_date=run_pipeline.datetime(2026, 3, 14, 0, 0, 0).date(),
+                url="https://example.com/other",
+                url_hash="other",
+                category="agenda",
+                created_at=run_pipeline.datetime(2026, 3, 14, 0, 7, 0),
+            ),
+            UrlStageHist(
+                ocd_division_id=san_mateo.ocd_division_id,
+                event="San Mateo Council",
+                event_date=run_pipeline.datetime(2026, 3, 14, 0, 0, 0).date(),
+                url="https://example.com/match",
+                url_hash="match",
+                category="agenda",
+                created_at=run_pipeline.datetime(2026, 3, 14, 0, 8, 0),
+            ),
+            UrlStageHist(
+                ocd_division_id=san_mateo.ocd_division_id,
+                event="San Mateo Council",
+                event_date=run_pipeline.datetime(2026, 3, 14, 0, 0, 0).date(),
+                url="https://example.com/done",
+                url_hash="done",
+                category="agenda",
+                created_at=run_pipeline.datetime(2026, 3, 14, 0, 9, 0),
+            ),
+        ]
+    )
+    db.commit()
+
+    mocker.patch.object(run_pipeline, "PIPELINE_ONBOARDING_CITY", "san_mateo")
+    mocker.patch.object(run_pipeline, "PIPELINE_ONBOARDING_STARTED_AT_UTC", "2026-03-14T00:00:00Z")
+
+    try:
+        ids = run_pipeline.select_catalog_ids_for_processing(db)
+        assert ids == [matching_catalog.id, old_catalog.id]
+    finally:
+        db.close()
+        engine.dispose()
+
+
+def test_select_catalog_ids_for_processing_falls_back_to_live_url_stage(mocker):
+    engine = create_engine("sqlite:///:memory:")
+    Base.metadata.create_all(engine)
+    Session = sessionmaker(bind=engine)
+    db = Session()
+
+    place = Place(
+        name="san mateo",
+        state="CA",
+        ocd_division_id="ocd-division/country:us/state:ca/place:san_mateo",
+        crawler_name="san mateo",
+    )
+    event = Event(place=place, ocd_division_id=place.ocd_division_id, name="San Mateo Council")
+    catalog = Catalog(url_hash="live-hash", location="/tmp/live.pdf", content=None, entities=None)
+    db.add_all([place, event, catalog])
+    db.flush()
+    db.add(
+        Document(
+            place_id=place.id,
+            event_id=event.id,
+            catalog_id=catalog.id,
+            url="https://example.com/live",
+            created_at=run_pipeline.datetime(2026, 3, 13, 23, 0, 0),
+        )
+    )
+    db.add(
+        UrlStage(
+            ocd_division_id=place.ocd_division_id,
+            event=event.name,
+            event_date=run_pipeline.datetime(2026, 3, 14, 0, 0, 0).date(),
+            url="https://example.com/live",
+            url_hash="live-hash",
+            category="agenda",
+            created_at=run_pipeline.datetime(2026, 3, 14, 0, 5, 0),
+        )
+    )
+    db.commit()
+
+    mocker.patch.object(run_pipeline, "PIPELINE_ONBOARDING_CITY", "san_mateo")
+    mocker.patch.object(run_pipeline, "PIPELINE_ONBOARDING_STARTED_AT_UTC", "2026-03-14T00:00:00Z")
+
+    try:
+        ids = run_pipeline.select_catalog_ids_for_processing(db)
+        assert ids == [catalog.id]
+    finally:
+        db.close()
+        engine.dispose()

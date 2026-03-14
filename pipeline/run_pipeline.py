@@ -1,5 +1,6 @@
 from concurrent.futures import ProcessPoolExecutor, as_completed
 from multiprocessing import cpu_count
+from datetime import datetime
 import logging
 import sys
 import subprocess
@@ -9,6 +10,11 @@ from pipeline.config import (
     DOCUMENT_CHUNK_SIZE,
     MAX_WORKERS,
     PIPELINE_CPU_FRACTION,
+    PIPELINE_ONBOARDING_CITY,
+    PIPELINE_ONBOARDING_STARTED_AT_UTC,
+    PIPELINE_ONBOARDING_DOCUMENT_CHUNK_SIZE,
+    PIPELINE_ONBOARDING_MAX_WORKERS,
+    TIKA_OCR_FALLBACK_ENABLED,
     DB_RETRY_DELAY_MIN,
     DB_RETRY_DELAY_MAX
 )
@@ -27,7 +33,7 @@ def run_step(name, command):
         logger.error(f"Step {name} failed.")
         sys.exit(1)
 
-def process_document_chunk(catalog_ids):
+def process_document_chunk(catalog_ids, ocr_fallback_enabled=None):
     """
     Process a chunk of catalog IDs in one worker process.
     Reuses one DB session for the chunk and commits per document.
@@ -70,7 +76,10 @@ def process_document_chunk(catalog_ids):
 
             # Extract text only when needed.
             if not catalog.content and catalog.location:
-                catalog.content = extract_text(catalog.location)
+                catalog.content = extract_text(
+                    catalog.location,
+                    ocr_fallback_enabled=ocr_fallback_enabled,
+                )
                 catalog.content_hash = compute_content_hash(catalog.content)
             elif catalog.content and not getattr(catalog, "content_hash", None):
                 # Older rows may predate content hashing.
@@ -92,39 +101,162 @@ def process_document_chunk(catalog_ids):
     finally:
         db.close()
 
+def _parse_onboarding_started_at(raw_value):
+    if not raw_value:
+        return None
+    try:
+        return datetime.strptime(raw_value, "%Y-%m-%dT%H:%M:%SZ")
+    except ValueError:
+        logger.warning(
+            "Invalid PIPELINE_ONBOARDING_STARTED_AT_UTC=%r; falling back to city-wide scope.",
+            raw_value,
+        )
+        return None
+
+
+def _onboarding_ocd_division_id(city_slug):
+    return f"ocd-division/country:us/state:ca/place:{city_slug}"
+
+
+def _build_onboarding_touched_hashes_subquery(db, onboarding_started_at, ocd_division_id):
+    from pipeline.models import UrlStage, UrlStageHist
+
+    hist_hashes = (
+        db.query(UrlStageHist.url_hash.label("url_hash"))
+        .filter(
+            UrlStageHist.ocd_division_id == ocd_division_id,
+            UrlStageHist.created_at >= onboarding_started_at,
+        )
+    )
+    live_hashes = (
+        db.query(UrlStage.url_hash.label("url_hash"))
+        .filter(
+            UrlStage.ocd_division_id == ocd_division_id,
+            UrlStage.created_at >= onboarding_started_at,
+        )
+    )
+    return hist_hashes.union(live_hashes).subquery()
+
+
+def select_catalog_ids_for_processing(db):
+    """
+    Select catalog IDs that still need extraction/NLP work.
+    """
+    from pipeline.models import Catalog
+
+    query = db.query(Catalog.id).filter(
+        (Catalog.content.is_(None)) | (Catalog.entities.is_(None))
+    )
+
+    if PIPELINE_ONBOARDING_CITY:
+        onboarding_started_at = _parse_onboarding_started_at(PIPELINE_ONBOARDING_STARTED_AT_UTC)
+        if onboarding_started_at is not None:
+            ocd_division_id = _onboarding_ocd_division_id(PIPELINE_ONBOARDING_CITY)
+            # Onboarding runs often reuse historical catalog rows, so scope extraction
+            # by the run's touched URL hashes instead of newly created document rows.
+            touched_hashes = _build_onboarding_touched_hashes_subquery(
+                db,
+                onboarding_started_at,
+                ocd_division_id,
+            )
+            touched_hash_count = db.query(touched_hashes.c.url_hash).distinct().count()
+            query = query.join(touched_hashes, touched_hashes.c.url_hash == Catalog.url_hash)
+            logger.info(
+                "onboarding_scope city=%s ocd_division_id=%s touched_hashes=%s source=url_stage_hist+url_stage",
+                PIPELINE_ONBOARDING_CITY,
+                ocd_division_id,
+                touched_hash_count,
+            )
+        else:
+            logger.warning(
+                "onboarding_scope city=%s missing valid started_at; falling back to global selection",
+                PIPELINE_ONBOARDING_CITY,
+            )
+        query = query.distinct()
+
+    catalog_ids = [row[0] for row in query.yield_per(1000)]
+    if PIPELINE_ONBOARDING_CITY:
+        logger.info(
+            "onboarding_scope city=%s selected_missing_work_catalogs=%s",
+            PIPELINE_ONBOARDING_CITY,
+            len(catalog_ids),
+        )
+
+    return catalog_ids
+
+
+def _resolve_parallel_processing_settings():
+    chunk_size = DOCUMENT_CHUNK_SIZE
+    workers_override = None
+    ocr_fallback_enabled = TIKA_OCR_FALLBACK_ENABLED
+    mode = "global"
+
+    if PIPELINE_ONBOARDING_CITY:
+        mode = "onboarding_scoped"
+        if PIPELINE_ONBOARDING_DOCUMENT_CHUNK_SIZE > 0:
+            chunk_size = PIPELINE_ONBOARDING_DOCUMENT_CHUNK_SIZE
+        if PIPELINE_ONBOARDING_MAX_WORKERS > 0:
+            workers_override = PIPELINE_ONBOARDING_MAX_WORKERS
+
+    return {
+        "mode": mode,
+        "chunk_size": chunk_size,
+        "workers_override": workers_override,
+        "ocr_fallback_enabled": ocr_fallback_enabled,
+    }
+
+
 def run_parallel_processing():
     """
     Find unprocessed docs and process them in parallel chunks.
     """
-    from pipeline.models import Catalog
     from pipeline.db_session import db_session
 
     # Use context manager for automatic session cleanup
     with db_session() as db:
-        # A document needs work if text or entities are missing.
-        # Query IDs only: Catalog.content can be very large, and loading full rows
-        # via .all() can spike RAM and crash the pipeline.
-        unprocessed_ids = db.query(Catalog.id).filter(
-            (Catalog.content.is_(None)) | (Catalog.entities.is_(None))
-        ).yield_per(1000)
-
-        catalog_ids = [row[0] for row in unprocessed_ids]
+        catalog_ids = select_catalog_ids_for_processing(db)
 
     if not catalog_ids:
         logger.info("No documents need processing.")
         return
 
-    # Split IDs into fixed-size chunks.
-    chunks = [catalog_ids[i:i + DOCUMENT_CHUNK_SIZE] for i in range(0, len(catalog_ids), DOCUMENT_CHUNK_SIZE)]
+    settings = _resolve_parallel_processing_settings()
 
-    logger.info(f"Starting parallel processing for {len(catalog_ids)} documents in {len(chunks)} chunks...")
+    # Split IDs into fixed-size chunks.
+    chunks = [
+        catalog_ids[i:i + settings["chunk_size"]]
+        for i in range(0, len(catalog_ids), settings["chunk_size"])
+    ]
+
+    logger.info(
+        "Starting parallel processing mode=%s city=%s documents=%s chunks=%s "
+        "chunk_size=%s onboarding_started_at=%s ocr_fallback_enabled=%s",
+        settings["mode"],
+        PIPELINE_ONBOARDING_CITY or "-",
+        len(catalog_ids),
+        len(chunks),
+        settings["chunk_size"],
+        PIPELINE_ONBOARDING_STARTED_AT_UTC or "-",
+        settings["ocr_fallback_enabled"],
+    )
 
     # Use a CPU fraction, capped for safety.
     cpu_limit = int(cpu_count() * PIPELINE_CPU_FRACTION)
     workers = max(1, min(cpu_limit, MAX_WORKERS))
+    if settings["workers_override"] is not None:
+        workers = max(1, min(settings["workers_override"], MAX_WORKERS))
+
+    logger.info("Parallel processing worker_count=%s", workers)
 
     with ProcessPoolExecutor(max_workers=workers) as executor:
-        futures = {executor.submit(process_document_chunk, chunk): chunk for chunk in chunks}
+        futures = {
+            executor.submit(
+                process_document_chunk,
+                chunk,
+                settings["ocr_fallback_enabled"],
+            ): chunk
+            for chunk in chunks
+        }
 
         # Track completed documents across chunks.
         completed_docs = 0

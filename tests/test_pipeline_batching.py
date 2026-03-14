@@ -29,7 +29,7 @@ def test_document_chunk_worker(mocker):
     mocker.patch("pipeline.models.db_connect")
 
     # Mock Extractor and NLP
-    mocker.patch("pipeline.extractor.extract_text", return_value="Extracted Text")
+    extract_text_spy = mocker.patch("pipeline.extractor.extract_text", return_value="Extracted Text")
     # Provide a lightweight nlp_worker module so process_document_chunk can import it
     # without pulling in spaCy during this unit test.
     mock_nlp_module = MagicMock()
@@ -38,11 +38,12 @@ def test_document_chunk_worker(mocker):
     mock_db.execute.return_value = None
 
     # Action
-    processed_count = process_document_chunk([1])
+    processed_count = process_document_chunk([1], ocr_fallback_enabled=False)
 
     # Verify
     assert processed_count == 1
     assert mock_catalog.content == "Extracted Text"
     assert mock_catalog.entities == {"persons": ["Mayor"]}
+    extract_text_spy.assert_called_once_with("/tmp/test.pdf", ocr_fallback_enabled=False)
     mock_db.commit.assert_called_once()
     mock_db.close.assert_called_once()

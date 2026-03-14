@@ -36,3 +36,7 @@ def test_onboarding_wave_script_contains_expected_waves():
     assert "scripts/segment_city_corpus.py --city" in text
     assert "scripts/check_city_crawl_evidence.py" in text
     assert "crawler_empty" in text
+    assert "PIPELINE_ONBOARDING_CITY" in text
+    assert "PIPELINE_ONBOARDING_DOCUMENT_CHUNK_SIZE=5" in text
+    assert "PIPELINE_ONBOARDING_MAX_WORKERS=1" in text
+    assert "TIKA_OCR_FALLBACK_ENABLED=false" in text
