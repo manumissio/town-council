@@ -17,11 +17,11 @@ class San_Mateo(BaseCitySpider):
     ocd_division_id = "ocd-division/country:us/state:ca/place:san_mateo"
     portal_url = "https://www.cityofsanmateo.org/4588/Search-Legislative-Records"
     repo_name = "r-98a383e2"
-    search_form_id = "SearchforAgendaReports"
     portal_base = "https://portal.laserfiche.com/Portal"
     page_size = 50
     bootstrap_days = 365
     max_future_days = 30
+    session_retry_limit = 2
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
@@ -33,32 +33,15 @@ class San_Mateo(BaseCitySpider):
             )
 
     def start_requests(self):
-        # PrimeGov is host-wide robots-blocked for San Mateo, so we use the
-        # official City Clerk records portal and ask Laserfiche to build the
-        # City Council agenda query for us.
-        query_values = {
-            "SearchforAgendaReports_Input1": ["City Council"],
-        }
-        if self._effective_last_meeting_date is None:
-            # The first San Mateo bootstrap only needs enough recent corpus to
-            # make onboarding decision-grade; later runs fall back to delta crawl.
-            bootstrap_start = datetime.date.today() - datetime.timedelta(days=self.bootstrap_days)
-            query_values["SearchforAgendaReports_Input0"] = [bootstrap_start.strftime("%-m/%-d/%Y")]
-            query_values["SearchforAgendaReports_Input0_end"] = [datetime.date.today().strftime("%-m/%-d/%Y")]
-            self.logger.info("San Mateo bootstrap crawl window starts at %s", bootstrap_start)
-
-        yield scrapy.Request(
-            url=f"{self.portal_base}/CustomSearchService.aspx/GetSearchQuery",
-            method="POST",
-            headers=self._json_headers(),
-            body=json.dumps(
-                {
-                    "repoName": self.repo_name,
-                    "searchFormID": self.search_form_id,
-                    "queryValues": query_values,
-                }
-            ),
-            callback=self.parse_search_query,
+        # PrimeGov is host-wide robots-blocked for San Mateo, and Laserfiche's
+        # query-builder endpoint has proven less reliable than the listing
+        # endpoint itself, so we construct the known-good listing query directly.
+        search_syn = self._build_search_syn()
+        yield self._search_listing_request(
+            search_syn=search_syn,
+            search_uuid="",
+            start_idx=1,
+            get_new_listing=True,
         )
 
     def create_event_item(self, meeting_date, meeting_name, source_url, documents, meeting_type=None):
@@ -72,23 +55,17 @@ class San_Mateo(BaseCitySpider):
         event["name"] = f"{self.city_display_name}, CA {meeting_name.strip()}"
         return event
 
-    def parse_search_query(self, response):
-        payload = self._load_json(response)
-        search_syn = payload.get("data")
-        if not isinstance(search_syn, str) or not search_syn.strip():
-            self.logger.error("San Mateo Laserfiche query builder returned no search syntax")
+    def parse_search_listing(self, response):
+        if self._is_session_limited_response(response):
+            yield from self._retry_session_limited_request(response)
             return
 
-        yield self._search_listing_request(
-            search_syn=search_syn,
-            search_uuid="",
-            start_idx=1,
-            get_new_listing=True,
-        )
-
-    def parse_search_listing(self, response):
         payload = self._load_json(response)
         data = payload.get("data") or {}
+        if not isinstance(data, dict):
+            self.logger.error("San Mateo Laserfiche listing returned invalid JSON payload")
+            return
+
         results = data.get("results") or []
         hit_count = int(data.get("hitCount") or 0)
         search_syn = data.get("command") or response.meta["search_syn"]
@@ -131,31 +108,40 @@ class San_Mateo(BaseCitySpider):
             )
 
     def _search_listing_request(self, search_syn, search_uuid, start_idx, get_new_listing):
-        end_idx = start_idx + self.page_size - 1
         return scrapy.Request(
             url=f"{self.portal_base}/SearchService.aspx/GetSearchListing",
             method="POST",
             headers=self._json_headers(),
             body=json.dumps(
-                {
-                    "repoName": self.repo_name,
-                    "searchSyn": search_syn,
-                    "searchUuid": search_uuid,
-                    "sortColumn": "LastModified",
-                    "startIdx": start_idx,
-                    "endIdx": end_idx,
-                    "getNewListing": get_new_listing,
-                    "sortOrder": 1,
-                    "displayInGridView": True,
-                }
+                self._search_listing_payload(
+                    search_syn=search_syn,
+                    search_uuid=search_uuid,
+                    start_idx=start_idx,
+                    get_new_listing=get_new_listing,
+                )
             ),
             callback=self.parse_search_listing,
             meta={
                 "search_syn": search_syn,
                 "search_uuid": search_uuid,
                 "start_idx": start_idx,
+                "search_retry_count": 0,
             },
         )
+
+    def _search_listing_payload(self, search_syn, search_uuid, start_idx, get_new_listing):
+        end_idx = start_idx + self.page_size - 1
+        return {
+            "repoName": self.repo_name,
+            "searchSyn": search_syn,
+            "searchUuid": search_uuid,
+            "sortColumn": "LastModified",
+            "startIdx": start_idx,
+            "endIdx": end_idx,
+            "getNewListing": get_new_listing,
+            "sortOrder": 1,
+            "displayInGridView": True,
+        }
 
     def _event_from_result(self, row):
         entry_id = row.get("entryId")
@@ -238,6 +224,46 @@ class San_Mateo(BaseCitySpider):
             "Content-Type": "application/json",
             "X-Lf-Suppress-Login-Redirect": "1",
         }
+
+    def _build_search_syn(self):
+        clauses = ['{[]:[Agency]="City Council"}', "{[Agenda Reports]}"]
+        if self._effective_last_meeting_date is None:
+            # The first San Mateo bootstrap only needs enough recent corpus to
+            # make onboarding decision-grade; later runs fall back to delta crawl.
+            bootstrap_start = datetime.date.today() - datetime.timedelta(days=self.bootstrap_days)
+            bootstrap_end = datetime.date.today()
+            clauses.append(
+                f'{{[]:[Date]>="{bootstrap_start.strftime("%-m/%-d/%Y")}", [Date]<="{bootstrap_end.strftime("%-m/%-d/%Y")}"}}'
+            )
+            self.logger.info("San Mateo bootstrap crawl window starts at %s", bootstrap_start)
+        return f"({' & '.join(clauses)})"
+
+    def _is_session_limited_response(self, response):
+        body = (response.text or "").lower()
+        return "sign in failed" in body and ("[9030]" in body or "session limit" in body)
+
+    def _retry_session_limited_request(self, response):
+        retry_count = int(response.meta.get("search_retry_count", 0))
+        if retry_count >= self.session_retry_limit:
+            self.logger.error(
+                "San Mateo Laserfiche listing hit session limits after %s retries",
+                retry_count,
+            )
+            return
+
+        next_attempt = retry_count + 1
+        self.logger.warning(
+            "Retrying San Mateo Laserfiche listing after session-limit response (%s/%s)",
+            next_attempt,
+            self.session_retry_limit,
+        )
+        yield response.request.replace(
+            dont_filter=True,
+            meta={
+                **response.meta,
+                "search_retry_count": next_attempt,
+            },
+        )
 
     def should_skip_meeting(self, meeting_date):
         if not meeting_date:

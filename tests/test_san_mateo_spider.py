@@ -22,7 +22,17 @@ def _json_response(url, payload, *, meta=None):
     )
 
 
-def test_san_mateo_start_requests_build_bootstrap_query(mocker):
+def _text_response(url, body, *, meta=None):
+    request = Request(url=url, meta=meta or {})
+    return TextResponse(
+        url=url,
+        body=body,
+        encoding="utf-8",
+        request=request,
+    )
+
+
+def test_san_mateo_start_requests_build_direct_bootstrap_listing_query(mocker):
     mocker.patch.object(San_Mateo, "_get_last_meeting_date", return_value=None)
     spider = San_Mateo()
 
@@ -31,35 +41,78 @@ def test_san_mateo_start_requests_build_bootstrap_query(mocker):
     assert len(requests) == 1
     request = requests[0]
     payload = json.loads(request.body.decode("utf-8"))
-    assert request.url.endswith("/CustomSearchService.aspx/GetSearchQuery")
-    assert request.method == "POST"
-    assert payload["repoName"] == "r-98a383e2"
-    assert payload["searchFormID"] == "SearchforAgendaReports"
-    assert payload["queryValues"]["SearchforAgendaReports_Input1"] == ["City Council"]
-    assert "SearchforAgendaReports_Input0" in payload["queryValues"]
-    assert "SearchforAgendaReports_Input0_end" in payload["queryValues"]
-
-
-def test_san_mateo_search_query_builds_listing_request(mocker):
-    mocker.patch.object(San_Mateo, "_get_last_meeting_date", return_value=None)
-    spider = San_Mateo()
-
-    response = _json_response(
-        "https://portal.laserfiche.com/Portal/CustomSearchService.aspx/GetSearchQuery",
-        {"data": '({[]:[Agency]="City Council"} & {[Agenda Reports]})'},
-    )
-    requests = list(spider.parse_search_query(response))
-
-    assert len(requests) == 1
-    request = requests[0]
-    payload = json.loads(request.body.decode("utf-8"))
     assert request.url.endswith("/SearchService.aspx/GetSearchListing")
     assert request.method == "POST"
     assert payload["repoName"] == "r-98a383e2"
-    assert payload["searchSyn"] == '({[]:[Agency]="City Council"} & {[Agenda Reports]})'
     assert payload["sortColumn"] == "LastModified"
     assert payload["sortOrder"] == 1
     assert payload["getNewListing"] is True
+    assert '{[]:[Agency]="City Council"}' in payload["searchSyn"]
+    assert "{[Agenda Reports]}" in payload["searchSyn"]
+    assert '[Date]>="' in payload["searchSyn"]
+    assert '[Date]<="' in payload["searchSyn"]
+
+
+def test_san_mateo_start_requests_omits_bootstrap_date_clause_when_delta_anchor_exists(mocker):
+    mocker.patch.object(San_Mateo, "_get_last_meeting_date", return_value=datetime.date(2026, 3, 1))
+    spider = San_Mateo()
+
+    requests = list(spider.start_requests())
+
+    assert len(requests) == 1
+    payload = json.loads(requests[0].body.decode("utf-8"))
+    assert payload["searchSyn"] == '({[]:[Agency]="City Council"} & {[Agenda Reports]})'
+
+
+def test_san_mateo_future_delta_anchor_falls_back_to_bootstrap_query(mocker):
+    mocker.patch.object(San_Mateo, "_get_last_meeting_date", return_value=datetime.date(3023, 4, 3))
+    spider = San_Mateo()
+
+    requests = list(spider.start_requests())
+
+    assert len(requests) == 1
+    payload = json.loads(requests[0].body.decode("utf-8"))
+    assert '{[]:[Agency]="City Council"}' in payload["searchSyn"]
+    assert '[Date]>="' in payload["searchSyn"]
+    assert '[Date]<="' in payload["searchSyn"]
+
+
+def test_san_mateo_listing_parser_retries_session_limit_response(mocker):
+    mocker.patch.object(San_Mateo, "_get_last_meeting_date", return_value=None)
+    spider = San_Mateo()
+
+    response = _text_response(
+        "https://portal.laserfiche.com/Portal/SearchService.aspx/GetSearchListing",
+        "Sign in failed because the number of sessions has reached the licensed limit. [9030]",
+        meta={"search_syn": "query", "search_uuid": "", "start_idx": 1, "search_retry_count": 0},
+    )
+
+    results = list(spider.parse_search_listing(response))
+
+    assert len(results) == 1
+    retry_request = results[0]
+    assert retry_request.dont_filter is True
+    assert retry_request.meta["search_retry_count"] == 1
+
+
+def test_san_mateo_listing_parser_stops_after_session_limit_retry_budget(mocker):
+    mocker.patch.object(San_Mateo, "_get_last_meeting_date", return_value=None)
+    spider = San_Mateo()
+
+    response = _text_response(
+        "https://portal.laserfiche.com/Portal/SearchService.aspx/GetSearchListing",
+        "Sign in failed because the number of sessions has reached the licensed limit. [9030]",
+        meta={
+            "search_syn": "query",
+            "search_uuid": "",
+            "start_idx": 1,
+            "search_retry_count": spider.session_retry_limit,
+        },
+    )
+
+    results = list(spider.parse_search_listing(response))
+
+    assert results == []
 
 
 def test_san_mateo_listing_parser_emits_city_council_agenda_documents(mocker):
@@ -87,7 +140,7 @@ def test_san_mateo_listing_parser_emits_city_council_agenda_documents(mocker):
     response = _json_response(
         "https://portal.laserfiche.com/Portal/SearchService.aspx/GetSearchListing",
         payload,
-        meta={"search_syn": "ignored", "search_uuid": "", "start_idx": 1},
+        meta={"search_syn": "ignored", "search_uuid": "", "start_idx": 1, "search_retry_count": 0},
     )
 
     results = list(spider.parse_search_listing(response))
@@ -107,30 +160,6 @@ def test_san_mateo_listing_parser_emits_city_council_agenda_documents(mocker):
             "category": "agenda",
         }
     ]
-
-
-def test_san_mateo_search_query_omits_bootstrap_start_when_delta_anchor_exists(mocker):
-    mocker.patch.object(San_Mateo, "_get_last_meeting_date", return_value=datetime.date(2026, 3, 1))
-    spider = San_Mateo()
-
-    requests = list(spider.start_requests())
-
-    assert len(requests) == 1
-    payload = json.loads(requests[0].body.decode("utf-8"))
-    assert payload["queryValues"] == {"SearchforAgendaReports_Input1": ["City Council"]}
-
-
-def test_san_mateo_future_delta_anchor_falls_back_to_bootstrap_query(mocker):
-    mocker.patch.object(San_Mateo, "_get_last_meeting_date", return_value=datetime.date(3023, 4, 3))
-    spider = San_Mateo()
-
-    requests = list(spider.start_requests())
-
-    assert len(requests) == 1
-    payload = json.loads(requests[0].body.decode("utf-8"))
-    assert payload["queryValues"]["SearchforAgendaReports_Input1"] == ["City Council"]
-    assert "SearchforAgendaReports_Input0" in payload["queryValues"]
-    assert "SearchforAgendaReports_Input0_end" in payload["queryValues"]
 
 
 def test_san_mateo_listing_parser_skips_invalid_rows_and_stops_after_old_page(mocker):
@@ -172,7 +201,7 @@ def test_san_mateo_listing_parser_skips_invalid_rows_and_stops_after_old_page(mo
     response = _json_response(
         "https://portal.laserfiche.com/Portal/SearchService.aspx/GetSearchListing",
         payload,
-        meta={"search_syn": "query", "search_uuid": "uuid-2", "start_idx": 1},
+        meta={"search_syn": "query", "search_uuid": "uuid-2", "start_idx": 1, "search_retry_count": 0},
     )
 
     results = list(spider.parse_search_listing(response))
@@ -204,7 +233,7 @@ def test_san_mateo_listing_parser_paginates_when_new_results_exist(mocker):
     response = _json_response(
         "https://portal.laserfiche.com/Portal/SearchService.aspx/GetSearchListing",
         payload,
-        meta={"search_syn": "query", "search_uuid": "", "start_idx": 1},
+        meta={"search_syn": "query", "search_uuid": "", "start_idx": 1, "search_retry_count": 0},
     )
 
     results = list(spider.parse_search_listing(response))
@@ -217,6 +246,7 @@ def test_san_mateo_listing_parser_paginates_when_new_results_exist(mocker):
     assert payload["searchUuid"] == "uuid-3"
     assert payload["startIdx"] == 51
     assert payload["getNewListing"] is False
+    assert next_request.meta["search_retry_count"] == 0
 
 
 def test_san_mateo_listing_parser_skips_implausible_future_dates(mocker):
@@ -244,7 +274,7 @@ def test_san_mateo_listing_parser_skips_implausible_future_dates(mocker):
     response = _json_response(
         "https://portal.laserfiche.com/Portal/SearchService.aspx/GetSearchListing",
         payload,
-        meta={"search_syn": "query", "search_uuid": "uuid-4", "start_idx": 1},
+        meta={"search_syn": "query", "search_uuid": "uuid-4", "start_idx": 1, "search_retry_count": 0},
     )
 
     results = list(spider.parse_search_listing(response))
