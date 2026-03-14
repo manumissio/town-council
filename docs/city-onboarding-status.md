@@ -1,6 +1,6 @@
 # City Onboarding Status
 
-Last updated: 2026-03-06
+Last updated: 2026-03-14
 
 This sheet tracks rollout readiness and quality gates per city.
 
@@ -9,8 +9,8 @@ This sheet tracks rollout readiness and quality gates per city.
 | berkeley | native | yes | yes | pass | 2026-02-17 |
 | cupertino | legistar | yes | yes | pass | 2026-02-17 |
 | fremont | existing | yes | no | pending | - |
-| hayward | existing | yes | no | fail | 2026-03-06 |
-| san_mateo | existing | yes | no | pending (insufficient_data) | 2026-03-06 |
+| hayward | existing | yes | no | pass | 2026-03-14 |
+| san_mateo | existing | yes | no | insufficient_data (crawler_empty) | 2026-03-14 |
 | sunnyvale | existing | yes | no | pending | - |
 | san_leandro | existing | yes | no | pending | - |
 | mtn_view | existing | yes | no | pending | - |
@@ -35,6 +35,8 @@ Quality gate policy (per city):
 Activation workflow note:
 - Hayward + San Mateo wave-1 activation uses `scripts/onboard_city_wave.sh` plus `scripts/evaluate_city_onboarding.py`.
 - Keep `enabled=no` until gate artifacts show pass (`city_gate_eval.json`/`city_gate_eval.md`).
-- Latest evidence run: `city_wave1_hayward_sanmateo_20260305_224127`
-  - Hayward: `fail` (segmentation complete/empty gate)
-  - San Mateo: `insufficient_data` (no city corpus yet)
+- Latest evidence runs:
+  - `city_wave1_hayward_sanmateo_20260313_210210`
+    - Hayward: `pass`
+  - `city_wave1_san_mateo_20260313_214557`
+    - San Mateo: `insufficient_data` with `crawler_empty` on all 3 runs because the COSM Legistar API returned repeated `500` responses and produced no staged city rows

@@ -9,6 +9,7 @@ sys.path.append(os.path.join(os.path.dirname(__file__), ".."))
 sys.path.append(os.path.join(os.path.dirname(__file__), "..", "council_crawler"))
 
 from templates.legistar_api import LegistarApi
+from council_crawler.spiders.ca_san_mateo import San_Mateo
 
 
 def test_legistar_api_spider_maps_event_fields_and_documents(mocker):
@@ -84,3 +85,33 @@ def test_legistar_api_spider_emits_no_documents_when_urls_missing(mocker):
     assert len(results) == 1
     assert results[0]["documents"] == []
 
+
+def test_san_mateo_spider_uses_legistar_api_contract(mocker):
+    mocker.patch.object(San_Mateo, "_get_last_meeting_date", return_value=None)
+    spider = San_Mateo()
+
+    mock_data = [
+        {
+            "EventBodyName": "City Council",
+            "EventDate": "2026-02-10T00:00:00",
+            "EventAgendaFile": "https://cosm.legistar.com/agenda.pdf",
+            "EventMinutesFile": "https://cosm.legistar.com/minutes.pdf",
+            "EventInSiteURL": "https://cosm.legistar.com/MeetingDetail.aspx?ID=789",
+        }
+    ]
+
+    url = "https://webapi.legistar.com/v1/cosm/events"
+    response = TextResponse(
+        url=url,
+        body=json.dumps(mock_data),
+        encoding="utf-8",
+        request=Request(url=url),
+    )
+
+    results = list(spider.parse(response))
+    assert len(results) == 1
+
+    event = results[0]
+    assert event["source"] == "san_mateo"
+    assert event["ocd_division_id"] == "ocd-division/country:us/state:ca/place:san_mateo"
+    assert [doc["category"] for doc in event["documents"]] == ["agenda", "minutes"]

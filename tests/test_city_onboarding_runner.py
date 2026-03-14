@@ -3,6 +3,11 @@ import os
 import subprocess
 from pathlib import Path
 
+from sqlalchemy import create_engine
+from sqlalchemy.orm import sessionmaker
+
+from pipeline.models import Base
+
 
 def test_onboarding_runner_subset_and_runs_emit_artifacts(tmp_path):
     run_id = "test_run"
@@ -60,3 +65,85 @@ def test_onboarding_runner_rejects_unknown_city(tmp_path):
     result = subprocess.run(cmd, text=True, capture_output=True, env=env)
     assert result.returncode == 2
     assert "is not in wave1" in result.stdout or "is not in wave1" in result.stderr
+
+
+def test_onboarding_runner_marks_empty_crawl_and_skips_downstream_steps(tmp_path):
+    run_id = "empty_crawl"
+    output_dir = tmp_path / "city_onboarding"
+    output_dir.mkdir(parents=True, exist_ok=True)
+
+    db_path = tmp_path / "crawler_empty.sqlite"
+    engine = create_engine(f"sqlite:///{db_path}")
+    Base.metadata.create_all(engine)
+    sessionmaker(bind=engine)()
+    engine.dispose()
+
+    bin_dir = tmp_path / "bin"
+    bin_dir.mkdir()
+    docker_log = tmp_path / "docker.log"
+    curl_log = tmp_path / "curl.log"
+
+    docker_stub = """#!/usr/bin/env bash
+set -euo pipefail
+printf '%s\\n' "$*" >> "$DOCKER_LOG"
+if [[ "$*" == *"scrapy crawl san_mateo"* ]]; then
+  exit 0
+fi
+if [[ "$*" == *"scripts/check_city_crawl_evidence.py"* ]]; then
+  printf '%s\\n' '{"city": "san_mateo", "event_stage_count": 0, "has_evidence": false, "url_stage_count": 0}'
+  exit 3
+fi
+echo "unexpected docker invocation: $*" >&2
+exit 99
+"""
+    curl_stub = """#!/usr/bin/env bash
+set -euo pipefail
+printf '%s\\n' "$*" >> "$CURL_LOG"
+exit 0
+"""
+
+    docker_path = bin_dir / "docker"
+    docker_path.write_text(docker_stub, encoding="utf-8")
+    docker_path.chmod(0o755)
+    curl_path = bin_dir / "curl"
+    curl_path.write_text(curl_stub, encoding="utf-8")
+    curl_path.chmod(0o755)
+
+    env = os.environ.copy()
+    env["DRY_RUN"] = "0"
+    env["DATABASE_URL"] = f"sqlite:///{db_path}"
+    env["DOCKER_LOG"] = str(docker_log)
+    env["CURL_LOG"] = str(curl_log)
+    env["PATH"] = f"{bin_dir}:{env['PATH']}"
+
+    cmd = [
+        "bash",
+        "scripts/onboard_city_wave.sh",
+        "wave1",
+        "--cities",
+        "san_mateo",
+        "--runs",
+        "1",
+        "--run-id",
+        run_id,
+        "--output-dir",
+        str(output_dir),
+    ]
+    result = subprocess.run(cmd, text=True, capture_output=True, env=env, check=True)
+
+    rows = [
+        json.loads(line)
+        for line in (output_dir / run_id / "runs.jsonl").read_text(encoding="utf-8").splitlines()
+        if line.strip()
+    ]
+    assert len(rows) == 1
+    row = rows[0]
+    assert row["crawler_status"] == "failed"
+    assert row["pipeline_status"] == "failed"
+    assert row["segmentation_status"] == "failed"
+    assert row["search_status"] == "failed"
+    assert row["error"] == "crawler_empty"
+    assert '"has_evidence": false' in result.stdout
+    assert "run_pipeline.py" not in docker_log.read_text(encoding="utf-8")
+    assert "segment_city_corpus.py" not in docker_log.read_text(encoding="utf-8")
+    assert not curl_log.exists()

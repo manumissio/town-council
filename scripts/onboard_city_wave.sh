@@ -137,7 +137,9 @@ mkdir -p "$RUN_DIR"
 
 PYTHON_BIN="${PYTHON_BIN:-}"
 if [[ -z "$PYTHON_BIN" ]]; then
-  if command -v python3 >/dev/null 2>&1; then
+  if [[ -x ".venv/bin/python" ]]; then
+    PYTHON_BIN=".venv/bin/python"
+  elif command -v python3 >/dev/null 2>&1; then
     PYTHON_BIN="python3"
   elif command -v python >/dev/null 2>&1; then
     PYTHON_BIN="python"
@@ -153,6 +155,19 @@ run_cmd() {
     return 0
   fi
   "$@"
+}
+
+check_crawl_evidence() {
+  local city="$1"
+  local started_at="$2"
+  local ended_at="$3"
+
+  if [[ "$DRY_RUN" == "1" ]]; then
+    echo "[dry-run] docker compose run --rm -w /app pipeline python scripts/check_city_crawl_evidence.py --city $city --start-at $started_at --end-at $ended_at"
+    return 0
+  fi
+
+  docker compose run --rm -w /app pipeline python scripts/check_city_crawl_evidence.py --city "$city" --start-at "$started_at" --end-at "$ended_at"
 }
 
 write_result() {
@@ -209,28 +224,39 @@ for city in "${cities[@]}"; do
     error_message=""
 
     if run_cmd docker compose run --rm crawler scrapy crawl "$city"; then
-      crawler_status="success"
-      # Onboarding gates need city-specific stability signals. Keep derived state
-      # intact between attempts to avoid full-dataset reprocessing on each run.
-      if run_cmd docker compose run --rm -e STARTUP_PURGE_DERIVED=false pipeline python run_pipeline.py; then
-        pipeline_status="success"
-        # Onboarding quality gates are only meaningful after segmentation has been
-        # attempted for the city's agenda corpus.
-        if run_cmd docker compose run --rm -w /app -e STARTUP_PURGE_DERIVED=false pipeline python scripts/segment_city_corpus.py --city "$city"; then
-          segmentation_status="success"
-          if run_cmd curl -fsS "http://localhost:8000/search?q=zoning&city=$city" >/dev/null; then
-            search_status="success"
+      crawl_finished_at="$(date -u +"%Y-%m-%dT%H:%M:%SZ")"
+      set +e
+      crawl_evidence_json="$(check_crawl_evidence "$city" "$started_at" "$crawl_finished_at")"
+      crawl_evidence_status=$?
+      set -e
+      echo "$crawl_evidence_json"
+      if [[ "$crawl_evidence_status" -eq 0 ]]; then
+        crawler_status="success"
+        # Onboarding gates need city-specific stability signals. Keep derived state
+        # intact between attempts to avoid full-dataset reprocessing on each run.
+        if run_cmd docker compose run --rm -e STARTUP_PURGE_DERIVED=false pipeline python run_pipeline.py; then
+          pipeline_status="success"
+          # Onboarding quality gates are only meaningful after segmentation has been
+          # attempted for the city's agenda corpus.
+          if run_cmd docker compose run --rm -w /app -e STARTUP_PURGE_DERIVED=false pipeline python scripts/segment_city_corpus.py --city "$city"; then
+            segmentation_status="success"
+            if run_cmd curl -fsS "http://localhost:8000/search?q=zoning&city=$city" >/dev/null; then
+              search_status="success"
+            else
+              search_status="failed"
+              error_message="search_smoke_failed"
+            fi
           else
-            search_status="failed"
-            error_message="search_smoke_failed"
+            segmentation_status="failed"
+            error_message="segmentation_failed"
           fi
         else
-          segmentation_status="failed"
-          error_message="segmentation_failed"
+          pipeline_status="failed"
+          error_message="pipeline_failed"
         fi
       else
-        pipeline_status="failed"
-        error_message="pipeline_failed"
+        crawler_status="failed"
+        error_message="crawler_empty"
       fi
     else
       crawler_status="failed"

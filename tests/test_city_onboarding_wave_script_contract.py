@@ -34,3 +34,5 @@ def test_onboarding_wave_script_contains_expected_waves():
     assert "non-empty extraction >=90%" in text
     assert "segmentation complete/empty >=95%" in text
     assert "scripts/segment_city_corpus.py --city" in text
+    assert "scripts/check_city_crawl_evidence.py" in text
+    assert "crawler_empty" in text

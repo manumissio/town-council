@@ -15,12 +15,14 @@ class LegistarApi(BaseCitySpider):
     client_name = '' # e.g. 'cupertino'
     
     def __init__(self, client='', city='', state='', *args, **kwargs):
-        # We set these before calling super().__init__ so the base class 
-        # can use them for the database lookup.
-        self.name = client or city
+        # Use canonical slug identity for storage while keeping the API client
+        # name separate so downstream filters are city-shaped, not host-shaped.
+        normalized_city = city.lower().replace(" ", "_")
+        self.name = normalized_city
+        self.client_name = client or normalized_city
         self.city_name = city
         self.state = state
-        self.ocd_division_id = f'ocd-division/country:us/state:{state.lower()}/place:{city.lower().replace(" ", "_")}'
+        self.ocd_division_id = f'ocd-division/country:us/state:{state.lower()}/place:{normalized_city}'
         
         super().__init__(*args, **kwargs)
 
@@ -29,7 +31,7 @@ class LegistarApi(BaseCitySpider):
         #
         # Important: Legistar's Web API can respond with XML unless we ask for JSON.
         # Scrapy's default Accept header prefers HTML/XML, so we override it here.
-        url = f'https://webapi.legistar.com/v1/{self.name}/events?$top=1000&$orderby=EventDate%20desc'
+        url = f'https://webapi.legistar.com/v1/{self.client_name}/events?$top=1000&$orderby=EventDate%20desc'
         yield scrapy.Request(
             url=url,
             callback=self.parse,

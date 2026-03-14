@@ -1,14 +1,14 @@
-from templates.legistar_cms import LegistarCms
+from templates.legistar_api import LegistarApi
 
-class San_Mateo(LegistarCms):
+class San_Mateo(LegistarApi):
     """
-    Spider for San Mateo, CA using the Legistar CMS template.
+    Spider for San Mateo, CA using the Legistar Web API.
     """
     name = 'san_mateo'
 
     def __init__(self, *args, **kwargs):
         super().__init__(
-            legistar_url='https://cosm.legistar.com/Calendar.aspx',
+            client='cosm',
             city='san mateo',
             state='ca',
             *args, **kwargs
