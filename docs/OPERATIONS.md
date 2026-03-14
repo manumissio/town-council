@@ -487,6 +487,9 @@ Notes:
 - `scripts/onboard_city_wave.sh` runs pipeline with `STARTUP_PURGE_DERIVED=false` to avoid wiping derived state between onboarding attempts.
 - `scripts/onboard_city_wave.sh` now attempts city-scoped agenda segmentation after `run_pipeline.py` so segmentation gates reflect attempted outcomes instead of lingering `null` statuses.
 - `scripts/onboard_city_wave.sh` now verifies that each crawl wrote city-attributable staging rows during the run window. A zero-exit crawl with no staged `event_stage`/`url_stage` evidence is recorded as `crawler_empty` and does not proceed to pipeline, segmentation, or search smoke.
+- San Mateo now uses the official city Laserfiche legislative-records portal as its primary onboarding source instead of COSM/PrimeGov. PrimeGov remains out of scope because `sanmateo.primegov.com` is robots-blocked.
+- San Mateo's Laserfiche spider emits canonical `san_mateo` source identity and uses a bounded bootstrap window when no trustworthy delta anchor exists.
+- Current San Mateo caveat: the crawl-evidence gate is working, but the official Laserfiche portal can still fail closed with session-limit responses during live onboarding runs. Treat `crawler_empty` on San Mateo as an upstream source-availability blocker until a fresh evidence run succeeds.
 - Legistar CMS crawlers now write normalized slug `Event.source` values (for example `san_mateo`) while onboarding evaluation still tolerates legacy spaced-name rows during transition.
 - Keep `enabled=no` for a city until `city_gate_eval.json` shows `quality_gate=pass`.
 

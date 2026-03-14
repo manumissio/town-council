@@ -41,3 +41,29 @@ def test_seed_places_includes_cupertino_from_repo_csv(mocker):
     finally:
         db.close()
         engine.dispose()
+
+
+def test_seed_places_updates_san_mateo_to_official_portal(mocker):
+    engine = create_engine("sqlite:///:memory:")
+    Base.metadata.create_all(engine)
+
+    mocker.patch("pipeline.seed_places.db_connect", return_value=engine)
+    mocker.patch("pipeline.seed_places.create_tables")
+    mocker.patch("pipeline.seed_places.os.path.exists", return_value=True)
+
+    seed_places()
+
+    Session = sessionmaker(bind=engine)
+    db = Session()
+    try:
+        place = (
+            db.query(Place)
+            .filter_by(ocd_division_id="ocd-division/country:us/state:ca/place:san_mateo")
+            .one()
+        )
+        assert (place.seed_url or "").startswith("https://www.cityofsanmateo.org/4588/")
+        assert "laserfiche" in (place.hosting_service or "")
+        assert place.legistar_client is None
+    finally:
+        db.close()
+        engine.dispose()
