@@ -12,7 +12,7 @@ Machine-readable rollout truth lives in `city_metadata/city_rollout_registry.csv
 | fremont | existing | yes | no | pending | - |
 | hayward | existing | yes | yes | pass | 2026-03-15 |
 | san_mateo | existing | yes | yes | pass | 2026-03-14 |
-| sunnyvale | existing | yes | no | pending | - |
+| sunnyvale | existing | yes | yes | pass | 2026-03-15 |
 | san_leandro | existing | yes | no | pending | - |
 | mtn_view | existing | yes | no | pending | - |
 | moraga | existing | yes | no | pending | - |
@@ -54,7 +54,7 @@ Activation workflow note:
 Current rollout interpretation:
 - San Mateo remains `enabled=yes` on the strength of its latest fresh-evidence passing run.
 - Hayward is now back to `enabled=yes` after proving the stable delta no-op confirmation path in a fresh paired wave-1 run.
-- Sunnyvale's latest first-time rerun now passes all evaluator gates, but the rollout registry is still intentionally `enabled=no` / `quality_gate=pending` until we explicitly promote it in `city_metadata/city_rollout_registry.csv`.
+- Sunnyvale is now promoted in `city_metadata/city_rollout_registry.csv` after the passing first-time rerun `city_wave1_sunnyvale_20260315_113626`.
 
 Latest wave-1 confirmation:
 - `city_wave1_hayward_sanmateo_20260314_213301`
@@ -109,4 +109,15 @@ Pending-city rewind notes:
       - `2026-03-09` Planning Commission: `agenda_segmentation_item_count=25`
       - `2026-03-10` City Council: `agenda_segmentation_item_count=40`
     - interpretation: filtering procedural Legistar wrapper rows before quality acceptance keeps these agendas on the deterministic source path and clears the residual Sunnyvale timeout class without changing evaluator thresholds
-  - San Leandro has been rewound successfully but not yet rerun after the cleanup window
+  - San Leandro runtime follow-up on `2026-03-15`:
+    - attempted rerun `city_wave1_san_leandro_20260315_125245` validated two operator-facing runtime changes:
+      - crawler launch now uses an explicit prebuilt-image check instead of relying on an implicit rebuild during the run
+      - onboarding pipeline now uses the `onboarding_fast` profile, which skips non-gating enrichment steps after extraction
+    - the live trace also sharpened the shared Legistar finding:
+      - San Leandro's tenant-specific `400` is raised during the Legistar `events` lookup itself, not only during `EventItems`
+      - result: the first Legistar capability-miss cache landed, but it was initially too narrow for San Leandro's actual failure boundary
+    - `pipeline/agenda_legistar.py` is now broadened so the same tenant-specific `400` is memoized at both the `events` lookup and `EventItems` lookup stages
+    - lightweight live probe after the patch:
+      - first call for `sanleandro` on `2026-03-16`: `item_count=0`, cache learned as `{'sanleandro': False}`
+      - second call for `sanleandro` on `2026-03-17`: `item_count=0`, returned immediately from cache without repeating the failed network lookup
+    - status: San Leandro still needs one fresh full rerun after the broadened capability cache patch before rollout promotion can be considered

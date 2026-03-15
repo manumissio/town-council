@@ -75,6 +75,13 @@ docker compose run --rm pipeline python run_pipeline.py
 - `scripts/onboard_city_wave.sh` runs the pipeline in an onboarding-scoped extraction mode.
 - That mode limits extraction to catalogs touched by the current city's staged URL set for the run window instead of waking up the full missing-content backlog.
 - It also reduces parallel extraction pressure (`PIPELINE_ONBOARDING_MAX_WORKERS=1`, smaller chunks) and disables OCR fallback for the onboarding pipeline run (`TIKA_OCR_FALLBACK_ENABLED=false`).
+- `PIPELINE_RUNTIME_PROFILE=onboarding_fast` now keeps onboarding on the gating path only:
+  - runs crawl, download/extract for touched catalogs, segmentation, and search indexing
+  - skips table extraction, organization backfill, topic modeling, and people linking during onboarding validation runs
+- `scripts/onboard_city_wave.sh` now performs an explicit crawler image preflight before running a city crawl.
+  - it resolves the crawler image name from `docker compose config --images`
+  - it fails fast with a rebuild instruction if that image is missing
+  - it does not rely on implicit rebuilds inside the onboarding run
 - The goal is decision-grade city verification without destabilizing Tika on unrelated historical backlog.
 
 ### PostgreSQL collation drift
@@ -145,6 +152,9 @@ docker compose start api worker frontend monitor
 - The timeout is controlled by `CITY_SEGMENTATION_TIMEOUT_SECONDS` and defaults to `120`.
 - `pipeline/agenda_resolver.py` now evaluates agenda sources lazily in the documented priority order `Legistar -> HTML -> LLM`, so deterministic sources can satisfy segmentation without paying the full LLM cost first.
 - Legistar exports are filtered before acceptance so portal wrapper rows like `Call to Order`, `Roll Call`, and meeting-header scaffolding do not force otherwise-structured agendas into the LLM fallback path.
+- `pipeline/agenda_legistar.py` now treats the known tenant-specific Legistar `400` (`Agenda Draft Status` / public visibility setting not configured) as an unsupported cross-check capability, not as a content-quality failure.
+  - the capability miss is memoized per client for the life of the process
+  - once detected, later agenda resolution skips the same doomed Legistar cross-check instead of repeating the same failed HTTP request for each catalog
 - On timeout, the script records a terminal catalog failure:
   - `agenda_segmentation_status=failed`
   - `agenda_segmentation_item_count=0`
