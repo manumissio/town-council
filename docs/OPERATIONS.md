@@ -60,6 +60,13 @@ docker compose run --rm pipeline python run_pipeline.py
 - It also reduces parallel extraction pressure (`PIPELINE_ONBOARDING_MAX_WORKERS=1`, smaller chunks) and disables OCR fallback for the onboarding pipeline run (`TIKA_OCR_FALLBACK_ENABLED=false`).
 - The goal is decision-grade city verification without destabilizing Tika on unrelated historical backlog.
 
+### Stable delta no-op confirmation
+- `scripts/onboard_city_wave.sh` now distinguishes first-time onboarding failures from previously passing delta-crawl no-ops.
+- If a city already has a verified fresh-evidence pass recorded in `city_metadata/city_rollout_registry.csv`, and the crawler exits successfully but stages no newer city-attributable rows, the run is recorded as `crawler_stable_noop`.
+- `crawler_stable_noop` skips pipeline, segmentation, and search smoke for that city in that run because there is no fresh touched corpus to process.
+- `scripts/evaluate_city_onboarding.py` treats that case as `pass` only for cities explicitly marked stable-no-op eligible in the rollout registry, and the output artifacts record the reason as `stable_delta_noop:<last_fresh_pass_run_id>`.
+- First-time onboarding cities still require fresh staged evidence; zero evidence remains `crawler_empty` for them.
+
 ### Optional: Reindex Meilisearch only (no extraction/AI)
 If you changed indexing logic (or you want to refresh search after cleaning up bad HTML in stored titles):
 ```bash
@@ -490,7 +497,9 @@ Artifacts:
 - `experiments/results/city_onboarding/<run_id>/city_gate_eval.md`
 
 Notes:
+- `city_metadata/city_rollout_registry.csv` is the source of truth for wave membership, enabled-city state, and latest verified rollout evidence. `city_metadata/list_of_cities.csv` remains static place/source metadata only.
 - `scripts/onboard_city_wave.sh` runs pipeline with `STARTUP_PURGE_DERIVED=false` to avoid wiping derived state between onboarding attempts.
+- `scripts/onboard_city_wave.sh` now loads `wave1` / `wave2` membership from the rollout registry instead of hardcoded shell arrays.
 - `scripts/onboard_city_wave.sh` now attempts city-scoped agenda segmentation after `run_pipeline.py` so segmentation gates reflect attempted outcomes instead of lingering `null` statuses.
 - `scripts/onboard_city_wave.sh` now verifies that each crawl wrote city-attributable staging rows during the run window. A zero-exit crawl with no staged `event_stage`/`url_stage` evidence is recorded as `crawler_empty` and does not proceed to pipeline, segmentation, or search smoke.
 - `scripts/evaluate_city_onboarding.py` now grades extraction and segmentation quality against the onboarding run's touched catalog set for that city, not the city's full historical backlog. Historical totals remain in the artifacts as diagnostic context.
@@ -498,7 +507,7 @@ Notes:
 - San Mateo's Laserfiche spider emits canonical `san_mateo` source identity, uses a bounded bootstrap window when no trustworthy delta anchor exists, and builds the known-good Laserfiche listing query directly instead of depending on `CustomSearchService.aspx/GetSearchQuery`.
 - Latest verified San Mateo evidence run is `city_wave1_san_mateo_20260314_004358`, which completed with `quality_gate=pass` under the run-window denominator.
 - Legistar CMS crawlers now write normalized slug `Event.source` values (for example `san_mateo`) while onboarding evaluation still tolerates legacy spaced-name rows during transition.
-- Keep `enabled=no` for a city until `city_gate_eval.json` shows `quality_gate=pass`.
+- Flip `enabled` in `city_metadata/city_rollout_registry.csv` only after a city's latest verification artifacts show `quality_gate=pass`.
 
 ### Host profiles (recommended)
 

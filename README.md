@@ -143,6 +143,7 @@ For detailed rollout status, milestones, and policy:
 City onboarding truth:
 - use [`docs/OPERATIONS.md`](docs/OPERATIONS.md) for the runnable onboarding flow and artifact commands
 - use [`docs/city-onboarding-status.md`](docs/city-onboarding-status.md) for current city-by-city rollout status and latest verified run IDs
+- use [`city_metadata/city_rollout_registry.csv`](city_metadata/city_rollout_registry.csv) as the machine-readable source of rollout wave membership and enabled-city state
 
 Canonical initiative names:
 - Decision Integrity

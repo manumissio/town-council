@@ -144,6 +144,8 @@ flowchart LR
 3. Onboarding-scoped extraction processes only the run's touched catalogs that still need work, instead of waking the full backlog.
 4. City-scoped agenda segmentation is attempted before gate evaluation.
 5. `scripts/evaluate_city_onboarding.py` grades extraction and segmentation against the run-window touched corpus for that city, while keeping historical totals as diagnostic context.
+6. Previously passing delta-crawl cities may confirm through an explicit stable-no-op path when the crawler succeeds but the live portal has no newer rows than the stored crawl anchor; this path is auditable and does not weaken first-time onboarding requirements.
+7. Rollout wave membership and enabled-city state live in `city_metadata/city_rollout_registry.csv`, separate from static city source metadata in `city_metadata/list_of_cities.csv`.
 
 #### Async user-triggered generation
 1. UI calls protected write endpoints.

@@ -11,29 +11,6 @@ OUTPUT_DIR="experiments/results/city_onboarding"
 WAVE="${1:-wave1}"
 shift || true
 
-wave1=(
-  fremont
-  hayward
-  san_mateo
-  sunnyvale
-  san_leandro
-  mtn_view
-  moraga
-  belmont
-)
-
-wave2=(
-  orinda
-  brisbane
-  danville
-  los_gatos
-  los_altos
-  palo_alto
-  san_bruno
-  east_palo_alto
-  santa_clara
-)
-
 usage() {
   cat <<EOF
 usage: $0 [wave1|wave2] [--cities city1,city2] [--runs N] [--run-id ID] [--output-dir PATH]
@@ -42,6 +19,33 @@ EOF
 
 if [[ "$WAVE" != "wave1" && "$WAVE" != "wave2" ]]; then
   usage
+  exit 2
+fi
+
+PYTHON_BIN="${PYTHON_BIN:-}"
+if [[ -z "$PYTHON_BIN" ]]; then
+  if [[ -x ".venv/bin/python" ]]; then
+    PYTHON_BIN=".venv/bin/python"
+  elif command -v python3 >/dev/null 2>&1; then
+    PYTHON_BIN="python3"
+  elif command -v python >/dev/null 2>&1; then
+    PYTHON_BIN="python"
+  else
+    echo "python interpreter not found (set PYTHON_BIN)"
+    exit 127
+  fi
+fi
+
+ROLLOUT_REGISTRY_PATH="city_metadata/city_rollout_registry.csv"
+
+wave_cities_text="$("$PYTHON_BIN" scripts/rollout_registry.py --wave "$WAVE")" || {
+  echo "Failed to load rollout registry from $ROLLOUT_REGISTRY_PATH"
+  exit 2
+}
+mapfile -t wave_cities <<< "$wave_cities_text"
+
+if [[ ${#wave_cities[@]} -eq 0 ]]; then
+  echo "No cities configured for $WAVE in $ROLLOUT_REGISTRY_PATH"
   exit 2
 fi
 
@@ -79,12 +83,6 @@ done
 if ! [[ "$RUNS" =~ ^[0-9]+$ ]] || [[ "$RUNS" -lt 1 ]]; then
   echo "--runs must be a positive integer"
   exit 2
-fi
-
-if [[ "$WAVE" == "wave1" ]]; then
-  wave_cities=("${wave1[@]}")
-else
-  wave_cities=("${wave2[@]}")
 fi
 
 city_allowed() {
@@ -135,20 +133,6 @@ RESULTS_JSONL="${RUN_DIR}/runs.jsonl"
 mkdir -p "$RUN_DIR"
 : > "$RESULTS_JSONL"
 
-PYTHON_BIN="${PYTHON_BIN:-}"
-if [[ -z "$PYTHON_BIN" ]]; then
-  if [[ -x ".venv/bin/python" ]]; then
-    PYTHON_BIN=".venv/bin/python"
-  elif command -v python3 >/dev/null 2>&1; then
-    PYTHON_BIN="python3"
-  elif command -v python >/dev/null 2>&1; then
-    PYTHON_BIN="python"
-  else
-    echo "python interpreter not found (set PYTHON_BIN)"
-    exit 127
-  fi
-fi
-
 run_cmd() {
   if [[ "$DRY_RUN" == "1" ]]; then
     echo "[dry-run] $*"
@@ -170,6 +154,12 @@ check_crawl_evidence() {
   docker compose run --rm -w /app pipeline python scripts/check_city_crawl_evidence.py --city "$city" --start-at "$started_at" --end-at "$ended_at"
 }
 
+registry_field() {
+  local city="$1"
+  local field="$2"
+  "$PYTHON_BIN" scripts/rollout_registry.py --city "$city" --field "$field"
+}
+
 write_result() {
   local city="$1"
   local run_index="$2"
@@ -183,6 +173,8 @@ write_result() {
   local overall_status
 
   if [[ "$crawler_status" == "success" && "$pipeline_status" == "success" && "$segmentation_status" == "success" && "$search_status" == "success" ]]; then
+    overall_status="success"
+  elif [[ "$crawler_status" == "crawler_stable_noop" && "$pipeline_status" == "skipped" && "$segmentation_status" == "skipped" && "$search_status" == "skipped" ]]; then
     overall_status="success"
   else
     overall_status="failed"
@@ -215,6 +207,9 @@ PY
 
 for city in "${cities[@]}"; do
   echo "=== onboarding city: $city ($WAVE) ==="
+  echo "using rollout registry: $ROLLOUT_REGISTRY_PATH"
+  stable_noop_eligible="$(registry_field "$city" stable_noop_eligible)"
+  last_fresh_pass_run_id="$(registry_field "$city" last_fresh_pass_run_id)"
   for ((run_index=1; run_index<=RUNS; run_index++)); do
     started_at="$(date -u +"%Y-%m-%dT%H:%M:%SZ")"
     crawler_status="failed"
@@ -261,6 +256,16 @@ for city in "${cities[@]}"; do
           pipeline_status="failed"
           error_message="pipeline_failed"
         fi
+      elif [[ "$crawl_evidence_status" -eq 3 && "$stable_noop_eligible" == "yes" ]]; then
+        # A previously passing city may have nothing newer than its delta anchor.
+        # Keep this distinct from a true empty onboarding city so rollout confirmation
+        # can remain strict for new cities without penalizing healthy no-op deltas.
+        crawler_status="crawler_stable_noop"
+        pipeline_status="skipped"
+        segmentation_status="skipped"
+        search_status="skipped"
+        error_message="stable_delta_noop:${last_fresh_pass_run_id}"
+        echo "stable delta no-op confirmation for $city via $last_fresh_pass_run_id"
       else
         crawler_status="failed"
         error_message="crawler_empty"
