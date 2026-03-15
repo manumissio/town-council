@@ -1,6 +1,6 @@
 # Operations Runbook
 
-Last updated: 2026-03-14
+Last updated: 2026-03-15
 
 ## Core workflow
 
@@ -105,6 +105,36 @@ docker compose start api worker frontend monitor
 - `crawler_stable_noop` skips pipeline, segmentation, and search smoke for that city in that run because there is no fresh touched corpus to process.
 - `scripts/evaluate_city_onboarding.py` treats that case as `pass` only for cities explicitly marked stable-no-op eligible in the rollout registry, and the output artifacts record the reason as `stable_delta_noop:<last_fresh_pass_run_id>`.
 - First-time onboarding cities still require fresh staged evidence; zero evidence remains `crawler_empty` for them.
+
+### First-time onboarding verification mode
+- `scripts/onboard_city_wave.sh` now writes `verification_mode` into `runs.jsonl` for every onboarding attempt.
+- Cities with `quality_gate=pass` in the rollout registry run in `confirmation` mode.
+- Cities still in `pending` or `fail` state run in `first_time_onboarding` mode.
+- First-time onboarding still keeps the 3-run evidence policy, but the runner now restores the city's verification state between runs 2 and 3 so delta crawlers are measured against the same pre-run anchor instead of self-advancing after run 1.
+- The reset is city-scoped and only removes event/document state created during the current first-time verification window; it does not broaden into a full database rollback.
+- If run 1 for a first-time city stages no evidence, the runner stops that city immediately instead of spending runs 2 and 3 on guaranteed `crawler_empty` repeats.
+
+### Pending-city rewind recovery
+- Use this only when a pending city was contaminated by pre-fix first-time onboarding runs that advanced its delta anchor before the current runner semantics existed.
+- The supported recovery entrypoint is `scripts/rewind_pending_city_onboarding.py`.
+- Safety rules:
+  - dry-run first
+  - city must still be `enabled=no`
+  - city must still have `quality_gate` of `pending` or `fail`
+  - stop write-capable services before `--apply`
+- The rewind deletes only city-scoped verification-era state:
+  - `event`
+  - linked `document`
+  - unreferenced `catalog`
+  - linked derived agenda/embedding rows via existing cascades
+- Example shape:
+
+```bash
+docker compose stop api worker pipeline crawler frontend monitor
+docker compose run --rm -w /app pipeline python scripts/rewind_pending_city_onboarding.py --city sunnyvale --since 2026-03-15T02:08:17Z
+docker compose run --rm -w /app pipeline python scripts/rewind_pending_city_onboarding.py --city sunnyvale --since 2026-03-15T02:08:17Z --apply
+docker compose start api worker frontend monitor
+```
 
 ### Optional: Reindex Meilisearch only (no extraction/AI)
 If you changed indexing logic (or you want to refresh search after cleaning up bad HTML in stored titles):
