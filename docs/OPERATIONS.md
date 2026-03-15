@@ -43,6 +43,23 @@ docker compose run --rm api python -c "import bs4; print('bs4', bs4.__version__)
 for i in {1..20}; do curl -fsS http://localhost:8000/health && break; sleep 1; done
 ```
 
+### 1.6) Verify stack health contracts
+Use this after `docker compose up -d --build` and before running onboarding or soak flows.
+
+```bash
+docker ps --format '{{.Names}} {{.Status}}'
+docker compose logs --tail=120 tika
+docker compose logs --tail=120 worker
+docker compose logs --tail=120 frontend
+docker compose exec -T postgres psql -U town_council -d town_council_db -c "SELECT datname, datcollversion, pg_database_collation_actual_version(oid) AS actual_collversion FROM pg_database WHERE datname = current_database();"
+```
+
+Expected signals:
+- `tika` should become `healthy` via an in-container `wget` probe to `127.0.0.1:9998/tika`.
+- `worker` should become `healthy` only after its metrics listener is up and its Redis/Postgres dependencies are reachable.
+- `frontend` should become `healthy` via an in-container `wget` probe to `127.0.0.1:3000/`.
+- If the Postgres query reports mismatched collation versions, treat that as operator maintenance debt before long validation runs.
+
 ### 2) Scrape
 ```bash
 docker compose run --rm crawler scrapy crawl berkeley
@@ -59,6 +76,28 @@ docker compose run --rm pipeline python run_pipeline.py
 - That mode limits extraction to catalogs touched by the current city's staged URL set for the run window instead of waking up the full missing-content backlog.
 - It also reduces parallel extraction pressure (`PIPELINE_ONBOARDING_MAX_WORKERS=1`, smaller chunks) and disables OCR fallback for the onboarding pipeline run (`TIKA_OCR_FALLBACK_ENABLED=false`).
 - The goal is decision-grade city verification without destabilizing Tika on unrelated historical backlog.
+
+### PostgreSQL collation drift
+- Detect the current state with:
+
+```bash
+docker compose run --rm -w /app pipeline python scripts/check_postgres_collation.py
+docker compose run --rm -w /app pipeline python scripts/check_postgres_collation.py --json
+```
+
+- A non-zero exit means the stored database collation version does not match the container OS collation version.
+- Do not auto-repair this on startup.
+- Guarded local repair flow:
+
+```bash
+docker compose stop api worker pipeline crawler frontend monitor
+docker compose exec -T postgres psql -U town_council -d town_council_db -c "REINDEX DATABASE town_council_db;"
+docker compose exec -T postgres psql -U town_council -d town_council_db -c "ALTER DATABASE town_council_db REFRESH COLLATION VERSION;"
+docker compose start api worker frontend monitor
+```
+
+- Why this is guarded:
+  The server warning explicitly requires rebuilding collation-sensitive objects before refreshing the database metadata version. For this local stack, `REINDEX DATABASE` is the supported first step; if you have additional custom collation-sensitive objects outside normal indexes, repair them before refreshing the database version marker.
 
 ### Stable delta no-op confirmation
 - `scripts/onboard_city_wave.sh` now distinguishes first-time onboarding failures from previously passing delta-crawl no-ops.
