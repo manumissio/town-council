@@ -54,6 +54,7 @@ Activation workflow note:
 Current rollout interpretation:
 - San Mateo remains `enabled=yes` on the strength of its latest fresh-evidence passing run.
 - Hayward is now back to `enabled=yes` after proving the stable delta no-op confirmation path in a fresh paired wave-1 run.
+- Sunnyvale's latest first-time rerun now passes all evaluator gates, but the rollout registry is still intentionally `enabled=no` / `quality_gate=pending` until we explicitly promote it in `city_metadata/city_rollout_registry.csv`.
 
 Latest wave-1 confirmation:
 - `city_wave1_hayward_sanmateo_20260314_213301`
@@ -99,4 +100,13 @@ Pending-city rewind notes:
       - `2026-03-09` Planning Commission
       - `2026-03-10` City Council
     - interpretation: lazy source ordering reduced unnecessary LLM work but did not remove the remaining slow-path timeout class, so the next blocker is now the residual LLM fallback latency on those two Sunnyvale catalogs
+  - Sunnyvale rerun `city_wave1_sunnyvale_20260315_113626` validated the Legistar acceptance root-cause fix
+    - all 3 runs: `success`
+    - segmentation touched `10` agenda catalogs and terminated with `10` complete, `0` empty, `0` failed, `0` timed_out
+    - evaluator result: `pass`
+    - gate reason: `fresh_evidence`
+    - former timeout pair now resolve deterministically as `complete`:
+      - `2026-03-09` Planning Commission: `agenda_segmentation_item_count=25`
+      - `2026-03-10` City Council: `agenda_segmentation_item_count=40`
+    - interpretation: filtering procedural Legistar wrapper rows before quality acceptance keeps these agendas on the deterministic source path and clears the residual Sunnyvale timeout class without changing evaluator thresholds
   - San Leandro has been rewound successfully but not yet rerun after the cleanup window

@@ -144,6 +144,7 @@ docker compose start api worker frontend monitor
 - `scripts/segment_city_corpus.py` now bounds per-catalog agenda segmentation instead of letting one stuck catalog hang the whole city run indefinitely.
 - The timeout is controlled by `CITY_SEGMENTATION_TIMEOUT_SECONDS` and defaults to `120`.
 - `pipeline/agenda_resolver.py` now evaluates agenda sources lazily in the documented priority order `Legistar -> HTML -> LLM`, so deterministic sources can satisfy segmentation without paying the full LLM cost first.
+- Legistar exports are filtered before acceptance so portal wrapper rows like `Call to Order`, `Roll Call`, and meeting-header scaffolding do not force otherwise-structured agendas into the LLM fallback path.
 - On timeout, the script records a terminal catalog failure:
   - `agenda_segmentation_status=failed`
   - `agenda_segmentation_item_count=0`
