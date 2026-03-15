@@ -130,3 +130,35 @@ def test_run_table_pipeline_submits_jobs_and_counts_progress(mocker):
 
     assert future1.result.called
     assert future2.result.called
+
+
+def test_run_table_pipeline_uses_spawn_context_for_worker_pool(mocker):
+    tw, _camelot = _load_table_worker(mocker)
+    docs = [SimpleNamespace(id=1)]
+    session = mocker.MagicMock()
+    session.query.return_value.filter.return_value.all.return_value = docs
+    mocker.patch.object(tw, "db_session", return_value=_Ctx(session))
+    mocker.patch.object(tw, "cpu_count", return_value=2)
+    spawn_ctx = object()
+    get_context = mocker.patch.object(tw, "get_context", return_value=spawn_ctx)
+
+    future = mocker.MagicMock()
+    future.result.return_value = 1
+
+    class ExecCtx:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *_):
+            return False
+
+        def submit(self, *_):
+            return future
+
+    executor_factory = mocker.patch.object(tw, "ProcessPoolExecutor", return_value=ExecCtx())
+    mocker.patch.object(tw, "as_completed", return_value=[future])
+
+    tw.run_table_pipeline()
+
+    get_context.assert_called_once_with("spawn")
+    executor_factory.assert_called_once_with(max_workers=1, mp_context=spawn_ctx)

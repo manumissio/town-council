@@ -3,7 +3,7 @@ import camelot
 import json
 import logging
 from concurrent.futures import ProcessPoolExecutor, as_completed
-from multiprocessing import cpu_count
+from multiprocessing import cpu_count, get_context
 from sqlalchemy.exc import SQLAlchemyError
 
 from pipeline.models import Catalog
@@ -156,7 +156,8 @@ def run_table_pipeline():
     processed = 0
     # ProcessPoolExecutor creates separate Python processes (true parallelism)
     # Each process gets its own memory space and runs independently
-    with ProcessPoolExecutor(max_workers=workers) as executor:
+    # Use spawn here so PDF workers do not inherit parent-process DB/libpq state.
+    with ProcessPoolExecutor(max_workers=workers, mp_context=get_context("spawn")) as executor:
         # Submit all jobs to the executor
         # futures is a dictionary: {Future object: catalog_id}
         futures = {executor.submit(process_single_pdf, cid): cid for cid in ids}
