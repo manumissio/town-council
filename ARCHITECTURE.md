@@ -1,6 +1,6 @@
 # Town Council Architecture (2026)
 
-Last updated: 2026-03-01
+Last updated: 2026-03-14
 
 ## 1) System Overview
 
@@ -138,6 +138,13 @@ flowchart LR
 3. Indexer publishes meeting and agenda-item documents to Meilisearch.
 4. Semantic embedding hydration populates `semantic_embedding`.
 
+#### City onboarding and rollout evaluation
+1. `scripts/onboard_city_wave.sh` runs wave-scoped crawl attempts and records per-run artifacts.
+2. Crawl success requires city-attributable staging evidence, not just a zero spider exit code.
+3. Onboarding-scoped extraction processes only the run's touched catalogs that still need work, instead of waking the full backlog.
+4. City-scoped agenda segmentation is attempted before gate evaluation.
+5. `scripts/evaluate_city_onboarding.py` grades extraction and segmentation against the run-window touched corpus for that city, while keeping historical totals as diagnostic context.
+
 #### Async user-triggered generation
 1. UI calls protected write endpoints.
 2. API enqueues Celery tasks in Redis.
@@ -254,7 +261,7 @@ Primary owners:
 
 ### Code Map by Concern
 
-- Ingestion and promotion: `crawler/`, `crawler/promote_stage.py`
+- Ingestion and promotion: `council_crawler/`, `crawler/promote_stage.py`
 - Canonical extraction/content hashing: `pipeline/extraction_service.py`, `pipeline/content_hash.py`
 - Async orchestration and writes: `pipeline/tasks.py`
 - Inference abstraction and provider telemetry: `pipeline/llm.py`, `pipeline/llm_provider.py`, `pipeline/metrics.py`
@@ -262,6 +269,7 @@ Primary owners:
 - Semantic retrieval and embeddings: `pipeline/semantic_index.py`, `pipeline/models.py`
 - Frontend query/task UX: `frontend/app/page.js`, `frontend/state/search-state.js`, `frontend/components/ResultCard.js`
 - Data model and persistence: `pipeline/models.py`, migrations in `pipeline/migrate_*.py`
+- Onboarding orchestration and evaluation: `scripts/onboard_city_wave.sh`, `scripts/check_city_crawl_evidence.py`, `scripts/evaluate_city_onboarding.py`
 
 ### Runtime Lifecycles
 
@@ -276,6 +284,13 @@ Primary owners:
 2. API enqueues task in Redis-backed Celery queue.
 3. Worker executes pipeline logic and persists results.
 4. UI polls `/tasks/{task_id}` until terminal state.
+
+#### Onboarding lifecycle
+1. Wave runner starts a city crawl and verifies run-window staging evidence in `event_stage` / `url_stage`.
+2. Promotion and downloader resolve touched URLs into canonical `catalog` rows.
+3. Onboarding-scoped extraction processes only touched catalogs that still need extraction/entity work.
+4. City-scoped segmentation attempts agenda extraction for the touched corpus.
+5. Gate evaluation scores the onboarding run against run-window attributable catalogs instead of the city's full historical backlog.
 
 #### Inference lifecycle
 1. `LocalAI` selects transport (`InProcessLlamaProvider` or `HttpInferenceProvider`) based on configured backend.
@@ -392,7 +407,8 @@ Owners:
 - Operator runbook and commands: [`docs/OPERATIONS.md`](docs/OPERATIONS.md)
 - Benchmark numbers and reproducibility: [`docs/PERFORMANCE.md`](docs/PERFORMANCE.md)
 - Milestone sequencing and status: [`ROADMAP.md`](ROADMAP.md)
-- City onboarding workflow: [`docs/CONTRIBUTING_CITIES.md`](docs/CONTRIBUTING_CITIES.md)
+- City onboarding workflow and latest rollout evidence: [`docs/OPERATIONS.md`](docs/OPERATIONS.md), [`docs/city-onboarding-status.md`](docs/city-onboarding-status.md)
+- Adding new city crawlers: [`docs/CONTRIBUTING_CITIES.md`](docs/CONTRIBUTING_CITIES.md)
 
 ### Decision Log Index
 

@@ -10,7 +10,7 @@ Pipeline internals note:
 Path note:
 - Set `REPO_ROOT` once to avoid machine-specific absolute paths in commands:
 ```bash
-REPO_ROOT="/Users/dennisshah/GitHub/town-council"
+REPO_ROOT="<REPO_ROOT>"
 cd "$REPO_ROOT"
 ```
 
@@ -496,7 +496,7 @@ Notes:
 - `scripts/evaluate_city_onboarding.py` now grades extraction and segmentation quality against the onboarding run's touched catalog set for that city, not the city's full historical backlog. Historical totals remain in the artifacts as diagnostic context.
 - San Mateo now uses the official city Laserfiche legislative-records portal as its primary onboarding source instead of COSM/PrimeGov. PrimeGov remains out of scope because `sanmateo.primegov.com` is robots-blocked.
 - San Mateo's Laserfiche spider emits canonical `san_mateo` source identity, uses a bounded bootstrap window when no trustworthy delta anchor exists, and builds the known-good Laserfiche listing query directly instead of depending on `CustomSearchService.aspx/GetSearchQuery`.
-- Current San Mateo caveat: the crawl-evidence gate is working, but the official Laserfiche portal can still fail closed with session-limit responses during live onboarding runs. Treat `crawler_empty` on San Mateo as an upstream source-availability blocker until a fresh evidence run succeeds.
+- Latest verified San Mateo evidence run is `city_wave1_san_mateo_20260314_004358`, which completed with `quality_gate=pass` under the run-window denominator.
 - Legistar CMS crawlers now write normalized slug `Event.source` values (for example `san_mateo`) while onboarding evaluation still tolerates legacy spaced-name rows during transition.
 - Keep `enabled=no` for a city until `city_gate_eval.json` shows `quality_gate=pass`.
 

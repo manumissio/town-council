@@ -116,6 +116,7 @@ docker compose --env-file env/profiles/desktop_balanced.env up -d --build infere
 - Local default:
   - required path for all contributors
   - all tracked defaults target local compose services
+  - the default Docker Compose stack uses `LOCAL_AI_BACKEND=http` with a prefork worker (`WORKER_POOL=prefork`, `WORKER_CONCURRENCY=3`)
 - Soak baseline mode:
   - use local baseline profile and keep run conditions consistent day-to-day
   - do not mix optional remote acceleration into baseline soak windows
@@ -129,11 +130,19 @@ docker compose --env-file env/profiles/desktop_balanced.env up -d --build infere
 - Keep contributor setup local-first.
 - Do not rely on silent fallback between remote and local inference modes.
 
+Current compose default:
+- The checked-in `docker-compose.yml` defaults to the HTTP inference backend (`LOCAL_AI_BACKEND=http`) and starts the worker as `prefork` with concurrency `3`.
+- That is a local-first default because the HTTP inference service is part of the local Compose stack, not a required remote dependency.
+
 For detailed rollout status, milestones, and policy:
 - [`ROADMAP.md`](ROADMAP.md)
 - [`docs/OPERATIONS.md`](docs/OPERATIONS.md)
 - [`docs/PERFORMANCE.md`](docs/PERFORMANCE.md)
 - [`docs/city-onboarding-status.md`](docs/city-onboarding-status.md)
+
+City onboarding truth:
+- use [`docs/OPERATIONS.md`](docs/OPERATIONS.md) for the runnable onboarding flow and artifact commands
+- use [`docs/city-onboarding-status.md`](docs/city-onboarding-status.md) for current city-by-city rollout status and latest verified run IDs
 
 Canonical initiative names:
 - Decision Integrity
@@ -182,13 +191,14 @@ For complete troubleshooting (auth, stale/blocked/not-generated states, startup 
 - [`docs/OPERATIONS.md`](docs/OPERATIONS.md)
 
 ## Documentation Map
-- Roadmap / milestone status: [`ROADMAP.md`](ROADMAP.md)
-- Pipeline deep-dive (batch + async): [`docs/PIPELINE.md`](docs/PIPELINE.md)
-- Operations runbook: [`docs/OPERATIONS.md`](docs/OPERATIONS.md)
-- Performance metrics + reproducibility: [`docs/PERFORMANCE.md`](docs/PERFORMANCE.md)
-- Adding a new city crawler: [`docs/CONTRIBUTING_CITIES.md`](docs/CONTRIBUTING_CITIES.md)
-- System architecture: [`ARCHITECTURE.md`](ARCHITECTURE.md)
-- AI collaboration contract: [`AGENTS.md`](AGENTS.md)
+- Start here for architecture intent and system boundaries: [`ARCHITECTURE.md`](ARCHITECTURE.md)
+- Use the runnable operator procedures and troubleshooting guide: [`docs/OPERATIONS.md`](docs/OPERATIONS.md)
+- Use the pipeline deep-dive for batch + async behavior details: [`docs/PIPELINE.md`](docs/PIPELINE.md)
+- Use rollout and milestone status: [`ROADMAP.md`](ROADMAP.md)
+- Use city rollout truth and latest onboarding evidence: [`docs/city-onboarding-status.md`](docs/city-onboarding-status.md)
+- Use reproducibility and performance notes: [`docs/PERFORMANCE.md`](docs/PERFORMANCE.md)
+- Use contributor guidance for new crawlers: [`docs/CONTRIBUTING_CITIES.md`](docs/CONTRIBUTING_CITIES.md)
+- Use repo policy and collaboration constraints: [`AGENTS.md`](AGENTS.md)
 
 ## Documentation Maintenance Checklist
 Update docs when you change:
