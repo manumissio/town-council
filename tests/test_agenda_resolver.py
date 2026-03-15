@@ -46,6 +46,8 @@ def test_resolver_prefers_legistar_when_available(mocker):
     resolved = agenda_resolver.resolve_agenda_items(mock_session, catalog, doc, local_ai)
     assert resolved["source_used"] == "legistar"
     assert len(resolved["items"]) == 2
+    local_ai.extract_agenda.assert_not_called()
+    assert resolved["llm_fallback_invoked"] is False
 
 
 def test_resolver_falls_back_to_html_then_llm(mocker):
@@ -66,6 +68,8 @@ def test_resolver_falls_back_to_html_then_llm(mocker):
     )
     resolved_html = agenda_resolver.resolve_agenda_items(mock_session, catalog, doc, local_ai)
     assert resolved_html["source_used"] == "html"
+    local_ai.extract_agenda.assert_not_called()
+    assert resolved_html["llm_fallback_invoked"] is False
 
     mocker.patch.object(
         agenda_resolver,
@@ -74,3 +78,5 @@ def test_resolver_falls_back_to_html_then_llm(mocker):
     )
     resolved_llm = agenda_resolver.resolve_agenda_items(mock_session, catalog, doc, local_ai)
     assert resolved_llm["source_used"] == "llm"
+    local_ai.extract_agenda.assert_called_once_with("text")
+    assert resolved_llm["llm_fallback_invoked"] is True

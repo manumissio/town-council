@@ -1,4 +1,5 @@
 from datetime import datetime, timezone
+import logging
 
 from sqlalchemy import and_, or_
 from sqlalchemy.exc import SQLAlchemyError
@@ -9,6 +10,9 @@ from pipeline.config import AGENDA_BATCH_SIZE
 from pipeline.llm import LocalAI
 from pipeline.agenda_service import persist_agenda_items
 from pipeline.agenda_resolver import resolve_agenda_items
+
+
+logger = logging.getLogger("agenda-worker")
 
 def segment_document_agenda(catalog_id):
     """
@@ -49,6 +53,13 @@ def segment_document_agenda(catalog_id):
 
             resolved = resolve_agenda_items(session, catalog, doc, local_ai)
             items_data = resolved["items"]
+            logger.info(
+                "agenda_segmentation_resolved catalog_id=%s source_used=%s quality_score=%s llm_fallback_invoked=%s",
+                catalog.id,
+                resolved.get("source_used"),
+                resolved.get("quality_score"),
+                resolved.get("llm_fallback_invoked", False),
+            )
 
             if items_data:
                 # Rebuild rows so reruns remain idempotent and source quality can improve.

@@ -2,11 +2,15 @@ import re
 from typing import Any, Dict, List
 
 from rapidfuzz import fuzz, process
+import logging
 
 from pipeline.agenda_crosscheck import merge_ai_with_eagenda, parse_eagenda_items_from_file
 from pipeline.agenda_legistar import fetch_legistar_agenda_items
 from pipeline.lexicon import is_contact_or_letterhead_noise, is_procedural_title
 from pipeline.models import Document, Catalog
+
+
+logger = logging.getLogger("agenda-resolver")
 
 
 def _get_value(item: Any, key: str):
@@ -219,7 +223,6 @@ def resolve_agenda_items(session, catalog, doc, local_ai) -> Dict[str, Any]:
     Resolve agenda items in priority order:
     Legistar -> HTML -> LLM.
     """
-    llm_items = local_ai.extract_agenda(catalog.content) if catalog and catalog.content else []
     html_items = _best_html_items_for_event(session, catalog, doc)
 
     legistar_client = None
@@ -231,12 +234,13 @@ def resolve_agenda_items(session, catalog, doc, local_ai) -> Dict[str, Any]:
     legistar_items = fetch_legistar_agenda_items(legistar_client, event_date)
 
     if len(legistar_items) >= 2 and agenda_quality_score(legistar_items) >= 55:
-        enriched = _apply_page_numbers_from_reference(legistar_items, llm_items or html_items)
+        enriched = _apply_page_numbers_from_reference(legistar_items, html_items)
         return {
             "items": enriched,
             "source_used": "legistar",
             "quality_score": agenda_quality_score(enriched),
             "confidence": "high",
+            "llm_fallback_invoked": False,
         }
 
     if len(html_items) >= 2 and agenda_quality_score(html_items) >= 55:
@@ -245,12 +249,23 @@ def resolve_agenda_items(session, catalog, doc, local_ai) -> Dict[str, Any]:
             "source_used": "html",
             "quality_score": agenda_quality_score(html_items),
             "confidence": "medium",
+            "llm_fallback_invoked": False,
         }
 
+    llm_items = local_ai.extract_agenda(catalog.content) if catalog and catalog.content else []
     merged = merge_ai_with_eagenda(llm_items, html_items)
+    quality_score = agenda_quality_score(merged)
+    logger.debug(
+        "agenda_resolver_fallback source=llm catalog_location=%s html_candidates=%s merged_items=%s quality_score=%s",
+        getattr(catalog, "location", None),
+        len(html_items),
+        len(merged),
+        quality_score,
+    )
     return {
         "items": merged,
         "source_used": "llm",
-        "quality_score": agenda_quality_score(merged),
+        "quality_score": quality_score,
         "confidence": "medium" if merged else "low",
+        "llm_fallback_invoked": True,
     }
