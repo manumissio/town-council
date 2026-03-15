@@ -21,6 +21,7 @@ def test_gate_evaluator_pass_thresholds():
         run_count=3,
         crawl_success_count=3,
         search_success_count=3,
+        stable_noop_run_count=0,
         catalog_total=20,
         agenda_catalog_total=10,
         extraction_non_empty_count=19,
@@ -43,6 +44,7 @@ def test_gate_evaluator_fail_thresholds():
         run_count=3,
         crawl_success_count=2,
         search_success_count=2,
+        stable_noop_run_count=0,
         catalog_total=200,
         agenda_catalog_total=100,
         extraction_non_empty_count=180,
@@ -67,6 +69,7 @@ def test_gate_evaluator_marks_insufficient_data():
         run_count=3,
         crawl_success_count=3,
         search_success_count=3,
+        stable_noop_run_count=0,
         catalog_total=100,
         agenda_catalog_total=80,
         extraction_non_empty_count=90,
@@ -81,6 +84,43 @@ def test_gate_evaluator_marks_insufficient_data():
     result = mod._evaluate_city("hayward", metrics)
 
     assert result["quality_gate"] == "insufficient_data"
+
+
+def test_gate_evaluator_allows_stable_noop_for_prior_pass_city(mocker):
+    mocker.patch.object(
+        mod,
+        "load_rollout_entry",
+        return_value=type(
+            "RolloutEntry",
+            (),
+            {
+                "stable_noop_eligible": "yes",
+                "last_fresh_pass_run_id": "city_wave1_hayward_sanmateo_20260313_210210",
+            },
+        )(),
+    )
+    metrics = mod.CityMetrics(
+        run_count=3,
+        crawl_success_count=3,
+        search_success_count=0,
+        stable_noop_run_count=3,
+        catalog_total=12,
+        agenda_catalog_total=12,
+        extraction_non_empty_count=12,
+        segmentation_complete_empty_count=12,
+        segmentation_failed_count=0,
+        run_window_catalog_total=0,
+        run_window_agenda_catalog_total=0,
+        run_window_extraction_non_empty_count=0,
+        run_window_segmentation_complete_empty_count=0,
+        run_window_segmentation_failed_count=0,
+    )
+
+    result = mod._evaluate_city("hayward", metrics)
+
+    assert result["quality_gate"] == "pass"
+    assert result["quality_gate_reason"] == "stable_delta_noop:city_wave1_hayward_sanmateo_20260313_210210"
+    assert result["failed_gates"] == []
 
 
 def test_collect_city_metrics_uses_run_window_touched_catalogs_for_denominator():

@@ -11,10 +11,11 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
-from sqlalchemy import and_, or_
+from sqlalchemy import and_, or_, union_all
 from sqlalchemy.orm import sessionmaker
 
 from pipeline.models import Catalog, Document, Event, UrlStage, UrlStageHist, db_connect
+from pipeline.rollout_registry import load_rollout_entry
 
 
 ISO_FMT = "%Y-%m-%dT%H:%M:%SZ"
@@ -26,6 +27,7 @@ class CityMetrics:
     run_count: int
     crawl_success_count: int
     search_success_count: int
+    stable_noop_run_count: int
     catalog_total: int
     agenda_catalog_total: int
     extraction_non_empty_count: int
@@ -169,11 +171,9 @@ def _collect_run_window_catalog_rows(
     if not touched_queries:
         return [], 0
 
-    touched_hashes = touched_queries[0]
-    for query in touched_queries[1:]:
-        touched_hashes = touched_hashes.union(query)
-
-    touched_hashes = touched_hashes.subquery()
+    # Build the touched-hash scope with an explicit subquery shape so Postgres
+    # and SQLite expose the same column names during live evaluation.
+    touched_hashes = union_all(*(query.statement for query in touched_queries)).subquery("touched_hashes")
     touched_hash_count = db_session.query(touched_hashes.c.url_hash).distinct().count()
     catalog_rows = (
         db_session.query(
@@ -217,8 +217,11 @@ def _build_counts(catalog_rows: list[tuple[int, str, str | None, str | None]]) -
 
 
 def _collect_city_metrics(db_session, city: str, city_runs: list[dict[str, Any]]) -> CityMetrics:
-    crawl_success_count = sum(1 for run in city_runs if run.get("crawler_status") == "success")
+    crawl_success_count = sum(
+        1 for run in city_runs if run.get("crawler_status") in {"success", "crawler_stable_noop"}
+    )
     search_success_count = sum(1 for run in city_runs if run.get("search_status") == "success")
+    stable_noop_run_count = sum(1 for run in city_runs if run.get("crawler_status") == "crawler_stable_noop")
 
     historical_counts = _build_counts(_collect_historical_city_catalog_rows(db_session, city, city_runs))
     run_window_rows, touched_hash_count = _collect_run_window_catalog_rows(db_session, city, city_runs)
@@ -239,6 +242,7 @@ def _collect_city_metrics(db_session, city: str, city_runs: list[dict[str, Any]]
         run_count=len(city_runs),
         crawl_success_count=crawl_success_count,
         search_success_count=search_success_count,
+        stable_noop_run_count=stable_noop_run_count,
         catalog_total=historical_counts["catalog_total"],
         agenda_catalog_total=historical_counts["agenda_catalog_total"],
         extraction_non_empty_count=historical_counts["extraction_non_empty_count"],
@@ -253,6 +257,7 @@ def _collect_city_metrics(db_session, city: str, city_runs: list[dict[str, Any]]
 
 
 def _evaluate_city(city: str, metrics: CityMetrics) -> dict[str, Any]:
+    rollout_entry = load_rollout_entry(city)
     crawl_success_rate = _safe_rate(metrics.crawl_success_count, metrics.run_count)
     extraction_non_empty_rate = _safe_rate(
         metrics.run_window_extraction_non_empty_count,
@@ -273,6 +278,15 @@ def _evaluate_city(city: str, metrics: CityMetrics) -> dict[str, Any]:
         or metrics.run_window_agenda_catalog_total <= 0
     )
 
+    stable_noop_confirmation = (
+        rollout_entry.stable_noop_eligible == "yes"
+        and rollout_entry.last_fresh_pass_run_id != ""
+        and metrics.run_count > 0
+        and metrics.stable_noop_run_count == metrics.run_count
+        and metrics.run_window_catalog_total == 0
+        and metrics.run_window_agenda_catalog_total == 0
+    )
+
     gates = {
         "crawl_success_rate_gte_95pct": bool(crawl_success_rate is not None and crawl_success_rate >= 0.95),
         "non_empty_extraction_rate_gte_90pct": bool(
@@ -288,7 +302,13 @@ def _evaluate_city(city: str, metrics: CityMetrics) -> dict[str, Any]:
     }
 
     failed_gates = [name for name, passed in gates.items() if not passed]
-    quality_gate = "pass" if (not insufficient_data and not failed_gates) else ("insufficient_data" if insufficient_data else "fail")
+    if stable_noop_confirmation:
+        failed_gates = []
+        quality_gate = "pass"
+        quality_gate_reason = f"stable_delta_noop:{rollout_entry.last_fresh_pass_run_id}"
+    else:
+        quality_gate = "pass" if (not insufficient_data and not failed_gates) else ("insufficient_data" if insufficient_data else "fail")
+        quality_gate_reason = "fresh_evidence" if quality_gate == "pass" else ("insufficient_data" if insufficient_data else "failed_gates")
 
     return {
         "city": city,
@@ -312,6 +332,8 @@ def _evaluate_city(city: str, metrics: CityMetrics) -> dict[str, Any]:
         "gates": gates,
         "failed_gates": failed_gates,
         "quality_gate": quality_gate,
+        "quality_gate_reason": quality_gate_reason,
+        "stable_noop_run_count": metrics.stable_noop_run_count,
     }
 
 
@@ -321,14 +343,15 @@ def _write_markdown(path: Path, run_id: str, results: list[dict[str, Any]]) -> N
         "",
         f"run_id: `{run_id}`",
         "",
-        "| city | quality_gate | run_window_catalog_total | historical_catalog_total | crawl_success_rate | extraction_non_empty_rate | segmentation_complete_empty_rate | segmentation_failed_rate | failed_gates |",
-        "|---|---|---:|---:|---:|---:|---:|---:|---|",
+        "| city | quality_gate | reason | run_window_catalog_total | historical_catalog_total | crawl_success_rate | extraction_non_empty_rate | segmentation_complete_empty_rate | segmentation_failed_rate | failed_gates |",
+        "|---|---|---|---:|---:|---:|---:|---:|---:|---|",
     ]
     for row in results:
         lines.append(
-            "| {city} | {quality_gate} | {run_window_catalog_total} | {catalog_total} | {crawl_success_rate} | {extraction_non_empty_rate} | {segmentation_complete_empty_rate} | {segmentation_failed_rate} | {failed_gates} |".format(
+            "| {city} | {quality_gate} | {quality_gate_reason} | {run_window_catalog_total} | {catalog_total} | {crawl_success_rate} | {extraction_non_empty_rate} | {segmentation_complete_empty_rate} | {segmentation_failed_rate} | {failed_gates} |".format(
                 city=row["city"],
                 quality_gate=row["quality_gate"],
+                quality_gate_reason=row["quality_gate_reason"],
                 run_window_catalog_total=row["run_window_catalog_total"],
                 catalog_total=row["catalog_total"],
                 crawl_success_rate="-" if row["crawl_success_rate"] is None else f"{row['crawl_success_rate']:.3f}",

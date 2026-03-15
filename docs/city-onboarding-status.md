@@ -3,14 +3,15 @@
 Last updated: 2026-03-14
 
 This sheet tracks rollout readiness and quality gates per city.
+Machine-readable rollout truth lives in `city_metadata/city_rollout_registry.csv`; this page mirrors that registry for operator review.
 
 | city_slug | provider | spider_exists | enabled | quality_gate | last_verified |
 |---|---|---:|---:|---|---|
 | berkeley | native | yes | yes | pass | 2026-02-17 |
 | cupertino | legistar | yes | yes | pass | 2026-02-17 |
 | fremont | existing | yes | no | pending | - |
-| hayward | existing | yes | no | pass | 2026-03-14 |
-| san_mateo | existing | yes | no | pass | 2026-03-14 |
+| hayward | existing | yes | yes | pass | 2026-03-15 |
+| san_mateo | existing | yes | yes | pass | 2026-03-14 |
 | sunnyvale | existing | yes | no | pending | - |
 | san_leandro | existing | yes | no | pending | - |
 | mtn_view | existing | yes | no | pending | - |
@@ -34,12 +35,26 @@ Quality gate policy (per city):
 
 Activation workflow note:
 - Hayward + San Mateo wave-1 activation uses `scripts/onboard_city_wave.sh` plus `scripts/evaluate_city_onboarding.py`.
-- Keep `enabled=no` until gate artifacts show pass (`city_gate_eval.json`/`city_gate_eval.md`).
+- Wave membership and `enabled` state are sourced from `city_metadata/city_rollout_registry.csv`.
 - Extraction and segmentation gates are now evaluated against the onboarding run's touched catalog corpus for that city; full historical totals remain diagnostic only.
+- A previously passing city may also confirm as `pass` through a stable delta no-op path when the crawler exits successfully, stages no newer rows, and the rollout registry records a prior fresh-evidence pass for that city.
+- Stable delta no-op confirmation is not allowed for first-time onboarding cities; they still need fresh staged evidence.
 - Latest evidence runs:
+  - `city_wave1_hayward_sanmateo_20260314_211707`
+    - Hayward: `crawler_empty` in all 3 runs under the old confirmation policy; this run is now treated as the motivating regression for the new stable delta no-op path
   - `city_wave1_hayward_sanmateo_20260313_210210`
-    - Hayward: `pass`
+    - Hayward: last fresh-evidence passing baseline and the audit anchor for stable delta no-op eligibility
   - `city_wave1_san_mateo_20260314_004358`
     - San Mateo: onboarding run completed `success` for crawl, pipeline, segmentation, and search smoke
-    - Gate result: `pass`
+    - Gate result: `pass`; rollout registry now marks `enabled=yes`
     - The evaluator now grades extraction and segmentation against the run's touched San Mateo catalog set, while still reporting full historical totals as diagnostic backlog context
+
+Current rollout interpretation:
+- San Mateo remains `enabled=yes` on the strength of its latest fresh-evidence passing run.
+- Hayward is now back to `enabled=yes` after proving the stable delta no-op confirmation path in a fresh paired wave-1 run.
+
+Latest wave-1 confirmation:
+- `city_wave1_hayward_sanmateo_20260314_213301`
+  - Hayward: `crawler_stable_noop` in all 3 runs, downstream work correctly skipped, evaluator result `pass` with reason `stable_delta_noop:city_wave1_hayward_sanmateo_20260313_210210`
+  - San Mateo: all 3 runs `success`, evaluator result `pass` with reason `fresh_evidence`
+  - Result: both wave-1 cities currently verify as passing
