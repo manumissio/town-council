@@ -13,6 +13,8 @@ def test_onboarding_wave_script_uses_rollout_registry():
     assert "scripts/segment_city_corpus.py --city" in text
     assert "scripts/check_city_crawl_evidence.py" in text
     assert "scripts/reset_city_verification_state.py" in text
+    assert "--print-baseline" in text
+    assert "--baseline-record-date" in text
     assert "crawler_empty" in text
     assert "verification_mode" in text
     assert "first_time_onboarding" in text

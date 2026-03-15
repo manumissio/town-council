@@ -129,8 +129,10 @@ fi
 
 RUN_DIR="${OUTPUT_DIR%/}/${RUN_ID}"
 RESULTS_JSONL="${RUN_DIR}/runs.jsonl"
+BASELINE_DIR="${RUN_DIR}/baselines"
 
 mkdir -p "$RUN_DIR"
+mkdir -p "$BASELINE_DIR"
 : > "$RESULTS_JSONL"
 
 run_cmd() {
@@ -157,19 +159,78 @@ check_crawl_evidence() {
 reset_city_verification_state() {
   local city="$1"
   local since="$2"
+  local baseline_record_date="${3:-}"
 
   if [[ "$DRY_RUN" == "1" ]]; then
-    echo "[dry-run] docker compose run --rm -w /app pipeline python scripts/reset_city_verification_state.py --city $city --since $since"
+    local baseline_json='null'
+    if [[ -n "$baseline_record_date" ]]; then
+      baseline_json="\"$baseline_record_date\""
+      echo "[dry-run] docker compose run --rm -w /app pipeline python scripts/reset_city_verification_state.py --city $city --since $since --baseline-record-date $baseline_record_date"
+    else
+      echo "[dry-run] docker compose run --rm -w /app pipeline python scripts/reset_city_verification_state.py --city $city --since $since"
+    fi
+    printf '{"city":"%s","since":"%s","baseline_record_date":%s,"deleted_event_count":0,"deleted_document_count":0,"deleted_catalog_count":0,"catalog_reference_count":0,"deleted_data_issue_count":0,"remaining_event_count":0,"remaining_max_record_date":null,"remaining_max_scraped_datetime":null}\n' "$city" "$since" "$baseline_json"
     return 0
   fi
 
-  docker compose run --rm -w /app pipeline python scripts/reset_city_verification_state.py --city "$city" --since "$since"
+  local args=(docker compose run --rm -w /app pipeline python scripts/reset_city_verification_state.py --city "$city" --since "$since")
+  if [[ -n "$baseline_record_date" ]]; then
+    args+=(--baseline-record-date "$baseline_record_date")
+  fi
+  "${args[@]}"
 }
 
 registry_field() {
   local city="$1"
   local field="$2"
   "$PYTHON_BIN" scripts/rollout_registry.py --city "$city" --field "$field"
+}
+
+capture_city_baseline() {
+  local city="$1"
+  local baseline_path="$2"
+
+  if [[ "$DRY_RUN" == "1" ]]; then
+    printf '{"city":"%s","baseline_event_count":0,"baseline_max_record_date":null,"baseline_max_scraped_datetime":null}\n' "$city" > "$baseline_path"
+    echo "[dry-run] captured baseline for $city at $baseline_path"
+    return 0
+  fi
+
+  docker compose run --rm -w /app pipeline python scripts/reset_city_verification_state.py --city "$city" --print-baseline > "$baseline_path"
+}
+
+baseline_json_field() {
+  local baseline_path="$1"
+  local field="$2"
+  "$PYTHON_BIN" - "$baseline_path" "$field" <<'PY'
+import json
+import sys
+from pathlib import Path
+
+payload = json.loads(Path(sys.argv[1]).read_text(encoding="utf-8"))
+value = payload.get(sys.argv[2])
+print("" if value is None else value)
+PY
+}
+
+reset_matches_baseline() {
+  local baseline_path="$1"
+  local reset_json="$2"
+  "$PYTHON_BIN" - "$baseline_path" "$reset_json" <<'PY'
+import json
+import sys
+from pathlib import Path
+
+baseline = json.loads(Path(sys.argv[1]).read_text(encoding="utf-8"))
+reset = json.loads(sys.argv[2])
+
+if baseline.get("baseline_event_count") != reset.get("remaining_event_count"):
+    raise SystemExit(1)
+if baseline.get("baseline_max_record_date") != reset.get("remaining_max_record_date"):
+    raise SystemExit(1)
+if baseline.get("baseline_max_scraped_datetime") != reset.get("remaining_max_scraped_datetime"):
+    raise SystemExit(1)
+PY
 }
 
 write_result() {
@@ -234,23 +295,44 @@ for city in "${cities[@]}"; do
   fi
   echo "verification mode for $city: $verification_mode"
   campaign_started_at=""
+  baseline_path="${BASELINE_DIR}/${city}.json"
   prior_run_had_fresh_evidence="no"
   for ((run_index=1; run_index<=RUNS; run_index++)); do
     started_at="$(date -u +"%Y-%m-%dT%H:%M:%SZ")"
-    if [[ -z "$campaign_started_at" ]]; then
-      campaign_started_at="$started_at"
-    fi
     crawler_status="failed"
     pipeline_status="failed"
     segmentation_status="failed"
     search_status="failed"
     error_message=""
     state_reset_applied="no"
+    if [[ -z "$campaign_started_at" ]]; then
+      campaign_started_at="$started_at"
+      if [[ "$verification_mode" == "first_time_onboarding" ]]; then
+        if capture_city_baseline "$city" "$baseline_path"; then
+          echo "captured first-time baseline for $city at $baseline_path"
+          cat "$baseline_path"
+        else
+          finished_at="$(date -u +"%Y-%m-%dT%H:%M:%SZ")"
+          error_message="baseline_capture_failed"
+          write_result "$city" "$run_index" "$started_at" "$finished_at" "$crawler_status" "$pipeline_status" "$segmentation_status" "$search_status" "$error_message" "$verification_mode" "$state_reset_applied"
+          break
+        fi
+      fi
+    fi
 
     if [[ "$verification_mode" == "first_time_onboarding" && "$run_index" -gt 1 && "$prior_run_had_fresh_evidence" == "yes" ]]; then
       echo "restoring first-time verification state for $city before run $run_index via baseline $campaign_started_at"
-      if reset_output="$(reset_city_verification_state "$city" "$campaign_started_at")"; then
-        state_reset_applied="yes"
+      baseline_record_date="$(baseline_json_field "$baseline_path" baseline_max_record_date)"
+      if reset_output="$(reset_city_verification_state "$city" "$campaign_started_at" "$baseline_record_date")"; then
+        if reset_matches_baseline "$baseline_path" "$reset_output"; then
+          state_reset_applied="yes"
+        else
+          finished_at="$(date -u +"%Y-%m-%dT%H:%M:%SZ")"
+          error_message="verification_state_reset_failed"
+          echo "$reset_output"
+          write_result "$city" "$run_index" "$started_at" "$finished_at" "$crawler_status" "$pipeline_status" "$segmentation_status" "$search_status" "$error_message" "$verification_mode" "$state_reset_applied"
+          break
+        fi
         echo "$reset_output"
       else
         finished_at="$(date -u +"%Y-%m-%dT%H:%M:%SZ")"

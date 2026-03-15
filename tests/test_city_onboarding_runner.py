@@ -1,12 +1,13 @@
 import json
 import os
 import subprocess
+from datetime import date, datetime
 from pathlib import Path
 
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 
-from pipeline.models import Base
+from pipeline.models import Base, Event, Place
 
 
 def test_onboarding_runner_subset_and_runs_emit_artifacts(tmp_path):
@@ -94,6 +95,10 @@ def test_onboarding_runner_marks_empty_crawl_and_skips_downstream_steps(tmp_path
     docker_stub = """#!/usr/bin/env bash
 set -euo pipefail
 printf '%s\\n' "$*" >> "$DOCKER_LOG"
+if [[ "$*" == *"scripts/reset_city_verification_state.py"* && "$*" == *"--print-baseline"* ]]; then
+  printf '%s\\n' '{"city": "fremont", "baseline_event_count": 0, "baseline_max_record_date": null, "baseline_max_scraped_datetime": null}'
+  exit 0
+fi
     if [[ "$*" == *"scrapy crawl fremont"* ]]; then
       exit 0
     fi
@@ -187,8 +192,12 @@ if [[ "$*" == *"scripts/check_city_crawl_evidence.py"* ]]; then
   printf '%s\\n' '{"city": "fremont", "event_stage_count": 3, "has_evidence": true, "url_stage_count": 2}'
   exit 0
 fi
+if [[ "$*" == *"scripts/reset_city_verification_state.py"* && "$*" == *"--print-baseline"* ]]; then
+  printf '%s\\n' '{"city": "fremont", "baseline_event_count": 0, "baseline_max_record_date": null, "baseline_max_scraped_datetime": null}'
+  exit 0
+fi
 if [[ "$*" == *"scripts/reset_city_verification_state.py"* ]]; then
-  printf '%s\\n' '{"city": "fremont", "deleted_document_count": 1, "deleted_event_count": 1}'
+  printf '%s\\n' '{"city": "fremont", "deleted_document_count": 1, "deleted_event_count": 1, "deleted_catalog_count": 1, "catalog_reference_count": 1, "deleted_data_issue_count": 0, "remaining_event_count": 0, "remaining_max_record_date": null, "remaining_max_scraped_datetime": null}'
   exit 0
 fi
 if [[ "$*" == *"run_pipeline.py"* ]]; then
@@ -245,9 +254,140 @@ exit 0
     assert [row["state_reset_applied"] for row in rows] == [False, True, True]
     assert {row["overall_status"] for row in rows} == {"success"}
     docker_commands = docker_log.read_text(encoding="utf-8")
-    assert docker_commands.count("scripts/reset_city_verification_state.py") == 2
+    assert docker_commands.count("scripts/reset_city_verification_state.py") == 3
+    assert "--print-baseline" in docker_commands
+    assert "--baseline-record-date" not in docker_commands
     assert "restoring first-time verification state for fremont before run 2" in result.stdout
     assert "restoring first-time verification state for fremont before run 3" in result.stdout
+    baseline_payload = json.loads((output_dir / run_id / "baselines" / "fremont.json").read_text(encoding="utf-8"))
+    assert baseline_payload["baseline_event_count"] == 0
+    assert baseline_payload["baseline_max_record_date"] is None
+
+
+def test_onboarding_runner_resets_anchor_aware_first_time_city_between_attempts(tmp_path):
+    run_id = "anchor_reset"
+    output_dir = tmp_path / "city_onboarding"
+    output_dir.mkdir(parents=True, exist_ok=True)
+
+    db_path = tmp_path / "anchor_reset.sqlite"
+    engine = create_engine(f"sqlite:///{db_path}")
+    Base.metadata.create_all(engine)
+    Session = sessionmaker(bind=engine)
+
+    with Session() as session:
+        place = Place(
+            name="Sunnyvale",
+            state="CA",
+            country="us",
+            display_name="Sunnyvale, CA",
+            ocd_division_id="ocd-division/country:us/state:ca/place:sunnyvale",
+        )
+        session.add(place)
+        session.flush()
+        session.add(
+            Event(
+                ocd_id="baseline-event",
+                ocd_division_id=place.ocd_division_id,
+                place_id=place.id,
+                scraped_datetime=datetime(2026, 3, 1, 12, 0, 0),
+                record_date=date(2026, 3, 1),
+                source="sunnyvale",
+                source_url="https://example.com/baseline",
+                name="Baseline meeting",
+            )
+        )
+        session.commit()
+    engine.dispose()
+
+    bin_dir = tmp_path / "bin"
+    bin_dir.mkdir()
+    docker_log = tmp_path / "docker.log"
+    curl_log = tmp_path / "curl.log"
+    crawl_log = tmp_path / "crawl.log"
+
+    docker_stub = """#!/usr/bin/env bash
+set -euo pipefail
+printf '%s\\n' "$*" >> "$DOCKER_LOG"
+if [[ "$*" == *"scripts/reset_city_verification_state.py"* && "$*" == *"--print-baseline"* ]]; then
+  printf '%s\\n' '{"city": "sunnyvale", "baseline_event_count": 1, "baseline_max_record_date": "2026-03-01", "baseline_max_scraped_datetime": "2026-03-01T12:00:00Z"}'
+  exit 0
+fi
+if [[ "$*" == *"scripts/reset_city_verification_state.py"* ]]; then
+  printf '%s\\n' '{"city": "sunnyvale", "deleted_document_count": 1, "deleted_event_count": 1, "deleted_catalog_count": 1, "catalog_reference_count": 1, "deleted_data_issue_count": 0, "remaining_event_count": 1, "remaining_max_record_date": "2026-03-01", "remaining_max_scraped_datetime": "2026-03-01T12:00:00Z"}'
+  exit 0
+fi
+if [[ "$*" == *"scrapy crawl sunnyvale"* ]]; then
+  printf '%s\\n' "crawl" >> "$CRAWL_LOG"
+  touch "$CRAWL_STATE"
+  exit 0
+fi
+if [[ "$*" == *"scripts/check_city_crawl_evidence.py"* ]]; then
+  if [[ -f "$CRAWL_STATE" ]]; then
+    printf '%s\\n' '{"city": "sunnyvale", "event_stage_count": 3, "has_evidence": true, "url_stage_count": 2}'
+  else
+    printf '%s\\n' '{"city": "sunnyvale", "event_stage_count": 0, "has_evidence": false, "url_stage_count": 0}'
+  fi
+  exit 0
+fi
+if [[ "$*" == *"run_pipeline.py"* ]]; then
+  exit 0
+fi
+if [[ "$*" == *"scripts/segment_city_corpus.py --city sunnyvale"* ]]; then
+  exit 0
+fi
+echo "unexpected docker invocation: $*" >&2
+exit 99
+"""
+    curl_stub = """#!/usr/bin/env bash
+set -euo pipefail
+printf '%s\\n' "$*" >> "$CURL_LOG"
+exit 0
+"""
+
+    docker_path = bin_dir / "docker"
+    docker_path.write_text(docker_stub, encoding="utf-8")
+    docker_path.chmod(0o755)
+    curl_path = bin_dir / "curl"
+    curl_path.write_text(curl_stub, encoding="utf-8")
+    curl_path.chmod(0o755)
+
+    env = os.environ.copy()
+    env["DRY_RUN"] = "0"
+    env["DATABASE_URL"] = f"sqlite:///{db_path}"
+    env["DOCKER_LOG"] = str(docker_log)
+    env["CURL_LOG"] = str(curl_log)
+    env["CRAWL_LOG"] = str(crawl_log)
+    env["CRAWL_STATE"] = str(tmp_path / "crawl_state")
+    env["PATH"] = f"{bin_dir}:{env['PATH']}"
+
+    cmd = [
+        "bash",
+        "scripts/onboard_city_wave.sh",
+        "wave1",
+        "--cities",
+        "sunnyvale",
+        "--runs",
+        "3",
+        "--run-id",
+        run_id,
+        "--output-dir",
+        str(output_dir),
+    ]
+    result = subprocess.run(cmd, text=True, capture_output=True, env=env, check=True)
+
+    rows = [
+        json.loads(line)
+        for line in (output_dir / run_id / "runs.jsonl").read_text(encoding="utf-8").splitlines()
+        if line.strip()
+    ]
+    assert len(rows) == 3
+    assert [row["crawler_status"] for row in rows] == ["success", "success", "success"]
+    assert [row["state_reset_applied"] for row in rows] == [False, True, True]
+    docker_commands = docker_log.read_text(encoding="utf-8")
+    assert docker_commands.count("--print-baseline") == 1
+    assert docker_commands.count("--baseline-record-date 2026-03-01") == 2
+    assert "restoring first-time verification state for sunnyvale before run 2" in result.stdout
+    assert "restoring first-time verification state for sunnyvale before run 3" in result.stdout
 
 
 def test_onboarding_runner_marks_stable_noop_for_prior_pass_city(tmp_path):
