@@ -80,4 +80,12 @@ Pending-city rewind notes:
     - evaluator result: `fail`
     - failed gates: `crawl_success_rate_gte_95pct`, `segmentation_complete_empty_rate_gte_95pct`, `segmentation_failed_rate_lt_5pct`, `searchability_smoke_pass`
     - interpretation: Sunnyvale is no longer blocked by a segmentation hang; it is now blocked by real first-time gate failures under the current verification policy
+  - Sunnyvale rerun `city_wave1_sunnyvale_20260315_095618` proved the baseline-aware first-time reset fix
+    - captured baseline artifact: `baseline_event_count=0`, `baseline_max_record_date=null`, `baseline_max_scraped_datetime=null`
+    - run 1: `success`
+    - run 2: `success` with `state_reset_applied=true`
+    - run 3: `success` with `state_reset_applied=true`
+    - evaluator result: `fail`
+    - failed gates: `segmentation_complete_empty_rate_gte_95pct`, `segmentation_failed_rate_lt_5pct`
+    - interpretation: the self-advanced delta-anchor bug is fixed; Sunnyvale now fails only on real segmentation quality thresholds
   - San Leandro has been rewound successfully but not yet rerun after the cleanup window

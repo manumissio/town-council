@@ -110,8 +110,12 @@ docker compose start api worker frontend monitor
 - `scripts/onboard_city_wave.sh` now writes `verification_mode` into `runs.jsonl` for every onboarding attempt.
 - Cities with `quality_gate=pass` in the rollout registry run in `confirmation` mode.
 - Cities still in `pending` or `fail` state run in `first_time_onboarding` mode.
-- First-time onboarding still keeps the 3-run evidence policy, but the runner now restores the city's verification state between runs 2 and 3 so delta crawlers are measured against the same pre-run anchor instead of self-advancing after run 1.
-- The reset is city-scoped and only removes event/document state created during the current first-time verification window; it does not broaden into a full database rollback.
+- First-time onboarding still keeps the 3-run evidence policy, but the runner now captures a pre-run baseline artifact and restores the city's effective delta anchor between runs 2 and 3 so delta crawlers are measured against the same pre-run anchor instead of self-advancing after run 1.
+- The baseline artifact lives under `experiments/results/city_onboarding/<run_id>/baselines/<city>.json` and records:
+  - `baseline_event_count`
+  - `baseline_max_record_date`
+  - `baseline_max_scraped_datetime`
+- The reset is city-scoped and removes rows that advance the city's crawl anchor beyond that captured baseline; it does not broaden into a full database rollback.
 - If run 1 for a first-time city stages no evidence, the runner stops that city immediately instead of spending runs 2 and 3 on guaranteed `crawler_empty` repeats.
 
 ### Pending-city rewind recovery
