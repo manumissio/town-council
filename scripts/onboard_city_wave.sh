@@ -154,6 +154,18 @@ check_crawl_evidence() {
   docker compose run --rm -w /app pipeline python scripts/check_city_crawl_evidence.py --city "$city" --start-at "$started_at" --end-at "$ended_at"
 }
 
+reset_city_verification_state() {
+  local city="$1"
+  local since="$2"
+
+  if [[ "$DRY_RUN" == "1" ]]; then
+    echo "[dry-run] docker compose run --rm -w /app pipeline python scripts/reset_city_verification_state.py --city $city --since $since"
+    return 0
+  fi
+
+  docker compose run --rm -w /app pipeline python scripts/reset_city_verification_state.py --city "$city" --since "$since"
+}
+
 registry_field() {
   local city="$1"
   local field="$2"
@@ -170,6 +182,8 @@ write_result() {
   local segmentation_status="$7"
   local search_status="$8"
   local error_message="$9"
+  local verification_mode="${10}"
+  local state_reset_applied="${11}"
   local overall_status
 
   if [[ "$crawler_status" == "success" && "$pipeline_status" == "success" && "$segmentation_status" == "success" && "$search_status" == "success" ]]; then
@@ -180,7 +194,7 @@ write_result() {
     overall_status="failed"
   fi
 
-  "$PYTHON_BIN" - "$RESULTS_JSONL" "$city" "$run_index" "$started_at" "$finished_at" "$crawler_status" "$pipeline_status" "$segmentation_status" "$search_status" "$overall_status" "$error_message" "$WAVE" "$RUN_ID" <<'PY'
+  "$PYTHON_BIN" - "$RESULTS_JSONL" "$city" "$run_index" "$started_at" "$finished_at" "$crawler_status" "$pipeline_status" "$segmentation_status" "$search_status" "$overall_status" "$error_message" "$verification_mode" "$state_reset_applied" "$WAVE" "$RUN_ID" <<'PY'
 import json
 import sys
 from pathlib import Path
@@ -197,8 +211,10 @@ row = {
     "search_status": sys.argv[9],
     "overall_status": sys.argv[10],
     "error": sys.argv[11] or None,
-    "wave": sys.argv[12],
-    "run_id": sys.argv[13],
+    "verification_mode": sys.argv[12],
+    "state_reset_applied": sys.argv[13] == "yes",
+    "wave": sys.argv[14],
+    "run_id": sys.argv[15],
 }
 with path.open("a", encoding="utf-8") as f:
     f.write(json.dumps(row) + "\n")
@@ -208,15 +224,41 @@ PY
 for city in "${cities[@]}"; do
   echo "=== onboarding city: $city ($WAVE) ==="
   echo "using rollout registry: $ROLLOUT_REGISTRY_PATH"
+  city_quality_gate="$(registry_field "$city" quality_gate)"
   stable_noop_eligible="$(registry_field "$city" stable_noop_eligible)"
   last_fresh_pass_run_id="$(registry_field "$city" last_fresh_pass_run_id)"
+  if [[ "$city_quality_gate" == "pass" ]]; then
+    verification_mode="confirmation"
+  else
+    verification_mode="first_time_onboarding"
+  fi
+  echo "verification mode for $city: $verification_mode"
+  campaign_started_at=""
+  prior_run_had_fresh_evidence="no"
   for ((run_index=1; run_index<=RUNS; run_index++)); do
     started_at="$(date -u +"%Y-%m-%dT%H:%M:%SZ")"
+    if [[ -z "$campaign_started_at" ]]; then
+      campaign_started_at="$started_at"
+    fi
     crawler_status="failed"
     pipeline_status="failed"
     segmentation_status="failed"
     search_status="failed"
     error_message=""
+    state_reset_applied="no"
+
+    if [[ "$verification_mode" == "first_time_onboarding" && "$run_index" -gt 1 && "$prior_run_had_fresh_evidence" == "yes" ]]; then
+      echo "restoring first-time verification state for $city before run $run_index via baseline $campaign_started_at"
+      if reset_output="$(reset_city_verification_state "$city" "$campaign_started_at")"; then
+        state_reset_applied="yes"
+        echo "$reset_output"
+      else
+        finished_at="$(date -u +"%Y-%m-%dT%H:%M:%SZ")"
+        error_message="verification_state_reset_failed"
+        write_result "$city" "$run_index" "$started_at" "$finished_at" "$crawler_status" "$pipeline_status" "$segmentation_status" "$search_status" "$error_message" "$verification_mode" "$state_reset_applied"
+        break
+      fi
+    fi
 
     if run_cmd docker compose run --rm crawler scrapy crawl "$city"; then
       crawl_finished_at="$(date -u +"%Y-%m-%dT%H:%M:%SZ")"
@@ -227,8 +269,9 @@ for city in "${cities[@]}"; do
       echo "$crawl_evidence_json"
       if [[ "$crawl_evidence_status" -eq 0 ]]; then
         crawler_status="success"
-        # Onboarding gates need city-specific stability signals. Keep derived state
-        # intact between attempts to avoid full-dataset reprocessing on each run.
+        prior_run_had_fresh_evidence="yes"
+        # First-time verification restores only the city's crawl anchor between
+        # attempts, so downstream processing still runs against fresh staged input.
         if run_cmd docker compose run --rm \
           -e STARTUP_PURGE_DERIVED=false \
           -e PIPELINE_ONBOARDING_CITY="$city" \
@@ -269,14 +312,22 @@ for city in "${cities[@]}"; do
       else
         crawler_status="failed"
         error_message="crawler_empty"
+        if [[ "$verification_mode" == "first_time_onboarding" ]]; then
+          prior_run_had_fresh_evidence="no"
+        fi
       fi
     else
       crawler_status="failed"
       error_message="crawler_failed"
+      prior_run_had_fresh_evidence="no"
     fi
 
     finished_at="$(date -u +"%Y-%m-%dT%H:%M:%SZ")"
-    write_result "$city" "$run_index" "$started_at" "$finished_at" "$crawler_status" "$pipeline_status" "$segmentation_status" "$search_status" "$error_message"
+    write_result "$city" "$run_index" "$started_at" "$finished_at" "$crawler_status" "$pipeline_status" "$segmentation_status" "$search_status" "$error_message" "$verification_mode" "$state_reset_applied"
+    if [[ "$verification_mode" == "first_time_onboarding" && "$run_index" -eq 1 && "$error_message" == "crawler_empty" ]]; then
+      echo "stopping first-time verification for $city after run 1: no fresh crawl evidence"
+      break
+    fi
   done
 
   echo "gate checklist for $city"

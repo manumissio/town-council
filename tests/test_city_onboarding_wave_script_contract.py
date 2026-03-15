@@ -12,7 +12,11 @@ def test_onboarding_wave_script_uses_rollout_registry():
     assert "segmentation complete/empty >=95%" in text
     assert "scripts/segment_city_corpus.py --city" in text
     assert "scripts/check_city_crawl_evidence.py" in text
+    assert "scripts/reset_city_verification_state.py" in text
     assert "crawler_empty" in text
+    assert "verification_mode" in text
+    assert "first_time_onboarding" in text
+    assert "confirmation" in text
     assert "PIPELINE_ONBOARDING_CITY" in text
     assert "PIPELINE_ONBOARDING_DOCUMENT_CHUNK_SIZE=5" in text
     assert "PIPELINE_ONBOARDING_MAX_WORKERS=1" in text
