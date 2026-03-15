@@ -88,4 +88,15 @@ Pending-city rewind notes:
     - evaluator result: `fail`
     - failed gates: `segmentation_complete_empty_rate_gte_95pct`, `segmentation_failed_rate_lt_5pct`
     - interpretation: the self-advanced delta-anchor bug is fixed; Sunnyvale now fails only on real segmentation quality thresholds
+  - Pending shared fix after `city_wave1_sunnyvale_20260315_095618`:
+    - root cause identified: `pipeline/agenda_resolver.py` eagerly invoked `LLM` agenda extraction even though the intended priority order is `Legistar -> HTML -> LLM`
+  - Sunnyvale rerun `city_wave1_sunnyvale_20260315_104124` validated the lazy resolver-order fix
+    - all 3 runs: `crawl_success_rate=1.000`, `extraction_non_empty_rate=1.000`
+    - evaluator result: `fail`
+    - failed gates: `segmentation_complete_empty_rate_gte_95pct`, `segmentation_failed_rate_lt_5pct`
+    - live catalog outcomes still end at `8` complete / `2` timed_out
+    - the remaining timeout pair is still the same two agenda dates:
+      - `2026-03-09` Planning Commission
+      - `2026-03-10` City Council
+    - interpretation: lazy source ordering reduced unnecessary LLM work but did not remove the remaining slow-path timeout class, so the next blocker is now the residual LLM fallback latency on those two Sunnyvale catalogs
   - San Leandro has been rewound successfully but not yet rerun after the cleanup window
