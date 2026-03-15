@@ -38,16 +38,24 @@ def test_resolver_prefers_legistar_when_available(mocker):
         agenda_resolver,
         "fetch_legistar_agenda_items",
         return_value=[
+            {"title": "Call to Order", "page_number": None},
             {"title": "Budget Amendment", "page_number": None},
             {"title": "Public Employee Appointment", "page_number": None},
+            {"title": "Adjournment", "page_number": None},
+            {"title": "Zoning Amendment Hearing", "page_number": None},
         ],
     )
 
     resolved = agenda_resolver.resolve_agenda_items(mock_session, catalog, doc, local_ai)
     assert resolved["source_used"] == "legistar"
-    assert len(resolved["items"]) == 2
+    assert [item["title"] for item in resolved["items"]] == [
+        "Budget Amendment",
+        "Public Employee Appointment",
+        "Zoning Amendment Hearing",
+    ]
     local_ai.extract_agenda.assert_not_called()
     assert resolved["llm_fallback_invoked"] is False
+    assert resolved["legistar_accepted"] is True
 
 
 def test_resolver_falls_back_to_html_then_llm(mocker):
@@ -80,3 +88,58 @@ def test_resolver_falls_back_to_html_then_llm(mocker):
     assert resolved_llm["source_used"] == "llm"
     local_ai.extract_agenda.assert_called_once_with("text")
     assert resolved_llm["llm_fallback_invoked"] is True
+
+
+def test_resolver_rejects_legistar_procedural_only_payload(mocker):
+    mock_session = mocker.MagicMock()
+    catalog = SimpleNamespace(content="text", location="/tmp/doc.pdf")
+    doc = _doc_with_place()
+    local_ai = mocker.MagicMock()
+    local_ai.extract_agenda.return_value = [{"title": "Fallback Item", "page_number": 8}]
+
+    mocker.patch.object(agenda_resolver, "_best_html_items_for_event", return_value=[])
+    mocker.patch.object(
+        agenda_resolver,
+        "fetch_legistar_agenda_items",
+        return_value=[
+            {"title": "Call to Order", "page_number": None},
+            {"title": "Roll Call", "page_number": None},
+            {"title": "Adjournment", "page_number": None},
+        ],
+    )
+
+    resolved = agenda_resolver.resolve_agenda_items(mock_session, catalog, doc, local_ai)
+    assert resolved["source_used"] == "llm"
+    assert resolved["legistar_accepted"] is False
+    local_ai.extract_agenda.assert_called_once_with("text")
+
+
+def test_resolver_preserves_substantive_closed_session_legistar_item(mocker):
+    mock_session = mocker.MagicMock()
+    catalog = SimpleNamespace(content="text", location="/tmp/doc.pdf")
+    doc = _doc_with_place()
+    local_ai = mocker.MagicMock()
+    local_ai.extract_agenda.return_value = []
+
+    mocker.patch.object(agenda_resolver, "_best_html_items_for_event", return_value=[])
+    mocker.patch.object(
+        agenda_resolver,
+        "fetch_legistar_agenda_items",
+        return_value=[
+            {"title": "5:30 P.M. SPECIAL COUNCIL MEETING (Closed Session)", "page_number": None},
+            {
+                "title": "Closed Session Held Pursuant to California Government Code Section 54957.6",
+                "page_number": None,
+            },
+            {"title": "Public Hearing on Downtown Plan", "page_number": None},
+            {"title": "Adopt Capital Improvement Program", "page_number": None},
+        ],
+    )
+
+    resolved = agenda_resolver.resolve_agenda_items(mock_session, catalog, doc, local_ai)
+    assert resolved["source_used"] == "legistar"
+    assert "5:30 P.M. SPECIAL COUNCIL MEETING (Closed Session)" not in [item["title"] for item in resolved["items"]]
+    assert "Closed Session Held Pursuant to California Government Code Section 54957.6" in [
+        item["title"] for item in resolved["items"]
+    ]
+    local_ai.extract_agenda.assert_not_called()

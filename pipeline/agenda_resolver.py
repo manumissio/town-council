@@ -11,6 +11,15 @@ from pipeline.models import Document, Catalog
 
 
 logger = logging.getLogger("agenda-resolver")
+_LEGISTAR_PROCEDURAL_PATTERNS = [
+    re.compile(r"(?i)^call to order$"),
+    re.compile(r"(?i)^roll call$"),
+    re.compile(r"(?i)^public participation(?: and access)?$"),
+    re.compile(r"(?i)^public comment$"),
+    re.compile(r"(?i)^adjourn(?:ment| special meeting| regular meeting)?$"),
+    re.compile(r"(?i)^convene to closed session$"),
+    re.compile(r"(?i)^\d{1,2}:\d{2}\s*(?:a\.m\.|p\.m\.|am|pm)\s+.*meeting.*$"),
+]
 
 
 def _get_value(item: Any, key: str):
@@ -28,6 +37,34 @@ def _normalize_title(title: str) -> str:
         # Some tests pass MagicMock placeholders for optional fields.
         raw = str(title)
     return re.sub(r"\s+", " ", raw).strip()
+
+
+def _filter_legistar_items(items: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    """
+    Remove portal wrapper rows so deterministic Legistar structure is graded on
+    substantive agenda items instead of meeting scaffolding.
+    """
+    filtered: List[Dict[str, Any]] = []
+    for item in items or []:
+        title = _normalize_title(item.get("title", ""))
+        if not title:
+            continue
+        if any(pattern.match(title) for pattern in _LEGISTAR_PROCEDURAL_PATTERNS):
+            continue
+        filtered.append({**item, "title": title})
+    return filtered
+
+
+def _legistar_items_are_acceptable(items: List[Dict[str, Any]]) -> bool:
+    if len(items) < 3:
+        return False
+    substantive_count = sum(
+        1
+        for item in items
+        if not is_procedural_title(item.get("title", ""))
+        and not is_contact_or_letterhead_noise(item.get("title", ""), item.get("description", "") or "")
+    )
+    return substantive_count >= 3
 
 
 def agenda_quality_score(items: List[Any]) -> int:
@@ -232,15 +269,30 @@ def resolve_agenda_items(session, catalog, doc, local_ai) -> Dict[str, Any]:
         event_date = doc.event.record_date
 
     legistar_items = fetch_legistar_agenda_items(legistar_client, event_date)
+    filtered_legistar_items = _filter_legistar_items(legistar_items)
+    filtered_legistar_score = agenda_quality_score(filtered_legistar_items) if filtered_legistar_items else 0
+    legistar_accepted = _legistar_items_are_acceptable(filtered_legistar_items)
 
-    if len(legistar_items) >= 2 and agenda_quality_score(legistar_items) >= 55:
-        enriched = _apply_page_numbers_from_reference(legistar_items, html_items)
+    logger.info(
+        "agenda_resolver_legistar catalog_location=%s raw_legistar_count=%s filtered_legistar_count=%s filtered_legistar_score=%s legistar_accepted=%s",
+        getattr(catalog, "location", None),
+        len(legistar_items),
+        len(filtered_legistar_items),
+        filtered_legistar_score,
+        legistar_accepted,
+    )
+
+    if legistar_accepted:
+        enriched = _apply_page_numbers_from_reference(filtered_legistar_items, html_items)
         return {
             "items": enriched,
             "source_used": "legistar",
             "quality_score": agenda_quality_score(enriched),
             "confidence": "high",
             "llm_fallback_invoked": False,
+            "raw_legistar_count": len(legistar_items),
+            "filtered_legistar_count": len(filtered_legistar_items),
+            "legistar_accepted": True,
         }
 
     if len(html_items) >= 2 and agenda_quality_score(html_items) >= 55:
@@ -250,6 +302,9 @@ def resolve_agenda_items(session, catalog, doc, local_ai) -> Dict[str, Any]:
             "quality_score": agenda_quality_score(html_items),
             "confidence": "medium",
             "llm_fallback_invoked": False,
+            "raw_legistar_count": len(legistar_items),
+            "filtered_legistar_count": len(filtered_legistar_items),
+            "legistar_accepted": False,
         }
 
     llm_items = local_ai.extract_agenda(catalog.content) if catalog and catalog.content else []
@@ -268,4 +323,7 @@ def resolve_agenda_items(session, catalog, doc, local_ai) -> Dict[str, Any]:
         "quality_score": quality_score,
         "confidence": "medium" if merged else "low",
         "llm_fallback_invoked": True,
+        "raw_legistar_count": len(legistar_items),
+        "filtered_legistar_count": len(filtered_legistar_items),
+        "legistar_accepted": False,
     }

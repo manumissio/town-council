@@ -54,11 +54,14 @@ def segment_document_agenda(catalog_id):
             resolved = resolve_agenda_items(session, catalog, doc, local_ai)
             items_data = resolved["items"]
             logger.info(
-                "agenda_segmentation_resolved catalog_id=%s source_used=%s quality_score=%s llm_fallback_invoked=%s",
+                "agenda_segmentation_resolved catalog_id=%s source_used=%s quality_score=%s llm_fallback_invoked=%s raw_legistar_count=%s filtered_legistar_count=%s legistar_accepted=%s",
                 catalog.id,
                 resolved.get("source_used"),
                 resolved.get("quality_score"),
                 resolved.get("llm_fallback_invoked", False),
+                resolved.get("raw_legistar_count"),
+                resolved.get("filtered_legistar_count"),
+                resolved.get("legistar_accepted"),
             )
 
             if items_data:
