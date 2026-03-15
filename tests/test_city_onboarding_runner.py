@@ -95,6 +95,13 @@ def test_onboarding_runner_marks_empty_crawl_and_skips_downstream_steps(tmp_path
     docker_stub = """#!/usr/bin/env bash
 set -euo pipefail
 printf '%s\\n' "$*" >> "$DOCKER_LOG"
+if [[ "$*" == "compose config --images" ]]; then
+  printf '%s\\n' 'town-council-crawler'
+  exit 0
+fi
+if [[ "$1" == "image" && "$2" == "inspect" && "$3" == "town-council-crawler" ]]; then
+  exit 0
+fi
 if [[ "$*" == *"scripts/reset_city_verification_state.py"* && "$*" == *"--print-baseline"* ]]; then
   printf '%s\\n' '{"city": "fremont", "baseline_event_count": 0, "baseline_max_record_date": null, "baseline_max_scraped_datetime": null}'
   exit 0
@@ -185,6 +192,13 @@ def test_onboarding_runner_resets_first_time_city_between_attempts(tmp_path):
     docker_stub = """#!/usr/bin/env bash
 set -euo pipefail
 printf '%s\\n' "$*" >> "$DOCKER_LOG"
+if [[ "$*" == "compose config --images" ]]; then
+  printf '%s\\n' 'town-council-crawler'
+  exit 0
+fi
+if [[ "$1" == "image" && "$2" == "inspect" && "$3" == "town-council-crawler" ]]; then
+  exit 0
+fi
 if [[ "$*" == *"scrapy crawl fremont"* ]]; then
   exit 0
 fi
@@ -276,11 +290,11 @@ def test_onboarding_runner_resets_anchor_aware_first_time_city_between_attempts(
 
     with Session() as session:
         place = Place(
-            name="Sunnyvale",
+            name="San Leandro",
             state="CA",
             country="us",
-            display_name="Sunnyvale, CA",
-            ocd_division_id="ocd-division/country:us/state:ca/place:sunnyvale",
+            display_name="San Leandro, CA",
+            ocd_division_id="ocd-division/country:us/state:ca/place:san_leandro",
         )
         session.add(place)
         session.flush()
@@ -291,7 +305,7 @@ def test_onboarding_runner_resets_anchor_aware_first_time_city_between_attempts(
                 place_id=place.id,
                 scraped_datetime=datetime(2026, 3, 1, 12, 0, 0),
                 record_date=date(2026, 3, 1),
-                source="sunnyvale",
+                source="san_leandro",
                 source_url="https://example.com/baseline",
                 name="Baseline meeting",
             )
@@ -308,31 +322,38 @@ def test_onboarding_runner_resets_anchor_aware_first_time_city_between_attempts(
     docker_stub = """#!/usr/bin/env bash
 set -euo pipefail
 printf '%s\\n' "$*" >> "$DOCKER_LOG"
+if [[ "$*" == "compose config --images" ]]; then
+  printf '%s\\n' 'town-council-crawler'
+  exit 0
+fi
+if [[ "$1" == "image" && "$2" == "inspect" && "$3" == "town-council-crawler" ]]; then
+  exit 0
+fi
 if [[ "$*" == *"scripts/reset_city_verification_state.py"* && "$*" == *"--print-baseline"* ]]; then
-  printf '%s\\n' '{"city": "sunnyvale", "baseline_event_count": 1, "baseline_max_record_date": "2026-03-01", "baseline_max_scraped_datetime": "2026-03-01T12:00:00Z"}'
+  printf '%s\\n' '{"city": "san_leandro", "baseline_event_count": 1, "baseline_max_record_date": "2026-03-01", "baseline_max_scraped_datetime": "2026-03-01T12:00:00Z"}'
   exit 0
 fi
 if [[ "$*" == *"scripts/reset_city_verification_state.py"* ]]; then
-  printf '%s\\n' '{"city": "sunnyvale", "deleted_document_count": 1, "deleted_event_count": 1, "deleted_catalog_count": 1, "catalog_reference_count": 1, "deleted_data_issue_count": 0, "remaining_event_count": 1, "remaining_max_record_date": "2026-03-01", "remaining_max_scraped_datetime": "2026-03-01T12:00:00Z"}'
+  printf '%s\\n' '{"city": "san_leandro", "deleted_document_count": 1, "deleted_event_count": 1, "deleted_catalog_count": 1, "catalog_reference_count": 1, "deleted_data_issue_count": 0, "remaining_event_count": 1, "remaining_max_record_date": "2026-03-01", "remaining_max_scraped_datetime": "2026-03-01T12:00:00Z"}'
   exit 0
 fi
-if [[ "$*" == *"scrapy crawl sunnyvale"* ]]; then
+if [[ "$*" == *"scrapy crawl san_leandro"* ]]; then
   printf '%s\\n' "crawl" >> "$CRAWL_LOG"
   touch "$CRAWL_STATE"
   exit 0
 fi
 if [[ "$*" == *"scripts/check_city_crawl_evidence.py"* ]]; then
   if [[ -f "$CRAWL_STATE" ]]; then
-    printf '%s\\n' '{"city": "sunnyvale", "event_stage_count": 3, "has_evidence": true, "url_stage_count": 2}'
+    printf '%s\\n' '{"city": "san_leandro", "event_stage_count": 3, "has_evidence": true, "url_stage_count": 2}'
   else
-    printf '%s\\n' '{"city": "sunnyvale", "event_stage_count": 0, "has_evidence": false, "url_stage_count": 0}'
+    printf '%s\\n' '{"city": "san_leandro", "event_stage_count": 0, "has_evidence": false, "url_stage_count": 0}'
   fi
   exit 0
 fi
 if [[ "$*" == *"run_pipeline.py"* ]]; then
   exit 0
 fi
-if [[ "$*" == *"scripts/segment_city_corpus.py --city sunnyvale"* ]]; then
+if [[ "$*" == *"scripts/segment_city_corpus.py --city san_leandro"* ]]; then
   exit 0
 fi
 echo "unexpected docker invocation: $*" >&2
@@ -365,7 +386,7 @@ exit 0
         "scripts/onboard_city_wave.sh",
         "wave1",
         "--cities",
-        "sunnyvale",
+        "san_leandro",
         "--runs",
         "3",
         "--run-id",
@@ -386,8 +407,8 @@ exit 0
     docker_commands = docker_log.read_text(encoding="utf-8")
     assert docker_commands.count("--print-baseline") == 1
     assert docker_commands.count("--baseline-record-date 2026-03-01") == 2
-    assert "restoring first-time verification state for sunnyvale before run 2" in result.stdout
-    assert "restoring first-time verification state for sunnyvale before run 3" in result.stdout
+    assert "restoring first-time verification state for san_leandro before run 2" in result.stdout
+    assert "restoring first-time verification state for san_leandro before run 3" in result.stdout
 
 
 def test_onboarding_runner_marks_stable_noop_for_prior_pass_city(tmp_path):
@@ -408,6 +429,13 @@ def test_onboarding_runner_marks_stable_noop_for_prior_pass_city(tmp_path):
     docker_stub = """#!/usr/bin/env bash
 set -euo pipefail
 printf '%s\\n' \"$*\" >> \"$DOCKER_LOG\"
+if [[ \"$*\" == \"compose config --images\" ]]; then
+  printf '%s\\n' 'town-council-crawler'
+  exit 0
+fi
+if [[ \"$1\" == \"image\" && \"$2\" == \"inspect\" && \"$3\" == \"town-council-crawler\" ]]; then
+  exit 0
+fi
 if [[ \"$*\" == *\"scrapy crawl hayward\"* ]]; then
   exit 0
 fi

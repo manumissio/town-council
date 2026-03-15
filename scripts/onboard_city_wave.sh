@@ -143,6 +143,20 @@ run_cmd() {
   "$@"
 }
 
+ensure_crawler_image_present() {
+  local crawler_image
+  crawler_image="$(docker compose config --images | grep 'crawler$' | head -n 1 || true)"
+  if [[ -z "$crawler_image" ]]; then
+    echo "unable to resolve crawler image name from docker compose config --images"
+    return 2
+  fi
+  if ! docker image inspect "$crawler_image" >/dev/null 2>&1; then
+    echo "crawler image '$crawler_image' is missing; build it explicitly with: docker compose build crawler"
+    return 2
+  fi
+  return 0
+}
+
 check_crawl_evidence() {
   local city="$1"
   local started_at="$2"
@@ -342,6 +356,21 @@ for city in "${cities[@]}"; do
       fi
     fi
 
+    if [[ "$DRY_RUN" == "1" ]]; then
+      echo "launching crawler for $city with explicit prebuilt-image check"
+      echo "[dry-run] docker compose config --images | grep 'crawler$' | head -n 1"
+      echo "[dry-run] docker image inspect <crawler-image>"
+    elif ensure_crawler_image_present; then
+      echo "launching crawler for $city with explicit prebuilt-image check"
+    else
+      crawler_status="failed"
+      error_message="crawler_image_missing"
+      prior_run_had_fresh_evidence="no"
+      finished_at="$(date -u +"%Y-%m-%dT%H:%M:%SZ")"
+      write_result "$city" "$run_index" "$started_at" "$finished_at" "$crawler_status" "$pipeline_status" "$segmentation_status" "$search_status" "$error_message" "$verification_mode" "$state_reset_applied"
+      break
+    fi
+
     if run_cmd docker compose run --rm crawler scrapy crawl "$city"; then
       crawl_finished_at="$(date -u +"%Y-%m-%dT%H:%M:%SZ")"
       set +e
@@ -358,6 +387,7 @@ for city in "${cities[@]}"; do
           -e STARTUP_PURGE_DERIVED=false \
           -e PIPELINE_ONBOARDING_CITY="$city" \
           -e PIPELINE_ONBOARDING_STARTED_AT_UTC="$started_at" \
+          -e PIPELINE_RUNTIME_PROFILE=onboarding_fast \
           -e PIPELINE_ONBOARDING_DOCUMENT_CHUNK_SIZE=5 \
           -e PIPELINE_ONBOARDING_MAX_WORKERS=1 \
           -e TIKA_OCR_FALLBACK_ENABLED=false \

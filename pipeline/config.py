@@ -309,6 +309,9 @@ PIPELINE_ONBOARDING_CITY = os.getenv("PIPELINE_ONBOARDING_CITY", "").strip()
 PIPELINE_ONBOARDING_STARTED_AT_UTC = os.getenv("PIPELINE_ONBOARDING_STARTED_AT_UTC", "").strip()
 PIPELINE_ONBOARDING_DOCUMENT_CHUNK_SIZE = int(os.getenv("PIPELINE_ONBOARDING_DOCUMENT_CHUNK_SIZE", "0"))
 PIPELINE_ONBOARDING_MAX_WORKERS = int(os.getenv("PIPELINE_ONBOARDING_MAX_WORKERS", "0"))
+PIPELINE_RUNTIME_PROFILE = (os.getenv("PIPELINE_RUNTIME_PROFILE", "").strip().lower() or "")
+if PIPELINE_RUNTIME_PROFILE not in {"", "onboarding_fast"}:
+    PIPELINE_RUNTIME_PROFILE = ""
 
 
 # =============================================================================

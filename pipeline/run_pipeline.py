@@ -14,6 +14,7 @@ from pipeline.config import (
     PIPELINE_ONBOARDING_STARTED_AT_UTC,
     PIPELINE_ONBOARDING_DOCUMENT_CHUNK_SIZE,
     PIPELINE_ONBOARDING_MAX_WORKERS,
+    PIPELINE_RUNTIME_PROFILE,
     TIKA_OCR_FALLBACK_ENABLED,
     DB_RETRY_DELAY_MIN,
     DB_RETRY_DELAY_MAX
@@ -32,6 +33,29 @@ def run_step(name, command):
     except subprocess.CalledProcessError:
         logger.error(f"Step {name} failed.")
         sys.exit(1)
+
+
+def _should_skip_non_gating_onboarding_steps() -> bool:
+    # Onboarding decisions only gate on crawl, extraction, segmentation, and searchability.
+    # Keep enrichment steps out of the hot path when the runner explicitly requests the fast profile.
+    return bool(PIPELINE_ONBOARDING_CITY) and PIPELINE_RUNTIME_PROFILE == "onboarding_fast"
+
+
+def _run_post_processing_steps():
+    if _should_skip_non_gating_onboarding_steps():
+        logger.info(
+            "onboarding_fast_profile city=%s executed_steps=Search Indexing skipped_steps=Table Extraction, Backfill Organizations, Topic Modeling, People Linking",
+            PIPELINE_ONBOARDING_CITY,
+        )
+        run_step("Search Indexing", ["python", "indexer.py"])
+        return
+
+    # These steps depend on the global dataset, so they run sequentially after processing.
+    run_step("Table Extraction", ["python", "table_worker.py"])  # Can fail safely
+    run_step("Backfill Organizations", ["python", "backfill_orgs.py"])
+    run_step("Topic Modeling", ["python", "topic_worker.py"])
+    run_step("People Linking", ["python", "person_linker.py"])
+    run_step("Search Indexing", ["python", "indexer.py"])
 
 def process_document_chunk(catalog_ids, ocr_fallback_enabled=None):
     """
@@ -287,12 +311,7 @@ def main():
     run_parallel_processing()
     
     # 3. Post-Processing
-    # These steps depend on the global dataset, so they run sequentially after processing.
-    run_step("Table Extraction", ["python", "table_worker.py"]) # Can fail safely
-    run_step("Backfill Organizations", ["python", "backfill_orgs.py"])
-    run_step("Topic Modeling", ["python", "topic_worker.py"])
-    run_step("People Linking", ["python", "person_linker.py"])
-    run_step("Search Indexing", ["python", "indexer.py"])
+    _run_post_processing_steps()
     
     logger.info("<<< Pipeline Complete")
 

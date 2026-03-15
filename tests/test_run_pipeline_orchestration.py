@@ -82,6 +82,26 @@ def test_main_runs_steps_in_expected_order(mocker):
     assert calls[-1][0] == "Search Indexing"
 
 
+def test_main_skips_non_gating_steps_in_onboarding_fast_profile(mocker):
+    calls = []
+    mocker.patch("pipeline.run_pipeline.run_parallel_processing", side_effect=lambda: calls.append("parallel"))
+
+    def fake_run_step(name, command):
+        calls.append((name, tuple(command)))
+
+    mocker.patch("pipeline.run_pipeline.run_step", side_effect=fake_run_step)
+    mocker.patch.object(run_pipeline, "PIPELINE_ONBOARDING_CITY", "san_leandro")
+    mocker.patch.object(run_pipeline, "PIPELINE_RUNTIME_PROFILE", "onboarding_fast")
+
+    run_pipeline.main()
+
+    assert ("Search Indexing", ("python", "indexer.py")) in calls
+    assert ("Table Extraction", ("python", "table_worker.py")) not in calls
+    assert ("Backfill Organizations", ("python", "backfill_orgs.py")) not in calls
+    assert ("Topic Modeling", ("python", "topic_worker.py")) not in calls
+    assert ("People Linking", ("python", "person_linker.py")) not in calls
+
+
 def test_process_document_chunk_returns_count_for_missing_rows(mocker):
     db = MagicMock()
     db.get.side_effect = [None]

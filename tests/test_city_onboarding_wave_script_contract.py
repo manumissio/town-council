@@ -20,6 +20,10 @@ def test_onboarding_wave_script_uses_rollout_registry():
     assert "first_time_onboarding" in text
     assert "confirmation" in text
     assert "PIPELINE_ONBOARDING_CITY" in text
+    assert "PIPELINE_RUNTIME_PROFILE=onboarding_fast" in text
     assert "PIPELINE_ONBOARDING_DOCUMENT_CHUNK_SIZE=5" in text
     assert "PIPELINE_ONBOARDING_MAX_WORKERS=1" in text
     assert "TIKA_OCR_FALLBACK_ENABLED=false" in text
+    assert "docker compose config --images | grep 'crawler$' | head -n 1" in text
+    assert "docker image inspect \"$crawler_image\"" in text
+    assert "docker compose run --rm crawler scrapy crawl" in text
