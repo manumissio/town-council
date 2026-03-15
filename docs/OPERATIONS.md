@@ -136,6 +136,17 @@ docker compose run --rm -w /app pipeline python scripts/rewind_pending_city_onbo
 docker compose start api worker frontend monitor
 ```
 
+### City segmentation timeout behavior
+- `scripts/segment_city_corpus.py` now bounds per-catalog agenda segmentation instead of letting one stuck catalog hang the whole city run indefinitely.
+- The timeout is controlled by `CITY_SEGMENTATION_TIMEOUT_SECONDS` and defaults to `120`.
+- On timeout, the script records a terminal catalog failure:
+  - `agenda_segmentation_status=failed`
+  - `agenda_segmentation_item_count=0`
+  - `agenda_segmentation_attempted_at=<now>`
+  - `agenda_segmentation_error=agenda_segmentation_timeout:<seconds>s`
+- The city runner continues to the next catalog and prints a summary line with `complete`, `empty`, `failed`, and `timed_out` counts.
+- This does not relax onboarding gates; it only converts an infinite wait into an explicit catalog outcome that the evaluator can grade.
+
 ### Optional: Reindex Meilisearch only (no extraction/AI)
 If you changed indexing logic (or you want to refresh search after cleaning up bad HTML in stored titles):
 ```bash

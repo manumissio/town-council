@@ -74,4 +74,10 @@ Pending-city rewind notes:
   - San Leandro: dry-run and apply deleted `95` events, `23` documents, and `23` unreferenced catalogs; DB anchor is now clean again
 - Post-rewind rerun status:
   - Sunnyvale rerun `city_wave1_sunnyvale_20260315_090331` proved the new first-time reset loop into run 2, but the run was interrupted after a pre-existing `scripts/segment_city_corpus.py --city sunnyvale` stall prevented a clean artifact write
+  - Sunnyvale rerun `city_wave1_sunnyvale_20260315_092108` completed end to end after city segmentation was updated to bound per-catalog work and mark timeouts as explicit catalog failures instead of hanging the city
+    - run 1: `success` for crawl, pipeline, segmentation, and search smoke
+    - segmentation touched `10` agenda catalogs and terminated with `8` complete, `0` empty, `0` failed, `2` timed_out
+    - evaluator result: `fail`
+    - failed gates: `crawl_success_rate_gte_95pct`, `segmentation_complete_empty_rate_gte_95pct`, `segmentation_failed_rate_lt_5pct`, `searchability_smoke_pass`
+    - interpretation: Sunnyvale is no longer blocked by a segmentation hang; it is now blocked by real first-time gate failures under the current verification policy
   - San Leandro has been rewound successfully but not yet rerun after the cleanup window
