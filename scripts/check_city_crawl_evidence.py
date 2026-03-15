@@ -5,7 +5,7 @@ import argparse
 import json
 import os
 import sys
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 
 from sqlalchemy import or_
 
@@ -41,7 +41,9 @@ def _ocd_division_id_for_city(city: str) -> str:
 
 def _collect_crawl_evidence(city: str, start_at: str, end_at: str) -> dict[str, int | bool | str]:
     start_dt = _parse_iso_utc(start_at)
-    end_dt = _parse_iso_utc(end_at)
+    # The runner records second-precision timestamps, while staging rows keep
+    # microseconds. Treat end-at as inclusive for the whole trailing second.
+    end_dt_exclusive = _parse_iso_utc(end_at) + timedelta(seconds=1)
     aliases = sorted(_source_aliases_for_city(city))
     ocd_division_id = _ocd_division_id_for_city(city)
 
@@ -50,7 +52,7 @@ def _collect_crawl_evidence(city: str, start_at: str, end_at: str) -> dict[str, 
             session.query(EventStage)
             .filter(
                 EventStage.scraped_datetime >= start_dt,
-                EventStage.scraped_datetime <= end_dt,
+                EventStage.scraped_datetime < end_dt_exclusive,
                 or_(
                     EventStage.ocd_division_id == ocd_division_id,
                     EventStage.source.in_(aliases),
@@ -62,7 +64,7 @@ def _collect_crawl_evidence(city: str, start_at: str, end_at: str) -> dict[str, 
             session.query(UrlStage)
             .filter(
                 UrlStage.created_at >= start_dt,
-                UrlStage.created_at <= end_dt,
+                UrlStage.created_at < end_dt_exclusive,
                 UrlStage.ocd_division_id == ocd_division_id,
             )
             .count()
