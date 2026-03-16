@@ -155,6 +155,17 @@ docker compose start api worker frontend monitor
 - `pipeline/agenda_legistar.py` now treats the known tenant-specific Legistar `400` (`Agenda Draft Status` / public visibility setting not configured) as an unsupported cross-check capability, not as a content-quality failure.
   - the capability miss is memoized per client for the life of the process
   - once detected, later agenda resolution skips the same doomed Legistar cross-check instead of repeating the same failed HTTP request for each catalog
+- Base `docker-compose.yml` runtime defaults are now shared/prod safe:
+  - `STARTUP_PURGE_DERIVED=false` by default for `api`, `worker`, and `pipeline`
+  - the base API service no longer runs `uvicorn --reload`
+  - dev-only convenience now lives in `docker-compose.dev.yml`
+- Frontend privileged actions now flow through same-origin Next route handlers instead of embedding `NEXT_PUBLIC_API_AUTH_KEY` in the browser bundle.
+  - required frontend server-side env:
+    - `INTERNAL_API_BASE_URL` for backend-to-backend calls, default `http://api:8000`
+    - `API_AUTH_KEY` for forwarding privileged requests
+- Frontend CSP is now generated per request in `frontend/proxy.js` using a nonce-based `script-src`.
+  - `NEXT_PUBLIC_API_URL` remains public configuration and is used in `connect-src`
+  - when `APP_ENV` is not `dev`, `NEXT_PUBLIC_API_URL` must be set to a non-localhost origin at build time
 - On timeout, the script records a terminal catalog failure:
   - `agenda_segmentation_status=failed`
   - `agenda_segmentation_item_count=0`
