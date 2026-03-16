@@ -3,7 +3,6 @@ import json
 import logging
 import threading
 import re
-import multiprocessing
 from rapidfuzz import fuzz
 try:
     # Optional dependency: we still want the pipeline to run (heuristic fallbacks)
@@ -33,6 +32,11 @@ from pipeline.config import (
     AGENDA_SUMMARY_TEMPERATURE,
     LOCAL_AI_ALLOW_MULTIPROCESS,
     LOCAL_AI_BACKEND,
+    LOCAL_AI_REQUIRE_SOLO_POOL,
+)
+from pipeline.runtime_guardrails import (
+    local_ai_guardrail_inputs_from_env,
+    local_ai_runtime_guardrail_message,
 )
 from pipeline.summary_quality import is_summary_grounded, prune_unsupported_summary_lines
 from pipeline.lexicon import (
@@ -58,31 +62,6 @@ class LocalAIConfigError(RuntimeError):
     """
     Raised when LocalAI is invoked in an unsafe/unsupported runtime configuration.
     """
-
-def _looks_like_multiprocess_worker() -> bool:
-    """
-    Best-effort detection of "this code is running inside a forked/child process".
-
-    This is intentionally conservative: if we suspect multiprocess and the guardrail
-    is enabled, we fail fast to avoid loading multiple GGUF model copies into RAM.
-    """
-    try:
-        if multiprocessing.current_process().name != "MainProcess":
-            return True
-    except Exception:
-        pass
-
-    # Celery/worker env hints (best-effort; not authoritative).
-    for key in ("CELERYD_CONCURRENCY", "WORKER_CONCURRENCY", "CELERY_WORKER_CONCURRENCY"):
-        val = os.getenv(key)
-        if val:
-            try:
-                if int(val) > 1:
-                    return True
-            except Exception:
-                # Non-integer values are ignored; the process-name check is primary.
-                pass
-    return False
 
 def _dedupe_lines_preserve_order(lines):
     """Return unique lines while keeping the first occurrence order."""
@@ -1653,11 +1632,16 @@ class LocalAI:
 
         # Guardrail: llama.cpp loads the model into the *current process*. In a multiprocess
         # worker (Celery prefork), this will duplicate the model per process and can OOM.
-        if not LOCAL_AI_ALLOW_MULTIPROCESS and _looks_like_multiprocess_worker():
-            raise LocalAIConfigError(
-                "Unsafe LocalAI configuration detected (multiprocess worker). "
-                "Run Celery with --concurrency=1 --pool=solo, or switch to a dedicated inference server backend."
-            )
+        concurrency, pool = local_ai_guardrail_inputs_from_env()
+        guardrail_message = local_ai_runtime_guardrail_message(
+            backend=LOCAL_AI_BACKEND,
+            allow_multiprocess=LOCAL_AI_ALLOW_MULTIPROCESS,
+            require_solo_pool=LOCAL_AI_REQUIRE_SOLO_POOL,
+            concurrency=concurrency,
+            pool=pool,
+        )
+        if guardrail_message:
+            raise LocalAIConfigError(guardrail_message)
 
         if Llama is None:
             logger.error("Local AI model is unavailable (llama_cpp not installed). Falling back to heuristics.")

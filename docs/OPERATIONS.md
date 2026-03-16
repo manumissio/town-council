@@ -1,6 +1,6 @@
 # Operations Runbook
 
-Last updated: 2026-03-15
+Last updated: 2026-03-16
 
 ## Core workflow
 
@@ -556,7 +556,9 @@ docker compose exec -T worker celery -A pipeline.tasks call pipeline.tasks.compu
 
 Notes:
 - Trends are served from Meilisearch facets (`topics`) in v1.
+- Lineage read endpoints are available even when `FEATURE_TRENDS_DASHBOARD=false`.
 - Lineage recompute is full-graph and lock-protected to handle cascading component merges safely.
+- `pipeline/semantic_index.py` still carries its own env-based multiprocess guardrail path; Batch 2 only unified the LocalAI task and runtime checks.
 
 ## Inference Decoupling & Throughput Stabilization Rollout (before city expansion)
 

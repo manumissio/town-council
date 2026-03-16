@@ -42,6 +42,7 @@ from pipeline.summary_quality import (
     is_summary_grounded,
 )
 from pipeline.text_cleaning import postprocess_extracted_text
+from pipeline.runtime_guardrails import local_ai_runtime_guardrail_message
 from pipeline.startup_purge import run_startup_purge_if_enabled
 from pipeline.vote_extractor import run_vote_extraction_for_catalog
 
@@ -210,24 +211,16 @@ def _run_startup_purge_on_worker_ready(sender=None, **kwargs):
             concurrency = None
         pool = _get_celery_pool_from_argv(getattr(sender, "argv", None) or sys.argv)  # type: ignore[arg-type]
 
-        if backend == "inprocess" and not LOCAL_AI_ALLOW_MULTIPROCESS:
-            # Default stance: LocalAI runs in-process via llama.cpp, which loads the model
-            # into the current process's RAM. Multiprocess pools will duplicate the model.
-            if LOCAL_AI_REQUIRE_SOLO_POOL and pool != "solo":
-                logger.critical(
-                    "Unsafe worker pool for LocalAI: pool=%s. "
-                    "Run Celery with --pool=solo --concurrency=1, or set LOCAL_AI_BACKEND=http for a dedicated inference service.",
-                    pool,
-                )
-                raise SystemExit(1)
-            if isinstance(concurrency, int) and concurrency > 1:
-                logger.critical(
-                    "Unsafe worker concurrency for LocalAI: concurrency=%s pool=%s. "
-                    "Run Celery with --concurrency=1 --pool=solo, or set LOCAL_AI_BACKEND=http for a dedicated inference service.",
-                    concurrency,
-                    pool,
-                )
-                raise SystemExit(1)
+        guardrail_message = local_ai_runtime_guardrail_message(
+            backend=backend,
+            allow_multiprocess=LOCAL_AI_ALLOW_MULTIPROCESS,
+            require_solo_pool=LOCAL_AI_REQUIRE_SOLO_POOL,
+            concurrency=concurrency,
+            pool=pool,
+        )
+        if guardrail_message:
+            logger.critical(guardrail_message)
+            raise SystemExit(1)
     except SystemExit:
         raise
     except Exception:
