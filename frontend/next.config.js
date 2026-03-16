@@ -2,27 +2,17 @@
 const staticExport = process.env.STATIC_EXPORT === "true";
 const repositoryName = (process.env.GITHUB_REPOSITORY || "manumissio/town-council").split("/")[1];
 const pagesBasePath = `/${repositoryName}`;
-const cspEnforce = process.env.NEXT_CSP_ENFORCE === "true";
-const cspHeaderName = cspEnforce
-  ? "Content-Security-Policy"
-  : "Content-Security-Policy-Report-Only";
-const cspValue = [
-  "default-src 'self'",
-  "base-uri 'self'",
-  "frame-ancestors 'none'",
-  "form-action 'self'",
-  "img-src 'self' data: blob: https:",
-  "font-src 'self' data:",
-  "style-src 'self' 'unsafe-inline'",
-  "script-src 'self' 'unsafe-inline'",
-  "connect-src 'self' https: http://localhost:8000 ws://localhost:8000 http://localhost:7700",
-].join("; ");
+const appEnv = (process.env.APP_ENV || "dev").trim().toLowerCase();
+const publicApiUrl = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
+
+if (!staticExport && appEnv !== "dev" && publicApiUrl === "http://localhost:8000") {
+  throw new Error("NEXT_PUBLIC_API_URL must be set to a non-localhost origin when APP_ENV is not dev.");
+}
 
 const securityHeaders = [
   { key: "Referrer-Policy", value: "strict-origin-when-cross-origin" },
   { key: "X-Content-Type-Options", value: "nosniff" },
   { key: "X-Frame-Options", value: "DENY" },
-  { key: cspHeaderName, value: cspValue },
 ];
 
 const nextConfig = {

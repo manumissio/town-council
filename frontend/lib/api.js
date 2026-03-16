@@ -44,11 +44,9 @@ export function getApiHeaders({ useAuth = false, json = false } = {}) {
     headers["Content-Type"] = "application/json";
   }
 
-  // Demo mode never needs auth headers because it reads local fixture JSON.
-  if (useAuth && !DEMO_MODE) {
-    const key = process.env.NEXT_PUBLIC_API_AUTH_KEY;
-    if (key) headers["X-API-Key"] = key;
-  }
+  // Browser callers no longer attach mutation credentials directly.
+  // Auth-required browser actions flow through same-origin route handlers instead.
+  void useAuth;
 
   return headers;
 }

@@ -7,7 +7,7 @@ import {
 } from "lucide-react";
 import DataTable from "./DataTable";
 import LineageTimeline from "./LineageTimeline";
-import { API_BASE_URL, buildApiUrl, getApiHeaders, isDemoMode, TRENDS_DASHBOARD_ENABLED } from "../lib/api";
+import { buildApiUrl, getApiHeaders, isDemoMode, TRENDS_DASHBOARD_ENABLED } from "../lib/api";
 import textFormatter from "../lib/textFormatter";
 
 const { renderFormattedExtractedText } = textFormatter;
@@ -111,7 +111,7 @@ export default function ResultCard({ hit, onPersonClick, onTopicClick }) {
   const [isReporting, setIsReporting] = useState(false);
   const [reportStatus, setReportStatus] = useState(null); // 'loading', 'success', 'error'
   const demoMode = isDemoMode();
-  const canMutate = !demoMode && Boolean(process.env.NEXT_PUBLIC_API_AUTH_KEY);
+  const canMutate = !demoMode;
 
   // Readability is a display concern only: keep DB content raw, format in UI.
   const fullTextSource = useMemo(() => {
@@ -168,9 +168,9 @@ export default function ResultCard({ hit, onPersonClick, onTopicClick }) {
     if (!canMutate) return;
     setReportStatus('loading');
     try {
-      const res = await fetch(`${API_BASE_URL}/report-issue`, {
+      const res = await fetch(`/api/report-issue`, {
         method: "POST",
-        headers: getApiHeaders({ useAuth: true, json: true }),
+        headers: getApiHeaders({ json: true }),
         body: JSON.stringify({
           event_id: hit.event_id || hit.id,
           issue_type: issueType,
@@ -230,8 +230,8 @@ export default function ResultCard({ hit, onPersonClick, onTopicClick }) {
   const fetchDerivedStatus = async () => {
     if (!hit.catalog_id) return;
     try {
-      const res = await fetch(buildApiUrl(`/catalog/${hit.catalog_id}/derived_status`), {
-        headers: getApiHeaders({ useAuth: canMutate }),
+      const res = await fetch(`/api/catalog/${hit.catalog_id}/derived_status`, {
+        headers: getApiHeaders(),
       });
       if (!res.ok) return;
       const data = await res.json();
@@ -244,19 +244,11 @@ export default function ResultCard({ hit, onPersonClick, onTopicClick }) {
 
   const fetchCanonicalContent = async () => {
     if (!hit.catalog_id) return;
-    if (!demoMode && !canMutate) {
-      // The API protects /catalog/* endpoints with an API key. Without a key we can still
-      // browse search results, but we can't show canonical extracted text.
-      setCanonicalTextFetchFailed(true);
-      setCanonicalTextLoadError("Missing API key (cannot load canonical extracted text).");
-      return;
-    }
-
     setIsLoadingCanonicalText(true);
     setCanonicalTextLoadError(null);
     try {
-      const res = await fetch(buildApiUrl(`/catalog/${hit.catalog_id}/content`), {
-        headers: getApiHeaders({ useAuth: canMutate }),
+      const res = await fetch(`/api/catalog/${hit.catalog_id}/content`, {
+        headers: getApiHeaders(),
       });
       if (!res.ok) {
         setCanonicalTextFetchFailed(true);
@@ -300,12 +292,12 @@ export default function ResultCard({ hit, onPersonClick, onTopicClick }) {
     
     setIsGenerating(true);
     try {
-      const url = new URL(`${API_BASE_URL}/summarize/${hit.catalog_id}`);
+      const url = new URL(`/api/summarize/${hit.catalog_id}`, window.location.origin);
       if (force) url.searchParams.set("force", "true");
 
-      const res = await fetch(url.toString(), {
+      const res = await fetch(url.pathname + url.search, {
         method: "POST",
-        headers: getApiHeaders({ useAuth: true })
+        headers: getApiHeaders()
       });
       const data = await res.json();
       
@@ -344,12 +336,12 @@ export default function ResultCard({ hit, onPersonClick, onTopicClick }) {
     if (!hit.catalog_id || demoMode) return;
     setIsTaggingTopics(true);
     try {
-      const url = new URL(`${API_BASE_URL}/topics/${hit.catalog_id}`);
+      const url = new URL(`/api/topics/${hit.catalog_id}`, window.location.origin);
       if (force) url.searchParams.set("force", "true");
 
-      const res = await fetch(url.toString(), {
+      const res = await fetch(url.pathname + url.search, {
         method: "POST",
-        headers: getApiHeaders({ useAuth: true }),
+        headers: getApiHeaders(),
       });
       const data = await res.json();
 
@@ -394,12 +386,12 @@ export default function ResultCard({ hit, onPersonClick, onTopicClick }) {
     
     setIsSegmenting(true);
     try {
-      const url = new URL(`${API_BASE_URL}/segment/${hit.catalog_id}`);
+      const url = new URL(`/api/segment/${hit.catalog_id}`, window.location.origin);
       if (force) url.searchParams.set("force", "true");
 
-      const res = await fetch(url.toString(), {
+      const res = await fetch(url.pathname + url.search, {
         method: "POST",
-        headers: getApiHeaders({ useAuth: true })
+        headers: getApiHeaders()
       });
       const data = await res.json();
       
@@ -428,13 +420,13 @@ export default function ResultCard({ hit, onPersonClick, onTopicClick }) {
     if (!hit.catalog_id || demoMode) return;
     setIsExtracting(true);
     try {
-      const url = new URL(`${API_BASE_URL}/extract/${hit.catalog_id}`);
+      const url = new URL(`/api/extract/${hit.catalog_id}`, window.location.origin);
       url.searchParams.set("force", "true");
       if (ocrFallback) url.searchParams.set("ocr_fallback", "true");
 
-      const res = await fetch(url.toString(), {
+      const res = await fetch(url.pathname + url.search, {
         method: "POST",
-        headers: getApiHeaders({ useAuth: true }),
+        headers: getApiHeaders(),
       });
       const data = await res.json();
       if (data.status === "cached") {

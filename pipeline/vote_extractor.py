@@ -295,7 +295,16 @@ def _apply_ambiguity_penalty(result: VoteExtractionResult, item_text: str) -> Vo
         return result
     if result.outcome_label in {"unknown", "no_action"}:
         return result
+    original_confidence = result.confidence
     result.confidence = max(0.0, result.confidence * 0.4)
+    if result.confidence < VOTE_EXTRACTION_CONFIDENCE_THRESHOLD:
+        logger.debug(
+            "vote_extraction.ambiguity_penalty_below_threshold original_confidence=%s penalized_confidence=%s threshold=%s outcome_label=%s",
+            original_confidence,
+            result.confidence,
+            VOTE_EXTRACTION_CONFIDENCE_THRESHOLD,
+            result.outcome_label,
+        )
     return result
 
 

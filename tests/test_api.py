@@ -170,6 +170,12 @@ def test_api_database_unavailable(mocker):
         del app.dependency_overrides[get_db]
 
 
+def test_task_status_rejects_invalid_uuid():
+    response = client.get("/tasks/not-a-uuid")
+    assert response.status_code == 400
+    assert response.json()["detail"] == "Invalid task_id format"
+
+
 def test_agenda_quality_gate_flags_low_quality_cache():
     """Low-quality cached agenda items should be considered stale."""
     bad_items = [

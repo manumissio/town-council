@@ -41,7 +41,7 @@ services:
       - DATABASE_URL=${DATABASE_URL:-postgresql://town_council:secure_dev_password@postgres:5432/town_council_db}
       - DATA_DIR=/app/data
       - APP_ENV=${APP_ENV:-dev}
-      - STARTUP_PURGE_DERIVED=${STARTUP_PURGE_DERIVED:-true}
+      - STARTUP_PURGE_DERIVED=${STARTUP_PURGE_DERIVED:-false}
       - LOCAL_AI_BACKEND=${LOCAL_AI_BACKEND:-http}
       - LOCAL_AI_HTTP_BASE_URL=${LOCAL_AI_HTTP_BASE_URL:-http://inference:11434}
       - LOCAL_AI_HTTP_TIMEOUT_SECONDS=${LOCAL_AI_HTTP_TIMEOUT_SECONDS:-60}
@@ -129,7 +129,7 @@ services:
       - DATA_DIR=/app/data
       - TC_WORKER_METRICS_PORT=8001
       - APP_ENV=${APP_ENV:-dev}
-      - STARTUP_PURGE_DERIVED=${STARTUP_PURGE_DERIVED:-true}
+      - STARTUP_PURGE_DERIVED=${STARTUP_PURGE_DERIVED:-false}
       - LOCAL_AI_BACKEND=${LOCAL_AI_BACKEND:-http}
       - LOCAL_AI_HTTP_BASE_URL=${LOCAL_AI_HTTP_BASE_URL:-http://inference:11434}
       - LOCAL_AI_HTTP_TIMEOUT_SECONDS=${LOCAL_AI_HTTP_TIMEOUT_SECONDS:-60}
@@ -235,6 +235,12 @@ services:
     volumes:
       - redis_data:/data
     restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "redis-cli -a ${REDIS_PASSWORD:-secure_redis_password} ping | grep PONG || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 20s
 
   # FastAPI Backend: Serves the search API and data to users.
   api:
@@ -243,7 +249,7 @@ services:
       - .:/app
       - data:/app/data
     working_dir: /app/api
-    command: uvicorn main:app --host 0.0.0.0 --port 8000 --reload
+    command: uvicorn main:app --host 0.0.0.0 --port 8000
     ports:
       - "8000:8000"
     environment:
@@ -258,7 +264,7 @@ services:
       - API_AUTH_KEY=${API_AUTH_KEY:-dev_secret_key_change_me}
       - ALLOWED_ORIGINS=${ALLOWED_ORIGINS:-http://localhost:3000}
       - APP_ENV=${APP_ENV:-dev}
-      - STARTUP_PURGE_DERIVED=${STARTUP_PURGE_DERIVED:-true}
+      - STARTUP_PURGE_DERIVED=${STARTUP_PURGE_DERIVED:-false}
       - FEATURE_TRENDS_DASHBOARD=${FEATURE_TRENDS_DASHBOARD:-false}
       - LOCAL_AI_BACKEND=${LOCAL_AI_BACKEND:-http}
       - LOCAL_AI_HTTP_BASE_URL=${LOCAL_AI_HTTP_BASE_URL:-http://inference:11434}
@@ -282,6 +288,7 @@ services:
       - postgres
       - redis
       - inference
+    restart: unless-stopped
 
   # Dedicated inference runtime for D2-lite (HTTP backend).
   inference:
@@ -303,14 +310,16 @@ services:
       dockerfile: Dockerfile
       args:
         - NEXT_PUBLIC_API_URL=${NEXT_PUBLIC_API_URL:-http://localhost:8000}
-        - NEXT_PUBLIC_API_AUTH_KEY=${NEXT_PUBLIC_API_AUTH_KEY:-}
         - NEXT_PUBLIC_FEATURE_TRENDS_DASHBOARD=${NEXT_PUBLIC_FEATURE_TRENDS_DASHBOARD:-false}
+        - APP_ENV=${APP_ENV:-dev}
     ports:
       - "3000:3000"
     environment:
       - NEXT_PUBLIC_API_URL=${NEXT_PUBLIC_API_URL:-http://localhost:8000}
-      - NEXT_PUBLIC_API_AUTH_KEY=${NEXT_PUBLIC_API_AUTH_KEY:-}
       - NEXT_PUBLIC_FEATURE_TRENDS_DASHBOARD=${NEXT_PUBLIC_FEATURE_TRENDS_DASHBOARD:-false}
+      - INTERNAL_API_BASE_URL=${INTERNAL_API_BASE_URL:-http://api:8000}
+      - API_AUTH_KEY=${API_AUTH_KEY:-dev_secret_key_change_me}
+      - APP_ENV=${APP_ENV:-dev}
     depends_on:
       - api
     healthcheck:

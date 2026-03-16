@@ -6,6 +6,7 @@ import re
 import time
 import csv
 import io
+import uuid
 from datetime import date, datetime, timedelta
 import meilisearch
 from meilisearch.errors import MeilisearchCommunicationError, MeilisearchTimeoutError, MeilisearchError
@@ -1497,6 +1498,12 @@ def get_task_status(task_id: str):
     """
     Check the status of a background AI task.
     """
+    try:
+        uuid.UUID(task_id)
+    except (ValueError, TypeError):
+        logger.warning("Invalid task status request", extra={"task_id": task_id})
+        raise HTTPException(status_code=400, detail="Invalid task_id format")
+
     task = AsyncResult(task_id, app=celery_app)
     
     if task.ready():

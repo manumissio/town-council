@@ -23,11 +23,11 @@ COPY . .
 
 # NEXT_PUBLIC_* values used by client components are inlined at build time.
 ARG NEXT_PUBLIC_API_URL=http://localhost:8000
-ARG NEXT_PUBLIC_API_AUTH_KEY=
 ARG NEXT_PUBLIC_FEATURE_TRENDS_DASHBOARD=false
+ARG APP_ENV=dev
 ENV NEXT_PUBLIC_API_URL=${NEXT_PUBLIC_API_URL}
-ENV NEXT_PUBLIC_API_AUTH_KEY=${NEXT_PUBLIC_API_AUTH_KEY}
 ENV NEXT_PUBLIC_FEATURE_TRENDS_DASHBOARD=${NEXT_PUBLIC_FEATURE_TRENDS_DASHBOARD}
+ENV APP_ENV=${APP_ENV}
 
 # Next.js collects completely anonymous telemetry data about general usage.
 # Learn more here: https://nextjs.org/telemetry

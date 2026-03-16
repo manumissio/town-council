@@ -1,0 +1,13 @@
+services:
+  api:
+    command: uvicorn main:app --host 0.0.0.0 --port 8000 --reload
+    environment:
+      - STARTUP_PURGE_DERIVED=true
+
+  worker:
+    environment:
+      - STARTUP_PURGE_DERIVED=true
+
+  pipeline:
+    environment:
+      - STARTUP_PURGE_DERIVED=true
