@@ -182,6 +182,34 @@ def validate_date_format(date_str: str):
         raise HTTPException(status_code=400, detail="Invalid date format. Use YYYY-MM-DD.")
 
 
+def _normalize_filters_or_400(
+    city: Optional[str],
+    meeting_type: Optional[str],
+    org: Optional[str],
+    date_from: Optional[str],
+    date_to: Optional[str],
+    include_agenda_items: bool,
+):
+    try:
+        return normalize_filters(
+            city=city,
+            meeting_type=meeting_type,
+            org=org,
+            date_from=date_from,
+            date_to=date_to,
+            include_agenda_items=include_agenda_items,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+def _normalize_city_or_400(city: str) -> str:
+    try:
+        return normalize_city_filter(city)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
 def _build_filter_values(
     city: Optional[str],
     meeting_type: Optional[str],
@@ -193,7 +221,7 @@ def _build_filter_values(
     """
     Build normalized filter values once so keyword and semantic search stay consistent.
     """
-    filters = normalize_filters(
+    filters = _normalize_filters_or_400(
         city=city,
         meeting_type=meeting_type,
         org=org,
@@ -203,11 +231,11 @@ def _build_filter_values(
     )
     return {
         "city": filters.city,
-        "meeting_type": meeting_type,
-        "org": org,
-        "date_from": date_from,
-        "date_to": date_to,
-        "include_agenda_items": include_agenda_items,
+        "meeting_type": filters.meeting_type,
+        "org": filters.org,
+        "date_from": filters.date_from,
+        "date_to": filters.date_to,
+        "include_agenda_items": filters.include_agenda_items,
     }
 
 
@@ -221,7 +249,7 @@ def _build_meilisearch_filter_clauses(
 ) -> list[str]:
     # Single shared QueryBuilder contract keeps /search and /trends in sync.
     return build_meili_filter_clauses(
-        normalize_filters(
+        _normalize_filters_or_400(
             city=city,
             meeting_type=meeting_type,
             org=org,
@@ -877,7 +905,7 @@ def get_trends_topics(
         key=lambda kv: (-int(kv[1]), str(kv[0]).lower()),
     )[:limit]
     return {
-        "city": normalize_city_filter(city) if city else None,
+        "city": _normalize_city_or_400(city) if city else None,
         "date_from": date_from,
         "date_to": date_to,
         "items": [{"topic": topic, "count": int(count)} for topic, count in rows],
@@ -905,7 +933,7 @@ def get_trends_compare(
     if len(cities) < 2:
         raise HTTPException(status_code=400, detail="Provide at least two cities")
 
-    normalized_cities = [normalize_city_filter(c) for c in cities]
+    normalized_cities = [_normalize_city_or_400(c) for c in cities]
     buckets = _iter_time_buckets(start=start, end=end, granularity=granularity)
 
     docs_by_city = {city: _collect_meeting_docs(city=city) for city in normalized_cities}
@@ -973,13 +1001,13 @@ def export_trends(
         buffer = io.StringIO()
         writer = csv.writer(buffer)
         writer.writerow(["topic", "count", "city", "date_from", "date_to"])
-        normalized_city = normalize_city_filter(city) if city else ""
+        normalized_city = _normalize_city_or_400(city) if city else ""
         for topic, count in rows:
             writer.writerow([topic, int(count), normalized_city, date_from or "", date_to or ""])
         return Response(content=buffer.getvalue(), media_type="text/csv")
 
     return {
-        "city": normalize_city_filter(city) if city else None,
+        "city": _normalize_city_or_400(city) if city else None,
         "date_from": date_from,
         "date_to": date_to,
         "items": [{"topic": topic, "count": int(count)} for topic, count in rows],
@@ -995,7 +1023,6 @@ def get_lineage(
     db: SQLAlchemySession = Depends(get_db),
 ):
     _ = request
-    _require_trends_feature()
     rows = _lineage_rows(db, lineage_id=lineage_id, min_confidence=min_confidence)
     if not rows:
         raise HTTPException(status_code=404, detail="Lineage not found")
@@ -1025,7 +1052,6 @@ def get_catalog_lineage(
     db: SQLAlchemySession = Depends(get_db),
 ):
     _ = request
-    _require_trends_feature()
     catalog = db.get(Catalog, catalog_id)
     if not catalog:
         raise HTTPException(status_code=404, detail="Catalog not found")

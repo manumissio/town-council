@@ -73,6 +73,31 @@ def test_search_endpoint_params(mocker):
     assert "sort" not in search_params
 
 
+def test_search_endpoint_normalizes_meeting_type_and_org_whitespace(mocker):
+    mock_index = mocker.Mock()
+    mock_index.search.return_value = {"hits": [], "estimatedTotalHits": 0}
+    mocker.patch("api.main.client.index", return_value=mock_index)
+
+    response = client.get(
+        "/search?q=zoning&meeting_type=%20%20Regular%20%20Meeting%20&org=%20City%20%20Council%20",
+        headers={"X-API-Key": VALID_KEY},
+    )
+    assert response.status_code == 200
+
+    search_params = mock_index.search.call_args[0][1]
+    assert 'meeting_category = "Regular Meeting"' in search_params["filter"]
+    assert 'organization = "City Council"' in search_params["filter"]
+
+
+def test_search_rejects_invalid_city_filter(mocker):
+    mock_index = mocker.Mock()
+    mocker.patch("api.main.client.index", return_value=mock_index)
+
+    response = client.get("/search?q=zoning&city=%21%21%21", headers={"X-API-Key": VALID_KEY})
+    assert response.status_code == 400
+    assert "City filter" in response.json()["detail"]
+
+
 def test_search_sort_newest_sets_meilisearch_sort(mocker):
     mock_index = mocker.Mock()
     mock_index.search.return_value = {"hits": [], "estimatedTotalHits": 0}
@@ -126,7 +151,7 @@ def test_search_sort_rejected_by_meilisearch_returns_actionable_400(mocker):
 
 def test_search_injection_protection(mocker):
     """
-    Test: Does the search endpoint sanitize malicious filter strings?
+    Test: Does the search endpoint reject malicious city filter strings?
     (Fixes Audit Issue #2)
     """
     mock_index = mocker.Mock()
@@ -135,16 +160,10 @@ def test_search_injection_protection(mocker):
     
     # Attempt a "Quote Escape" attack in the city parameter
     malicious_city = 'berkeley" OR 1=1 OR city="'
-    client.get(f"/search?q=test&city={malicious_city}", headers={"X-API-Key": VALID_KEY})
-    
-    search_params = mock_index.search.call_args[0][1]
-    # The double quote should be escaped: \"
-    # Note: Meilisearch filters are lowercased in our implementation
-    filters = search_params["filter"]
-    city_filters = [f for f in filters if f.strip().lower().startswith('city = "')]
-    assert len(city_filters) == 1
-    assert '\\"' in city_filters[0]  # escaped quote is preserved in the filter string
-    assert "or 1=1" in city_filters[0].lower()
+    response = client.get(f"/search?q=test&city={malicious_city}", headers={"X-API-Key": VALID_KEY})
+    assert response.status_code == 400
+    assert "unsupported characters" in response.json()["detail"].lower()
+    mock_index.search.assert_not_called()
 
 def test_api_database_unavailable(mocker):
     """
@@ -174,6 +193,32 @@ def test_task_status_rejects_invalid_uuid():
     response = client.get("/tasks/not-a-uuid")
     assert response.status_code == 400
     assert response.json()["detail"] == "Invalid task_id format"
+
+
+def test_lineage_endpoint_not_gated_by_trends_flag(mocker):
+    from api.main import get_db
+
+    mocker.patch("api.main.FEATURE_TRENDS_DASHBOARD", False)
+    rows = [
+        (
+            MagicMock(id=101, lineage_id="lin-101", lineage_confidence=0.8, lineage_updated_at=None, summary="Summary"),
+            MagicMock(),
+            MagicMock(name="Meeting A", record_date=MagicMock(isoformat=lambda: "2025-01-10")),
+            MagicMock(display_name="ca_berkeley", name="Berkeley"),
+        )
+    ]
+    mocker.patch("api.main._lineage_rows", return_value=rows)
+
+    def _get_db():
+        yield MagicMock()
+
+    app.dependency_overrides[get_db] = _get_db
+    try:
+        response = client.get("/lineage/lin-101", headers={"X-API-Key": VALID_KEY})
+        assert response.status_code == 200
+        assert response.json()["lineage_id"] == "lin-101"
+    finally:
+        del app.dependency_overrides[get_db]
 
 
 def test_agenda_quality_gate_flags_low_quality_cache():

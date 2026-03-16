@@ -42,3 +42,23 @@ def test_extractive_summarization_integration(db_session, mocker):
     summary_lower = catalog.summary_extractive.lower()
     assert any(k in summary_lower for k in keywords)
     assert len(catalog.summary_extractive.split('.')) >= 1
+
+
+def test_summarize_documents_supports_direct_invocation(mocker):
+    from pipeline import summarizer
+
+    fake_query = mocker.Mock()
+    fake_query.filter.return_value.limit.return_value.all.return_value = [Catalog(id=12), Catalog(id=18)]
+    fake_session = mocker.Mock()
+    fake_session.query.return_value = fake_query
+    fake_session.close.return_value = None
+    fake_session_factory = mocker.Mock(return_value=fake_session)
+
+    mocker.patch.object(summarizer, "db_connect", return_value=mocker.Mock())
+    mocker.patch.object(summarizer, "sessionmaker", return_value=fake_session_factory)
+    extract = mocker.patch.object(summarizer, "extract_summarize_catalog")
+
+    summarizer.summarize_documents()
+
+    assert extract.call_args_list == [mocker.call(12), mocker.call(18)]
+    fake_session.close.assert_called_once()

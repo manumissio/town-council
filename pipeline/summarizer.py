@@ -2,11 +2,12 @@ import os
 import sys
 import time
 import threading
+from sqlalchemy.orm import sessionmaker
 
 # Add project root to path
 sys.path.append(os.path.join(os.path.dirname(__file__), '..'))
 
-from pipeline.models import Catalog
+from pipeline.models import Catalog, db_connect
 from pipeline.db_session import db_session
 from pipeline.config import MAX_SUMMARY_TEXT_LENGTH
 

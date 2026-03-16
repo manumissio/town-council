@@ -9,3 +9,7 @@ def test_city_slug_normalization_defaults_to_ca_prefix():
 def test_city_slug_normalization_preserves_prefixed_slug():
     assert normalize_city_filter("ca_oakland") == "ca_oakland"
     assert normalize_city_filter("ca-san-jose") == "ca_san_jose"
+
+
+def test_city_slug_normalization_strips_diacritics():
+    assert normalize_city_filter("San Leándro") == "ca_san_leandro"

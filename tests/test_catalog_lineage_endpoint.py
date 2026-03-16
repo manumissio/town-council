@@ -7,7 +7,7 @@ from api.main import app, get_db
 
 
 def test_catalog_lineage_endpoint_returns_thread(mocker):
-    mocker.patch("api.main.FEATURE_TRENDS_DASHBOARD", True)
+    mocker.patch("api.main.FEATURE_TRENDS_DASHBOARD", False)
 
     db = MagicMock()
     db.get.return_value = SimpleNamespace(id=101, lineage_id="lin-101", lineage_confidence=0.8)

@@ -96,7 +96,8 @@ If sorting appears to have no effect, see the runbook section in [`docs/OPERATIO
 - `ENABLE_VOTE_EXTRACTION`:
   - enables async vote extraction (`POST /votes/{catalog_id}`)
 - `FEATURE_TRENDS_DASHBOARD`:
-  - enables trends/lineage read endpoints and UI surfaces
+  - enables trends endpoints and trends UI surfaces
+  - lineage read endpoints remain available independently
 - `LOCAL_AI_BACKEND=inprocess|http`:
   - switches LocalAI transport mode
 - `LOCAL_AI_HTTP_PROFILE=conservative|balanced`:
