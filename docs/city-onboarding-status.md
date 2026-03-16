@@ -120,4 +120,23 @@ Pending-city rewind notes:
     - lightweight live probe after the patch:
       - first call for `sanleandro` on `2026-03-16`: `item_count=0`, cache learned as `{'sanleandro': False}`
       - second call for `sanleandro` on `2026-03-17`: `item_count=0`, returned immediately from cache without repeating the failed network lookup
-    - status: San Leandro still needs one fresh full rerun after the broadened capability cache patch before rollout promotion can be considered
+    - status at that point: San Leandro still needed one fresh full rerun after the broadened capability cache patch before rollout promotion could be considered
+  - San Leandro rerun `city_wave1_san_leandro_20260315_220629` validated the repaired onboarding path but did not clear the quality gate
+    - run 1: `crawler=success`, `pipeline=success`, `segmentation=failed`
+    - run 2: `crawler=success`, `pipeline=success`, `segmentation=failed`
+    - run 3: operator-interrupted after the prior two runs had already established a failing segmentation trend; artifact records `pipeline_failed` because the live validation was intentionally stopped before completion
+    - what this rerun proved:
+      - crawler startup no longer paid rebuild friction
+      - onboarding used the `onboarding_fast` profile
+      - the old repeated tenant-specific Legistar `400` churn did not reappear as the primary blocker
+    - remaining blocker is now narrower:
+      - run 2 touched `21` agenda catalogs
+      - at least `2` catalogs timed out during segmentation, which is enough to exceed the `<5%` failed-segmentation gate
+      - confirmed timeout pair during the live trace:
+        - `catalog_id=22417` / `2026-03-09` City Council
+        - `catalog_id=22424` / `2026-03-19` Rules Committee
+    - cleanup after the interrupted validation:
+      - rewind applied from `2026-03-16T02:06:29Z`
+      - deleted `95` events, `23` documents, and `23` unreferenced catalogs
+      - San Leandro DB anchor is clean again
+    - interpretation: the shared runtime package and broadened Legistar capability cache are working, but San Leandro still has a smaller residual segmentation-timeout class that needs its own follow-up before promotion
