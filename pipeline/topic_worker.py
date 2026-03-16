@@ -1,12 +1,7 @@
-import sys
-import os
 import logging
 import re
 from sklearn.feature_extraction.text import TfidfVectorizer
 from sklearn.feature_extraction.text import ENGLISH_STOP_WORDS
-
-# Add project root to path
-sys.path.append(os.path.join(os.path.dirname(__file__), '..'))
 
 from pipeline.models import Catalog
 from pipeline.db_session import db_session

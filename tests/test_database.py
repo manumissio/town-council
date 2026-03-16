@@ -80,3 +80,24 @@ def test_promotion_logic(db_session, mocker):
     # And it should have been deleted from the 'Staging' table.
     staged_count = db_session.query(EventStage).count()
     assert staged_count == 0
+
+
+def test_promotion_keeps_blocked_rows_in_event_stage(db_session, mocker):
+    place = Place(name="Belmont", ocd_division_id="ocd-belmont", state="CA")
+    db_session.add(place)
+    db_session.add_all(
+        [
+            EventStage(name="Council Meeting", ocd_division_id="ocd-belmont"),
+            EventStage(name="Blocked Meeting", ocd_division_id="ocd-missing"),
+        ]
+    )
+    db_session.commit()
+
+    mocker.patch('pipeline.promote_stage.db_connect', return_value=db_session.get_bind())
+
+    promote_stage()
+
+    assert db_session.query(Event).filter_by(name="Council Meeting").count() == 1
+    remaining = db_session.query(EventStage).all()
+    assert len(remaining) == 1
+    assert remaining[0].name == "Blocked Meeting"

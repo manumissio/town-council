@@ -89,6 +89,49 @@ def migrate() -> None:
                 text("ALTER TABLE catalog ADD COLUMN agenda_segmentation_error TEXT")
             )
 
+        if not _postgres_column_exists(conn, "catalog", "extraction_status"):
+            conn.execute(text("ALTER TABLE catalog ADD COLUMN extraction_status VARCHAR(20)"))
+            conn.execute(
+                text(
+                    "CREATE INDEX IF NOT EXISTS ix_catalog_extraction_status "
+                    "ON catalog (extraction_status)"
+                )
+            )
+        if not _postgres_column_exists(conn, "catalog", "extraction_attempted_at"):
+            conn.execute(text("ALTER TABLE catalog ADD COLUMN extraction_attempted_at TIMESTAMP"))
+            conn.execute(
+                text(
+                    "CREATE INDEX IF NOT EXISTS ix_catalog_extraction_attempted_at "
+                    "ON catalog (extraction_attempted_at)"
+                )
+            )
+        if not _postgres_column_exists(conn, "catalog", "extraction_attempt_count"):
+            conn.execute(text("ALTER TABLE catalog ADD COLUMN extraction_attempt_count INTEGER"))
+        if not _postgres_column_exists(conn, "catalog", "extraction_error"):
+            conn.execute(text("ALTER TABLE catalog ADD COLUMN extraction_error TEXT"))
+
+        conn.execute(
+            text(
+                """
+                UPDATE catalog
+                SET extraction_status = CASE
+                    WHEN content IS NOT NULL AND btrim(content) <> '' THEN 'complete'
+                    ELSE 'pending'
+                END
+                WHERE extraction_status IS NULL
+                """
+            )
+        )
+        conn.execute(
+            text(
+                """
+                UPDATE catalog
+                SET extraction_attempt_count = COALESCE(extraction_attempt_count, 0)
+                WHERE extraction_attempt_count IS NULL
+                """
+            )
+        )
+
     # Milestone B2 (pgvector backend): run dedicated migration with strict ordering.
     try:
         migrate_v8.migrate()

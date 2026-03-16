@@ -1,4 +1,3 @@
-from sqlalchemy import text
 from sqlalchemy.orm import sessionmaker
 from sqlalchemy.exc import SQLAlchemyError
 
@@ -26,6 +25,7 @@ def promote_stage():
     
     promoted_count = 0
     skipped_count = 0
+    promoted_ids = []
 
     for staged in staged_events:
         # 1. Find the City (Place) this meeting belongs to.
@@ -35,7 +35,10 @@ def promote_stage():
         ).first()
 
         if not place:
-            print(f"Warning: No place found for {staged.ocd_division_id}. Skipping event: {staged.name}")
+            print(
+                f"Skipping EventStage id={staged.id} reason=blocked_missing_place "
+                f"ocd_division_id={staged.ocd_division_id} event={staged.name}"
+            )
             skipped_count += 1
             continue
 
@@ -63,7 +66,12 @@ def promote_stage():
             )
             session.add(event)
             promoted_count += 1
+            promoted_ids.append(staged.id)
         else:
+            print(
+                f"Skipping EventStage id={staged.id} reason=duplicate "
+                f"ocd_division_id={staged.ocd_division_id} event={staged.name}"
+            )
             skipped_count += 1
 
     try:
@@ -72,9 +80,9 @@ def promote_stage():
         print(f"Promotion complete. {promoted_count} events promoted, {skipped_count} skipped/duplicates.")
         
         # Clean up: Remove the processed records from the staging table.
-        if promoted_count > 0:
-            print("Clearing EventStage table...")
-            session.query(EventStage).delete()
+        if promoted_ids:
+            print(f"Clearing {len(promoted_ids)} promoted EventStage rows...")
+            session.query(EventStage).filter(EventStage.id.in_(promoted_ids)).delete(synchronize_session=False)
             session.commit()
 
     except SQLAlchemyError as e:

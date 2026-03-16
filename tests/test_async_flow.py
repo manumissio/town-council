@@ -70,7 +70,7 @@ def test_task_status_polling():
         mock_pending.ready.return_value = False
         MockResult.return_value = mock_pending
         
-        resp = client.get("/tasks/pending-id")
+        resp = client.get("/tasks/00000000-0000-0000-0000-000000000001")
         assert resp.json()["status"] == "processing"
         
         # Case 2: Complete
@@ -79,7 +79,7 @@ def test_task_status_polling():
         mock_done.result = {"summary": "Done."}
         MockResult.return_value = mock_done
         
-        resp = client.get("/tasks/done-id")
+        resp = client.get("/tasks/00000000-0000-0000-0000-000000000002")
         assert resp.json()["status"] == "complete"
         assert resp.json()["result"]["summary"] == "Done."
 
@@ -262,3 +262,44 @@ def test_segment_task_keeps_page_number_in_results(mocker):
     assert result["item_count"] == 1
     assert result["items"][0]["page_number"] == 7
     assert result["source_used"] == "legistar"
+
+
+def test_segment_task_reindexes_catalog_after_success(mocker):
+    mock_db = MagicMock()
+    mock_catalog = MagicMock()
+    mock_catalog.content = "Agenda text"
+    mock_db.get.return_value = mock_catalog
+
+    mock_doc = MagicMock()
+    mock_doc.event_id = 42
+    mock_doc_query = MagicMock()
+    mock_doc_query.filter_by.return_value.first.return_value = mock_doc
+
+    def query_side_effect(model):
+        if model is tasks.Document:
+            return mock_doc_query
+        return MagicMock()
+
+    mock_db.query.side_effect = query_side_effect
+
+    mocker.patch.object(tasks, "SessionLocal", return_value=mock_db)
+    mocker.patch.object(tasks, "LocalAI", return_value=MagicMock())
+    mocker.patch.object(tasks, "resolve_agenda_items", return_value={
+        "items": [{
+            "order": 1,
+            "title": "Budget Amendment",
+            "description": "Approve revised allocations",
+            "classification": "Agenda Item",
+            "result": "",
+            "page_number": 7,
+            "legistar_matter_id": 321,
+        }],
+        "source_used": "legistar",
+        "quality_score": 82,
+        "confidence": "high",
+    })
+    reindex = mocker.patch.object(tasks, "reindex_catalog")
+
+    tasks.segment_agenda_task.run(1)
+
+    reindex.assert_called_once_with(1)

@@ -10,9 +10,14 @@ from rapidfuzz import fuzz
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 logger = logging.getLogger("verification-service")
 
-# Database Setup
-engine = db_connect()
-SessionLocal = sessionmaker(bind=engine)
+_SessionLocal = None
+
+
+def SessionLocal():
+    global _SessionLocal
+    if _SessionLocal is None:
+        _SessionLocal = sessionmaker(bind=db_connect())
+    return _SessionLocal()
 
 class VerificationService:
     """

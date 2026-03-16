@@ -12,9 +12,14 @@ from pipeline.models import db_connect, Place, Event, AgendaItem
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 logger = logging.getLogger("ground-truth-sync")
 
-# Database Setup
-engine = db_connect()
-SessionLocal = sessionmaker(bind=engine)
+_SessionLocal = None
+
+
+def SessionLocal():
+    global _SessionLocal
+    if _SessionLocal is None:
+        _SessionLocal = sessionmaker(bind=db_connect())
+    return _SessionLocal()
 
 class GroundTruthSync:
     """

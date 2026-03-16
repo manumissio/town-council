@@ -1,10 +1,6 @@
-import sys
-import os
 import logging
 import numpy as np
-
-# Add project root to path
-sys.path.append(os.path.join(os.path.dirname(__file__), '..'))
+import sys
 
 from pipeline.models import Catalog
 from pipeline.db_session import db_session
