@@ -49,24 +49,26 @@ function HomeContent() {
    * It talks to our FastAPI backend and handles both new searches 
    * and "Load More" requests.
    */
-  const performSearch = useCallback(async (isLoadMore = false) => {
+  const performSearch = useCallback(async ({ offsetToUse = 0, append = false } = {}) => {
     // In static demo mode, show all fixture records when the query is empty.
     // In live API mode, keep the existing behavior that requires a query string.
     if (!query.trim() && !demoMode) {
-      if (!isLoadMore) {
+      if (!append) {
         setResults([]);
         setTotalHits(0);
+        setOffset(0);
+        setHasMore(false);
       }
       setSearchError("");
       return;
     }
     
     setLoading(true);
-    if (!isLoadMore) setIsSearching(true);
+    if (!append) setIsSearching(true);
 
     try {
       setSearchError("");
-      const currentOffset = isLoadMore ? offset + 20 : 0;
+      const currentOffset = offsetToUse;
 
       if (demoMode) {
         const res = await fetch(buildApiUrl("/search"));
@@ -127,7 +129,7 @@ function HomeContent() {
         })();
 
         const pagedHits = sortedHits.slice(currentOffset, currentOffset + 20);
-        setResults((prev) => (isLoadMore ? [...prev, ...pagedHits] : pagedHits));
+        setResults((prev) => (append ? [...prev, ...pagedHits] : pagedHits));
         setTotalHits(sortedHits.length);
         setOffset(currentOffset);
         setHasMore(currentOffset + 20 < sortedHits.length);
@@ -168,7 +170,7 @@ function HomeContent() {
       const newHits = data.hits || [];
       
       // Update results: append if loading more, otherwise replace
-      setResults(prev => isLoadMore ? [...prev, ...newHits] : newHits);
+      setResults(prev => append ? [...prev, ...newHits] : newHits);
       setTotalHits(data.estimatedTotalHits || 0);
       setOffset(currentOffset);
       setHasMore(newHits.length === 20); 
@@ -179,17 +181,21 @@ function HomeContent() {
       setLoading(false);
       setIsSearching(false);
     }
-  }, [query, cityFilter, includeAgendaItems, searchMode, sortMode, meetingTypeFilter, orgFilter, offset, demoMode]);
+  }, [query, cityFilter, includeAgendaItems, searchMode, sortMode, meetingTypeFilter, orgFilter, demoMode]);
 
   // Debouncing: Prevents searching on EVERY single keypress (waits 400ms)
   useEffect(() => {
     const delayDebounceFn = setTimeout(() => {
-      setOffset(0);
-      performSearch(false);
+      performSearch({ offsetToUse: 0, append: false });
     }, 400);
 
     return () => clearTimeout(delayDebounceFn);
-  }, [query, cityFilter, includeAgendaItems, searchMode, sortMode, meetingTypeFilter, orgFilter]);
+  }, [query, cityFilter, includeAgendaItems, searchMode, sortMode, meetingTypeFilter, orgFilter, performSearch]);
+
+  const handleLoadMore = () => {
+    const nextOffset = offset + 20;
+    performSearch({ offsetToUse: nextOffset, append: true });
+  };
 
   // Initial Load: Fetch valid filter options from the search engine
   useEffect(() => {
@@ -317,7 +323,7 @@ function HomeContent() {
                 {hasMore && (
                   <div className="pt-8 text-center">
                     <button 
-                      onClick={() => performSearch(true)}
+                      onClick={handleLoadMore}
                       disabled={loading}
                       className="inline-flex items-center gap-2 px-12 py-4 bg-white border border-gray-200 text-gray-700 text-sm font-bold rounded-full hover:bg-gray-50 transition-all shadow-sm disabled:opacity-50"
                     >

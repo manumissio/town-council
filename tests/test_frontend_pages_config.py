@@ -25,3 +25,11 @@ def test_frontend_uses_proxy_csp_and_same_origin_mutation_routes():
     assert 'new URL(`/api/segment/${hit.catalog_id}`' in result_card
     assert 'new URL(`/api/topics/${hit.catalog_id}`' in result_card
     assert 'new URL(`/api/extract/${hit.catalog_id}`' in result_card
+
+
+def test_home_page_uses_explicit_offset_search_flow():
+    source = Path("frontend/app/page.js").read_text(encoding="utf-8")
+    assert "offsetToUse = 0" in source
+    assert "append = false" in source
+    assert "performSearch({ offsetToUse: 0, append: false })" in source
+    assert "const handleLoadMore = () => {" in source
