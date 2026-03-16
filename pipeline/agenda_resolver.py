@@ -6,7 +6,12 @@ import logging
 
 from pipeline.agenda_crosscheck import merge_ai_with_eagenda, parse_eagenda_items_from_file
 from pipeline.agenda_legistar import fetch_legistar_agenda_items
-from pipeline.lexicon import is_contact_or_letterhead_noise, is_procedural_title
+from pipeline.lexicon import (
+    contains_shared_agenda_boilerplate_phrase,
+    is_contact_or_letterhead_noise,
+    is_name_like_title,
+    is_procedural_title,
+)
 from pipeline.models import Document, Catalog
 
 
@@ -110,7 +115,7 @@ def agenda_quality_score(items: List[Any]) -> int:
 
         # These patterns are common in meeting *headers* and legal notices, not agenda items.
         # We keep this generic and phrase-based (not city-specific) so it applies across jurisdictions.
-        if re.search(r"\b(i hereby request|in witness whereof|official seal|cause personal notice|forthwith)\b", key):
+        if contains_shared_agenda_boilerplate_phrase(title):
             boilerplate_hits += 1
             score -= 18
 
@@ -147,7 +152,7 @@ def agenda_quality_score(items: List[Any]) -> int:
 
         # A pure person name (often from speaker lists) is rarely a useful agenda title.
         # Example: "Leslie Sakai" or "Kirk McCarthy (2)".
-        if re.fullmatch(r"[A-Z][a-z]+(?: [A-Z]\.)?(?: [A-Z][a-z]+)+(?: \\(\\d+\\))?", title):
+        if is_name_like_title(title):
             name_like_hits += 1
             score -= 10
 

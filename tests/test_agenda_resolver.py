@@ -1,6 +1,8 @@
 from datetime import date
 from types import SimpleNamespace
 
+import pytest
+
 from pipeline import agenda_resolver
 
 
@@ -24,6 +26,42 @@ def test_agenda_quality_score_penalizes_noise():
         {"title": "Public Employee Appointment", "page_number": 4},
     ]
     assert agenda_resolver.agenda_quality_score(clean) > agenda_resolver.agenda_quality_score(noisy)
+
+
+@pytest.mark.parametrize(
+    ("items", "expected_score"),
+    [
+        (
+            [
+                {"title": "COMMUNICATION ACCESS INFORMATION:", "page_number": 1},
+                {
+                    "title": "Agendas and agenda reports may be accessed via the Internet at http://example.com",
+                    "page_number": 1,
+                },
+                {"title": "Public Employee Appointment", "page_number": 2},
+            ],
+            1,
+        ),
+        (
+            [
+                {"title": "In witness whereof the official seal shall be affixed forthwith", "page_number": 1},
+                {"title": "Budget Amendment", "page_number": 3},
+                {"title": "Transit Network Update", "page_number": 4},
+            ],
+            67,
+        ),
+        (
+            [
+                {"title": "Leslie Sakai", "page_number": 1},
+                {"title": "Kirk McCarthy (2)", "page_number": 1},
+                {"title": "Transit Network Update", "page_number": 2},
+            ],
+            70,
+        ),
+    ],
+)
+def test_agenda_quality_score_parity_fixture_set(items, expected_score):
+    assert agenda_resolver.agenda_quality_score(items) == expected_score
 
 
 def test_resolver_prefers_legistar_when_available(mocker):

@@ -1,5 +1,8 @@
 from pipeline.lexicon import (
+    contains_shared_agenda_boilerplate_phrase,
+    is_agenda_boilerplate_title,
     is_contact_or_letterhead_noise,
+    is_name_like_title,
     is_procedural_title,
     is_trend_noise_topic,
     normalize_title_key,
@@ -25,3 +28,21 @@ def test_trend_noise_topic():
 
 def test_title_key_normalization():
     assert normalize_title_key("Item 3:   Public Comment") == "public comment"
+
+
+def test_shared_agenda_boilerplate_phrase_detection():
+    assert contains_shared_agenda_boilerplate_phrase("In witness whereof the official seal shall be affixed forthwith")
+    assert contains_shared_agenda_boilerplate_phrase("COMMUNICATION ACCESS INFORMATION")
+    assert not contains_shared_agenda_boilerplate_phrase("Adopt budget ordinance")
+
+
+def test_agenda_boilerplate_title_detection_from_single_source():
+    assert is_agenda_boilerplate_title("COMMUNICATION ACCESS INFORMATION:")
+    assert is_agenda_boilerplate_title("Agendas and agenda reports may be accessed via the Internet at http://example.com")
+    assert not is_agenda_boilerplate_title("Budget Amendment")
+
+
+def test_name_like_title_detection_from_single_source():
+    assert is_name_like_title("Leslie Sakai")
+    assert not is_name_like_title("Budget Amendment")
+    assert not is_name_like_title("Kirk McCarthy (2)")

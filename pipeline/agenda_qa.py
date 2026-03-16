@@ -18,31 +18,16 @@ from dataclasses import asdict, dataclass, field
 import re
 from typing import Any, Dict, Iterable, List, Optional
 
+from pipeline.lexicon import is_agenda_boilerplate_title, is_name_like_title
+
 
 _RE_VOTE_LINE = re.compile(r"(?im)^\s*vote\s*:\s*(.+?)\s*$")
 _RE_PAGE_MARKER = re.compile(r"(?i)\[page\s+(\d+)\]")
 _RE_INLINE_PAGE = re.compile(r"(?im)^.*\bpage\s+(\d+)\s*$")
 
-# Generic boilerplate and participation/accessibility phrases.
-# These are intentionally not municipality-specific.
-_BOILERPLATE_PATTERNS = [
-    r"\b(communication access information)\b",
-    r"\b(disability[- ]related|accommodation\(s\)|auxiliary aids|interpreters?)\b",
-    r"\b(brown act|executive orders?)\b",
-    r"\b(public comment portion|may participate in the public comment)\b",
-    r"\b(agendas? and agenda reports?|agenda reports? may be accessed)\b",
-    r"\b(questions regarding this matter)\b",
-    r"\b(i hereby request|in witness whereof|official seal|cause personal notice|forthwith)\b",
-]
-
 
 def _norm(s: Optional[str]) -> str:
     return re.sub(r"\s+", " ", (s or "")).strip()
-
-
-def _has_url(s: str) -> bool:
-    lowered = s.lower()
-    return ("http://" in lowered) or ("https://" in lowered) or ("www." in lowered)
 
 
 def _title_looks_like_person_name(title: str) -> bool:
@@ -62,31 +47,12 @@ def _title_looks_like_person_name(title: str) -> bool:
 
     # Strip trailing "(2)"-style speaker-count annotations.
     title = re.sub(r"\(\d+\)$", "", title).strip()
-
-    # Two+ capitalized tokens, optionally with a middle initial.
-    return bool(
-        re.fullmatch(r"[A-Z][a-z]+(?: [A-Z]\.)?(?: [A-Z][a-z]+)+(?:[-'][A-Za-z]+)?", title)
-    )
+    return is_name_like_title(title)
 
 
 def _title_looks_like_boilerplate(title: str) -> bool:
     title = _norm(title)
-    if not title:
-        return True
-
-    if _has_url(title):
-        return True
-
-    lowered = title.lower()
-    for pat in _BOILERPLATE_PATTERNS:
-        if re.search(pat, lowered):
-            return True
-
-    # Often appears as a dangling clause extracted from prose.
-    if lowered.endswith(":") and len(lowered) <= 60:
-        return True
-
-    return False
+    return is_agenda_boilerplate_title(title)
 
 
 def _max_page_in_text(text: str) -> int:
@@ -265,4 +231,3 @@ def needs_regeneration(result: QAResult, *, thresholds: Optional[QAThresholds] =
         return False
 
     return result.severity >= th.suspect_severity
-
