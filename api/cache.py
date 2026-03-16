@@ -26,7 +26,7 @@ def cache_key(*args, **kwargs) -> str:
     """Generate a consistent cache key from function arguments"""
     # We sort kwargs to ensure 'a=1,b=2' and 'b=2,a=1' produce the same key
     key_data = str(args) + str(sorted(kwargs.items()))
-    return hashlib.md5(key_data.encode()).hexdigest()
+    return hashlib.sha256(key_data.encode()).hexdigest()
 
 def cached(expire: int = 3600, key_prefix: str = ""):
     """

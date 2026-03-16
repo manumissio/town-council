@@ -4,6 +4,7 @@ from unittest.mock import MagicMock
 
 import pytest
 from fastapi.testclient import TestClient
+from api.cache import cache_key
 
 
 # Add repo root + api to import path (matches existing test_api.py style)
@@ -49,3 +50,18 @@ def test_metrics_endpoint_survives_partial_redis_provider_metric_failures(monkey
     body = resp.text
     assert "tc_http_requests_total" in body
     # API metrics endpoint should remain available even if worker-provider Redis reads degrade.
+
+
+def test_metrics_helper_is_internal_only():
+    from api import metrics
+
+    assert hasattr(metrics, "_metrics_response")
+    assert not hasattr(metrics, "metrics_response")
+
+
+def test_cache_key_is_deterministic_and_uses_sha256_shape():
+    left = cache_key("a", city="Berkeley", limit=10)
+    right = cache_key("a", limit=10, city="Berkeley")
+
+    assert left == right
+    assert len(left) == 64
