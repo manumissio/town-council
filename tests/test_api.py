@@ -28,6 +28,12 @@ def test_read_root():
     assert response.status_code == 200
     assert response.json() == {"status": "ok", "message": "Town Council API is running. Go to /docs for the Swagger UI."}
 
+
+def test_app_uses_lifespan_startup():
+    from api.main import app as api_app
+
+    assert api_app.router.lifespan_context is not None
+
 def test_metadata_endpoint(mocker):
     """Test the /metadata endpoint correctly parses search engine facets."""
     mock_index = mocker.Mock()

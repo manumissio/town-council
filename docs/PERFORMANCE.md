@@ -1,11 +1,18 @@
 # Performance
 
-Last updated: 2026-03-13
+Last updated: 2026-03-16
 
-This page lists current empirical measurements for local Docker runs.
+This page describes how to interpret and reproduce performance evidence for local Docker runs.
 For operational troubleshooting and sorting diagnostics, use `docs/OPERATIONS.md`.
 
+Important:
+- Benchmarks here are environment-pinned examples, not universal guarantees.
+- Promotion and regression decisions should compare like-for-like runs only.
+- If the host, Docker version, runtime profile, model backend, or artifact state changes, treat the numbers as diagnostic rather than baseline-equivalent.
+
 ## Measurement Environment
+Use this section as part of the evidence contract for any benchmark you want to compare against another run.
+
 - Date: 2026-02-16
 - Measured commit: `ba42bae`
 - Mode: local Docker Compose stack
@@ -17,6 +24,13 @@ For operational troubleshooting and sorting diagnostics, use `docs/OPERATIONS.md
 
 Note:
 - Docker daemon version was not captured in this measurement run.
+
+Comparability checklist:
+- Keep the same commit or record both commits explicitly.
+- Keep the same runtime profile and inference backend settings.
+- Keep the same dataset/index artifacts and semantic enablement state.
+- Keep the same request mix, sample count, and warm/cold start conditions.
+- Record any missing telemetry separately; missing metrics reduce confidence even when request success stays stable.
 
 ## API Endpoint Timing (E2E, 30 samples each)
 
@@ -226,3 +240,33 @@ for name,path in endpoints:
     print(f"{name} p50_ms={p50:.2f} p95_ms={p95:.2f} min_ms={min(samples):.2f} max_ms={max(samples):.2f}")
 PY
 ```
+
+Recommended rerun notes:
+- Record the measured commit, host platform, Docker version, and whether the stack was already warm.
+- For endpoint timing, keep the same sample count and endpoint list when comparing against prior runs.
+- For semantic timing, note whether artifacts were freshly built or reused.
+- Treat one-off manual probes as diagnostic only unless they match the baseline conditions above.
+
+## Reproducible benchmark capture
+
+Preferred entrypoint:
+```bash
+python scripts/run_benchmarks.py
+```
+
+This writes benchmark artifacts under `experiments/results/benchmarks/<timestamp>/` with:
+- `metadata.json`
+- `pytest_benchmark.json`
+- `endpoint_timings.json`
+
+`metadata.json` captures the comparability contract:
+- commit SHA and short SHA
+- dirty worktree status
+- host/platform metadata
+- benchmark commands and exit codes
+
+Recommended usage notes:
+- run from a clean worktree when you want promotion-grade comparison
+- keep the same runtime profile, dataset/index state, and endpoint sample count across runs
+- use `--skip-endpoint-benchmarks` when the API stack is not available
+- use `--skip-pytest-benchmarks` when you only want endpoint timings

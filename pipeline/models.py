@@ -319,6 +319,10 @@ class Catalog(Base):
     # Hash of extracted `content` (normalized). Used to detect when derived fields
     # like summaries/topics are stale after re-extraction.
     content_hash = Column(String(64), nullable=True)
+    extraction_status = Column(String(20), nullable=True)
+    extraction_attempted_at = Column(DateTime, nullable=True)
+    extraction_attempt_count = Column(Integer, nullable=True)
+    extraction_error = Column(Text, nullable=True)
     summary = Column(Text)
     # Hash of the `content` version that `summary` was generated from.
     summary_source_hash = Column(String(64), nullable=True)
@@ -351,6 +355,8 @@ class Catalog(Base):
 
     __table_args__ = (
         Index('idx_catalog_hash', 'url_hash'),
+        Index('ix_catalog_extraction_status', 'extraction_status'),
+        Index('ix_catalog_extraction_attempted_at', 'extraction_attempted_at'),
     )
 
 
@@ -377,8 +383,3 @@ class Document(Base):
         Index('idx_doc_category', 'category', 'created_at'),
         Index('idx_doc_catalog', 'catalog_id'),
     )
-
-
-engine = db_connect()
-# create_tables(engine) is removed to avoid import side-effects. 
-# Use pipeline/db_init.py to create tables explicitly.

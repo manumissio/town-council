@@ -1,4 +1,3 @@
-import sys
 import os
 import logging
 import hmac
@@ -7,6 +6,7 @@ import time
 import csv
 import io
 import uuid
+from contextlib import asynccontextmanager
 from datetime import date, datetime, timedelta
 import meilisearch
 from meilisearch.errors import MeilisearchCommunicationError, MeilisearchTimeoutError, MeilisearchError
@@ -48,9 +48,6 @@ limiter = Limiter(key_func=get_remote_address)
 # Set up structured logging for production observability
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
 logger = logging.getLogger("town-council-api")
-
-# Add the project root to the python path
-sys.path.append(os.path.join(os.path.dirname(__file__), '..'))
 
 # We initialize these as None first. If the import works, we fill them.
 SessionLocal = None
@@ -97,19 +94,9 @@ async def verify_api_key(request: Request, x_api_key: str = Header(None)):
         raise HTTPException(status_code=401, detail="Invalid or missing API Key")
 
 # PERFORMANCE: Use ORJSONResponse for 3-5x faster JSON serialization
-app = FastAPI(
-    title="Town Council Search API", 
-    description="Search and retrieve local government meeting minutes.",
-    default_response_class=ORJSONResponse
-)
-
-# Add /metrics and request timing counters (route-template labels to avoid cardinality blowups).
-instrument_app(app)
-
-# SECURITY: Startup Guardrail
-# Warn the administrator if they forgot to change the default secret.
-@app.on_event("startup")
-async def check_security_config():
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    _ = app
     key = os.getenv("API_AUTH_KEY", "dev_secret_key_change_me")
     if key == "dev_secret_key_change_me":
         logger.critical("SECURITY WARNING: You are using the default API Key. Please set API_AUTH_KEY in production.")
@@ -124,7 +111,18 @@ async def check_security_config():
         except SemanticConfigError as exc:
             logger.critical(f"Semantic backend misconfiguration: {exc}")
             raise
+    yield
 
+
+app = FastAPI(
+    title="Town Council Search API", 
+    description="Search and retrieve local government meeting minutes.",
+    default_response_class=ORJSONResponse,
+    lifespan=lifespan,
+)
+
+# Add /metrics and request timing counters (route-template labels to avoid cardinality blowups).
+instrument_app(app)
 
 # Add Rate Limit handler to the app
 app.state.limiter = limiter

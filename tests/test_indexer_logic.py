@@ -114,3 +114,84 @@ def test_flush_batch_keeps_count_on_error(mocker):
 
     count = indexer._flush_batch(fake_index, docs, 7, "document")
     assert count == 7
+
+
+def test_reindex_catalog_skips_schema_updates_and_reindexes_agenda_items(mocker):
+    meeting_doc = SimpleNamespace(
+        id=1,
+        catalog_id=9,
+        event_id=4,
+        place_id=2,
+    )
+    catalog = SimpleNamespace(
+        id=9,
+        filename="meeting.pdf",
+        url="https://example.com/meeting.pdf",
+        content="Meeting content",
+        summary="Summary",
+        summary_extractive=None,
+        topics=["Budget"],
+        content_hash="h1",
+        summary_source_hash="h1",
+        topics_source_hash="h1",
+        related_ids=[],
+        lineage_id=None,
+        lineage_confidence=None,
+    )
+    event = SimpleNamespace(name="Meeting", meeting_type="Regular", record_date=None, ocd_id="ocd-event")
+    place = SimpleNamespace(display_name="ca_test", name="Test City", state="CA")
+    organization = None
+    agenda_item = SimpleNamespace(
+        id=11,
+        ocd_id="ocd-item-11",
+        title="Budget Item",
+        description="Approve the budget",
+        classification="Agenda Item",
+        result="Approved",
+        page_number=1,
+        catalog_id=9,
+        catalog=SimpleNamespace(url="https://example.com/meeting.pdf"),
+    )
+
+    class FakeQuery:
+        def __init__(self, rows):
+            self._rows = rows
+        def join(self, *args, **kwargs):
+            return self
+        def outerjoin(self, *args, **kwargs):
+            return self
+        def filter(self, *args, **kwargs):
+            return self
+        def options(self, *args, **kwargs):
+            return self
+        def all(self):
+            return self._rows
+
+    session = MagicMock()
+    session.query.side_effect = [
+        FakeQuery([(meeting_doc, catalog, event, place, organization)]),
+        FakeQuery([(agenda_item, event, place, organization)]),
+    ]
+
+    @contextmanager
+    def fake_db_session():
+        yield session
+
+    fake_index = MagicMock()
+    fake_index.delete_documents_by_filter.return_value = {"taskUid": 88}
+    fake_client = MagicMock()
+    fake_client.index.return_value = fake_index
+    mocker.patch.object(indexer, "db_session", fake_db_session)
+    mocker.patch.object(indexer.meilisearch, "Client", return_value=fake_client)
+    apply_settings = mocker.patch.object(indexer, "_apply_index_settings")
+
+    result = indexer.reindex_catalog(9)
+
+    apply_settings.assert_not_called()
+    fake_index.delete_documents_by_filter.assert_called_once_with(
+        ['catalog_id = 9 AND result_type = "agenda_item"']
+    )
+    fake_index.add_documents.assert_called_once()
+    sent = fake_index.add_documents.call_args.args[0]
+    assert {doc["result_type"] for doc in sent} == {"meeting", "agenda_item"}
+    assert result["agenda_item_documents"] == 1

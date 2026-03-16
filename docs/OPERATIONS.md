@@ -153,8 +153,9 @@ docker compose start api worker frontend monitor
 - `pipeline/agenda_resolver.py` now evaluates agenda sources lazily in the documented priority order `Legistar -> HTML -> LLM`, so deterministic sources can satisfy segmentation without paying the full LLM cost first.
 - Legistar exports are filtered before acceptance so portal wrapper rows like `Call to Order`, `Roll Call`, and meeting-header scaffolding do not force otherwise-structured agendas into the LLM fallback path.
 - `pipeline/agenda_legistar.py` now treats the known tenant-specific Legistar `400` (`Agenda Draft Status` / public visibility setting not configured) as an unsupported cross-check capability, not as a content-quality failure.
-  - the capability miss is memoized per client for the life of the process
-  - once detected, later agenda resolution skips the same doomed Legistar cross-check instead of repeating the same failed HTTP request for each catalog
+  - the capability miss is memoized per client with a TTL (`LEGISTAR_EVENT_ITEMS_CAPABILITY_TTL_SECONDS`)
+  - cache scope is per worker process, not cross-worker shared state
+  - once detected, later agenda resolution skips the same doomed Legistar cross-check until the per-process TTL expires
 - Base `docker-compose.yml` runtime defaults are now shared/prod safe:
   - `STARTUP_PURGE_DERIVED=false` by default for `api`, `worker`, and `pipeline`
   - the base API service no longer runs `uvicorn --reload`
@@ -179,6 +180,19 @@ If you changed indexing logic (or you want to refresh search after cleaning up b
 ```bash
 docker compose run --rm pipeline python reindex_only.py
 ```
+
+### Extraction failure recovery
+- Batch extraction now stops retrying deterministic failures forever.
+- Catalogs with `catalog.extraction_status=failed_terminal` are excluded from the default extraction backlog until an operator forces re-extraction.
+- Targeted recovery path:
+
+```bash
+curl -X POST "http://localhost:8000/extract/<CATALOG_ID>?force=true" \
+  -H "X-API-Key: $API_AUTH_KEY"
+```
+
+- Add `ocr_fallback=true` when you need the slower OCR retry path for scan-heavy PDFs.
+- Rows with `content` already present but missing `entities` still remain eligible for NLP-only batch work; they do not need extraction recovery.
 
 ## GitHub Pages static demo
 

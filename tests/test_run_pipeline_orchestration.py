@@ -31,36 +31,13 @@ def test_process_document_chunk_returns_zero_when_db_unavailable(mocker):
 
 
 def test_run_parallel_processing_returns_when_no_unprocessed_docs(mocker):
-    fake_db = mocker.MagicMock()
-    fake_db.query.return_value.filter.return_value.yield_per.return_value = []
-
-    class _Cond:
-        def is_(self, _):
-            return self
-
-        def __or__(self, other):
-            return self
-
-    class _Catalog:
-        id = object()
-        content = _Cond()
-        entities = _Cond()
-
-    class Ctx:
-        def __enter__(self):
-            return fake_db
-
-        def __exit__(self, *_):
-            return False
-
-    mocker.patch("pipeline.db_session.db_session", return_value=Ctx())
-    mocker.patch("pipeline.models.Catalog", _Catalog)
+    selector = mocker.patch("pipeline.run_pipeline.select_catalog_ids_for_processing", return_value=[])
     executor_spy = mocker.patch("pipeline.run_pipeline.ProcessPoolExecutor")
 
     run_pipeline.run_parallel_processing()
 
+    selector.assert_called_once()
     executor_spy.assert_not_called()
-    fake_db.query.assert_called_once_with(_Catalog.id)
 
 
 def test_main_runs_steps_in_expected_order(mocker):
@@ -142,10 +119,10 @@ def test_select_catalog_ids_for_processing_scopes_onboarding_city_and_run_window
     db.add_all([san_event, hay_event])
     db.flush()
 
-    matching_catalog = Catalog(url_hash="match", location="/tmp/match.pdf", content=None, entities=None)
-    old_catalog = Catalog(url_hash="old", location="/tmp/old.pdf", content=None, entities=None)
-    other_city_catalog = Catalog(url_hash="other", location="/tmp/other.pdf", content=None, entities=None)
-    done_catalog = Catalog(url_hash="done", location="/tmp/done.pdf", content="done", entities={"ok": True})
+    matching_catalog = Catalog(url_hash="match", location="/tmp/match.pdf", content=None, entities=None, extraction_status="pending")
+    old_catalog = Catalog(url_hash="old", location="/tmp/old.pdf", content=None, entities=None, extraction_status="pending")
+    other_city_catalog = Catalog(url_hash="other", location="/tmp/other.pdf", content=None, entities=None, extraction_status="pending")
+    done_catalog = Catalog(url_hash="done", location="/tmp/done.pdf", content="done", entities={"ok": True}, extraction_status="complete")
     db.add_all([matching_catalog, old_catalog, other_city_catalog, done_catalog])
     db.flush()
 
@@ -256,7 +233,7 @@ def test_select_catalog_ids_for_processing_falls_back_to_live_url_stage(mocker):
         crawler_name="san mateo",
     )
     event = Event(place=place, ocd_division_id=place.ocd_division_id, name="San Mateo Council")
-    catalog = Catalog(url_hash="live-hash", location="/tmp/live.pdf", content=None, entities=None)
+    catalog = Catalog(url_hash="live-hash", location="/tmp/live.pdf", content=None, entities=None, extraction_status="pending")
     db.add_all([place, event, catalog])
     db.flush()
     db.add(
@@ -287,6 +264,44 @@ def test_select_catalog_ids_for_processing_falls_back_to_live_url_stage(mocker):
     try:
         ids = run_pipeline.select_catalog_ids_for_processing(db)
         assert ids == [catalog.id]
+    finally:
+        db.close()
+        engine.dispose()
+
+
+def test_select_catalog_ids_for_processing_keeps_nlp_only_rows_and_skips_terminal_failures(mocker):
+    engine = create_engine("sqlite:///:memory:")
+    Base.metadata.create_all(engine)
+    Session = sessionmaker(bind=engine)
+    db = Session()
+
+    extraction_needed = Catalog(
+        url_hash="extract-me",
+        location="/tmp/extract.pdf",
+        content=None,
+        entities=None,
+        extraction_status="pending",
+    )
+    nlp_only = Catalog(
+        url_hash="nlp-only",
+        location="/tmp/nlp.pdf",
+        content="ready",
+        entities=None,
+        extraction_status="complete",
+    )
+    terminal = Catalog(
+        url_hash="failed",
+        location="/tmp/failed.pdf",
+        content=None,
+        entities=None,
+        extraction_status="failed_terminal",
+    )
+    db.add_all([extraction_needed, nlp_only, terminal])
+    db.commit()
+
+    try:
+        ids = run_pipeline.select_catalog_ids_for_processing(db)
+        assert ids == [extraction_needed.id, nlp_only.id]
     finally:
         db.close()
         engine.dispose()

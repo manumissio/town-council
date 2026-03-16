@@ -4,6 +4,9 @@ import os
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 
+
+OPTIONAL_NLP_IMPORT_ERRORS = (ImportError, ModuleNotFoundError, OSError, RuntimeError)
+
 # Use a process-unique shared in-memory database:
 # - shared within one pytest process (workers create their own engines)
 # - isolated across concurrent pytest processes (avoids DDL races on drop/create)
@@ -49,8 +52,8 @@ def mock_db_connect(monkeypatch, shared_engine):
     ]
     for target in targets:
         try:
-            monkeypatch.setattr(target, lambda: shared_engine)
-        except Exception:
+            monkeypatch.setattr(target, lambda: shared_engine, raising=False)
+        except OPTIONAL_NLP_IMPORT_ERRORS:
             # Some optional modules (for example spaCy stack on Py3.14) can fail
             # during import; skip patching those modules so other tests still run.
             pass
@@ -64,7 +67,7 @@ def reset_nlp_cache():
     try:
         import pipeline.nlp_worker
         pipeline.nlp_worker._cached_nlp = None
-    except Exception:
+    except OPTIONAL_NLP_IMPORT_ERRORS:
         # Some environments cannot import spaCy-dependent modules.
         # In that case we skip NLP cache reset and let non-NLP tests run.
         pass

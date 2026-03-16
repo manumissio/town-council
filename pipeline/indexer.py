@@ -102,7 +102,7 @@ def _apply_index_settings(client, index) -> None:
 
     task_ids.append(_task_uid(index.update_filterable_attributes([
         'city', 'meeting_type', 'meeting_category', 'organization',
-        'people', 'date', 'organizations', 'result_type', 'topics', 'lineage_id'
+        'people', 'date', 'organizations', 'result_type', 'topics', 'lineage_id', 'catalog_id'
     ])))
 
     task_ids.append(_task_uid(index.update_sortable_attributes(['date'])))
@@ -132,22 +132,103 @@ def _apply_index_settings(client, index) -> None:
             pass
 
 
+def _ensure_documents_index(client, *, apply_settings: bool) -> any:
+    try:
+        client.create_index('documents', {'primaryKey': 'id'})
+    except MeilisearchError:
+        pass
+    index = client.index('documents')
+    if apply_settings:
+        _apply_index_settings(client, index)
+    return index
+
+
+def _meeting_category(event) -> str:
+    raw_type = (event.meeting_type or "").lower()
+    if "regular" in raw_type:
+        return "Regular"
+    if "special" in raw_type:
+        return "Special"
+    if "closed" in raw_type:
+        return "Closed"
+    return "Other"
+
+
+def _build_meeting_search_doc(doc, catalog, event, place, organization) -> dict:
+    indexed_content, is_content_truncated, original_chars, indexed_chars = _truncate_content_for_index(catalog.content)
+    people_list = []
+    if organization:
+        chosen = _select_official_memberships_for_event(organization, event.record_date)
+        people_list = [
+            {"id": m.person.id, "ocd_id": m.person.ocd_id, "name": m.person.name}
+            for m in chosen
+        ]
+
+    return {
+        'id': f"doc_{doc.id}",
+        'db_id': doc.id,
+        'ocd_id': event.ocd_id,
+        'result_type': 'meeting',
+        'catalog_id': catalog.id,
+        'filename': catalog.filename,
+        'url': catalog.url,
+        'content': indexed_content,
+        'content_truncated': is_content_truncated,
+        'original_content_chars': original_chars,
+        'indexed_content_chars': indexed_chars,
+        'summary': catalog.summary,
+        'summary_extractive': catalog.summary_extractive,
+        'topics': catalog.topics,
+        'summary_is_stale': bool(
+            catalog.summary
+            and (not catalog.content_hash or catalog.summary_source_hash != catalog.content_hash)
+        ),
+        'topics_is_stale': bool(
+            catalog.topics is not None
+            and (not catalog.content_hash or catalog.topics_source_hash != catalog.content_hash)
+        ),
+        'related_ids': catalog.related_ids,
+        'lineage_id': catalog.lineage_id,
+        'lineage_confidence': catalog.lineage_confidence,
+        'people_metadata': people_list,
+        'people': [p['name'] for p in people_list],
+        'event_name': event.name,
+        'meeting_category': _meeting_category(event),
+        'organization': organization.name if organization else "City Council",
+        'date': event.record_date.isoformat() if event.record_date else None,
+        'city': place.display_name or place.name,
+        'state': place.state
+    }
+
+
+def _build_agenda_item_search_doc(item, event, place, organization) -> dict:
+    return {
+        'id': f"item_{item.id}",
+        'db_id': item.id,
+        'ocd_id': item.ocd_id,
+        'result_type': 'agenda_item',
+        'title': _strip_any_html(item.title),
+        'description': _strip_any_html(item.description),
+        'classification': item.classification,
+        'result': item.result,
+        'page_number': item.page_number,
+        'event_name': event.name,
+        'date': event.record_date.isoformat() if event.record_date else None,
+        'city': place.display_name or place.name,
+        'organization': organization.name if organization else "City Council",
+        'meeting_category': _meeting_category(event),
+        'catalog_id': item.catalog_id,
+        'url': item.catalog.url if item.catalog else None
+    }
+
+
 def index_documents():
     """
     Sync processed meetings and agenda items into Meilisearch.
     """
     print(f"Connecting to Meilisearch at {MEILI_HOST}...")
     client = meilisearch.Client(MEILI_HOST, MEILI_MASTER_KEY)
-    
-    # Create the index once; ignore "already exists" errors.
-    try:
-        client.create_index('documents', {'primaryKey': 'id'})
-    except MeilisearchError:
-        pass
-        
-    index = client.index('documents')
-    
-    _apply_index_settings(client, index)
+    index = _ensure_documents_index(client, apply_settings=True)
 
     with db_session() as session:
         documents_batch = []
@@ -173,65 +254,11 @@ def index_documents():
         ).yield_per(20)
 
         for doc, catalog, event, place, organization in doc_query:
-            indexed_content, is_content_truncated, original_chars, indexed_chars = _truncate_content_for_index(catalog.content)
+            indexed_content, is_content_truncated, _original_chars, _indexed_chars = _truncate_content_for_index(catalog.content)
             indexed_meeting_docs += 1
             if is_content_truncated:
                 truncated_meeting_docs += 1
-            people_list = []
-            if organization:
-                chosen = _select_official_memberships_for_event(organization, event.record_date)
-                people_list = [
-                    {"id": m.person.id, "ocd_id": m.person.ocd_id, "name": m.person.name}
-                    for m in chosen
-                ]
-
-            raw_type = (event.meeting_type or "").lower()
-            category = "Other"
-            if "regular" in raw_type:
-                category = "Regular"
-            elif "special" in raw_type:
-                category = "Special"
-            elif "closed" in raw_type:
-                category = "Closed"
-
-            search_doc = {
-                'id': f"doc_{doc.id}",
-                'db_id': doc.id,
-                'ocd_id': event.ocd_id,
-                'result_type': 'meeting',
-                'catalog_id': catalog.id,
-                'filename': catalog.filename,
-                'url': catalog.url,
-                'content': indexed_content,
-                'content_truncated': is_content_truncated,
-                'original_content_chars': original_chars,
-                'indexed_content_chars': indexed_chars,
-                'summary': catalog.summary,
-                'summary_extractive': catalog.summary_extractive,
-                'topics': catalog.topics,
-                # Derived-field staleness: if extracted text changes, cached summary/topics
-                # may no longer match the current content.
-                'summary_is_stale': bool(
-                    catalog.summary
-                    and (not catalog.content_hash or catalog.summary_source_hash != catalog.content_hash)
-                ),
-                'topics_is_stale': bool(
-                    catalog.topics is not None
-                    and (not catalog.content_hash or catalog.topics_source_hash != catalog.content_hash)
-                ),
-                'related_ids': catalog.related_ids,
-                'lineage_id': catalog.lineage_id,
-                'lineage_confidence': catalog.lineage_confidence,
-                'people_metadata': people_list,
-                'people': [p['name'] for p in people_list],
-                'event_name': event.name,
-                'meeting_category': category,
-                'organization': organization.name if organization else "City Council",
-                'date': event.record_date.isoformat() if event.record_date else None,
-                'city': place.display_name or place.name,
-                'state': place.state
-            }
-            documents_batch.append(search_doc)
+            documents_batch.append(_build_meeting_search_doc(doc, catalog, event, place, organization))
             if len(documents_batch) >= MEILISEARCH_BATCH_SIZE:
                 count = _flush_batch(index, documents_batch, count, "document")
                 documents_batch = []
@@ -255,33 +282,7 @@ def index_documents():
         ).yield_per(100)
 
         for item, event, place, organization in item_query:
-            raw_type = (event.meeting_type or "").lower()
-            category = "Other"
-            if "regular" in raw_type:
-                category = "Regular"
-            elif "special" in raw_type:
-                category = "Special"
-
-            search_item = {
-                'id': f"item_{item.id}",
-                'db_id': item.id,
-                'ocd_id': item.ocd_id,
-                'result_type': 'agenda_item',
-                'title': _strip_any_html(item.title),
-                'description': _strip_any_html(item.description),
-                'classification': item.classification,
-                'result': item.result,
-                'page_number': item.page_number,
-                'event_name': event.name,
-                'date': event.record_date.isoformat() if event.record_date else None,
-                'city': place.display_name or place.name,
-                'organization': organization.name if organization else "City Council",
-                'meeting_category': category,
-                'catalog_id': item.catalog_id,
-                'url': item.catalog.url if item.catalog else None
-            }
-
-            documents_batch.append(search_item)
+            documents_batch.append(_build_agenda_item_search_doc(item, event, place, organization))
             if len(documents_batch) >= MEILISEARCH_BATCH_SIZE:
                 count = _flush_batch(index, documents_batch, count, "agenda item")
                 documents_batch = []
@@ -300,13 +301,7 @@ def reindex_catalog(catalog_id: int) -> dict:
     without reindexing the entire dataset.
     """
     client = meilisearch.Client(MEILI_HOST, MEILI_MASTER_KEY)
-    try:
-        client.create_index('documents', {'primaryKey': 'id'})
-    except MeilisearchError:
-        pass
-
-    index = client.index('documents')
-    _apply_index_settings(client, index)
+    index = _ensure_documents_index(client, apply_settings=False)
 
     with db_session() as session:
         docs = session.query(Document, Catalog, Event, Place, Organization).join(
@@ -326,57 +321,34 @@ def reindex_catalog(catalog_id: int) -> dict:
 
         payload = []
         for doc, catalog, event, place, organization in docs:
-            people_list = []
-            if organization:
-                chosen = _select_official_memberships_for_event(organization, event.record_date)
-                people_list = [
-                    {"id": m.person.id, "ocd_id": m.person.ocd_id, "name": m.person.name}
-                    for m in chosen
-                ]
+            payload.append(_build_meeting_search_doc(doc, catalog, event, place, organization))
 
-            raw_type = (event.meeting_type or "").lower()
-            category = "Other"
-            if "regular" in raw_type:
-                category = "Regular"
-            elif "special" in raw_type:
-                category = "Special"
-            elif "closed" in raw_type:
-                category = "Closed"
+        item_docs = (
+            session.query(AgendaItem, Event, Place, Organization)
+            .join(Event, AgendaItem.event_id == Event.id)
+            .join(Place, Event.place_id == Place.id)
+            .outerjoin(Organization, Event.organization_id == Organization.id)
+            .filter(AgendaItem.catalog_id == catalog_id)
+            .all()
+        )
+        for item, event, place, organization in item_docs:
+            payload.append(_build_agenda_item_search_doc(item, event, place, organization))
 
-            payload.append({
-                'id': f"doc_{doc.id}",
-                'db_id': doc.id,
-                'ocd_id': event.ocd_id,
-                'result_type': 'meeting',
-                'catalog_id': catalog.id,
-                'filename': catalog.filename,
-                'url': catalog.url,
-                'content': catalog.content[:MAX_CONTENT_LENGTH] if catalog.content else None,
-                'summary': catalog.summary,
-                'summary_extractive': catalog.summary_extractive,
-                'topics': catalog.topics,
-                'summary_is_stale': bool(
-                    catalog.summary
-                    and (not catalog.content_hash or catalog.summary_source_hash != catalog.content_hash)
-                ),
-                'topics_is_stale': bool(
-                    catalog.topics is not None
-                    and (not catalog.content_hash or catalog.topics_source_hash != catalog.content_hash)
-                ),
-                'related_ids': catalog.related_ids,
-                'people_metadata': people_list,
-                'people': [p['name'] for p in people_list],
-                'event_name': event.name,
-                'meeting_category': category,
-                'organization': organization.name if organization else "City Council",
-                'date': event.record_date.isoformat() if event.record_date else None,
-                'city': place.display_name or place.name,
-                'state': place.state
-            })
+        delete_task = index.delete_documents_by_filter(
+            [f'catalog_id = {int(catalog_id)} AND result_type = "agenda_item"']
+        )
+        delete_uid = _task_uid(delete_task)
+        if isinstance(delete_uid, int):
+            client.wait_for_task(delete_uid)
+        if payload:
+            index.add_documents(payload)
 
-        index.add_documents(payload)
-
-    return {"status": "ok", "catalog_id": catalog_id, "documents_reindexed": len(payload)}
+    return {
+        "status": "ok",
+        "catalog_id": catalog_id,
+        "documents_reindexed": len(payload),
+        "agenda_item_documents": len(item_docs),
+    }
 
 if __name__ == "__main__":
     index_documents()

@@ -1,3 +1,5 @@
+import pytest
+
 from pipeline.agenda_qa import QAThresholds, needs_regeneration, score_agenda_items
 
 
@@ -54,3 +56,48 @@ def test_qa_clean_set_not_flagged():
     assert res.flags == []
     assert needs_regeneration(res) is False
 
+
+@pytest.mark.parametrize(
+    ("items", "expected_flags", "expected_severity"),
+    [
+        (
+            [
+                {"title": "COMMUNICATION ACCESS INFORMATION:", "page_number": 1, "result": ""},
+                {
+                    "title": "Agendas and agenda reports may be accessed via the Internet at http://example.com",
+                    "page_number": 1,
+                    "result": "",
+                },
+                {"title": "Public Employee Appointment", "page_number": 2, "result": ""},
+            ],
+            ["high_boilerplate_rate"],
+            30,
+        ),
+        (
+            [
+                {
+                    "title": "In witness whereof the official seal shall be affixed forthwith",
+                    "page_number": 1,
+                    "result": "",
+                },
+                {"title": "Budget Amendment", "page_number": 3, "result": ""},
+                {"title": "Transit Network Update", "page_number": 4, "result": ""},
+            ],
+            ["high_boilerplate_rate"],
+            30,
+        ),
+        (
+            [
+                {"title": "Leslie Sakai", "page_number": 1, "result": ""},
+                {"title": "Kirk McCarthy (2)", "page_number": 1, "result": ""},
+                {"title": "Transit Network Update", "page_number": 2, "result": ""},
+            ],
+            ["high_name_like_rate"],
+            20,
+        ),
+    ],
+)
+def test_qa_score_parity_fixture_set(items, expected_flags, expected_severity):
+    res = score_agenda_items(items, catalog_text="")
+    assert res.flags == expected_flags
+    assert res.severity == expected_severity

@@ -260,6 +260,9 @@ PIPELINE_CPU_FRACTION = 0.75
 # Random delay prevents thundering herd when multiple workers retry simultaneously
 DB_RETRY_DELAY_MIN = 1
 DB_RETRY_DELAY_MAX = 3
+EXTRACTION_TERMINAL_FAILURE_MAX_ATTEMPTS = int(
+    os.getenv("EXTRACTION_TERMINAL_FAILURE_MAX_ATTEMPTS", "3")
+)
 
 # Batch size for agenda item extraction
 # How many documents to process for agenda extraction in one batch
@@ -301,6 +304,9 @@ AGENDA_PROCEDURAL_REJECT_ENABLED = os.getenv("AGENDA_PROCEDURAL_REJECT_ENABLED",
 # How many documents to extract before committing to database
 # Smaller batches = more frequent saves, Larger batches = better performance
 EXTRACTION_BATCH_SIZE = 10
+LEGISTAR_EVENT_ITEMS_CAPABILITY_TTL_SECONDS = int(
+    os.getenv("LEGISTAR_EVENT_ITEMS_CAPABILITY_TTL_SECONDS", "3600")
+)
 
 
 # Onboarding extraction mode narrows pipeline work to a city's fresh crawl window so

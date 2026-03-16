@@ -254,6 +254,15 @@ class FaissSemanticBackend(SemanticBackend):
         texts: list[str] = []
         rows: list[dict[str, Any]] = []
         source_counts = {"summary": 0, "agenda_item": 0, "content_chunk": 0, "agenda_item_result": 0}
+        agenda_items_by_catalog: dict[int, list[AgendaItem]] = {}
+
+        for item in (
+            db.query(AgendaItem)
+            .filter(AgendaItem.catalog_id.isnot(None))
+            .order_by(AgendaItem.catalog_id, AgendaItem.order)
+            .all()
+        ):
+            agenda_items_by_catalog.setdefault(int(item.catalog_id), []).append(item)
 
         query = (
             db.query(Document, Catalog, Event, Place, Organization)
@@ -275,12 +284,7 @@ class FaissSemanticBackend(SemanticBackend):
 
             summary = _safe_text(catalog.summary)
             extractive = _safe_text(catalog.summary_extractive)
-            agenda_items_for_catalog = (
-                db.query(AgendaItem)
-                .filter(AgendaItem.catalog_id == catalog.id)
-                .order_by(AgendaItem.order)
-                .all()
-            )
+            agenda_items_for_catalog = agenda_items_by_catalog.get(int(catalog.id), [])
             if summary:
                 texts.append(summary[:SEMANTIC_CONTENT_MAX_CHARS])
                 rows.append(

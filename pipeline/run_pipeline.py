@@ -4,6 +4,7 @@ from datetime import datetime
 import logging
 import sys
 import subprocess
+from sqlalchemy import or_
 from sqlalchemy.exc import SQLAlchemyError
 
 from pipeline.config import (
@@ -17,7 +18,8 @@ from pipeline.config import (
     PIPELINE_RUNTIME_PROFILE,
     TIKA_OCR_FALLBACK_ENABLED,
     DB_RETRY_DELAY_MIN,
-    DB_RETRY_DELAY_MAX
+    DB_RETRY_DELAY_MAX,
+    EXTRACTION_TERMINAL_FAILURE_MAX_ATTEMPTS,
 )
 from pipeline.startup_purge import run_startup_purge_if_enabled
 
@@ -56,6 +58,26 @@ def _run_post_processing_steps():
     run_step("Topic Modeling", ["python", "topic_worker.py"])
     run_step("People Linking", ["python", "person_linker.py"])
     run_step("Search Indexing", ["python", "indexer.py"])
+
+def _mark_extraction_complete(catalog, content_hash):
+    catalog.content_hash = content_hash
+    catalog.extraction_status = "complete"
+    catalog.extraction_attempt_count = max(1, int(catalog.extraction_attempt_count or 0))
+    catalog.extraction_attempted_at = datetime.utcnow()
+    catalog.extraction_error = None
+
+
+def _mark_extraction_failure(catalog, error_message: str):
+    attempts = int(catalog.extraction_attempt_count or 0) + 1
+    catalog.extraction_attempt_count = attempts
+    catalog.extraction_attempted_at = datetime.utcnow()
+    catalog.extraction_error = (error_message or "Extraction returned empty text")[:500]
+    catalog.extraction_status = (
+        "failed_terminal"
+        if attempts >= EXTRACTION_TERMINAL_FAILURE_MAX_ATTEMPTS
+        else "pending"
+    )
+
 
 def process_document_chunk(catalog_ids, ocr_fallback_enabled=None):
     """
@@ -100,14 +122,21 @@ def process_document_chunk(catalog_ids, ocr_fallback_enabled=None):
 
             # Extract text only when needed.
             if not catalog.content and catalog.location:
-                catalog.content = extract_text(
+                extracted = extract_text(
                     catalog.location,
                     ocr_fallback_enabled=ocr_fallback_enabled,
                 )
-                catalog.content_hash = compute_content_hash(catalog.content)
+                if extracted:
+                    catalog.content = extracted
+                    _mark_extraction_complete(catalog, compute_content_hash(catalog.content))
+                else:
+                    _mark_extraction_failure(catalog, "Extraction returned empty text")
             elif catalog.content and not getattr(catalog, "content_hash", None):
                 # Older rows may predate content hashing.
-                catalog.content_hash = compute_content_hash(catalog.content)
+                _mark_extraction_complete(catalog, compute_content_hash(catalog.content))
+            elif catalog.content:
+                catalog.extraction_status = catalog.extraction_status or "complete"
+                catalog.extraction_attempt_count = int(catalog.extraction_attempt_count or 0)
 
             # Extract entities only when needed.
             if catalog.content and not catalog.entities:
@@ -168,8 +197,14 @@ def select_catalog_ids_for_processing(db):
     """
     from pipeline.models import Catalog
 
-    query = db.query(Catalog.id).filter(
-        (Catalog.content.is_(None)) | (Catalog.entities.is_(None))
+    extraction_query = db.query(Catalog.id).filter(
+        Catalog.content.is_(None),
+        (Catalog.extraction_status.is_(None)) | (Catalog.extraction_status != "failed_terminal"),
+    )
+    nlp_only_query = db.query(Catalog.id).filter(
+        Catalog.content.isnot(None),
+        Catalog.content != "",
+        or_(Catalog.entities.is_(None), Catalog.entities == "null"),
     )
 
     if PIPELINE_ONBOARDING_CITY:
@@ -184,7 +219,8 @@ def select_catalog_ids_for_processing(db):
                 ocd_division_id,
             )
             touched_hash_count = db.query(touched_hashes.c.url_hash).distinct().count()
-            query = query.join(touched_hashes, touched_hashes.c.url_hash == Catalog.url_hash)
+            extraction_query = extraction_query.join(touched_hashes, touched_hashes.c.url_hash == Catalog.url_hash)
+            nlp_only_query = nlp_only_query.join(touched_hashes, touched_hashes.c.url_hash == Catalog.url_hash)
             logger.info(
                 "onboarding_scope city=%s ocd_division_id=%s touched_hashes=%s source=url_stage_hist+url_stage",
                 PIPELINE_ONBOARDING_CITY,
@@ -196,14 +232,34 @@ def select_catalog_ids_for_processing(db):
                 "onboarding_scope city=%s missing valid started_at; falling back to global selection",
                 PIPELINE_ONBOARDING_CITY,
             )
-        query = query.distinct()
+        extraction_query = extraction_query.distinct()
+        nlp_only_query = nlp_only_query.distinct()
 
-    catalog_ids = [row[0] for row in query.yield_per(1000)]
+    extraction_ids = [row[0] for row in extraction_query.yield_per(1000)]
+    nlp_only_ids = [row[0] for row in nlp_only_query.yield_per(1000)]
+    catalog_ids = list(dict.fromkeys(extraction_ids + nlp_only_ids))
+
+    terminal_failures = (
+        db.query(Catalog.id)
+        .filter(Catalog.content.is_(None), Catalog.extraction_status == "failed_terminal")
+        .count()
+    )
     if PIPELINE_ONBOARDING_CITY:
         logger.info(
-            "onboarding_scope city=%s selected_missing_work_catalogs=%s",
+            "onboarding_scope city=%s selected_missing_work_catalogs=%s extraction_needed=%s nlp_only=%s excluded_terminal_failures=%s",
             PIPELINE_ONBOARDING_CITY,
             len(catalog_ids),
+            len(extraction_ids),
+            len(nlp_only_ids),
+            terminal_failures,
+        )
+    else:
+        logger.info(
+            "global_scope selected_missing_work_catalogs=%s extraction_needed=%s nlp_only=%s excluded_terminal_failures=%s",
+            len(catalog_ids),
+            len(extraction_ids),
+            len(nlp_only_ids),
+            terminal_failures,
         )
 
     return catalog_ids

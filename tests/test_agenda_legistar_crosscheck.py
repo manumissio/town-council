@@ -83,7 +83,7 @@ def test_fetch_legistar_agenda_items_memoizes_known_tenant_capability_miss():
 
     assert first == []
     assert second == []
-    assert agenda_legistar._LEGISTAR_EVENT_ITEMS_CAPABILITY_CACHE["sanleandro"] is False
+    assert agenda_legistar._LEGISTAR_EVENT_ITEMS_CAPABILITY_CACHE["sanleandro"][0] is False
     assert len(session.calls) == 1
     assert session.calls[0][0].startswith("https://webapi.legistar.com/v1/sanleandro/events?")
 
@@ -113,7 +113,7 @@ def test_fetch_legistar_agenda_items_memoizes_known_event_items_capability_miss(
 
     assert first == []
     assert second == []
-    assert agenda_legistar._LEGISTAR_EVENT_ITEMS_CAPABILITY_CACHE["sanleandro"] is False
+    assert agenda_legistar._LEGISTAR_EVENT_ITEMS_CAPABILITY_CACHE["sanleandro"][0] is False
     assert len(session.calls) == 2
     assert session.calls[1][0].endswith("/events/123/EventItems")
 
@@ -141,4 +141,36 @@ def test_fetch_legistar_agenda_items_does_not_memoize_generic_http_400():
     assert first == []
     assert second == []
     assert "berkeley" not in agenda_legistar._LEGISTAR_EVENT_ITEMS_CAPABILITY_CACHE
+    assert len(session.calls) == 4
+
+
+def test_fetch_legistar_agenda_items_expires_capability_cache(monkeypatch):
+    agenda_legistar._LEGISTAR_EVENT_ITEMS_CAPABILITY_CACHE.clear()
+    monkeypatch.setattr(agenda_legistar, "LEGISTAR_EVENT_ITEMS_CAPABILITY_TTL_SECONDS", 60)
+    session = _FakeSession([
+        _FakeResponse([{"EventId": 123}]),
+        _FakeResponse(
+            {"Message": "'Agenda Draft Status' or 'Agenda Status Not Vievable By The Public' is not setup in settings. Value should be greater than 0."},
+            status_code=400,
+            text="'Agenda Draft Status' or 'Agenda Status Not Vievable By The Public' is not setup in settings. Value should be greater than 0.",
+        ),
+        _FakeResponse([{"EventId": 124}]),
+        _FakeResponse([]),
+    ])
+    times = iter([100.0, 5000.0, 5000.0])
+    monkeypatch.setattr(agenda_legistar.time, "time", lambda: next(times))
+
+    first = fetch_legistar_agenda_items(
+        legistar_client="sanleandro",
+        event_date=date(2026, 3, 10),
+        http=session,
+    )
+    second = fetch_legistar_agenda_items(
+        legistar_client="sanleandro",
+        event_date=date(2026, 3, 11),
+        http=session,
+    )
+
+    assert first == []
+    assert second == []
     assert len(session.calls) == 4

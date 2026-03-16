@@ -1,9 +1,4 @@
-import os
-import sys
 from sqlalchemy.orm import sessionmaker
-
-# Add project root to path
-sys.path.append(os.path.join(os.path.dirname(__file__), '..'))
 
 from pipeline.models import db_connect, Place, Organization, Event
 from pipeline.utils import generate_ocd_id

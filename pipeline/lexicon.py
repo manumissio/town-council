@@ -44,6 +44,49 @@ TREND_NOISE_TOPICS = {
     "staff report",
 }
 
+SHARED_AGENDA_BOILERPLATE_PATTERNS = (
+    r"\b(communication access information)\b",
+    r"\b(disability[- ]related|accommodation\(s\)|auxiliary aids|interpreters?)\b",
+    r"\b(brown act|executive orders?)\b",
+    r"\b(public comment portion|may participate in the public comment)\b",
+    r"\b(agendas? and agenda reports?|agenda reports? may be accessed)\b",
+    r"\b(questions regarding this matter)\b",
+    r"\b(i hereby request|in witness whereof|official seal|cause personal notice|forthwith)\b",
+)
+
+SHARED_LEGAL_NOTICE_PATTERNS = (
+    r"\b(i hereby request|in witness whereof|official seal|cause personal notice|forthwith)\b",
+)
+
+_NAME_LIKE_TITLE_RE = re.compile(r"[A-Z][a-z]+(?: [A-Z]\.)?(?: [A-Z][a-z]+)+(?:[-'][A-Za-z]+)?")
+_NON_NAME_TITLE_TOKENS = {
+    "access",
+    "accommodation",
+    "agenda",
+    "agendas",
+    "amendment",
+    "appointment",
+    "budget",
+    "capital",
+    "communication",
+    "contract",
+    "employee",
+    "hearing",
+    "improvement",
+    "information",
+    "network",
+    "ordinance",
+    "plan",
+    "program",
+    "project",
+    "public",
+    "reports",
+    "resolution",
+    "transit",
+    "update",
+    "zoning",
+}
+
 TEXT_REPAIR_CIVIC_LEXICON = {
     "A", "AN", "AND", "AS", "AT", "BY", "FOR", "FROM", "IN", "IS", "OF", "ON", "OR", "THE", "TO", "WITH", "WILL",
     "THIS", "THAT",
@@ -66,6 +109,35 @@ def normalize_title_key(value: str) -> str:
     title = re.sub(r"\s+", " ", _as_text(value)).strip().lower()
     title = re.sub(r"^\s*(?:item\s*)?#?\s*\d+(?:\.\d+)?[\.\):]\s*", "", title)
     return title.strip(" -:\t")
+
+
+def contains_shared_agenda_boilerplate_phrase(title: str) -> bool:
+    normalized = re.sub(r"\s+", " ", _as_text(title)).strip().lower()
+    if not normalized:
+        return False
+    return any(re.search(pattern, normalized) for pattern in SHARED_AGENDA_BOILERPLATE_PATTERNS)
+
+
+def is_agenda_boilerplate_title(title: str) -> bool:
+    normalized = re.sub(r"\s+", " ", _as_text(title)).strip()
+    if not normalized:
+        return True
+    lowered = normalized.lower()
+    if "http://" in lowered or "https://" in lowered or "www." in lowered:
+        return True
+    if contains_shared_agenda_boilerplate_phrase(normalized):
+        return True
+    return lowered.endswith(":") and len(lowered) <= 60
+
+
+def is_name_like_title(title: str) -> bool:
+    normalized = re.sub(r"\s+", " ", _as_text(title)).strip()
+    if not normalized:
+        return False
+    tokens = [part.strip(".").lower() for part in normalized.split()]
+    if any(token in _NON_NAME_TITLE_TOKENS for token in tokens):
+        return False
+    return bool(_NAME_LIKE_TITLE_RE.fullmatch(normalized))
 
 
 def is_procedural_title(title: str, reject_enabled: bool = True) -> bool:

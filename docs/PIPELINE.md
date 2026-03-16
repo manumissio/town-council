@@ -1,6 +1,6 @@
 # Town Council Pipeline Guide
 
-Last updated: 2026-03-06
+Last updated: 2026-03-16
 
 ## 1) Purpose and Boundaries
 
@@ -46,13 +46,30 @@ Why this exists:
 - Later stages assume canonical rows, valid schema, and local files already present.
 
 ### Stage B: Parallel document processing
-`run_parallel_processing()` finds records missing extracted text/entities and processes them in chunked parallel workers.
+`run_parallel_processing()` finds records needing extraction or NLP-only enrichment and processes them in chunked parallel workers.
 
 Per-record behavior in `process_document_chunk()`:
 - extract text when needed
 - compute/repair `content_hash`
+- persist extraction lifecycle state (`pending` / `complete` / `failed_terminal`)
 - run entity extraction when needed
 - commit per record
+
+### Extraction lifecycle state
+- `catalog.extraction_status` is now the durable extraction backlog contract:
+  - `pending`: extraction still eligible for batch work
+  - `complete`: content exists and extraction succeeded or was backfilled from existing content
+  - `failed_terminal`: deterministic extraction failure hit the retry budget and is excluded from the default batch backlog
+- `catalog.extraction_attempted_at`, `catalog.extraction_attempt_count`, and `catalog.extraction_error` make repeated failures visible instead of silently retrying forever.
+- Backfill rule for pre-existing rows:
+  - `content` present => `complete`
+  - `content` absent => `pending`
+- NLP-only work stays independent from extraction state:
+  - rows with `content` present and missing `entities` remain batch-eligible even when extraction is already `complete`
+
+Why this exists:
+- Prevents permanent extraction failures from hiding the true backlog.
+- Keeps already-extracted rows eligible for downstream enrichment without forcing re-extraction.
 
 Why this exists:
 - Chunked parallelism improves throughput.
@@ -78,7 +95,7 @@ Why this exists:
 4. Client polls `GET /tasks/{task_id}` until terminal state.
 
 ### Task families and writes
-- `extract`: refreshes canonical content (`catalog.content`) and `content_hash`.
+- `extract`: refreshes canonical content (`catalog.content`), `content_hash`, and extraction lifecycle state.
 - `segment`: computes structured agenda items and segmentation status fields.
 - `summarize`: writes summary outputs and source-hash linkage.
 - `topics`: writes topic outputs and source-hash linkage.
@@ -87,6 +104,19 @@ Why this exists:
 Why this exists:
 - Heavy extraction/generation work is isolated from synchronous API reads.
 - Task lifecycle makes long-running work observable and retryable.
+
+### Incremental search sync contract
+- `reindex_catalog(catalog_id)` is now catalog-authoritative for Meilisearch.
+- A single-catalog reindex must:
+  - upsert the catalog's meeting document
+  - delete existing agenda-item documents for that `catalog_id`
+  - insert the current agenda-item documents for that `catalog_id`
+- Async tasks use this incremental path after successful extract, summarize, topics, votes, and segmentation updates.
+- Meilisearch schema/settings work stays on the full setup path only; task-driven reindex does not reapply index settings.
+
+Why this exists:
+- Keeps search freshness aligned with Postgres after record-scoped updates.
+- Avoids blocking async tasks on schema-level Meilisearch operations.
 
 ### Gating vs non-gating (operational)
 In soak/task orchestration contexts, not all failures are weighted equally (for example extract can be non-gating while segment/summarize is gating).

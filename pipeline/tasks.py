@@ -171,9 +171,14 @@ app = Celery('tasks')
 app.conf.broker_url = os.getenv('CELERY_BROKER_URL', 'redis://redis:6379/0')
 app.conf.result_backend = os.getenv('CELERY_RESULT_BACKEND', 'redis://redis:6379/0')
 
-# Database Setup
-engine = db_connect()
-SessionLocal = sessionmaker(bind=engine)
+_SessionLocal = None
+
+
+def SessionLocal():
+    global _SessionLocal
+    if _SessionLocal is None:
+        _SessionLocal = sessionmaker(bind=db_connect())
+    return _SessionLocal()
 
 
 def _get_celery_pool_from_argv(argv: list[str]) -> str | None:
@@ -786,6 +791,10 @@ def segment_agenda_task(self, catalog_id: int):
             catalog.agenda_segmentation_attempted_at = datetime.now(timezone.utc)
             catalog.agenda_segmentation_error = None
             db.commit()
+            try:
+                reindex_catalog(catalog_id)
+            except Exception:
+                pass
         else:
             # Terminal state: agenda segmentation ran but found no substantive items.
             catalog.agenda_segmentation_status = "empty"

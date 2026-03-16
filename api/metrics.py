@@ -43,7 +43,7 @@ def _path_template_from_scope(scope) -> str:
     return str(scope.get("path") or "/")
 
 
-def metrics_response() -> Response:
+def _metrics_response() -> Response:
     return Response(generate_latest(), media_type=CONTENT_TYPE_LATEST)
 
 
@@ -54,7 +54,7 @@ def instrument_app(app) -> None:
 
     @app.get("/metrics", include_in_schema=False)
     def _metrics_endpoint():
-        return metrics_response()
+        return _metrics_response()
 
     @app.middleware("http")
     async def _prometheus_middleware(request, call_next):
@@ -82,4 +82,3 @@ def instrument_app(app) -> None:
             HTTP_REQUESTS_TOTAL.labels(method=method, path=path_template, status=status).inc()
             HTTP_REQUEST_DURATION_SECONDS.labels(method=method, path=path_template).observe(elapsed)
             HTTP_REQUESTS_IN_FLIGHT.dec()
-

@@ -1,4 +1,5 @@
 import logging
+import time
 from datetime import date
 from typing import List, Dict, Any, Optional
 
@@ -8,11 +9,13 @@ import requests
 from requests.adapters import HTTPAdapter
 from urllib3.util import Retry
 
+from pipeline.config import LEGISTAR_EVENT_ITEMS_CAPABILITY_TTL_SECONDS
+
 
 logger = logging.getLogger("agenda-legistar")
 
 _TAG_RE = re.compile(r"<[^>]+>")
-_LEGISTAR_EVENT_ITEMS_CAPABILITY_CACHE: Dict[str, bool] = {}
+_LEGISTAR_EVENT_ITEMS_CAPABILITY_CACHE: Dict[str, tuple[bool, float]] = {}
 _LEGISTAR_EVENT_ITEMS_CAPABILITY_ERROR_MARKERS = (
     "agenda draft status",
     "agenda status not viewable by the public",
@@ -88,6 +91,30 @@ def _is_event_items_capability_miss(exc: requests.HTTPError) -> bool:
     return any(marker in body for marker in _LEGISTAR_EVENT_ITEMS_CAPABILITY_ERROR_MARKERS)
 
 
+def _get_cached_legistar_capability(legistar_client: str) -> Optional[bool]:
+    cached = _LEGISTAR_EVENT_ITEMS_CAPABILITY_CACHE.get(legistar_client)
+    if cached is None:
+        return None
+    supported, expires_at = cached
+    now = time.time()
+    if expires_at <= now:
+        logger.info(
+            "Legistar EventItems capability cache expired for client=%s ttl_seconds=%s",
+            legistar_client,
+            LEGISTAR_EVENT_ITEMS_CAPABILITY_TTL_SECONDS,
+        )
+        _LEGISTAR_EVENT_ITEMS_CAPABILITY_CACHE.pop(legistar_client, None)
+        return None
+    return supported
+
+
+def _set_cached_legistar_capability(legistar_client: str, supported: bool) -> None:
+    _LEGISTAR_EVENT_ITEMS_CAPABILITY_CACHE[legistar_client] = (
+        supported,
+        time.time() + max(1, LEGISTAR_EVENT_ITEMS_CAPABILITY_TTL_SECONDS),
+    )
+
+
 def fetch_legistar_agenda_items(
     legistar_client: Optional[str],
     event_date: Optional[date],
@@ -105,11 +132,13 @@ def fetch_legistar_agenda_items(
     date_str = event_date.isoformat()
 
     try:
-        if _LEGISTAR_EVENT_ITEMS_CAPABILITY_CACHE.get(legistar_client) is False:
+        cached_capability = _get_cached_legistar_capability(legistar_client)
+        if cached_capability is False:
             logger.info(
-                "Legistar EventItems capability miss memoized for client=%s; skipping cross-check for date=%s",
+                "Legistar EventItems capability miss memoized for client=%s; skipping cross-check for date=%s ttl_seconds=%s scope=per_process",
                 legistar_client,
                 date_str,
+                LEGISTAR_EVENT_ITEMS_CAPABILITY_TTL_SECONDS,
             )
             return []
 
@@ -123,11 +152,12 @@ def fetch_legistar_agenda_items(
             events_res.raise_for_status()
         except requests.HTTPError as exc:
             if _is_event_items_capability_miss(exc):
-                _LEGISTAR_EVENT_ITEMS_CAPABILITY_CACHE[legistar_client] = False
+                _set_cached_legistar_capability(legistar_client, False)
                 logger.info(
-                    "Legistar events cross-check unavailable for client=%s date=%s; treating tenant-specific 400 as unsupported cross-check",
+                    "Legistar events cross-check unavailable for client=%s date=%s; treating tenant-specific 400 as unsupported cross-check ttl_seconds=%s scope=per_process",
                     legistar_client,
                     date_str,
+                    LEGISTAR_EVENT_ITEMS_CAPABILITY_TTL_SECONDS,
                 )
                 return []
             raise
@@ -146,16 +176,17 @@ def fetch_legistar_agenda_items(
             items_res.raise_for_status()
         except requests.HTTPError as exc:
             if _is_event_items_capability_miss(exc):
-                _LEGISTAR_EVENT_ITEMS_CAPABILITY_CACHE[legistar_client] = False
+                _set_cached_legistar_capability(legistar_client, False)
                 logger.info(
-                    "Legistar EventItems capability unavailable for client=%s date=%s; treating tenant-specific 400 as unsupported cross-check",
+                    "Legistar EventItems capability unavailable for client=%s date=%s; treating tenant-specific 400 as unsupported cross-check ttl_seconds=%s scope=per_process",
                     legistar_client,
                     date_str,
+                    LEGISTAR_EVENT_ITEMS_CAPABILITY_TTL_SECONDS,
                 )
                 return []
             raise
         raw_items = items_res.json() or []
-        _LEGISTAR_EVENT_ITEMS_CAPABILITY_CACHE[legistar_client] = True
+        _set_cached_legistar_capability(legistar_client, True)
 
         normalized = []
         for raw in raw_items[:max_items]:
