@@ -4,7 +4,7 @@ cupertino,,yes,pass,no,,2026-02-17,
 fremont,wave1,no,pending,no,,,
 hayward,wave1,yes,pass,yes,city_wave1_hayward_sanmateo_20260314_213301,2026-03-15,city_wave1_hayward_sanmateo_20260313_210210
 san_mateo,wave1,yes,pass,yes,city_wave1_san_mateo_20260314_004358,2026-03-14,city_wave1_san_mateo_20260314_004358
-sunnyvale,wave1,no,pending,no,,,
+sunnyvale,wave1,yes,pass,no,city_wave1_sunnyvale_20260315_113626,2026-03-15,city_wave1_sunnyvale_20260315_113626
 san_leandro,wave1,no,pending,no,,,
 mtn_view,wave1,no,pending,no,,,
 moraga,wave1,no,pending,no,,,
