@@ -208,12 +208,20 @@ def _best_html_items_for_event(session, catalog, doc):
     if catalog.location and str(catalog.location).lower().endswith(".html"):
         html_candidates.append(parse_eagenda_items_from_file(catalog.location))
 
-    html_docs = session.query(Document).join(Catalog, Document.catalog_id == Catalog.id).filter(
-        Document.event_id == doc.event_id,
-        Catalog.location.like('%.html')
-    ).all()
+    event_documents = None
+    if doc and getattr(doc, "event", None) and getattr(doc.event, "documents", None) is not None:
+        event_documents = [
+            event_doc
+            for event_doc in (doc.event.documents or [])
+            if getattr(getattr(event_doc, "catalog", None), "location", "") and str(event_doc.catalog.location).lower().endswith(".html")
+        ]
+    else:
+        event_documents = session.query(Document).join(Catalog, Document.catalog_id == Catalog.id).filter(
+            Document.event_id == doc.event_id,
+            Catalog.location.like('%.html')
+        ).all()
 
-    for html_doc in html_docs:
+    for html_doc in event_documents:
         if html_doc.catalog and html_doc.catalog.location:
             html_candidates.append(parse_eagenda_items_from_file(html_doc.catalog.location))
 
