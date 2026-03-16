@@ -25,7 +25,8 @@ This roadmap turns feature ideas into an implementation sequence that fits the c
 It aligns with current architecture facts:
 - `AgendaItem.result`, `AgendaItem.votes`, and `raw_history` already exist.
 - Search is Meilisearch-first and meeting-only by default unless `include_agenda_items=true`.
-- Celery worker is currently single-process (`--concurrency=1 --pool=solo`) with guardrails for LocalAI process duplication.
+- The checked-in Compose default for the HTTP inference path is a prefork Celery worker (`--concurrency=3 --pool=prefork`).
+- In-process inference remains available as an explicit alternative mode with stricter single-process guardrails.
 
 Re-baseline note after recent pushes:
 - Summary trust/quality hardening is now complete (grounded decision-brief summaries + contextual AI disclaimers).

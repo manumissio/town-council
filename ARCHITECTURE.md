@@ -1,6 +1,6 @@
 # Town Council Architecture (2026)
 
-Last updated: 2026-03-14
+Last updated: 2026-03-16
 
 ## 1) System Overview
 
@@ -48,6 +48,7 @@ Operational tuning, rollout state, and troubleshooting are maintained in:
 - `crawler` (Scrapy ingestion)
 - `pipeline` (batch enrichment and indexing)
 - `api` (FastAPI read/write endpoints)
+- `frontend` server-side route handlers (same-origin proxy for protected write actions)
 - `worker` (Celery async task execution)
 - `inference` (HTTP LLM service when `LOCAL_AI_BACKEND=http`)
 - `postgres` (system of record, including semantic and lineage data)
@@ -149,9 +150,14 @@ flowchart LR
 
 #### Async user-triggered generation
 1. UI calls protected write endpoints.
-2. API enqueues Celery tasks in Redis.
-3. Worker executes task and persists updates.
-4. UI polls `/tasks/{id}` with bounded retry logic.
+2. Frontend server-side route handlers forward protected mutations with `API_AUTH_KEY`; the browser does not hold a public write key.
+3. API enqueues Celery tasks in Redis.
+4. Worker executes task and persists updates.
+5. UI polls `/tasks/{id}` with bounded retry logic.
+
+Trust note:
+- protected frontend mutations now rely on server-side Next route handlers configured with `INTERNAL_API_BASE_URL` and `API_AUTH_KEY`
+- `NEXT_PUBLIC_API_AUTH_KEY` is not part of the current stable contract
 
 ### Domain Design Summaries
 

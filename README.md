@@ -36,8 +36,9 @@ What it does *not* do:
 - process/index documents (no `run_pipeline.py`)
 
 Note on Full Text after restart:
-If `STARTUP_PURGE_DERIVED=true` (default in this repo’s `docker-compose.yml`), extracted text is cleared from the DB on startup.
-(`pipeline/config.py` defaults to `false` outside Compose unless env is explicitly set.)
+If `STARTUP_PURGE_DERIVED=true`, extracted text is cleared from the DB on startup.
+The checked-in base `docker-compose.yml` defaults this to `false`; `docker-compose.dev.yml` turns it on for dev convenience.
+(`pipeline/config.py` also defaults to `false` unless env is explicitly set.)
 The UI Full Text tab pulls canonical text from Postgres (`/catalog/{id}/content`), so it may show **Not extracted yet** until you click **Re-extract text** for that record.
 
 ### 2.5) Verify containers are using the latest image
@@ -133,6 +134,7 @@ docker compose --env-file env/profiles/desktop_balanced.env up -d --build infere
 
 Current compose default:
 - The checked-in `docker-compose.yml` defaults to the HTTP inference backend (`LOCAL_AI_BACKEND=http`) and starts the worker as `prefork` with concurrency `3`.
+- `LOCAL_AI_BACKEND=inprocess` remains supported, but it is an explicit alternative mode that should run with stricter worker settings (`WORKER_POOL=solo`, `WORKER_CONCURRENCY=1`).
 - That is a local-first default because the HTTP inference service is part of the local Compose stack, not a required remote dependency.
 
 For detailed rollout status, milestones, and policy:

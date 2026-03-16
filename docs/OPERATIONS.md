@@ -222,8 +222,12 @@ These routes require `X-API-Key`:
 Docker dev default key:
 - `API_AUTH_KEY=dev_secret_key_change_me`
 
-Frontend must set:
-- `NEXT_PUBLIC_API_AUTH_KEY` (for browser-triggered protected actions)
+Frontend server-side proxy must set:
+- `INTERNAL_API_BASE_URL` for backend-to-backend calls, default `http://api:8000`
+- `API_AUTH_KEY` for forwarding privileged requests
+
+Task polling note:
+- `GET /tasks/{task_id}` expects a valid UUID task ID; malformed IDs return `400`
 
 ## Local AI tuning (Gemma 3)
 Default local model: Gemma 3 270M (trained for up to 32K context).
