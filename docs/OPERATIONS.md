@@ -271,6 +271,7 @@ Provider error policy:
 - Orchestrator mapping:
   - timeout/unavailable => retry path
   - response error => deterministic fallback path (no transport retry loop)
+- `extract_agenda` on the HTTP provider skips transport retries and falls back to the local heuristic parser after the first timeout/unavailable response. This avoids paying the same long queue wait twice before segmentation degrades to its deterministic path.
 - HTTP provider classification:
   - timeout => `ProviderTimeoutError` (retryable)
   - transport/unreachable/5xx => `ProviderUnavailableError` (retryable)
