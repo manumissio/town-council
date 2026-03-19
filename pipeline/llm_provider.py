@@ -212,6 +212,14 @@ class HttpInferenceProvider:
             return self.timeout_topics_seconds
         return self.timeout_seconds
 
+    def _max_retries_for_operation(self, operation: str) -> int:
+        # Agenda segmentation already has an in-process heuristic fallback. When the
+        # HTTP path is saturated, repeating the same long extract_agenda call mostly
+        # adds queue wait and retry churn before we use that fallback anyway.
+        if operation == "extract_agenda":
+            return 0
+        return self.max_retries
+
     def _generate(
         self,
         operation: str,
@@ -231,7 +239,8 @@ class HttpInferenceProvider:
         }
         url = f"{self.base_url}/api/generate"
         last_error = None
-        for attempt in range(self.max_retries + 1):
+        max_retries = self._max_retries_for_operation(operation)
+        for attempt in range(max_retries + 1):
             timeout_seconds = self._timeout_for_operation(operation)
             t0 = time.perf_counter()
             outcome = "ok"
@@ -298,18 +307,18 @@ class HttpInferenceProvider:
                     break
                 outcome = "unavailable"
                 last_error = exc
-                if attempt < self.max_retries:
+                if attempt < max_retries:
                     record_provider_retry(self.name, operation, self.model_name)
             except requests.exceptions.Timeout as exc:
                 outcome = "timeout"
                 last_error = exc
                 record_provider_timeout(self.name, operation, self.model_name)
-                if attempt < self.max_retries:
+                if attempt < max_retries:
                     record_provider_retry(self.name, operation, self.model_name)
             except requests.exceptions.RequestException as exc:
                 outcome = "unavailable"
                 last_error = exc
-                if attempt < self.max_retries:
+                if attempt < max_retries:
                     record_provider_retry(self.name, operation, self.model_name)
             except ProviderError as exc:
                 outcome = "response_error"
