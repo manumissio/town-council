@@ -152,6 +152,29 @@ def test_resolver_rejects_legistar_procedural_only_payload(mocker):
     local_ai.extract_agenda.assert_called_once_with("text")
 
 
+def test_filter_legistar_items_removes_933_style_wrappers_and_notice_rows():
+    items = [
+        {"title": "TELECONFERENCE / PUBLIC PARTICIPATION INFORMATION TO HELP STOP THE SPREAD OF COVID-19"},
+        {"title": "APPROVAL OF MINUTES"},
+        {"title": "Subject: Approve the October 26 Planning Commission minutes"},
+        {"title": "PUBLIC HEARINGS"},
+        {"title": "Unless there are separate discussions and/or actions requested by council, staff or a member of the public, it is requested that items under the Consent Calendar be acted on simultaneously."},
+        {
+            "title": "Subject: Consider a development proposal to demolish an existing commercial building and residential unit, remove and replace four (4) protected trees, and construct a mixed-use development."
+        },
+        {
+            "title": "If you challenge the action of the Planning Commission in court, you may be limited to raising only those issues you or someone else raised at the public hearing described in this agenda."
+        },
+    ]
+
+    filtered = agenda_resolver._filter_legistar_items(items)
+
+    assert [item["title"] for item in filtered] == [
+        "Subject: Approve the October 26 Planning Commission minutes",
+        "Subject: Consider a development proposal to demolish an existing commercial building and residential unit, remove and replace four (4) protected trees, and construct a mixed-use development.",
+    ]
+
+
 def test_resolver_preserves_substantive_closed_session_legistar_item(mocker):
     mock_session = mocker.MagicMock()
     catalog = SimpleNamespace(content="text", location="/tmp/doc.pdf")
@@ -181,3 +204,35 @@ def test_resolver_preserves_substantive_closed_session_legistar_item(mocker):
         item["title"] for item in resolved["items"]
     ]
     local_ai.extract_agenda.assert_not_called()
+
+
+def test_resolver_rejects_legistar_when_only_subject_rows_do_not_reach_acceptance_floor(mocker):
+    mock_session = mocker.MagicMock()
+    catalog = SimpleNamespace(content="text", location="/tmp/doc.pdf")
+    doc = _doc_with_place()
+    local_ai = mocker.MagicMock()
+    local_ai.extract_agenda.return_value = [{"title": "LLM Budget Item", "page_number": 7}]
+
+    mocker.patch.object(agenda_resolver, "_best_html_items_for_event", return_value=[])
+    mocker.patch.object(
+        agenda_resolver,
+        "fetch_legistar_agenda_items",
+        return_value=[
+            {"title": "CONSENT CALENDAR", "page_number": None},
+            {"title": "Subject: Approve the October 26 Planning Commission minutes", "page_number": None},
+            {"title": "PUBLIC HEARINGS", "page_number": None},
+            {
+                "title": "If you challenge the action of the Planning Commission in court, you may be limited to raising only those issues you or someone else raised at the public hearing described in this agenda.",
+                "page_number": None,
+            },
+            {
+                "title": "Subject: Consider a development proposal to demolish an existing commercial building and residential unit, remove and replace four (4) protected trees, and construct a mixed-use development.",
+                "page_number": None,
+            },
+        ],
+    )
+
+    resolved = agenda_resolver.resolve_agenda_items(mock_session, catalog, doc, local_ai)
+    assert resolved["source_used"] == "llm"
+    assert resolved["legistar_accepted"] is False
+    local_ai.extract_agenda.assert_called_once_with("text")

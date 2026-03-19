@@ -25,6 +25,36 @@ _LEGISTAR_PROCEDURAL_PATTERNS = [
     re.compile(r"(?i)^convene to closed session$"),
     re.compile(r"(?i)^\d{1,2}:\d{2}\s*(?:a\.m\.|p\.m\.|am|pm)\s+.*meeting.*$"),
 ]
+_LEGISTAR_SECTION_WRAPPER_TITLES = {
+    "approval of minutes",
+    "postponements",
+    "oral communications",
+    "written communications",
+    "consent calendar",
+    "public hearings",
+    "old business",
+    "new business",
+    "staff and commission reports",
+    "future agenda setting",
+}
+_LEGISTAR_NOTICE_PATTERNS = [
+    re.compile(r"(?i)\bteleconference\b"),
+    re.compile(r"(?i)\bjoin the webinar\b"),
+    re.compile(r"(?i)\bjoin by phone\b"),
+    re.compile(r"(?i)\bmeeting id\b"),
+    re.compile(r"(?i)\bpasscode\b"),
+    re.compile(r"(?i)\braise hand\b"),
+    re.compile(r"(?i)\bmembers? of the public\b"),
+    re.compile(r"(?i)\bamericans with disabilities act\b"),
+    re.compile(r"(?i)\bauxiliary aids\b"),
+    re.compile(r"(?i)\bimportant notice\b"),
+    re.compile(r"(?i)\bpublic records\b"),
+    re.compile(r"(?i)\bwritten communications? sent\b"),
+    re.compile(r"(?i)\byou may be limited to raising only those issues\b"),
+    re.compile(r"(?i)\bquestions? on any items? in the agenda\b"),
+    re.compile(r"(?i)\bthis portion of the meeting is reserved\b"),
+    re.compile(r"(?i)\bunless there are separate discussions?\b"),
+]
 
 
 def _get_value(item: Any, key: str):
@@ -54,7 +84,21 @@ def _filter_legistar_items(items: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
         title = _normalize_title(item.get("title", ""))
         if not title:
             continue
+        lowered = title.lower()
+        if lowered.startswith("subject:"):
+            filtered.append({**item, "title": title})
+            continue
         if any(pattern.match(title) for pattern in _LEGISTAR_PROCEDURAL_PATTERNS):
+            continue
+        if lowered in _LEGISTAR_SECTION_WRAPPER_TITLES:
+            continue
+        if any(pattern.search(title) for pattern in _LEGISTAR_NOTICE_PATTERNS):
+            continue
+        if len(title) >= 180 and (
+            "public hearing" not in lowered
+            and "subject:" not in lowered
+            and "application no" not in lowered
+        ):
             continue
         filtered.append({**item, "title": title})
     return filtered
