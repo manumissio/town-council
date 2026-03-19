@@ -4,6 +4,7 @@ from fastapi import HTTPException
 import sys
 import os
 from unittest.mock import MagicMock
+from kombu.exceptions import OperationalError
 from meilisearch.errors import MeilisearchError
 
 # Add the project root to the path so we can import from api/main.py
@@ -322,6 +323,26 @@ def test_votes_endpoint_enqueues_async_task(mocker):
         payload = resp.json()
         assert payload["status"] == "processing"
         assert payload["task_id"] == "task-votes-777"
+    finally:
+        del app.dependency_overrides[get_db]
+
+
+def test_votes_endpoint_returns_503_when_enqueue_fails(mocker):
+    from api.main import get_db
+
+    catalog = MagicMock(id=777, content="Meeting text")
+    db = MagicMock()
+    db.get.return_value = catalog
+
+    def _mock_get_db():
+        yield db
+
+    app.dependency_overrides[get_db] = _mock_get_db
+    mocker.patch("api.main.extract_votes_task.delay", side_effect=OperationalError("broker down"))
+    try:
+        resp = client.post("/votes/777", headers={"X-API-Key": VALID_KEY})
+        assert resp.status_code == 503
+        assert resp.json()["detail"] == "Task queue unavailable"
     finally:
         del app.dependency_overrides[get_db]
 

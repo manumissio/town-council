@@ -1,6 +1,7 @@
 import sys
 import os
 from unittest.mock import MagicMock
+from kombu.exceptions import OperationalError
 
 from fastapi.testclient import TestClient
 
@@ -86,6 +87,26 @@ def test_extract_force_enqueues_task_even_when_cached(mocker):
         del app.dependency_overrides[get_db]
 
 
+def test_extract_returns_503_when_enqueue_fails(mocker):
+    from api.main import get_db
+
+    catalog = MagicMock(id=10, content="")
+    db = MagicMock()
+    db.get.return_value = catalog
+
+    def _mock_get_db():
+        yield db
+
+    app.dependency_overrides[get_db] = _mock_get_db
+    mocker.patch("api.main.extract_text_task.delay", side_effect=OperationalError("broker down"))
+    try:
+        resp = client.post("/extract/10?force=true", headers={"X-API-Key": VALID_KEY})
+        assert resp.status_code == 503
+        assert resp.json()["detail"] == "Task queue unavailable"
+    finally:
+        del app.dependency_overrides[get_db]
+
+
 def test_catalog_content_endpoint_returns_content(mocker):
     from api.main import get_db
 
@@ -107,4 +128,3 @@ def test_catalog_content_endpoint_returns_content(mocker):
         assert "Hello" in payload["content"]
     finally:
         del app.dependency_overrides[get_db]
-

@@ -1189,6 +1189,45 @@ from pipeline.tasks import (
     app as celery_app,
 )
 from celery.result import AsyncResult
+from kombu.exceptions import KombuError
+
+
+def _enqueue_task(task_name: str, task_callable, *args, **kwargs):
+    """
+    Normalize broker/enqueue failures at the API boundary.
+
+    Why this exists:
+    The API can be healthy enough to answer /health while the Celery broker is
+    degraded. In that case we want an explicit 503 instead of a generic 500 or
+    a response body without task_id.
+    """
+    try:
+        task = task_callable.delay(*args, **kwargs)
+    except (KombuError, OSError, ConnectionError, TimeoutError) as exc:
+        logger.error(
+            "Task enqueue failed",
+            extra={"task_name": task_name, "failure_class": exc.__class__.__name__},
+            exc_info=True,
+        )
+        raise HTTPException(status_code=503, detail="Task queue unavailable") from exc
+    except Exception as exc:
+        logger.error(
+            "Task enqueue failed",
+            extra={"task_name": task_name, "failure_class": exc.__class__.__name__},
+            exc_info=True,
+        )
+        raise HTTPException(status_code=503, detail="Task queue unavailable") from exc
+
+    task_id = str(getattr(task, "id", "") or "").strip()
+    if not task_id:
+        logger.error(
+            "Task enqueue returned missing task id",
+            extra={"task_name": task_name, "failure_class": "missing_task_id"},
+        )
+        raise HTTPException(status_code=503, detail="Task queue unavailable")
+    return task_id
+
+
 @app.post("/summarize/{catalog_id}", dependencies=[Depends(verify_api_key)])
 @limiter.limit("20/minute") # Higher limit since it's non-blocking
 def summarize_document(
@@ -1240,12 +1279,12 @@ def summarize_document(
     # We don't make the user wait while the AI writes a summary.
     # Instead, we put a 'task' in the mailbox and tell the user: 
     # "We're on it! Here is your tracking number."
-    task = generate_summary_task.delay(catalog_id, force=force)
+    task_id = _enqueue_task("generate_summary_task", generate_summary_task, catalog_id, force=force)
     
     return {
         "status": "processing",
-        "task_id": str(task.id),
-        "poll_url": f"/tasks/{task.id}"
+        "task_id": task_id,
+        "poll_url": f"/tasks/{task_id}"
     }
 
 @app.post("/segment/{catalog_id}", dependencies=[Depends(verify_api_key)])
@@ -1284,12 +1323,12 @@ def segment_agenda(
         logger.info(f"Force-regenerating agenda cache for catalog_id={catalog_id}.")
 
     # Dispatch Task
-    task = segment_agenda_task.delay(catalog_id)
+    task_id = _enqueue_task("segment_agenda_task", segment_agenda_task, catalog_id)
     
     return {
         "status": "processing",
-        "task_id": str(task.id),
-        "poll_url": f"/tasks/{task.id}"
+        "task_id": task_id,
+        "poll_url": f"/tasks/{task_id}"
     }
 
 
@@ -1315,11 +1354,11 @@ def extract_votes(
     if not catalog:
         raise HTTPException(status_code=404, detail="Document not found")
 
-    task = extract_votes_task.delay(catalog_id, force=force)
+    task_id = _enqueue_task("extract_votes_task", extract_votes_task, catalog_id, force=force)
     return {
         "status": "processing",
-        "task_id": str(task.id),
-        "poll_url": f"/tasks/{task.id}",
+        "task_id": task_id,
+        "poll_url": f"/tasks/{task_id}",
     }
 
 
@@ -1474,11 +1513,11 @@ def generate_topics_for_catalog(
     if (not force) and catalog.topics is not None and not is_fresh:
         return {"status": "stale", "topics": catalog.topics or []}
 
-    task = generate_topics_task.delay(catalog_id, force=force)
+    task_id = _enqueue_task("generate_topics_task", generate_topics_task, catalog_id, force=force)
     return {
         "status": "processing",
-        "task_id": str(task.id),
-        "poll_url": f"/tasks/{task.id}",
+        "task_id": task_id,
+        "poll_url": f"/tasks/{task_id}",
     }
 
 
@@ -1510,11 +1549,17 @@ def extract_catalog_text(
     if (not force) and catalog.content and len(catalog.content.strip()) >= 800:
         return {"status": "cached", "catalog_id": catalog_id, "chars": len(catalog.content)}
 
-    task = extract_text_task.delay(catalog_id, force=force, ocr_fallback=ocr_fallback)
+    task_id = _enqueue_task(
+        "extract_text_task",
+        extract_text_task,
+        catalog_id,
+        force=force,
+        ocr_fallback=ocr_fallback,
+    )
     return {
         "status": "processing",
-        "task_id": str(task.id),
-        "poll_url": f"/tasks/{task.id}",
+        "task_id": task_id,
+        "poll_url": f"/tasks/{task_id}",
     }
 
 @app.get("/tasks/{task_id}")

@@ -3,6 +3,7 @@ from fastapi.testclient import TestClient
 from unittest.mock import MagicMock, patch
 import sys
 import os
+from kombu.exceptions import OperationalError
 
 # Setup mocks for dependencies we don't want to load
 sys.modules["llama_cpp"] = MagicMock()
@@ -57,6 +58,50 @@ def test_async_summarization_flow(mocker):
         # Ensure the task was actually called
         mock_generate_task.delay.assert_called_once_with(1, force=False)
         
+    del app.dependency_overrides[get_db]
+
+
+def test_async_summarization_returns_503_when_enqueue_fails(mocker):
+    mock_catalog = MagicMock()
+    mock_catalog.id = 1
+    mock_catalog.content = "City council meeting discussed budget updates and adopted multiple motions after public comment."
+    mock_catalog.summary = None
+
+    mock_db = MagicMock()
+    mock_db.get.return_value = mock_catalog
+    app.dependency_overrides[get_db] = lambda: mock_db
+
+    with patch("api.main.generate_summary_task") as mock_generate_task:
+        mock_generate_task.delay.side_effect = OperationalError("broker down")
+
+        response = client.post("/summarize/1", headers={"X-API-Key": VALID_KEY})
+
+        assert response.status_code == 503
+        assert response.json()["detail"] == "Task queue unavailable"
+
+    del app.dependency_overrides[get_db]
+
+
+def test_async_summarization_returns_503_when_task_id_missing(mocker):
+    mock_catalog = MagicMock()
+    mock_catalog.id = 1
+    mock_catalog.content = "City council meeting discussed budget updates and adopted multiple motions after public comment."
+    mock_catalog.summary = None
+
+    mock_db = MagicMock()
+    mock_db.get.return_value = mock_catalog
+    app.dependency_overrides[get_db] = lambda: mock_db
+
+    with patch("api.main.generate_summary_task") as mock_generate_task:
+        mock_task = MagicMock()
+        mock_task.id = ""
+        mock_generate_task.delay.return_value = mock_task
+
+        response = client.post("/summarize/1", headers={"X-API-Key": VALID_KEY})
+
+        assert response.status_code == 503
+        assert response.json()["detail"] == "Task queue unavailable"
+
     del app.dependency_overrides[get_db]
 
 def test_task_status_polling():
