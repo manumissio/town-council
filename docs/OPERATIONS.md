@@ -306,7 +306,8 @@ Policy guardrails:
 - Baseline soak integrity depends on consistent baseline target conditions across days.
 
 Run profile:
-- `env/profiles/m1_conservative.env` on M1 Pro.
+- `env/profiles/m5_conservative.env` for the current M5 Pro baseline host.
+- `env/profiles/m1_conservative.env` remains available for historical M1 Pro comparisons only.
 
 Promotion gate table:
 - `provider_timeout_rate`:
@@ -340,7 +341,7 @@ Decision rule:
 - If any gate is `INCONCLUSIVE`, treat as promotion-blocking until telemetry evidence is restored.
 - A clean conservative week makes balanced eligible for opt-in evaluation only; conservative remains the default recommendation.
 
-### Automated daily soak harness (local M1 Pro)
+### Automated daily soak harness (current local baseline host: M5 Pro)
 
 Fixed manifest:
 - `experiments/soak_catalogs_m1_v1.txt`
@@ -639,14 +640,19 @@ Notes:
 
 ### Host profiles (recommended)
 
-M1 conservative:
+M5 conservative baseline:
 ```bash
-docker compose --env-file env/profiles/m1_conservative.env up -d --build inference worker api pipeline frontend
+docker compose --env-file env/profiles/m5_conservative.env up -d --build inference worker api pipeline frontend
 ```
 
 Desktop balanced:
 ```bash
 docker compose --env-file env/profiles/desktop_balanced.env up -d --build inference worker api pipeline frontend
+```
+
+Historical M1 conservative reference:
+```bash
+docker compose --env-file env/profiles/m1_conservative.env up -d --build inference worker api pipeline frontend
 ```
 
 ### Queue-aware timeout math (why conservative timeout is high)

@@ -15,5 +15,6 @@ def test_env_example_contains_profile_alignment_keys():
 
 def test_operations_mentions_profile_env_files():
     text = Path("docs/OPERATIONS.md").read_text(encoding="utf-8")
+    assert "env/profiles/m5_conservative.env" in text
     assert "env/profiles/m1_conservative.env" in text
     assert "env/profiles/desktop_balanced.env" in text

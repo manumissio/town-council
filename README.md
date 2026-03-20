@@ -110,9 +110,12 @@ If sorting appears to have no effect, see the runbook section in [`docs/OPERATIO
 
 Runtime profile commands:
 ```bash
-docker compose --env-file env/profiles/m1_conservative.env up -d --build inference worker api pipeline frontend
+docker compose --env-file env/profiles/m5_conservative.env up -d --build inference worker api pipeline frontend
 docker compose --env-file env/profiles/desktop_balanced.env up -d --build inference worker api pipeline frontend
 ```
+
+Historical reference:
+- `env/profiles/m1_conservative.env` remains available for reproducing older M1 Pro baseline runs.
 
 ## Runtime Modes
 - Local default:

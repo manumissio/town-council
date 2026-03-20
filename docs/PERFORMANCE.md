@@ -1,6 +1,6 @@
 # Performance
 
-Last updated: 2026-03-16
+Last updated: 2026-03-19
 
 This page describes how to interpret and reproduce performance evidence for local Docker runs.
 For operational troubleshooting and sorting diagnostics, use `docs/OPERATIONS.md`.
@@ -9,6 +9,7 @@ Important:
 - Benchmarks here are environment-pinned examples, not universal guarantees.
 - Promotion and regression decisions should compare like-for-like runs only.
 - If the host, Docker version, runtime profile, model backend, or artifact state changes, treat the numbers as diagnostic rather than baseline-equivalent.
+- The previous M1 Pro conservative results are historical reference only now that the active local baseline host is an M5 Pro MacBook Pro.
 
 ## Measurement Environment
 Use this section as part of the evidence contract for any benchmark you want to compare against another run.
@@ -62,7 +63,7 @@ Default conservative profile for rollout:
 - worker concurrency: `3`
 - inference service caps: ~4GB RAM / 2 CPU
 - inference parallelism: `OLLAMA_NUM_PARALLEL=1`
-- timeout budget includes internal inference queue wait (`LOCAL_AI_HTTP_TIMEOUT_SECONDS=300` on M1 profile)
+- timeout budget includes internal inference queue wait (`LOCAL_AI_HTTP_TIMEOUT_SECONDS=300` in the conservative baseline profile)
 - operation budgets can be split:
   - `LOCAL_AI_HTTP_TIMEOUT_SEGMENT_SECONDS` (usually highest)
   - `LOCAL_AI_HTTP_TIMEOUT_SUMMARY_SECONDS`
@@ -157,6 +158,7 @@ Soak confidence signals:
 - `non-baseline` runs:
   - manual probes, experiments, mixed runtime conditions, or legacy cumulative-only artifacts
   - useful for diagnostics, not for baseline promotion decisions
+  - after the M5 Pro host change, use a fresh 7-day conservative M5 window for promotion-grade comparisons
 
 Metric interpretation policy:
 - Gate-driving metrics: timeout rate, timeout storms, queue proxy trend, search regression, segment/summary stability.
@@ -166,6 +168,7 @@ Metric interpretation policy:
 Current evidence note:
 - The March 6-12, 2026 conservative window remains diagnostically useful.
 - It is not promotion-grade after the artifact-contract hardening because it predates the run-local delta fields required for `baseline-valid` evaluation.
+- Treat pre-M5 host windows as historical diagnostics rather than the active local baseline.
 
 ## A/B Experiment Artifacts
 
