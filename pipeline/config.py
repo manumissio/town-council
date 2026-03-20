@@ -80,9 +80,11 @@ NLP_MAX_TEXT_LENGTH = 100000
 
 LOCAL_AI_ALLOW_MULTIPROCESS = os.getenv("LOCAL_AI_ALLOW_MULTIPROCESS", "false").strip().lower() in {"1", "true", "yes"}
 LOCAL_AI_REQUIRE_SOLO_POOL = os.getenv("LOCAL_AI_REQUIRE_SOLO_POOL", "true").strip().lower() in {"1", "true", "yes"}
-LOCAL_AI_BACKEND = (os.getenv("LOCAL_AI_BACKEND", "inprocess").strip().lower() or "inprocess")
+# Keep the code-level default aligned with the checked-in HTTP rollout baseline
+# so non-Compose runs don't silently drift to the legacy in-process path.
+LOCAL_AI_BACKEND = (os.getenv("LOCAL_AI_BACKEND", "http").strip().lower() or "http")
 if LOCAL_AI_BACKEND not in {"inprocess", "http"}:
-    LOCAL_AI_BACKEND = "inprocess"
+    LOCAL_AI_BACKEND = "http"
 LOCAL_AI_HTTP_BASE_URL = (os.getenv("LOCAL_AI_HTTP_BASE_URL", "http://inference:11434").strip() or "http://inference:11434").rstrip("/")
 LOCAL_AI_HTTP_PROFILE = (os.getenv("LOCAL_AI_HTTP_PROFILE", "conservative").strip().lower() or "conservative")
 if LOCAL_AI_HTTP_PROFILE not in {"conservative", "balanced"}:

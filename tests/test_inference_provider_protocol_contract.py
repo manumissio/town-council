@@ -1,5 +1,6 @@
 import threading
 
+from pipeline import llm as llm_mod
 from pipeline.llm_provider import InferenceProvider, InProcessLlamaProvider, HttpInferenceProvider
 
 
@@ -34,3 +35,19 @@ def test_http_provider_has_protocol_methods():
     assert hasattr(provider, "summarize_agenda_items")
     assert hasattr(provider, "summarize_text")
     assert hasattr(provider, "generate_topics")
+
+
+def test_local_ai_defaults_to_http_provider_when_backend_unset(monkeypatch):
+    llm_mod.LocalAI._instance = None
+    monkeypatch.setattr(llm_mod, "LOCAL_AI_BACKEND", "")
+    ai = llm_mod.LocalAI()
+    provider = ai._get_provider()
+    assert isinstance(provider, HttpInferenceProvider)
+
+
+def test_local_ai_invalid_backend_normalizes_to_http_provider(monkeypatch):
+    llm_mod.LocalAI._instance = None
+    monkeypatch.setattr(llm_mod, "LOCAL_AI_BACKEND", "bogus")
+    ai = llm_mod.LocalAI()
+    provider = ai._get_provider()
+    assert isinstance(provider, HttpInferenceProvider)

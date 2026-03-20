@@ -1606,9 +1606,9 @@ class LocalAI:
         return cls._instance
 
     def _get_provider(self):
-        backend = (LOCAL_AI_BACKEND or "inprocess").strip().lower()
+        backend = (LOCAL_AI_BACKEND or "http").strip().lower()
         if backend not in {"inprocess", "http"}:
-            backend = "inprocess"
+            backend = "http"
         # Why this branch exists: backend mode is env-driven and can change between test runs.
         if self._provider is None or self._provider_backend != backend:
             if backend == "http":
@@ -1627,7 +1627,7 @@ class LocalAI:
         2. If two threads try to load simultaneously, we'd waste RAM and cause errors
         3. The lock ensures only ONE thread loads the model, others wait
         """
-        if (LOCAL_AI_BACKEND or "inprocess").strip().lower() == "http":
+        if (LOCAL_AI_BACKEND or "http").strip().lower() == "http":
             return
 
         # Guardrail: llama.cpp loads the model into the *current process*. In a multiprocess
