@@ -586,9 +586,9 @@ Notes:
 ```bash
 LOCAL_AI_BACKEND=http docker compose up -d --build worker api pipeline inference
 ```
-2. Pull the inference model once:
+2. Create the local inference model alias once:
 ```bash
-docker compose exec -T inference ollama pull "${LOCAL_AI_HTTP_MODEL:-gemma-3-270m-custom}"
+./scripts/setup_ollama_270m.sh /models/gemma-3-270m-it-Q4_K_M.gguf
 ```
 3. Run backend parity tests:
 ```bash

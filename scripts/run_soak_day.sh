@@ -205,7 +205,7 @@ status = obj.get("status", "") if isinstance(obj, dict) else ""
 detail = obj.get("detail", "") if isinstance(obj, dict) else ""
 print(task_id, status, detail)
 PY
-)"
+)
   if [[ -z "$tid" ]]; then
     if [[ "$endpoint_status" == "cached" || "$endpoint_status" == "stale" || "$endpoint_status" == "blocked_low_signal" ]]; then
       LAST_FAILURE_REASON="task_submission_failure"
