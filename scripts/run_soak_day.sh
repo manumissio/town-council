@@ -184,7 +184,7 @@ run_endpoint() {
   local phase="$2"
   local ep="$3"
 
-  local t_start t_end tid status payload task_resp post_resp
+  local t_start t_end tid status payload task_resp post_resp error_detail endpoint_status
   t_start=$(python3 - <<'PY'
 import time
 print(f"{time.time():.6f}")
@@ -192,7 +192,7 @@ PY
 )
 
   post_resp="$(curl -sS -X POST "$API_URL/$ep" -H "X-API-Key: $API_KEY" || true)"
-  tid="$(python3 - <<'PY' "$post_resp"
+  read -r tid endpoint_status error_detail < <(python3 - <<'PY' "$post_resp"
 import json
 import sys
 raw = sys.argv[1]
@@ -200,12 +200,37 @@ try:
     obj = json.loads(raw) if raw else {}
 except Exception:
     obj = {}
-print(obj.get("task_id", "") if isinstance(obj, dict) else "")
+task_id = obj.get("task_id", "") if isinstance(obj, dict) else ""
+status = obj.get("status", "") if isinstance(obj, dict) else ""
+detail = obj.get("detail", "") if isinstance(obj, dict) else ""
+print(task_id, status, detail)
 PY
 )"
   if [[ -z "$tid" ]]; then
-    LAST_FAILURE_REASON="task_submission_failure"
-    payload=$(printf '{"run_id":"%s","catalog_id":%s,"phase":"%s","status":"failed","task_failed":true,"error":"missing_task_id"}' "$RUN_ID" "$cid" "$phase")
+    if [[ "$endpoint_status" == "cached" || "$endpoint_status" == "stale" || "$endpoint_status" == "blocked_low_signal" ]]; then
+      LAST_FAILURE_REASON="task_submission_failure"
+      payload=$(printf '{"run_id":"%s","catalog_id":%s,"phase":"%s","status":"failed","task_failed":true,"error":"unexpected_non_processing_status:%s"}' "$RUN_ID" "$cid" "$phase" "$endpoint_status")
+    elif [[ -n "$error_detail" ]]; then
+      LAST_FAILURE_REASON="task_submission_failure"
+      payload=$(python3 - <<'PY' "$RUN_ID" "$cid" "$phase" "$error_detail"
+import json
+import sys
+run_id, cid, phase, detail = sys.argv[1:]
+print(json.dumps({
+    "run_id": run_id,
+    "catalog_id": int(cid),
+    "phase": phase,
+    "status": "failed",
+    "task_failed": True,
+    "error": "task_submission_error",
+    "error_detail": detail,
+}, separators=(",", ":")))
+PY
+)
+    else
+      LAST_FAILURE_REASON="task_submission_failure"
+      payload=$(printf '{"run_id":"%s","catalog_id":%s,"phase":"%s","status":"failed","task_failed":true,"error":"missing_task_id"}' "$RUN_ID" "$cid" "$phase")
+    fi
     echo "$payload" >> "$TASKS_JSONL"
     return 1
   fi

@@ -301,6 +301,32 @@ def _slowest_task(rows: list[dict[str, Any]]) -> dict[str, Any]:
     }
 
 
+def _submission_failure_breakdown(rows: list[dict[str, Any]]) -> dict[str, int]:
+    counts = {
+        "task_submission_failures": 0,
+        "task_submission_error_failures": 0,
+        "unexpected_non_processing_status_failures": 0,
+        "missing_task_id_failures": 0,
+        "task_poll_timeouts": 0,
+    }
+    for row in rows:
+        error = str(row.get("error") or "").strip()
+        if not error:
+            continue
+        if error == "task_submission_error":
+            counts["task_submission_failures"] += 1
+            counts["task_submission_error_failures"] += 1
+        elif error.startswith("unexpected_non_processing_status:"):
+            counts["task_submission_failures"] += 1
+            counts["unexpected_non_processing_status_failures"] += 1
+        elif error == "missing_task_id":
+            counts["task_submission_failures"] += 1
+            counts["missing_task_id_failures"] += 1
+        elif error == "task_poll_timeout":
+            counts["task_poll_timeouts"] += 1
+    return counts
+
+
 def _provider_run_deltas_from_manifest(
     manifest: dict[str, Any],
     *,
@@ -366,6 +392,7 @@ def main() -> int:
     manifest = _load_run_manifest(run_dir)
     task_rows = _load_tasks_rows(run_dir)
     run_hotspots = _slowest_task(task_rows)
+    failure_breakdown = _submission_failure_breakdown(task_rows)
 
     provider_requests_total = _sum_metric(worker_rows, "tc_provider_requests_total")
     provider_timeouts_total = _sum_metric(worker_rows, "tc_provider_timeouts_total")
@@ -421,6 +448,7 @@ def main() -> int:
             "worker_metrics_error": worker_metrics_error,
             **run_provider,
             **run_hotspots,
+            **failure_breakdown,
         }
     )
 
