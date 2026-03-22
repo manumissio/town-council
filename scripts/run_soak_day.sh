@@ -40,6 +40,12 @@ DAY_SUMMARY_JSON="$RUN_DIR/day_summary.json"
 RUN_MANIFEST_JSON="$RUN_DIR/run_manifest.json"
 : > "$TASKS_JSONL"
 LAST_FAILURE_REASON=""
+PREFLIGHT_RECOVERY_ATTEMPTED="false"
+PREFLIGHT_RECOVERY_RESULT="not_needed"
+PREFLIGHT_RECOVERY_LOG="$RUN_DIR/preflight_recovery.log"
+PREFLIGHT_COMPOSE_PS_LOG="$RUN_DIR/preflight_compose_ps.log"
+: > "$PREFLIGHT_RECOVERY_LOG"
+: > "$PREFLIGHT_COMPOSE_PS_LOG"
 
 CIDS=()
 while IFS= read -r cid; do
@@ -102,25 +108,53 @@ health_ok() {
 preflight_status="healthy"
 if ! health_ok; then
   preflight_status="recovering"
+  PREFLIGHT_RECOVERY_ATTEMPTED="true"
   # Prefer a fast, no-build recovery path for scheduled soak runs.
   # Full dev_up rebuilds are slower and increase false stack_offline failures.
-  if ! docker compose up -d inference worker api pipeline frontend; then
+  if docker compose up -d inference worker api pipeline frontend >"$PREFLIGHT_RECOVERY_LOG" 2>&1; then
+    PREFLIGHT_RECOVERY_RESULT="docker_compose_succeeded"
+  else
+    PREFLIGHT_RECOVERY_RESULT="docker_compose_failed"
     if [[ -f "scripts/dev_up.sh" ]]; then
-      bash scripts/dev_up.sh || true
+      if bash scripts/dev_up.sh >>"$PREFLIGHT_RECOVERY_LOG" 2>&1; then
+        PREFLIGHT_RECOVERY_RESULT="dev_up_succeeded"
+      else
+        PREFLIGHT_RECOVERY_RESULT="dev_up_failed"
+      fi
     fi
   fi
   if ! health_ok; then
     preflight_status="stack_offline"
-    python3 - <<'PY' "$RUN_ID" "$API_URL" "$preflight_status" "$DAY_SUMMARY_JSON"
+    docker compose ps >"$PREFLIGHT_COMPOSE_PS_LOG" 2>&1 || true
+    python3 - <<'PY' "$RUN_ID" "$API_URL" "$preflight_status" "$DAY_SUMMARY_JSON" "$PREFLIGHT_RECOVERY_ATTEMPTED" "$PREFLIGHT_RECOVERY_RESULT"
 import json
 import sys
-run_id, api_url, status, out = sys.argv[1:]
+from pathlib import Path
+run_id, api_url, status, out, recovery_attempted, recovery_result = sys.argv[1:]
+run_dir = Path(out).parent
+
+
+def _tail_text(path: Path, limit: int = 4000) -> str:
+    try:
+        text = path.read_text(encoding="utf-8", errors="replace")
+    except Exception:
+        return ""
+    text = text.strip()
+    if len(text) <= limit:
+        return text
+    return text[-limit:]
+
+
 payload = {
     "run_id": run_id,
     "status": "failed",
     "failure_reason": status,
     "api_url": api_url,
     "preflight_status": status,
+    "preflight_recovery_attempted": recovery_attempted.lower() == "true",
+    "preflight_recovery_result": recovery_result,
+    "preflight_recovery_output": _tail_text(run_dir / "preflight_recovery.log"),
+    "preflight_compose_ps": _tail_text(run_dir / "preflight_compose_ps.log"),
     "cids_total": 0,
     "phases_total": 0,
     "phases_failed": 0,
@@ -153,9 +187,9 @@ script = (
     ".read().decode('utf-8', errors='replace'))"
 )
 baseline = {
-    "provider_requests_total": None,
-    "provider_timeouts_total": None,
-    "provider_retries_total": None,
+    "provider_requests_total": 0.0,
+    "provider_timeouts_total": 0.0,
+    "provider_retries_total": 0.0,
 }
 try:
     raw = subprocess.check_output(
@@ -164,16 +198,20 @@ try:
         stderr=subprocess.STDOUT,
         timeout=30,
     )
+    saw_provider_series = False
     for line in raw.splitlines():
         match = pattern.match(line.strip())
         if not match:
             continue
+        saw_provider_series = True
         baseline[match.group("name")] = float(baseline.get(match.group("name")) or 0.0) + float(match.group("value"))
     manifest["provider_counters_before_run"] = baseline
-    manifest["provider_counters_before_run_available"] = all(value is not None for value in baseline.values())
+    manifest["provider_counters_before_run_available"] = True
+    manifest["provider_counters_before_run_source"] = "worker_http" if saw_provider_series else "zero_baseline_no_provider_series"
 except Exception as exc:
     manifest["provider_counters_before_run"] = baseline
     manifest["provider_counters_before_run_available"] = False
+    manifest["provider_counters_before_run_source"] = "worker_http_error"
     manifest["provider_counters_before_run_error"] = str(exc)
 
 manifest_path.write_text(json.dumps(manifest, indent=2), encoding="utf-8")

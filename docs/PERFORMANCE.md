@@ -1,6 +1,6 @@
 # Performance
 
-Last updated: 2026-03-19
+Last updated: 2026-03-22
 
 This page describes how to interpret and reproduce performance evidence for local Docker runs.
 For operational troubleshooting and sorting diagnostics, use `docs/OPERATIONS.md`.
@@ -131,6 +131,7 @@ The soak harness writes one `day_summary.json` per run under:
 Weekly evaluation (`scripts/evaluate_soak_week.py`) uses:
 - run-local provider deltas captured from `run_manifest.json` baseline counters plus the post-run worker scrape
 - cumulative provider totals remain observational only
+- a successful pre-run worker scrape with no provider series yet counts as a zero baseline, not missing evidence
 
 Why:
 - Prometheus counters are cumulative across runs; promotion gates need per-run evidence so the first day of a window is not contaminated by pre-window history.
@@ -143,6 +144,7 @@ Soak confidence signals:
 - `worker_metrics_error` is recorded when worker metrics cannot be scraped.
 - `provider_metrics_present` and `provider_metrics_reason` classify whether provider series were observed (`ok`, `worker_scrape_failed`, `no_provider_series`).
 - `worker_scrape_failed` means both worker scrape strategies failed (HTTP endpoint probe and process-registry fallback) after bounded retries.
+- `no_provider_series` means the scrape succeeded but no `tc_provider_*` series were observed; this is still valid pre-run zero-baseline evidence, but it reduces post-run interpretability if successful phases never emit provider requests.
 - Missing worker metrics do not crash collection, but reduce confidence for TTFT/TPS trend interpretation.
 - Weekly evaluator emits `telemetry_confidence` and `degraded_telemetry_days` to make this explicit.
 - Weekly evaluator now reports per-gate status as `PASS|FAIL|INCONCLUSIVE` with machine-readable `gate_reasons`.

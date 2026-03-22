@@ -24,5 +24,10 @@ def test_run_soak_day_script_contract():
     assert "phase_duration_p95_s_capped" in text
     assert "run_manifest.json" in text
     assert "provider_counters_before_run" in text
+    assert "provider_counters_before_run_source" in text
+    assert "zero_baseline_no_provider_series" in text
     assert "OLLAMA_NUM_PARALLEL" in text
+    assert "preflight_recovery_attempted" in text
+    assert "preflight_recovery_result" in text
+    assert "preflight_recovery_output" in text
     assert "non-gating extract_failures" in text

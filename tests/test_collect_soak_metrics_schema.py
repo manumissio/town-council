@@ -84,3 +84,22 @@ def test_provider_run_deltas_require_manifest_baseline():
     )
     assert deltas["provider_requests_delta_run"] is None
     assert deltas["provider_timeout_rate_run"] is None
+
+
+def test_provider_run_deltas_support_zero_baseline():
+    deltas = mod._provider_run_deltas_from_manifest(
+        {
+            "provider_counters_before_run": {
+                "provider_requests_total": 0.0,
+                "provider_timeouts_total": 0.0,
+                "provider_retries_total": 0.0,
+            }
+        },
+        provider_requests_total=12.0,
+        provider_timeouts_total=2.0,
+        provider_retries_total=1.0,
+    )
+    assert deltas["provider_requests_delta_run"] == 12.0
+    assert deltas["provider_timeouts_delta_run"] == 2.0
+    assert deltas["provider_retries_delta_run"] == 1.0
+    assert deltas["provider_timeout_rate_run"] == 2.0 / 12.0

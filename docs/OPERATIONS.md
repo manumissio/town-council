@@ -352,11 +352,18 @@ Scripts:
   - writes `experiments/results/soak/<run_id>/run_manifest.json` with:
     - profile identity (`LOCAL_AI_BACKEND`, `LOCAL_AI_HTTP_PROFILE`, `LOCAL_AI_HTTP_MODEL`, `WORKER_CONCURRENCY`, `WORKER_POOL`, `OLLAMA_NUM_PARALLEL`)
     - soak corpus identity (`catalog_ids`, `catalog_count`, source catalog file)
-    - pre-run worker-provider counters when available (`provider_counters_before_run`)
+    - pre-run worker-provider counters (`provider_counters_before_run`)
+    - baseline capture status (`provider_counters_before_run_available`, `provider_counters_before_run_source`, optional `provider_counters_before_run_error`)
   - preflight `/health` poll for 60 seconds (default)
   - one fast self-heal attempt via `docker compose up -d inference worker api pipeline frontend`
   - falls back to `scripts/dev_up.sh` only if fast recovery fails
+  - treats a successful pre-run worker scrape with no provider series yet as a valid zero baseline (`provider_counters_before_run_source=zero_baseline_no_provider_series`)
   - marks day `stack_offline` and exits cleanly if recovery fails
+  - records preflight recovery diagnostics on `stack_offline` days:
+    - `preflight_recovery_attempted`
+    - `preflight_recovery_result`
+    - `preflight_recovery_output`
+    - `preflight_compose_ps`
   - runs `extract -> segment -> summarize` for each CID
   - continues on per-task failures; extract failures are non-gating warnings while segment/summarize failures are gating
   - records additional failure diagnostics in `day_summary.json`:
@@ -405,6 +412,7 @@ Baseline-valid week requirements:
 - same profile settings and soak corpus across all 7 days
 - `run_manifest.json` present for each day
 - `provider_requests_delta_run`, `provider_timeouts_delta_run`, and `provider_retries_delta_run` present for each day
+- zero-valued provider baselines count as valid evidence when the pre-run worker scrape succeeded
 - evaluate a fresh hardened 7-day window only; do not mix pre-hardening and post-hardening artifacts for promotion
 
 Current interpretation:
