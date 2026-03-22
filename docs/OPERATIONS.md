@@ -354,6 +354,9 @@ Scripts:
     - soak corpus identity (`catalog_ids`, `catalog_count`, source catalog file)
     - pre-run worker-provider counters (`provider_counters_before_run`)
     - baseline capture status (`provider_counters_before_run_available`, `provider_counters_before_run_source`, optional `provider_counters_before_run_error`)
+  - uses the same worker scrape strategy ordering as post-run collection:
+    - strategy A: HTTP probe to `http://localhost:8001/metrics`
+    - strategy B: collector-based registry exposition (`RedisProviderMetricsCollector`)
   - preflight `/health` poll for 60 seconds (default)
   - one fast self-heal attempt via `docker compose up -d inference worker api pipeline frontend`
   - falls back to `scripts/dev_up.sh` only if fast recovery fails

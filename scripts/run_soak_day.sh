@@ -176,43 +176,97 @@ import json
 import re
 import subprocess
 import sys
+import time
 from pathlib import Path
 
 manifest_path = Path(sys.argv[1])
 manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
 pattern = re.compile(r'^(?P<name>tc_provider_(?:requests|timeouts|retries)_total)(?:\{[^}]*\})?\s+(?P<value>-?[0-9]+(?:\.[0-9]+)?)$')
-script = (
-    "import urllib.request; "
-    "print(urllib.request.urlopen('http://localhost:8001/metrics', timeout=10)"
-    ".read().decode('utf-8', errors='replace'))"
-)
+strategies = [
+    (
+        "worker_http",
+        (
+            "import urllib.request; "
+            "print(urllib.request.urlopen('http://localhost:8001/metrics', timeout=10)"
+            ".read().decode('utf-8', errors='replace'))"
+        ),
+    ),
+    (
+        "worker_registry",
+        (
+            "from prometheus_client import CollectorRegistry, generate_latest; "
+            "from pipeline.metrics import RedisProviderMetricsCollector; "
+            "registry = CollectorRegistry(); "
+            "registry.register(RedisProviderMetricsCollector()); "
+            "print(generate_latest(registry).decode('utf-8', errors='replace'))"
+        ),
+    ),
+]
 baseline = {
     "provider_requests_total": 0.0,
     "provider_timeouts_total": 0.0,
     "provider_retries_total": 0.0,
 }
+errors = []
 try:
-    raw = subprocess.check_output(
-        ["docker", "compose", "exec", "-T", "worker", "python", "-c", script],
-        text=True,
-        stderr=subprocess.STDOUT,
-        timeout=30,
-    )
     saw_provider_series = False
-    for line in raw.splitlines():
-        match = pattern.match(line.strip())
-        if not match:
-            continue
-        saw_provider_series = True
-        baseline[match.group("name")] = float(baseline.get(match.group("name")) or 0.0) + float(match.group("value"))
+    baseline_source = "worker_http_error"
+    for strategy_name, script in strategies:
+        for attempt in range(1, 3):
+            try:
+                raw = subprocess.check_output(
+                    ["docker", "compose", "exec", "-T", "worker", "python", "-c", script],
+                    text=True,
+                    stderr=subprocess.STDOUT,
+                    timeout=30,
+                )
+                current = {
+                    "provider_requests_total": 0.0,
+                    "provider_timeouts_total": 0.0,
+                    "provider_retries_total": 0.0,
+                }
+                current_has_provider_series = False
+                for line in raw.splitlines():
+                    match = pattern.match(line.strip())
+                    if not match:
+                        continue
+                    current_has_provider_series = True
+                    current[match.group("name")] = float(current.get(match.group("name")) or 0.0) + float(match.group("value"))
+                if strategy_name == "worker_http" and not current_has_provider_series:
+                    errors.append(f"{strategy_name}[attempt={attempt}] missing_provider_series")
+                    if attempt < 2:
+                        time.sleep(0.5)
+                    continue
+                baseline = current
+                saw_provider_series = current_has_provider_series
+                baseline_source = strategy_name if current_has_provider_series else "zero_baseline_no_provider_series"
+                raise StopIteration
+            except StopIteration:
+                raise
+            except Exception as exc:
+                errors.append(f"{strategy_name}[attempt={attempt}] {exc}")
+                if attempt < 2:
+                    time.sleep(0.5)
     manifest["provider_counters_before_run"] = baseline
     manifest["provider_counters_before_run_available"] = True
-    manifest["provider_counters_before_run_source"] = "worker_http" if saw_provider_series else "zero_baseline_no_provider_series"
+    manifest["provider_counters_before_run_source"] = baseline_source
+except StopIteration:
+    manifest["provider_counters_before_run"] = baseline
+    manifest["provider_counters_before_run_available"] = True
+    manifest["provider_counters_before_run_source"] = baseline_source
 except Exception as exc:
     manifest["provider_counters_before_run"] = baseline
     manifest["provider_counters_before_run_available"] = False
     manifest["provider_counters_before_run_source"] = "worker_http_error"
     manifest["provider_counters_before_run_error"] = str(exc)
+else:
+    if not saw_provider_series and baseline_source == "worker_http_error":
+        manifest["provider_counters_before_run"] = baseline
+        manifest["provider_counters_before_run_available"] = False
+        manifest["provider_counters_before_run_source"] = "worker_http_error"
+        manifest["provider_counters_before_run_error"] = "; ".join(errors) if errors else "worker baseline scrape failed"
+    elif errors:
+        manifest["provider_counters_before_run_error"] = "; ".join(errors)
 
 manifest_path.write_text(json.dumps(manifest, indent=2), encoding="utf-8")
 PY
