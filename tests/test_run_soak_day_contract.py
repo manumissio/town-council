@@ -12,6 +12,9 @@ def test_run_soak_day_script_contract():
     assert "docker compose up -d inference worker api pipeline frontend" in text
     assert "stack_offline" in text
     assert "task_poll_timeout" in text
+    assert "scripts/parse_task_launch.py" in text
+    assert "invalid_task_id" in text
+    assert "task_id_valid" in text
     assert "extract/$cid?force=true&ocr_fallback=false" in text
     assert "segment/$cid?force=true" in text
     assert "summarize/$cid?force=true" in text

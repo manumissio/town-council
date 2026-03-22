@@ -86,6 +86,45 @@ def _overall_status(gate_statuses: dict[str, str]) -> str:
     return GATE_PASS
 
 
+def _render_markdown(out: dict) -> str:
+    lines = [
+        f"# Soak Evaluation ({out['window_days']} days)",
+        "",
+        f"overall_status: {out['overall_status']}",
+        f"overall_pass: {'PASS' if out['overall_pass'] else 'FAIL'}",
+        f"extract_warning_days: {out['extract_warning_days']}",
+        f"telemetry_confidence: {out['telemetry_confidence']}",
+        f"degraded_telemetry_days: {out['degraded_telemetry_days']}",
+        f"baseline_valid: {out['baseline_valid']}",
+        f"baseline_artifact_days: {out['baseline_artifact_days']}/{out['window_days']}",
+        f"evaluated_runs: {', '.join(out['evaluated_runs'])}",
+        "",
+        "## Gates",
+    ]
+    for key, value in out["gates"].items():
+        status = out["gate_statuses"].get(key, _status_from_bool(value))
+        reason = out["gate_reasons"].get(key, "n/a")
+        lines.append(f"- {key}: {status} (bool={'PASS' if value else 'FAIL'}, reason={reason})")
+    lines.append("")
+    lines.append("## Evidence Quality")
+    if out["evidence_quality_reasons"]:
+        for reason in out["evidence_quality_reasons"]:
+            lines.append(f"- {reason}")
+    else:
+        lines.append("- ok")
+    lines.append("")
+    lines.append("## Runs")
+    for day in out["per_day"]:
+        lines.append(
+            f"- {day['date']} {day['run_id']} status={day['status']} telemetry={day['telemetry_confidence']} evidence={day['promotion_evidence_source']} extract_failures={day['extract_failures']} gating_failures={day['gating_failures']} timeout_rate_delta={day['provider_timeout_rate_delta']} seg_p95={day['segment_p95_s']} sum_p95={day['summary_p95_s']}"
+        )
+    lines.append("")
+    lines.append("## Notes")
+    for note in out["notes"]:
+        lines.append(f"- {note}")
+    return "\n".join(lines) + "\n"
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description="Evaluate 7-day soak promotion gates")
     parser.add_argument("--input-dir", default="experiments/results/soak")
@@ -316,41 +355,7 @@ def main() -> int:
     out_md = root / f"soak_eval_{args.window_days}d.md"
     out_json.write_text(json.dumps(out, indent=2), encoding="utf-8")
 
-    lines = [
-        f"# Soak Evaluation ({args.window_days} days)",
-        "",
-        f"overall_status: {overall_status}",
-        f"overall_pass: {'PASS' if overall_pass else 'FAIL'}",
-        f"extract_warning_days: {extract_warning_days}",
-        f"telemetry_confidence: {'degraded' if degraded_telemetry_days > 0 else 'high'}",
-        f"degraded_telemetry_days: {degraded_telemetry_days}",
-        f"baseline_valid: {out['baseline_valid']}",
-        f"baseline_artifact_days: {baseline_artifact_days}/{len(window)}",
-        "",
-        "## Gates",
-    ]
-    for k, v in gates.items():
-        status = gate_statuses.get(k, _status_from_bool(v))
-        reason = gate_reasons.get(k, "n/a")
-        lines.append(f"- {k}: {status} (bool={'PASS' if v else 'FAIL'}, reason={reason})")
-    lines.append("")
-    lines.append("## Evidence Quality")
-    if evidence_quality_reasons:
-        for reason in evidence_quality_reasons:
-            lines.append(f"- {reason}")
-    else:
-        lines.append("- ok")
-    lines.append("")
-    lines.append("## Runs")
-    for d in per_day:
-        lines.append(
-            f"- {d['date']} {d['run_id']} status={d['status']} telemetry={d['telemetry_confidence']} evidence={d['promotion_evidence_source']} extract_failures={d['extract_failures']} gating_failures={d['gating_failures']} timeout_rate_delta={d['provider_timeout_rate_delta']} seg_p95={d['segment_p95_s']} sum_p95={d['summary_p95_s']}"
-        )
-    lines.append("")
-    lines.append("## Notes")
-    for n in out["notes"]:
-        lines.append(f"- {n}")
-    out_md.write_text("\n".join(lines) + "\n", encoding="utf-8")
+    out_md.write_text(_render_markdown(out), encoding="utf-8")
 
     print(f"wrote: {out_json}")
     print(f"wrote: {out_md}")

@@ -276,7 +276,7 @@ run_endpoint() {
   local phase="$2"
   local ep="$3"
 
-  local t_start t_end tid status payload task_resp post_resp error_detail endpoint_status
+  local t_start t_end tid status payload task_resp post_resp error_detail endpoint_status task_id_valid
   t_start=$(python3 - <<'PY'
 import time
 print(f"{time.time():.6f}")
@@ -284,21 +284,11 @@ PY
 )
 
   post_resp="$(curl -sS -X POST "$API_URL/$ep" -H "X-API-Key: $API_KEY" || true)"
-  read -r tid endpoint_status error_detail < <(python3 - <<'PY' "$post_resp"
-import json
-import sys
-raw = sys.argv[1]
-try:
-    obj = json.loads(raw) if raw else {}
-except Exception:
-    obj = {}
-task_id = obj.get("task_id", "") if isinstance(obj, dict) else ""
-status = obj.get("status", "") if isinstance(obj, dict) else ""
-detail = obj.get("detail", "") if isinstance(obj, dict) else ""
-print(task_id, status, detail)
-PY
-)
-  if [[ -z "$tid" ]]; then
+  tid="$(python3 scripts/parse_task_launch.py --raw "$post_resp" --field task_id)"
+  task_id_valid="$(python3 scripts/parse_task_launch.py --raw "$post_resp" --field task_id_valid)"
+  endpoint_status="$(python3 scripts/parse_task_launch.py --raw "$post_resp" --field status)"
+  error_detail="$(python3 scripts/parse_task_launch.py --raw "$post_resp" --field detail)"
+  if [[ "$task_id_valid" != "true" || -z "$tid" ]]; then
     if [[ "$endpoint_status" == "cached" || "$endpoint_status" == "stale" || "$endpoint_status" == "blocked_low_signal" ]]; then
       LAST_FAILURE_REASON="task_submission_failure"
       payload=$(printf '{"run_id":"%s","catalog_id":%s,"phase":"%s","status":"failed","task_failed":true,"error":"unexpected_non_processing_status:%s"}' "$RUN_ID" "$cid" "$phase" "$endpoint_status")
@@ -321,7 +311,7 @@ PY
 )
     else
       LAST_FAILURE_REASON="task_submission_failure"
-      payload=$(printf '{"run_id":"%s","catalog_id":%s,"phase":"%s","status":"failed","task_failed":true,"error":"missing_task_id"}' "$RUN_ID" "$cid" "$phase")
+      payload=$(printf '{"run_id":"%s","catalog_id":%s,"phase":"%s","status":"failed","task_failed":true,"error":"invalid_task_id"}' "$RUN_ID" "$cid" "$phase")
     fi
     echo "$payload" >> "$TASKS_JSONL"
     return 1
