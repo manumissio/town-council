@@ -8,6 +8,7 @@ import requests
 
 from pipeline.config import (
     LOCAL_AI_HTTP_BASE_URL,
+    LOCAL_AI_HTTP_PROFILE,
     LOCAL_AI_HTTP_TIMEOUT_SECONDS,
     LOCAL_AI_HTTP_TIMEOUT_SEGMENT_SECONDS,
     LOCAL_AI_HTTP_TIMEOUT_SUMMARY_SECONDS,
@@ -218,6 +219,16 @@ class HttpInferenceProvider:
         # adds queue wait and retry churn before we use that fallback anyway.
         if operation == "extract_agenda":
             return 0
+        # Conservative mode should surface summary/topic timeouts back to Celery
+        # promptly so we do not pay the same queue wait twice inside the provider.
+        if self.max_retries <= 0:
+            return 0
+        if LOCAL_AI_HTTP_PROFILE == "conservative" and operation in {
+            "summarize_agenda_items",
+            "summarize_text",
+            "generate_topics",
+        }:
+            return 0
         return self.max_retries
 
     def _generate(
@@ -240,8 +251,17 @@ class HttpInferenceProvider:
         url = f"{self.base_url}/api/generate"
         last_error = None
         max_retries = self._max_retries_for_operation(operation)
+        timeout_seconds = self._timeout_for_operation(operation)
+        logger.info(
+            "provider_policy provider=%s model=%s profile=%s operation=%s timeout_s=%s retry_budget=%s",
+            self.name,
+            self.model_name,
+            LOCAL_AI_HTTP_PROFILE,
+            operation,
+            timeout_seconds,
+            max_retries,
+        )
         for attempt in range(max_retries + 1):
-            timeout_seconds = self._timeout_for_operation(operation)
             t0 = time.perf_counter()
             outcome = "ok"
             prompt_tokens = None
@@ -308,17 +328,50 @@ class HttpInferenceProvider:
                 outcome = "unavailable"
                 last_error = exc
                 if attempt < max_retries:
+                    logger.warning(
+                        "provider_retry provider=%s model=%s profile=%s operation=%s attempt=%s retry_budget=%s timeout_s=%s error_class=%s",
+                        self.name,
+                        self.model_name,
+                        LOCAL_AI_HTTP_PROFILE,
+                        operation,
+                        attempt + 1,
+                        max_retries,
+                        timeout_seconds,
+                        exc.__class__.__name__,
+                    )
                     record_provider_retry(self.name, operation, self.model_name)
             except requests.exceptions.Timeout as exc:
                 outcome = "timeout"
                 last_error = exc
                 record_provider_timeout(self.name, operation, self.model_name)
                 if attempt < max_retries:
+                    logger.warning(
+                        "provider_retry provider=%s model=%s profile=%s operation=%s attempt=%s retry_budget=%s timeout_s=%s error_class=%s",
+                        self.name,
+                        self.model_name,
+                        LOCAL_AI_HTTP_PROFILE,
+                        operation,
+                        attempt + 1,
+                        max_retries,
+                        timeout_seconds,
+                        exc.__class__.__name__,
+                    )
                     record_provider_retry(self.name, operation, self.model_name)
             except requests.exceptions.RequestException as exc:
                 outcome = "unavailable"
                 last_error = exc
                 if attempt < max_retries:
+                    logger.warning(
+                        "provider_retry provider=%s model=%s profile=%s operation=%s attempt=%s retry_budget=%s timeout_s=%s error_class=%s",
+                        self.name,
+                        self.model_name,
+                        LOCAL_AI_HTTP_PROFILE,
+                        operation,
+                        attempt + 1,
+                        max_retries,
+                        timeout_seconds,
+                        exc.__class__.__name__,
+                    )
                     record_provider_retry(self.name, operation, self.model_name)
             except ProviderError as exc:
                 outcome = "response_error"
@@ -330,12 +383,16 @@ class HttpInferenceProvider:
             finally:
                 duration_ms = (time.perf_counter() - t0) * 1000.0
                 logger.info(
-                    "provider_request provider=%s model=%s operation=%s attempt=%s outcome=%s duration_ms=%.2f ttft_ms=%s prompt_tokens=%s completion_tokens=%s total_tokens=%s tokens_per_sec=%s prompt_eval_duration_ms=%s eval_duration_ms=%s",
+                    "provider_request provider=%s model=%s profile=%s operation=%s attempt=%s retry_budget=%s timeout_s=%s outcome=%s error_class=%s duration_ms=%.2f ttft_ms=%s prompt_tokens=%s completion_tokens=%s total_tokens=%s tokens_per_sec=%s prompt_eval_duration_ms=%s eval_duration_ms=%s",
                     self.name,
                     self.model_name,
+                    LOCAL_AI_HTTP_PROFILE,
                     operation,
                     attempt + 1,
+                    max_retries,
+                    timeout_seconds,
                     outcome,
+                    "" if last_error is None else last_error.__class__.__name__,
                     duration_ms,
                     "" if ttft_ms is None else f"{ttft_ms:.2f}",
                     "" if prompt_tokens is None else str(prompt_tokens),

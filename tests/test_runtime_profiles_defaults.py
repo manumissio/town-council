@@ -24,7 +24,7 @@ def test_m1_conservative_profile_defaults():
     assert values["LOCAL_AI_HTTP_TIMEOUT_SEGMENT_SECONDS"] == "300"
     assert values["LOCAL_AI_HTTP_TIMEOUT_SUMMARY_SECONDS"] == "180"
     assert values["LOCAL_AI_HTTP_TIMEOUT_TOPICS_SECONDS"] == "180"
-    assert values["LOCAL_AI_HTTP_MAX_RETRIES"] == "1"
+    assert values["LOCAL_AI_HTTP_MAX_RETRIES"] == "0"
 
 
 def test_m5_conservative_profile_defaults():
@@ -39,7 +39,7 @@ def test_m5_conservative_profile_defaults():
     assert values["LOCAL_AI_HTTP_TIMEOUT_SEGMENT_SECONDS"] == "300"
     assert values["LOCAL_AI_HTTP_TIMEOUT_SUMMARY_SECONDS"] == "180"
     assert values["LOCAL_AI_HTTP_TIMEOUT_TOPICS_SECONDS"] == "180"
-    assert values["LOCAL_AI_HTTP_MAX_RETRIES"] == "1"
+    assert values["LOCAL_AI_HTTP_MAX_RETRIES"] == "0"
 
 
 def test_desktop_balanced_profile_defaults():

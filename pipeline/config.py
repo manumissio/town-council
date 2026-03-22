@@ -91,7 +91,7 @@ if LOCAL_AI_HTTP_PROFILE not in {"conservative", "balanced"}:
     LOCAL_AI_HTTP_PROFILE = "conservative"
 # Profile defaults keep runtime behavior predictable during staged rollout.
 _HTTP_TIMEOUT_DEFAULT = "60" if LOCAL_AI_HTTP_PROFILE == "conservative" else "45"
-_HTTP_RETRIES_DEFAULT = "1" if LOCAL_AI_HTTP_PROFILE == "conservative" else "2"
+_HTTP_RETRIES_DEFAULT = "0" if LOCAL_AI_HTTP_PROFILE == "conservative" else "1"
 LOCAL_AI_HTTP_TIMEOUT_SECONDS = int(os.getenv("LOCAL_AI_HTTP_TIMEOUT_SECONDS", _HTTP_TIMEOUT_DEFAULT))
 # Operation-specific timeout overrides keep heavy read tasks patient while allowing
 # write tasks to fail faster when stalled. Missing values fall back to global timeout.
