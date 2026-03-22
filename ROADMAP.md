@@ -7,7 +7,7 @@ This roadmap is the canonical feature expansion plan and dependency order.
 - Decision Integrity: **Complete**
 - Hybrid Semantic Discovery: **Partially complete** (Phase 1 complete, Phase 2 planned)
 - Issue Threads Foundation: **Complete**
-- Inference Decoupling & Throughput Stabilization: **Active stabilization soak**
+- Inference Decoupling & Throughput Stabilization: **Implemented; stabilization rollout in progress** (not complete until promotion gates pass)
 
 ## Summary
 
@@ -16,7 +16,7 @@ This roadmap turns feature ideas into an implementation sequence that fits the c
 1. **Decision Integrity**: vote/outcome extraction hardening + scorecards foundation
 2. **Hybrid Semantic Discovery**: semantic retrieval (hybrid keyword + vector)
 3. **Issue Threads Foundation**: meeting-level lineage + trends endpoints
-4. **Inference Decoupling & Throughput Stabilization**: HTTP inference backend + conservative runtime profile
+4. **Inference Decoupling & Throughput Stabilization**: implemented HTTP inference backend + runtime-profile stabilization before city expansion
 5. **City Coverage Expansion I**: existing spiders only
 6. **City Coverage Expansion II**: new spiders / provider-clustered
 7. **Signal Intelligence**: agenda-level lineage + Civic Signals UX
@@ -242,7 +242,10 @@ Why this matters:
 
 ## Inference Decoupling & Throughput Stabilization
 
-Status: **Planned (next)**
+Status: **Implemented; rollout/stabilization in progress**
+
+Completion rule:
+- This milestone is not complete until the conservative-profile promotion gates pass with promotion-grade soak evidence.
 
 Baseline dependency updates:
 - Preserve parity with the new summary contract when inference backend changes.
@@ -263,23 +266,29 @@ Tradeoff note:
 - Alternative considered: model-selection/cascading experimentation as baseline tuning path (source: `ROADMAP.md` -> Inference Decoupling & Throughput Stabilization -> Baseline dependency updates/Tests; `AGENTS.md` -> runtime_policy).
 - Why chosen now: repo policy and roadmap both prioritize runtime-profile stabilization first to avoid policy drift during soak.
 
+Evidence note:
+- Implementation is already landed in `pipeline/llm.py`, `pipeline/llm_provider.py`, `pipeline/config.py`, and `docker-compose.yml`.
+- Verification coverage already exists for provider protocol, retry/error mapping, backend parity, and runtime-profile defaults.
+- Current checked-in soak evidence remains promotion-blocking: `experiments/results/soak/soak_eval_7d.*` reports failed gates, and newer soak artifacts include failed/degraded telemetry runs.
+- As a result, the next execution priority is closing stabilization gaps and collecting clean conservative soak evidence, not rebuilding the provider abstraction from scratch.
+
 ### Implementation
-1. Introduce provider abstraction in `pipeline/llm.py`.
-2. Keep current in-process backend as default.
-3. Add HTTP backend container (Ollama-compatible) in Compose.
-4. Config switch:
+1. Provider abstraction is implemented in `pipeline/llm.py` and `pipeline/llm_provider.py`.
+2. In-process backend remains available as an explicit alternative mode with stricter worker guardrails.
+3. HTTP backend container (Ollama-compatible) is implemented in Compose and is the checked-in default path.
+4. Config switch is implemented:
    - `LOCAL_AI_BACKEND=inprocess|http`
-5. Conservative runtime profile defaults:
+5. Conservative and balanced runtime profiles are implemented:
    - inference service caps: ~4GB RAM, 2 CPU
    - inference queue throttling via `OLLAMA_NUM_PARALLEL=1` on constrained hosts
    - worker concurrency: 3
    - timeout budget must include inference queue wait on constrained hosts
    - use operation-specific HTTP timeout budgets (segment vs summary/topics) when needed
-6. Promotion rule:
+6. Completion / promotion rule:
    - move from Conservative to Balanced only after 1 week of clean SLOs.
 
 ### Edge handling
-- Inference server unavailable: fallback or explicit task failure with retry policy.
+- Inference server unavailable: explicit task failure with retry policy or deterministic local non-provider fallback where already implemented; do not silently switch backend modes.
 - Immediate rollback: `LOCAL_AI_BACKEND=inprocess`, worker concurrency back to `1`.
 
 ### Tests
@@ -288,6 +297,7 @@ Tradeoff note:
   - grounding/pruning parity on unsupported claims
 - Load test: compare throughput before/after backend switch
 - Runtime profile A/B (`conservative` vs `balanced`) is the active tuning path while model-selection A/B remains disabled.
+- Milestone exit still depends on passing stabilization evidence, not just passing implementation tests.
 
 ## City Coverage Expansion (after inference stabilization gates)
 
@@ -299,7 +309,7 @@ Why this matters:
 Tradeoff note:
 - Chosen path: two-wave expansion (existing spiders first, new spiders/provider-clustered second).
 - No documented alternative path found in current repo artifacts.
-- Why chosen now: wave sequencing is explicitly encoded in the roadmap and supports controlled expansion with per-wave quality gates.
+- Why chosen now: wave sequencing is explicitly encoded in the roadmap and supports controlled expansion with per-wave quality gates, but execution remains blocked until inference stabilization exit criteria pass.
 
 ### City Coverage Expansion I (existing spiders only)
 - fremont
@@ -362,7 +372,7 @@ Tradeoff note:
 1. **Decision Integrity first:** immediate user-visible value with minimal architectural change.
 2. **Hybrid Semantic Discovery next:** additive and feature-flagged.
 3. **Issue Threads Foundation then:** reproducible meeting-level lineage + trends endpoints.
-4. **Inference Decoupling & Throughput Stabilization next:** remove bottleneck safely before expansion.
+4. **Inference Decoupling & Throughput Stabilization next:** implementation is landed; current priority is stabilization soak closure and promotion-grade evidence before expansion.
 5. **City Coverage Expansion I then II:** controlled onboarding with per-city reversible gates.
 6. **Signal Intelligence next:** deepen discovery once expanded data baselines are stable.
 7. **Civic Alerts & Subscriptions last:** launch engagement after breadth + stability criteria pass.
