@@ -251,9 +251,9 @@ Backend-aware defaults:
   - use `--pool=prefork --concurrency=3`
   - inference service caps: ~4GB RAM / 2 CPU
   - `LOCAL_AI_HTTP_PROFILE=conservative` (default)
-    - longer timeout, lower retry budget
+    - longer timeout, zero provider retries for summary/topic workloads
   - `LOCAL_AI_HTTP_PROFILE=balanced`
-    - shorter timeout, higher retry budget after SLO gate pass
+    - shorter timeout, small provider retry budget after SLO gate pass
   - operation-specific timeout overrides (fallback to global timeout if unset):
     - `LOCAL_AI_HTTP_TIMEOUT_SEGMENT_SECONDS`
     - `LOCAL_AI_HTTP_TIMEOUT_SUMMARY_SECONDS`
@@ -272,6 +272,7 @@ Provider error policy:
   - timeout/unavailable => retry path
   - response error => deterministic fallback path (no transport retry loop)
 - `extract_agenda` on the HTTP provider skips transport retries and falls back to the local heuristic parser after the first timeout/unavailable response. This avoids paying the same long queue wait twice before segmentation degrades to its deterministic path.
+- Under the conservative HTTP profile, summary/topic operations also skip provider-level retries so Celery owns the retry and the worker does not immediately re-enter the same saturated inference queue.
 - HTTP provider classification:
   - timeout => `ProviderTimeoutError` (retryable)
   - transport/unreachable/5xx => `ProviderUnavailableError` (retryable)

@@ -10,7 +10,7 @@ def test_env_example_contains_profile_alignment_keys():
     assert "LOCAL_AI_HTTP_TIMEOUT_SEGMENT_SECONDS=60" in text
     assert "LOCAL_AI_HTTP_TIMEOUT_SUMMARY_SECONDS=60" in text
     assert "LOCAL_AI_HTTP_TIMEOUT_TOPICS_SECONDS=60" in text
-    assert "LOCAL_AI_HTTP_MAX_RETRIES=1" in text
+    assert "LOCAL_AI_HTTP_MAX_RETRIES=0" in text
 
 
 def test_operations_mentions_profile_env_files():
