@@ -147,8 +147,9 @@ LLM_SUMMARY_MAX_TEXT = int(os.getenv("LLM_SUMMARY_MAX_TEXT", "30000"))
 LLM_SUMMARY_MAX_TOKENS = int(os.getenv("LLM_SUMMARY_MAX_TOKENS", "512"))
 
 # Maximum input text for agenda extraction (chars).
-# Larger than summary because we need enough context to see multiple items and headers.
-LLM_AGENDA_MAX_TEXT = int(os.getenv("LLM_AGENDA_MAX_TEXT", "60000"))
+# Larger than summary because we need enough context to see multiple items and headers,
+# but not so large that conservative HTTP extraction spends most of its time in queue wait.
+LLM_AGENDA_MAX_TEXT = int(os.getenv("LLM_AGENDA_MAX_TEXT", "40000"))
 
 # Maximum tokens in agenda response (1500 tokens ≈ 1125 words)
 # Needs to be large enough to return 10-15 agenda items with descriptions
