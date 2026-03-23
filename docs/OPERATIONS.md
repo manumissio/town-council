@@ -1,6 +1,6 @@
 # Operations Runbook
 
-Last updated: 2026-03-22
+Last updated: 2026-03-23
 
 ## Core workflow
 
@@ -174,6 +174,17 @@ docker compose start api worker frontend monitor
   - `agenda_segmentation_error=agenda_segmentation_timeout:<seconds>s`
 - The city runner continues to the next catalog and prints a summary line with `complete`, `empty`, `failed`, and `timed_out` counts.
 - This does not relax onboarding gates; it only converts an infinite wait into an explicit catalog outcome that the evaluator can grade.
+
+### Staged hydration progress output
+- `scripts/staged_hydrate_cities.py` now emits live stage and per-catalog segmentation progress in normal mode so long-running maintenance runs no longer appear idle.
+- Expected progress shape:
+  - city start
+  - before snapshot
+  - segmentation start
+  - per-catalog segmentation start/finish lines with running counts
+  - summary start/finish
+  - city finish with after-state delta
+- `--json` remains machine-readable only and does not mix human progress lines into stdout.
 
 ### Optional: Reindex Meilisearch only (no extraction/AI)
 If you changed indexing logic (or you want to refresh search after cleaning up bad HTML in stored titles):
