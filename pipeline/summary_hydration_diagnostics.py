@@ -4,12 +4,14 @@ from dataclasses import asdict, dataclass
 
 from sqlalchemy import and_, func
 
+from pipeline.city_scope import source_aliases_for_city
 from pipeline.models import AgendaItem, Catalog, Document
 from pipeline.summary_quality import analyze_source_text, is_source_summarizable
 
 
 @dataclass(frozen=True)
 class SummaryHydrationSnapshot:
+    city: str | None
     catalogs_with_content: int
     catalogs_with_summary: int
     missing_summary_total: int
@@ -56,7 +58,7 @@ def infer_primary_root_cause(snapshot: SummaryHydrationSnapshot) -> str:
     return "no_dominant_backlog_detected"
 
 
-def build_summary_hydration_snapshot(db_session, sample_limit: int = 5) -> SummaryHydrationSnapshot:
+def build_summary_hydration_snapshot(db_session, sample_limit: int = 5, city: str | None = None) -> SummaryHydrationSnapshot:
     first_document_subquery = (
         db_session.query(
             Document.catalog_id.label("catalog_id"),
@@ -79,15 +81,28 @@ def build_summary_hydration_snapshot(db_session, sample_limit: int = 5) -> Summa
         )
         .subquery("doc_kind")
     )
+    base_catalog_ids = (
+        db_session.query(Catalog.id)
+        .join(Document, Document.catalog_id == Catalog.id)
+    )
+    if city:
+        from pipeline.models import Event
+
+        base_catalog_ids = base_catalog_ids.join(Event, Event.id == Document.event_id).filter(
+            Event.source.in_(sorted(source_aliases_for_city(city)))
+        )
+    scoped_catalog_ids = base_catalog_ids.distinct().subquery("scoped_catalog_ids")
 
     catalogs_with_content = (
         db_session.query(func.count(Catalog.id))
+        .join(scoped_catalog_ids, scoped_catalog_ids.c.id == Catalog.id)
         .filter(Catalog.content.isnot(None), Catalog.content != "")
         .scalar()
         or 0
     )
     catalogs_with_summary = (
         db_session.query(func.count(Catalog.id))
+        .join(scoped_catalog_ids, scoped_catalog_ids.c.id == Catalog.id)
         .filter(Catalog.summary.isnot(None), Catalog.summary != "")
         .scalar()
         or 0
@@ -96,6 +111,7 @@ def build_summary_hydration_snapshot(db_session, sample_limit: int = 5) -> Summa
 
     agenda_missing_summary_total = (
         db_session.query(func.count(func.distinct(Catalog.id)))
+        .join(scoped_catalog_ids, scoped_catalog_ids.c.id == Catalog.id)
         .join(doc_kind_subquery, doc_kind_subquery.c.catalog_id == Catalog.id)
         .filter(
             Catalog.content.isnot(None),
@@ -108,6 +124,7 @@ def build_summary_hydration_snapshot(db_session, sample_limit: int = 5) -> Summa
     )
     agenda_missing_summary_with_items = (
         db_session.query(func.count(func.distinct(Catalog.id)))
+        .join(scoped_catalog_ids, scoped_catalog_ids.c.id == Catalog.id)
         .join(doc_kind_subquery, doc_kind_subquery.c.catalog_id == Catalog.id)
         .join(AgendaItem, AgendaItem.catalog_id == Catalog.id)
         .filter(
@@ -126,6 +143,7 @@ def build_summary_hydration_snapshot(db_session, sample_limit: int = 5) -> Summa
 
     non_agenda_rows = (
         db_session.query(Catalog.id, Catalog.content, doc_kind_subquery.c.doc_kind)
+        .join(scoped_catalog_ids, scoped_catalog_ids.c.id == Catalog.id)
         .join(doc_kind_subquery, doc_kind_subquery.c.catalog_id == Catalog.id)
         .filter(
             Catalog.content.isnot(None),
@@ -156,6 +174,7 @@ def build_summary_hydration_snapshot(db_session, sample_limit: int = 5) -> Summa
                 func.coalesce(Catalog.agenda_segmentation_status, "<null>"),
                 func.count(Catalog.id),
             )
+            .join(scoped_catalog_ids, scoped_catalog_ids.c.id == Catalog.id)
             .filter(
                 Catalog.content.isnot(None),
                 Catalog.content != "",
@@ -171,6 +190,7 @@ def build_summary_hydration_snapshot(db_session, sample_limit: int = 5) -> Summa
             row[0]
             for row in (
                 db_session.query(Catalog.id)
+                .join(scoped_catalog_ids, scoped_catalog_ids.c.id == Catalog.id)
                 .join(doc_kind_subquery, doc_kind_subquery.c.catalog_id == Catalog.id)
                 .filter(
                     Catalog.content.isnot(None),
@@ -187,6 +207,7 @@ def build_summary_hydration_snapshot(db_session, sample_limit: int = 5) -> Summa
             row[0]
             for row in (
                 db_session.query(Catalog.id)
+                .join(scoped_catalog_ids, scoped_catalog_ids.c.id == Catalog.id)
                 .join(doc_kind_subquery, doc_kind_subquery.c.catalog_id == Catalog.id)
                 .join(AgendaItem, AgendaItem.catalog_id == Catalog.id)
                 .filter(
@@ -205,6 +226,7 @@ def build_summary_hydration_snapshot(db_session, sample_limit: int = 5) -> Summa
             row[0]
             for row in (
                 db_session.query(Catalog.id)
+                .join(scoped_catalog_ids, scoped_catalog_ids.c.id == Catalog.id)
                 .join(doc_kind_subquery, doc_kind_subquery.c.catalog_id == Catalog.id)
                 .outerjoin(AgendaItem, AgendaItem.catalog_id == Catalog.id)
                 .filter(
@@ -222,6 +244,7 @@ def build_summary_hydration_snapshot(db_session, sample_limit: int = 5) -> Summa
     }
 
     provisional_snapshot = SummaryHydrationSnapshot(
+        city=city,
         catalogs_with_content=int(catalogs_with_content),
         catalogs_with_summary=int(catalogs_with_summary),
         missing_summary_total=missing_summary_total,

@@ -57,3 +57,7 @@ def test_segment_city_corpus_continues_after_timeout(mocker, capsys):
     captured = capsys.readouterr()
     assert exit_code == 0
     assert "segmented city=sunnyvale catalog_count=3 complete=1 empty=1 failed=0 timed_out=1" in captured.out
+
+
+def test_segment_city_corpus_reuses_shared_city_aliases():
+    assert mod.source_aliases_for_city("san_mateo") == {"san_mateo", "san mateo"}

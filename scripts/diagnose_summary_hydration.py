@@ -10,12 +10,13 @@ from pipeline.summary_hydration_diagnostics import build_summary_hydration_snaps
 
 def main() -> int:
     parser = argparse.ArgumentParser(description="Diagnose why hydrated catalogs are missing summaries")
+    parser.add_argument("--city")
     parser.add_argument("--sample-limit", type=int, default=5)
     parser.add_argument("--json", action="store_true", help="Emit machine-readable JSON only")
     args = parser.parse_args()
 
     with db_session() as session:
-        snapshot = build_summary_hydration_snapshot(session, sample_limit=max(1, args.sample_limit))
+        snapshot = build_summary_hydration_snapshot(session, sample_limit=max(1, args.sample_limit), city=args.city)
 
     if args.json:
         print(json.dumps(snapshot.to_dict(), indent=2, sort_keys=True))
@@ -23,6 +24,7 @@ def main() -> int:
 
     print("Summary Hydration Diagnostic")
     print("===========================")
+    print(f"city: {snapshot.city or 'all'}")
     print(f"catalogs_with_content: {snapshot.catalogs_with_content}")
     print(f"catalogs_with_summary: {snapshot.catalogs_with_summary}")
     print(f"missing_summary_total: {snapshot.missing_summary_total}")

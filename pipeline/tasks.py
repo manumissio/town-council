@@ -9,10 +9,11 @@ from sqlalchemy.orm import sessionmaker
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy import and_, func, or_, text
 
-from pipeline.models import db_connect, Catalog, Document, SemanticEmbedding
+from pipeline.models import db_connect, Catalog, Document, Event, SemanticEmbedding
 from pipeline.llm import LocalAI, LocalAIConfigError
 from pipeline.agenda_service import persist_agenda_items
 from pipeline.agenda_resolver import resolve_agenda_items
+from pipeline.city_scope import source_aliases_for_city
 from pipeline.models import AgendaItem
 from pipeline.config import (
     TIKA_MIN_EXTRACTED_CHARS_FOR_NO_OCR,
@@ -206,7 +207,7 @@ def _summary_doc_kind_subquery(db):
     )
 
 
-def select_catalog_ids_for_summary_hydration(db, limit: int | None = None) -> list[int]:
+def select_catalog_ids_for_summary_hydration(db, limit: int | None = None, city: str | None = None) -> list[int]:
     """
     Select catalogs eligible for batch summary hydration.
 
@@ -222,6 +223,8 @@ def select_catalog_ids_for_summary_hydration(db, limit: int | None = None) -> li
     query = (
         db.query(Catalog.id)
         .join(doc_kind, doc_kind.c.catalog_id == Catalog.id)
+        .join(Document, Document.catalog_id == Catalog.id)
+        .join(Event, Event.id == Document.event_id)
         .filter(
             Catalog.content.isnot(None),
             Catalog.content != "",
@@ -233,18 +236,20 @@ def select_catalog_ids_for_summary_hydration(db, limit: int | None = None) -> li
         )
         .order_by(Catalog.id)
     )
+    if city:
+        query = query.filter(Event.source.in_(sorted(source_aliases_for_city(city))))
     if limit is not None:
         query = query.limit(limit)
-    return [row[0] for row in query.all()]
+    return [row[0] for row in query.distinct().all()]
 
 
-def run_summary_hydration_backfill(force: bool = False, limit: int | None = None) -> dict[str, int]:
+def run_summary_hydration_backfill(force: bool = False, limit: int | None = None, city: str | None = None) -> dict[str, int]:
     """
     Generate summaries once across the current eligible backlog snapshot.
     """
     db = SessionLocal()
     try:
-        catalog_ids = select_catalog_ids_for_summary_hydration(db, limit=limit)
+        catalog_ids = select_catalog_ids_for_summary_hydration(db, limit=limit, city=city)
     finally:
         db.close()
 

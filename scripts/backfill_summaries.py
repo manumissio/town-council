@@ -9,12 +9,13 @@ from pipeline.tasks import run_summary_hydration_backfill
 
 def main() -> int:
     parser = argparse.ArgumentParser(description="Backfill summaries for eligible catalogs")
+    parser.add_argument("--city")
     parser.add_argument("--force", action="store_true")
     parser.add_argument("--limit", type=int, default=None)
     parser.add_argument("--json", action="store_true", help="Emit machine-readable JSON only")
     args = parser.parse_args()
 
-    counts = run_summary_hydration_backfill(force=args.force, limit=args.limit)
+    counts = run_summary_hydration_backfill(force=args.force, limit=args.limit, city=args.city)
     if args.json:
         print(json.dumps(counts, sort_keys=True))
         return 0

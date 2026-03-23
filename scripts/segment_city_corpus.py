@@ -12,6 +12,7 @@ from datetime import datetime, timezone
 from sqlalchemy import and_, or_
 
 from pipeline.agenda_worker import segment_document_agenda
+from pipeline.city_scope import source_aliases_for_city
 from pipeline.db_session import db_session
 from pipeline.models import AgendaItem, Catalog, Document, Event
 
@@ -19,19 +20,8 @@ DEFAULT_CATALOG_TIMEOUT_SECONDS = 120
 logger = logging.getLogger("segment_city_corpus")
 
 
-def _source_aliases_for_city(city: str) -> set[str]:
-    aliases = {city}
-    legacy_aliases = {
-        "san_mateo": {"san mateo"},
-        "san_leandro": {"san leandro"},
-        "mtn_view": {"mountain view"},
-    }
-    aliases.update(legacy_aliases.get(city, set()))
-    return aliases
-
-
 def _catalog_ids_for_city(city: str) -> list[int]:
-    aliases = sorted(_source_aliases_for_city(city))
+    aliases = sorted(source_aliases_for_city(city))
     with db_session() as session:
         rows = (
             session.query(Catalog.id)
