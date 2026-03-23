@@ -451,11 +451,13 @@ def embed_catalog_task(self, catalog_id: int, force: bool = False):
         catalog = db.get(Catalog, catalog_id)
         if not catalog:
             return {"status": "skipped", "reason": "catalog_missing"}
-        text_payload = ((catalog.summary or "").strip())[:SEMANTIC_CONTENT_MAX_CHARS]
-        if len(text_payload) < 20:
+        from pipeline.semantic_index import PgvectorSemanticBackend, catalog_semantic_source_hash, catalog_semantic_text
+
+        text_payload = catalog_semantic_text(catalog.summary)
+        source_hash = catalog_semantic_source_hash(catalog.summary)
+        if source_hash is None:
             return {"status": "skipped", "reason": "summary_too_short"}
 
-        source_hash = compute_content_hash(text_payload)
         existing = (
             db.query(SemanticEmbedding)
             .filter(
@@ -466,9 +468,6 @@ def embed_catalog_task(self, catalog_id: int, force: bool = False):
         )
         if existing and existing.source_hash == source_hash and not force:
             return {"status": "cached", "catalog_id": catalog_id}
-
-        # Import lazily to avoid startup hard dependency when semantic mode is disabled.
-        from pipeline.semantic_index import PgvectorSemanticBackend
 
         backend = PgvectorSemanticBackend()
         vector = backend._encode([text_payload])[0].tolist()  # noqa: SLF001 (internal helper by design)

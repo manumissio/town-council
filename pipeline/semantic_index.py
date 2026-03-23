@@ -51,6 +51,12 @@ class SemanticCandidate:
 
 
 @dataclass
+class SemanticRerankResult:
+    candidates: list[SemanticCandidate]
+    diagnostics: dict[str, Any]
+
+
+@dataclass
 class BuildResult:
     row_count: int
     catalog_count: int
@@ -93,6 +99,21 @@ def _looks_like_multiprocess_worker() -> bool:
 
 def _safe_text(value: str | None) -> str:
     return " ".join((value or "").split()).strip()
+
+
+def catalog_semantic_text(value: str | None) -> str:
+    """
+    Canonicalize summary text so batch builds, task refreshes, and staleness checks
+    all agree on the exact payload we expect to be embedded for meetings.
+    """
+    return _safe_text(value)[:SEMANTIC_CONTENT_MAX_CHARS]
+
+
+def catalog_semantic_source_hash(value: str | None) -> str | None:
+    payload = catalog_semantic_text(value)
+    if len(payload) < 20:
+        return None
+    return compute_content_hash(payload)
 
 
 def _build_chunks_from_content(content: str, max_chars: int) -> list[str]:
@@ -282,11 +303,11 @@ class FaissSemanticBackend(SemanticBackend):
                 "organization": org.name if org else "City Council",
             }
 
-            summary = _safe_text(catalog.summary)
+            summary = catalog_semantic_text(catalog.summary)
             extractive = _safe_text(catalog.summary_extractive)
             agenda_items_for_catalog = agenda_items_by_catalog.get(int(catalog.id), [])
             if summary:
-                texts.append(summary[:SEMANTIC_CONTENT_MAX_CHARS])
+                texts.append(summary)
                 rows.append(
                     {
                         "result_type": "meeting",
@@ -510,8 +531,9 @@ class PgvectorSemanticBackend(SemanticBackend):
             if catalog.id in seen_catalogs:
                 continue
             seen_catalogs.add(catalog.id)
-            summary = _safe_text(catalog.summary)[:SEMANTIC_CONTENT_MAX_CHARS]
-            if len(summary) < 20:
+            summary = catalog_semantic_text(catalog.summary)
+            source_hash = catalog_semantic_source_hash(catalog.summary)
+            if source_hash is None:
                 continue
             out.append(
                 {
@@ -523,7 +545,7 @@ class PgvectorSemanticBackend(SemanticBackend):
                     "organization": org.name if org else "City Council",
                     "date": event.record_date.isoformat() if event.record_date else None,
                     "text": summary,
-                    "source_hash": compute_content_hash(summary),
+                    "source_hash": source_hash,
                 }
             )
         return out
@@ -592,15 +614,40 @@ class PgvectorSemanticBackend(SemanticBackend):
             "Use /search with semantic=true or /search/semantic."
         )
 
-    def rerank_candidates(self, db, query_text: str, lexical_hits: list[dict], top_k: int) -> list[SemanticCandidate]:
+    def rerank_candidates_with_diagnostics(
+        self,
+        db,
+        query_text: str,
+        lexical_hits: list[dict],
+        top_k: int,
+    ) -> SemanticRerankResult:
         """
-        Hybrid stage-2 rerank: score only lexical meeting candidates via pgvector.
+        Hybrid stage-2 rerank: score only lexical meeting candidates via pgvector and
+        report whether we had enough fresh embeddings to make semantic mode meaningful.
         """
+        diagnostics: dict[str, Any] = {
+            "retrieval_mode": "hybrid_pgvector",
+            "result_scope": "meeting_hybrid",
+            "hybrid_rerank_applied": False,
+            "degraded_to_lexical": False,
+            "skipped_reason": None,
+            "lexical_candidates": len(lexical_hits),
+            "eligible_meeting_candidates": 0,
+            "candidate_limit_applied": 0,
+            "fresh_embeddings": 0,
+            "missing_embeddings": 0,
+            "stale_embeddings": 0,
+            "lexical_fallback_candidates": 0,
+        }
         if not lexical_hits:
-            return []
+            diagnostics["skipped_reason"] = "no_lexical_candidates"
+            return SemanticRerankResult(candidates=[], diagnostics=diagnostics)
+
         q = _safe_text(query_text)
         if not q:
-            return []
+            diagnostics["skipped_reason"] = "empty_query"
+            return SemanticRerankResult(candidates=[], diagnostics=diagnostics)
+
         query_vec = self._encode([q])[0]
         query_literal = self._vector_literal(query_vec)
 
@@ -637,21 +684,40 @@ class PgvectorSemanticBackend(SemanticBackend):
                     },
                 }
             )
+        diagnostics["eligible_meeting_candidates"] = len(candidate_rows)
         if not candidate_rows:
-            return []
+            diagnostics["degraded_to_lexical"] = True
+            diagnostics["skipped_reason"] = "no_meeting_candidates"
+            return SemanticRerankResult(candidates=[], diagnostics=diagnostics)
 
         by_catalog: dict[int, dict] = {}
         for row in candidate_rows:
-            by_catalog[int(row["catalog_id"])] = row
+            catalog_id = int(row["catalog_id"])
+            if catalog_id not in by_catalog:
+                by_catalog[catalog_id] = row
         catalog_ids = list(by_catalog.keys())[: max(1, SEMANTIC_RERANK_CANDIDATE_LIMIT)]
+        diagnostics["candidate_limit_applied"] = len(catalog_ids)
         if not catalog_ids:
-            return []
+            diagnostics["degraded_to_lexical"] = True
+            diagnostics["skipped_reason"] = "no_candidate_catalogs"
+            return SemanticRerankResult(candidates=[], diagnostics=diagnostics)
+
+        expected_hash_rows = (
+            db.query(Catalog.id, Catalog.summary)
+            .filter(Catalog.id.in_(catalog_ids))
+            .all()
+        )
+        expected_hash_by_catalog = {
+            int(catalog_id): catalog_semantic_source_hash(summary)
+            for catalog_id, summary in expected_hash_rows
+        }
 
         stmt = (
             text(
                 """
                 SELECT
                   se.catalog_id AS catalog_id,
+                  se.source_hash AS source_hash,
                   (1 - (se.embedding <=> CAST(:query_vec AS vector))) AS score
                 FROM semantic_embedding se
                 WHERE se.catalog_id IN :catalog_ids
@@ -663,30 +729,63 @@ class PgvectorSemanticBackend(SemanticBackend):
             )
             .bindparams(bindparam("catalog_ids", expanding=True))
         )
-        scored_rows = db.execute(
-            stmt,
-            {
-                "query_vec": query_literal,
-                "catalog_ids": catalog_ids,
-                "model_name": SEMANTIC_MODEL_NAME,
-                "limit": max(1, int(top_k)),
-            },
-        ).mappings()
+        scored_rows = list(
+            db.execute(
+                stmt,
+                {
+                    "query_vec": query_literal,
+                    "catalog_ids": catalog_ids,
+                    "model_name": SEMANTIC_MODEL_NAME,
+                    "limit": max(1, len(catalog_ids)),
+                },
+            ).mappings()
+        )
 
         candidates: list[SemanticCandidate] = []
-        for idx, row in enumerate(scored_rows):
+        seen_catalogs: set[int] = set()
+        for row in scored_rows:
             catalog_id = int(row["catalog_id"])
-            base = by_catalog.get(catalog_id)
-            if not base:
+            expected_hash = expected_hash_by_catalog.get(catalog_id)
+            actual_hash = row.get("source_hash")
+            if expected_hash is None or actual_hash != expected_hash:
+                diagnostics["stale_embeddings"] += 1
                 continue
+            base = by_catalog.get(catalog_id)
+            if not base or catalog_id in seen_catalogs:
+                continue
+            seen_catalogs.add(catalog_id)
             candidates.append(
                 SemanticCandidate(
-                    row_id=idx,
+                    row_id=len(candidates),
                     score=float(row.get("score") or 0.0),
                     metadata=base["meta"],
                 )
             )
-        return candidates
+
+        diagnostics["fresh_embeddings"] = len(candidates)
+        diagnostics["missing_embeddings"] = max(0, len(catalog_ids) - len(scored_rows))
+
+        if not candidates:
+            diagnostics["degraded_to_lexical"] = True
+            if diagnostics["missing_embeddings"] > 0 and diagnostics["stale_embeddings"] == 0:
+                diagnostics["skipped_reason"] = "missing_embeddings"
+            elif diagnostics["stale_embeddings"] > 0 and diagnostics["missing_embeddings"] == 0:
+                diagnostics["skipped_reason"] = "stale_embeddings"
+            else:
+                diagnostics["skipped_reason"] = "insufficient_fresh_embeddings"
+            return SemanticRerankResult(candidates=[], diagnostics=diagnostics)
+
+        diagnostics["hybrid_rerank_applied"] = True
+        diagnostics["degraded_to_lexical"] = len(candidates) < min(max(1, int(top_k)), len(catalog_ids))
+        if diagnostics["degraded_to_lexical"] and diagnostics["skipped_reason"] is None:
+            diagnostics["skipped_reason"] = "partial_embedding_coverage"
+        return SemanticRerankResult(
+            candidates=candidates[: max(1, int(top_k))],
+            diagnostics=diagnostics,
+        )
+
+    def rerank_candidates(self, db, query_text: str, lexical_hits: list[dict], top_k: int) -> list[SemanticCandidate]:
+        return self.rerank_candidates_with_diagnostics(db, query_text, lexical_hits, top_k).candidates
 
     def health(self) -> dict[str, Any]:
         return {"status": "ok", "engine": "pgvector", "model_name": SEMANTIC_MODEL_NAME}

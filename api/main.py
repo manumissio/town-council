@@ -30,7 +30,12 @@ from pipeline.config import (
     SEMANTIC_RERANK_CANDIDATE_LIMIT,
     FEATURE_TRENDS_DASHBOARD,
 )
-from pipeline.semantic_index import get_semantic_backend, SemanticConfigError, PgvectorSemanticBackend
+from pipeline.semantic_index import (
+    get_semantic_backend,
+    SemanticCandidate,
+    SemanticConfigError,
+    PgvectorSemanticBackend,
+)
 from pipeline.lexicon import is_trend_noise_topic
 from api.search.query_builder import (
     normalize_city_filter,
@@ -443,6 +448,95 @@ def _dedupe_semantic_candidates(candidates):
     return deduped
 
 
+def _semantic_candidate_key(candidate: SemanticCandidate) -> tuple[str, int]:
+    meta = candidate.metadata
+    result_type = str(meta.get("result_type") or "meeting")
+    if result_type == "meeting":
+        return ("meeting", int(meta.get("catalog_id") or 0))
+    return ("agenda_item", int(meta.get("db_id") or 0))
+
+
+def _lexical_hit_to_candidate(hit: dict, order_idx: int) -> Optional[SemanticCandidate]:
+    result_type = str(hit.get("result_type") or "meeting")
+    if result_type == "meeting":
+        db_id = hit.get("db_id")
+        if db_id is None:
+            raw_id = str(hit.get("id") or "")
+            if raw_id.startswith("doc_"):
+                try:
+                    db_id = int(raw_id.split("_", 1)[1])
+                except Exception:
+                    db_id = None
+        catalog_id = hit.get("catalog_id")
+        if db_id is None or catalog_id is None:
+            return None
+        metadata = {
+            "result_type": "meeting",
+            "catalog_id": int(catalog_id),
+            "db_id": int(db_id),
+            "event_id": hit.get("event_id"),
+            "city": str(hit.get("city") or "").lower(),
+            "meeting_category": hit.get("meeting_category") or "Other",
+            "organization": hit.get("organization") or "City Council",
+            "date": hit.get("date"),
+            "source_type": "lexical_fallback",
+        }
+    elif result_type == "agenda_item":
+        db_id = hit.get("db_id")
+        if db_id is None:
+            raw_id = str(hit.get("id") or "")
+            if raw_id.startswith("item_"):
+                try:
+                    db_id = int(raw_id.split("_", 1)[1])
+                except Exception:
+                    db_id = None
+        if db_id is None:
+            return None
+        metadata = {
+            "result_type": "agenda_item",
+            "catalog_id": hit.get("catalog_id"),
+            "db_id": int(db_id),
+            "event_id": hit.get("event_id"),
+            "city": str(hit.get("city") or "").lower(),
+            "meeting_category": hit.get("meeting_category") or "Other",
+            "organization": hit.get("organization") or "City Council",
+            "date": hit.get("date"),
+            "source_type": "lexical_fallback",
+        }
+    else:
+        return None
+
+    return SemanticCandidate(
+        row_id=order_idx,
+        # Preserve lexical ordering while always trailing true semantic scores.
+        score=-float(order_idx + 1),
+        metadata=metadata,
+    )
+
+
+def _merge_semantic_with_lexical_fallback(
+    semantic_candidates: list[SemanticCandidate],
+    lexical_hits: list[dict],
+    filters: dict,
+) -> tuple[list[SemanticCandidate], int]:
+    merged = list(semantic_candidates)
+    seen_keys = {_semantic_candidate_key(candidate) for candidate in semantic_candidates}
+    added = 0
+    for order_idx, hit in enumerate(lexical_hits):
+        candidate = _lexical_hit_to_candidate(hit, order_idx)
+        if candidate is None:
+            continue
+        if not _semantic_candidate_matches_filters(candidate.metadata, filters):
+            continue
+        key = _semantic_candidate_key(candidate)
+        if key in seen_keys:
+            continue
+        seen_keys.add(key)
+        merged.append(candidate)
+        added += 1
+    return merged, added
+
+
 @app.get("/health")
 def health_check(db: SQLAlchemySession = Depends(get_db)):
     """
@@ -731,6 +825,20 @@ def search_documents_semantic(
         deduped = []
         raw_count = 0
         filtered_count = 0
+        diagnostics_extra = {
+            "retrieval_mode": "vector_direct",
+            "result_scope": "full_semantic",
+            "hybrid_rerank_applied": False,
+            "degraded_to_lexical": False,
+            "skipped_reason": None,
+            "lexical_candidates": 0,
+            "eligible_meeting_candidates": 0,
+            "candidate_limit_applied": 0,
+            "fresh_embeddings": 0,
+            "missing_embeddings": 0,
+            "stale_embeddings": 0,
+            "lexical_fallback_candidates": 0,
+        }
 
         # B2 path: hybrid retrieval for pgvector (lexical recall -> vector rerank).
         if isinstance(backend, PgvectorSemanticBackend) or (SEMANTIC_BACKEND == "pgvector"):
@@ -767,10 +875,38 @@ def search_documents_semantic(
             lexical_results = index.search(q, lexical_params)
             lexical_hits = lexical_results.get("hits", []) or []
             raw_count = len(lexical_hits)
-            candidates = backend.rerank_candidates(db, q, lexical_hits, top_k=k)
+            rerank_with_diagnostics = getattr(backend, "rerank_candidates_with_diagnostics", None)
+            if callable(rerank_with_diagnostics):
+                rerank_result = rerank_with_diagnostics(db, q, lexical_hits, top_k=k)
+                candidates = rerank_result.candidates
+                diagnostics_extra.update(rerank_result.diagnostics)
+            else:
+                candidates = backend.rerank_candidates(db, q, lexical_hits, top_k=k)
+                diagnostics_extra.update(
+                    {
+                        "retrieval_mode": "hybrid_pgvector",
+                        "result_scope": "meeting_hybrid",
+                        "hybrid_rerank_applied": bool(candidates),
+                        "lexical_candidates": raw_count,
+                        "eligible_meeting_candidates": len(
+                            [hit for hit in lexical_hits if str(hit.get("result_type") or "") == "meeting"]
+                        ),
+                        "candidate_limit_applied": min(
+                            len([hit for hit in lexical_hits if str(hit.get("result_type") or "") == "meeting"]),
+                            SEMANTIC_RERANK_CANDIDATE_LIMIT,
+                        ),
+                        "fresh_embeddings": len(candidates),
+                    }
+                )
             filtered = [c for c in candidates if _semantic_candidate_matches_filters(c.metadata, filters)]
             filtered_count = len(filtered)
             deduped = _dedupe_semantic_candidates(filtered)
+            if diagnostics_extra.get("degraded_to_lexical") or len(deduped) < target:
+                deduped, fallback_added = _merge_semantic_with_lexical_fallback(deduped, lexical_hits, filters)
+                diagnostics_extra["degraded_to_lexical"] = True
+                diagnostics_extra["lexical_fallback_candidates"] = fallback_added
+                if fallback_added and diagnostics_extra.get("skipped_reason") is None:
+                    diagnostics_extra["skipped_reason"] = "partial_embedding_coverage"
         else:
             while True:
                 candidates = backend.query(q, k)
@@ -847,6 +983,7 @@ def search_documents_semantic(
             "latency_ms": elapsed_ms,
             # Exposing engine here makes "semantic feels slow" debuggable from one API response.
             "engine": engine,
+            **diagnostics_extra,
         },
     }
 
