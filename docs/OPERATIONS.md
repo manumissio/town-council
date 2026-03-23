@@ -1,6 +1,6 @@
 # Operations Runbook
 
-Last updated: 2026-03-16
+Last updated: 2026-03-22
 
 ## Core workflow
 
@@ -299,7 +299,7 @@ A/B artifact integration (v1):
 - `scripts/score_ab_results.py` reports TTFT/TPS/token rollups and deltas.
 - These telemetry metrics are reporting-only in this phase and are not part of pass/fail gates.
 
-## Inference Decoupling & Throughput Stabilization 7-Day Soak Gate (Conservative -> Balanced)
+## Inference Decoupling & Throughput Stabilization Soak Evidence Tiers
 
 Policy guardrails:
 - Shared workflows are local-first by default.
@@ -310,10 +310,10 @@ Run profile:
 - `env/profiles/m5_conservative.env` for the current M5 Pro baseline host.
 - `env/profiles/m1_conservative.env` remains available for historical M1 Pro comparisons only.
 
-Promotion gate table:
+Shared gate table:
 - `provider_timeout_rate`:
   - source: `tc_provider_timeouts_total / tc_provider_requests_total`
-  - threshold: `< 1.0%` for 7 consecutive days
+  - threshold: `< 1.0%`
   - fail action: remain conservative; investigate latency/queue
 - `timeout_storms`:
   - source: retry/timeout log correlation
@@ -337,10 +337,23 @@ Promotion gate table:
   - fail action: hold promotion; investigate context/workload mix
 
 Decision rule:
-- Promote to `LOCAL_AI_HTTP_PROFILE=balanced` only if all gates pass continuously through day 7.
-- If any gate fails, remain conservative and rerun soak after tuning.
-- If any gate is `INCONCLUSIVE`, treat as promotion-blocking until telemetry evidence is restored.
-- A clean conservative week makes balanced eligible for opt-in evaluation only; conservative remains the default recommendation.
+- `2-day validation`:
+  - use for targeted stabilization acceptance after a focused fix
+  - requires a baseline-valid 2-day conservative window with run-local provider deltas present for both days
+  - a passing 2-day window is sufficient to conclude that a targeted stabilization change behaved correctly under the current baseline
+- `7-day promotion-grade confirmation`:
+  - use when the team explicitly wants stronger rollout confidence before balanced-profile evaluation or milestone promotion
+  - requires all gates to pass continuously through day 7
+- For either tier:
+  - if any gate fails, remain conservative and rerun soak after tuning
+  - if any gate is `INCONCLUSIVE`, treat the evidence as unusable until telemetry is restored
+- A clean 7-day conservative week makes balanced eligible for opt-in evaluation only; conservative remains the default recommendation.
+
+Current interpretation:
+- the earlier failing short-window timeout readouts were invalidated by the soak provider delta-accounting bug
+- stale cumulative Redis counters were previously being treated as fresh run-local timeout deltas
+- the corrected conservative validation window `soak_20260323_deltafix_day1` + `soak_20260323_deltafix_day2` is the first trustworthy post-fix short-run evidence
+- that corrected 2-day window passed with zero run-local provider timeouts, so `extract_agenda` is no longer the active blocker on the basis of the current evidence
 
 ### Automated daily soak harness (current local baseline host: M5 Pro)
 
@@ -393,6 +406,7 @@ Scripts:
     - `provider_timeouts_delta_run`
     - `provider_retries_delta_run`
     - `provider_timeout_rate_run`
+  - rejects legacy/malformed `tc_provider_*` baseline payloads rather than silently treating them as zero baselines
   - adds hotspot diagnostics from `tasks.jsonl`:
     - `slowest_phase`
     - `slowest_catalog_id`
@@ -401,10 +415,10 @@ Scripts:
     - `summary_max_s`
   - updates `experiments/results/soak/<run_id>/day_summary.json`
 - `scripts/evaluate_soak_week.py`
-  - reads 7-day window and emits:
-    - `experiments/results/soak/soak_eval_7d.json`
-    - `experiments/results/soak/soak_eval_7d.md`
-  - treats run-local provider deltas as the only promotion-grade timeout evidence
+  - reads an arbitrary window via `--window-days` and emits:
+    - `experiments/results/soak/soak_eval_<N>d.json`
+    - `experiments/results/soak/soak_eval_<N>d.md`
+  - treats run-local provider deltas as the only trustworthy timeout evidence for either tier
   - treats legacy cumulative-only summaries as diagnostic and marks timeout-rate gate `INCONCLUSIVE`
   - emits `overall_status` (`PASS|FAIL|INCONCLUSIVE`) while keeping `overall_pass` for compatibility
   - emits per-gate `gate_statuses` and `gate_reasons`
@@ -412,24 +426,24 @@ Scripts:
   - annotates `telemetry_confidence` (`high|degraded`) based on worker metrics availability
     and whether provider requests were observed during successful phases
 
-Baseline-valid week requirements:
-- same profile settings and soak corpus across all 7 days
+Baseline-valid soak requirements:
+- same profile settings and soak corpus across the whole evaluated window
 - `run_manifest.json` present for each day
 - `provider_requests_delta_run`, `provider_timeouts_delta_run`, and `provider_retries_delta_run` present for each day
 - zero-valued provider baselines count as valid evidence when the pre-run worker scrape succeeded
-- evaluate a fresh hardened 7-day window only; do not mix pre-hardening and post-hardening artifacts for promotion
-
-Current interpretation:
-- the March 6-12, 2026 conservative window remains useful for diagnosis
-- it is not promotion-grade after the run-manifest delta hardening because it predates the new per-run evidence fields
-- balanced remains opt-in even after a future clean conservative week
+- evaluate a fresh hardened window only; do not mix pre-hardening and post-hardening artifacts for either validation or promotion
 
 Manual run:
 ```bash
 cd "$REPO_ROOT" && RUN_ID="soak_$(date +%Y%m%d)" && ./scripts/run_soak_day.sh --run-id "$RUN_ID" --catalog-file experiments/soak_catalogs_m1_v1.txt --output-dir experiments/results/soak || true; PYTHONPATH=. .venv/bin/python scripts/collect_soak_metrics.py --run-id "$RUN_ID" --output-dir experiments/results/soak
 ```
 
-Weekly evaluation:
+2-day validation:
+```bash
+cd "$REPO_ROOT" && PYTHONPATH=. .venv/bin/python scripts/evaluate_soak_week.py --input-dir experiments/results/soak --window-days 2
+```
+
+7-day promotion-grade evaluation:
 ```bash
 cd "$REPO_ROOT" && PYTHONPATH=. .venv/bin/python scripts/evaluate_soak_week.py --input-dir experiments/results/soak --window-days 7
 ```

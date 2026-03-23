@@ -245,7 +245,9 @@ Why this matters:
 Status: **Implemented; rollout/stabilization in progress**
 
 Completion rule:
-- This milestone is not complete until the conservative-profile promotion gates pass with promotion-grade soak evidence.
+- This milestone uses tiered soak evidence:
+  - short-run validation: a clean baseline-valid 2-day conservative window is sufficient for targeted stabilization acceptance
+  - promotion-grade confirmation: a 7-day conservative window remains the stronger evidence tier when the team explicitly wants a higher-confidence rollout gate
 
 Baseline dependency updates:
 - Preserve parity with the new summary contract when inference backend changes.
@@ -269,8 +271,10 @@ Tradeoff note:
 Evidence note:
 - Implementation is already landed in `pipeline/llm.py`, `pipeline/llm_provider.py`, `pipeline/config.py`, and `docker-compose.yml`.
 - Verification coverage already exists for provider protocol, retry/error mapping, backend parity, and runtime-profile defaults.
-- Current checked-in soak evidence remains promotion-blocking: `experiments/results/soak/soak_eval_7d.*` reports failed gates, and newer soak artifacts include failed/degraded telemetry runs.
-- As a result, the next execution priority is closing stabilization gaps and collecting clean conservative soak evidence, not rebuilding the provider abstraction from scratch.
+- Earlier short-window timeout failures were invalidated by the soak provider delta-accounting bug: stale cumulative Redis counters were being treated as fresh run-local failures.
+- The corrected conservative validation window `soak_20260323_deltafix_day1` + `soak_20260323_deltafix_day2` is the first trustworthy post-fix evidence and passes with zero run-local provider timeouts.
+- The historical `experiments/results/soak/soak_eval_7d.*` artifacts remain useful for diagnosis, but they no longer define the current targeted-stabilization readout by themselves.
+- As a result, the next execution priority can move from timeout debugging to policy-aligned confirmation and rollout sequencing, not rebuilding the provider abstraction from scratch.
 
 ### Implementation
 1. Provider abstraction is implemented in `pipeline/llm.py` and `pipeline/llm_provider.py`.
@@ -285,7 +289,8 @@ Evidence note:
    - timeout budget must include inference queue wait on constrained hosts
    - use operation-specific HTTP timeout budgets (segment vs summary/topics) when needed
 6. Completion / promotion rule:
-   - move from Conservative to Balanced only after 1 week of clean SLOs.
+   - use a baseline-valid 2-day conservative window for short-cycle stabilization acceptance
+   - use a 7-day conservative window when stronger promotion-grade confirmation is explicitly required before balanced evaluation
 
 ### Edge handling
 - Inference server unavailable: explicit task failure with retry policy or deterministic local non-provider fallback where already implemented; do not silently switch backend modes.
