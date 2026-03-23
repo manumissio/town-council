@@ -6,7 +6,13 @@ import sys
 sys.modules["llama_cpp"] = MagicMock()
 sys.modules["tika"] = MagicMock()
 
+from sqlalchemy import create_engine
+from sqlalchemy.orm import sessionmaker
+
 from pipeline.run_pipeline import process_document_chunk
+from pipeline.tasks import select_catalog_ids_for_summary_hydration, run_summary_hydration_backfill
+from pipeline.agenda_worker import select_catalog_ids_for_agenda_segmentation
+from pipeline.models import Base, Catalog, Document, AgendaItem, Event, Place
 
 def test_document_chunk_worker(mocker):
     """
@@ -47,3 +53,124 @@ def test_document_chunk_worker(mocker):
     extract_text_spy.assert_called_once_with("/tmp/test.pdf", ocr_fallback_enabled=False)
     mock_db.commit.assert_called_once()
     mock_db.close.assert_called_once()
+
+
+@pytest.fixture
+def batching_db():
+    engine = create_engine("sqlite:///:memory:")
+    Base.metadata.create_all(engine)
+    Session = sessionmaker(bind=engine)
+    db = Session()
+
+    place = Place(
+        name="sample",
+        state="CA",
+        ocd_division_id="ocd-division/country:us/state:ca/place:sample",
+        crawler_name="sample",
+    )
+    db.add(place)
+    db.flush()
+
+    event = Event(place_id=place.id, ocd_division_id=place.ocd_division_id, name="Sample Council")
+    db.add(event)
+    db.flush()
+
+    yield db, event, place
+
+    db.close()
+
+
+def _add_catalog(db, event, place, *, category, content="content", summary=None, segmentation_status=None):
+    catalog = Catalog(
+        url_hash=f"{category}-{summary}-{segmentation_status}-{content}-{db.query(Catalog).count()}",
+        location="/tmp/doc.pdf",
+        content=content,
+        summary=summary,
+        agenda_segmentation_status=segmentation_status,
+    )
+    db.add(catalog)
+    db.flush()
+    db.add(
+        Document(
+            place_id=place.id,
+            event_id=event.id,
+            catalog_id=catalog.id,
+            category=category,
+            url=f"https://example.com/{catalog.id}",
+        )
+    )
+    db.flush()
+    return catalog
+
+
+def test_select_catalog_ids_for_summary_hydration_filters_agenda_without_items(batching_db):
+    db, event, place = batching_db
+    minutes_catalog = _add_catalog(db, event, place, category="minutes", content="minutes text", summary=None)
+    agenda_with_items = _add_catalog(
+        db,
+        event,
+        place,
+        category="agenda",
+        content="agenda text",
+        summary=None,
+        segmentation_status="complete",
+    )
+    agenda_without_items = _add_catalog(
+        db,
+        event,
+        place,
+        category="agenda",
+        content="agenda text",
+        summary=None,
+        segmentation_status=None,
+    )
+    summarized_catalog = _add_catalog(db, event, place, category="minutes", content="done", summary="already done")
+    db.add(AgendaItem(catalog_id=agenda_with_items.id, event_id=event.id, order=1, title="Item 1"))
+    db.commit()
+
+    selected = select_catalog_ids_for_summary_hydration(db)
+
+    assert minutes_catalog.id in selected
+    assert agenda_with_items.id in selected
+    assert agenda_without_items.id not in selected
+    assert summarized_catalog.id not in selected
+
+
+def test_select_catalog_ids_for_agenda_segmentation_excludes_empty_terminal_state(batching_db):
+    db, event, place = batching_db
+    pending_catalog = _add_catalog(db, event, place, category="agenda", content="agenda text", segmentation_status=None)
+    failed_catalog = _add_catalog(db, event, place, category="agenda", content="agenda text", segmentation_status="failed")
+    empty_catalog = _add_catalog(db, event, place, category="agenda", content="agenda text", segmentation_status="empty")
+    complete_catalog = _add_catalog(db, event, place, category="agenda", content="agenda text", segmentation_status="complete")
+    db.add(AgendaItem(catalog_id=complete_catalog.id, event_id=event.id, order=1, title="Item 1", page_number=None))
+    db.commit()
+
+    selected = select_catalog_ids_for_agenda_segmentation(db)
+
+    assert pending_catalog.id in selected
+    assert failed_catalog.id in selected
+    assert complete_catalog.id in selected
+    assert empty_catalog.id not in selected
+
+
+def test_run_summary_hydration_backfill_counts_outcomes(mocker):
+    mock_db = MagicMock()
+    mock_db.close.return_value = None
+    mocker.patch("pipeline.tasks.SessionLocal", return_value=mock_db)
+    mocker.patch("pipeline.tasks.select_catalog_ids_for_summary_hydration", return_value=[1, 2, 3])
+    run_spy = mocker.patch(
+        "pipeline.tasks.generate_summary_task.run",
+        side_effect=[
+            {"status": "complete"},
+            {"status": "blocked_low_signal"},
+            {"status": "stale"},
+        ],
+    )
+
+    counts = run_summary_hydration_backfill()
+
+    assert counts["selected"] == 3
+    assert counts["complete"] == 1
+    assert counts["blocked_low_signal"] == 1
+    assert counts["stale"] == 1
+    assert run_spy.call_count == 3

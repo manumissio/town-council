@@ -57,6 +57,8 @@ def test_main_runs_steps_in_expected_order(mocker):
     assert calls[2][0] == "Promote Staged Events"
     assert calls[3][0] == "Downloader"
     assert calls[4] == "parallel"
+    assert calls[5][0] == "Agenda Segmentation"
+    assert calls[6][0] == "Summary Hydration"
     assert calls[-1][0] == "Search Indexing"
 
 
@@ -73,6 +75,8 @@ def test_main_skips_non_gating_steps_in_onboarding_fast_profile(mocker):
 
     run_pipeline.main()
 
+    assert ("Agenda Segmentation", ("python", "../scripts/backfill_agenda_segmentation.py")) in calls
+    assert ("Summary Hydration", ("python", "../scripts/backfill_summaries.py")) in calls
     assert ("Search Indexing", ("python", "indexer.py")) in calls
     assert ("Table Extraction", ("python", "table_worker.py")) not in calls
     assert ("Backfill Organizations", ("python", "backfill_orgs.py")) not in calls

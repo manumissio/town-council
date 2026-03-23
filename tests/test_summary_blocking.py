@@ -18,7 +18,7 @@ def test_generate_summary_task_blocks_low_signal_input(mocker):
     catalog.summary_source_hash = None
     mock_db.get.return_value = catalog
     mock_doc_query = MagicMock()
-    mock_doc_query.filter_by.return_value.first.return_value = MagicMock(category="agenda")
+    mock_doc_query.filter_by.return_value.first.return_value = MagicMock(category="minutes")
     mock_db.query.return_value = mock_doc_query
 
     mocker.patch.object(tasks, "SessionLocal", return_value=mock_db)

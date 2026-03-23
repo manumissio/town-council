@@ -7,7 +7,7 @@ import re
 from datetime import datetime, timezone
 from sqlalchemy.orm import sessionmaker
 from sqlalchemy.exc import SQLAlchemyError
-from sqlalchemy import text
+from sqlalchemy import and_, func, or_, text
 
 from pipeline.models import db_connect, Catalog, Document, SemanticEmbedding
 from pipeline.llm import LocalAI, LocalAIConfigError
@@ -179,6 +179,117 @@ def SessionLocal():
     if _SessionLocal is None:
         _SessionLocal = sessionmaker(bind=db_connect())
     return _SessionLocal()
+
+
+def _summary_doc_kind_subquery(db):
+    first_document = (
+        db.query(
+            Document.catalog_id.label("catalog_id"),
+            func.min(Document.id).label("document_id"),
+        )
+        .group_by(Document.catalog_id)
+        .subquery("first_document")
+    )
+    return (
+        db.query(
+            Document.catalog_id.label("catalog_id"),
+            func.lower(func.coalesce(Document.category, "")).label("doc_kind"),
+        )
+        .join(
+            first_document,
+            and_(
+                Document.catalog_id == first_document.c.catalog_id,
+                Document.id == first_document.c.document_id,
+            ),
+        )
+        .subquery("summary_doc_kind")
+    )
+
+
+def select_catalog_ids_for_summary_hydration(db, limit: int | None = None) -> list[int]:
+    """
+    Select catalogs eligible for batch summary hydration.
+
+    Agenda catalogs are included only when structured agenda items already exist,
+    which keeps the batch path aligned with the interactive summary contract.
+    """
+    doc_kind = _summary_doc_kind_subquery(db)
+    agenda_items_exist = (
+        db.query(AgendaItem.id)
+        .filter(AgendaItem.catalog_id == Catalog.id)
+        .exists()
+    )
+    query = (
+        db.query(Catalog.id)
+        .join(doc_kind, doc_kind.c.catalog_id == Catalog.id)
+        .filter(
+            Catalog.content.isnot(None),
+            Catalog.content != "",
+            Catalog.summary.is_(None),
+            or_(
+                doc_kind.c.doc_kind != "agenda",
+                and_(doc_kind.c.doc_kind == "agenda", agenda_items_exist),
+            ),
+        )
+        .order_by(Catalog.id)
+    )
+    if limit is not None:
+        query = query.limit(limit)
+    return [row[0] for row in query.all()]
+
+
+def run_summary_hydration_backfill(force: bool = False, limit: int | None = None) -> dict[str, int]:
+    """
+    Generate summaries once across the current eligible backlog snapshot.
+    """
+    db = SessionLocal()
+    try:
+        catalog_ids = select_catalog_ids_for_summary_hydration(db, limit=limit)
+    finally:
+        db.close()
+
+    counts = {
+        "selected": len(catalog_ids),
+        "complete": 0,
+        "cached": 0,
+        "stale": 0,
+        "blocked_low_signal": 0,
+        "blocked_ungrounded": 0,
+        "not_generated_yet": 0,
+        "error": 0,
+        "other": 0,
+    }
+    if not catalog_ids:
+        logger.info("summary_hydration_backfill selected=0")
+        return counts
+
+    for cid in catalog_ids:
+        try:
+            result = generate_summary_task.run(cid, force=force)
+        except Exception:
+            logger.exception("summary_hydration_backfill_failed catalog_id=%s", cid)
+            counts["error"] += 1
+            continue
+
+        status = str((result or {}).get("status") or "other")
+        if status in counts:
+            counts[status] += 1
+        else:
+            counts["other"] += 1
+
+    logger.info(
+        "summary_hydration_backfill selected=%s complete=%s cached=%s stale=%s blocked_low_signal=%s blocked_ungrounded=%s not_generated_yet=%s error=%s other=%s",
+        counts["selected"],
+        counts["complete"],
+        counts["cached"],
+        counts["stale"],
+        counts["blocked_low_signal"],
+        counts["blocked_ungrounded"],
+        counts["not_generated_yet"],
+        counts["error"],
+        counts["other"],
+    )
+    return counts
 
 
 def _get_celery_pool_from_argv(argv: list[str]) -> str | None:

@@ -14,6 +14,38 @@ from pipeline.agenda_resolver import resolve_agenda_items
 
 logger = logging.getLogger("agenda-worker")
 
+
+def select_catalog_ids_for_agenda_segmentation(session, limit: int | None = None) -> list[int]:
+    """
+    Return hydrated agenda catalogs that still need segmentation work.
+
+    Empty terminal states are intentionally excluded so batch backfills do not
+    churn forever on catalogs that produced no substantive agenda items.
+    """
+    query = (
+        session.query(Catalog.id)
+        .join(Document, Catalog.id == Document.catalog_id)
+        .outerjoin(AgendaItem, Catalog.id == AgendaItem.catalog_id)
+        .filter(
+            Document.category == "agenda",
+            Catalog.content != None,
+            Catalog.content != "",
+            or_(
+                Catalog.agenda_segmentation_status == None,
+                Catalog.agenda_segmentation_status == "failed",
+                and_(
+                    Catalog.agenda_segmentation_status == "complete",
+                    AgendaItem.page_number == None,
+                ),
+            ),
+        )
+        .distinct()
+        .order_by(Catalog.id)
+    )
+    if limit is not None:
+        query = query.limit(limit)
+    return [row[0] for row in query.all()]
+
 def segment_document_agenda(catalog_id):
     """
     Intelligence Worker: Uses Local AI (Gemma 3) to split a single document
@@ -123,33 +155,53 @@ def segment_agendas():
     """
     # Use context manager for automatic session cleanup
     with db_session() as session:
-        # Complex query to find documents needing agenda extraction:
-        # 1. Join with Document table (we need event_id)
-        # 2. Left join with AgendaItem (to check if items exist)
-        # 3. Filter for documents with content
-        # 4. Filter for documents without items OR with incomplete items
-        to_process = session.query(Catalog).join(
-            Document, Catalog.id == Document.catalog_id
-        ).outerjoin(
-            AgendaItem, Catalog.id == AgendaItem.catalog_id
-        ).filter(
-            Catalog.content != None,
-            Catalog.content != "",
-            or_(
-                Catalog.agenda_segmentation_status == None,  # Not attempted yet
-                Catalog.agenda_segmentation_status == "failed",  # Retry failed runs
-                and_(
-                    Catalog.agenda_segmentation_status == "complete",
-                    AgendaItem.page_number == None,  # Items exist but incomplete
-                ),
-            )
-        ).limit(AGENDA_BATCH_SIZE).all()
-
-        ids = [c.id for c in to_process]
+        ids = select_catalog_ids_for_agenda_segmentation(session, limit=AGENDA_BATCH_SIZE)
 
     # Process each document (each will create its own session)
     for cid in ids:
         segment_document_agenda(cid)
+
+
+def run_agenda_segmentation_backfill(limit: int | None = None) -> dict[str, int]:
+    """
+    Run agenda segmentation once across the currently eligible backlog.
+
+    We snapshot the backlog up front so failed rows are not retried repeatedly
+    within the same pipeline run.
+    """
+    with db_session() as session:
+        catalog_ids = select_catalog_ids_for_agenda_segmentation(session, limit=limit)
+
+    counts = {
+        "selected": len(catalog_ids),
+        "complete": 0,
+        "empty": 0,
+        "failed": 0,
+        "other": 0,
+    }
+    if not catalog_ids:
+        logger.info("agenda_segmentation_backfill selected=0")
+        return counts
+
+    for cid in catalog_ids:
+        segment_document_agenda(cid)
+        with db_session() as session:
+            catalog = session.get(Catalog, cid)
+            status = getattr(catalog, "agenda_segmentation_status", None) if catalog else None
+        if status in counts:
+            counts[status] += 1
+        else:
+            counts["other"] += 1
+
+    logger.info(
+        "agenda_segmentation_backfill selected=%s complete=%s empty=%s failed=%s other=%s",
+        counts["selected"],
+        counts["complete"],
+        counts["empty"],
+        counts["failed"],
+        counts["other"],
+    )
+    return counts
 
 if __name__ == "__main__":
     segment_agendas()

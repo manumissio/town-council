@@ -68,6 +68,15 @@ def _run_post_processing_steps():
     run_step("People Linking", ["python", "person_linker.py"])
     run_step("Search Indexing", ["python", "indexer.py"])
 
+
+def _run_generation_backfill_steps():
+    # Agenda summaries depend on structured agenda items, so segmentation must
+    # run before summary hydration in the canonical batch pipeline.
+    run_step("Agenda Segmentation", ["python", "../scripts/backfill_agenda_segmentation.py"])
+    # Reuse the same summary-task rules as the interactive path instead of
+    # duplicating prompt, grounding, or caching behavior in the pipeline.
+    run_step("Summary Hydration", ["python", "../scripts/backfill_summaries.py"])
+
 def _mark_extraction_complete(catalog, content_hash):
     catalog.content_hash = content_hash
     catalog.extraction_status = "complete"
@@ -374,8 +383,11 @@ def main():
     # 2. Parallel Processing (Replaces extractor.py and nlp_worker.py)
     logger.info(">>> Starting Parallel Processing (OCR + NLP)")
     run_parallel_processing()
-    
-    # 3. Post-Processing
+
+    # 3. Derived-generation backfills
+    _run_generation_backfill_steps()
+
+    # 4. Post-Processing
     _run_post_processing_steps()
     
     logger.info("<<< Pipeline Complete")
