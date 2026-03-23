@@ -103,3 +103,44 @@ def test_provider_run_deltas_support_zero_baseline():
     assert deltas["provider_timeouts_delta_run"] == 2.0
     assert deltas["provider_retries_delta_run"] == 1.0
     assert deltas["provider_timeout_rate_run"] == 2.0 / 12.0
+
+
+def test_provider_run_deltas_reject_mixed_tc_prefixed_baseline_keys():
+    deltas = mod._provider_run_deltas_from_manifest(
+        {
+            "provider_counters_before_run": {
+                "provider_requests_total": 0.0,
+                "provider_timeouts_total": 0.0,
+                "provider_retries_total": 0.0,
+                "tc_provider_requests_total": 113.0,
+                "tc_provider_timeouts_total": 25.0,
+                "tc_provider_retries_total": 16.0,
+            }
+        },
+        provider_requests_total=117.0,
+        provider_timeouts_total=25.0,
+        provider_retries_total=16.0,
+    )
+    assert deltas["provider_requests_delta_run"] is None
+    assert deltas["provider_timeouts_delta_run"] is None
+    assert deltas["provider_retries_delta_run"] is None
+    assert deltas["provider_timeout_rate_run"] is None
+
+
+def test_provider_run_deltas_require_canonical_baseline_shape():
+    deltas = mod._provider_run_deltas_from_manifest(
+        {
+            "provider_counters_before_run": {
+                "tc_provider_requests_total": 113.0,
+                "tc_provider_timeouts_total": 25.0,
+                "tc_provider_retries_total": 16.0,
+            }
+        },
+        provider_requests_total=117.0,
+        provider_timeouts_total=25.0,
+        provider_retries_total=16.0,
+    )
+    assert deltas["provider_requests_delta_run"] is None
+    assert deltas["provider_timeouts_delta_run"] is None
+    assert deltas["provider_retries_delta_run"] is None
+    assert deltas["provider_timeout_rate_run"] is None

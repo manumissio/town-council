@@ -182,6 +182,11 @@ from pathlib import Path
 manifest_path = Path(sys.argv[1])
 manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
 pattern = re.compile(r'^(?P<name>tc_provider_(?:requests|timeouts|retries)_total)(?:\{[^}]*\})?\s+(?P<value>-?[0-9]+(?:\.[0-9]+)?)$')
+metric_name_map = {
+    "tc_provider_requests_total": "provider_requests_total",
+    "tc_provider_timeouts_total": "provider_timeouts_total",
+    "tc_provider_retries_total": "provider_retries_total",
+}
 strategies = [
     (
         "worker_http",
@@ -231,7 +236,10 @@ try:
                     if not match:
                         continue
                     current_has_provider_series = True
-                    current[match.group("name")] = float(current.get(match.group("name")) or 0.0) + float(match.group("value"))
+                    canonical_name = metric_name_map.get(match.group("name"))
+                    if canonical_name is None:
+                        continue
+                    current[canonical_name] = float(current.get(canonical_name) or 0.0) + float(match.group("value"))
                 if strategy_name == "worker_http" and not current_has_provider_series:
                     errors.append(f"{strategy_name}[attempt={attempt}] missing_provider_series")
                     if attempt < 2:

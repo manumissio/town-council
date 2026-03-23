@@ -343,6 +343,31 @@ def _provider_run_deltas_from_manifest(
             "provider_timeout_rate_run": None,
         }
 
+    baseline_keys = (
+        "provider_requests_total",
+        "provider_timeouts_total",
+        "provider_retries_total",
+    )
+    legacy_keys = (
+        "tc_provider_requests_total",
+        "tc_provider_timeouts_total",
+        "tc_provider_retries_total",
+    )
+    if any(key in baseline for key in legacy_keys):
+        return {
+            "provider_requests_delta_run": None,
+            "provider_timeouts_delta_run": None,
+            "provider_retries_delta_run": None,
+            "provider_timeout_rate_run": None,
+        }
+    if any(key not in baseline for key in baseline_keys):
+        return {
+            "provider_requests_delta_run": None,
+            "provider_timeouts_delta_run": None,
+            "provider_retries_delta_run": None,
+            "provider_timeout_rate_run": None,
+        }
+
     baseline_requests = _safe_float(baseline.get("provider_requests_total"))
     baseline_timeouts = _safe_float(baseline.get("provider_timeouts_total"))
     baseline_retries = _safe_float(baseline.get("provider_retries_total"))

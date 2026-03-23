@@ -176,3 +176,60 @@ def test_day_summary_uses_zero_manifest_baseline_without_provider_series(monkeyp
     assert day_summary["provider_timeouts_delta_run"] == 0.0
     assert day_summary["provider_retries_delta_run"] == 0.0
     assert day_summary["provider_timeout_rate_run"] is None
+
+
+def test_day_summary_marks_tc_prefixed_baseline_as_inconclusive(monkeypatch, tmp_path):
+    worker_metrics = "\n".join(
+        [
+            'tc_provider_requests_total{provider="http",operation="extract_agenda",model="m",outcome="ok"} 117',
+            'tc_provider_timeouts_total{provider="http",operation="extract_agenda",model="m"} 25',
+            'tc_provider_retries_total{provider="http",operation="extract_agenda",model="m"} 16',
+        ]
+    )
+    monkeypatch.setattr(mod, "_fetch_worker_metrics_via_docker", lambda: (worker_metrics, None))
+    monkeypatch.setattr(mod, "_fetch_text", lambda *_args, **_kwargs: "up 1\n")
+
+    run_id = "soak_tc_prefixed_baseline"
+    run_dir = tmp_path / run_id
+    run_dir.mkdir(parents=True, exist_ok=True)
+    (run_dir / "run_manifest.json").write_text(
+        json.dumps(
+            {
+                "catalog_ids": [609],
+                "catalog_count": 1,
+                "profile": {"LOCAL_AI_BACKEND": "http"},
+                "provider_counters_before_run": {
+                    "tc_provider_requests_total": 113.0,
+                    "tc_provider_timeouts_total": 25.0,
+                    "tc_provider_retries_total": 16.0,
+                },
+                "provider_counters_before_run_available": True,
+                "provider_counters_before_run_source": "worker_registry",
+            }
+        ),
+        encoding="utf-8",
+    )
+    (run_dir / "tasks.jsonl").write_text("", encoding="utf-8")
+    monkeypatch.setattr(
+        "sys.argv",
+        [
+            "collect_soak_metrics.py",
+            "--run-id",
+            run_id,
+            "--output-dir",
+            str(tmp_path),
+            "--api-url",
+            "http://localhost:8000",
+        ],
+    )
+
+    assert mod.main() == 0
+
+    day_summary = json.loads((tmp_path / run_id / "day_summary.json").read_text(encoding="utf-8"))
+    assert day_summary["provider_requests_total"] == 117.0
+    assert day_summary["provider_timeouts_total"] == 25.0
+    assert day_summary["provider_retries_total"] == 16.0
+    assert day_summary["provider_requests_delta_run"] is None
+    assert day_summary["provider_timeouts_delta_run"] is None
+    assert day_summary["provider_retries_delta_run"] is None
+    assert day_summary["provider_timeout_rate_run"] is None
