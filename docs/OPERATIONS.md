@@ -812,6 +812,20 @@ Canonical batch hydration:
   - summary hydration backfill
 - This is the preferred way to repair broad local missing-summary backlogs after crawl/extraction succeeds.
 
+Staged city hydration:
+- For large legacy backlogs, prefer the staged hydrator instead of waiting on one full-corpus run:
+```bash
+docker compose run --rm pipeline python /app/scripts/staged_hydrate_cities.py --city hayward --city sunnyvale --city berkeley
+docker compose run --rm pipeline python /app/scripts/staged_hydrate_cities.py --city cupertino
+docker compose run --rm pipeline python /app/scripts/staged_hydrate_cities.py --city san_mateo
+```
+- The staged hydrator runs:
+  - before snapshot
+  - city-scoped agenda segmentation
+  - city-scoped summary backfill
+  - after snapshot
+- Use this when backlog size is skewed heavily toward one city and you need checkpointable progress.
+
 ### Re-extract one catalog
 - UI: Full Text tab -> **Re-extract text**
 - API: `POST /extract/{catalog_id}?force=true&ocr_fallback=true`
