@@ -2,7 +2,8 @@ import sys
 from unittest.mock import MagicMock
 
 import pytest
-from sqlalchemy import create_engine
+from sqlalchemy import create_engine, text
+from sqlalchemy.dialects import postgresql
 from sqlalchemy.orm import sessionmaker
 from sqlalchemy.exc import SQLAlchemyError
 
@@ -302,6 +303,47 @@ def test_select_catalog_ids_for_processing_keeps_nlp_only_rows_and_skips_termina
     try:
         ids = run_pipeline.select_catalog_ids_for_processing(db)
         assert ids == [extraction_needed.id, nlp_only.id]
+    finally:
+        db.close()
+        engine.dispose()
+
+
+def test_catalog_entities_need_nlp_uses_postgres_safe_json_null_check():
+    expr = run_pipeline._catalog_entities_need_nlp(Catalog)
+    compiled = str(expr.compile(dialect=postgresql.dialect()))
+
+    assert "catalog.entities IS NULL" in compiled
+    assert "CAST(catalog.entities AS TEXT) = %(param_1)s" in compiled
+
+
+def test_select_catalog_ids_for_processing_keeps_json_null_rows(mocker):
+    engine = create_engine("sqlite:///:memory:")
+    Base.metadata.create_all(engine)
+    Session = sessionmaker(bind=engine)
+    db = Session()
+
+    nlp_json_null = Catalog(
+        url_hash="nlp-json-null",
+        location="/tmp/nlp-json-null.pdf",
+        content="ready",
+        entities={"placeholder": True},
+        extraction_status="complete",
+    )
+    done_catalog = Catalog(
+        url_hash="done-json",
+        location="/tmp/done-json.pdf",
+        content="done",
+        entities={"ok": True},
+        extraction_status="complete",
+    )
+    db.add_all([nlp_json_null, done_catalog])
+    db.commit()
+    db.execute(text("UPDATE catalog SET entities = 'null' WHERE id = :catalog_id"), {"catalog_id": nlp_json_null.id})
+    db.commit()
+
+    try:
+        ids = run_pipeline.select_catalog_ids_for_processing(db)
+        assert ids == [nlp_json_null.id]
     finally:
         db.close()
         engine.dispose()

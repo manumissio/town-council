@@ -4,7 +4,7 @@ from datetime import datetime
 import logging
 import sys
 import subprocess
-from sqlalchemy import or_
+from sqlalchemy import Text, cast, or_
 from sqlalchemy.exc import SQLAlchemyError
 
 from pipeline.config import (
@@ -26,6 +26,15 @@ from pipeline.startup_purge import run_startup_purge_if_enabled
 # Setup logging
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
 logger = logging.getLogger("pipeline-manager")
+
+
+def _catalog_entities_need_nlp(catalog_model):
+    # Postgres `json` columns do not support equality, so JSON null checks must
+    # compare the serialized value instead of using `= 'null'`.
+    return or_(
+        catalog_model.entities.is_(None),
+        cast(catalog_model.entities, Text) == "null",
+    )
 
 def run_step(name, command):
     """Helper to run a shell command step."""
@@ -204,7 +213,7 @@ def select_catalog_ids_for_processing(db):
     nlp_only_query = db.query(Catalog.id).filter(
         Catalog.content.isnot(None),
         Catalog.content != "",
-        or_(Catalog.entities.is_(None), Catalog.entities == "null"),
+        _catalog_entities_need_nlp(Catalog),
     )
 
     if PIPELINE_ONBOARDING_CITY:
