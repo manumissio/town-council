@@ -805,6 +805,13 @@ curl "http://localhost:8000/tasks/<TASK_ID>" \
 
 ## Re-extraction + regeneration
 
+Canonical batch hydration:
+- `docker compose run --rm pipeline python run_pipeline.py` now performs:
+  - extraction / NLP backfill
+  - agenda segmentation backfill
+  - summary hydration backfill
+- This is the preferred way to repair broad local missing-summary backlogs after crawl/extraction succeeds.
+
 ### Re-extract one catalog
 - UI: Full Text tab -> **Re-extract text**
 - API: `POST /extract/{catalog_id}?force=true&ocr_fallback=true`

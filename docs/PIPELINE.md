@@ -1,6 +1,6 @@
 # Town Council Pipeline Guide
 
-Last updated: 2026-03-16
+Last updated: 2026-03-22
 
 ## 1) Purpose and Boundaries
 
@@ -75,7 +75,16 @@ Why this exists:
 - Chunked parallelism improves throughput.
 - Per-record commits preserve partial progress if a later record fails.
 
-### Stage C: Post-processing and indexing
+### Stage C: Derived generation backfills
+- `../scripts/backfill_agenda_segmentation.py`
+- `../scripts/backfill_summaries.py`
+
+Why this exists:
+- Agenda summaries depend on structured `AgendaItem` rows, so segmentation must run before summary hydration.
+- Batch pipeline hydration now owns the missing derived-state stages instead of leaving summaries to ad hoc per-record API calls.
+- Summary hydration reuses the existing task logic, so low-signal blocking, grounding checks, and stale/cached semantics stay consistent with the async path.
+
+### Stage D: Post-processing and indexing
 - `table_worker.py`
 - `backfill_orgs.py`
 - `topic_worker.py`
@@ -104,6 +113,17 @@ Why this exists:
 Why this exists:
 - Heavy extraction/generation work is isolated from synchronous API reads.
 - Task lifecycle makes long-running work observable and retryable.
+
+### Summary hydration ownership
+- Canonical batch hydration (`pipeline/run_pipeline.py`) now includes:
+  - agenda segmentation backfill
+  - summary hydration backfill
+- The async summary endpoint still exists for record-scoped regeneration, force refreshes, and UI-driven repair.
+- Agenda catalogs are not batch-selected for summary generation until segmentation has already produced `AgendaItem` rows.
+
+Why this exists:
+- Keeps batch hydration and UI-triggered regeneration aligned on the same summary contract.
+- Prevents the batch pipeline from churning on guaranteed `not_generated_yet` agenda summaries.
 
 ### Incremental search sync contract
 - `reindex_catalog(catalog_id)` is now catalog-authoritative for Meilisearch.
