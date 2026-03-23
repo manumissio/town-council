@@ -55,6 +55,9 @@ Track:
 - `semantic_diagnostics.k_used`
 - `semantic_diagnostics.expansion_steps`
 - `semantic_diagnostics.engine` (`faiss` preferred; `numpy` fallback is expected to be slower)
+- `semantic_diagnostics.retrieval_mode` (`hybrid_pgvector` indicates meeting-level lexical recall + pgvector rerank)
+- `semantic_diagnostics.degraded_to_lexical` and `semantic_diagnostics.skipped_reason`
+- `semantic_diagnostics.fresh_embeddings`, `missing_embeddings`, and `stale_embeddings`
 
 ## Inference Decoupling & Throughput Stabilization: Runtime Profile
 

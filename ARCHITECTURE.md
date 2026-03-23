@@ -1,6 +1,6 @@
 # Town Council Architecture (2026)
 
-Last updated: 2026-03-16
+Last updated: 2026-03-22
 
 ## 1) System Overview
 
@@ -196,11 +196,16 @@ Primary owners:
 - `pipeline/tasks.py`
 - `pipeline/models.py`
 
-#### Semantic Search (Transitional)
+#### Semantic Search (Transitional, meeting-level Phase 2)
 
 - `GET /search/semantic` is additive; keyword `/search` remains stable.
 - `/search?semantic=true` enables hybrid semantic reranking on the main search endpoint.
+- pgvector Phase 2 is intentionally meeting-level:
+  - lexical recall comes from Meilisearch
+  - pgvector reranks meeting candidates only
+  - agenda-item semantic retrieval is deferred
 - Retrieval over-fetches candidates and de-duplicates by `catalog_id` before pagination.
+- If pgvector embeddings are missing or stale for the recalled meetings, semantic mode degrades to lexical results and reports why in `semantic_diagnostics`.
 - FAISS is a temporary bridge path while pgvector is hydrated and validated.
 
 Primary owners:

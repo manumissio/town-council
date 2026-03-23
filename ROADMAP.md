@@ -5,7 +5,7 @@ This roadmap is the canonical feature expansion plan and dependency order.
 ## Current Status Snapshot
 
 - Decision Integrity: **Complete**
-- Hybrid Semantic Discovery: **Partially complete** (Phase 1 complete, Phase 2 planned)
+- Hybrid Semantic Discovery: **Partially complete** (Phase 1 complete, Phase 2 meeting-search rollout in progress)
 - Issue Threads Foundation: **Complete**
 - Inference Decoupling & Throughput Stabilization: **Implemented; stabilization rollout in progress** (not complete until promotion gates pass)
 
@@ -133,7 +133,8 @@ Tradeoff note:
 1. Add pgvector extension and migration.
 2. Add embedding worker:
    - model: `all-MiniLM-L6-v2`
-   - embed `Catalog.summary` + optionally `AgendaItem.title/description`
+   - Phase 2 scope: embed meeting summaries for pgvector rerank
+   - defer agenda-item semantic retrieval to a follow-on slice
 3. Build hybrid retrieval pipeline:
    - Stage 1: Meilisearch lexical recall
    - Stage 2: pgvector similarity rerank/merge
@@ -142,7 +143,7 @@ Tradeoff note:
    - default `false` initially (safe rollout)
 
 ### Edge handling
-- Missing embeddings: fallback to lexical-only.
+- Missing or stale embeddings: degrade to lexical results with explicit `semantic_diagnostics`.
 - Low-quality/empty summaries: skip embedding, log reason.
 
 ### Transitional backend policy (explicit)

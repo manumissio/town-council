@@ -483,6 +483,7 @@ Set:
 Recommended rollout sequence:
 1. Keep `SEMANTIC_BACKEND=faiss` while pgvector schema/backfill is deployed.
 2. Validate pgvector quality/perf with `SEMANTIC_BACKEND=pgvector` in staging/dev.
+   - Phase 2 scope is meeting-level hybrid rerank, not agenda-item semantic retrieval.
 3. Cut over production to pgvector.
 4. Remove FAISS code path after 72h stable runtime and no incidents.
 
@@ -508,6 +509,11 @@ docker compose run --rm pipeline python diagnose_semantic_search.py --query zoni
   - run `python reindex_semantic.py`.
 - semantic mode returns too few records with strict filters:
   - check `semantic_diagnostics` fields (`k_used`, `expansion_steps`) in response.
+- semantic mode returns lexical-looking records instead of semantic reranks:
+  - check `semantic_diagnostics.retrieval_mode`; pgvector Phase 2 should report `hybrid_pgvector`.
+  - check `semantic_diagnostics.degraded_to_lexical` and `semantic_diagnostics.skipped_reason`.
+  - check `semantic_diagnostics.fresh_embeddings`, `missing_embeddings`, and `stale_embeddings`.
+  - `missing_embeddings` or `stale_embeddings` means the API intentionally fell back to lexical ordering for those meetings.
 - semantic mode works but is slower than expected:
   - check `semantic_diagnostics.engine`; `numpy` means fallback mode (FAISS unavailable in runtime).
   - NumPy fallback now uses partial top-k selection (`argpartition`) to reduce ranking overhead.
