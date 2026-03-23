@@ -11,7 +11,12 @@ from pipeline.summary_hydration_diagnostics import build_summary_hydration_snaps
 from pipeline.tasks import run_summary_hydration_backfill
 
 
-def _run_segment_city(city: str) -> dict[str, Any]:
+def _emit_progress(enabled: bool, message: str) -> None:
+    if enabled:
+        print(message, flush=True)
+
+
+def _run_segment_city(city: str, *, emit_progress: bool = False) -> dict[str, Any]:
     from scripts import segment_city_corpus
 
     catalog_ids = segment_city_corpus._catalog_ids_for_city(city)
@@ -27,10 +32,32 @@ def _run_segment_city(city: str) -> dict[str, Any]:
 
     timeout_seconds = segment_city_corpus._catalog_timeout_seconds()
     counts = {"complete": 0, "empty": 0, "failed": 0, "timed_out": 0}
-    for catalog_id in catalog_ids:
-        outcome, _duration_seconds, _detail = segment_city_corpus._segment_catalog_subprocess(int(catalog_id), timeout_seconds)
+    total_catalogs = len(catalog_ids)
+    _emit_progress(
+        emit_progress,
+        f"[{city}] segmentation_start catalog_count={total_catalogs} timeout_seconds={timeout_seconds}",
+    )
+    for index, catalog_id in enumerate(catalog_ids, start=1):
+        _emit_progress(
+            emit_progress,
+            f"[{city}] segmentation_catalog_start index={index}/{total_catalogs} catalog_id={catalog_id}",
+        )
+        outcome, duration_seconds, _detail = segment_city_corpus._segment_catalog_subprocess(int(catalog_id), timeout_seconds)
         counts[outcome] += 1
-    return {"city": city, "catalog_count": len(catalog_ids), **counts}
+        _emit_progress(
+            emit_progress,
+            "[{city}] segmentation_catalog_finish index={index}/{total_catalogs} catalog_id={catalog_id} "
+            "outcome={outcome} duration_seconds={duration:.2f} running_counts={counts}".format(
+                city=city,
+                index=index,
+                total_catalogs=total_catalogs,
+                catalog_id=catalog_id,
+                outcome=outcome,
+                duration=duration_seconds,
+                counts=counts,
+            ),
+        )
+    return {"city": city, "catalog_count": total_catalogs, **counts}
 
 
 def _snapshot_dict(city: str) -> dict[str, Any]:
@@ -59,12 +86,39 @@ def main() -> int:
     args = parser.parse_args()
 
     cities = args.cities or ordered_hydration_cities()
+    human_progress = not args.json
     results: list[dict[str, Any]] = []
     for city in cities:
+        _emit_progress(human_progress, f"[{city}] city_start")
         before = _snapshot_dict(city)
-        segmentation = _run_segment_city(city)
+        _emit_progress(
+            human_progress,
+            "[{city}] before_snapshot missing_summary_total={missing} catalogs_with_summary={summaries} "
+            "agenda_missing_without_items={agenda_without_items} agenda_missing_with_items={agenda_with_items} "
+            "non_agenda_missing={non_agenda_missing}".format(
+                city=city,
+                missing=before["missing_summary_total"],
+                summaries=before["catalogs_with_summary"],
+                agenda_without_items=before["agenda_missing_summary_without_items"],
+                agenda_with_items=before["agenda_missing_summary_with_items"],
+                non_agenda_missing=before["non_agenda_missing_summary_total"],
+            ),
+        )
+        segmentation = _run_segment_city(city, emit_progress=human_progress)
+        _emit_progress(human_progress, f"[{city}] summary_start")
         summary = run_summary_hydration_backfill(force=args.force, limit=args.limit, city=city)
+        _emit_progress(human_progress, f"[{city}] summary_finish results={summary}")
         after = _snapshot_dict(city)
+        delta = _delta(before, after)
+        _emit_progress(
+            human_progress,
+            "[{city}] city_finish after_missing_summary_total={missing} catalogs_with_summary={summaries} delta={delta}".format(
+                city=city,
+                missing=after["missing_summary_total"],
+                summaries=after["catalogs_with_summary"],
+                delta=delta,
+            ),
+        )
         results.append(
             {
                 "city": city,
@@ -72,7 +126,7 @@ def main() -> int:
                 "segmentation": segmentation,
                 "summary": summary,
                 "after": after,
-                "delta": _delta(before, after),
+                "delta": delta,
             }
         )
 
