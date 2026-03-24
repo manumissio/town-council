@@ -826,16 +826,36 @@ Canonical batch hydration:
 Staged city hydration:
 - For large legacy backlogs, prefer the staged hydrator instead of waiting on one full-corpus run:
 ```bash
-docker compose run --rm pipeline python /app/scripts/staged_hydrate_cities.py --city hayward --city sunnyvale --city berkeley
-docker compose run --rm pipeline python /app/scripts/staged_hydrate_cities.py --city cupertino
-docker compose run --rm pipeline python /app/scripts/staged_hydrate_cities.py --city san_mateo
+docker compose run --rm pipeline python /app/scripts/staged_hydrate_cities.py --city hayward --city sunnyvale --city berkeley --segment-limit 25 --summary-limit 25 --segment-workers 2
+docker compose run --rm pipeline python /app/scripts/staged_hydrate_cities.py --city cupertino --segment-limit 25 --summary-limit 25 --segment-workers 2
+docker compose run --rm pipeline python /app/scripts/staged_hydrate_cities.py --city san_mateo --segment-limit 25 --summary-limit 25 --segment-workers 2
 ```
 - The staged hydrator runs:
   - before snapshot
-  - city-scoped agenda segmentation
-  - city-scoped summary backfill
-  - after snapshot
-- Use this when backlog size is skewed heavily toward one city and you need checkpointable progress.
+  - one bounded segmentation chunk
+  - one bounded city summary pass
+  - after snapshot / chunk delta
+- Useful controls:
+  - `--segment-limit`: max catalogs selected for one segmentation chunk
+  - `--summary-limit`: max catalogs selected for one summary pass
+  - `--segment-workers`: parent-side subprocess orchestration width
+  - `--resume-after-id`: resume from the next catalog ID
+  - `--max-chunks`: stop after a fixed number of chunks
+- Use this when backlog size is skewed heavily toward one city and you need checkpointable progress with earlier summaries.
+- Important operational note:
+  - summary fanout can be much larger than the segmentation slice because one chunk can unlock many previously blocked city summaries
+  - a single chunk can therefore spend more time in summary hydration than in segmentation
+- Safe worker defaults:
+  - HTTP inference (`LOCAL_AI_BACKEND=http`) defaults to `2` parent-side segmentation workers
+  - guarded in-process LocalAI clamps staged segmentation back to `1`
+- Resume example:
+```bash
+docker compose run --rm pipeline python /app/scripts/staged_hydrate_cities.py --city san_mateo --segment-limit 25 --summary-limit 25 --segment-workers 2 --resume-after-id 2500 --max-chunks 1
+```
+- Summary-stage troubleshooting:
+  - per-catalog summary failures are partial, not all-or-nothing; the chunk continues and increments `error`
+  - `LOCAL_AI_HTTP_TIMEOUT_SUMMARY_SECONDS` is the primary timeout knob when summary hydration stalls on the HTTP inference path
+  - `embed_catalog_task.dispatch_failed ... Authentication required` is downstream semantic hydration noise; it does not roll back summaries that were already written
 
 ### Re-extract one catalog
 - UI: Full Text tab -> **Re-extract text**

@@ -1,6 +1,6 @@
 # Town Council Pipeline Guide
 
-Last updated: 2026-03-22
+Last updated: 2026-03-23
 
 ## 1) Purpose and Boundaries
 
@@ -120,6 +120,9 @@ Why this exists:
   - summary hydration backfill
 - The async summary endpoint still exists for record-scoped regeneration, force refreshes, and UI-driven repair.
 - Agenda catalogs are not batch-selected for summary generation until segmentation has already produced `AgendaItem` rows.
+- Summary persistence happens before best-effort semantic embedding dispatch.
+  - if `embed_catalog_task.delay(...)` fails to dispatch, the summary result still remains committed
+  - this is why operators can see `embed_catalog_task.dispatch_failed ...` noise during successful summary hydration runs
 
 Why this exists:
 - Keeps batch hydration and UI-triggered regeneration aligned on the same summary contract.
