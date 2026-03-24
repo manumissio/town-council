@@ -5,6 +5,7 @@ import argparse
 import hashlib
 import os
 import re
+import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass
 
@@ -18,6 +19,12 @@ from pipeline.models import AgendaItem, Catalog, Document, Event, SemanticEmbedd
 
 
 DOCVIEW_RE = re.compile(r"/DocView\.aspx\?id=(?P<entry_id>\d+)&repo=(?P<repo>[^&]+)", re.IGNORECASE)
+ELECTRONIC_FILE_RE = re.compile(
+    r"/ElectronicFile\.aspx\?docid=(?P<entry_id>\d+)&repo=(?P<repo>[^&]+)",
+    re.IGNORECASE,
+)
+PDF_TRANSITION_TIMEOUT_SECONDS = 30
+PDF_TRANSITION_POLL_INTERVAL_SECONDS = 1
 
 
 def _url_to_md5(value: str) -> str:
@@ -53,6 +60,13 @@ def _parse_docview_url(url: str) -> tuple[int, str]:
     return int(match.group("entry_id")), match.group("repo")
 
 
+def _parse_electronic_file_url(url: str) -> tuple[int, str]:
+    match = ELECTRONIC_FILE_RE.search(url or "")
+    if not match:
+        raise ValueError(f"Unsupported Laserfiche ElectronicFile URL: {url!r}")
+    return int(match.group("entry_id")), match.group("repo")
+
+
 def _electronic_file_url(entry_id: int, repo: str) -> str:
     return f"https://portal.laserfiche.com/Portal/ElectronicFile.aspx?docid={entry_id}&repo={repo}"
 
@@ -82,6 +96,128 @@ def _is_valid_pdf_artifact(path: str | None) -> bool:
     except OSError:
         return False
     return _file_has_pdf_signature(path)
+
+
+def _laserfiche_headers() -> dict[str, str]:
+    return {
+        "Content-Type": "application/json",
+        "X-Lf-Suppress-Login-Redirect": "1",
+    }
+
+
+def _raise_for_invalid_pdf_response(response: requests.Response, *, catalog_id: int) -> None:
+    content_type = (response.headers.get("Content-Type") or "").split(";")[0].strip().lower()
+    if content_type and content_type != "application/pdf":
+        raise ValueError(f"Unexpected content type {content_type!r} for catalog {catalog_id}")
+
+
+def _write_validated_pdf_response(
+    response: requests.Response,
+    *,
+    temp_path: str,
+    final_path: str,
+    catalog_id: int,
+) -> int:
+    _raise_for_invalid_pdf_response(response, catalog_id=catalog_id)
+    try:
+        with open(temp_path, "wb") as fh:
+            for chunk in response.iter_content(chunk_size=1024 * 256):
+                if chunk:
+                    fh.write(chunk)
+
+        size = os.path.getsize(temp_path)
+        if size <= 0:
+            raise ValueError(f"Downloaded zero-byte PDF for catalog {catalog_id}")
+        if not _file_has_pdf_signature(temp_path):
+            raise ValueError(f"Downloaded invalid PDF bytes for catalog {catalog_id}")
+
+        os.replace(temp_path, final_path)
+        return size
+    finally:
+        if os.path.exists(temp_path):
+            os.remove(temp_path)
+
+
+def _fetch_basic_document_info(
+    session: requests.Session,
+    *,
+    entry_id: int,
+    repo: str,
+) -> dict[str, object]:
+    response = session.post(
+        "https://portal.laserfiche.com/Portal/DocumentService.aspx/GetBasicDocumentInfo",
+        headers=_laserfiche_headers(),
+        json={"repoName": repo, "entryId": entry_id},
+        timeout=DOWNLOAD_TIMEOUT_SECONDS,
+    )
+    response.raise_for_status()
+    payload = response.json()
+    data = payload.get("data")
+    if not isinstance(data, dict):
+        raise ValueError(f"Laserfiche basic document info missing for entry {entry_id}")
+    return data
+
+
+def _build_page_range(page_count: int) -> str:
+    if page_count <= 0:
+        raise ValueError("Laserfiche document has no pages to export")
+    return f"1 - {page_count}"
+
+
+def _download_generated_pdf(
+    session: requests.Session,
+    *,
+    entry_id: int,
+    repo: str,
+    page_count: int,
+    temp_path: str,
+    final_path: str,
+    catalog_id: int,
+) -> int:
+    page_range = _build_page_range(page_count).replace(" ", "+")
+    generate = session.post(
+        f"https://portal.laserfiche.com/Portal/GeneratePDF10.aspx?key={entry_id}&PageRange={page_range}&Watermark=0&repo={repo}",
+        headers=_laserfiche_headers(),
+        data="{}",
+        timeout=DOWNLOAD_TIMEOUT_SECONDS,
+    )
+    generate.raise_for_status()
+    token = (generate.text.split("\n", 1)[0] or "").strip().replace("\r", "")
+    if not token:
+        raise ValueError(f"Laserfiche PDF generation token missing for catalog {catalog_id}")
+
+    deadline = time.time() + PDF_TRANSITION_TIMEOUT_SECONDS
+    while True:
+        progress = session.post(
+            "https://portal.laserfiche.com/Portal/DocumentService.aspx/PDFTransition",
+            headers=_laserfiche_headers(),
+            json={"Key": token},
+            timeout=DOWNLOAD_TIMEOUT_SECONDS,
+        )
+        progress.raise_for_status()
+        progress_payload = progress.json().get("data") or {}
+        if progress_payload.get("finished"):
+            if not progress_payload.get("success"):
+                raise ValueError(
+                    f"Laserfiche PDF generation failed for catalog {catalog_id}: {progress_payload.get('errMsg') or 'unknown error'}"
+                )
+            break
+        if time.time() >= deadline:
+            raise ValueError(f"Laserfiche PDF generation timed out for catalog {catalog_id}")
+        time.sleep(PDF_TRANSITION_POLL_INTERVAL_SECONDS)
+
+    download = session.get(
+        f"https://portal.laserfiche.com/Portal/PDF10/{token}/{entry_id}",
+        stream=True,
+        timeout=DOWNLOAD_TIMEOUT_SECONDS,
+    )
+    download.raise_for_status()
+    return _write_validated_pdf_response(
+        download,
+        temp_path=temp_path,
+        final_path=final_path,
+        catalog_id=catalog_id,
+    )
 
 
 def _select_targets(
@@ -134,6 +270,7 @@ def _select_targets(
 
 def _download_repaired_pdf(target: RepairTarget) -> dict[str, object]:
     if target.mode == "salvage":
+        entry_id, repo = _parse_electronic_file_url(target.old_url)
         new_url = target.old_url
     else:
         entry_id, repo = _parse_docview_url(target.old_url)
@@ -144,26 +281,16 @@ def _download_repaired_pdf(target: RepairTarget) -> dict[str, object]:
 
     session = requests.Session()
     session.trust_env = False
-    response = session.get(new_url, stream=True, timeout=DOWNLOAD_TIMEOUT_SECONDS)
-    response.raise_for_status()
-
-    content_type = (response.headers.get("Content-Type") or "").split(";")[0].strip().lower()
-    if content_type and content_type != "application/pdf":
-        raise ValueError(f"Unexpected content type {content_type!r} for catalog {target.catalog_id}")
-
+    direct_error: Exception | None = None
     try:
-        with open(temp_path, "wb") as fh:
-            for chunk in response.iter_content(chunk_size=1024 * 256):
-                if chunk:
-                    fh.write(chunk)
-
-        size = os.path.getsize(temp_path)
-        if size <= 0:
-            raise ValueError(f"Downloaded zero-byte PDF for catalog {target.catalog_id}")
-        if not _file_has_pdf_signature(temp_path):
-            raise ValueError(f"Downloaded invalid PDF bytes for catalog {target.catalog_id}")
-
-        os.replace(temp_path, path)
+        response = session.get(new_url, stream=True, timeout=DOWNLOAD_TIMEOUT_SECONDS)
+        response.raise_for_status()
+        size = _write_validated_pdf_response(
+            response,
+            temp_path=temp_path,
+            final_path=path,
+            catalog_id=target.catalog_id,
+        )
         return {
             "catalog_id": target.catalog_id,
             "new_url": new_url,
@@ -171,10 +298,34 @@ def _download_repaired_pdf(target: RepairTarget) -> dict[str, object]:
             "path": path,
             "filename": filename,
             "size": size,
+            "method": "electronic_file",
         }
-    finally:
-        if os.path.exists(temp_path):
-            os.remove(temp_path)
+    except ValueError as exc:
+        direct_error = exc
+
+    viewer_url = f"https://portal.laserfiche.com/Portal/DocView.aspx?id={entry_id}&repo={repo}"
+    viewer = session.get(viewer_url, timeout=DOWNLOAD_TIMEOUT_SECONDS)
+    viewer.raise_for_status()
+    info = _fetch_basic_document_info(session, entry_id=entry_id, repo=repo)
+    page_count = int(info.get("pageCount") or 0)
+    size = _download_generated_pdf(
+        session,
+        entry_id=entry_id,
+        repo=repo,
+        page_count=page_count,
+        temp_path=temp_path,
+        final_path=path,
+        catalog_id=target.catalog_id,
+    )
+    return {
+        "catalog_id": target.catalog_id,
+        "new_url": new_url,
+        "new_hash": new_hash,
+        "path": path,
+        "filename": filename,
+        "size": size,
+        "method": f"generated_pdf_after_{type(direct_error).__name__}" if direct_error else "generated_pdf",
+    }
 
 
 def _apply_repairs(repairs: list[dict[str, object]], *, reindex: bool) -> dict[str, int]:
