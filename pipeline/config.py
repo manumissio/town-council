@@ -108,6 +108,16 @@ LOCAL_AI_HTTP_MAX_RETRIES = int(os.getenv("LOCAL_AI_HTTP_MAX_RETRIES", _HTTP_RET
 # Keep 270M as the only default HTTP model to avoid slow 1B timeout loops in shared envs.
 LOCAL_AI_HTTP_MODEL = (os.getenv("LOCAL_AI_HTTP_MODEL", "gemma-3-270m-custom").strip() or "gemma-3-270m-custom")
 
+# City maintenance helpers can safely use a little parent-side orchestration
+# when HTTP inference is decoupled, but should stay single-worker for guarded
+# in-process LocalAI setups.
+CITY_SEGMENTATION_WORKERS = int(
+    os.getenv(
+        "CITY_SEGMENTATION_WORKERS",
+        "2" if LOCAL_AI_BACKEND == "http" else "1",
+    )
+)
+
 # Semantic search (Milestone B) feature flags and retrieval tuning.
 # During B2 rollout we support dual backends:
 # - faiss: temporary fallback bridge

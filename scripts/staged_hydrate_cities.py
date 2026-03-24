@@ -16,11 +16,54 @@ def _emit_progress(enabled: bool, message: str) -> None:
         print(message, flush=True)
 
 
-def _run_segment_city(city: str, *, emit_progress: bool = False) -> dict[str, Any]:
+def _positive_int(value: str) -> int:
+    parsed = int(value)
+    if parsed <= 0:
+        raise argparse.ArgumentTypeError("value must be a positive integer")
+    return parsed
+
+
+def _nonnegative_int(value: str) -> int:
+    parsed = int(value)
+    if parsed < 0:
+        raise argparse.ArgumentTypeError("value must be a non-negative integer")
+    return parsed
+
+
+def _empty_summary_counts() -> dict[str, int]:
+    return {
+        "selected": 0,
+        "complete": 0,
+        "cached": 0,
+        "stale": 0,
+        "blocked_low_signal": 0,
+        "blocked_ungrounded": 0,
+        "not_generated_yet": 0,
+        "error": 0,
+        "other": 0,
+    }
+
+
+def _merge_counts(base: dict[str, int], addition: dict[str, int]) -> dict[str, int]:
+    merged = dict(base)
+    for key, value in addition.items():
+        merged[key] = int(merged.get(key, 0)) + int(value)
+    return merged
+
+
+def _run_segment_city(
+    city: str,
+    *,
+    limit: int | None = None,
+    resume_after_id: int | None = None,
+    workers: int | None = None,
+    emit_progress: bool = False,
+    chunk_index: int | None = None,
+) -> dict[str, Any]:
     from scripts import segment_city_corpus
 
-    catalog_ids = segment_city_corpus._catalog_ids_for_city(city)
-    if not catalog_ids:
+    selected_catalog_ids = segment_city_corpus._catalog_ids_for_city(city, limit=limit, resume_after_id=resume_after_id)
+    if not selected_catalog_ids:
         return {
             "city": city,
             "catalog_count": 0,
@@ -28,36 +71,57 @@ def _run_segment_city(city: str, *, emit_progress: bool = False) -> dict[str, An
             "empty": 0,
             "failed": 0,
             "timed_out": 0,
+            "resume_after_id": resume_after_id,
+            "last_catalog_id": resume_after_id,
         }
 
+    catalog_ids = segment_city_corpus._prioritized_catalog_ids(city, selected_catalog_ids)
     timeout_seconds = segment_city_corpus._catalog_timeout_seconds()
-    counts = {"complete": 0, "empty": 0, "failed": 0, "timed_out": 0}
-    total_catalogs = len(catalog_ids)
+    resolved_workers = segment_city_corpus._catalog_worker_count(workers)
+    running_counts = {"complete": 0, "empty": 0, "failed": 0, "timed_out": 0}
+    total_catalogs = len(selected_catalog_ids)
     _emit_progress(
         emit_progress,
-        f"[{city}] segmentation_start catalog_count={total_catalogs} timeout_seconds={timeout_seconds}",
+        f"[{city}] segmentation_start chunk={chunk_index or 1} catalog_count={total_catalogs} "
+        f"timeout_seconds={timeout_seconds} workers={resolved_workers} resume_after_id={resume_after_id}",
     )
-    for index, catalog_id in enumerate(catalog_ids, start=1):
+    if workers is not None and resolved_workers != workers:
         _emit_progress(
             emit_progress,
-            f"[{city}] segmentation_catalog_start index={index}/{total_catalogs} catalog_id={catalog_id}",
+            f"[{city}] segmentation_workers_clamped requested={workers} effective={resolved_workers}",
         )
-        outcome, duration_seconds, _detail = segment_city_corpus._segment_catalog_subprocess(int(catalog_id), timeout_seconds)
-        counts[outcome] += 1
+
+    def _progress(city_name: str, index: int, total: int, catalog_id: int, outcome: str, duration_seconds: float) -> None:
         _emit_progress(
             emit_progress,
-            "[{city}] segmentation_catalog_finish index={index}/{total_catalogs} catalog_id={catalog_id} "
+            f"[{city_name}] segmentation_catalog_start chunk={chunk_index or 1} index={index}/{total} catalog_id={catalog_id}",
+        )
+        running_counts[outcome] += 1
+        _emit_progress(
+            emit_progress,
+            "[{city}] segmentation_catalog_finish chunk={chunk} index={index}/{total_catalogs} catalog_id={catalog_id} "
             "outcome={outcome} duration_seconds={duration:.2f} running_counts={counts}".format(
-                city=city,
+                city=city_name,
+                chunk=chunk_index or 1,
                 index=index,
-                total_catalogs=total_catalogs,
+                total_catalogs=total,
                 catalog_id=catalog_id,
                 outcome=outcome,
                 duration=duration_seconds,
-                counts=counts,
+                counts=running_counts,
             ),
         )
-    return {"city": city, "catalog_count": total_catalogs, **counts}
+
+    counts = segment_city_corpus._segment_catalog_batch(
+        city,
+        catalog_ids,
+        timeout_seconds=timeout_seconds,
+        workers=resolved_workers,
+        progress_callback=_progress,
+    )
+    counts["resume_after_id"] = resume_after_id
+    counts["last_catalog_id"] = max(selected_catalog_ids)
+    return counts
 
 
 def _snapshot_dict(city: str) -> dict[str, Any]:
@@ -80,12 +144,18 @@ def _delta(before: dict[str, Any], after: dict[str, Any]) -> dict[str, int]:
 def main() -> int:
     parser = argparse.ArgumentParser(description="Run staged city hydration: segment -> summarize -> diagnose")
     parser.add_argument("--city", action="append", dest="cities")
-    parser.add_argument("--limit", type=int, default=None, help="Apply the same limit to summary backfill per city")
+    parser.add_argument("--limit", type=_positive_int, default=None, help="Backward-compatible alias for --summary-limit")
+    parser.add_argument("--segment-limit", type=_positive_int, default=None)
+    parser.add_argument("--summary-limit", type=_positive_int, default=None)
+    parser.add_argument("--segment-workers", type=_positive_int, default=None)
+    parser.add_argument("--resume-after-id", type=_nonnegative_int, default=None, dest="resume_after_id")
+    parser.add_argument("--max-chunks", type=_positive_int, default=None)
     parser.add_argument("--force", action="store_true", help="Force summary regeneration for selected cities")
     parser.add_argument("--json", action="store_true", help="Emit machine-readable JSON only")
     args = parser.parse_args()
 
     cities = args.cities or ordered_hydration_cities()
+    summary_limit = args.summary_limit if args.summary_limit is not None else args.limit
     human_progress = not args.json
     results: list[dict[str, Any]] = []
     for city in cities:
@@ -104,11 +174,81 @@ def main() -> int:
                 non_agenda_missing=before["non_agenda_missing_summary_total"],
             ),
         )
-        segmentation = _run_segment_city(city, emit_progress=human_progress)
-        _emit_progress(human_progress, f"[{city}] summary_start")
-        summary = run_summary_hydration_backfill(force=args.force, limit=args.limit, city=city)
-        _emit_progress(human_progress, f"[{city}] summary_finish results={summary}")
-        after = _snapshot_dict(city)
+        chunks: list[dict[str, Any]] = []
+        segmentation_total = {"city": city, "catalog_count": 0, "complete": 0, "empty": 0, "failed": 0, "timed_out": 0}
+        summary_total = _empty_summary_counts()
+        current_resume_after_id = args.resume_after_id
+        current_snapshot = before
+        chunk_index = 0
+        ran_summary_only_chunk = False
+
+        while True:
+            if args.max_chunks is not None and chunk_index >= args.max_chunks:
+                break
+
+            chunk_index += 1
+            segmentation = _run_segment_city(
+                city,
+                limit=args.segment_limit,
+                resume_after_id=current_resume_after_id,
+                workers=args.segment_workers,
+                emit_progress=human_progress,
+                chunk_index=chunk_index,
+            )
+            should_run_summary = segmentation["catalog_count"] > 0 or (
+                not ran_summary_only_chunk and current_snapshot["missing_summary_total"] > 0
+            )
+            if should_run_summary:
+                _emit_progress(
+                    human_progress,
+                    f"[{city}] summary_start chunk={chunk_index} limit={summary_limit}",
+                )
+                summary = run_summary_hydration_backfill(force=args.force, limit=summary_limit, city=city)
+                _emit_progress(human_progress, f"[{city}] summary_finish chunk={chunk_index} results={summary}")
+            else:
+                summary = _empty_summary_counts()
+
+            after = _snapshot_dict(city)
+            delta = _delta(current_snapshot, after)
+            chunk = {
+                "chunk_index": chunk_index,
+                "resume_after_id": current_resume_after_id,
+                "segmentation": segmentation,
+                "summary": summary,
+                "after": after,
+                "delta": delta,
+            }
+            chunks.append(chunk)
+            segmentation_total = {
+                "city": city,
+                "catalog_count": int(segmentation_total["catalog_count"]) + int(segmentation["catalog_count"]),
+                "complete": int(segmentation_total["complete"]) + int(segmentation["complete"]),
+                "empty": int(segmentation_total["empty"]) + int(segmentation["empty"]),
+                "failed": int(segmentation_total["failed"]) + int(segmentation["failed"]),
+                "timed_out": int(segmentation_total["timed_out"]) + int(segmentation["timed_out"]),
+            }
+            summary_total = _merge_counts(summary_total, summary)
+            _emit_progress(
+                human_progress,
+                "[{city}] chunk_finish chunk={chunk} after_missing_summary_total={missing} "
+                "resume_after_id={resume_after_id} delta={delta}".format(
+                    city=city,
+                    chunk=chunk_index,
+                    missing=after["missing_summary_total"],
+                    resume_after_id=segmentation["last_catalog_id"],
+                    delta=delta,
+                ),
+            )
+
+            current_snapshot = after
+            if segmentation["catalog_count"] > 0:
+                current_resume_after_id = segmentation["last_catalog_id"]
+                continue
+
+            ran_summary_only_chunk = ran_summary_only_chunk or should_run_summary
+            break
+
+        after = current_snapshot
         delta = _delta(before, after)
         _emit_progress(
             human_progress,
@@ -123,8 +263,9 @@ def main() -> int:
             {
                 "city": city,
                 "before": before,
-                "segmentation": segmentation,
-                "summary": summary,
+                "chunks": chunks,
+                "segmentation": segmentation_total,
+                "summary": summary_total,
                 "after": after,
                 "delta": delta,
             }
@@ -140,6 +281,7 @@ def main() -> int:
         print(f"city: {result['city']}")
         print(f"  before_missing_summary_total: {result['before']['missing_summary_total']}")
         print(f"  after_missing_summary_total: {result['after']['missing_summary_total']}")
+        print(f"  chunks: {len(result['chunks'])}")
         print(f"  segmentation: {result['segmentation']}")
         print(f"  summary: {result['summary']}")
         print(f"  delta: {result['delta']}")
