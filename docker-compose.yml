@@ -39,6 +39,10 @@ services:
       - PYTHONUNBUFFERED=1
       - PYTHONPATH=/app
       - DATABASE_URL=${DATABASE_URL:-postgresql://town_council:secure_dev_password@postgres:5432/town_council_db}
+      - REDIS_HOST=redis
+      - REDIS_PASSWORD=${REDIS_PASSWORD:-secure_redis_password}
+      - CELERY_BROKER_URL=redis://:${REDIS_PASSWORD:-secure_redis_password}@redis:6379/0
+      - CELERY_RESULT_BACKEND=redis://:${REDIS_PASSWORD:-secure_redis_password}@redis:6379/0
       - DATA_DIR=/app/data
       - APP_ENV=${APP_ENV:-dev}
       - STARTUP_PURGE_DERIVED=${STARTUP_PURGE_DERIVED:-false}
