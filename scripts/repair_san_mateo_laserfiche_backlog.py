@@ -29,6 +29,7 @@ class RepairTarget:
     catalog_id: int
     old_url: str
     location: str | None
+    mode: str = "docview"
 
 
 def _positive_int(value: str) -> int:
@@ -64,7 +65,32 @@ def _target_path(existing_location: str | None, url_hash: str) -> tuple[str, str
     return os.path.join(base_dir, filename), filename
 
 
-def _select_targets(city: str, *, limit: int | None, resume_after_id: int | None) -> list[RepairTarget]:
+def _file_has_pdf_signature(path: str) -> bool:
+    try:
+        with open(path, "rb") as fh:
+            return fh.read(5) == b"%PDF-"
+    except OSError:
+        return False
+
+
+def _is_valid_pdf_artifact(path: str | None) -> bool:
+    if not path or not os.path.exists(path):
+        return False
+    try:
+        if os.path.getsize(path) <= 0:
+            return False
+    except OSError:
+        return False
+    return _file_has_pdf_signature(path)
+
+
+def _select_targets(
+    city: str,
+    *,
+    limit: int | None,
+    resume_after_id: int | None,
+    salvage_bad_electronicfile: bool = False,
+) -> list[RepairTarget]:
     with db_session() as session:
         query = (
             session.query(Catalog.id, Catalog.url, Catalog.location)
@@ -74,26 +100,47 @@ def _select_targets(city: str, *, limit: int | None, resume_after_id: int | None
             .filter(
                 Event.source.in_(sorted(source_aliases_for_city(city))),
                 Document.category == "agenda",
-                Catalog.url.ilike("%/DocView.aspx%"),
                 Catalog.summary.is_(None),
                 AgendaItem.id.is_(None),
             )
             .distinct()
             .order_by(Catalog.id)
         )
+        if salvage_bad_electronicfile:
+            query = query.filter(
+                Catalog.url.ilike("%/ElectronicFile.aspx%"),
+                Catalog.content.is_(None),
+            )
+        else:
+            query = query.filter(Catalog.url.ilike("%/DocView.aspx%"))
         if resume_after_id is not None:
             query = query.filter(Catalog.id > resume_after_id)
         if limit is not None:
             query = query.limit(limit)
         rows = query.all()
-    return [RepairTarget(catalog_id=row[0], old_url=row[1], location=row[2]) for row in rows]
+    targets = [
+        RepairTarget(
+            catalog_id=row[0],
+            old_url=row[1],
+            location=row[2],
+            mode="salvage" if salvage_bad_electronicfile else "docview",
+        )
+        for row in rows
+    ]
+    if salvage_bad_electronicfile:
+        return [target for target in targets if not _is_valid_pdf_artifact(target.location)]
+    return targets
 
 
 def _download_repaired_pdf(target: RepairTarget) -> dict[str, object]:
-    entry_id, repo = _parse_docview_url(target.old_url)
-    new_url = _electronic_file_url(entry_id, repo)
+    if target.mode == "salvage":
+        new_url = target.old_url
+    else:
+        entry_id, repo = _parse_docview_url(target.old_url)
+        new_url = _electronic_file_url(entry_id, repo)
     new_hash = _url_to_md5(new_url)
     path, filename = _target_path(target.location, new_hash)
+    temp_path = f"{path}.tmp.{target.catalog_id}"
 
     session = requests.Session()
     session.trust_env = False
@@ -104,18 +151,30 @@ def _download_repaired_pdf(target: RepairTarget) -> dict[str, object]:
     if content_type and content_type != "application/pdf":
         raise ValueError(f"Unexpected content type {content_type!r} for catalog {target.catalog_id}")
 
-    with open(path, "wb") as fh:
-        for chunk in response.iter_content(chunk_size=1024 * 256):
-            if chunk:
-                fh.write(chunk)
+    try:
+        with open(temp_path, "wb") as fh:
+            for chunk in response.iter_content(chunk_size=1024 * 256):
+                if chunk:
+                    fh.write(chunk)
 
-    return {
-        "catalog_id": target.catalog_id,
-        "new_url": new_url,
-        "new_hash": new_hash,
-        "path": path,
-        "filename": filename,
-    }
+        size = os.path.getsize(temp_path)
+        if size <= 0:
+            raise ValueError(f"Downloaded zero-byte PDF for catalog {target.catalog_id}")
+        if not _file_has_pdf_signature(temp_path):
+            raise ValueError(f"Downloaded invalid PDF bytes for catalog {target.catalog_id}")
+
+        os.replace(temp_path, path)
+        return {
+            "catalog_id": target.catalog_id,
+            "new_url": new_url,
+            "new_hash": new_hash,
+            "path": path,
+            "filename": filename,
+            "size": size,
+        }
+    finally:
+        if os.path.exists(temp_path):
+            os.remove(temp_path)
 
 
 def _apply_repairs(repairs: list[dict[str, object]], *, reindex: bool) -> dict[str, int]:
@@ -197,12 +256,19 @@ def main() -> int:
     parser.add_argument("--apply-batch-size", type=_positive_int, default=200)
     parser.add_argument("--reindex", action="store_true")
     parser.add_argument("--dry-run", action="store_true")
+    parser.add_argument("--salvage-bad-electronicfile", action="store_true")
     args = parser.parse_args()
 
-    targets = _select_targets(args.city, limit=args.limit, resume_after_id=args.resume_after_id)
+    targets = _select_targets(
+        args.city,
+        limit=args.limit,
+        resume_after_id=args.resume_after_id,
+        salvage_bad_electronicfile=args.salvage_bad_electronicfile,
+    )
     print(
         f"[{args.city}] repair_targets selected={len(targets)} "
-        f"resume_after_id={args.resume_after_id} workers={args.workers} dry_run={args.dry_run}",
+        f"resume_after_id={args.resume_after_id} workers={args.workers} "
+        f"dry_run={args.dry_run} salvage_bad_electronicfile={args.salvage_bad_electronicfile}",
         flush=True,
     )
     if not targets:
@@ -210,10 +276,14 @@ def main() -> int:
 
     if args.dry_run:
         for target in targets[:5]:
-            entry_id, repo = _parse_docview_url(target.old_url)
+            if target.mode == "salvage":
+                new_url = target.old_url
+            else:
+                entry_id, repo = _parse_docview_url(target.old_url)
+                new_url = _electronic_file_url(entry_id, repo)
             print(
                 f"[{args.city}] dry_run catalog_id={target.catalog_id} "
-                f"old_url={target.old_url} new_url={_electronic_file_url(entry_id, repo)}",
+                f"old_url={target.old_url} new_url={new_url}",
                 flush=True,
             )
         return 0
@@ -231,7 +301,7 @@ def main() -> int:
                 repairs.append(repair)
                 print(
                     f"[{args.city}] repair_downloaded catalog_id={target.catalog_id} "
-                    f"path={repair['path']}",
+                    f"path={repair['path']} size={repair['size']}",
                     flush=True,
                 )
                 if len(repairs) >= args.apply_batch_size:
