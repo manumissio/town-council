@@ -50,10 +50,25 @@ def _empty_summary_counts() -> dict[str, int]:
     }
 
 
-def _select_extract_catalog_ids(city: str, *, limit: int | None, resume_after_id: int | None) -> list[int]:
+def _usable_local_artifact_status(location: str | None) -> str | None:
+    if not location:
+        return "missing_file"
+    if not os.path.exists(location):
+        return "missing_file"
+    if os.path.getsize(location) <= 0:
+        return "zero_byte"
+    return None
+
+
+def _select_extract_catalog_ids(
+    city: str,
+    *,
+    limit: int | None,
+    resume_after_id: int | None,
+) -> tuple[list[int], dict[str, int]]:
     with db_session() as session:
         query = (
-            session.query(Catalog.id)
+            session.query(Catalog.id, Catalog.location)
             .join(Document, Document.catalog_id == Catalog.id)
             .join(Event, Document.event_id == Event.id)
             .filter(
@@ -67,12 +82,28 @@ def _select_extract_catalog_ids(city: str, *, limit: int | None, resume_after_id
         )
         if resume_after_id is not None:
             query = query.filter(Catalog.id > resume_after_id)
-        if limit is not None:
-            query = query.limit(limit)
-        return [row[0] for row in query.all()]
+        rows = query.order_by(Catalog.id).all()
+
+    counts = {"missing_file": 0, "zero_byte": 0}
+    selected_ids: list[int] = []
+    for catalog_id, location in rows:
+        invalid_status = _usable_local_artifact_status(location)
+        if invalid_status:
+            counts[invalid_status] += 1
+            continue
+        selected_ids.append(catalog_id)
+        if limit is not None and len(selected_ids) >= limit:
+            break
+    return selected_ids, counts
 
 
-def _select_segment_catalog_ids(city: str, *, limit: int | None, resume_after_id: int | None) -> list[int]:
+def _select_segment_catalog_ids(
+    city: str,
+    *,
+    limit: int | None,
+    resume_after_id: int | None,
+    catalog_ids: list[int] | None = None,
+) -> list[int]:
     with db_session() as session:
         query = (
             session.query(Catalog.id)
@@ -98,6 +129,10 @@ def _select_segment_catalog_ids(city: str, *, limit: int | None, resume_after_id
             .distinct()
             .order_by(Catalog.id)
         )
+        if catalog_ids is not None:
+            if not catalog_ids:
+                return []
+            query = query.filter(Catalog.id.in_(catalog_ids))
         if resume_after_id is not None:
             query = query.filter(Catalog.id > resume_after_id)
         if limit is not None:
@@ -105,7 +140,13 @@ def _select_segment_catalog_ids(city: str, *, limit: int | None, resume_after_id
         return [row[0] for row in query.all()]
 
 
-def _select_summary_catalog_ids(city: str, *, limit: int | None, resume_after_id: int | None) -> list[int]:
+def _select_summary_catalog_ids(
+    city: str,
+    *,
+    limit: int | None,
+    resume_after_id: int | None,
+    catalog_ids: list[int] | None = None,
+) -> list[int]:
     with db_session() as session:
         query = (
             session.query(Catalog.id)
@@ -122,6 +163,10 @@ def _select_summary_catalog_ids(city: str, *, limit: int | None, resume_after_id
             .distinct()
             .order_by(Catalog.id)
         )
+        if catalog_ids is not None:
+            if not catalog_ids:
+                return []
+            query = query.filter(Catalog.id.in_(catalog_ids))
         if resume_after_id is not None:
             query = query.filter(Catalog.id > resume_after_id)
         if limit is not None:
@@ -166,18 +211,19 @@ def _run_extract_city(
     resume_after_id: int | None,
     emit_progress: bool,
     progress_every: int,
-) -> dict[str, int]:
-    catalog_ids = _select_extract_catalog_ids(city, limit=limit, resume_after_id=resume_after_id)
+) -> tuple[dict[str, int], list[int]]:
+    catalog_ids, precheck_counts = _select_extract_catalog_ids(city, limit=limit, resume_after_id=resume_after_id)
     counts = {
         "selected": len(catalog_ids),
         "updated": 0,
         "cached": 0,
-        "missing_file": 0,
-        "zero_byte": 0,
+        "missing_file": precheck_counts["missing_file"],
+        "zero_byte": precheck_counts["zero_byte"],
         "missing_catalog": 0,
         "failed": 0,
         "other": 0,
     }
+    ready_catalog_ids: list[int] = []
     _emit_progress(
         emit_progress,
         f"[{city}] extract_start selected={counts['selected']} limit={limit} resume_after_id={resume_after_id}",
@@ -185,6 +231,8 @@ def _run_extract_city(
     for index, catalog_id in enumerate(catalog_ids, start=1):
         status, detail = _extract_one_catalog(catalog_id)
         counts[status] = counts.get(status, 0) + 1
+        if status in {"updated", "cached"}:
+            ready_catalog_ids.append(catalog_id)
         if emit_progress and (index == 1 or index % progress_every == 0 or index == len(catalog_ids)):
             extra = ""
             if "error" in detail:
@@ -195,7 +243,7 @@ def _run_extract_city(
                 f"last_status={status} counts={counts}{extra}",
             )
     _emit_progress(emit_progress, f"[{city}] extract_finish counts={counts}")
-    return counts
+    return counts, ready_catalog_ids
 
 
 def _segment_one_catalog(catalog_id: int) -> str:
@@ -212,20 +260,26 @@ def _run_segment_city(
     resume_after_id: int | None,
     emit_progress: bool,
     progress_every: int,
+    catalog_ids: list[int] | None = None,
 ) -> dict[str, int]:
-    catalog_ids = _select_segment_catalog_ids(city, limit=limit, resume_after_id=resume_after_id)
-    counts = {"selected": len(catalog_ids), "complete": 0, "empty": 0, "failed": 0, "other": 0}
+    selected_catalog_ids = _select_segment_catalog_ids(
+        city,
+        limit=limit,
+        resume_after_id=resume_after_id,
+        catalog_ids=catalog_ids,
+    )
+    counts = {"selected": len(selected_catalog_ids), "complete": 0, "empty": 0, "failed": 0, "other": 0}
     _emit_progress(
         emit_progress,
         f"[{city}] segment_start selected={counts['selected']} limit={limit} resume_after_id={resume_after_id}",
     )
-    for index, catalog_id in enumerate(catalog_ids, start=1):
+    for index, catalog_id in enumerate(selected_catalog_ids, start=1):
         status = _segment_one_catalog(catalog_id)
         counts[status] = counts.get(status, 0) + 1
-        if emit_progress and (index == 1 or index % progress_every == 0 or index == len(catalog_ids)):
+        if emit_progress and (index == 1 or index % progress_every == 0 or index == len(selected_catalog_ids)):
             _emit_progress(
                 True,
-                f"[{city}] segment_progress done={index}/{len(catalog_ids)} last_catalog_id={catalog_id} "
+                f"[{city}] segment_progress done={index}/{len(selected_catalog_ids)} last_catalog_id={catalog_id} "
                 f"last_status={status} counts={counts}",
             )
     _emit_progress(emit_progress, f"[{city}] segment_finish counts={counts}")
@@ -243,25 +297,31 @@ def _run_summary_city(
     resume_after_id: int | None,
     emit_progress: bool,
     progress_every: int,
+    catalog_ids: list[int] | None = None,
 ) -> dict[str, int]:
-    catalog_ids = _select_summary_catalog_ids(city, limit=limit, resume_after_id=resume_after_id)
+    selected_catalog_ids = _select_summary_catalog_ids(
+        city,
+        limit=limit,
+        resume_after_id=resume_after_id,
+        catalog_ids=catalog_ids,
+    )
     counts = _empty_summary_counts()
-    counts["selected"] = len(catalog_ids)
+    counts["selected"] = len(selected_catalog_ids)
     _emit_progress(
         emit_progress,
         f"[{city}] summary_start selected={counts['selected']} limit={limit} resume_after_id={resume_after_id}",
     )
-    for index, catalog_id in enumerate(catalog_ids, start=1):
+    for index, catalog_id in enumerate(selected_catalog_ids, start=1):
         result = _summarize_one_catalog(catalog_id)
         status = str(result.get("status") or "other")
         if status in counts:
             counts[status] += 1
         else:
             counts["other"] += 1
-        if emit_progress and (index == 1 or index % progress_every == 0 or index == len(catalog_ids)):
+        if emit_progress and (index == 1 or index % progress_every == 0 or index == len(selected_catalog_ids)):
             _emit_progress(
                 True,
-                f"[{city}] summary_progress done={index}/{len(catalog_ids)} last_catalog_id={catalog_id} "
+                f"[{city}] summary_progress done={index}/{len(selected_catalog_ids)} last_catalog_id={catalog_id} "
                 f"last_status={status} counts={counts}",
             )
     _emit_progress(emit_progress, f"[{city}] summary_finish counts={counts}")
@@ -278,7 +338,7 @@ def main() -> int:
     args = parser.parse_args()
 
     emit_progress = not args.json
-    extract_counts = _run_extract_city(
+    extract_counts, extracted_catalog_ids = _run_extract_city(
         args.city,
         limit=args.limit,
         resume_after_id=args.resume_after_id,
@@ -291,6 +351,7 @@ def main() -> int:
         resume_after_id=args.resume_after_id,
         emit_progress=emit_progress,
         progress_every=args.progress_every,
+        catalog_ids=extracted_catalog_ids,
     )
     summary_counts = _run_summary_city(
         args.city,
@@ -298,6 +359,7 @@ def main() -> int:
         resume_after_id=args.resume_after_id,
         emit_progress=emit_progress,
         progress_every=args.progress_every,
+        catalog_ids=extracted_catalog_ids,
     )
 
     payload = {

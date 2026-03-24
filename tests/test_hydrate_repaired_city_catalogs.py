@@ -17,23 +17,26 @@ def test_hydrate_repaired_city_catalogs_emits_stage_progress(mocker, capsys):
     mocker.patch.object(
         mod,
         "_run_extract_city",
-        return_value={
-            "selected": 3,
-            "updated": 2,
-            "cached": 0,
-            "missing_file": 0,
-            "zero_byte": 1,
-            "missing_catalog": 0,
-            "failed": 0,
-            "other": 0,
-        },
+        return_value=(
+            {
+                "selected": 3,
+                "updated": 2,
+                "cached": 0,
+                "missing_file": 0,
+                "zero_byte": 1,
+                "missing_catalog": 0,
+                "failed": 0,
+                "other": 0,
+            },
+            [101, 102],
+        ),
     )
-    mocker.patch.object(
+    segment_spy = mocker.patch.object(
         mod,
         "_run_segment_city",
         return_value={"selected": 2, "complete": 1, "empty": 1, "failed": 0, "other": 0},
     )
-    mocker.patch.object(
+    summary_spy = mocker.patch.object(
         mod,
         "_run_summary_city",
         return_value={
@@ -56,10 +59,16 @@ def test_hydrate_repaired_city_catalogs_emits_stage_progress(mocker, capsys):
     assert exit_code == 0
     assert "[san_mateo] hydrate_finish payload=" in captured.out
     assert "'updated': 2" in captured.out
+    assert segment_spy.call_args.kwargs["catalog_ids"] == [101, 102]
+    assert summary_spy.call_args.kwargs["catalog_ids"] == [101, 102]
 
 
 def test_run_extract_city_emits_progress_and_counts(mocker, capsys):
-    mocker.patch.object(mod, "_select_extract_catalog_ids", return_value=[101, 102, 103])
+    mocker.patch.object(
+        mod,
+        "_select_extract_catalog_ids",
+        return_value=([101, 102, 103], {"missing_file": 2, "zero_byte": 4}),
+    )
     mocker.patch.object(
         mod,
         "_extract_one_catalog",
@@ -70,7 +79,7 @@ def test_run_extract_city_emits_progress_and_counts(mocker, capsys):
         ],
     )
 
-    result = mod._run_extract_city(
+    result, ready_ids = mod._run_extract_city(
         "san_mateo",
         limit=3,
         resume_after_id=100,
@@ -83,12 +92,13 @@ def test_run_extract_city_emits_progress_and_counts(mocker, capsys):
         "selected": 3,
         "updated": 1,
         "cached": 0,
-        "missing_file": 0,
-        "zero_byte": 1,
+        "missing_file": 2,
+        "zero_byte": 5,
         "missing_catalog": 0,
         "failed": 1,
         "other": 0,
     }
+    assert ready_ids == [101]
     assert "[san_mateo] extract_start selected=3 limit=3 resume_after_id=100" in captured.out
     assert "[san_mateo] extract_progress done=1/3 last_catalog_id=101 last_status=updated" in captured.out
     assert "[san_mateo] extract_progress done=2/3 last_catalog_id=102 last_status=zero_byte" in captured.out
@@ -100,16 +110,19 @@ def test_hydrate_repaired_city_catalogs_json_mode(mocker, capsys):
     mocker.patch.object(
         mod,
         "_run_extract_city",
-        return_value={
-            "selected": 0,
-            "updated": 0,
-            "cached": 0,
-            "missing_file": 0,
-            "zero_byte": 0,
-            "missing_catalog": 0,
-            "failed": 0,
-            "other": 0,
-        },
+        return_value=(
+            {
+                "selected": 0,
+                "updated": 0,
+                "cached": 0,
+                "missing_file": 0,
+                "zero_byte": 0,
+                "missing_catalog": 0,
+                "failed": 0,
+                "other": 0,
+            },
+            [],
+        ),
     )
     mocker.patch.object(mod, "_run_segment_city", return_value={"selected": 0, "complete": 0, "empty": 0, "failed": 0, "other": 0})
     mocker.patch.object(
