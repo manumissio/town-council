@@ -11,8 +11,7 @@ import time
 from datetime import datetime, timezone
 from typing import Callable
 
-from sqlalchemy import and_, case, func, or_
-from sqlalchemy.orm import aliased
+from sqlalchemy import and_, func, or_
 
 from pipeline.agenda_worker import segment_document_agenda
 from pipeline.city_scope import source_aliases_for_city
@@ -65,41 +64,50 @@ def _prioritized_catalog_ids(city: str, catalog_ids: list[int]) -> list[int]:
     if not catalog_ids:
         return []
     aliases = sorted(source_aliases_for_city(city))
-    sibling_document = aliased(Document)
-    sibling_catalog = aliased(Catalog)
     with db_session() as session:
-        sibling_html_exists = (
-            session.query(sibling_document.id)
-            .join(sibling_catalog, sibling_catalog.id == sibling_document.catalog_id)
-            .filter(
-                sibling_document.event_id == Event.id,
-                sibling_document.category == "agenda",
-                sibling_catalog.id != Catalog.id,
-                _html_location_predicate(sibling_catalog.location),
-            )
-            .exists()
-        )
         rows = (
-            session.query(Catalog.id)
+            session.query(Catalog.id, Catalog.location, Event.id)
             .join(Document, Catalog.id == Document.catalog_id)
             .join(Event, Document.event_id == Event.id)
-            .outerjoin(AgendaItem, Catalog.id == AgendaItem.catalog_id)
             .filter(
                 Catalog.id.in_(catalog_ids),
                 Event.source.in_(aliases),
             )
-            .distinct()
-            .order_by(
-                case(
-                    (_html_location_predicate(Catalog.location), 0),
-                    (sibling_html_exists, 1),
-                    else_=2,
-                ),
-                Catalog.id,
-            )
+            .all()
         )
-        rows = rows.all()
-    return [row[0] for row in rows]
+        event_ids = sorted({int(row[2]) for row in rows})
+        html_event_ids = {
+            int(row[0])
+            for row in session.query(Document.event_id)
+            .join(Catalog, Catalog.id == Document.catalog_id)
+            .join(Event, Document.event_id == Event.id)
+            .filter(
+                Document.event_id.in_(event_ids),
+                Document.category == "agenda",
+                Event.source.in_(aliases),
+                _html_location_predicate(Catalog.location),
+            )
+            .distinct()
+            .all()
+        }
+
+    metadata_by_catalog_id = {
+        int(catalog_id): {
+            "location": location,
+            "event_id": int(event_id),
+        }
+        for catalog_id, location, event_id in rows
+    }
+
+    def _priority(catalog_id: int) -> tuple[int, int]:
+        metadata = metadata_by_catalog_id[int(catalog_id)]
+        if metadata["location"] and metadata["location"].lower().endswith((".html", ".htm")):
+            return (0, int(catalog_id))
+        if metadata["event_id"] in html_event_ids:
+            return (1, int(catalog_id))
+        return (2, int(catalog_id))
+
+    return sorted((int(catalog_id) for catalog_id in catalog_ids), key=_priority)
 
 
 def _catalog_status(catalog_id: int) -> str | None:
