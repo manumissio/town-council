@@ -155,11 +155,48 @@ def test_san_mateo_listing_parser_emits_city_council_agenda_documents(mocker):
     assert event["source_url"] == "https://portal.laserfiche.com/Portal/DocView.aspx?id=2040859&repo=r-98a383e2"
     assert event["documents"] == [
         {
-            "url": "https://portal.laserfiche.com/Portal/DocView.aspx?id=2040859&repo=r-98a383e2",
+            "url": "https://portal.laserfiche.com/Portal/ElectronicFile.aspx?docid=2040859&repo=r-98a383e2",
             "url_hash": event["documents"][0]["url_hash"],
             "category": "agenda",
         }
     ]
+
+
+def test_san_mateo_documents_do_not_use_docview_as_download_url(mocker):
+    mocker.patch.object(San_Mateo, "_get_last_meeting_date", return_value=None)
+    spider = San_Mateo()
+
+    payload = {
+        "data": {
+            "command": "query",
+            "searchUUID": "uuid-5",
+            "hitCount": 1,
+            "results": [
+                {
+                    "entryId": 2040856,
+                    "name": "2026-03-02 (3)",
+                    "metadata": [
+                        {"name": "Agency", "values": ["City Council"]},
+                        {"name": "Date", "values": ["3/2/2026"]},
+                        {"name": "Subject", "values": ["Park and Recreation Commission Appointment Subcommittee — Appointment Recommendation"]},
+                    ],
+                }
+            ],
+        }
+    }
+    response = _json_response(
+        "https://portal.laserfiche.com/Portal/SearchService.aspx/GetSearchListing",
+        payload,
+        meta={"search_syn": "ignored", "search_uuid": "", "start_idx": 1, "search_retry_count": 0},
+    )
+
+    results = list(spider.parse_search_listing(response))
+
+    assert len(results) == 1
+    event = results[0]
+    assert event["source_url"].endswith("/DocView.aspx?id=2040856&repo=r-98a383e2")
+    assert event["documents"][0]["url"].endswith("/ElectronicFile.aspx?docid=2040856&repo=r-98a383e2")
+    assert "/DocView.aspx" not in event["documents"][0]["url"]
 
 
 def test_san_mateo_listing_parser_skips_invalid_rows_and_stops_after_old_page(mocker):

@@ -171,11 +171,12 @@ class San_Mateo(BaseCitySpider):
             self.logger.info("Skipping San Mateo Laserfiche row without title: %s", entry_id)
             return None
 
-        source_url = f"{self.portal_base}/DocView.aspx?id={entry_id}&repo={self.repo_name}"
+        source_url = self._doc_view_url(entry_id)
+        document_url = self._electronic_file_url(entry_id)
         documents = [
             {
-                "url": source_url,
-                "url_hash": url_to_md5(source_url),
+                "url": document_url,
+                "url_hash": url_to_md5(document_url),
                 "category": "agenda",
             }
         ]
@@ -187,6 +188,14 @@ class San_Mateo(BaseCitySpider):
             documents=documents,
             meeting_type=meeting_type,
         )
+
+    def _doc_view_url(self, entry_id):
+        return f"{self.portal_base}/DocView.aspx?id={entry_id}&repo={self.repo_name}"
+
+    def _electronic_file_url(self, entry_id):
+        # Laserfiche exposes the real downloadable asset behind ElectronicFile.aspx.
+        # Using that URL avoids storing the JS viewer shell as agenda content.
+        return f"{self.portal_base}/ElectronicFile.aspx?docid={entry_id}&repo={self.repo_name}"
 
     def _meeting_type_for_row(self, row, metadata):
         subject = metadata.get("Subject", "").strip()
