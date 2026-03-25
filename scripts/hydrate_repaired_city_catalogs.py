@@ -3,16 +3,23 @@ from __future__ import annotations
 
 import argparse
 import json
+import logging
 import os
+import time
+from collections import Counter
+from concurrent.futures import ThreadPoolExecutor, as_completed
+from contextlib import contextmanager
 from typing import Any
 
 from sqlalchemy import and_, or_
 
 from pipeline.agenda_worker import segment_document_agenda
 from pipeline.city_scope import source_aliases_for_city
-from pipeline.config import TIKA_MIN_EXTRACTED_CHARS_FOR_NO_OCR
+from pipeline.config import CITY_SEGMENTATION_WORKERS, TIKA_MIN_EXTRACTED_CHARS_FOR_NO_OCR
 from pipeline.db_session import db_session
 from pipeline.extraction_service import reextract_catalog_content
+from pipeline import llm as llm_mod
+from pipeline import llm_provider as llm_provider_mod
 from pipeline.models import AgendaItem, Catalog, Document, Event
 from pipeline.tasks import generate_summary_task
 
@@ -48,6 +55,68 @@ def _empty_summary_counts() -> dict[str, int]:
         "error": 0,
         "other": 0,
     }
+
+
+def _default_segment_workers() -> int:
+    try:
+        parallelism = int(os.getenv("OLLAMA_NUM_PARALLEL", "1"))
+    except ValueError:
+        parallelism = 1
+    return max(1, min(CITY_SEGMENTATION_WORKERS, max(1, parallelism)))
+
+
+def _rate_per_second(total: int, elapsed_seconds: float) -> float:
+    if elapsed_seconds <= 0:
+        return 0.0
+    return total / elapsed_seconds
+
+
+@contextmanager
+def _segment_timeout_override(timeout_seconds: int | None):
+    if timeout_seconds is None:
+        yield
+        return
+
+    previous_timeout = llm_provider_mod.LOCAL_AI_HTTP_TIMEOUT_SEGMENT_SECONDS
+    previous_instance = llm_mod.LocalAI._instance
+    previous_provider = getattr(previous_instance, "_provider", None) if previous_instance else None
+    previous_backend = getattr(previous_instance, "_provider_backend", None) if previous_instance else None
+    llm_provider_mod.LOCAL_AI_HTTP_TIMEOUT_SEGMENT_SECONDS = int(timeout_seconds)
+    if previous_instance is not None:
+        previous_instance._provider = None
+        previous_instance._provider_backend = None
+    try:
+        yield
+    finally:
+        llm_provider_mod.LOCAL_AI_HTTP_TIMEOUT_SEGMENT_SECONDS = previous_timeout
+        current_instance = llm_mod.LocalAI._instance
+        if current_instance is not None:
+            current_instance._provider = previous_provider
+            current_instance._provider_backend = previous_backend
+
+
+@contextmanager
+def _capture_agenda_fallback_events() -> dict[str, int]:
+    logger = logging.getLogger("local-ai")
+    counts: Counter[str] = Counter()
+
+    class _CaptureHandler(logging.Handler):
+        def emit(self, record: logging.LogRecord) -> None:
+            message = record.getMessage()
+            if "AI Agenda Extraction failed:" not in message:
+                return
+            lowered = message.lower()
+            if "timed out" in lowered:
+                counts["timeout"] += 1
+            elif "empty response payload" in lowered:
+                counts["empty_response"] += 1
+
+    handler = _CaptureHandler()
+    logger.addHandler(handler)
+    try:
+        yield counts
+    finally:
+        logger.removeHandler(handler)
 
 
 def _usable_local_artifact_status(location: str | None) -> str | None:
@@ -211,6 +280,7 @@ def _run_extract_city(
     resume_after_id: int | None,
     emit_progress: bool,
     progress_every: int,
+    workers: int,
 ) -> tuple[dict[str, int], list[int]]:
     catalog_ids, precheck_counts = _select_extract_catalog_ids(city, limit=limit, resume_after_id=resume_after_id)
     counts = {
@@ -228,20 +298,24 @@ def _run_extract_city(
         emit_progress,
         f"[{city}] extract_start selected={counts['selected']} limit={limit} resume_after_id={resume_after_id}",
     )
-    for index, catalog_id in enumerate(catalog_ids, start=1):
-        status, detail = _extract_one_catalog(catalog_id)
-        counts[status] = counts.get(status, 0) + 1
-        if status in {"updated", "cached"}:
-            ready_catalog_ids.append(catalog_id)
-        if emit_progress and (index == 1 or index % progress_every == 0 or index == len(catalog_ids)):
-            extra = ""
-            if "error" in detail:
-                extra = f" last_error={detail['error']!r}"
-            _emit_progress(
-                True,
-                f"[{city}] extract_progress done={index}/{len(catalog_ids)} last_catalog_id={catalog_id} "
-                f"last_status={status} counts={counts}{extra}",
-            )
+    with ThreadPoolExecutor(max_workers=workers) as executor:
+        futures = {executor.submit(_extract_one_catalog, catalog_id): catalog_id for catalog_id in catalog_ids}
+        for index, future in enumerate(as_completed(futures), start=1):
+            catalog_id = futures[future]
+            status, detail = future.result()
+            counts[status] = counts.get(status, 0) + 1
+            if status in {"updated", "cached"}:
+                ready_catalog_ids.append(catalog_id)
+            if emit_progress and (index == 1 or index % progress_every == 0 or index == len(catalog_ids)):
+                extra = ""
+                if "error" in detail:
+                    extra = f" last_error={detail['error']!r}"
+                _emit_progress(
+                    True,
+                    f"[{city}] extract_progress done={index}/{len(catalog_ids)} last_catalog_id={catalog_id} "
+                    f"last_status={status} counts={counts}{extra}",
+                )
+    ready_catalog_ids.sort()
     _emit_progress(emit_progress, f"[{city}] extract_finish counts={counts}")
     return counts, ready_catalog_ids
 
@@ -261,6 +335,8 @@ def _run_segment_city(
     emit_progress: bool,
     progress_every: int,
     catalog_ids: list[int] | None = None,
+    workers: int = 1,
+    agenda_timeout_seconds: int | None = None,
 ) -> dict[str, int]:
     selected_catalog_ids = _select_segment_catalog_ids(
         city,
@@ -268,20 +344,34 @@ def _run_segment_city(
         resume_after_id=resume_after_id,
         catalog_ids=catalog_ids,
     )
-    counts = {"selected": len(selected_catalog_ids), "complete": 0, "empty": 0, "failed": 0, "other": 0}
+    counts = {
+        "selected": len(selected_catalog_ids),
+        "complete": 0,
+        "empty": 0,
+        "failed": 0,
+        "other": 0,
+        "timeout_fallbacks": 0,
+        "empty_response_fallbacks": 0,
+    }
     _emit_progress(
         emit_progress,
         f"[{city}] segment_start selected={counts['selected']} limit={limit} resume_after_id={resume_after_id}",
     )
-    for index, catalog_id in enumerate(selected_catalog_ids, start=1):
-        status = _segment_one_catalog(catalog_id)
-        counts[status] = counts.get(status, 0) + 1
-        if emit_progress and (index == 1 or index % progress_every == 0 or index == len(selected_catalog_ids)):
-            _emit_progress(
-                True,
-                f"[{city}] segment_progress done={index}/{len(selected_catalog_ids)} last_catalog_id={catalog_id} "
-                f"last_status={status} counts={counts}",
-            )
+    with _segment_timeout_override(agenda_timeout_seconds), _capture_agenda_fallback_events() as fallback_counts:
+        with ThreadPoolExecutor(max_workers=workers) as executor:
+            futures = {executor.submit(_segment_one_catalog, catalog_id): catalog_id for catalog_id in selected_catalog_ids}
+            for index, future in enumerate(as_completed(futures), start=1):
+                catalog_id = futures[future]
+                status = future.result()
+                counts[status] = counts.get(status, 0) + 1
+                counts["timeout_fallbacks"] = int(fallback_counts.get("timeout", 0))
+                counts["empty_response_fallbacks"] = int(fallback_counts.get("empty_response", 0))
+                if emit_progress and (index == 1 or index % progress_every == 0 or index == len(selected_catalog_ids)):
+                    _emit_progress(
+                        True,
+                        f"[{city}] segment_progress done={index}/{len(selected_catalog_ids)} last_catalog_id={catalog_id} "
+                        f"last_status={status} counts={counts}",
+                    )
     _emit_progress(emit_progress, f"[{city}] segment_finish counts={counts}")
     return counts
 
@@ -328,23 +418,43 @@ def _run_summary_city(
     return counts
 
 
+def _emit_stage_timing(city: str, stage: str, counts: dict[str, int], elapsed_seconds: float) -> None:
+    selected = int(counts.get("selected", 0))
+    completed = sum(int(counts.get(key, 0)) for key in ("updated", "cached", "complete"))
+    print(
+        f"[{city}] {stage}_timing elapsed_s={elapsed_seconds:.2f} "
+        f"selected={selected} completed={completed} rate_per_s={_rate_per_second(completed, elapsed_seconds):.2f}",
+        flush=True,
+    )
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description="Hydrate repaired ElectronicFile-backed city agenda catalogs")
     parser.add_argument("--city", default="san_mateo")
     parser.add_argument("--limit", type=_positive_int, default=None, help="Stage selection limit")
     parser.add_argument("--resume-after-id", type=_nonnegative_int, default=None, dest="resume_after_id")
     parser.add_argument("--progress-every", type=_positive_int, default=25)
+    parser.add_argument("--extract-workers", type=_positive_int, default=4)
+    parser.add_argument("--segment-workers", type=_positive_int, default=_default_segment_workers())
+    parser.add_argument("--agenda-timeout-seconds", type=_positive_int, default=None, dest="agenda_timeout_seconds")
     parser.add_argument("--json", action="store_true", help="Emit JSON only")
     args = parser.parse_args()
 
     emit_progress = not args.json
+    extract_started = time.perf_counter()
     extract_counts, extracted_catalog_ids = _run_extract_city(
         args.city,
         limit=args.limit,
         resume_after_id=args.resume_after_id,
         emit_progress=emit_progress,
         progress_every=args.progress_every,
+        workers=args.extract_workers,
     )
+    extract_elapsed = time.perf_counter() - extract_started
+    if emit_progress:
+        _emit_stage_timing(args.city, "extract", extract_counts, extract_elapsed)
+
+    segment_started = time.perf_counter()
     segment_counts = _run_segment_city(
         args.city,
         limit=args.limit,
@@ -352,7 +462,14 @@ def main() -> int:
         emit_progress=emit_progress,
         progress_every=args.progress_every,
         catalog_ids=extracted_catalog_ids,
+        workers=args.segment_workers,
+        agenda_timeout_seconds=args.agenda_timeout_seconds,
     )
+    segment_elapsed = time.perf_counter() - segment_started
+    if emit_progress:
+        _emit_stage_timing(args.city, "segment", segment_counts, segment_elapsed)
+
+    summary_started = time.perf_counter()
     summary_counts = _run_summary_city(
         args.city,
         limit=args.limit,
@@ -361,15 +478,32 @@ def main() -> int:
         progress_every=args.progress_every,
         catalog_ids=extracted_catalog_ids,
     )
+    summary_elapsed = time.perf_counter() - summary_started
+    if emit_progress:
+        _emit_stage_timing(args.city, "summary", summary_counts, summary_elapsed)
 
     payload = {
         "city": args.city,
         "resume_after_id": args.resume_after_id,
         "limit": args.limit,
         "progress_every": args.progress_every,
+        "extract_workers": args.extract_workers,
+        "segment_workers": args.segment_workers,
+        "agenda_timeout_seconds": args.agenda_timeout_seconds,
         "extract": extract_counts,
         "segment": segment_counts,
         "summary": summary_counts,
+        "timing": {
+            "extract_seconds": round(extract_elapsed, 4),
+            "segment_seconds": round(segment_elapsed, 4),
+            "summary_seconds": round(summary_elapsed, 4),
+            "extract_rate_per_s": round(
+                _rate_per_second(extract_counts.get("updated", 0) + extract_counts.get("cached", 0), extract_elapsed),
+                4,
+            ),
+            "segment_rate_per_s": round(_rate_per_second(segment_counts.get("complete", 0), segment_elapsed), 4),
+            "summary_rate_per_s": round(_rate_per_second(summary_counts.get("complete", 0), summary_elapsed), 4),
+        },
     }
     if args.json:
         print(json.dumps(payload, indent=2, sort_keys=True))
