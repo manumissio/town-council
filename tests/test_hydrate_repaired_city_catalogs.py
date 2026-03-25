@@ -73,6 +73,8 @@ def test_hydrate_repaired_city_catalogs_emits_stage_progress(mocker, capsys):
             "1",
             "--agenda-timeout-seconds",
             "20",
+            "--summary-timeout-seconds",
+            "35",
         ],
     )
     mocker.patch.object(mod.time, "perf_counter", side_effect=[0.0, 2.0, 2.0, 5.0, 5.0, 9.0])
@@ -88,6 +90,7 @@ def test_hydrate_repaired_city_catalogs_emits_stage_progress(mocker, capsys):
     assert segment_spy.call_args.kwargs["workers"] == 1
     assert segment_spy.call_args.kwargs["agenda_timeout_seconds"] == 20
     assert summary_spy.call_args.kwargs["catalog_ids"] == [101, 102]
+    assert summary_spy.call_args.kwargs["summary_timeout_seconds"] == 35
 
 
 def test_run_extract_city_emits_progress_and_counts(mocker, capsys):
@@ -242,5 +245,65 @@ def test_segment_timeout_override_is_scoped(mocker):
         assert previous_instance._provider_backend is None
 
     assert mod.llm_provider_mod.LOCAL_AI_HTTP_TIMEOUT_SEGMENT_SECONDS == previous_timeout
+    assert previous_instance._provider is previous_provider
+    assert previous_instance._provider_backend == "http"
+
+
+def test_summarize_one_catalog_converts_retry_exception_to_error(mocker):
+    mocker.patch.object(mod.generate_summary_task, "run", side_effect=RuntimeError("retry-called"))
+
+    result = mod._summarize_one_catalog(101)
+
+    assert result == {"status": "error", "error": "retry-called"}
+
+
+def test_run_summary_city_continues_after_summary_error(mocker, capsys):
+    mocker.patch.object(mod, "_select_summary_catalog_ids", return_value=[101, 102, 103])
+    mocker.patch.object(
+        mod,
+        "_summarize_one_catalog",
+        side_effect=[
+            {"status": "complete", "summary": "ok"},
+            {"status": "error", "error": "retry-called"},
+            {"status": "blocked_low_signal", "reason": "insufficient text"},
+        ],
+    )
+
+    @contextmanager
+    def _fake_timeout(timeout_seconds):
+        assert timeout_seconds == 25
+        yield
+
+    mocker.patch.object(mod, "_summary_timeout_override", _fake_timeout)
+
+    counts = mod._run_summary_city(
+        "san_mateo",
+        limit=3,
+        resume_after_id=100,
+        emit_progress=True,
+        progress_every=2,
+        catalog_ids=[101, 102, 103],
+        summary_timeout_seconds=25,
+    )
+
+    captured = capsys.readouterr()
+    assert counts["complete"] == 1
+    assert counts["error"] == 1
+    assert counts["blocked_low_signal"] == 1
+    assert "last_error='retry-called'" in captured.out
+
+
+def test_summary_timeout_override_is_scoped(mocker):
+    previous_provider = object()
+    previous_instance = type("Instance", (), {"_provider": previous_provider, "_provider_backend": "http"})()
+    mocker.patch.object(mod.llm_mod.LocalAI, "_instance", previous_instance)
+    previous_timeout = mod.llm_provider_mod.LOCAL_AI_HTTP_TIMEOUT_SUMMARY_SECONDS
+
+    with mod._summary_timeout_override(29):
+        assert mod.llm_provider_mod.LOCAL_AI_HTTP_TIMEOUT_SUMMARY_SECONDS == 29
+        assert previous_instance._provider is None
+        assert previous_instance._provider_backend is None
+
+    assert mod.llm_provider_mod.LOCAL_AI_HTTP_TIMEOUT_SUMMARY_SECONDS == previous_timeout
     assert previous_instance._provider is previous_provider
     assert previous_instance._provider_backend == "http"

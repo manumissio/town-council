@@ -72,27 +72,52 @@ def _rate_per_second(total: int, elapsed_seconds: float) -> float:
 
 
 @contextmanager
-def _segment_timeout_override(timeout_seconds: int | None):
-    if timeout_seconds is None:
+def _provider_timeout_override(*, segment_timeout_seconds: int | None = None, summary_timeout_seconds: int | None = None):
+    if segment_timeout_seconds is None and summary_timeout_seconds is None:
         yield
         return
 
-    previous_timeout = llm_provider_mod.LOCAL_AI_HTTP_TIMEOUT_SEGMENT_SECONDS
+    previous_segment_timeout = llm_provider_mod.LOCAL_AI_HTTP_TIMEOUT_SEGMENT_SECONDS
+    previous_summary_timeout = llm_provider_mod.LOCAL_AI_HTTP_TIMEOUT_SUMMARY_SECONDS
     previous_instance = llm_mod.LocalAI._instance
     previous_provider = getattr(previous_instance, "_provider", None) if previous_instance else None
     previous_backend = getattr(previous_instance, "_provider_backend", None) if previous_instance else None
-    llm_provider_mod.LOCAL_AI_HTTP_TIMEOUT_SEGMENT_SECONDS = int(timeout_seconds)
+    if segment_timeout_seconds is not None:
+        llm_provider_mod.LOCAL_AI_HTTP_TIMEOUT_SEGMENT_SECONDS = int(segment_timeout_seconds)
+    if summary_timeout_seconds is not None:
+        llm_provider_mod.LOCAL_AI_HTTP_TIMEOUT_SUMMARY_SECONDS = int(summary_timeout_seconds)
     if previous_instance is not None:
         previous_instance._provider = None
         previous_instance._provider_backend = None
     try:
         yield
     finally:
-        llm_provider_mod.LOCAL_AI_HTTP_TIMEOUT_SEGMENT_SECONDS = previous_timeout
+        llm_provider_mod.LOCAL_AI_HTTP_TIMEOUT_SEGMENT_SECONDS = previous_segment_timeout
+        llm_provider_mod.LOCAL_AI_HTTP_TIMEOUT_SUMMARY_SECONDS = previous_summary_timeout
         current_instance = llm_mod.LocalAI._instance
         if current_instance is not None:
             current_instance._provider = previous_provider
             current_instance._provider_backend = previous_backend
+
+
+@contextmanager
+def _segment_timeout_override(timeout_seconds: int | None):
+    if timeout_seconds is None:
+        yield
+        return
+
+    with _provider_timeout_override(segment_timeout_seconds=timeout_seconds):
+        yield
+
+
+@contextmanager
+def _summary_timeout_override(timeout_seconds: int | None):
+    if timeout_seconds is None:
+        yield
+        return
+
+    with _provider_timeout_override(summary_timeout_seconds=timeout_seconds):
+        yield
 
 
 @contextmanager
@@ -377,7 +402,10 @@ def _run_segment_city(
 
 
 def _summarize_one_catalog(catalog_id: int) -> dict[str, Any]:
-    return generate_summary_task.run(catalog_id, force=False) or {}
+    try:
+        return generate_summary_task.run(catalog_id, force=False) or {}
+    except Exception as exc:
+        return {"status": "error", "error": str(exc)}
 
 
 def _run_summary_city(
@@ -388,6 +416,7 @@ def _run_summary_city(
     emit_progress: bool,
     progress_every: int,
     catalog_ids: list[int] | None = None,
+    summary_timeout_seconds: int | None = None,
 ) -> dict[str, int]:
     selected_catalog_ids = _select_summary_catalog_ids(
         city,
@@ -401,19 +430,21 @@ def _run_summary_city(
         emit_progress,
         f"[{city}] summary_start selected={counts['selected']} limit={limit} resume_after_id={resume_after_id}",
     )
-    for index, catalog_id in enumerate(selected_catalog_ids, start=1):
-        result = _summarize_one_catalog(catalog_id)
-        status = str(result.get("status") or "other")
-        if status in counts:
-            counts[status] += 1
-        else:
-            counts["other"] += 1
-        if emit_progress and (index == 1 or index % progress_every == 0 or index == len(selected_catalog_ids)):
-            _emit_progress(
-                True,
-                f"[{city}] summary_progress done={index}/{len(selected_catalog_ids)} last_catalog_id={catalog_id} "
-                f"last_status={status} counts={counts}",
-            )
+    with _summary_timeout_override(summary_timeout_seconds):
+        for index, catalog_id in enumerate(selected_catalog_ids, start=1):
+            result = _summarize_one_catalog(catalog_id)
+            status = str(result.get("status") or "other")
+            if status in counts:
+                counts[status] += 1
+            else:
+                counts["other"] += 1
+            if emit_progress and (index == 1 or index % progress_every == 0 or index == len(selected_catalog_ids)):
+                extra = f" last_error={result['error']!r}" if "error" in result else ""
+                _emit_progress(
+                    True,
+                    f"[{city}] summary_progress done={index}/{len(selected_catalog_ids)} last_catalog_id={catalog_id} "
+                    f"last_status={status} counts={counts}{extra}",
+                )
     _emit_progress(emit_progress, f"[{city}] summary_finish counts={counts}")
     return counts
 
@@ -437,6 +468,7 @@ def main() -> int:
     parser.add_argument("--extract-workers", type=_positive_int, default=4)
     parser.add_argument("--segment-workers", type=_positive_int, default=_default_segment_workers())
     parser.add_argument("--agenda-timeout-seconds", type=_positive_int, default=None, dest="agenda_timeout_seconds")
+    parser.add_argument("--summary-timeout-seconds", type=_positive_int, default=None, dest="summary_timeout_seconds")
     parser.add_argument("--json", action="store_true", help="Emit JSON only")
     args = parser.parse_args()
 
@@ -477,6 +509,7 @@ def main() -> int:
         emit_progress=emit_progress,
         progress_every=args.progress_every,
         catalog_ids=extracted_catalog_ids,
+        summary_timeout_seconds=args.summary_timeout_seconds,
     )
     summary_elapsed = time.perf_counter() - summary_started
     if emit_progress:
@@ -490,6 +523,7 @@ def main() -> int:
         "extract_workers": args.extract_workers,
         "segment_workers": args.segment_workers,
         "agenda_timeout_seconds": args.agenda_timeout_seconds,
+        "summary_timeout_seconds": args.summary_timeout_seconds,
         "extract": extract_counts,
         "segment": segment_counts,
         "summary": summary_counts,
