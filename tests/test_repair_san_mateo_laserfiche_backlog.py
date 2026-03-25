@@ -80,11 +80,15 @@ class _FakeSession:
     def __init__(self, responses):
         self.responses = responses
         self.trust_env = True
+        self.get_calls = []
+        self.post_calls = []
 
     def get(self, url, stream=True, timeout=None):
+        self.get_calls.append((url, stream, timeout))
         return self.responses.pop(0)
 
     def post(self, url, headers=None, json=None, data=None, timeout=None):
+        self.post_calls.append((url, json, data, timeout))
         return self.responses.pop(0)
 
 
@@ -93,12 +97,13 @@ def test_download_repaired_pdf_writes_validated_pdf_to_final_path(tmp_path, monk
         catalog_id=12,
         old_url="https://portal.laserfiche.com/Portal/DocView.aspx?id=2040856&repo=r-98a383e2",
         location=str(tmp_path / "oldhash.html"),
+        entry_id=2040856,
+        repo="r-98a383e2",
+        new_url="https://portal.laserfiche.com/Portal/ElectronicFile.aspx?docid=2040856&repo=r-98a383e2",
+        preferred_method="electronic_file",
     )
-    monkeypatch.setattr(
-        mod.requests,
-        "Session",
-        lambda: _FakeSession([_FakeResponse(content_type="application/pdf", chunks=[b"%PDF-1.7\nbody"])]),
-    )
+    fake_session = _FakeSession([_FakeResponse(content_type="application/pdf", chunks=[b"%PDF-1.7\nbody"])])
+    monkeypatch.setattr(mod, "_worker_session", lambda: fake_session)
 
     repair = mod._download_repaired_pdf(target)
 
@@ -113,21 +118,18 @@ def test_download_repaired_pdf_rejects_html_and_leaves_no_artifact(tmp_path, mon
         old_url="https://portal.laserfiche.com/Portal/DocView.aspx?id=2040857&repo=r-98a383e2",
         location=str(tmp_path / "oldhash.html"),
     )
-    monkeypatch.setattr(
-        mod.requests,
-        "Session",
-        lambda: _FakeSession(
-            [
-                _FakeResponse(content_type="text/html", chunks=[b"<!doctype html>error"]),
-                _FakeResponse(content_type="text/html", chunks=[b"<html>viewer</html>"]),
-                _FakeResponse(
-                    content_type="application/json",
-                    chunks=[b'{"data":{"id":2040857,"pageCount":0}}'],
-                    json_data={"data": {"id": 2040857, "pageCount": 0}},
-                ),
-            ]
-        ),
+    fake_session = _FakeSession(
+        [
+            _FakeResponse(content_type="text/html", chunks=[b"<!doctype html>error"]),
+            _FakeResponse(content_type="text/html", chunks=[b"<html>viewer</html>"]),
+            _FakeResponse(
+                content_type="application/json",
+                chunks=[b'{"data":{"id":2040857,"pageCount":0}}'],
+                json_data={"data": {"id": 2040857, "pageCount": 0}},
+            ),
+        ]
     )
+    monkeypatch.setattr(mod, "_worker_session", lambda: fake_session)
 
     try:
         mod._download_repaired_pdf(target)
@@ -145,21 +147,18 @@ def test_download_repaired_pdf_rejects_zero_byte_pdf(tmp_path, monkeypatch):
         old_url="https://portal.laserfiche.com/Portal/DocView.aspx?id=2040858&repo=r-98a383e2",
         location=str(tmp_path / "oldhash.html"),
     )
-    monkeypatch.setattr(
-        mod.requests,
-        "Session",
-        lambda: _FakeSession(
-            [
-                _FakeResponse(content_type="application/pdf", chunks=[]),
-                _FakeResponse(content_type="text/html", chunks=[b"<html>viewer</html>"]),
-                _FakeResponse(
-                    content_type="application/json",
-                    chunks=[b'{"data":{"id":2040858,"pageCount":0}}'],
-                    json_data={"data": {"id": 2040858, "pageCount": 0}},
-                ),
-            ]
-        ),
+    fake_session = _FakeSession(
+        [
+            _FakeResponse(content_type="application/pdf", chunks=[]),
+            _FakeResponse(content_type="text/html", chunks=[b"<html>viewer</html>"]),
+            _FakeResponse(
+                content_type="application/json",
+                chunks=[b'{"data":{"id":2040858,"pageCount":0}}'],
+                json_data={"data": {"id": 2040858, "pageCount": 0}},
+            ),
+        ]
     )
+    monkeypatch.setattr(mod, "_worker_session", lambda: fake_session)
 
     try:
         mod._download_repaired_pdf(target)
@@ -222,34 +221,31 @@ def test_download_repaired_pdf_salvage_falls_back_to_generated_pdf(tmp_path, mon
         old_url="https://portal.laserfiche.com/Portal/ElectronicFile.aspx?docid=2038682&repo=r-98a383e2",
         location=str(tmp_path / "oldhash.pdf"),
         mode="salvage",
+        entry_id=2038682,
+        repo="r-98a383e2",
+        new_url="https://portal.laserfiche.com/Portal/ElectronicFile.aspx?docid=2038682&repo=r-98a383e2",
+        preferred_method="electronic_file",
+        page_count=7,
     )
     monkeypatch.setattr(mod, "PDF_TRANSITION_POLL_INTERVAL_SECONDS", 0)
-    monkeypatch.setattr(
-        mod.requests,
-        "Session",
-        lambda: _FakeSession(
-            [
-                _FakeResponse(content_type=None, chunks=[]),
-                _FakeResponse(content_type="text/html", chunks=[b"<html>viewer</html>"]),
-                _FakeResponse(
-                    content_type="application/json",
-                    chunks=[b'{"data":{"id":2038682,"pageCount":7}}'],
-                    json_data={"data": {"id": 2038682, "pageCount": 7}},
-                ),
-                _FakeResponse(
-                    content_type="text/plain",
-                    chunks=[b"token-123\r\n<html></html>"],
-                    text="token-123\r\n<html></html>",
-                ),
-                _FakeResponse(
-                    content_type="application/json",
-                    chunks=[b'{"data":{"finished":true,"success":true,"completion":100}}'],
-                    json_data={"data": {"finished": True, "success": True, "completion": 100}},
-                ),
-                _FakeResponse(content_type="application/pdf", chunks=[b"%PDF-1.6\nrescued"]),
-            ]
-        ),
+    fake_session = _FakeSession(
+        [
+            _FakeResponse(content_type=None, chunks=[]),
+            _FakeResponse(content_type="text/html", chunks=[b"<html>viewer</html>"]),
+            _FakeResponse(
+                content_type="text/plain",
+                chunks=[b"token-123\r\n<html></html>"],
+                text="token-123\r\n<html></html>",
+            ),
+            _FakeResponse(
+                content_type="application/json",
+                chunks=[b'{"data":{"finished":true,"success":true,"completion":100}}'],
+                json_data={"data": {"finished": True, "success": True, "completion": 100}},
+            ),
+            _FakeResponse(content_type="application/pdf", chunks=[b"%PDF-1.6\nrescued"]),
+        ]
     )
+    monkeypatch.setattr(mod, "_worker_session", lambda: fake_session)
 
     repair = mod._download_repaired_pdf(target)
 
@@ -263,33 +259,30 @@ def test_download_repaired_pdf_salvage_surfaces_generated_pdf_failure(tmp_path, 
         old_url="https://portal.laserfiche.com/Portal/ElectronicFile.aspx?docid=2038682&repo=r-98a383e2",
         location=str(tmp_path / "oldhash.pdf"),
         mode="salvage",
+        entry_id=2038682,
+        repo="r-98a383e2",
+        new_url="https://portal.laserfiche.com/Portal/ElectronicFile.aspx?docid=2038682&repo=r-98a383e2",
+        preferred_method="electronic_file",
+        page_count=7,
     )
     monkeypatch.setattr(mod, "PDF_TRANSITION_POLL_INTERVAL_SECONDS", 0)
-    monkeypatch.setattr(
-        mod.requests,
-        "Session",
-        lambda: _FakeSession(
-            [
-                _FakeResponse(content_type=None, chunks=[]),
-                _FakeResponse(content_type="text/html", chunks=[b"<html>viewer</html>"]),
-                _FakeResponse(
-                    content_type="application/json",
-                    chunks=[b'{"data":{"id":2038682,"pageCount":7}}'],
-                    json_data={"data": {"id": 2038682, "pageCount": 7}},
-                ),
-                _FakeResponse(
-                    content_type="text/plain",
-                    chunks=[b"token-123\r\n<html></html>"],
-                    text="token-123\r\n<html></html>",
-                ),
-                _FakeResponse(
-                    content_type="application/json",
-                    chunks=[b'{"data":{"finished":true,"success":false,"errMsg":"boom"}}'],
-                    json_data={"data": {"finished": True, "success": False, "errMsg": "boom"}},
-                ),
-            ]
-        ),
+    fake_session = _FakeSession(
+        [
+            _FakeResponse(content_type=None, chunks=[]),
+            _FakeResponse(content_type="text/html", chunks=[b"<html>viewer</html>"]),
+            _FakeResponse(
+                content_type="text/plain",
+                chunks=[b"token-123\r\n<html></html>"],
+                text="token-123\r\n<html></html>",
+            ),
+            _FakeResponse(
+                content_type="application/json",
+                chunks=[b'{"data":{"finished":true,"success":false,"errMsg":"boom"}}'],
+                json_data={"data": {"finished": True, "success": False, "errMsg": "boom"}},
+            ),
+        ]
     )
+    monkeypatch.setattr(mod, "_worker_session", lambda: fake_session)
 
     try:
         mod._download_repaired_pdf(target)
@@ -297,3 +290,99 @@ def test_download_repaired_pdf_salvage_surfaces_generated_pdf_failure(tmp_path, 
         assert "Laserfiche PDF generation failed" in str(exc)
     else:  # pragma: no cover
         raise AssertionError("expected generated PDF failure to surface")
+
+
+def test_classify_target_prefers_generated_pdf_when_no_edoc_signal(monkeypatch, tmp_path):
+    target = mod.RepairTarget(
+        catalog_id=21,
+        old_url="https://portal.laserfiche.com/Portal/DocView.aspx?id=2040900&repo=r-98a383e2",
+        location=str(tmp_path / "oldhash.html"),
+    )
+    monkeypatch.setattr(
+        mod,
+        "_fetch_basic_document_info",
+        lambda session, *, entry_id, repo: {"id": entry_id, "pageCount": 8, "hasEdoc": False},
+    )
+    monkeypatch.setattr(mod, "_worker_session", lambda: _FakeSession([]))
+
+    classified = mod._classify_target(target)
+
+    assert classified.preferred_method == "generated_pdf"
+    assert classified.page_count == 8
+    assert classified.new_url == "https://portal.laserfiche.com/Portal/ElectronicFile.aspx?docid=2040900&repo=r-98a383e2"
+
+
+def test_download_repaired_pdf_skips_direct_fetch_for_generated_pdf_targets(tmp_path, monkeypatch):
+    target = mod.RepairTarget(
+        catalog_id=22,
+        old_url="https://portal.laserfiche.com/Portal/DocView.aspx?id=2038682&repo=r-98a383e2",
+        location=str(tmp_path / "oldhash.pdf"),
+        entry_id=2038682,
+        repo="r-98a383e2",
+        new_url="https://portal.laserfiche.com/Portal/ElectronicFile.aspx?docid=2038682&repo=r-98a383e2",
+        preferred_method="generated_pdf",
+        page_count=7,
+    )
+    fake_session = _FakeSession(
+        [
+            _FakeResponse(content_type="text/html", chunks=[b"<html>viewer</html>"]),
+            _FakeResponse(
+                content_type="text/plain",
+                chunks=[b"token-123\r\n<html></html>"],
+                text="token-123\r\n<html></html>",
+            ),
+            _FakeResponse(
+                content_type="application/json",
+                chunks=[b'{"data":{"finished":true,"success":true,"completion":100}}'],
+                json_data={"data": {"finished": True, "success": True, "completion": 100}},
+            ),
+            _FakeResponse(content_type="application/pdf", chunks=[b"%PDF-1.6\nrescued"]),
+        ]
+    )
+    monkeypatch.setattr(mod, "PDF_TRANSITION_POLL_INTERVAL_SECONDS", 0)
+    monkeypatch.setattr(mod, "_worker_session", lambda: fake_session)
+
+    repair = mod._download_repaired_pdf(target)
+
+    assert repair["retrieval_type"] == "generated_pdf"
+    assert fake_session.get_calls[0][0] == "https://portal.laserfiche.com/Portal/DocView.aspx?id=2038682&repo=r-98a383e2"
+
+
+def test_main_retries_timeout_and_token_missing_failures(mocker, capsys):
+    targets = [
+        mod.RepairTarget(catalog_id=31, old_url="u1", location="l1", preferred_method="electronic_file"),
+        mod.RepairTarget(catalog_id=32, old_url="u2", location="l2", preferred_method="generated_pdf"),
+    ]
+    mocker.patch.object(mod, "_select_targets", return_value=targets)
+    mocker.patch.object(mod, "_classify_targets", return_value=targets)
+    download = mocker.patch.object(
+        mod,
+        "_download_repaired_pdf",
+        side_effect=[
+            ValueError("Laserfiche PDF generation timed out for catalog 31"),
+            ValueError("Laserfiche PDF generation token missing for catalog 32"),
+            {"catalog_id": 31, "new_url": "u1", "new_hash": "h1", "path": "p1", "filename": "f1", "size": 1, "method": "generated_pdf", "retrieval_type": "generated_pdf"},
+            {"catalog_id": 32, "new_url": "u2", "new_hash": "h2", "path": "p2", "filename": "f2", "size": 1, "method": "generated_pdf", "retrieval_type": "generated_pdf"},
+        ],
+    )
+    apply_repairs = mocker.patch.object(mod, "_apply_repairs", return_value={"updated": 2, "skipped_duplicate_hash": 0})
+    mocker.patch.object(
+        sys,
+        "argv",
+        [
+            "repair_san_mateo_laserfiche_backlog.py",
+            "--city",
+            "san_mateo",
+            "--apply-batch-size",
+            "10",
+        ],
+    )
+
+    exit_code = mod.main()
+
+    captured = capsys.readouterr()
+    assert exit_code == 0
+    assert download.call_count == 4
+    assert apply_repairs.call_count == 1
+    assert "repair_lane_start lane=retry selected=2" in captured.out
+    assert "failure_counts={'timed_out': 1, 'token_missing': 1}" in captured.out

@@ -5,7 +5,9 @@ import argparse
 import hashlib
 import os
 import re
+import threading
 import time
+from collections import Counter
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass
 
@@ -25,6 +27,8 @@ ELECTRONIC_FILE_RE = re.compile(
 )
 PDF_TRANSITION_TIMEOUT_SECONDS = 30
 PDF_TRANSITION_POLL_INTERVAL_SECONDS = 1
+RETRYABLE_FAILURE_REASONS = {"timed_out", "token_missing"}
+_THREAD_STATE = threading.local()
 
 
 def _url_to_md5(value: str) -> str:
@@ -37,6 +41,11 @@ class RepairTarget:
     old_url: str
     location: str | None
     mode: str = "docview"
+    entry_id: int | None = None
+    repo: str | None = None
+    new_url: str | None = None
+    preferred_method: str = "electronic_file"
+    page_count: int | None = None
 
 
 def _positive_int(value: str) -> int:
@@ -105,6 +114,15 @@ def _laserfiche_headers() -> dict[str, str]:
     }
 
 
+def _worker_session() -> requests.Session:
+    session = getattr(_THREAD_STATE, "session", None)
+    if session is None:
+        session = requests.Session()
+        session.trust_env = False
+        _THREAD_STATE.session = session
+    return session
+
+
 def _raise_for_invalid_pdf_response(response: requests.Response, *, catalog_id: int) -> None:
     content_type = (response.headers.get("Content-Type") or "").split(";")[0].strip().lower()
     if content_type and content_type != "application/pdf":
@@ -164,6 +182,76 @@ def _build_page_range(page_count: int) -> str:
     return f"1 - {page_count}"
 
 
+def _coerce_bool(value: object) -> bool | None:
+    if isinstance(value, bool):
+        return value
+    if isinstance(value, (int, float)):
+        return bool(value)
+    if isinstance(value, str):
+        lowered = value.strip().lower()
+        if lowered in {"1", "true", "yes", "y"}:
+            return True
+        if lowered in {"0", "false", "no", "n"}:
+            return False
+    return None
+
+
+def _document_supports_electronic_file(info: dict[str, object]) -> bool:
+    for key in (
+        "hasEdoc",
+        "hasEDoc",
+        "isEdoc",
+        "isEDoc",
+        "isElectronicDoc",
+        "hasElectronicFile",
+        "electronicDocument",
+        "electronicFile",
+    ):
+        if key in info:
+            coerced = _coerce_bool(info.get(key))
+            if coerced is not None:
+                return coerced
+
+    for key in ("edocUrl", "electronicFileUrl", "electronicUrl"):
+        value = str(info.get(key) or "").strip()
+        if value:
+            return True
+
+    return False
+
+
+def _classify_target(target: RepairTarget) -> RepairTarget:
+    if target.mode == "salvage":
+        entry_id, repo = _parse_electronic_file_url(target.old_url)
+        new_url = target.old_url
+    else:
+        entry_id, repo = _parse_docview_url(target.old_url)
+        new_url = _electronic_file_url(entry_id, repo)
+
+    info: dict[str, object] = {}
+    try:
+        info = _fetch_basic_document_info(_worker_session(), entry_id=entry_id, repo=repo)
+    except Exception:
+        info = {}
+
+    page_count = int(info.get("pageCount") or 0) if info else 0
+    preferred_method = "electronic_file"
+    if target.mode != "salvage" and not _document_supports_electronic_file(info):
+        preferred_method = "generated_pdf"
+
+    return RepairTarget(
+        catalog_id=target.catalog_id,
+        old_url=target.old_url,
+        location=target.location,
+        mode=target.mode,
+        entry_id=entry_id,
+        repo=repo,
+        new_url=new_url,
+        preferred_method=preferred_method,
+        page_count=page_count if page_count > 0 else None,
+    )
+
+
 def _download_generated_pdf(
     session: requests.Session,
     *,
@@ -173,6 +261,7 @@ def _download_generated_pdf(
     temp_path: str,
     final_path: str,
     catalog_id: int,
+    pdf_transition_timeout_seconds: int = PDF_TRANSITION_TIMEOUT_SECONDS,
 ) -> int:
     page_range = _build_page_range(page_count).replace(" ", "+")
     generate = session.post(
@@ -186,7 +275,7 @@ def _download_generated_pdf(
     if not token:
         raise ValueError(f"Laserfiche PDF generation token missing for catalog {catalog_id}")
 
-    deadline = time.time() + PDF_TRANSITION_TIMEOUT_SECONDS
+    deadline = time.time() + pdf_transition_timeout_seconds
     while True:
         progress = session.post(
             "https://portal.laserfiche.com/Portal/DocumentService.aspx/PDFTransition",
@@ -268,46 +357,83 @@ def _select_targets(
     return targets
 
 
-def _download_repaired_pdf(target: RepairTarget) -> dict[str, object]:
-    if target.mode == "salvage":
-        entry_id, repo = _parse_electronic_file_url(target.old_url)
-        new_url = target.old_url
-    else:
-        entry_id, repo = _parse_docview_url(target.old_url)
-        new_url = _electronic_file_url(entry_id, repo)
+def _classify_targets(targets: list[RepairTarget], *, workers: int) -> list[RepairTarget]:
+    if not targets:
+        return []
+    with ThreadPoolExecutor(max_workers=workers) as executor:
+        return [future.result() for future in as_completed([executor.submit(_classify_target, target) for target in targets])]
+
+
+def _failure_reason(exc: Exception) -> str:
+    lowered = str(exc).strip().lower()
+    if "timed out" in lowered:
+        return "timed_out"
+    if "token missing" in lowered:
+        return "token_missing"
+    if "unexpected content type" in lowered:
+        return "unexpected_content_type"
+    if "zero-byte" in lowered:
+        return "zero_byte"
+    if "invalid pdf" in lowered:
+        return "invalid_pdf"
+    return re.sub(r"[^a-z0-9]+", "_", lowered).strip("_") or type(exc).__name__.lower()
+
+
+def _download_repaired_pdf(
+    target: RepairTarget,
+    *,
+    pdf_transition_timeout_seconds: int = PDF_TRANSITION_TIMEOUT_SECONDS,
+    force_generated_pdf: bool = False,
+) -> dict[str, object]:
+    entry_id = target.entry_id
+    repo = target.repo
+    new_url = target.new_url
+    if entry_id is None or repo is None or new_url is None:
+        target = _classify_target(target)
+        entry_id = target.entry_id
+        repo = target.repo
+        new_url = target.new_url
+
+    assert entry_id is not None
+    assert repo is not None
+    assert new_url is not None
     new_hash = _url_to_md5(new_url)
     path, filename = _target_path(target.location, new_hash)
     temp_path = f"{path}.tmp.{target.catalog_id}"
 
-    session = requests.Session()
-    session.trust_env = False
+    session = _worker_session()
     direct_error: Exception | None = None
-    try:
-        response = session.get(new_url, stream=True, timeout=DOWNLOAD_TIMEOUT_SECONDS)
-        response.raise_for_status()
-        size = _write_validated_pdf_response(
-            response,
-            temp_path=temp_path,
-            final_path=path,
-            catalog_id=target.catalog_id,
-        )
-        return {
-            "catalog_id": target.catalog_id,
-            "new_url": new_url,
-            "new_hash": new_hash,
-            "path": path,
-            "filename": filename,
-            "size": size,
-            "method": "electronic_file",
-        }
-    except ValueError as exc:
-        direct_error = exc
+    preferred_method = "generated_pdf" if force_generated_pdf else target.preferred_method
+    if preferred_method == "electronic_file":
+        try:
+            response = session.get(new_url, stream=True, timeout=DOWNLOAD_TIMEOUT_SECONDS)
+            response.raise_for_status()
+            size = _write_validated_pdf_response(
+                response,
+                temp_path=temp_path,
+                final_path=path,
+                catalog_id=target.catalog_id,
+            )
+            return {
+                "catalog_id": target.catalog_id,
+                "new_url": new_url,
+                "new_hash": new_hash,
+                "path": path,
+                "filename": filename,
+                "size": size,
+                "method": "electronic_file",
+                "retrieval_type": "electronic_file",
+            }
+        except ValueError as exc:
+            direct_error = exc
 
     viewer_url = f"https://portal.laserfiche.com/Portal/DocView.aspx?id={entry_id}&repo={repo}"
     viewer = session.get(viewer_url, timeout=DOWNLOAD_TIMEOUT_SECONDS)
     viewer.raise_for_status()
-    info = _fetch_basic_document_info(session, entry_id=entry_id, repo=repo)
-    page_count = int(info.get("pageCount") or 0)
+    page_count = int(target.page_count or 0)
+    if page_count <= 0:
+        info = _fetch_basic_document_info(session, entry_id=entry_id, repo=repo)
+        page_count = int(info.get("pageCount") or 0)
     size = _download_generated_pdf(
         session,
         entry_id=entry_id,
@@ -316,6 +442,7 @@ def _download_repaired_pdf(target: RepairTarget) -> dict[str, object]:
         temp_path=temp_path,
         final_path=path,
         catalog_id=target.catalog_id,
+        pdf_transition_timeout_seconds=pdf_transition_timeout_seconds,
     )
     return {
         "catalog_id": target.catalog_id,
@@ -325,6 +452,7 @@ def _download_repaired_pdf(target: RepairTarget) -> dict[str, object]:
         "filename": filename,
         "size": size,
         "method": f"generated_pdf_after_{type(direct_error).__name__}" if direct_error else "generated_pdf",
+        "retrieval_type": "generated_pdf",
     }
 
 
@@ -404,7 +532,10 @@ def main() -> int:
     parser.add_argument("--limit", type=_positive_int, default=None)
     parser.add_argument("--resume-after-id", type=_nonnegative_int, default=None, dest="resume_after_id")
     parser.add_argument("--workers", type=_positive_int, default=4)
+    parser.add_argument("--generated-pdf-workers", type=_positive_int, default=2, dest="generated_pdf_workers")
     parser.add_argument("--apply-batch-size", type=_positive_int, default=200)
+    parser.add_argument("--pdf-transition-timeout", type=_positive_int, default=PDF_TRANSITION_TIMEOUT_SECONDS)
+    parser.add_argument("--retry-only", action="store_true")
     parser.add_argument("--reindex", action="store_true")
     parser.add_argument("--dry-run", action="store_true")
     parser.add_argument("--salvage-bad-electronicfile", action="store_true")
@@ -419,22 +550,27 @@ def main() -> int:
     print(
         f"[{args.city}] repair_targets selected={len(targets)} "
         f"resume_after_id={args.resume_after_id} workers={args.workers} "
+        f"generated_pdf_workers={args.generated_pdf_workers} retry_only={args.retry_only} "
         f"dry_run={args.dry_run} salvage_bad_electronicfile={args.salvage_bad_electronicfile}",
         flush=True,
     )
     if not targets:
         return 0
 
+    classified_targets = _classify_targets(targets, workers=max(args.workers, args.generated_pdf_workers))
+    classified_targets.sort(key=lambda target: target.catalog_id)
+    preferred_counts = Counter(target.preferred_method for target in classified_targets)
+    print(
+        f"[{args.city}] repair_lane_selection electronic_file={preferred_counts.get('electronic_file', 0)} "
+        f"generated_pdf={preferred_counts.get('generated_pdf', 0)}",
+        flush=True,
+    )
+
     if args.dry_run:
-        for target in targets[:5]:
-            if target.mode == "salvage":
-                new_url = target.old_url
-            else:
-                entry_id, repo = _parse_docview_url(target.old_url)
-                new_url = _electronic_file_url(entry_id, repo)
+        for target in classified_targets[:5]:
             print(
                 f"[{args.city}] dry_run catalog_id={target.catalog_id} "
-                f"old_url={target.old_url} new_url={new_url}",
+                f"old_url={target.old_url} new_url={target.new_url} preferred_method={target.preferred_method}",
                 flush=True,
             )
         return 0
@@ -443,41 +579,117 @@ def main() -> int:
     failed = 0
     total_updated = 0
     total_skipped_duplicate_hash = 0
-    with ThreadPoolExecutor(max_workers=args.workers) as executor:
-        futures = {executor.submit(_download_repaired_pdf, target): target for target in targets}
-        for future in as_completed(futures):
-            target = futures[future]
-            try:
-                repair = future.result()
-                repairs.append(repair)
-                print(
-                    f"[{args.city}] repair_downloaded catalog_id={target.catalog_id} "
-                    f"path={repair['path']} size={repair['size']}",
-                    flush=True,
-                )
-                if len(repairs) >= args.apply_batch_size:
-                    counts = _apply_repairs(repairs, reindex=args.reindex)
-                    total_updated += counts["updated"]
-                    total_skipped_duplicate_hash += counts["skipped_duplicate_hash"]
+    retrieval_counts: Counter[str] = Counter()
+    failure_counts: Counter[str] = Counter()
+    retry_targets: list[RepairTarget] = []
+
+    def _flush_repairs() -> None:
+        nonlocal repairs, total_updated, total_skipped_duplicate_hash
+        if not repairs:
+            return
+        counts = _apply_repairs(repairs, reindex=args.reindex)
+        total_updated += counts["updated"]
+        total_skipped_duplicate_hash += counts["skipped_duplicate_hash"]
+        print(
+            f"[{args.city}] repair_batch_applied updated={counts['updated']} "
+            f"skipped_duplicate_hash={counts['skipped_duplicate_hash']}",
+            flush=True,
+        )
+        repairs = []
+
+    def _run_lane(
+        lane_name: str,
+        lane_targets: list[RepairTarget],
+        *,
+        workers: int,
+        force_generated_pdf: bool,
+        collect_retryables: bool,
+        pdf_transition_timeout_seconds: int,
+    ) -> None:
+        nonlocal failed, repairs
+        if not lane_targets:
+            return
+        print(
+            f"[{args.city}] repair_lane_start lane={lane_name} selected={len(lane_targets)} "
+            f"workers={workers} force_generated_pdf={force_generated_pdf} "
+            f"pdf_transition_timeout={pdf_transition_timeout_seconds}",
+            flush=True,
+        )
+        with ThreadPoolExecutor(max_workers=workers) as executor:
+            futures = {
+                executor.submit(
+                    _download_repaired_pdf,
+                    target,
+                    pdf_transition_timeout_seconds=pdf_transition_timeout_seconds,
+                    force_generated_pdf=force_generated_pdf,
+                ): target
+                for target in lane_targets
+            }
+            for future in as_completed(futures):
+                target = futures[future]
+                try:
+                    repair = future.result()
+                    retrieval_counts[str(repair.get("retrieval_type") or "unknown")] += 1
+                    repairs.append(repair)
                     print(
-                        f"[{args.city}] repair_batch_applied updated={counts['updated']} "
-                        f"skipped_duplicate_hash={counts['skipped_duplicate_hash']}",
+                        f"[{args.city}] repair_downloaded catalog_id={target.catalog_id} "
+                        f"path={repair['path']} size={repair['size']} method={repair['method']}",
                         flush=True,
                     )
-                    repairs = []
-            except Exception as exc:
-                failed += 1
-                print(
-                    f"[{args.city}] repair_failed catalog_id={target.catalog_id} error={exc}",
-                    flush=True,
-                )
+                    if len(repairs) >= args.apply_batch_size:
+                        _flush_repairs()
+                except Exception as exc:
+                    reason = _failure_reason(exc)
+                    failure_counts[reason] += 1
+                    if collect_retryables and reason in RETRYABLE_FAILURE_REASONS:
+                        retry_targets.append(target)
+                    else:
+                        failed += 1
+                    print(
+                        f"[{args.city}] repair_failed catalog_id={target.catalog_id} reason={reason} error={exc}",
+                        flush=True,
+                    )
 
-    counts = _apply_repairs(repairs, reindex=args.reindex)
-    total_updated += counts["updated"]
-    total_skipped_duplicate_hash += counts["skipped_duplicate_hash"]
+    fast_targets = [target for target in classified_targets if target.preferred_method == "electronic_file"]
+    generated_targets = [target for target in classified_targets if target.preferred_method == "generated_pdf"]
+
+    if args.retry_only:
+        retry_targets = classified_targets
+    else:
+        _run_lane(
+            "fast",
+            fast_targets,
+            workers=args.workers,
+            force_generated_pdf=False,
+            collect_retryables=True,
+            pdf_transition_timeout_seconds=args.pdf_transition_timeout,
+        )
+        _run_lane(
+            "generated_pdf",
+            generated_targets,
+            workers=args.generated_pdf_workers,
+            force_generated_pdf=True,
+            collect_retryables=True,
+            pdf_transition_timeout_seconds=args.pdf_transition_timeout,
+        )
+    _run_lane(
+        "retry",
+        retry_targets,
+        workers=args.generated_pdf_workers,
+        force_generated_pdf=True,
+        collect_retryables=False,
+        pdf_transition_timeout_seconds=max(args.pdf_transition_timeout, PDF_TRANSITION_TIMEOUT_SECONDS * 2),
+    )
+
+    _flush_repairs()
+    failure_summary = dict(sorted(failure_counts.items()))
+    retrieval_summary = dict(sorted(retrieval_counts.items()))
+    last_catalog_id = max((target.catalog_id for target in classified_targets), default=args.resume_after_id)
     print(
         f"[{args.city}] repair_finish downloaded={len(targets) - failed} failed={failed} "
-        f"updated={total_updated} skipped_duplicate_hash={total_skipped_duplicate_hash}",
+        f"updated={total_updated} skipped_duplicate_hash={total_skipped_duplicate_hash} "
+        f"retrieval_counts={retrieval_summary} failure_counts={failure_summary} "
+        f"resume_after_id={last_catalog_id}",
         flush=True,
     )
     return 0 if failed == 0 else 1
