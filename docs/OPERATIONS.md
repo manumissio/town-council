@@ -1,6 +1,6 @@
 # Operations Runbook
 
-Last updated: 2026-03-25
+Last updated: 2026-03-26
 
 ## Core workflow
 
@@ -91,6 +91,21 @@ docker compose run --rm pipeline python scripts/hydrate_repaired_city_catalogs.p
   --summary-timeout-seconds 90 \
   --summary-fallback-mode deterministic
 ```
+
+### Maintenance salvage helper for flaky Laserfiche agenda PDFs
+- `scripts/repair_san_mateo_laserfiche_backlog.py` now distinguishes generated-PDF transport failures from permanent failures.
+- The helper treats these generated-PDF failures as retryable and eligible for the slow retry lane:
+  - `remote_disconnected`
+  - `incomplete_read`
+  - `connection_error`
+  - `read_timeout`
+  - `generated_pdf_html_retryable`
+  - `invalid_partial_pdf`
+- Watch `retry_stats` in `repair_finish` output when evaluating bad-tail salvage batches:
+  - `generated_pdf_fetch_retries`
+  - `generated_pdf_html_retryable`
+  - `generated_pdf_transport_retryable`
+  - `generated_pdf_invalid_partial_pdf`
 
 ### Onboarding-safe extraction mode
 - `scripts/onboard_city_wave.sh` runs the pipeline in an onboarding-scoped extraction mode.
