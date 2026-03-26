@@ -1,4 +1,5 @@
 import importlib.util
+from requests.exceptions import ConnectionError as RequestsConnectionError
 from pathlib import Path
 import sys
 
@@ -102,13 +103,13 @@ def test_download_repaired_pdf_writes_validated_pdf_to_final_path(tmp_path, monk
         new_url="https://portal.laserfiche.com/Portal/ElectronicFile.aspx?docid=2040856&repo=r-98a383e2",
         preferred_method="electronic_file",
     )
-    fake_session = _FakeSession([_FakeResponse(content_type="application/pdf", chunks=[b"%PDF-1.7\nbody"])])
+    fake_session = _FakeSession([_FakeResponse(content_type="application/pdf", chunks=[b"%PDF-1.7\nbody\n%%EOF"])])
     monkeypatch.setattr(mod, "_worker_session", lambda: fake_session)
 
     repair = mod._download_repaired_pdf(target)
 
     assert repair["path"] == str(tmp_path / f"{repair['new_hash']}.pdf")
-    assert Path(repair["path"]).read_bytes() == b"%PDF-1.7\nbody"
+    assert Path(repair["path"]).read_bytes() == b"%PDF-1.7\nbody\n%%EOF"
     assert not list(tmp_path.glob("*.tmp.*"))
 
 
@@ -137,6 +138,48 @@ def test_download_repaired_pdf_rejects_html_and_leaves_no_artifact(tmp_path, mon
         assert "no pages to export" in str(exc)
     else:  # pragma: no cover
         raise AssertionError("expected html response to fail")
+
+    assert not any(tmp_path.iterdir())
+
+
+def test_raise_for_invalid_pdf_response_marks_laserfiche_html_as_retryable():
+    response = _FakeResponse(content_type="text/html", chunks=[b"<html>Laserfiche Portal DocView</html>"])
+
+    try:
+        mod._raise_for_invalid_pdf_response(response, catalog_id=99)
+    except mod.RepairRetryableError as exc:
+        assert exc.reason == "generated_pdf_html_retryable"
+    else:  # pragma: no cover
+        raise AssertionError("expected retryable html classification")
+
+
+def test_iter_pdf_chunks_reclassifies_remote_disconnect():
+    class _BrokenResponse:
+        def iter_content(self, chunk_size: int = 0):
+            raise RequestsConnectionError("RemoteDisconnected('Remote end closed connection without response')")
+
+    try:
+        list(mod._iter_pdf_chunks(_BrokenResponse()))
+    except mod.RepairRetryableError as exc:
+        assert exc.reason == "remote_disconnected"
+    else:  # pragma: no cover
+        raise AssertionError("expected remote disconnection to be retryable")
+
+
+def test_write_validated_pdf_response_rejects_missing_eof_marker(tmp_path):
+    response = _FakeResponse(content_type="application/pdf", chunks=[b"%PDF-1.7\nbody-without-eof"])
+
+    try:
+        mod._write_validated_pdf_response(
+            response,
+            temp_path=str(tmp_path / "tmp.pdf"),
+            final_path=str(tmp_path / "final.pdf"),
+            catalog_id=501,
+        )
+    except mod.RepairRetryableError as exc:
+        assert exc.reason == "invalid_partial_pdf"
+    else:  # pragma: no cover
+        raise AssertionError("expected truncated pdf to be retryable")
 
     assert not any(tmp_path.iterdir())
 
@@ -242,7 +285,7 @@ def test_download_repaired_pdf_salvage_falls_back_to_generated_pdf(tmp_path, mon
                 chunks=[b'{"data":{"finished":true,"success":true,"completion":100}}'],
                 json_data={"data": {"finished": True, "success": True, "completion": 100}},
             ),
-            _FakeResponse(content_type="application/pdf", chunks=[b"%PDF-1.6\nrescued"]),
+            _FakeResponse(content_type="application/pdf", chunks=[b"%PDF-1.6\nrescued\n%%EOF"]),
         ]
     )
     monkeypatch.setattr(mod, "_worker_session", lambda: fake_session)
@@ -250,7 +293,7 @@ def test_download_repaired_pdf_salvage_falls_back_to_generated_pdf(tmp_path, mon
     repair = mod._download_repaired_pdf(target)
 
     assert repair["method"].startswith("generated_pdf_after_")
-    assert Path(repair["path"]).read_bytes() == b"%PDF-1.6\nrescued"
+    assert Path(repair["path"]).read_bytes() == b"%PDF-1.6\nrescued\n%%EOF"
 
 
 def test_download_repaired_pdf_salvage_surfaces_generated_pdf_failure(tmp_path, monkeypatch):
@@ -336,7 +379,7 @@ def test_download_repaired_pdf_skips_direct_fetch_for_generated_pdf_targets(tmp_
                 chunks=[b'{"data":{"finished":true,"success":true,"completion":100}}'],
                 json_data={"data": {"finished": True, "success": True, "completion": 100}},
             ),
-            _FakeResponse(content_type="application/pdf", chunks=[b"%PDF-1.6\nrescued"]),
+            _FakeResponse(content_type="application/pdf", chunks=[b"%PDF-1.6\nrescued\n%%EOF"]),
         ]
     )
     monkeypatch.setattr(mod, "PDF_TRANSITION_POLL_INTERVAL_SECONDS", 0)
@@ -386,3 +429,48 @@ def test_main_retries_timeout_and_token_missing_failures(mocker, capsys):
     assert apply_repairs.call_count == 1
     assert "repair_lane_start lane=retry selected=2" in captured.out
     assert "failure_counts={'timed_out': 1, 'token_missing': 1}" in captured.out
+
+
+def test_main_retries_transport_failures(mocker, capsys):
+    targets = [mod.RepairTarget(catalog_id=41, old_url="u1", location="l1", preferred_method="electronic_file")]
+    mocker.patch.object(mod, "_select_targets", return_value=targets)
+    mocker.patch.object(mod, "_classify_targets", return_value=targets)
+    mocker.patch.object(
+        mod,
+        "_download_repaired_pdf",
+        side_effect=[
+            mod.RepairRetryableError("remote_disconnected", "dropped"),
+            {
+                "catalog_id": 41,
+                "new_url": "u1",
+                "new_hash": "h1",
+                "path": "p1",
+                "filename": "f1",
+                "size": 1,
+                "method": "generated_pdf",
+                "retrieval_type": "generated_pdf",
+                "fetch_retries": 2,
+            },
+        ],
+    )
+    apply_repairs = mocker.patch.object(mod, "_apply_repairs", return_value={"updated": 1, "skipped_duplicate_hash": 0})
+    mocker.patch.object(
+        sys,
+        "argv",
+        [
+            "repair_san_mateo_laserfiche_backlog.py",
+            "--city",
+            "san_mateo",
+            "--apply-batch-size",
+            "10",
+        ],
+    )
+
+    exit_code = mod.main()
+
+    captured = capsys.readouterr()
+    assert exit_code == 0
+    assert apply_repairs.call_count == 1
+    assert "repair_lane_start lane=retry selected=1" in captured.out
+    assert "failure_counts={'remote_disconnected': 1}" in captured.out
+    assert "retry_stats={'generated_pdf_fetch_retries': 2, 'generated_pdf_transport_retryable': 1}" in captured.out

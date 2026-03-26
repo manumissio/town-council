@@ -10,6 +10,8 @@ import time
 from collections import Counter
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass
+from http.client import IncompleteRead, RemoteDisconnected
+from typing import Iterator
 
 import requests
 from sqlalchemy import and_
@@ -27,7 +29,18 @@ ELECTRONIC_FILE_RE = re.compile(
 )
 PDF_TRANSITION_TIMEOUT_SECONDS = 30
 PDF_TRANSITION_POLL_INTERVAL_SECONDS = 1
-RETRYABLE_FAILURE_REASONS = {"timed_out", "token_missing"}
+GENERATED_PDF_FETCH_RETRIES = 3
+GENERATED_PDF_FETCH_RETRY_DELAY_SECONDS = 1
+RETRYABLE_FAILURE_REASONS = {
+    "timed_out",
+    "token_missing",
+    "remote_disconnected",
+    "incomplete_read",
+    "connection_error",
+    "read_timeout",
+    "generated_pdf_html_retryable",
+    "invalid_partial_pdf",
+}
 _THREAD_STATE = threading.local()
 
 
@@ -46,6 +59,18 @@ class RepairTarget:
     new_url: str | None = None
     preferred_method: str = "electronic_file"
     page_count: int | None = None
+
+
+class RepairRetryableError(RuntimeError):
+    def __init__(self, reason: str, message: str):
+        super().__init__(message)
+        self.reason = reason
+
+
+class RepairNonRetryableError(RuntimeError):
+    def __init__(self, reason: str, message: str):
+        super().__init__(message)
+        self.reason = reason
 
 
 def _positive_int(value: str) -> int:
@@ -96,6 +121,18 @@ def _file_has_pdf_signature(path: str) -> bool:
         return False
 
 
+def _file_has_pdf_eof_marker(path: str) -> bool:
+    try:
+        with open(path, "rb") as fh:
+            fh.seek(0, os.SEEK_END)
+            size = fh.tell()
+            fh.seek(max(0, size - 2048))
+            tail = fh.read()
+        return b"%%EOF" in tail
+    except OSError:
+        return False
+
+
 def _is_valid_pdf_artifact(path: str | None) -> bool:
     if not path or not os.path.exists(path):
         return False
@@ -126,7 +163,36 @@ def _worker_session() -> requests.Session:
 def _raise_for_invalid_pdf_response(response: requests.Response, *, catalog_id: int) -> None:
     content_type = (response.headers.get("Content-Type") or "").split(";")[0].strip().lower()
     if content_type and content_type != "application/pdf":
-        raise ValueError(f"Unexpected content type {content_type!r} for catalog {catalog_id}")
+        body = (response.text or "")[:2000]
+        lowered = body.lower()
+        if "laserfiche" in lowered or "docview" in lowered or "electronicfile" in lowered or "portal" in lowered:
+            raise RepairRetryableError(
+                "generated_pdf_html_retryable",
+                f"Retryable HTML interstitial returned for catalog {catalog_id}",
+            )
+        raise RepairNonRetryableError(
+            "unexpected_content_type",
+            f"Unexpected content type {content_type!r} for catalog {catalog_id}",
+        )
+
+
+def _iter_pdf_chunks(response: requests.Response) -> Iterator[bytes]:
+    try:
+        yield from response.iter_content(chunk_size=1024 * 256)
+    except requests.exceptions.ReadTimeout as exc:
+        raise RepairRetryableError("read_timeout", f"Read timeout while downloading generated PDF: {exc}") from exc
+    except requests.exceptions.ChunkedEncodingError as exc:
+        message = str(exc).lower()
+        if "incompleteread" in message:
+            raise RepairRetryableError("incomplete_read", f"Incomplete generated PDF response: {exc}") from exc
+        raise RepairRetryableError("connection_error", f"Chunked response failed for generated PDF: {exc}") from exc
+    except requests.exceptions.ConnectionError as exc:
+        message = str(exc).lower()
+        if "remotedisconnected" in message or isinstance(getattr(exc, "__cause__", None), RemoteDisconnected):
+            raise RepairRetryableError("remote_disconnected", f"Remote disconnected during generated PDF fetch: {exc}") from exc
+        if "incompleteread" in message or isinstance(getattr(exc, "__cause__", None), IncompleteRead):
+            raise RepairRetryableError("incomplete_read", f"Incomplete generated PDF response: {exc}") from exc
+        raise RepairRetryableError("connection_error", f"Connection failed during generated PDF fetch: {exc}") from exc
 
 
 def _write_validated_pdf_response(
@@ -139,15 +205,17 @@ def _write_validated_pdf_response(
     _raise_for_invalid_pdf_response(response, catalog_id=catalog_id)
     try:
         with open(temp_path, "wb") as fh:
-            for chunk in response.iter_content(chunk_size=1024 * 256):
+            for chunk in _iter_pdf_chunks(response):
                 if chunk:
                     fh.write(chunk)
 
         size = os.path.getsize(temp_path)
         if size <= 0:
-            raise ValueError(f"Downloaded zero-byte PDF for catalog {catalog_id}")
+            raise RepairRetryableError("invalid_partial_pdf", f"Downloaded zero-byte PDF for catalog {catalog_id}")
         if not _file_has_pdf_signature(temp_path):
-            raise ValueError(f"Downloaded invalid PDF bytes for catalog {catalog_id}")
+            raise RepairRetryableError("invalid_partial_pdf", f"Downloaded invalid PDF bytes for catalog {catalog_id}")
+        if not _file_has_pdf_eof_marker(temp_path):
+            raise RepairRetryableError("invalid_partial_pdf", f"Downloaded truncated PDF for catalog {catalog_id}")
 
         os.replace(temp_path, final_path)
         return size
@@ -295,18 +363,39 @@ def _download_generated_pdf(
             raise ValueError(f"Laserfiche PDF generation timed out for catalog {catalog_id}")
         time.sleep(PDF_TRANSITION_POLL_INTERVAL_SECONDS)
 
-    download = session.get(
-        f"https://portal.laserfiche.com/Portal/PDF10/{token}/{entry_id}",
-        stream=True,
-        timeout=DOWNLOAD_TIMEOUT_SECONDS,
-    )
-    download.raise_for_status()
-    return _write_validated_pdf_response(
-        download,
-        temp_path=temp_path,
-        final_path=final_path,
-        catalog_id=catalog_id,
-    )
+    last_error: Exception | None = None
+    for attempt in range(1, GENERATED_PDF_FETCH_RETRIES + 1):
+        try:
+            download = session.get(
+                f"https://portal.laserfiche.com/Portal/PDF10/{token}/{entry_id}",
+                stream=True,
+                timeout=DOWNLOAD_TIMEOUT_SECONDS,
+            )
+            download.raise_for_status()
+            size = _write_validated_pdf_response(
+                download,
+                temp_path=temp_path,
+                final_path=final_path,
+                catalog_id=catalog_id,
+            )
+            setattr(_THREAD_STATE, "last_generated_pdf_fetch_retries", attempt - 1)
+            return size
+        except requests.exceptions.ReadTimeout as exc:
+            last_error = RepairRetryableError("read_timeout", f"Read timeout while fetching generated PDF: {exc}")
+        except requests.exceptions.ConnectionError as exc:
+            message = str(exc).lower()
+            if "remotedisconnected" in message:
+                last_error = RepairRetryableError("remote_disconnected", f"Remote disconnected while fetching generated PDF: {exc}")
+            elif "incompleteread" in message:
+                last_error = RepairRetryableError("incomplete_read", f"Incomplete generated PDF response: {exc}")
+            else:
+                last_error = RepairRetryableError("connection_error", f"Connection error while fetching generated PDF: {exc}")
+        except RepairRetryableError as exc:
+            last_error = exc
+        if attempt < GENERATED_PDF_FETCH_RETRIES:
+            time.sleep(GENERATED_PDF_FETCH_RETRY_DELAY_SECONDS * attempt)
+    assert last_error is not None
+    raise last_error
 
 
 def _select_targets(
@@ -365,6 +454,9 @@ def _classify_targets(targets: list[RepairTarget], *, workers: int) -> list[Repa
 
 
 def _failure_reason(exc: Exception) -> str:
+    explicit_reason = getattr(exc, "reason", None)
+    if isinstance(explicit_reason, str) and explicit_reason:
+        return explicit_reason
     lowered = str(exc).strip().lower()
     if "timed out" in lowered:
         return "timed_out"
@@ -400,6 +492,7 @@ def _download_repaired_pdf(
     new_hash = _url_to_md5(new_url)
     path, filename = _target_path(target.location, new_hash)
     temp_path = f"{path}.tmp.{target.catalog_id}"
+    setattr(_THREAD_STATE, "last_generated_pdf_fetch_retries", 0)
 
     session = _worker_session()
     direct_error: Exception | None = None
@@ -424,7 +517,7 @@ def _download_repaired_pdf(
                 "method": "electronic_file",
                 "retrieval_type": "electronic_file",
             }
-        except ValueError as exc:
+        except (RepairRetryableError, RepairNonRetryableError, requests.RequestException, ValueError) as exc:
             direct_error = exc
 
     viewer_url = f"https://portal.laserfiche.com/Portal/DocView.aspx?id={entry_id}&repo={repo}"
@@ -453,6 +546,7 @@ def _download_repaired_pdf(
         "size": size,
         "method": f"generated_pdf_after_{type(direct_error).__name__}" if direct_error else "generated_pdf",
         "retrieval_type": "generated_pdf",
+        "fetch_retries": int(getattr(_THREAD_STATE, "last_generated_pdf_fetch_retries", 0)),
     }
 
 
@@ -581,6 +675,7 @@ def main() -> int:
     total_skipped_duplicate_hash = 0
     retrieval_counts: Counter[str] = Counter()
     failure_counts: Counter[str] = Counter()
+    generated_pdf_retry_stats: Counter[str] = Counter()
     retry_targets: list[RepairTarget] = []
 
     def _flush_repairs() -> None:
@@ -630,10 +725,14 @@ def main() -> int:
                 try:
                     repair = future.result()
                     retrieval_counts[str(repair.get("retrieval_type") or "unknown")] += 1
+                    fetch_retries = int(repair.get("fetch_retries") or 0)
+                    if fetch_retries > 0:
+                        generated_pdf_retry_stats["generated_pdf_fetch_retries"] += fetch_retries
                     repairs.append(repair)
                     print(
                         f"[{args.city}] repair_downloaded catalog_id={target.catalog_id} "
-                        f"path={repair['path']} size={repair['size']} method={repair['method']}",
+                        f"path={repair['path']} size={repair['size']} method={repair['method']} "
+                        f"fetch_retries={fetch_retries}",
                         flush=True,
                     )
                     if len(repairs) >= args.apply_batch_size:
@@ -641,6 +740,12 @@ def main() -> int:
                 except Exception as exc:
                     reason = _failure_reason(exc)
                     failure_counts[reason] += 1
+                    if reason == "generated_pdf_html_retryable":
+                        generated_pdf_retry_stats["generated_pdf_html_retryable"] += 1
+                    if reason in {"remote_disconnected", "incomplete_read", "connection_error", "read_timeout"}:
+                        generated_pdf_retry_stats["generated_pdf_transport_retryable"] += 1
+                    if reason == "invalid_partial_pdf":
+                        generated_pdf_retry_stats["generated_pdf_invalid_partial_pdf"] += 1
                     if collect_retryables and reason in RETRYABLE_FAILURE_REASONS:
                         retry_targets.append(target)
                     else:
@@ -684,11 +789,13 @@ def main() -> int:
     _flush_repairs()
     failure_summary = dict(sorted(failure_counts.items()))
     retrieval_summary = dict(sorted(retrieval_counts.items()))
+    retry_summary = dict(sorted(generated_pdf_retry_stats.items()))
     last_catalog_id = max((target.catalog_id for target in classified_targets), default=args.resume_after_id)
     print(
         f"[{args.city}] repair_finish downloaded={len(targets) - failed} failed={failed} "
         f"updated={total_updated} skipped_duplicate_hash={total_skipped_duplicate_hash} "
         f"retrieval_counts={retrieval_summary} failure_counts={failure_summary} "
+        f"retry_stats={retry_summary} "
         f"resume_after_id={last_catalog_id}",
         flush=True,
     )
