@@ -43,6 +43,10 @@ def test_hydrate_repaired_city_catalogs_emits_stage_progress(mocker, capsys):
             "other": 0,
             "timeout_fallbacks": 3,
             "empty_response_fallbacks": 1,
+            "llm_attempted": 1,
+            "llm_skipped_heuristic_first": 1,
+            "heuristic_complete": 1,
+            "llm_timeout_then_fallback": 3,
         },
     )
     summary_spy = mocker.patch.object(
@@ -58,6 +62,8 @@ def test_hydrate_repaired_city_catalogs_emits_stage_progress(mocker, capsys):
             "not_generated_yet": 0,
             "error": 0,
             "other": 0,
+            "llm_complete": 1,
+            "deterministic_fallback_complete": 0,
         },
     )
     mocker.patch.object(
@@ -71,10 +77,14 @@ def test_hydrate_repaired_city_catalogs_emits_stage_progress(mocker, capsys):
             "3",
             "--segment-workers",
             "1",
+            "--segment-mode",
+            "maintenance",
             "--agenda-timeout-seconds",
             "20",
             "--summary-timeout-seconds",
             "35",
+            "--summary-fallback-mode",
+            "deterministic",
         ],
     )
     mocker.patch.object(mod.time, "perf_counter", side_effect=[0.0, 2.0, 2.0, 5.0, 5.0, 9.0])
@@ -89,8 +99,10 @@ def test_hydrate_repaired_city_catalogs_emits_stage_progress(mocker, capsys):
     assert segment_spy.call_args.kwargs["catalog_ids"] == [101, 102]
     assert segment_spy.call_args.kwargs["workers"] == 1
     assert segment_spy.call_args.kwargs["agenda_timeout_seconds"] == 20
+    assert segment_spy.call_args.kwargs["segment_mode"] == "maintenance"
     assert summary_spy.call_args.kwargs["catalog_ids"] == [101, 102]
     assert summary_spy.call_args.kwargs["summary_timeout_seconds"] == 35
+    assert summary_spy.call_args.kwargs["summary_fallback_mode"] == "deterministic"
 
 
 def test_run_extract_city_emits_progress_and_counts(mocker, capsys):
@@ -169,6 +181,10 @@ def test_hydrate_repaired_city_catalogs_json_mode(mocker, capsys):
             "other": 0,
             "timeout_fallbacks": 0,
             "empty_response_fallbacks": 0,
+            "llm_attempted": 0,
+            "llm_skipped_heuristic_first": 0,
+            "heuristic_complete": 0,
+            "llm_timeout_then_fallback": 0,
         },
     )
     mocker.patch.object(
@@ -184,6 +200,8 @@ def test_hydrate_repaired_city_catalogs_json_mode(mocker, capsys):
             "not_generated_yet": 0,
             "error": 0,
             "other": 0,
+            "llm_complete": 0,
+            "deterministic_fallback_complete": 0,
         },
     )
     mocker.patch.object(sys, "argv", ["hydrate_repaired_city_catalogs.py", "--city", "san_mateo", "--json"])
@@ -200,7 +218,15 @@ def test_hydrate_repaired_city_catalogs_json_mode(mocker, capsys):
 
 def test_run_segment_city_counts_fallback_events(mocker, capsys):
     mocker.patch.object(mod, "_select_segment_catalog_ids", return_value=[101, 102, 103])
-    mocker.patch.object(mod, "_segment_one_catalog", side_effect=["complete", "empty", "complete"])
+    mocker.patch.object(
+        mod,
+        "_segment_one_catalog",
+        side_effect=[
+            {"status": "complete", "llm_attempted": 1, "llm_skipped_heuristic_first": 0, "heuristic_complete": 0},
+            {"status": "empty", "llm_attempted": 0, "llm_skipped_heuristic_first": 1, "heuristic_complete": 0},
+            {"status": "complete", "llm_attempted": 0, "llm_skipped_heuristic_first": 1, "heuristic_complete": 1},
+        ],
+    )
 
     @contextmanager
     def _fake_timeout(timeout_seconds):
@@ -223,6 +249,7 @@ def test_run_segment_city_counts_fallback_events(mocker, capsys):
         catalog_ids=[101, 102, 103],
         workers=2,
         agenda_timeout_seconds=15,
+        segment_mode="maintenance",
     )
 
     captured = capsys.readouterr()
@@ -230,7 +257,27 @@ def test_run_segment_city_counts_fallback_events(mocker, capsys):
     assert counts["empty"] == 1
     assert counts["timeout_fallbacks"] == 2
     assert counts["empty_response_fallbacks"] == 1
+    assert counts["llm_attempted"] == 1
+    assert counts["llm_skipped_heuristic_first"] == 2
+    assert counts["heuristic_complete"] == 1
+    assert counts["llm_timeout_then_fallback"] == 2
     assert "[san_mateo] segment_progress done=2/3" in captured.out
+
+
+def test_heuristic_segment_gate_prefers_structured_text():
+    structured = "\n".join(
+        [
+            "[PAGE 1]",
+            "1. Call to Order",
+            "2. Budget Amendment",
+            "3. Zoning Update",
+            "4. Capital Improvement Plan",
+        ]
+    )
+    weak = "Short memo without obvious agenda markers."
+
+    assert mod._looks_structured_enough_for_heuristic_segmentation(structured) is True
+    assert mod._looks_structured_enough_for_heuristic_segmentation(weak) is False
 
 
 def test_segment_timeout_override_is_scoped(mocker):
@@ -257,15 +304,35 @@ def test_summarize_one_catalog_converts_retry_exception_to_error(mocker):
     assert result == {"status": "error", "error": "retry-called"}
 
 
+def test_summarize_one_catalog_uses_deterministic_fallback_on_timeout(mocker):
+    @contextmanager
+    def _fake_capture():
+        yield {"timeout": 1}
+
+    mocker.patch.object(mod, "_capture_summary_fallback_events", _fake_capture)
+    mocker.patch.object(mod.generate_summary_task, "run", side_effect=RuntimeError("retry-called"))
+    fallback_spy = mocker.patch.object(
+        mod,
+        "_build_deterministic_agenda_summary_payload",
+        return_value={"status": "complete", "summary": "fallback", "completion_mode": "deterministic_fallback"},
+    )
+
+    result = mod._summarize_one_catalog(101, summary_fallback_mode="deterministic")
+
+    assert result["status"] == "complete"
+    assert result["completion_mode"] == "deterministic_fallback"
+    fallback_spy.assert_called_once_with(101)
+
+
 def test_run_summary_city_continues_after_summary_error(mocker, capsys):
     mocker.patch.object(mod, "_select_summary_catalog_ids", return_value=[101, 102, 103])
     mocker.patch.object(
         mod,
         "_summarize_one_catalog",
         side_effect=[
-            {"status": "complete", "summary": "ok"},
+            {"status": "complete", "summary": "ok", "completion_mode": "llm"},
             {"status": "error", "error": "retry-called"},
-            {"status": "blocked_low_signal", "reason": "insufficient text"},
+            {"status": "complete", "summary": "fallback", "completion_mode": "deterministic_fallback"},
         ],
     )
 
@@ -284,12 +351,14 @@ def test_run_summary_city_continues_after_summary_error(mocker, capsys):
         progress_every=2,
         catalog_ids=[101, 102, 103],
         summary_timeout_seconds=25,
+        summary_fallback_mode="deterministic",
     )
 
     captured = capsys.readouterr()
-    assert counts["complete"] == 1
+    assert counts["complete"] == 2
     assert counts["error"] == 1
-    assert counts["blocked_low_signal"] == 1
+    assert counts["llm_complete"] == 1
+    assert counts["deterministic_fallback_complete"] == 1
     assert "last_error='retry-called'" in captured.out
 
 
