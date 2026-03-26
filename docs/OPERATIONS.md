@@ -1,6 +1,6 @@
 # Operations Runbook
 
-Last updated: 2026-03-23
+Last updated: 2026-03-25
 
 ## Core workflow
 
@@ -69,6 +69,27 @@ docker compose run --rm crawler scrapy crawl cupertino
 ### 3) Process
 ```bash
 docker compose run --rm pipeline python run_pipeline.py
+```
+
+### Maintenance hydrate helper for repaired agenda PDFs
+- `scripts/hydrate_repaired_city_catalogs.py` is the maintenance helper for repaired `ElectronicFile.aspx` agenda catalogs.
+- `--segment-mode maintenance` keeps normal pipeline defaults untouched, but lets the helper skip LLM-first agenda extraction when the extracted text is already structured enough for the deterministic parser.
+- `--summary-fallback-mode deterministic` keeps normal summary behavior untouched, but lets the helper persist a deterministic agenda-items summary when maintenance runs hit agenda-summary inference timeouts.
+- Watch these counters in helper output when tuning repaired batches:
+  - segmentation: `llm_attempted`, `llm_skipped_heuristic_first`, `heuristic_complete`, `llm_timeout_then_fallback`
+  - summary: `llm_complete`, `deterministic_fallback_complete`, `error`
+- Example maintenance run:
+```bash
+docker compose run --rm pipeline python scripts/hydrate_repaired_city_catalogs.py \
+  --city san_mateo \
+  --limit 25 \
+  --progress-every 5 \
+  --extract-workers 4 \
+  --segment-workers 1 \
+  --segment-mode maintenance \
+  --agenda-timeout-seconds 20 \
+  --summary-timeout-seconds 90 \
+  --summary-fallback-mode deterministic
 ```
 
 ### Onboarding-safe extraction mode
