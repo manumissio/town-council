@@ -287,7 +287,7 @@ def build_summary_hydration_snapshot(db_session, sample_limit: int = 5, city: st
     )
     return SummaryHydrationSnapshot(
         **{
-            **provisional_snapshot.to_dict(),
+            **asdict(provisional_snapshot),
             "likely_root_cause": infer_primary_root_cause(provisional_snapshot),
         }
     )
