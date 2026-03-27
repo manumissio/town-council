@@ -321,7 +321,8 @@ def test_summarize_one_catalog_uses_deterministic_fallback_on_timeout(mocker):
 
     assert result["status"] == "complete"
     assert result["completion_mode"] == "deterministic_fallback"
-    fallback_spy.assert_called_once_with(101)
+    fallback_spy.assert_called_once()
+    assert fallback_spy.call_args.args == (101,)
 
 
 def test_run_summary_city_continues_after_summary_error(mocker, capsys):

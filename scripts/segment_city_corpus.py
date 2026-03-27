@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import argparse
 import concurrent.futures
+import json
 import logging
 import os
 import subprocess
@@ -13,7 +14,7 @@ from typing import Callable
 
 from sqlalchemy import and_, func, or_
 
-from pipeline.agenda_worker import segment_document_agenda
+from pipeline.backlog_maintenance import capture_agenda_fallback_events, segment_catalog_with_mode, segment_timeout_override
 from pipeline.city_scope import source_aliases_for_city
 from pipeline.config import CITY_SEGMENTATION_WORKERS, LOCAL_AI_ALLOW_MULTIPROCESS, LOCAL_AI_BACKEND, LOCAL_AI_REQUIRE_SOLO_POOL
 from pipeline.db_session import db_session
@@ -154,12 +155,36 @@ def _catalog_worker_count(requested_workers: int | None = None) -> int:
     return workers
 
 
-def _segment_catalog_subprocess(catalog_id: int, timeout_seconds: int) -> tuple[str, float, str | None]:
+def _segment_catalog_inline(
+    catalog_id: int,
+    *,
+    segment_mode: str = "normal",
+    agenda_timeout_seconds: int | None = None,
+) -> dict[str, int | str | None]:
+    with segment_timeout_override(agenda_timeout_seconds), capture_agenda_fallback_events() as fallback_counts:
+        result = segment_catalog_with_mode(catalog_id, segment_mode=segment_mode)
+    result["timeout_fallbacks"] = int(fallback_counts.get("timeout", 0))
+    result["empty_response_fallbacks"] = int(fallback_counts.get("empty_response", 0))
+    result["llm_timeout_then_fallback"] = int(fallback_counts.get("timeout", 0))
+    return result
+
+
+def _segment_catalog_subprocess(
+    catalog_id: int,
+    timeout_seconds: int,
+    *,
+    segment_mode: str = "normal",
+    agenda_timeout_seconds: int | None = None,
+) -> tuple[str, float, dict[str, int | str | None]]:
     started_at = time.monotonic()
     command = [
         sys.executable,
         "-c",
-        f"from pipeline.agenda_worker import segment_document_agenda; segment_document_agenda({catalog_id})",
+        (
+            "import json; "
+            "from scripts.segment_city_corpus import _segment_catalog_inline; "
+            f"print(json.dumps(_segment_catalog_inline({catalog_id}, segment_mode={segment_mode!r}, agenda_timeout_seconds={agenda_timeout_seconds!r})))"
+        ),
     ]
 
     try:
@@ -175,22 +200,26 @@ def _segment_catalog_subprocess(catalog_id: int, timeout_seconds: int) -> tuple[
         message = f"agenda_segmentation_timeout:{timeout_seconds}s"
         _mark_catalog_failed(catalog_id, message)
         detail = (exc.stderr or exc.stdout or message).strip() or message
-        return "timed_out", duration_seconds, detail
+        return "timed_out", duration_seconds, {"status": "timed_out", "detail": detail}
     except subprocess.CalledProcessError as exc:
         duration_seconds = time.monotonic() - started_at
         message = (exc.stderr or exc.stdout or f"agenda_segmentation_subprocess_failed:{exc.returncode}").strip()
         _mark_catalog_failed(catalog_id, message)
-        return "failed", duration_seconds, message
+        return "failed", duration_seconds, {"status": "failed", "detail": message}
 
     duration_seconds = time.monotonic() - started_at
-    status = _catalog_status(catalog_id)
-    if status in {"complete", "empty", "failed"}:
-        detail = completed.stderr.strip() or completed.stdout.strip() or None
-        return status, duration_seconds, detail
-
+    try:
+        payload = json.loads((completed.stdout or "").strip() or "{}")
+    except json.JSONDecodeError:
+        message = "agenda_segmentation_invalid_subprocess_payload"
+        _mark_catalog_failed(catalog_id, message)
+        return "failed", duration_seconds, {"status": "failed", "detail": message}
+    status = str(payload.get("status") or "failed")
+    if status in {"complete", "empty", "failed", "other"}:
+        return status, duration_seconds, payload
     message = "agenda_segmentation_missing_terminal_status"
     _mark_catalog_failed(catalog_id, message)
-    return "failed", duration_seconds, message
+    return "failed", duration_seconds, {"status": "failed", "detail": message}
 
 
 def _segment_catalog_batch(
@@ -199,6 +228,8 @@ def _segment_catalog_batch(
     *,
     timeout_seconds: int,
     workers: int,
+    segment_mode: str = "normal",
+    agenda_timeout_seconds: int | None = None,
     progress_callback: Callable[[str, int, int, int, str, float], None] | None = None,
 ) -> dict[str, int | str]:
     counts = {
@@ -206,6 +237,13 @@ def _segment_catalog_batch(
         "empty": 0,
         "failed": 0,
         "timed_out": 0,
+        "other": 0,
+        "timeout_fallbacks": 0,
+        "empty_response_fallbacks": 0,
+        "llm_attempted": 0,
+        "llm_skipped_heuristic_first": 0,
+        "heuristic_complete": 0,
+        "llm_timeout_then_fallback": 0,
     }
     total_catalogs = len(catalog_ids)
     if total_catalogs == 0:
@@ -213,21 +251,52 @@ def _segment_catalog_batch(
 
     if workers <= 1:
         for index, catalog_id in enumerate(catalog_ids, start=1):
-            outcome, duration_seconds, _detail = _segment_catalog_subprocess(int(catalog_id), timeout_seconds)
+            outcome, duration_seconds, detail = _segment_catalog_subprocess(
+                int(catalog_id),
+                timeout_seconds,
+                segment_mode=segment_mode,
+                agenda_timeout_seconds=agenda_timeout_seconds,
+            )
             counts[outcome] += 1
+            if isinstance(detail, dict):
+                for key in (
+                    "timeout_fallbacks",
+                    "empty_response_fallbacks",
+                    "llm_attempted",
+                    "llm_skipped_heuristic_first",
+                    "heuristic_complete",
+                    "llm_timeout_then_fallback",
+                ):
+                    counts[key] += int(detail.get(key, 0))
             if progress_callback:
                 progress_callback(city, index, total_catalogs, catalog_id, outcome, duration_seconds)
         return {"city": city, "catalog_count": total_catalogs, **counts}
 
     with concurrent.futures.ThreadPoolExecutor(max_workers=workers) as executor:
         future_to_position = {
-            executor.submit(_segment_catalog_subprocess, int(catalog_id), timeout_seconds): (index, catalog_id)
+            executor.submit(
+                _segment_catalog_subprocess,
+                int(catalog_id),
+                timeout_seconds,
+                segment_mode=segment_mode,
+                agenda_timeout_seconds=agenda_timeout_seconds,
+            ): (index, catalog_id)
             for index, catalog_id in enumerate(catalog_ids, start=1)
         }
         for future in concurrent.futures.as_completed(future_to_position):
             index, catalog_id = future_to_position[future]
-            outcome, duration_seconds, _detail = future.result()
+            outcome, duration_seconds, detail = future.result()
             counts[outcome] += 1
+            if isinstance(detail, dict):
+                for key in (
+                    "timeout_fallbacks",
+                    "empty_response_fallbacks",
+                    "llm_attempted",
+                    "llm_skipped_heuristic_first",
+                    "heuristic_complete",
+                    "llm_timeout_then_fallback",
+                ):
+                    counts[key] += int(detail.get(key, 0))
             if progress_callback:
                 progress_callback(city, index, total_catalogs, catalog_id, outcome, duration_seconds)
 
@@ -241,6 +310,8 @@ def main() -> int:
     parser.add_argument("--limit", type=int, default=None)
     parser.add_argument("--resume-after-id", type=int, default=None, dest="resume_after_id")
     parser.add_argument("--workers", type=int, default=None)
+    parser.add_argument("--segment-mode", choices=("normal", "maintenance"), default="normal")
+    parser.add_argument("--agenda-timeout-seconds", type=int, default=None, dest="agenda_timeout_seconds")
     args = parser.parse_args()
 
     selected_catalog_ids = _catalog_ids_for_city(args.city, limit=args.limit, resume_after_id=args.resume_after_id)
@@ -268,17 +339,28 @@ def main() -> int:
         catalog_ids,
         timeout_seconds=timeout_seconds,
         workers=workers,
+        segment_mode=args.segment_mode,
+        agenda_timeout_seconds=args.agenda_timeout_seconds,
         progress_callback=_log_progress,
     )
 
     print(
-        "segmented city={city} catalog_count={total} complete={complete} empty={empty} failed={failed} timed_out={timed_out}".format(
+        (
+            "segmented city={city} catalog_count={total} complete={complete} empty={empty} "
+            "failed={failed} timed_out={timed_out} llm_attempted={llm_attempted} "
+            "llm_skipped_heuristic_first={llm_skipped_heuristic_first} heuristic_complete={heuristic_complete} "
+            "timeout_fallbacks={timeout_fallbacks}"
+        ).format(
             city=args.city,
             total=counts["catalog_count"],
             complete=counts["complete"],
             empty=counts["empty"],
             failed=counts["failed"],
             timed_out=counts["timed_out"],
+            llm_attempted=counts["llm_attempted"],
+            llm_skipped_heuristic_first=counts["llm_skipped_heuristic_first"],
+            heuristic_complete=counts["heuristic_complete"],
+            timeout_fallbacks=counts["timeout_fallbacks"],
         )
     )
     return 0

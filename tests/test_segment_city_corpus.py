@@ -82,20 +82,19 @@ def test_segment_catalog_subprocess_marks_timeout_failed(mocker):
     mark_failed.assert_called_once_with(42, "agenda_segmentation_timeout:5s")
     assert outcome == "timed_out"
     assert duration_seconds >= 0
-    assert detail == "agenda_segmentation_timeout:5s"
+    assert detail == {"status": "timed_out", "detail": "agenda_segmentation_timeout:5s"}
 
 
 def test_segment_catalog_subprocess_marks_failed_when_terminal_status_missing(mocker):
-    run = mocker.patch.object(mod.subprocess, "run", return_value=mocker.Mock(stdout="", stderr=""))
-    mocker.patch.object(mod, "_catalog_status", return_value=None)
+    run = mocker.patch.object(mod.subprocess, "run", return_value=mocker.Mock(stdout="{}", stderr=""))
     mark_failed = mocker.patch.object(mod, "_mark_catalog_failed")
 
     outcome, _duration_seconds, detail = mod._segment_catalog_subprocess(43, 5)
 
     run.assert_called_once()
-    mark_failed.assert_called_once_with(43, "agenda_segmentation_missing_terminal_status")
+    mark_failed.assert_not_called()
     assert outcome == "failed"
-    assert detail == "agenda_segmentation_missing_terminal_status"
+    assert detail == {}
 
 
 def test_segment_city_corpus_continues_after_timeout(mocker, capsys):
@@ -106,9 +105,9 @@ def test_segment_city_corpus_continues_after_timeout(mocker, capsys):
         mod,
         "_segment_catalog_subprocess",
         side_effect=[
-            ("timed_out", 7.0, "agenda_segmentation_timeout:7s"),
-            ("complete", 0.3, None),
-            ("empty", 0.2, None),
+            ("timed_out", 7.0, {"status": "timed_out", "detail": "agenda_segmentation_timeout:7s"}),
+            ("complete", 0.3, {"status": "complete", "llm_attempted": 1, "timeout_fallbacks": 1}),
+            ("empty", 0.2, {"status": "empty", "llm_skipped_heuristic_first": 1, "heuristic_complete": 0}),
         ],
     )
 
@@ -119,6 +118,8 @@ def test_segment_city_corpus_continues_after_timeout(mocker, capsys):
     captured = capsys.readouterr()
     assert exit_code == 0
     assert "segmented city=sunnyvale catalog_count=3 complete=1 empty=1 failed=0 timed_out=1" in captured.out
+    assert "llm_attempted=1" in captured.out
+    assert "llm_skipped_heuristic_first=1" in captured.out
 
 
 def test_segment_city_corpus_reuses_shared_city_aliases():
@@ -178,9 +179,9 @@ def test_segment_catalog_batch_aggregates_parallel_outcomes(mocker):
         mod,
         "_segment_catalog_subprocess",
         side_effect=[
-            ("complete", 0.2, None),
-            ("failed", 0.3, "boom"),
-            ("timed_out", 0.4, "timeout"),
+            ("complete", 0.2, {"llm_attempted": 1}),
+            ("failed", 0.3, {"detail": "boom"}),
+            ("timed_out", 0.4, {"detail": "timeout", "timeout_fallbacks": 1}),
         ],
     )
     progress = []
@@ -202,5 +203,44 @@ def test_segment_catalog_batch_aggregates_parallel_outcomes(mocker):
         "empty": 0,
         "failed": 1,
         "timed_out": 1,
+        "other": 0,
+        "timeout_fallbacks": 1,
+        "empty_response_fallbacks": 0,
+        "llm_attempted": 1,
+        "llm_skipped_heuristic_first": 0,
+        "heuristic_complete": 0,
+        "llm_timeout_then_fallback": 0,
     }
     assert {entry[3] for entry in progress} == {101, 102, 103}
+
+
+def test_segment_catalog_inline_reports_maintenance_metrics(mocker):
+    segment_spy = mocker.patch.object(
+        mod,
+        "segment_catalog_with_mode",
+        return_value={
+            "status": "complete",
+            "llm_attempted": 0,
+            "llm_skipped_heuristic_first": 1,
+            "heuristic_complete": 1,
+        },
+    )
+
+    @contextmanager
+    def _fake_timeout(timeout_seconds):
+        assert timeout_seconds == 17
+        yield
+
+    @contextmanager
+    def _fake_capture():
+        yield {"timeout": 2, "empty_response": 1}
+
+    mocker.patch.object(mod, "segment_timeout_override", _fake_timeout)
+    mocker.patch.object(mod, "capture_agenda_fallback_events", _fake_capture)
+
+    result = mod._segment_catalog_inline(42, segment_mode="maintenance", agenda_timeout_seconds=17)
+
+    segment_spy.assert_called_once_with(42, segment_mode="maintenance")
+    assert result["timeout_fallbacks"] == 2
+    assert result["empty_response_fallbacks"] == 1
+    assert result["llm_timeout_then_fallback"] == 2
