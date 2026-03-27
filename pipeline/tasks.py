@@ -9,6 +9,11 @@ from sqlalchemy.orm import sessionmaker
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy import and_, func, or_, text
 
+from pipeline.backlog_maintenance import (
+    build_deterministic_agenda_summary_payload,
+    summarize_catalog_with_optional_fallback,
+    summary_timeout_override,
+)
 from pipeline.models import db_connect, Catalog, Document, Event, SemanticEmbedding
 from pipeline.llm import LocalAI, LocalAIConfigError
 from pipeline.agenda_service import persist_agenda_items
@@ -243,7 +248,14 @@ def select_catalog_ids_for_summary_hydration(db, limit: int | None = None, city:
     return [row[0] for row in query.distinct().all()]
 
 
-def run_summary_hydration_backfill(force: bool = False, limit: int | None = None, city: str | None = None) -> dict[str, int]:
+def run_summary_hydration_backfill(
+    force: bool = False,
+    limit: int | None = None,
+    city: str | None = None,
+    *,
+    summary_timeout_seconds: int | None = None,
+    summary_fallback_mode: str = "none",
+) -> dict[str, int]:
     """
     Generate summaries once across the current eligible backlog snapshot.
     """
@@ -263,27 +275,39 @@ def run_summary_hydration_backfill(force: bool = False, limit: int | None = None
         "not_generated_yet": 0,
         "error": 0,
         "other": 0,
+        "llm_complete": 0,
+        "deterministic_fallback_complete": 0,
     }
     if not catalog_ids:
         logger.info("summary_hydration_backfill selected=0")
         return counts
 
-    for cid in catalog_ids:
-        try:
-            result = generate_summary_task.run(cid, force=force)
-        except Exception:
-            logger.exception("summary_hydration_backfill_failed catalog_id=%s", cid)
-            counts["error"] += 1
-            continue
+    with summary_timeout_override(summary_timeout_seconds):
+        for cid in catalog_ids:
+            result = summarize_catalog_with_optional_fallback(
+                cid,
+                summary_fallback_mode=summary_fallback_mode,
+                generate_summary_callable=lambda catalog_id: generate_summary_task.run(catalog_id, force=force),
+                deterministic_summary_callable=lambda catalog_id: build_deterministic_agenda_summary_payload(
+                    catalog_id,
+                    reindex_callback=reindex_catalog,
+                    embed_callback=lambda target_catalog_id: embed_catalog_task.delay(target_catalog_id),
+                ),
+            )
 
-        status = str((result or {}).get("status") or "other")
-        if status in counts:
-            counts[status] += 1
-        else:
-            counts["other"] += 1
+            status = str((result or {}).get("status") or "other")
+            if status in counts:
+                counts[status] += 1
+            else:
+                counts["other"] += 1
+            completion_mode = str((result or {}).get("completion_mode") or "")
+            if completion_mode == "llm":
+                counts["llm_complete"] += 1
+            elif completion_mode == "deterministic_fallback":
+                counts["deterministic_fallback_complete"] += 1
 
     logger.info(
-        "summary_hydration_backfill selected=%s complete=%s cached=%s stale=%s blocked_low_signal=%s blocked_ungrounded=%s not_generated_yet=%s error=%s other=%s",
+        "summary_hydration_backfill selected=%s complete=%s cached=%s stale=%s blocked_low_signal=%s blocked_ungrounded=%s not_generated_yet=%s error=%s other=%s llm_complete=%s deterministic_fallback_complete=%s",
         counts["selected"],
         counts["complete"],
         counts["cached"],
@@ -293,6 +317,8 @@ def run_summary_hydration_backfill(force: bool = False, limit: int | None = None
         counts["not_generated_yet"],
         counts["error"],
         counts["other"],
+        counts["llm_complete"],
+        counts["deterministic_fallback_complete"],
     )
     return counts
 

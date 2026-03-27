@@ -41,6 +41,8 @@ def _empty_summary_counts() -> dict[str, int]:
         "not_generated_yet": 0,
         "error": 0,
         "other": 0,
+        "llm_complete": 0,
+        "deterministic_fallback_complete": 0,
     }
 
 
@@ -57,6 +59,8 @@ def _run_segment_city(
     limit: int | None = None,
     resume_after_id: int | None = None,
     workers: int | None = None,
+    segment_mode: str = "normal",
+    agenda_timeout_seconds: int | None = None,
     emit_progress: bool = False,
     chunk_index: int | None = None,
 ) -> dict[str, Any]:
@@ -71,14 +75,33 @@ def _run_segment_city(
             "empty": 0,
             "failed": 0,
             "timed_out": 0,
+            "other": 0,
+            "timeout_fallbacks": 0,
+            "empty_response_fallbacks": 0,
+            "llm_attempted": 0,
+            "llm_skipped_heuristic_first": 0,
+            "heuristic_complete": 0,
+            "llm_timeout_then_fallback": 0,
             "resume_after_id": resume_after_id,
             "last_catalog_id": resume_after_id,
         }
 
     catalog_ids = segment_city_corpus._prioritized_catalog_ids(city, selected_catalog_ids)
-    timeout_seconds = segment_city_corpus._catalog_timeout_seconds()
+    timeout_seconds = agenda_timeout_seconds or segment_city_corpus._catalog_timeout_seconds()
     resolved_workers = segment_city_corpus._catalog_worker_count(workers)
-    running_counts = {"complete": 0, "empty": 0, "failed": 0, "timed_out": 0}
+    running_counts = {
+        "complete": 0,
+        "empty": 0,
+        "failed": 0,
+        "timed_out": 0,
+        "other": 0,
+        "timeout_fallbacks": 0,
+        "empty_response_fallbacks": 0,
+        "llm_attempted": 0,
+        "llm_skipped_heuristic_first": 0,
+        "heuristic_complete": 0,
+        "llm_timeout_then_fallback": 0,
+    }
     total_catalogs = len(selected_catalog_ids)
     _emit_progress(
         emit_progress,
@@ -117,8 +140,25 @@ def _run_segment_city(
         catalog_ids,
         timeout_seconds=timeout_seconds,
         workers=resolved_workers,
+        segment_mode=segment_mode,
+        agenda_timeout_seconds=agenda_timeout_seconds,
         progress_callback=_progress,
     )
+    counts = {
+        "city": city,
+        "catalog_count": int(counts.get("catalog_count", 0)),
+        "complete": int(counts.get("complete", 0)),
+        "empty": int(counts.get("empty", 0)),
+        "failed": int(counts.get("failed", 0)),
+        "timed_out": int(counts.get("timed_out", 0)),
+        "other": int(counts.get("other", 0)),
+        "timeout_fallbacks": int(counts.get("timeout_fallbacks", 0)),
+        "empty_response_fallbacks": int(counts.get("empty_response_fallbacks", 0)),
+        "llm_attempted": int(counts.get("llm_attempted", 0)),
+        "llm_skipped_heuristic_first": int(counts.get("llm_skipped_heuristic_first", 0)),
+        "heuristic_complete": int(counts.get("heuristic_complete", 0)),
+        "llm_timeout_then_fallback": int(counts.get("llm_timeout_then_fallback", 0)),
+    }
     counts["resume_after_id"] = resume_after_id
     counts["last_catalog_id"] = max(selected_catalog_ids)
     return counts
@@ -138,7 +178,15 @@ def _delta(before: dict[str, Any], after: dict[str, Any]) -> dict[str, int]:
         "agenda_missing_summary_without_items",
         "non_agenda_missing_summary_total",
     ]
-    return {key: int(after[key]) - int(before[key]) for key in keys}
+    delta = {key: int(after[key]) - int(before[key]) for key in keys}
+    before_statuses = before.get("agenda_unresolved_segmentation_status_counts") or {}
+    after_statuses = after.get("agenda_unresolved_segmentation_status_counts") or {}
+    all_statuses = sorted(set(before_statuses) | set(after_statuses))
+    delta["agenda_unresolved_segmentation_status_counts"] = {
+        status: int(after_statuses.get(status, 0)) - int(before_statuses.get(status, 0))
+        for status in all_statuses
+    }
+    return delta
 
 
 def main() -> int:
@@ -148,6 +196,10 @@ def main() -> int:
     parser.add_argument("--segment-limit", type=_positive_int, default=None)
     parser.add_argument("--summary-limit", type=_positive_int, default=None)
     parser.add_argument("--segment-workers", type=_positive_int, default=None)
+    parser.add_argument("--segment-mode", choices=("normal", "maintenance"), default="normal")
+    parser.add_argument("--agenda-timeout-seconds", type=_positive_int, default=None, dest="agenda_timeout_seconds")
+    parser.add_argument("--summary-timeout-seconds", type=_positive_int, default=None, dest="summary_timeout_seconds")
+    parser.add_argument("--summary-fallback-mode", choices=("none", "deterministic"), default="none")
     parser.add_argument("--resume-after-id", type=_nonnegative_int, default=None, dest="resume_after_id")
     parser.add_argument("--max-chunks", type=_positive_int, default=None)
     parser.add_argument("--force", action="store_true", help="Force summary regeneration for selected cities")
@@ -175,7 +227,21 @@ def main() -> int:
             ),
         )
         chunks: list[dict[str, Any]] = []
-        segmentation_total = {"city": city, "catalog_count": 0, "complete": 0, "empty": 0, "failed": 0, "timed_out": 0}
+        segmentation_total = {
+            "city": city,
+            "catalog_count": 0,
+            "complete": 0,
+            "empty": 0,
+            "failed": 0,
+            "timed_out": 0,
+            "other": 0,
+            "timeout_fallbacks": 0,
+            "empty_response_fallbacks": 0,
+            "llm_attempted": 0,
+            "llm_skipped_heuristic_first": 0,
+            "heuristic_complete": 0,
+            "llm_timeout_then_fallback": 0,
+        }
         summary_total = _empty_summary_counts()
         current_resume_after_id = args.resume_after_id
         current_snapshot = before
@@ -192,6 +258,8 @@ def main() -> int:
                 limit=args.segment_limit,
                 resume_after_id=current_resume_after_id,
                 workers=args.segment_workers,
+                segment_mode=args.segment_mode,
+                agenda_timeout_seconds=args.agenda_timeout_seconds,
                 emit_progress=human_progress,
                 chunk_index=chunk_index,
             )
@@ -203,7 +271,13 @@ def main() -> int:
                     human_progress,
                     f"[{city}] summary_start chunk={chunk_index} limit={summary_limit}",
                 )
-                summary = run_summary_hydration_backfill(force=args.force, limit=summary_limit, city=city)
+                summary = run_summary_hydration_backfill(
+                    force=args.force,
+                    limit=summary_limit,
+                    city=city,
+                    summary_timeout_seconds=args.summary_timeout_seconds,
+                    summary_fallback_mode=args.summary_fallback_mode,
+                )
                 _emit_progress(human_progress, f"[{city}] summary_finish chunk={chunk_index} results={summary}")
             else:
                 summary = _empty_summary_counts()
@@ -226,6 +300,13 @@ def main() -> int:
                 "empty": int(segmentation_total["empty"]) + int(segmentation["empty"]),
                 "failed": int(segmentation_total["failed"]) + int(segmentation["failed"]),
                 "timed_out": int(segmentation_total["timed_out"]) + int(segmentation["timed_out"]),
+                "other": int(segmentation_total["other"]) + int(segmentation["other"]),
+                "timeout_fallbacks": int(segmentation_total["timeout_fallbacks"]) + int(segmentation["timeout_fallbacks"]),
+                "empty_response_fallbacks": int(segmentation_total["empty_response_fallbacks"]) + int(segmentation["empty_response_fallbacks"]),
+                "llm_attempted": int(segmentation_total["llm_attempted"]) + int(segmentation["llm_attempted"]),
+                "llm_skipped_heuristic_first": int(segmentation_total["llm_skipped_heuristic_first"]) + int(segmentation["llm_skipped_heuristic_first"]),
+                "heuristic_complete": int(segmentation_total["heuristic_complete"]) + int(segmentation["heuristic_complete"]),
+                "llm_timeout_then_fallback": int(segmentation_total["llm_timeout_then_fallback"]) + int(segmentation["llm_timeout_then_fallback"]),
             }
             summary_total = _merge_counts(summary_total, summary)
             _emit_progress(

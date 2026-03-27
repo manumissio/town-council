@@ -159,22 +159,23 @@ def test_run_summary_hydration_backfill_counts_outcomes(mocker):
     mock_db.close.return_value = None
     mocker.patch("pipeline.tasks.SessionLocal", return_value=mock_db)
     mocker.patch("pipeline.tasks.select_catalog_ids_for_summary_hydration", return_value=[1, 2, 3])
-    run_spy = mocker.patch(
-        "pipeline.tasks.generate_summary_task.run",
+    summarize_spy = mocker.patch(
+        "pipeline.tasks.summarize_catalog_with_optional_fallback",
         side_effect=[
-            {"status": "complete"},
+            {"status": "complete", "completion_mode": "llm"},
             {"status": "blocked_low_signal"},
-            {"status": "stale"},
+            {"status": "complete", "completion_mode": "deterministic_fallback"},
         ],
     )
 
     counts = run_summary_hydration_backfill()
 
     assert counts["selected"] == 3
-    assert counts["complete"] == 1
+    assert counts["complete"] == 2
     assert counts["blocked_low_signal"] == 1
-    assert counts["stale"] == 1
-    assert run_spy.call_count == 3
+    assert counts["llm_complete"] == 1
+    assert counts["deterministic_fallback_complete"] == 1
+    assert summarize_spy.call_count == 3
 
 
 def test_select_catalog_ids_for_summary_hydration_can_filter_by_city(batching_db):
