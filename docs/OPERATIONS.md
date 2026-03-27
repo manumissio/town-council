@@ -1,6 +1,6 @@
 # Operations Runbook
 
-Last updated: 2026-03-26
+Last updated: 2026-03-27
 
 ## Core workflow
 
@@ -106,6 +106,16 @@ docker compose run --rm pipeline python scripts/hydrate_repaired_city_catalogs.p
   - `generated_pdf_html_retryable`
   - `generated_pdf_transport_retryable`
   - `generated_pdf_invalid_partial_pdf`
+
+### Summary hydration diagnostics
+- `scripts/diagnose_summary_hydration.py` mixes two kinds of metrics on purpose:
+  - cumulative totals, such as `catalogs_with_summary`
+  - unresolved backlog metrics, which only count rows where `summary` is still null
+- When a hydrate batch succeeds, `catalogs_with_summary` can rise while unresolved backlog buckets stay flat or even rise slightly if the same batch also adds new content or produces `empty` segmentation outcomes.
+- Read the CLI headings literally:
+  - `Cumulative totals`
+  - `Unresolved backlog totals`
+  - `Backlog buckets (rows where summary is still null)`
 
 ### Onboarding-safe extraction mode
 - `scripts/onboard_city_wave.sh` runs the pipeline in an onboarding-scoped extraction mode.
