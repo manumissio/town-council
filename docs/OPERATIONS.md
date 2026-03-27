@@ -196,6 +196,16 @@ docker compose start api worker frontend monitor
 ### City segmentation timeout behavior
 - `scripts/segment_city_corpus.py` now bounds per-catalog agenda segmentation instead of letting one stuck catalog hang the whole city run indefinitely.
 - The timeout is controlled by `CITY_SEGMENTATION_TIMEOUT_SECONDS` and defaults to `120`.
+- `--segment-mode maintenance` reuses the same heuristic-first agenda parsing path as `scripts/hydrate_repaired_city_catalogs.py`, so city-wide backlog runs can skip LLM-first extraction when the extracted agenda text is already structured enough for the deterministic parser.
+- Maintenance mode keeps existing terminal states unchanged:
+  - `complete`
+  - `empty`
+  - `failed`
+- Watch these counters when the goal is shrinking `agenda_missing_summary_without_items` instead of only processing repaired rows:
+  - `llm_attempted`
+  - `llm_skipped_heuristic_first`
+  - `heuristic_complete`
+  - `timeout_fallbacks`
 - `pipeline/agenda_resolver.py` now evaluates agenda sources lazily in the documented priority order `Legistar -> HTML -> LLM`, so deterministic sources can satisfy segmentation without paying the full LLM cost first.
 - Legistar exports are filtered before acceptance so portal wrapper rows like `Call to Order`, `Roll Call`, and meeting-header scaffolding do not force otherwise-structured agendas into the LLM fallback path.
 - `pipeline/agenda_legistar.py` now treats the known tenant-specific Legistar `400` (`Agenda Draft Status` / public visibility setting not configured) as an unsupported cross-check capability, not as a content-quality failure.
@@ -223,6 +233,17 @@ docker compose start api worker frontend monitor
 
 ### Staged hydration progress output
 - `scripts/staged_hydrate_cities.py` now emits live stage and per-catalog segmentation progress in normal mode so long-running maintenance runs no longer appear idle.
+- `scripts/staged_hydrate_cities.py` is now the preferred operator entrypoint for shrinking a city-wide unresolved agenda backlog.
+- Maintenance runs can pass through the same backlog-oriented controls used by the repaired-row helper:
+  - `--segment-mode maintenance`
+  - `--agenda-timeout-seconds <seconds>`
+  - `--summary-timeout-seconds <seconds>`
+  - `--summary-fallback-mode deterministic`
+- Each chunk now includes unresolved-backlog deltas so operators can tell whether the broad backlog is actually shrinking:
+  - `agenda_missing_summary_without_items`
+  - `agenda_missing_summary_with_items`
+  - `catalogs_with_summary`
+  - `agenda_unresolved_segmentation_status_counts`
 - Expected progress shape:
   - city start
   - before snapshot
