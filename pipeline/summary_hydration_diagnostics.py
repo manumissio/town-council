@@ -24,9 +24,28 @@ class SummaryHydrationSnapshot:
     agenda_segmentation_status_counts: dict[str, int]
     sample_catalog_ids: dict[str, list[int]]
     likely_root_cause: str
+    cumulative_catalogs_with_content: int = 0
+    cumulative_catalogs_with_summary: int = 0
+    unresolved_missing_summary_total: int = 0
+    agenda_missing_summary_total_unresolved: int = 0
+    agenda_missing_summary_with_items_unresolved: int = 0
+    agenda_missing_summary_without_items_unresolved: int = 0
+    non_agenda_missing_summary_total_unresolved: int = 0
+    agenda_unresolved_segmentation_status_counts: dict[str, int] | None = None
 
     def to_dict(self) -> dict[str, object]:
-        return asdict(self)
+        payload = asdict(self)
+        payload["metric_semantics"] = {
+            "catalogs_with_content": "cumulative_total",
+            "catalogs_with_summary": "cumulative_total",
+            "missing_summary_total": "unresolved_backlog",
+            "agenda_missing_summary_total": "unresolved_backlog_agenda_only",
+            "agenda_missing_summary_with_items": "unresolved_backlog_agenda_only_with_items",
+            "agenda_missing_summary_without_items": "unresolved_backlog_agenda_only_without_items",
+            "non_agenda_missing_summary_total": "unresolved_backlog_non_agenda_only",
+            "agenda_segmentation_status_counts": "unresolved_backlog_only",
+        }
+        return payload
 
 
 def predict_summary_path(doc_kind: str | None, *, has_content: bool, has_agenda_items: bool, content: str | None) -> str:
@@ -257,6 +276,14 @@ def build_summary_hydration_snapshot(db_session, sample_limit: int = 5, city: st
         agenda_segmentation_status_counts=segmentation_status_counts,
         sample_catalog_ids=sample_catalog_ids,
         likely_root_cause="pending",
+        cumulative_catalogs_with_content=int(catalogs_with_content),
+        cumulative_catalogs_with_summary=int(catalogs_with_summary),
+        unresolved_missing_summary_total=missing_summary_total,
+        agenda_missing_summary_total_unresolved=int(agenda_missing_summary_total),
+        agenda_missing_summary_with_items_unresolved=int(agenda_missing_summary_with_items),
+        agenda_missing_summary_without_items_unresolved=int(agenda_missing_summary_without_items),
+        non_agenda_missing_summary_total_unresolved=len(non_agenda_rows),
+        agenda_unresolved_segmentation_status_counts=segmentation_status_counts,
     )
     return SummaryHydrationSnapshot(
         **{
