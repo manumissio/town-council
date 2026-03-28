@@ -14,7 +14,7 @@ from pipeline.backlog_maintenance import (
     summarize_catalog_with_optional_fallback,
     summary_timeout_override,
 )
-from pipeline.laserfiche_error_pages import detect_laserfiche_bad_content_reason
+from pipeline.laserfiche_error_pages import classify_catalog_bad_content
 from pipeline.models import db_connect, Catalog, Document, Event, SemanticEmbedding
 from pipeline.llm import LocalAI, LocalAIConfigError
 from pipeline.agenda_service import persist_agenda_items
@@ -397,9 +397,9 @@ def generate_summary_task(self, catalog_id: int, force: bool = False):
 
         if not catalog:
             return {"error": "Catalog not found"}
-        poison_reason = detect_laserfiche_bad_content_reason(catalog)
-        if poison_reason:
-            return {"status": "error", "error": poison_reason}
+        classification = classify_catalog_bad_content(catalog)
+        if classification:
+            return {"status": "error", "error": classification.reason}
         local_ai = LocalAI()
 
         # Ensure we have a stable fingerprint for "is this summary stale?"
@@ -869,14 +869,14 @@ def segment_agenda_task(self, catalog_id: int):
         
         if not catalog or not catalog.content:
             return {"error": "No content"}
-        poison_reason = detect_laserfiche_bad_content_reason(catalog)
-        if poison_reason:
+        classification = classify_catalog_bad_content(catalog)
+        if classification:
             catalog.agenda_segmentation_status = "failed"
             catalog.agenda_segmentation_item_count = 0
             catalog.agenda_segmentation_attempted_at = datetime.now(timezone.utc)
-            catalog.agenda_segmentation_error = poison_reason
+            catalog.agenda_segmentation_error = classification.reason
             db.commit()
-            return {"status": "error", "error": poison_reason}
+            return {"status": "error", "error": classification.reason}
         local_ai = LocalAI()
             
         doc = db.query(Document).filter_by(catalog_id=catalog_id).first()

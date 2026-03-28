@@ -8,7 +8,7 @@ from typing import Any
 from pipeline.city_scope import source_aliases_for_city
 from pipeline.db_session import db_session
 from pipeline.indexer import reindex_catalog
-from pipeline.laserfiche_error_pages import detect_laserfiche_bad_content_reason
+from pipeline.laserfiche_error_pages import classify_catalog_bad_content
 from pipeline.models import AgendaItem, Catalog, Document, Event, SemanticEmbedding
 
 
@@ -35,9 +35,9 @@ def _matching_catalog_reasons(city: str, *, limit: int | None = None) -> dict[in
         catalogs = query.all()
         matches: dict[int, str] = {}
         for catalog in catalogs:
-            reason = detect_laserfiche_bad_content_reason(catalog)
-            if reason:
-                matches[int(catalog.id)] = reason
+            classification = classify_catalog_bad_content(catalog)
+            if classification:
+                matches[int(catalog.id)] = classification.reason
         return matches
 
 
@@ -116,14 +116,16 @@ def _apply_reset(city: str, *, limit: int | None = None) -> dict[str, Any]:
             .all()
         )
         for catalog in catalogs:
-            reason = detect_laserfiche_bad_content_reason(catalog)
-            if not reason:
+            classification = classify_catalog_bad_content(catalog)
+            if not classification:
                 continue
             session.query(AgendaItem).filter(AgendaItem.catalog_id == catalog.id).delete(synchronize_session=False)
             session.query(SemanticEmbedding).filter(SemanticEmbedding.catalog_id == catalog.id).delete(synchronize_session=False)
-            _reset_catalog_state(catalog, reason=reason)
+            _reset_catalog_state(catalog, reason=classification.reason)
             reset_catalog_ids.append(int(catalog.id))
-            reset_reason_counts[reason] = int(reset_reason_counts.get(reason, 0)) + 1
+            reset_reason_counts[classification.reason] = int(
+                reset_reason_counts.get(classification.reason, 0)
+            ) + 1
         session.commit()
 
     reindexed = 0

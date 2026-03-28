@@ -7,7 +7,7 @@ from sqlalchemy.exc import SQLAlchemyError
 from pipeline.models import Catalog, AgendaItem, Document
 from pipeline.db_session import db_session
 from pipeline.config import AGENDA_BATCH_SIZE
-from pipeline.laserfiche_error_pages import detect_laserfiche_bad_content_reason
+from pipeline.laserfiche_error_pages import classify_catalog_bad_content
 from pipeline.llm import LocalAI
 from pipeline.agenda_service import persist_agenda_items
 from pipeline.agenda_resolver import resolve_agenda_items
@@ -75,12 +75,12 @@ def segment_document_agenda(catalog_id):
             catalog = session.get(Catalog, catalog_id)
             if not catalog or not catalog.content:
                 return
-            poison_reason = detect_laserfiche_bad_content_reason(catalog)
-            if poison_reason:
+            classification = classify_catalog_bad_content(catalog)
+            if classification:
                 catalog.agenda_segmentation_status = "failed"
                 catalog.agenda_segmentation_item_count = 0
                 catalog.agenda_segmentation_attempted_at = datetime.now(timezone.utc)
-                catalog.agenda_segmentation_error = poison_reason
+                catalog.agenda_segmentation_error = classification.reason
                 session.commit()
                 return
             local_ai = LocalAI()
