@@ -13,12 +13,12 @@ _LASERFICHE_LOADING_SHELL_PATTERNS = (
     re.compile(r"the url can be used to link to this page", re.IGNORECASE),
     re.compile(r"your browser does not support the video tag", re.IGNORECASE),
 )
-_DOCUMENT_SHAPE_STRONG_NEEDLES = (
-    "agenda report",
-    "to:",
-    "from:",
-    "subject:",
-    "recommendation:",
+_DOCUMENT_SHAPE_STRONG_PATTERNS = (
+    re.compile(r"\b(?:agenda|administrative)\s+report\b", re.IGNORECASE),
+    re.compile(r"(?im)^\s*to\s*:"),
+    re.compile(r"(?im)^\s*from\s*:"),
+    re.compile(r"(?im)^\s*subject\s*:"),
+    re.compile(r"(?im)^\s*recommendations?\b\s*:?", re.IGNORECASE),
 )
 _DOCUMENT_SHAPE_SUPPORTING_NEEDLES = (
     "agenda number:",
@@ -26,10 +26,12 @@ _DOCUMENT_SHAPE_SUPPORTING_NEEDLES = (
     "{{ section",
     "{{ item.tracking",
 )
-_MULTI_ITEM_AGENDA_PATTERNS = (
-    re.compile(r"(?im)^\s*(?:item\s*)?\d{1,2}(?:\.\d+)?[\.\):]\s+.{6,}$"),
+_PROCEDURAL_AGENDA_PATTERNS = (
     re.compile(r"(?im)^\s*(?:call to order|public comment|consent calendar|adjournment)\s*$"),
-    re.compile(r"(?im)^\s*subject\s*:\s+.{6,}$"),
+    re.compile(r"(?im)^\s*(?:consent\s+calendar|study\s+session|public\s+hearing|new\s+business|old\s+business)\s*$"),
+)
+_CONCISE_NUMBERED_AGENDA_HEADING_PATTERN = re.compile(
+    r"(?im)^\s*(?:item\s*)?(?:\d{1,2}(?:\.\d+)?|[A-Z])[\.\):]\s+[A-Z][A-Za-z0-9/&'’()\- ]{3,85}$"
 )
 
 LASERFICHE_ERROR_PAGE_REASON = "laserfiche_error_page_detected"
@@ -71,8 +73,12 @@ def is_laserfiche_loading_shell_text(text: str | None) -> bool:
     return all(pattern.search(value) for pattern in _LASERFICHE_LOADING_SHELL_PATTERNS)
 
 
-def _count_multi_item_agenda_signals(text: str) -> int:
-    return sum(len(pattern.findall(text)) for pattern in _MULTI_ITEM_AGENDA_PATTERNS)
+def _count_procedural_agenda_signals(text: str) -> int:
+    return sum(len(pattern.findall(text)) for pattern in _PROCEDURAL_AGENDA_PATTERNS)
+
+
+def _count_concise_numbered_agenda_headings(text: str) -> int:
+    return len(_CONCISE_NUMBERED_AGENDA_HEADING_PATTERN.findall(text))
 
 
 def is_single_item_staff_report_text(text: str | None) -> bool:
@@ -81,16 +87,27 @@ def is_single_item_staff_report_text(text: str | None) -> bool:
         return False
 
     lowered = value.lower()
-    strong_hits = sum(1 for needle in _DOCUMENT_SHAPE_STRONG_NEEDLES if needle in lowered)
+    strong_hits = sum(1 for pattern in _DOCUMENT_SHAPE_STRONG_PATTERNS if pattern.search(value))
     supporting_hits = sum(1 for needle in _DOCUMENT_SHAPE_SUPPORTING_NEEDLES if needle in lowered)
-    multi_item_signals = _count_multi_item_agenda_signals(value)
+    procedural_signals = _count_procedural_agenda_signals(value)
+    numbered_heading_signals = _count_concise_numbered_agenda_headings(value)
     has_report_heading = "agenda report" in lowered or "administrative report" in lowered
+    has_template_placeholders = "{{ section" in lowered or "{{ item.tracking" in lowered
 
     if not has_report_heading:
         return False
     if strong_hits < 4:
         return False
-    if multi_item_signals >= 3:
+    # Real agenda packets often include procedural titles or many short numbered item
+    # headings. We do not want long internal report checklists or background outlines
+    # to outweigh the stronger memo/report structure above.
+    if procedural_signals >= 1:
+        return False
+    if (
+        numbered_heading_signals >= 20
+        and supporting_hits < 2
+        and not has_template_placeholders
+    ):
         return False
     return supporting_hits >= 1 or "administrative report" in lowered
 

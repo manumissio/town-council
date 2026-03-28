@@ -92,6 +92,60 @@ def test_classify_text_bad_content_detects_single_item_staff_report_shape():
     assert classification.reason == SINGLE_ITEM_STAFF_REPORT_REASON
 
 
+def test_classify_text_bad_content_detects_real_san_mateo_style_staff_report():
+    text = """
+    CITY OF SAN MATEO
+    Agenda Report
+    Agenda Number: 8
+    Section Name: NEW BUSINESS
+    TO: City Council
+    FROM: Alex Khojikian, City Manager
+    PREPARED BY: City Clerk's Office
+    SUBJECT: Boards and Commissions - Establishment of Annual Appointment Subcommittees
+    RECOMMENDATION: Establish the Appointment Subcommittees for the 2026 annual Boards and Commissions recruitment cycle.
+    1. Engaged and Diverse Applicants
+    2. Suggestions for Improvements
+    3. Strong Civic Motivation
+    4. Effective Outreach via Direct Contact
+    """
+
+    classification = classify_text_bad_content(
+        text,
+        document_category="agenda",
+        include_document_shape=True,
+        has_viable_structured_source=False,
+    )
+
+    assert classification is not None
+    assert classification.family == DOCUMENT_SHAPE_FAMILY
+    assert classification.reason == SINGLE_ITEM_STAFF_REPORT_REASON
+
+
+def test_classify_text_bad_content_detects_administrative_report_with_plural_recommendations():
+    text = """
+    TO:
+    Honorable Mayor and City Council
+    DATE:
+    Sept. 20, 2001
+    ADMINISTRATIVE REPORT
+    SUBJECT:
+    Police Grant Spending Plan
+    RECOMMENDATIONS:
+    Conduct a public hearing, adopt a resolution, and introduce an ordinance appropriating funds.
+    """
+
+    classification = classify_text_bad_content(
+        text,
+        document_category="agenda",
+        include_document_shape=True,
+        has_viable_structured_source=False,
+    )
+
+    assert classification is not None
+    assert classification.family == DOCUMENT_SHAPE_FAMILY
+    assert classification.reason == SINGLE_ITEM_STAFF_REPORT_REASON
+
+
 def test_classify_text_bad_content_skips_single_item_staff_report_when_structured_source_exists():
     text = """
     CITY OF SAN MATEO
@@ -108,6 +162,26 @@ def test_classify_text_bad_content_skips_single_item_staff_report_when_structure
         document_category="agenda",
         include_document_shape=True,
         has_viable_structured_source=True,
+    )
+
+    assert classification is None
+
+
+def test_classify_text_bad_content_keeps_true_multi_item_agenda_unclassified():
+    text = """
+    CITY COUNCIL AGENDA
+    1. CALL TO ORDER
+    2. PUBLIC COMMENT
+    3. CONSENT CALENDAR
+    4. NEW BUSINESS
+    5. ADJOURNMENT
+    """
+
+    classification = classify_text_bad_content(
+        text,
+        document_category="agenda",
+        include_document_shape=True,
+        has_viable_structured_source=False,
     )
 
     assert classification is None
