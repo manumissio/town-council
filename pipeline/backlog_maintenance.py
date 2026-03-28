@@ -11,7 +11,7 @@ from sqlalchemy.exc import SQLAlchemyError
 
 from pipeline import llm as llm_mod
 from pipeline import llm_provider as llm_provider_mod
-from pipeline.agenda_resolver import resolve_agenda_items
+from pipeline.agenda_resolver import has_viable_structured_agenda_source, resolve_agenda_items
 from pipeline.agenda_service import persist_agenda_items
 from pipeline.config import AGENDA_SUMMARY_MAX_INPUT_CHARS, AGENDA_SUMMARY_MIN_RESERVED_OUTPUT_CHARS
 from pipeline.content_hash import compute_content_hash
@@ -185,7 +185,15 @@ def segment_catalog_with_mode(catalog_id: int, *, segment_mode: str = "normal") 
             catalog = session.get(Catalog, catalog_id)
             if not catalog or not catalog.content:
                 return _empty_segment_result()
-            classification = classify_catalog_bad_content(catalog)
+            doc = session.query(Document).filter_by(catalog_id=catalog.id).first()
+            if not doc or not doc.event_id:
+                return _empty_segment_result()
+            classification = classify_catalog_bad_content(
+                catalog,
+                document_category=getattr(doc, "category", None),
+                include_document_shape=True,
+                has_viable_structured_source=has_viable_structured_agenda_source(session, catalog, doc),
+            )
             if classification:
                 catalog.agenda_segmentation_status = "failed"
                 catalog.agenda_segmentation_item_count = 0
@@ -193,9 +201,6 @@ def segment_catalog_with_mode(catalog_id: int, *, segment_mode: str = "normal") 
                 catalog.agenda_segmentation_error = classification.reason
                 session.commit()
                 return _empty_segment_result("failed", error=classification.reason)
-            doc = session.query(Document).filter_by(catalog_id=catalog.id).first()
-            if not doc or not doc.event_id:
-                return _empty_segment_result()
 
             if segment_mode == "maintenance" and looks_structured_enough_for_heuristic_segmentation(catalog.content):
                 heuristic_resolved = resolve_agenda_items(session, catalog, doc, HeuristicOnlyLocalAI())

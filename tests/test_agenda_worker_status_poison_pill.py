@@ -29,7 +29,7 @@ def _build_minimal_meeting(db_session):
     db_session.add(catalog)
     db_session.flush()
 
-    doc = Document(event_id=event.id, catalog_id=catalog.id, place_id=place.id)
+    doc = Document(event_id=event.id, catalog_id=catalog.id, place_id=place.id, category="agenda")
     db_session.add(doc)
     db_session.commit()
     return place, event, doc, catalog
@@ -93,3 +93,26 @@ def test_agenda_worker_selection_excludes_empty_status(db_session):
     ids = {c.id for c in to_process}
     assert catalog_empty.id not in ids
     assert catalog_todo.id in ids
+
+
+def test_segment_document_agenda_marks_single_item_staff_report_failed(db_session, mocker):
+    _, _event, _doc, catalog = _build_minimal_meeting(db_session)
+    catalog.content = (
+        "CITY OF SAN MATEO\nAgenda Report\nAgenda Number: 8\nSection Name: NEW BUSINESS\n"
+        "TO: City Council\nFROM: Alex Khojikian, City Manager\n"
+        "SUBJECT: Boards and Commissions Vacancy Process\n"
+        "RECOMMENDATION: Approve the revised vacancy process."
+    )
+    db_session.commit()
+
+    mocker.patch("pipeline.agenda_worker.has_viable_structured_agenda_source", return_value=False)
+    mocker.patch("pipeline.agenda_worker.LocalAI", return_value=MagicMock())
+
+    segment_document_agenda(catalog.id)
+
+    db_session.expire_all()
+    refreshed = db_session.get(Catalog, catalog.id)
+    assert refreshed.agenda_segmentation_status == "failed"
+    assert refreshed.agenda_segmentation_error == "single_item_staff_report_detected"
+    assert refreshed.agenda_segmentation_item_count == 0
+    assert db_session.query(AgendaItem).filter_by(catalog_id=catalog.id).count() == 0

@@ -10,7 +10,7 @@ from pipeline.config import AGENDA_BATCH_SIZE
 from pipeline.laserfiche_error_pages import classify_catalog_bad_content
 from pipeline.llm import LocalAI
 from pipeline.agenda_service import persist_agenda_items
-from pipeline.agenda_resolver import resolve_agenda_items
+from pipeline.agenda_resolver import has_viable_structured_agenda_source, resolve_agenda_items
 
 
 logger = logging.getLogger("agenda-worker")
@@ -75,7 +75,17 @@ def segment_document_agenda(catalog_id):
             catalog = session.get(Catalog, catalog_id)
             if not catalog or not catalog.content:
                 return
-            classification = classify_catalog_bad_content(catalog)
+            # Find the associated document to get the event_id
+            # We need this to link agenda items to specific meetings
+            doc = session.query(Document).filter_by(catalog_id=catalog.id).first()
+            if not doc or not doc.event_id:
+                return
+            classification = classify_catalog_bad_content(
+                catalog,
+                document_category=getattr(doc, "category", None),
+                include_document_shape=True,
+                has_viable_structured_source=has_viable_structured_agenda_source(session, catalog, doc),
+            )
             if classification:
                 catalog.agenda_segmentation_status = "failed"
                 catalog.agenda_segmentation_item_count = 0
@@ -84,12 +94,6 @@ def segment_document_agenda(catalog_id):
                 session.commit()
                 return
             local_ai = LocalAI()
-
-            # Find the associated document to get the event_id
-            # We need this to link agenda items to specific meetings
-            doc = session.query(Document).filter_by(catalog_id=catalog.id).first()
-            if not doc or not doc.event_id:
-                return
 
             resolved = resolve_agenda_items(session, catalog, doc, local_ai)
             items_data = resolved["items"]

@@ -18,7 +18,7 @@ from pipeline.laserfiche_error_pages import classify_catalog_bad_content
 from pipeline.models import db_connect, Catalog, Document, Event, SemanticEmbedding
 from pipeline.llm import LocalAI, LocalAIConfigError
 from pipeline.agenda_service import persist_agenda_items
-from pipeline.agenda_resolver import resolve_agenda_items
+from pipeline.agenda_resolver import has_viable_structured_agenda_source, resolve_agenda_items
 from pipeline.city_scope import source_aliases_for_city
 from pipeline.models import AgendaItem
 from pipeline.config import (
@@ -869,7 +869,15 @@ def segment_agenda_task(self, catalog_id: int):
         
         if not catalog or not catalog.content:
             return {"error": "No content"}
-        classification = classify_catalog_bad_content(catalog)
+        doc = db.query(Document).filter_by(catalog_id=catalog_id).first()
+        if not doc:
+            return {"error": "Document not linked to event"}
+        classification = classify_catalog_bad_content(
+            catalog,
+            document_category=getattr(doc, "category", None),
+            include_document_shape=True,
+            has_viable_structured_source=has_viable_structured_agenda_source(db, catalog, doc),
+        )
         if classification:
             catalog.agenda_segmentation_status = "failed"
             catalog.agenda_segmentation_item_count = 0
@@ -878,10 +886,6 @@ def segment_agenda_task(self, catalog_id: int):
             db.commit()
             return {"status": "error", "error": classification.reason}
         local_ai = LocalAI()
-            
-        doc = db.query(Document).filter_by(catalog_id=catalog_id).first()
-        if not doc:
-            return {"error": "Document not linked to event"}
             
         resolved = resolve_agenda_items(db, catalog, doc, local_ai)
         items_data = resolved["items"]

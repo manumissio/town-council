@@ -124,3 +124,52 @@ def test_segment_catalog_with_mode_marks_laserfiche_loading_shell_failed(mocker)
 
     assert result["status"] == "failed"
     assert result["error"] == "laserfiche_loading_shell_detected"
+
+
+def test_segment_catalog_with_mode_marks_single_item_staff_report_failed(mocker):
+    Session = _session_fixture(mocker)
+    session = Session()
+    place = Place(
+        name="San Mateo",
+        state="CA",
+        ocd_division_id="ocd-division/country:us/state:ca/place:san_mateo",
+        crawler_name="san_mateo",
+    )
+    session.add(place)
+    session.flush()
+    event = Event(place_id=place.id, ocd_division_id=place.ocd_division_id, source="san_mateo", name="Agenda")
+    session.add(event)
+    session.flush()
+    catalog = Catalog(
+        url_hash="hash-4",
+        location="/tmp/agenda.pdf",
+        url="https://portal.laserfiche.com/Portal/ElectronicFile.aspx?docid=4",
+        content=(
+            "CITY OF SAN MATEO\nAgenda Report\nAgenda Number: 8\nSection Name: NEW BUSINESS\n"
+            "TO: City Council\nFROM: Alex Khojikian, City Manager\n"
+            "SUBJECT: Boards and Commissions Vacancy Process\n"
+            "RECOMMENDATION: Approve the revised vacancy process."
+        ),
+    )
+    session.add(catalog)
+    session.flush()
+    doc = Document(place_id=place.id, event_id=event.id, catalog_id=catalog.id, category="agenda", url=catalog.url)
+    doc.event = event
+    session.add(doc)
+    session.commit()
+    catalog_id = catalog.id
+    session.close()
+
+    mocker.patch.object(mod, "has_viable_structured_agenda_source", return_value=False)
+
+    result = mod.segment_catalog_with_mode(catalog_id, segment_mode="maintenance")
+
+    assert result["status"] == "failed"
+    assert result["error"] == "single_item_staff_report_detected"
+
+    check = Session()
+    refreshed = check.get(Catalog, catalog_id)
+    assert refreshed.agenda_segmentation_status == "failed"
+    assert refreshed.agenda_segmentation_error == "single_item_staff_report_detected"
+    assert refreshed.agenda_segmentation_item_count == 0
+    check.close()
