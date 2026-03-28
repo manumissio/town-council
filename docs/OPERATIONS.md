@@ -1,6 +1,6 @@
 # Operations Runbook
 
-Last updated: 2026-03-27
+Last updated: 2026-03-28
 
 ## Core workflow
 
@@ -134,6 +134,24 @@ docker compose run --rm pipeline python scripts/reset_laserfiche_error_agenda_ro
   - catalog-level semantic embeddings
 - Historical note:
   backlog metrics captured before this guard may overstate real progress for San Mateo because some `complete` and `empty` agenda segmentations were built from Laserfiche bad pages, not real agendas.
+
+### Agenda report / staff memo cleanup
+- The shared bad-content classifier also recognizes a separate non-Laserfiche document-shape category:
+  - `single_item_staff_report_detected`
+- This category is for `agenda` PDFs that are really single-item `Agenda Report` / `Administrative Report` staff memos rather than meeting-wide agendas.
+- Segmentation marks these rows `failed` with the explicit reason instead of letting them churn as `empty`.
+- Summary behavior is unchanged:
+  agenda summaries still require segmented agenda items, so this category is a backlog-classification fix, not a new summary path.
+- Cleanup for this category is opt-in so default Laserfiche bad-page cleanup stays narrow.
+- The opt-in cleanup only targets unresolved document-shape backlog rows; it does not reset already summarized historical staff-report rows.
+- Dry-run with document-shape rows included:
+```bash
+docker compose run --rm pipeline python scripts/reset_laserfiche_error_agenda_rows.py --city san_mateo --json --include-document-shape
+```
+- Apply reset for document-shape rows only when no large backlog mutation job is running:
+```bash
+docker compose run --rm pipeline python scripts/reset_laserfiche_error_agenda_rows.py --city san_mateo --apply --include-document-shape
+```
 
 ### Summary hydration diagnostics
 - `scripts/diagnose_summary_hydration.py` mixes two kinds of metrics on purpose:
