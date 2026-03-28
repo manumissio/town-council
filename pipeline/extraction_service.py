@@ -3,6 +3,7 @@ from datetime import datetime
 
 from pipeline.extractor import extract_text, is_safe_path
 from pipeline.content_hash import compute_content_hash
+from pipeline.laserfiche_error_pages import is_laserfiche_error_text, is_laserfiche_html_location, is_laserfiche_portal_url
 from pipeline.text_cleaning import postprocess_extracted_text
 from pipeline.config import EXTRACTION_TERMINAL_FAILURE_MAX_ATTEMPTS
 
@@ -63,7 +64,16 @@ def reextract_catalog_content(catalog, *, force: bool, ocr_fallback: bool, min_c
 
     # Store a cleaned version of extracted text so downstream NLP isn't dominated by
     # extraction artifacts (for example spaced-letter ALLCAPS like "P R O C L...").
-    catalog.content = postprocess_extracted_text(new_text)
+    cleaned_text = postprocess_extracted_text(new_text)
+    if (
+        is_laserfiche_html_location(catalog.location)
+        and is_laserfiche_portal_url(getattr(catalog, "url", None))
+        and is_laserfiche_error_text(cleaned_text)
+    ):
+        _mark_extraction_failure(catalog, "laserfiche_error_page_detected")
+        return {"error": "laserfiche_error_page_detected"}
+
+    catalog.content = cleaned_text
     # Hash ties derived fields (summary/topics) to a specific extracted text version.
     catalog.content_hash = compute_content_hash(catalog.content)
     catalog.extraction_status = "complete"

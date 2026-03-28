@@ -7,6 +7,7 @@ from sqlalchemy.exc import SQLAlchemyError
 from pipeline.models import Catalog, AgendaItem, Document
 from pipeline.db_session import db_session
 from pipeline.config import AGENDA_BATCH_SIZE
+from pipeline.laserfiche_error_pages import catalog_has_laserfiche_error_content
 from pipeline.llm import LocalAI
 from pipeline.agenda_service import persist_agenda_items
 from pipeline.agenda_resolver import resolve_agenda_items
@@ -68,14 +69,20 @@ def segment_document_agenda(catalog_id):
     - Page transitions that indicate new topics
     - Patterns like "MOVED BY" and "SECONDED BY" that indicate actions
     """
-    local_ai = LocalAI()
-
     # Use context manager for automatic session cleanup and error handling
     with db_session() as session:
         try:
             catalog = session.get(Catalog, catalog_id)
             if not catalog or not catalog.content:
                 return
+            if catalog_has_laserfiche_error_content(catalog):
+                catalog.agenda_segmentation_status = "failed"
+                catalog.agenda_segmentation_item_count = 0
+                catalog.agenda_segmentation_attempted_at = datetime.now(timezone.utc)
+                catalog.agenda_segmentation_error = "laserfiche_error_page_detected"
+                session.commit()
+                return
+            local_ai = LocalAI()
 
             # Find the associated document to get the event_id
             # We need this to link agenda items to specific meetings

@@ -93,6 +93,29 @@ def test_generate_summary_task_agenda_returns_not_generated_yet_when_no_items(mo
     assert "segmentation" in (result.get("reason") or "").lower()
 
 
+def test_generate_summary_task_blocks_laserfiche_error_page_content(mocker):
+    mock_db = MagicMock()
+    catalog = MagicMock()
+    catalog.location = "/tmp/agenda.html"
+    catalog.url = "https://portal.laserfiche.com/Portal/DocView.aspx?id=1"
+    catalog.content = (
+        "The system has encountered an error and could not complete your request. "
+        "If the problem persists, please contact the site administrator."
+    )
+    mock_db.get.return_value = catalog
+
+    mocker.patch.object(tasks, "SessionLocal", return_value=mock_db)
+    mock_ai = MagicMock()
+    mocker.patch.object(tasks, "LocalAI", return_value=mock_ai)
+
+    result = tasks.generate_summary_task.run(1, force=True)
+
+    assert result == {"status": "error", "error": "laserfiche_error_page_detected"}
+    mock_ai.summarize.assert_not_called()
+    mock_ai.summarize_agenda_items.assert_not_called()
+    mock_db.commit.assert_not_called()
+
+
 def test_run_summary_hydration_backfill_uses_deterministic_fallback_for_provider_errors(mocker):
     mock_db = MagicMock()
     mock_db.close.return_value = None

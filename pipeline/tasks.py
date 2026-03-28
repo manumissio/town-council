@@ -14,6 +14,7 @@ from pipeline.backlog_maintenance import (
     summarize_catalog_with_optional_fallback,
     summary_timeout_override,
 )
+from pipeline.laserfiche_error_pages import catalog_has_laserfiche_error_content
 from pipeline.models import db_connect, Catalog, Document, Event, SemanticEmbedding
 from pipeline.llm import LocalAI, LocalAIConfigError
 from pipeline.agenda_service import persist_agenda_items
@@ -383,7 +384,6 @@ def generate_summary_task(self, catalog_id: int, force: bool = False):
     Background task: generate and store a catalog summary.
     """
     db = SessionLocal()
-    local_ai = LocalAI()
     
     try:
         logger.info(f"Starting summarization for Catalog ID {catalog_id}")
@@ -397,6 +397,9 @@ def generate_summary_task(self, catalog_id: int, force: bool = False):
 
         if not catalog:
             return {"error": "Catalog not found"}
+        if catalog_has_laserfiche_error_content(catalog):
+            return {"status": "error", "error": "laserfiche_error_page_detected"}
+        local_ai = LocalAI()
 
         # Ensure we have a stable fingerprint for "is this summary stale?"
         content_hash = compute_content_hash(catalog.content) if (catalog.content or "") else None
@@ -858,7 +861,6 @@ def segment_agenda_task(self, catalog_id: int):
     Background task: segment catalog text into agenda items.
     """
     db = SessionLocal()
-    local_ai = LocalAI()
     
     try:
         logger.info(f"Starting segmentation for Catalog ID {catalog_id}")
@@ -866,6 +868,14 @@ def segment_agenda_task(self, catalog_id: int):
         
         if not catalog or not catalog.content:
             return {"error": "No content"}
+        if catalog_has_laserfiche_error_content(catalog):
+            catalog.agenda_segmentation_status = "failed"
+            catalog.agenda_segmentation_item_count = 0
+            catalog.agenda_segmentation_attempted_at = datetime.now(timezone.utc)
+            catalog.agenda_segmentation_error = "laserfiche_error_page_detected"
+            db.commit()
+            return {"status": "error", "error": "laserfiche_error_page_detected"}
+        local_ai = LocalAI()
             
         doc = db.query(Document).filter_by(catalog_id=catalog_id).first()
         if not doc:
