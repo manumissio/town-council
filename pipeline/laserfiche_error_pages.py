@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from dataclasses import dataclass
 import re
 
 
@@ -15,6 +16,13 @@ _LASERFICHE_LOADING_SHELL_PATTERNS = (
 
 LASERFICHE_ERROR_PAGE_REASON = "laserfiche_error_page_detected"
 LASERFICHE_LOADING_SHELL_REASON = "laserfiche_loading_shell_detected"
+LASERFICHE_FAMILY = "laserfiche"
+
+
+@dataclass(frozen=True)
+class BadContentClassification:
+    family: str
+    reason: str
 
 
 def is_laserfiche_html_location(location: str | None) -> bool:
@@ -43,30 +51,64 @@ def is_laserfiche_loading_shell_text(text: str | None) -> bool:
     return all(pattern.search(value) for pattern in _LASERFICHE_LOADING_SHELL_PATTERNS)
 
 
-def detect_laserfiche_bad_text_reason(text: str | None) -> str | None:
+def _classify_laserfiche_text(text: str | None) -> BadContentClassification | None:
     if is_laserfiche_error_text(text):
-        return LASERFICHE_ERROR_PAGE_REASON
+        return BadContentClassification(
+            family=LASERFICHE_FAMILY,
+            reason=LASERFICHE_ERROR_PAGE_REASON,
+        )
     if is_laserfiche_loading_shell_text(text):
-        return LASERFICHE_LOADING_SHELL_REASON
+        return BadContentClassification(
+            family=LASERFICHE_FAMILY,
+            reason=LASERFICHE_LOADING_SHELL_REASON,
+        )
     return None
 
 
-def detect_laserfiche_bad_content_reason(catalog) -> str | None:
+def classify_text_bad_content(
+    text: str | None,
+    *,
+    location: str | None = None,
+    url: str | None = None,
+) -> BadContentClassification | None:
+    if location is not None or url is not None:
+        if not (is_laserfiche_html_location(location) and is_laserfiche_portal_url(url)):
+            return None
+    return _classify_laserfiche_text(text)
+
+
+def classify_catalog_bad_content(catalog) -> BadContentClassification | None:
     if not (
         is_laserfiche_html_location(getattr(catalog, "location", None))
         and is_laserfiche_portal_url(getattr(catalog, "url", None))
     ):
         return None
-    return detect_laserfiche_bad_text_reason(getattr(catalog, "content", None))
+    return classify_text_bad_content(
+        getattr(catalog, "content", None),
+        location=getattr(catalog, "location", None),
+        url=getattr(catalog, "url", None),
+    )
+
+
+def detect_laserfiche_bad_text_reason(text: str | None) -> str | None:
+    classification = classify_text_bad_content(text)
+    return classification.reason if classification else None
+
+
+def detect_laserfiche_bad_content_reason(catalog) -> str | None:
+    classification = classify_catalog_bad_content(catalog)
+    return classification.reason if classification else None
 
 
 def catalog_has_laserfiche_error_content(catalog) -> bool:
-    return detect_laserfiche_bad_content_reason(catalog) == LASERFICHE_ERROR_PAGE_REASON
+    classification = classify_catalog_bad_content(catalog)
+    return bool(classification and classification.reason == LASERFICHE_ERROR_PAGE_REASON)
 
 
 def catalog_has_laserfiche_loading_shell_content(catalog) -> bool:
-    return detect_laserfiche_bad_content_reason(catalog) == LASERFICHE_LOADING_SHELL_REASON
+    classification = classify_catalog_bad_content(catalog)
+    return bool(classification and classification.reason == LASERFICHE_LOADING_SHELL_REASON)
 
 
 def catalog_has_poisoned_laserfiche_content(catalog) -> bool:
-    return detect_laserfiche_bad_content_reason(catalog) is not None
+    return classify_catalog_bad_content(catalog) is not None

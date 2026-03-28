@@ -1,11 +1,14 @@
 from types import SimpleNamespace
 
 from pipeline.laserfiche_error_pages import (
+    LASERFICHE_FAMILY,
     LASERFICHE_ERROR_PAGE_REASON,
     LASERFICHE_LOADING_SHELL_REASON,
     catalog_has_laserfiche_error_content,
     catalog_has_laserfiche_loading_shell_content,
     catalog_has_poisoned_laserfiche_content,
+    classify_catalog_bad_content,
+    classify_text_bad_content,
     detect_laserfiche_bad_content_reason,
     detect_laserfiche_bad_text_reason,
     is_laserfiche_error_text,
@@ -44,6 +47,10 @@ def test_is_laserfiche_loading_shell_text_matches_known_shell_copy():
 
     assert is_laserfiche_loading_shell_text(text) is True
     assert detect_laserfiche_bad_text_reason(text) == LASERFICHE_LOADING_SHELL_REASON
+    classification = classify_text_bad_content(text)
+    assert classification is not None
+    assert classification.family == LASERFICHE_FAMILY
+    assert classification.reason == LASERFICHE_LOADING_SHELL_REASON
 
 
 def test_is_laserfiche_loading_shell_text_does_not_match_real_agenda_text():
@@ -56,6 +63,7 @@ def test_is_laserfiche_loading_shell_text_does_not_match_real_agenda_text():
     """
 
     assert is_laserfiche_loading_shell_text(text) is False
+    assert classify_text_bad_content(text) is None
 
 
 def test_catalog_has_laserfiche_error_content_requires_matching_shape():
@@ -73,10 +81,15 @@ def test_catalog_has_laserfiche_error_content_requires_matching_shape():
         content=polluted.content,
     )
 
+    classification = classify_catalog_bad_content(polluted)
+    assert classification is not None
+    assert classification.family == LASERFICHE_FAMILY
+    assert classification.reason == LASERFICHE_ERROR_PAGE_REASON
     assert catalog_has_laserfiche_error_content(polluted) is True
     assert catalog_has_poisoned_laserfiche_content(polluted) is True
     assert detect_laserfiche_bad_content_reason(polluted) == LASERFICHE_ERROR_PAGE_REASON
     assert catalog_has_laserfiche_error_content(wrong_extension) is False
+    assert classify_catalog_bad_content(wrong_extension) is None
 
 
 def test_catalog_has_laserfiche_loading_shell_content_requires_matching_shape():
@@ -94,7 +107,12 @@ def test_catalog_has_laserfiche_loading_shell_content_requires_matching_shape():
         content=polluted.content,
     )
 
+    classification = classify_catalog_bad_content(polluted)
+    assert classification is not None
+    assert classification.family == LASERFICHE_FAMILY
+    assert classification.reason == LASERFICHE_LOADING_SHELL_REASON
     assert catalog_has_laserfiche_loading_shell_content(polluted) is True
     assert catalog_has_poisoned_laserfiche_content(polluted) is True
     assert detect_laserfiche_bad_content_reason(polluted) == LASERFICHE_LOADING_SHELL_REASON
     assert catalog_has_laserfiche_loading_shell_content(wrong_url) is False
+    assert classify_catalog_bad_content(wrong_url) is None
