@@ -1,4 +1,5 @@
 import datetime
+import re
 from council_crawler.spiders.base import BaseCitySpider
 from council_crawler.utils import url_to_md5, parse_date_string
 import scrapy
@@ -11,6 +12,7 @@ class LegistarCms(BaseCitySpider):
     database connection and skipping of old meetings.
     """
     name = 'legistar_cms'
+    historical_year_cookie_value = 'Last Year'
     
     def __init__(self, legistar_url='', city='', state='', *args, **kwargs):
         if not legistar_url:
@@ -42,7 +44,39 @@ class LegistarCms(BaseCitySpider):
 
     def start_requests(self):
         for url in self.start_urls:
-            yield scrapy.Request(url=url, callback=self.parse_archive)
+            yield scrapy.Request(url=url, callback=self.parse_calendar_window)
+
+    def parse_calendar_window(self, response):
+        year_cookie_name, year_cookie_value = self._extract_calendar_year_cookie(response)
+
+        # CMS tenants default this cookie to "This Month", which truncates the
+        # server-rendered grid to the current window and hides the historical
+        # rows we need for delta crawling.
+        if year_cookie_name and year_cookie_value == 'This Month':
+            self.logger.debug(
+                "Requesting wider Legistar CMS calendar window via %s=%s on %s",
+                year_cookie_name,
+                self.historical_year_cookie_value,
+                response.url,
+            )
+            yield response.follow(
+                response.url,
+                callback=self.parse_archive,
+                cookies={year_cookie_name: self.historical_year_cookie_value},
+            )
+            return
+
+        yield from self.parse_archive(response)
+
+    def _extract_calendar_year_cookie(self, response):
+        for header in response.headers.getlist('Set-Cookie'):
+            match = re.search(
+                r'(Setting-\d+-Calendar Year)=([^;]+)',
+                header.decode('latin1'),
+            )
+            if match:
+                return match.group(1), match.group(2)
+        return None, None
 
     def parse_archive(self, response):
         # Look for the main results table. Legistar standard uses 'rgMasterTable' class.

@@ -1,6 +1,7 @@
 import sys
 import os
 import pytest
+import scrapy
 from scrapy.http import HtmlResponse
 import datetime
 
@@ -127,6 +128,63 @@ def test_legistar_template_parsing(mocker):
     event = items[0]
     assert "Testcity, CA" in event['name']
     assert event['meeting_type'] == "Regular Meeting"
+
+def test_legistar_template_expands_default_this_month_window(mocker):
+    mocker.patch('templates.legistar_cms.LegistarCms._get_last_meeting_date', return_value=None)
+    spider = LegistarCms(legistar_url='https://test.legistar.com/Calendar.aspx', city='testcity', state='ca')
+
+    response = HtmlResponse(
+        url='https://test.legistar.com/Calendar.aspx',
+        body='<html></html>',
+        encoding='utf-8',
+        headers={
+            'Set-Cookie': [
+                b'Setting-270-Calendar Year=This Month; path=/; secure',
+                b'Setting-270-Calendar Body=All; path=/; secure',
+            ],
+        },
+    )
+
+    requests = list(spider.parse_calendar_window(response))
+
+    assert len(requests) == 1
+    follow_up = requests[0]
+    assert isinstance(follow_up, scrapy.Request)
+    assert follow_up.url == 'https://test.legistar.com/Calendar.aspx'
+    assert follow_up.cookies == {'Setting-270-Calendar Year': 'Last Year'}
+    assert follow_up.callback == spider.parse_archive
+
+def test_legistar_template_does_not_expand_when_year_cookie_already_broad(mocker):
+    mocker.patch('templates.legistar_cms.LegistarCms._get_last_meeting_date', return_value=None)
+    spider = LegistarCms(legistar_url='https://test.legistar.com/Calendar.aspx', city='testcity', state='ca')
+
+    url = "https://test.legistar.com/Calendar.aspx"
+    body = """
+    <table class="rgMasterTable">
+      <tbody>
+        <tr>
+          <td><font><a href="#"><font>Regular Meeting</font></a></font></td>
+          <td><font>2/10/2026</font></td>
+          <td></td>
+          <td><font><span><font>6:00 PM</font></span></font></td>
+          <td></td><td></td>
+          <td><font><span><a href="agenda.pdf">Agenda</a></span></font></td>
+          <td><font><span><a href="minutes.pdf"><font>Minutes</font></a></span></font></td>
+        </tr>
+      </tbody>
+    </table>
+    """
+    response = HtmlResponse(
+        url=url,
+        body=body,
+        encoding='utf-8',
+        headers={'Set-Cookie': [b'Setting-270-Calendar Year=Last Year; path=/; secure']},
+    )
+
+    items = list(spider.parse_calendar_window(response))
+
+    assert len(items) == 1
+    assert items[0]['meeting_type'] == "Regular Meeting"
 
 
 def test_legistar_template_normalizes_slug_source_but_keeps_display_name(mocker):
