@@ -174,6 +174,7 @@ def test_build_city_coverage_audit_rolls_up_months_and_flags_gaps():
     assert audit.source_counts == {"san mateo": 1, "san_mateo": 3}
     assert audit.totals == {
         "event_count": 4,
+        "meeting_count": 4,
         "agenda_document_count": 4,
         "agenda_catalog_count": 4,
         "agenda_catalogs_with_content": 2,
@@ -187,6 +188,7 @@ def test_build_city_coverage_audit_rolls_up_months_and_flags_gaps():
     assert monthly["2026-02"].agenda_document_count == 2
     assert monthly["2026-02"].agenda_catalogs_with_content == 0
     assert monthly["2026-02"].flags == ["agendas_but_no_content"]
+    assert monthly["2026-02"].meeting_count == 2
     assert monthly["2026-03"].agenda_catalogs_with_content == 2
     assert monthly["2026-03"].agenda_catalogs_with_summary == 1
 
@@ -272,8 +274,110 @@ def test_build_city_coverage_audit_flags_low_cadence_and_content_without_summari
 
     assert audit.expected_monthly_event_baseline == 4.0
     assert audit.below_expected_cadence_threshold == 2
+    assert audit.expected_monthly_meeting_baseline == 4.0
+    assert audit.below_expected_meeting_cadence_threshold == 2
     monthly = {row.month: row for row in audit.monthly}
     assert monthly["2026-02"].flags == ["content_but_no_summaries", "below_expected_cadence"]
+
+
+def test_build_city_coverage_audit_dedupes_same_day_event_rows_for_cadence():
+    session = _build_session()
+    place = Place(
+        name="San Mateo",
+        state="CA",
+        ocd_division_id="ocd-division/country:us/state:ca/place:san_mateo",
+    )
+    session.add(place)
+    session.flush()
+
+    jan_duplicate_1 = Event(
+        place_id=place.id,
+        ocd_division_id=place.ocd_division_id,
+        name="Regular City Council Meeting",
+        source="san_mateo",
+        record_date=date(2026, 1, 5),
+    )
+    jan_duplicate_2 = Event(
+        place_id=place.id,
+        ocd_division_id=place.ocd_division_id,
+        name="  Regular   City Council   Meeting  ",
+        source="san_mateo",
+        record_date=date(2026, 1, 5),
+    )
+    feb_event = Event(
+        place_id=place.id,
+        ocd_division_id=place.ocd_division_id,
+        name="Regular City Council Meeting",
+        source="san_mateo",
+        record_date=date(2026, 2, 2),
+    )
+    mar_event = Event(
+        place_id=place.id,
+        ocd_division_id=place.ocd_division_id,
+        name="Regular City Council Meeting",
+        source="san_mateo",
+        record_date=date(2026, 3, 2),
+    )
+    session.add_all([jan_duplicate_1, jan_duplicate_2, feb_event, mar_event])
+    session.commit()
+
+    audit = build_city_coverage_audit(
+        session,
+        city="san_mateo",
+        months=3,
+        as_of=date(2026, 3, 28),
+    )
+
+    monthly = {row.month: row for row in audit.monthly}
+    assert monthly["2026-01"].event_count == 2
+    assert monthly["2026-01"].meeting_count == 1
+    assert monthly["2026-01"].flags == ["events_but_no_agendas"]
+    assert audit.totals["event_count"] == 4
+    assert audit.totals["meeting_count"] == 3
+
+
+def test_build_city_coverage_audit_skips_below_expected_cadence_for_current_month():
+    session = _build_session()
+    place = Place(
+        name="San Mateo",
+        state="CA",
+        ocd_division_id="ocd-division/country:us/state:ca/place:san_mateo",
+    )
+    session.add(place)
+    session.flush()
+
+    counts = {
+        date(2025, 12, 5): 4,
+        date(2026, 1, 5): 4,
+        date(2026, 2, 5): 4,
+        date(2026, 3, 5): 1,
+    }
+    counter = 0
+    for record_date, event_total in counts.items():
+        for _ in range(event_total):
+            counter += 1
+            session.add(
+                Event(
+                    place_id=place.id,
+                    ocd_division_id=place.ocd_division_id,
+                    name=f"Event {counter}",
+                    source="san_mateo",
+                    record_date=record_date,
+                )
+            )
+    session.commit()
+
+    audit = build_city_coverage_audit(
+        session,
+        city="san_mateo",
+        months=4,
+        as_of=date(2026, 3, 28),
+    )
+
+    monthly = {row.month: row for row in audit.monthly}
+    assert audit.expected_monthly_meeting_baseline == 4.0
+    assert audit.below_expected_meeting_cadence_threshold == 2
+    assert "below_expected_cadence" not in monthly["2026-03"].flags
 
 
 def test_audit_city_coverage_cli_labels_coverage_audit(mocker, capsys):
@@ -284,8 +388,11 @@ def test_audit_city_coverage_cli_labels_coverage_audit(mocker, capsys):
     audit.months = 12
     audit.expected_monthly_event_baseline = 2.5
     audit.below_expected_cadence_threshold = 2
+    audit.expected_monthly_meeting_baseline = 2.0
+    audit.below_expected_meeting_cadence_threshold = 1
     audit.totals = {
         "event_count": 24,
+        "meeting_count": 20,
         "agenda_document_count": 24,
         "agenda_catalog_count": 24,
         "agenda_catalogs_with_content": 22,
@@ -296,11 +403,13 @@ def test_audit_city_coverage_cli_labels_coverage_audit(mocker, capsys):
         mocker.Mock(
             month="2026-03",
             event_count=2,
+            meeting_count=1,
             agenda_document_count=2,
             agenda_catalog_count=2,
             agenda_catalogs_with_content=2,
             agenda_catalogs_with_summary=1,
             source_event_counts={"san_mateo": 2},
+            source_meeting_counts={"san_mateo": 1},
             flags=["content_but_no_summaries"],
         )
     ]
@@ -315,5 +424,6 @@ def test_audit_city_coverage_cli_labels_coverage_audit(mocker, capsys):
     assert exit_code == 0
     assert "City Coverage Audit" in captured.out
     assert "window: 2025-04-01 -> 2026-03-28 (12 months)" in captured.out
+    assert "expected_monthly_meeting_baseline: 2.00" in captured.out
     assert "Suspicious months" in captured.out
     assert "This audit measures source and downstream artifact coverage" in captured.out

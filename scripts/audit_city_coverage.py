@@ -45,6 +45,11 @@ def main() -> int:
         "below_expected_cadence_threshold: "
         f"{audit.below_expected_cadence_threshold if audit.below_expected_cadence_threshold is not None else 'n/a'}"
     )
+    print(f"expected_monthly_meeting_baseline: {audit.expected_monthly_meeting_baseline:.2f}")
+    print(
+        "below_expected_meeting_cadence_threshold: "
+        f"{audit.below_expected_meeting_cadence_threshold if audit.below_expected_meeting_cadence_threshold is not None else 'n/a'}"
+    )
     print("")
     print("Window totals")
     for key, value in audit.totals.items():
@@ -60,11 +65,13 @@ def main() -> int:
         print(
             f"- {row.month}: "
             f"events={row.event_count} "
+            f"meetings={row.meeting_count} "
             f"agenda_docs={row.agenda_document_count} "
             f"agenda_catalogs={row.agenda_catalog_count} "
             f"content={row.agenda_catalogs_with_content} "
             f"summaries={row.agenda_catalogs_with_summary} "
-            f"sources={row.source_event_counts} "
+            f"event_sources={row.source_event_counts} "
+            f"meeting_sources={row.source_meeting_counts} "
             f"flags={flags}"
         )
     print("")

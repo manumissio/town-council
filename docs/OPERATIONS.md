@@ -180,7 +180,10 @@ docker compose run --rm pipeline python /app/scripts/audit_city_coverage.py --ci
   - `agendas_but_no_content`
   - `content_but_no_summaries`
   - `below_expected_cadence`
-- `below_expected_cadence` compares each month against the city's own median monthly event count over the requested window. It is meant to surface suspicious troughs, not to encode each city's true meeting schedule.
+- The audit reports both raw `event_count` and a deduped meeting-style count based on `record_date + normalized event name`.
+- `below_expected_cadence` uses the deduped meeting-style count, not raw event rows.
+- The current in-progress month is still shown in the window, but it does not receive `below_expected_cadence` because partial months are not comparable to completed months.
+- `below_expected_cadence` is meant to surface suspicious troughs, not to encode each city's true meeting schedule.
 - Use the coverage audit alongside `scripts/diagnose_summary_hydration.py`:
   - coverage audit asks "did we capture enough of the city's meetings?"
   - hydration diagnostics ask "how much known catalog work is still unresolved?"
