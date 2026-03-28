@@ -204,6 +204,68 @@ def test_legistar_template_normalizes_slug_source_but_keeps_display_name(mocker)
     assert event['ocd_division_id'] == "ocd-division/country:us/state:ca/place:san_mateo"
     assert event['name'] == "San Mateo, CA Regular Meeting"
 
+def test_base_city_spider_disable_delta_bypasses_existing_anchor(mocker):
+    from council_crawler.spiders.base import BaseCitySpider
+
+    mocker.patch('council_crawler.spiders.base.BaseCitySpider._get_last_meeting_date', return_value=datetime.date(2026, 1, 1))
+
+    class TestSpider(BaseCitySpider):
+        name = 'test_city'
+        ocd_division_id = 'ocd-division/test'
+
+    spider = TestSpider(disable_delta='true')
+
+    assert spider.disable_delta is True
+    assert spider.last_meeting_date is None
+    assert spider.should_skip_meeting(datetime.date(2025, 12, 31)) is False
+    assert spider.should_skip_meeting(datetime.date(2026, 1, 1)) is False
+
+def test_base_city_spider_disable_delta_parses_bool_values():
+    from council_crawler.spiders.base import BaseCitySpider
+
+    assert BaseCitySpider._parse_bool_arg('true', arg_name='disable_delta') is True
+    assert BaseCitySpider._parse_bool_arg('YES', arg_name='disable_delta') is True
+    assert BaseCitySpider._parse_bool_arg('0', arg_name='disable_delta') is False
+    assert BaseCitySpider._parse_bool_arg(None, arg_name='disable_delta') is False
+
+    with pytest.raises(ValueError, match='disable_delta must be one of'):
+        BaseCitySpider._parse_bool_arg('maybe', arg_name='disable_delta')
+
+def test_legistar_template_inherits_disable_delta_behavior(mocker):
+    mocker.patch('templates.legistar_cms.LegistarCms._get_last_meeting_date', return_value=datetime.date(2026, 1, 1))
+    spider = LegistarCms(
+        legistar_url='https://test.legistar.com/Calendar.aspx',
+        city='testcity',
+        state='ca',
+        disable_delta='true',
+    )
+
+    response = HtmlResponse(
+        url='https://test.legistar.com/Calendar.aspx',
+        body="""
+        <table class="rgMasterTable">
+          <tbody>
+            <tr>
+              <td><font><a href="#"><font>Regular Meeting</font></a></font></td>
+              <td><font>12/10/2025</font></td>
+              <td></td>
+              <td><font><span><font>6:00 PM</font></span></font></td>
+              <td></td><td></td>
+              <td><font><span><a href="agenda.pdf">Agenda</a></span></font></td>
+              <td><font><span><a href="minutes.pdf"><font>Minutes</font></a></span></font></td>
+            </tr>
+          </tbody>
+        </table>
+        """,
+        encoding='utf-8',
+    )
+
+    items = list(spider.parse_archive(response))
+
+    assert spider.disable_delta is True
+    assert len(items) == 1
+    assert items[0]['record_date'] == datetime.date(2025, 12, 10)
+
 def test_belmont_delta_crawl(mocker):
     """
     Test: Does 'Delta Crawling' skip meetings we already have?

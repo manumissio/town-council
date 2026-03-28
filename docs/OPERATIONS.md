@@ -66,6 +66,15 @@ docker compose run --rm crawler scrapy crawl berkeley
 docker compose run --rm crawler scrapy crawl cupertino
 ```
 
+For scoped historical recovery, crawlers accept `-a disable_delta=true` to bypass
+the normal DB anchor for that one run:
+```bash
+docker compose run --rm crawler scrapy crawl sunnyvale -a disable_delta=true
+docker compose run --rm crawler scrapy crawl hayward -a disable_delta=true
+```
+Use this only for validate-before-promote backfills; normal recurring crawls should
+continue to rely on delta mode.
+
 ### 3) Process
 ```bash
 docker compose run --rm pipeline python run_pipeline.py

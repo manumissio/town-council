@@ -29,6 +29,8 @@ class BaseCitySpider(scrapy.Spider):
     name = None # e.g. 'dublin'
     ocd_division_id = None # e.g. 'ocd-division/country:us/state:ca/place:dublin'
     timezone = 'America/Los_Angeles' # Default to CA time
+    _TRUE_VALUES = {'1', 'true', 'yes', 'on'}
+    _FALSE_VALUES = {'0', 'false', 'no', 'off', ''}
     
     def __init__(self, *args, **kwargs):
         """
@@ -38,18 +40,39 @@ class BaseCitySpider(scrapy.Spider):
         It saves time and bandwidth.
         """
         super().__init__(*args, **kwargs)
+        self.disable_delta = self._parse_bool_arg(kwargs.get('disable_delta'), arg_name='disable_delta')
         
         # Verify required attributes are set by the child class
         if not self.ocd_division_id:
             # We log a warning but don't crash, allowing for testing
             self.logger.warning("BaseCitySpider: 'ocd_division_id' is not set. Database checks will fail.")
 
-        self.last_meeting_date = self._get_last_meeting_date()
-        
-        if self.last_meeting_date:
+        # Backfill crawls need to bypass the DB anchor so newly reachable
+        # historical meetings can re-enter staging without changing the
+        # default delta behavior for normal production runs.
+        self.last_meeting_date = None if self.disable_delta else self._get_last_meeting_date()
+
+        if self.disable_delta:
+            self.logger.info("Delta crawling disabled. Running scoped full/backfill crawl.")
+        elif self.last_meeting_date:
             self.logger.info(f"Delta crawling enabled. Skipping meetings before: {self.last_meeting_date}")
         else:
             self.logger.info("No previous meetings found. Running full crawl.")
+
+    @classmethod
+    def _parse_bool_arg(cls, value, *, arg_name):
+        if value is None:
+            return False
+        if isinstance(value, bool):
+            return value
+
+        normalized = str(value).strip().lower()
+        if normalized in cls._TRUE_VALUES:
+            return True
+        if normalized in cls._FALSE_VALUES:
+            return False
+
+        raise ValueError(f"{arg_name} must be one of true/false, 1/0, yes/no, on/off")
 
     def _get_last_meeting_date(self):
         """
