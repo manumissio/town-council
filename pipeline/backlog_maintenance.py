@@ -16,7 +16,7 @@ from pipeline.agenda_service import persist_agenda_items
 from pipeline.config import AGENDA_SUMMARY_MAX_INPUT_CHARS, AGENDA_SUMMARY_MIN_RESERVED_OUTPUT_CHARS
 from pipeline.content_hash import compute_content_hash
 from pipeline.db_session import db_session
-from pipeline.laserfiche_error_pages import catalog_has_laserfiche_error_content
+from pipeline.laserfiche_error_pages import detect_laserfiche_bad_content_reason
 from pipeline.models import AgendaItem, Catalog, Document
 
 
@@ -185,13 +185,14 @@ def segment_catalog_with_mode(catalog_id: int, *, segment_mode: str = "normal") 
             catalog = session.get(Catalog, catalog_id)
             if not catalog or not catalog.content:
                 return _empty_segment_result()
-            if catalog_has_laserfiche_error_content(catalog):
+            poison_reason = detect_laserfiche_bad_content_reason(catalog)
+            if poison_reason:
                 catalog.agenda_segmentation_status = "failed"
                 catalog.agenda_segmentation_item_count = 0
                 catalog.agenda_segmentation_attempted_at = datetime.now(timezone.utc)
-                catalog.agenda_segmentation_error = "laserfiche_error_page_detected"
+                catalog.agenda_segmentation_error = poison_reason
                 session.commit()
-                return _empty_segment_result("failed", error="laserfiche_error_page_detected")
+                return _empty_segment_result("failed", error=poison_reason)
             doc = session.query(Document).filter_by(catalog_id=catalog.id).first()
             if not doc or not doc.event_id:
                 return _empty_segment_result()
@@ -237,8 +238,9 @@ def build_deterministic_agenda_summary_payload(
         catalog = session.get(Catalog, catalog_id)
         if not catalog:
             return {"status": "error", "error": "Catalog not found"}
-        if catalog_has_laserfiche_error_content(catalog):
-            return {"status": "error", "error": "laserfiche_error_page_detected"}
+        poison_reason = detect_laserfiche_bad_content_reason(catalog)
+        if poison_reason:
+            return {"status": "error", "error": poison_reason}
         doc = session.query(Document).filter_by(catalog_id=catalog_id).first()
         if not doc:
             return {"status": "error", "error": "Document not found"}

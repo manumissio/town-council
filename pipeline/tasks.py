@@ -14,7 +14,7 @@ from pipeline.backlog_maintenance import (
     summarize_catalog_with_optional_fallback,
     summary_timeout_override,
 )
-from pipeline.laserfiche_error_pages import catalog_has_laserfiche_error_content
+from pipeline.laserfiche_error_pages import detect_laserfiche_bad_content_reason
 from pipeline.models import db_connect, Catalog, Document, Event, SemanticEmbedding
 from pipeline.llm import LocalAI, LocalAIConfigError
 from pipeline.agenda_service import persist_agenda_items
@@ -397,8 +397,9 @@ def generate_summary_task(self, catalog_id: int, force: bool = False):
 
         if not catalog:
             return {"error": "Catalog not found"}
-        if catalog_has_laserfiche_error_content(catalog):
-            return {"status": "error", "error": "laserfiche_error_page_detected"}
+        poison_reason = detect_laserfiche_bad_content_reason(catalog)
+        if poison_reason:
+            return {"status": "error", "error": poison_reason}
         local_ai = LocalAI()
 
         # Ensure we have a stable fingerprint for "is this summary stale?"
@@ -868,13 +869,14 @@ def segment_agenda_task(self, catalog_id: int):
         
         if not catalog or not catalog.content:
             return {"error": "No content"}
-        if catalog_has_laserfiche_error_content(catalog):
+        poison_reason = detect_laserfiche_bad_content_reason(catalog)
+        if poison_reason:
             catalog.agenda_segmentation_status = "failed"
             catalog.agenda_segmentation_item_count = 0
             catalog.agenda_segmentation_attempted_at = datetime.now(timezone.utc)
-            catalog.agenda_segmentation_error = "laserfiche_error_page_detected"
+            catalog.agenda_segmentation_error = poison_reason
             db.commit()
-            return {"status": "error", "error": "laserfiche_error_page_detected"}
+            return {"status": "error", "error": poison_reason}
         local_ai = LocalAI()
             
         doc = db.query(Document).filter_by(catalog_id=catalog_id).first()

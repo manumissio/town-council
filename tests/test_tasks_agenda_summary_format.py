@@ -116,6 +116,29 @@ def test_generate_summary_task_blocks_laserfiche_error_page_content(mocker):
     mock_db.commit.assert_not_called()
 
 
+def test_generate_summary_task_blocks_laserfiche_loading_shell_content(mocker):
+    mock_db = MagicMock()
+    catalog = MagicMock()
+    catalog.location = "/tmp/agenda.html"
+    catalog.url = "https://portal.laserfiche.com/Portal/DocView.aspx?id=2"
+    catalog.content = (
+        "[PAGE 1] Loading... The URL can be used to link to this page "
+        "Your browser does not support the video tag."
+    )
+    mock_db.get.return_value = catalog
+
+    mocker.patch.object(tasks, "SessionLocal", return_value=mock_db)
+    mock_ai = MagicMock()
+    mocker.patch.object(tasks, "LocalAI", return_value=mock_ai)
+
+    result = tasks.generate_summary_task.run(1, force=True)
+
+    assert result == {"status": "error", "error": "laserfiche_loading_shell_detected"}
+    mock_ai.summarize.assert_not_called()
+    mock_ai.summarize_agenda_items.assert_not_called()
+    mock_db.commit.assert_not_called()
+
+
 def test_run_summary_hydration_backfill_uses_deterministic_fallback_for_provider_errors(mocker):
     mock_db = MagicMock()
     mock_db.close.return_value = None
