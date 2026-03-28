@@ -152,6 +152,7 @@ def test_legistar_template_expands_default_this_month_window(mocker):
     assert isinstance(follow_up, scrapy.Request)
     assert follow_up.url == 'https://test.legistar.com/Calendar.aspx'
     assert follow_up.cookies == {'Setting-270-Calendar Year': 'Last Year'}
+    assert follow_up.dont_filter is True
     assert follow_up.callback == spider.parse_archive
 
 def test_legistar_template_does_not_expand_when_year_cookie_already_broad(mocker):

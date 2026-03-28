@@ -63,6 +63,7 @@ class LegistarCms(BaseCitySpider):
                 response.url,
                 callback=self.parse_archive,
                 cookies={year_cookie_name: self.historical_year_cookie_value},
+                dont_filter=True,
             )
             return
 
