@@ -1,9 +1,11 @@
 from types import SimpleNamespace
 
 from pipeline.laserfiche_error_pages import (
+    DOCUMENT_SHAPE_FAMILY,
     LASERFICHE_FAMILY,
     LASERFICHE_ERROR_PAGE_REASON,
     LASERFICHE_LOADING_SHELL_REASON,
+    SINGLE_ITEM_STAFF_REPORT_REASON,
     catalog_has_laserfiche_error_content,
     catalog_has_laserfiche_loading_shell_content,
     catalog_has_poisoned_laserfiche_content,
@@ -64,6 +66,51 @@ def test_is_laserfiche_loading_shell_text_does_not_match_real_agenda_text():
 
     assert is_laserfiche_loading_shell_text(text) is False
     assert classify_text_bad_content(text) is None
+
+
+def test_classify_text_bad_content_detects_single_item_staff_report_shape():
+    text = """
+    CITY OF SAN MATEO
+    Agenda Report
+    Agenda Number: 8
+    Section Name: NEW BUSINESS
+    TO: City Council
+    FROM: Alex Khojikian, City Manager
+    SUBJECT: Boards and Commissions Vacancy Process
+    RECOMMENDATION: Approve the revised vacancy process.
+    """
+
+    classification = classify_text_bad_content(
+        text,
+        document_category="agenda",
+        include_document_shape=True,
+        has_viable_structured_source=False,
+    )
+
+    assert classification is not None
+    assert classification.family == DOCUMENT_SHAPE_FAMILY
+    assert classification.reason == SINGLE_ITEM_STAFF_REPORT_REASON
+
+
+def test_classify_text_bad_content_skips_single_item_staff_report_when_structured_source_exists():
+    text = """
+    CITY OF SAN MATEO
+    Administrative Report
+    Agenda Number: 26
+    TO: City Council
+    FROM: City Manager
+    SUBJECT: Burial Costs
+    RECOMMENDATION: Adopt a Resolution.
+    """
+
+    classification = classify_text_bad_content(
+        text,
+        document_category="agenda",
+        include_document_shape=True,
+        has_viable_structured_source=True,
+    )
+
+    assert classification is None
 
 
 def test_catalog_has_laserfiche_error_content_requires_matching_shape():

@@ -284,6 +284,22 @@ def _best_html_items_for_event(session, catalog, doc):
     return sorted(html_candidates, key=agenda_quality_score, reverse=True)[0]
 
 
+def has_viable_structured_agenda_source(session, catalog, doc) -> bool:
+    html_items = _best_html_items_for_event(session, catalog, doc)
+    if len(html_items) >= 2 and agenda_quality_score(html_items) >= 55:
+        return True
+
+    legistar_client = None
+    event_date = None
+    if doc and doc.event and doc.event.place:
+        legistar_client = doc.event.place.legistar_client
+        event_date = doc.event.record_date
+
+    legistar_items = fetch_legistar_agenda_items(legistar_client, event_date)
+    filtered_legistar_items = _filter_legistar_items(legistar_items)
+    return _legistar_items_are_acceptable(filtered_legistar_items)
+
+
 def _apply_page_numbers_from_reference(primary_items: List[Dict[str, Any]], reference_items: List[Dict[str, Any]]):
     """
     Preserve deep-link quality by reusing page numbers from local extraction when possible.
