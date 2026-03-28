@@ -3,4 +3,4 @@ python-dateutil==2.9.0.post0
 sqlalchemy==2.0.38
 psycopg2-binary==2.9.10
 # Security fix: CVE-2026-26007 / GHSA-r6ph-v2qm-q3c2 (fixed in 46.0.5)
-cryptography==46.0.5
+cryptography==46.0.6
