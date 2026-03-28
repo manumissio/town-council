@@ -81,12 +81,27 @@ def _seed_catalogs(Session):
         extraction_status="complete",
         processed=True,
     )
-    session.add_all([polluted, clean])
+    loading_shell = Catalog(
+        url_hash="loading-shell",
+        location="/tmp/loading.html",
+        url="https://portal.laserfiche.com/Portal/DocView.aspx?id=3",
+        content=(
+            "[PAGE 1] Loading... The URL can be used to link to this page "
+            "Your browser does not support the video tag."
+        ),
+        summary=None,
+        agenda_segmentation_status="empty",
+        extraction_status="complete",
+        extraction_attempt_count=2,
+        processed=True,
+    )
+    session.add_all([polluted, clean, loading_shell])
     session.flush()
     session.add_all(
         [
             Document(place_id=place.id, event_id=event.id, catalog_id=polluted.id, category="agenda", url=polluted.url),
             Document(place_id=place.id, event_id=event.id, catalog_id=clean.id, category="agenda", url=clean.url),
+            Document(place_id=place.id, event_id=event.id, catalog_id=loading_shell.id, category="agenda", url=loading_shell.url),
             AgendaItem(catalog_id=polluted.id, event_id=event.id, order=1, title="Bad Item"),
             SemanticEmbedding(catalog_id=polluted.id, model_name="test-model", source_hash="bad", embedding=[0.1, 0.2]),
         ]
@@ -94,36 +109,47 @@ def _seed_catalogs(Session):
     session.commit()
     polluted_id = polluted.id
     clean_id = clean.id
+    loading_shell_id = loading_shell.id
     session.close()
-    return polluted_id, clean_id
+    return polluted_id, clean_id, loading_shell_id
 
 
 def test_report_counts_matching_laserfiche_error_rows(mocker):
     Session, _reindex = _fixture(mocker)
-    polluted_id, _clean_id = _seed_catalogs(Session)
+    polluted_id, _clean_id, loading_shell_id = _seed_catalogs(Session)
 
     report = mod._report("san_mateo")
 
-    assert report["matched_total"] == 1
+    assert report["matched_total"] == 2
     assert report["matched_complete"] == 1
+    assert report["matched_empty"] == 1
     assert report["matched_with_items"] == 1
     assert report["matched_with_summary"] == 1
-    assert report["sample_catalog_ids"] == [polluted_id]
+    assert report["reason_counts"] == {
+        "laserfiche_error_page_detected": 1,
+        "laserfiche_loading_shell_detected": 1,
+    }
+    assert report["sample_catalog_ids"] == [polluted_id, loading_shell_id]
 
 
 def test_apply_reset_clears_derived_state_for_matching_rows_only(mocker):
     Session, reindex = _fixture(mocker)
-    polluted_id, clean_id = _seed_catalogs(Session)
+    polluted_id, clean_id, loading_shell_id = _seed_catalogs(Session)
 
     result = mod._apply_reset("san_mateo")
 
-    assert result["reset_total"] == 1
-    assert result["sample_catalog_ids"] == [polluted_id]
-    reindex.assert_called_once_with(polluted_id)
+    assert result["reset_total"] == 2
+    assert result["reason_counts"] == {
+        "laserfiche_error_page_detected": 1,
+        "laserfiche_loading_shell_detected": 1,
+    }
+    assert result["sample_catalog_ids"] == [polluted_id, loading_shell_id]
+    assert reindex.call_count == 2
 
     session = Session()
     polluted = session.get(Catalog, polluted_id)
     clean = session.get(Catalog, clean_id)
+    shell = session.get(Catalog, loading_shell_id)
     assert polluted.content is None
     assert polluted.summary is None
     assert polluted.agenda_segmentation_status is None
@@ -134,6 +160,9 @@ def test_apply_reset_clears_derived_state_for_matching_rows_only(mocker):
     assert polluted.processed is False
     assert session.query(AgendaItem).filter_by(catalog_id=polluted_id).count() == 0
     assert session.query(SemanticEmbedding).filter_by(catalog_id=polluted_id).count() == 0
+    assert shell.content is None
+    assert shell.agenda_segmentation_status is None
+    assert shell.extraction_error == "laserfiche_loading_shell_detected"
     assert clean.content is not None
     assert clean.extraction_status == "complete"
     session.close()
@@ -141,7 +170,7 @@ def test_apply_reset_clears_derived_state_for_matching_rows_only(mocker):
 
 def test_main_emits_json_report(mocker, capsys):
     _fixture(mocker)
-    mocker.patch.object(mod, "_report", return_value={"city": "san_mateo", "matched_total": 0, "matched_complete": 0, "matched_unresolved": 0, "matched_with_items": 0, "matched_with_summary": 0, "sample_catalog_ids": []})
+    mocker.patch.object(mod, "_report", return_value={"city": "san_mateo", "matched_total": 0, "matched_complete": 0, "matched_empty": 0, "matched_failed": 0, "matched_unresolved": 0, "matched_with_items": 0, "matched_with_summary": 0, "reason_counts": {}, "sample_catalog_ids": []})
     mocker.patch.object(sys, "argv", ["reset_laserfiche_error_agenda_rows.py", "--json"])
 
     exit_code = mod.main()

@@ -8,7 +8,7 @@ from typing import Any
 from pipeline.city_scope import source_aliases_for_city
 from pipeline.db_session import db_session
 from pipeline.indexer import reindex_catalog
-from pipeline.laserfiche_error_pages import catalog_has_laserfiche_error_content
+from pipeline.laserfiche_error_pages import detect_laserfiche_bad_content_reason
 from pipeline.models import AgendaItem, Catalog, Document, Event, SemanticEmbedding
 
 
@@ -19,7 +19,7 @@ def _positive_int(value: str) -> int:
     return parsed
 
 
-def _matching_catalog_ids(city: str, *, limit: int | None = None) -> list[int]:
+def _matching_catalog_reasons(city: str, *, limit: int | None = None) -> dict[int, str]:
     with db_session() as session:
         query = (
             session.query(Catalog)
@@ -33,11 +33,17 @@ def _matching_catalog_ids(city: str, *, limit: int | None = None) -> list[int]:
         if limit is not None:
             query = query.limit(limit)
         catalogs = query.all()
-        return [int(catalog.id) for catalog in catalogs if catalog_has_laserfiche_error_content(catalog)]
+        matches: dict[int, str] = {}
+        for catalog in catalogs:
+            reason = detect_laserfiche_bad_content_reason(catalog)
+            if reason:
+                matches[int(catalog.id)] = reason
+        return matches
 
 
 def _report(city: str, *, limit: int | None = None) -> dict[str, Any]:
-    matching_ids = _matching_catalog_ids(city, limit=limit)
+    matching_reasons = _matching_catalog_reasons(city, limit=limit)
+    matching_ids = list(matching_reasons.keys())
     with db_session() as session:
         rows = (
             session.query(
@@ -61,15 +67,21 @@ def _report(city: str, *, limit: int | None = None) -> dict[str, Any]:
         "city": city,
         "matched_total": len(matching_ids),
         "matched_complete": sum(1 for row in rows if row[2] == "complete"),
+        "matched_empty": sum(1 for row in rows if row[2] == "empty"),
+        "matched_failed": sum(1 for row in rows if row[2] == "failed"),
         "matched_unresolved": sum(1 for row in rows if row[1] is None),
         "matched_with_items": len(item_catalog_ids),
         "matched_with_summary": sum(1 for row in rows if row[1]),
+        "reason_counts": {
+            reason: sum(1 for matched_reason in matching_reasons.values() if matched_reason == reason)
+            for reason in sorted(set(matching_reasons.values()))
+        },
         "sample_catalog_ids": matching_ids[:10],
     }
 
 
-def _reset_catalog_state(catalog: Catalog) -> None:
-    # These rows are poisoned derivatives from a portal error page, so we clear
+def _reset_catalog_state(catalog: Catalog, *, reason: str) -> None:
+    # These rows are poisoned derivatives from a bad Laserfiche portal page, so we clear
     # both the bad source text and all derived artifacts before reprocessing.
     catalog.content = None
     catalog.content_hash = None
@@ -85,15 +97,17 @@ def _reset_catalog_state(catalog: Catalog) -> None:
     catalog.agenda_segmentation_item_count = None
     catalog.agenda_segmentation_error = None
     catalog.extraction_status = "pending"
-    catalog.extraction_error = "laserfiche_error_page_detected"
+    catalog.extraction_error = reason
     catalog.extraction_attempt_count = 0
     catalog.extraction_attempted_at = None
     catalog.processed = False
 
 
 def _apply_reset(city: str, *, limit: int | None = None) -> dict[str, Any]:
-    matching_ids = _matching_catalog_ids(city, limit=limit)
+    matching_reasons = _matching_catalog_reasons(city, limit=limit)
+    matching_ids = list(matching_reasons.keys())
     reset_catalog_ids: list[int] = []
+    reset_reason_counts: dict[str, int] = {}
     with db_session() as session:
         catalogs = (
             session.query(Catalog)
@@ -102,12 +116,14 @@ def _apply_reset(city: str, *, limit: int | None = None) -> dict[str, Any]:
             .all()
         )
         for catalog in catalogs:
-            if not catalog_has_laserfiche_error_content(catalog):
+            reason = detect_laserfiche_bad_content_reason(catalog)
+            if not reason:
                 continue
             session.query(AgendaItem).filter(AgendaItem.catalog_id == catalog.id).delete(synchronize_session=False)
             session.query(SemanticEmbedding).filter(SemanticEmbedding.catalog_id == catalog.id).delete(synchronize_session=False)
-            _reset_catalog_state(catalog)
+            _reset_catalog_state(catalog, reason=reason)
             reset_catalog_ids.append(int(catalog.id))
+            reset_reason_counts[reason] = int(reset_reason_counts.get(reason, 0)) + 1
         session.commit()
 
     reindexed = 0
@@ -122,12 +138,13 @@ def _apply_reset(city: str, *, limit: int | None = None) -> dict[str, Any]:
         "city": city,
         "reset_total": len(reset_catalog_ids),
         "reindexed_total": reindexed,
+        "reason_counts": reset_reason_counts,
         "sample_catalog_ids": reset_catalog_ids[:10],
     }
 
 
 def main() -> int:
-    parser = argparse.ArgumentParser(description="Reset Laserfiche error-page agenda rows so they can be re-extracted cleanly")
+    parser = argparse.ArgumentParser(description="Reset poisoned Laserfiche agenda rows so they can be re-extracted cleanly")
     parser.add_argument("--city", default="san_mateo")
     parser.add_argument("--limit", type=_positive_int, default=None)
     parser.add_argument("--apply", action="store_true")
@@ -143,18 +160,22 @@ def main() -> int:
         print(json.dumps(result, indent=2, sort_keys=True))
         return 0
 
-    print("Laserfiche Error Agenda Rows")
-    print("============================")
+    print("Laserfiche Bad Agenda Rows")
+    print("==========================")
     print(f"city: {report['city']}")
     print(f"matched_total: {report['matched_total']}")
     print(f"matched_complete: {report['matched_complete']}")
+    print(f"matched_empty: {report['matched_empty']}")
+    print(f"matched_failed: {report['matched_failed']}")
     print(f"matched_unresolved: {report['matched_unresolved']}")
     print(f"matched_with_items: {report['matched_with_items']}")
     print(f"matched_with_summary: {report['matched_with_summary']}")
+    print(f"reason_counts: {report['reason_counts']}")
     print(f"sample_catalog_ids: {report['sample_catalog_ids']}")
     if args.apply:
         print(f"reset_total: {result['apply']['reset_total']}")
         print(f"reindexed_total: {result['apply']['reindexed_total']}")
+        print(f"reset_reason_counts: {result['apply']['reason_counts']}")
     return 0
 
 
