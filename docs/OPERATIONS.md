@@ -107,6 +107,31 @@ docker compose run --rm pipeline python scripts/hydrate_repaired_city_catalogs.p
   - `generated_pdf_transport_retryable`
   - `generated_pdf_invalid_partial_pdf`
 
+### Laserfiche error-page cleanup
+- The pipeline now rejects known Laserfiche portal error HTML instead of treating it as valid agenda content.
+- The guard applies in three places:
+  - extraction rejects polluted `.html` Laserfiche portal pages with `laserfiche_error_page_detected`
+  - agenda segmentation marks those rows `failed` instead of `complete` or `empty`
+  - summary generation refuses to summarize those rows
+- Use `scripts/reset_laserfiche_error_agenda_rows.py` to measure or reset already polluted derived rows.
+- Dry run first:
+```bash
+docker compose run --rm pipeline python scripts/reset_laserfiche_error_agenda_rows.py --city san_mateo
+docker compose run --rm pipeline python scripts/reset_laserfiche_error_agenda_rows.py --city san_mateo --json
+```
+- Apply reset only when no large backlog mutation job is running:
+```bash
+docker compose run --rm pipeline python scripts/reset_laserfiche_error_agenda_rows.py --city san_mateo --apply
+```
+- The reset clears poisoned derived state so those catalogs can be re-extracted later:
+  - `Catalog.content`
+  - `Catalog.summary`
+  - agenda segmentation status/error fields
+  - derived `AgendaItem` rows
+  - catalog-level semantic embeddings
+- Historical note:
+  backlog metrics captured before this guard may overstate real progress for San Mateo because some `complete` agenda segmentations were built from Laserfiche error pages.
+
 ### Summary hydration diagnostics
 - `scripts/diagnose_summary_hydration.py` mixes two kinds of metrics on purpose:
   - cumulative totals, such as `catalogs_with_summary`
