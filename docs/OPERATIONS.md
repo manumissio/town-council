@@ -162,6 +162,28 @@ docker compose run --rm pipeline python scripts/reset_laserfiche_error_agenda_ro
   - `Cumulative totals`
   - `Unresolved backlog totals`
   - `Backlog buckets (rows where summary is still null)`
+- The backlog diagnostic answers "how much known work is unresolved?" It does not answer "did we scrape enough meetings across the full period?"
+
+### City coverage audit
+- `scripts/audit_city_coverage.py` answers the source-completeness question that backlog diagnostics cannot:
+  - month-by-month `Event.record_date` coverage for a city
+  - agenda document/catalog coverage for those events
+  - downstream content/summary coverage on those agenda catalogs
+- Example:
+```bash
+docker compose run --rm pipeline python /app/scripts/audit_city_coverage.py --city san_mateo --months 12
+docker compose run --rm pipeline python /app/scripts/audit_city_coverage.py --city san_mateo --months 12 --json
+```
+- Month flags are advisory diagnostics:
+  - `no_events`
+  - `events_but_no_agendas`
+  - `agendas_but_no_content`
+  - `content_but_no_summaries`
+  - `below_expected_cadence`
+- `below_expected_cadence` compares each month against the city's own median monthly event count over the requested window. It is meant to surface suspicious troughs, not to encode each city's true meeting schedule.
+- Use the coverage audit alongside `scripts/diagnose_summary_hydration.py`:
+  - coverage audit asks "did we capture enough of the city's meetings?"
+  - hydration diagnostics ask "how much known catalog work is still unresolved?"
 
 ### Onboarding-safe extraction mode
 - `scripts/onboard_city_wave.sh` runs the pipeline in an onboarding-scoped extraction mode.
