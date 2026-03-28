@@ -1,8 +1,12 @@
 import datetime
-import scrapy
+import html
 import json
+from urllib.parse import parse_qs, urlparse
+
+import scrapy
 
 from council_crawler.spiders.base import BaseCitySpider
+from council_crawler.utils import url_to_md5
 
 class LegistarApi(BaseCitySpider):
     """
@@ -36,6 +40,66 @@ class LegistarApi(BaseCitySpider):
             url=url,
             callback=self.parse,
             headers={"Accept": "application/json"},
+        )
+
+    def _build_documents(self, *, agenda_url=None, minutes_url=None):
+        documents = []
+        if agenda_url:
+            documents.append({
+                'url': agenda_url,
+                'url_hash': url_to_md5(agenda_url),
+                'category': 'agenda'
+            })
+
+        if minutes_url:
+            documents.append({
+                'url': minutes_url,
+                'url_hash': url_to_md5(minutes_url),
+                'category': 'minutes'
+            })
+        return documents
+
+    def _dedupe_documents(self, documents):
+        deduped = []
+        seen = set()
+        for doc in documents:
+            key = (doc.get('category'), doc.get('url'))
+            if key in seen:
+                continue
+            seen.add(key)
+            deduped.append(doc)
+        return deduped
+
+    def _extract_detail_page_documents(self, response):
+        agenda_url = None
+        minutes_url = None
+        for raw_href in response.xpath('//a[@href]/@href').getall():
+            href = html.unescape(raw_href or "")
+            parsed = urlparse(href)
+            query = parse_qs(parsed.query)
+            media_type = (query.get("M") or [None])[0]
+            if media_type == "A" and agenda_url is None:
+                agenda_url = response.urljoin(href)
+            elif media_type == "M" and minutes_url is None:
+                minutes_url = response.urljoin(href)
+        return self._build_documents(agenda_url=agenda_url, minutes_url=minutes_url)
+
+    def _build_event_item(self, *, item, record_date, body_name, documents):
+        return self.create_event_item(
+            meeting_date=record_date,
+            meeting_name=f"{body_name} Meeting",
+            source_url=item.get('EventInSiteURL', ''),
+            documents=self._dedupe_documents(documents),
+            meeting_type=body_name
+        )
+
+    def parse_meeting_detail(self, response, *, item, record_date, body_name, api_documents):
+        fallback_documents = self._extract_detail_page_documents(response)
+        yield self._build_event_item(
+            item=item,
+            record_date=record_date,
+            body_name=body_name,
+            documents=api_documents + fallback_documents,
         )
 
     def parse(self, response):
@@ -74,31 +138,30 @@ class LegistarApi(BaseCitySpider):
             body_name = item.get('EventBodyName', 'City Council')
             
             # 3. Handle Documents
-            documents = []
             agenda_url = item.get('EventAgendaFile')
             minutes_url = item.get('EventMinutesFile')
+            documents = self._build_documents(agenda_url=agenda_url, minutes_url=minutes_url)
+            source_url = item.get('EventInSiteURL', '')
 
-            if agenda_url:
-                from council_crawler.utils import url_to_md5
-                documents.append({
-                    'url': agenda_url,
-                    'url_hash': url_to_md5(agenda_url),
-                    'category': 'agenda'
-                })
-
-            if minutes_url:
-                from council_crawler.utils import url_to_md5
-                documents.append({
-                    'url': minutes_url,
-                    'url_hash': url_to_md5(minutes_url),
-                    'category': 'minutes'
-                })
+            # Some Legistar tenants omit file URLs from the API payload even when
+            # the meeting detail page still publishes the agenda/minutes links.
+            if not documents and source_url:
+                yield scrapy.Request(
+                    url=source_url,
+                    callback=self.parse_meeting_detail,
+                    cb_kwargs={
+                        "item": item,
+                        "record_date": record_date,
+                        "body_name": body_name,
+                        "api_documents": documents,
+                    },
+                )
+                continue
 
             # 4. Create the standardized Event Item using the base class factory
-            yield self.create_event_item(
-                meeting_date=record_date,
-                meeting_name=f"{body_name} Meeting",
-                source_url=item.get('EventInSiteURL', ''),
+            yield self._build_event_item(
+                item=item,
+                record_date=record_date,
+                body_name=body_name,
                 documents=documents,
-                meeting_type=body_name
             )

@@ -56,7 +56,7 @@ def test_cupertino_api_parsing(mocker):
     
     # Run the parse method
     results = list(spider.parse(response))
-    
+
     # Verify results
     assert len(results) == 3
     
@@ -75,6 +75,20 @@ def test_cupertino_api_parsing(mocker):
     assert m2['documents'][0]['url'] == "https://cupertino.legistar.com/cc_agenda.pdf"
 
     # Check event without documents does not emit empty/invalid document entries
-    m3 = results[2]
+    request = results[2]
+    assert request.url == "https://cupertino.legistar.com/MeetingDetail.aspx?ID=3"
+
+    detail_response = TextResponse(
+        url=request.url,
+        body="""
+        <html><body>
+          <a href="View.ashx?M=A&amp;ID=3">Agenda</a>
+          <a href="View.ashx?M=M&amp;ID=3">Minutes</a>
+        </body></html>
+        """,
+        encoding="utf-8",
+        request=Request(url=request.url)
+    )
+    [m3] = list(request.callback(detail_response, **request.cb_kwargs))
     assert m3["meeting_type"] == "City Council"
-    assert m3["documents"] == []
+    assert [doc["category"] for doc in m3["documents"]] == ["agenda", "minutes"]
