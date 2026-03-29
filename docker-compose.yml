@@ -15,25 +15,29 @@ services:
 
   # Service for running the Scrapy spiders
   crawler:
-    build: .
+    image: town-council-python-base
     volumes:
       - .:/app
       - data:/app/data
+      - models_data:/models
     working_dir: /app/council_crawler
     environment:
       - PYTHONUNBUFFERED=1
       - PYTHONPATH=/app
       - DATABASE_URL=${DATABASE_URL:-postgresql://town_council:secure_dev_password@postgres:5432/town_council_db}
       - DATA_DIR=/app/data
+      - HF_HOME=/models/huggingface
+      - SENTENCE_TRANSFORMERS_HOME=/models/sentence-transformers
     depends_on:
       - postgres
 
   # Service for running the downloader pipeline
   pipeline:
-    build: .
+    image: town-council-python-base
     volumes:
       - .:/app
       - data:/app/data
+      - models_data:/models
     working_dir: /app/pipeline
     environment:
       - PYTHONUNBUFFERED=1
@@ -51,6 +55,8 @@ services:
       - LOCAL_AI_HTTP_TIMEOUT_SECONDS=${LOCAL_AI_HTTP_TIMEOUT_SECONDS:-60}
       - LOCAL_AI_HTTP_MAX_RETRIES=${LOCAL_AI_HTTP_MAX_RETRIES:-1}
       - LOCAL_AI_HTTP_MODEL=${LOCAL_AI_HTTP_MODEL:-gemma-3-270m-custom}
+      - HF_HOME=/models/huggingface
+      - SENTENCE_TRANSFORMERS_HOME=/models/sentence-transformers
       # Semantic search (Milestone B) config. Endpoint is disabled by default.
       - SEMANTIC_ENABLED=${SEMANTIC_ENABLED:-false}
       - SEMANTIC_BACKEND=${SEMANTIC_BACKEND:-faiss}
@@ -92,10 +98,11 @@ services:
 
   # Service for extracting text from downloaded documents.
   extractor:
-    build: .
+    image: town-council-python-base
     volumes:
       - .:/app
       - data:/app/data
+      - models_data:/models
     working_dir: /app/pipeline
     environment:
       - PYTHONUNBUFFERED=1
@@ -104,6 +111,8 @@ services:
       - DATABASE_URL=${DATABASE_URL:-postgresql://town_council:secure_dev_password@postgres:5432/town_council_db}
       - DATA_DIR=/app/data
       - TIKA_OCR_FALLBACK_ENABLED=true
+      - HF_HOME=/models/huggingface
+      - SENTENCE_TRANSFORMERS_HOME=/models/sentence-transformers
     depends_on:
       - tika
       - postgres
@@ -111,10 +120,11 @@ services:
   # Celery Worker: Handles compute-intensive AI tasks (Summarization, Segmentation)
   # in the background so the API remains fast and responsive.
   worker:
-    build: .
+    image: town-council-python-base
     volumes:
       - .:/app
       - data:/app/data
+      - models_data:/models
     working_dir: /app
     # Conservative D2-lite default: use HTTP inference backend with bounded parallelism.
     # Why this branch exists: lifting concurrency while keeping in-process llama.cpp would
@@ -139,6 +149,8 @@ services:
       - LOCAL_AI_HTTP_TIMEOUT_SECONDS=${LOCAL_AI_HTTP_TIMEOUT_SECONDS:-60}
       - LOCAL_AI_HTTP_MAX_RETRIES=${LOCAL_AI_HTTP_MAX_RETRIES:-1}
       - LOCAL_AI_HTTP_MODEL=${LOCAL_AI_HTTP_MODEL:-gemma-3-270m-custom}
+      - HF_HOME=/models/huggingface
+      - SENTENCE_TRANSFORMERS_HOME=/models/sentence-transformers
       # Local AI (Gemma 3) tuning. Defaults are safe but configurable.
       - LLM_CONTEXT_WINDOW=${LLM_CONTEXT_WINDOW:-16384}
       - LLM_SUMMARY_MAX_TEXT=${LLM_SUMMARY_MAX_TEXT:-30000}
@@ -172,10 +184,11 @@ services:
 
   # NLP Worker: Uses SpaCy to extract Organizations and Locations from text.
   nlp:
-    build: .
+    image: town-council-python-base
     volumes:
       - .:/app
       - data:/app/data
+      - models_data:/models
     working_dir: /app/pipeline
     command: python nlp_worker.py
     environment:
@@ -183,15 +196,18 @@ services:
       - PYTHONPATH=/app
       - DATABASE_URL=${DATABASE_URL:-postgresql://town_council:secure_dev_password@postgres:5432/town_council_db}
       - DATA_DIR=/app/data
+      - HF_HOME=/models/huggingface
+      - SENTENCE_TRANSFORMERS_HOME=/models/sentence-transformers
     depends_on:
       - postgres
 
   # Table Worker: Uses Camelot to extract structured tables from PDFs.
   tables:
-    build: .
+    image: town-council-python-base
     volumes:
       - .:/app
       - data:/app/data
+      - models_data:/models
     working_dir: /app/pipeline
     command: python table_worker.py
     environment:
@@ -199,15 +215,18 @@ services:
       - PYTHONPATH=/app
       - DATABASE_URL=${DATABASE_URL:-postgresql://town_council:secure_dev_password@postgres:5432/town_council_db}
       - DATA_DIR=/app/data
+      - HF_HOME=/models/huggingface
+      - SENTENCE_TRANSFORMERS_HOME=/models/sentence-transformers
     depends_on:
       - postgres
 
   # Topic Modeler: Uses LDA to discover themes across all meeting minutes.
   topics:
-    build: .
+    image: town-council-python-base
     volumes:
       - .:/app
       - data:/app/data
+      - models_data:/models
     working_dir: /app/pipeline
     command: python topic_worker.py
     environment:
@@ -215,6 +234,8 @@ services:
       - PYTHONPATH=/app
       - DATABASE_URL=${DATABASE_URL:-postgresql://town_council:secure_dev_password@postgres:5432/town_council_db}
       - DATA_DIR=/app/data
+      - HF_HOME=/models/huggingface
+      - SENTENCE_TRANSFORMERS_HOME=/models/sentence-transformers
     depends_on:
       - postgres
 
@@ -249,9 +270,11 @@ services:
   # FastAPI Backend: Serves the search API and data to users.
   api:
     build: .
+    image: town-council-python-base
     volumes:
       - .:/app
       - data:/app/data
+      - models_data:/models
     working_dir: /app/api
     command: uvicorn main:app --host 0.0.0.0 --port 8000
     ports:
@@ -275,6 +298,8 @@ services:
       - LOCAL_AI_HTTP_TIMEOUT_SECONDS=${LOCAL_AI_HTTP_TIMEOUT_SECONDS:-60}
       - LOCAL_AI_HTTP_MAX_RETRIES=${LOCAL_AI_HTTP_MAX_RETRIES:-1}
       - LOCAL_AI_HTTP_MODEL=${LOCAL_AI_HTTP_MODEL:-gemma-3-270m-custom}
+      - HF_HOME=/models/huggingface
+      - SENTENCE_TRANSFORMERS_HOME=/models/sentence-transformers
       # Semantic search API settings.
       - SEMANTIC_ENABLED=${SEMANTIC_ENABLED:-false}
       - SEMANTIC_BACKEND=${SEMANTIC_BACKEND:-faiss}
@@ -305,6 +330,7 @@ services:
     mem_limit: 4G
     cpus: 2.0
     volumes:
+      - models_data:/models
       - ollama_data:/root/.ollama
 
   # Next.js Frontend: The user interface for searching and viewing results.
@@ -393,16 +419,19 @@ services:
 
   # Monitor: Custom Python service to export application metrics to Prometheus.
   monitor:
-    build: .
+    image: town-council-python-base
     volumes:
       - .:/app
       - data:/app/data
+      - models_data:/models
     working_dir: /app/pipeline
     command: python monitor.py
     environment:
       - PYTHONUNBUFFERED=1
       - DATABASE_URL=${DATABASE_URL:-postgresql://town_council:secure_dev_password@postgres:5432/town_council_db}
       - PYTHONPATH=/app
+      - HF_HOME=/models/huggingface
+      - SENTENCE_TRANSFORMERS_HOME=/models/sentence-transformers
     depends_on:
       - postgres
 
@@ -418,5 +447,7 @@ volumes:
   grafana_data:
   # Persistent storage for Redis cache
   redis_data:
+  # Persistent storage for local model artifacts shared across Python and inference services
+  models_data:
   # Persistent storage for inference model blobs
   ollama_data:

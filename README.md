@@ -17,7 +17,8 @@ This project ingests agendas/minutes, extracts text, indexes search content, and
 
 ### 2) Start stack and initialize DB
 ```bash
-docker compose up -d --build
+docker compose up -d --build postgres redis meilisearch tika inference api worker frontend
+bash ./scripts/bootstrap_local_models.sh
 docker compose run --rm pipeline python db_init.py
 ```
 
@@ -27,13 +28,19 @@ bash ./scripts/dev_up.sh
 ```
 
 What `scripts/dev_up.sh` does:
-- starts the Docker Compose stack (with `--build`)
+- starts the core Docker Compose stack (with `--build`)
+- bootstraps the shared local model volume
 - initializes the DB schema
 - runs a small smoke check (`/health`)
 
 What it does *not* do:
 - scrape any city data (no crawler runs)
 - process/index documents (no `run_pipeline.py`)
+
+Why the explicit model bootstrap exists:
+- local model downloads no longer happen during the shared Python image build
+- rebuilds stay much faster, while model artifacts persist in a shared Docker volume
+- if you skip the bootstrap step, the worker healthcheck will report the missing local Ollama model explicitly
 
 Note on Full Text after restart:
 If `STARTUP_PURGE_DERIVED=true`, extracted text is cleared from the DB on startup.

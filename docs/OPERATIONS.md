@@ -16,7 +16,8 @@ cd "$REPO_ROOT"
 
 ### 1) Start stack
 ```bash
-docker compose up -d --build
+docker compose up -d --build postgres redis meilisearch tika inference api worker frontend
+bash ./scripts/bootstrap_local_models.sh
 docker compose run --rm pipeline python db_init.py
 ```
 
@@ -26,13 +27,19 @@ bash ./scripts/dev_up.sh
 ```
 
 What `scripts/dev_up.sh` does:
-- starts the Docker Compose stack (with `--build`)
+- starts the core Docker Compose stack (with `--build`)
+- bootstraps the shared local model volume
 - initializes the DB schema
 - runs a small smoke check (`/health`)
 
 What it does *not* do:
 - scrape any city data (no crawler runs)
 - process/index documents (no `run_pipeline.py`)
+
+Why the explicit model bootstrap exists:
+- local model downloads no longer happen during the shared Python image build
+- rebuilds stay faster because large model artifacts are stored in the shared `models_data` volume instead
+- if you skip the bootstrap step, the worker healthcheck reports the missing local Ollama model explicitly
 
 ### 1.5) Verify containers are using the latest image
 This catches “stale image” problems early (for example, missing Python deps).
@@ -41,6 +48,13 @@ This catches “stale image” problems early (for example, missing Python deps)
 docker compose run --rm api python -c "import bs4; print('bs4', bs4.__version__)"
 # The API can take a few seconds to boot. Retry a few times before assuming it's broken.
 for i in {1..20}; do curl -fsS http://localhost:8000/health && break; sleep 1; done
+```
+
+### 1.55) Rebuild model artifacts only when needed
+Use this when the shared model volume is empty, after pruning Docker volumes, or after intentionally rotating the local model cache.
+
+```bash
+bash ./scripts/bootstrap_local_models.sh
 ```
 
 ### 1.6) Verify stack health contracts

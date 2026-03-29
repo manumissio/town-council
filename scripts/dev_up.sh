@@ -9,8 +9,13 @@ set -euo pipefail
 
 cd "$(dirname "$0")/.."
 
-echo "[dev_up] Building and starting services..."
-docker compose up -d --build
+CORE_SERVICES=(postgres redis meilisearch tika inference api worker frontend)
+
+echo "[dev_up] Building and starting core services..."
+docker compose up -d --build "${CORE_SERVICES[@]}"
+
+echo "[dev_up] Bootstrapping local model artifacts..."
+bash ./scripts/bootstrap_local_models.sh
 
 echo "[dev_up] Initializing database schema..."
 docker compose run --rm pipeline python db_init.py
@@ -21,4 +26,3 @@ docker compose run --rm api python -c "import bs4; print('bs4', bs4.__version__)
 echo "[dev_up] Smoke check: verify API health endpoint..."
 curl -fsS http://localhost:8000/health >/dev/null
 echo "[dev_up] OK"
-

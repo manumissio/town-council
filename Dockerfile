@@ -78,23 +78,13 @@ COPY --chown=appuser:appgroup . .
 
 RUN mkdir -p /app/data && chown -R appuser:appgroup /app/data
 
-# --------------------------------------------------------------------------------
-# PERFORMANCE & SECURITY: Model Baking
-# --------------------------------------------------------------------------------
-# 1. We store models in /models to prevent them from being hidden by the /app volume.
-# 2. We download them now (Build Time) so the container starts instantly (Runtime).
-ENV HF_HOME=/models
+# Keep local model caches out of the image build so normal rebuilds do not pay
+# repeated download costs for inference and embedding assets.
+ENV HF_HOME=/models/huggingface
+ENV SENTENCE_TRANSFORMERS_HOME=/models/sentence-transformers
 RUN mkdir -p /models && chown -R appuser:appgroup /models
 
 USER appuser
-
-# Download the specific AI brain used by our Similarity Engine.
-RUN python -c "from sentence_transformers import SentenceTransformer; SentenceTransformer('all-MiniLM-L6-v2')"
-
-# Download the Gemma 3 270M model for local summarization and agenda segmentation.
-# We use 'huggingface_hub' to fetch the single quantized file we need.
-# unsloth/gemma-3-270m-it-GGUF is a trusted community quantization.
-RUN python -c "from huggingface_hub import hf_hub_download; hf_hub_download(repo_id='unsloth/gemma-3-270m-it-GGUF', filename='gemma-3-270m-it-Q4_K_M.gguf', local_dir='/models', local_dir_use_symlinks=False)"
 
 # SECURITY: Add a health check to ensure the API container is running correctly.
 # Use Python stdlib instead of wget so the check works on slim images without extra packages.

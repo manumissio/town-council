@@ -4,6 +4,8 @@ from __future__ import annotations
 import os
 import socket
 import sys
+import json
+import urllib.request
 from urllib.parse import urlparse
 
 
@@ -29,6 +31,19 @@ def _probe_tcp(host: str | None, port: int | None, *, label: str) -> str | None:
         return f"{label} probe failed: {exc}"
 
 
+def _probe_http_model(base_url: str, model_name: str) -> str | None:
+    try:
+        with urllib.request.urlopen(f"{base_url.rstrip('/')}/api/tags", timeout=5) as response:
+            payload = json.loads(response.read().decode("utf-8"))
+    except Exception as exc:
+        return f"inference model probe failed: {exc}"
+    models = payload.get("models") or []
+    acceptable_names = {model_name, f"{model_name}:latest"}
+    if any((entry or {}).get("name") in acceptable_names for entry in models):
+        return None
+    return f"inference model probe failed: model '{model_name}' is missing"
+
+
 def main() -> int:
     failures: list[str] = []
 
@@ -50,6 +65,14 @@ def main() -> int:
     )
     if database_failure:
         failures.append(database_failure)
+
+    if (os.getenv("LOCAL_AI_BACKEND") or "http").strip().lower() == "http":
+        inference_failure = _probe_http_model(
+            os.getenv("LOCAL_AI_HTTP_BASE_URL", "http://inference:11434").strip(),
+            (os.getenv("LOCAL_AI_HTTP_MODEL") or "gemma-3-270m-custom").strip() or "gemma-3-270m-custom",
+        )
+        if inference_failure:
+            failures.append(inference_failure)
 
     if failures:
         for failure in failures:
