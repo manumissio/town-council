@@ -230,7 +230,7 @@ export default function ResultCard({ hit, onPersonClick, onTopicClick }) {
   const fetchDerivedStatus = async () => {
     if (!hit.catalog_id) return;
     try {
-      const res = await fetch(`/api/catalog/${hit.catalog_id}/derived_status`, {
+      const res = await fetch(buildApiUrl(`/catalog/${hit.catalog_id}/derived_status`), {
         headers: getApiHeaders(),
       });
       if (!res.ok) return;
@@ -247,7 +247,7 @@ export default function ResultCard({ hit, onPersonClick, onTopicClick }) {
     setIsLoadingCanonicalText(true);
     setCanonicalTextLoadError(null);
     try {
-      const res = await fetch(`/api/catalog/${hit.catalog_id}/content`, {
+      const res = await fetch(buildApiUrl(`/catalog/${hit.catalog_id}/content`), {
         headers: getApiHeaders(),
       });
       if (!res.ok) {

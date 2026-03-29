@@ -5,6 +5,8 @@ def test_result_card_uses_demo_mode_mutation_guard():
     source = Path("frontend/components/ResultCard.js").read_text(encoding="utf-8")
     assert "const canMutate = !demoMode" in source
     assert "if (!hit.catalog_id || demoMode) return;" in source
+    assert 'fetch(buildApiUrl(`/catalog/${hit.catalog_id}/derived_status`)' in source
+    assert 'fetch(buildApiUrl(`/catalog/${hit.catalog_id}/content`)' in source
 
 
 def test_home_page_enables_demo_mode_banner_and_static_routing():
