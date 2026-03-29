@@ -1,6 +1,6 @@
 # Town Council Architecture (2026)
 
-Last updated: 2026-03-22
+Last updated: 2026-03-28
 
 ## 1) System Overview
 
@@ -132,12 +132,19 @@ flowchart LR
 1. Crawler writes meeting metadata and document URLs into staging tables.
 2. Promotion creates canonical `event` and `document` rows.
 3. Downloader stores files and links them to `catalog`.
+4. Some crawler source families apply shared recovery behavior before rows ever reach promotion:
+   - Legistar CMS spiders can widen the visible historical window before parsing.
+   - city-scoped recovery can opt into no-delta crawling when an operator needs a bounded historical backfill instead of the normal stored anchor.
 
 #### Batch enrichment
 1. Extraction writes canonical text to `catalog.content` and computes `content_hash`.
 2. Topic/entity and linking stages enrich records.
 3. Indexer publishes meeting and agenda-item documents to Meilisearch.
 4. Semantic embedding hydration populates `semantic_embedding`.
+5. Maintenance hydration has three supported paths with different scopes:
+   - `pipeline/run_pipeline.py` for broad corpus hydration
+   - staged city hydration for large unresolved city backlogs
+   - repaired-city hydration for city-scoped recovered agenda catalogs that still need extract/segment/summary work
 
 #### City onboarding and rollout evaluation
 1. `scripts/onboard_city_wave.sh` runs wave-scoped crawl attempts and records per-run artifacts.

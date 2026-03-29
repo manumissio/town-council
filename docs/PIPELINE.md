@@ -1,6 +1,6 @@
 # Town Council Pipeline Guide
 
-Last updated: 2026-03-23
+Last updated: 2026-03-28
 
 ## 1) Purpose and Boundaries
 
@@ -83,6 +83,24 @@ Why this exists:
 - Agenda summaries depend on structured `AgendaItem` rows, so segmentation must run before summary hydration.
 - Batch pipeline hydration now owns the missing derived-state stages instead of leaving summaries to ad hoc per-record API calls.
 - Summary hydration reuses the existing task logic, so low-signal blocking, grounding checks, and stale/cached semantics stay consistent with the async path.
+
+### Maintenance hydration paths
+The broad batch pipeline is no longer the only supported way to move recovered catalogs through extract -> segment -> summarize:
+
+- `pipeline/run_pipeline.py` remains the canonical broad hydrator for corpus-wide backlog work.
+- `scripts/staged_hydrate_cities.py` is the city-wide backlog path when one or more cities need bounded, checkpointable segmentation and summary progress.
+- `scripts/hydrate_repaired_city_catalogs.py` is the repaired-catalog path for city-scoped `agenda` catalogs that already exist in Postgres/local storage but still need missing derived state.
+
+Key repaired-city selector contract:
+- default selection is state-based and city-scoped, not URL-family-based
+- the helper targets city `agenda` catalogs that are still missing required extract / segment / summary work
+- `--url-substring` is optional narrowing only, for operators who intentionally want to constrain a run to one recovered source family
+
+Why this exists:
+- recovered agenda URLs are not always from one portal shape such as `ElectronicFile.aspx`
+- widening repaired hydration to city + repair state lets recovered `View.ashx?...` style agendas use the same supported maintenance path instead of requiring manual extraction backfills
+
+Operational commands and troubleshooting stay in [`docs/OPERATIONS.md`](OPERATIONS.md).
 
 ### Stage D: Post-processing and indexing
 - `table_worker.py`
