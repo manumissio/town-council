@@ -15,26 +15,40 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 COPY council_crawler/requirements.txt ./council_crawler_requirements.txt
 COPY pipeline/requirements.txt ./pipeline_requirements.txt
 COPY api/requirements.txt ./api_requirements.txt
+COPY docker/semantic-cpu-constraints.txt ./semantic_cpu_constraints.txt
 
-FROM python-build-base AS wheels-crawler
+FROM python-build-base AS venv-crawler
+RUN python -m venv /opt/venv
+ENV PATH=/opt/venv/bin:$PATH
 RUN --mount=type=cache,target=/root/.cache/pip \
-    pip wheel --wheel-dir /app/wheels \
+    pip install --upgrade pip setuptools wheel && \
+    pip install \
     -r council_crawler_requirements.txt
 
-FROM python-build-base AS wheels-api
+FROM python-build-base AS venv-api
+RUN python -m venv /opt/venv
+ENV PATH=/opt/venv/bin:$PATH
+ENV PIP_EXTRA_INDEX_URL=https://download.pytorch.org/whl/cpu
 RUN --mount=type=cache,target=/root/.cache/pip \
-    pip wheel --wheel-dir /app/wheels \
+    pip install --upgrade pip setuptools wheel && \
+    pip install \
+    -c semantic_cpu_constraints.txt \
     -r api_requirements.txt
 
-FROM python-build-base AS wheels-worker
+FROM python-build-base AS venv-worker
 RUN apt-get update && apt-get install -y --no-install-recommends cmake \
     && rm -rf /var/lib/apt/lists/*
 
 # Compile llama.cpp with conservative CPU flags so the worker image stays portable.
 ENV CMAKE_ARGS="-DGGML_NEON=ON -DGGML_NATIVE=OFF"
+RUN python -m venv /opt/venv
+ENV PATH=/opt/venv/bin:$PATH
+ENV PIP_EXTRA_INDEX_URL=https://download.pytorch.org/whl/cpu
 
 RUN --mount=type=cache,target=/root/.cache/pip \
-    pip wheel --wheel-dir /app/wheels \
+    pip install --upgrade pip setuptools wheel && \
+    pip install \
+    -c semantic_cpu_constraints.txt \
     -r pipeline_requirements.txt \
     ghostscript \
     rapidfuzz \
@@ -67,8 +81,8 @@ USER root
 RUN apt-get update && apt-get install -y --no-install-recommends \
     libpq5 \
     && apt-get clean && rm -rf /var/lib/apt/lists/*
-COPY --from=wheels-crawler /app/wheels /wheels
-RUN pip install --no-cache-dir --find-links=/wheels /wheels/* && rm -rf /wheels
+COPY --from=venv-crawler /opt/venv /opt/venv
+ENV PATH=/opt/venv/bin:$PATH
 USER appuser
 
 FROM python-runtime-base AS python-api
@@ -77,8 +91,8 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     libpq5 \
     libgomp1 \
     && apt-get clean && rm -rf /var/lib/apt/lists/*
-COPY --from=wheels-api /app/wheels /wheels
-RUN pip install --no-cache-dir --find-links=/wheels /wheels/* && rm -rf /wheels
+COPY --from=venv-api /opt/venv /opt/venv
+ENV PATH=/opt/venv/bin:$PATH
 USER appuser
 
 # SECURITY: Add a health check to ensure the API container is running correctly.
@@ -95,6 +109,6 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     libglib2.0-0 \
     libgomp1 \
     && apt-get clean && rm -rf /var/lib/apt/lists/*
-COPY --from=wheels-worker /app/wheels /wheels
-RUN pip install --no-cache-dir --find-links=/wheels /wheels/* && rm -rf /wheels
+COPY --from=venv-worker /opt/venv /opt/venv
+ENV PATH=/opt/venv/bin:$PATH
 USER appuser

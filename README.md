@@ -42,6 +42,8 @@ Why the explicit model bootstrap exists:
 - rebuilds stay much faster, while model artifacts persist in a shared Docker volume
 - if you skip the bootstrap step, the worker healthcheck will report the missing local Ollama model explicitly
 - Python images are now split by role (`crawler`, `api`, `worker`) so targeted rebuilds only pay for the dependency family they actually use
+- If Docker builds fail with `no space left on device`, inspect Docker-managed storage first with `docker system df -v`; large local data, search, and Ollama volumes can exhaust Docker Desktop storage before host disk space looks low.
+- Use `docker image prune -a` or `docker system prune` only as an explicit local cleanup step when you need to reclaim Docker storage.
 
 Note on Full Text after restart:
 If `STARTUP_PURGE_DERIVED=true`, extracted text is cleared from the DB on startup.

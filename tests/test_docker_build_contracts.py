@@ -16,6 +16,13 @@ def test_dockerfile_defines_split_python_targets():
     assert "FROM python-runtime-base AS python-crawler" in source
     assert "FROM python-runtime-base AS python-api" in source
     assert "FROM python-runtime-base AS python-worker" in source
+    assert "COPY --from=venv-crawler /opt/venv /opt/venv" in source
+    assert "COPY --from=venv-api /opt/venv /opt/venv" in source
+    assert "COPY --from=venv-worker /opt/venv /opt/venv" in source
+    assert "COPY --from=wheels-api /app/wheels /wheels" not in source
+    assert "COPY --from=wheels-worker /app/wheels /wheels" not in source
+    assert "PIP_EXTRA_INDEX_URL=https://download.pytorch.org/whl/cpu" in source
+    assert "semantic_cpu_constraints.txt" in source
 
 
 def test_dev_up_bootstraps_models_before_db_init():
