@@ -272,6 +272,197 @@ def test_legistar_template_does_not_expand_when_year_cookie_already_broad(mocker
     assert items[0]['meeting_type'] == "Regular Meeting"
 
 
+def test_legistar_template_traverses_grid_calendar_pager(mocker):
+    mocker.patch('templates.legistar_cms.LegistarCms._get_last_meeting_date', return_value=None)
+    spider = LegistarCms(legistar_url='https://test.legistar.com/Calendar.aspx', city='sunnyvale', state='ca')
+
+    response = HtmlResponse(
+        url='https://test.legistar.com/Calendar.aspx',
+        body="""
+        <html>
+          <body>
+            <form>
+              <input type="hidden" name="__VIEWSTATE" value="state-1" />
+              <input type="hidden" name="__EVENTVALIDATION" value="valid-1" />
+              <input type="hidden" name="ctl00_ContentPlaceHolder1_gridCalendar_ClientState" value="grid-state" />
+              <input id="ctl00_ContentPlaceHolder1_lstYears_Input" value="2025" />
+              <table id="ctl00_ContentPlaceHolder1_gridCalendar_ctl00" class="rgMasterTable">
+                <tbody>
+                  <tr>
+                    <td><font><a href="#"><font>Regular Meeting</font></a></font></td>
+                    <td><font>7/16/2025</font></td>
+                    <td></td>
+                    <td><font><span><font>6:00 PM</font></span></font></td>
+                    <td></td><td></td>
+                    <td><font><span><a href="agenda.pdf">Agenda</a></span></font></td>
+                    <td><font><span><a href="minutes.pdf"><font>Minutes</font></a></span></font></td>
+                  </tr>
+                </tbody>
+              </table>
+              <a class="rgCurrentPage" href="javascript:__doPostBack('ctl00$ContentPlaceHolder1$gridCalendar$ctl00$ctl02$ctl00$ctl02','')"
+                 onclick="Telerik.Web.UI.Grid.NavigateToPage('ctl00_ContentPlaceHolder1_gridCalendar_ctl00', '1'); return false;">1</a>
+              <a href="javascript:__doPostBack('ctl00$ContentPlaceHolder1$gridCalendar$ctl00$ctl02$ctl00$ctl04','')"
+                 onclick="Telerik.Web.UI.Grid.NavigateToPage('ctl00_ContentPlaceHolder1_gridCalendar_ctl00', '2'); return false;">2</a>
+            </form>
+          </body>
+        </html>
+        """,
+        encoding='utf-8',
+        request=scrapy.Request(
+            url='https://test.legistar.com/Calendar.aspx',
+            cookies={'Setting-270-Calendar Year': '2025'},
+        ),
+    )
+
+    results = list(spider.parse_archive(response))
+
+    assert len(results) == 2
+    assert results[0]['record_date'] == datetime.date(2025, 7, 16)
+    follow_up = results[1]
+    assert isinstance(follow_up, scrapy.FormRequest)
+    assert follow_up.method == 'POST'
+    assert follow_up.cookies == {'Setting-270-Calendar Year': '2025'}
+    assert "__EVENTTARGET=ctl00%24ContentPlaceHolder1%24gridCalendar%24ctl00%24ctl02%24ctl00%24ctl04" in follow_up.body.decode()
+    assert "__VIEWSTATE=state-1" in follow_up.body.decode()
+    assert follow_up.meta['visited_calendar_pages'] == {('2025', 1)}
+
+
+def test_legistar_template_parses_older_rows_from_follow_up_page(mocker):
+    mocker.patch('templates.legistar_cms.LegistarCms._get_last_meeting_date', return_value=None)
+    spider = LegistarCms(legistar_url='https://test.legistar.com/Calendar.aspx', city='sunnyvale', state='ca')
+
+    response = HtmlResponse(
+        url='https://test.legistar.com/Calendar.aspx',
+        body="""
+        <html>
+          <body>
+            <input id="ctl00_ContentPlaceHolder1_lstYears_Input" value="2025" />
+            <table id="ctl00_ContentPlaceHolder1_gridCalendar_ctl00" class="rgMasterTable">
+              <tbody>
+                <tr>
+                  <td><font><a href="#"><font>Regular Meeting</font></a></font></td>
+                  <td><font>5/13/2025</font></td>
+                  <td></td>
+                  <td><font><span><font>6:00 PM</font></span></font></td>
+                  <td></td><td></td>
+                  <td><font><span><a href="agenda-older.pdf">Agenda</a></span></font></td>
+                  <td><font><span><a href="minutes-older.pdf"><font>Minutes</font></a></span></font></td>
+                </tr>
+              </tbody>
+            </table>
+            <a href="javascript:__doPostBack('ctl00$ContentPlaceHolder1$gridCalendar$ctl00$ctl02$ctl00$ctl02','')"
+               onclick="Telerik.Web.UI.Grid.NavigateToPage('ctl00_ContentPlaceHolder1_gridCalendar_ctl00', '2'); return false;"
+               class="rgCurrentPage">2</a>
+          </body>
+        </html>
+        """,
+        encoding='utf-8',
+        request=scrapy.Request(url='https://test.legistar.com/Calendar.aspx'),
+    )
+
+    results = list(spider.parse_archive(response))
+
+    assert len(results) == 1
+    assert results[0]['record_date'] == datetime.date(2025, 5, 13)
+    assert results[0]['documents'][0]['url'] == 'https://test.legistar.com/agenda-older.pdf'
+
+
+def test_legistar_template_stops_when_next_pager_state_already_visited(mocker):
+    mocker.patch('templates.legistar_cms.LegistarCms._get_last_meeting_date', return_value=None)
+    spider = LegistarCms(legistar_url='https://test.legistar.com/Calendar.aspx', city='sunnyvale', state='ca')
+
+    request = scrapy.Request(url='https://test.legistar.com/Calendar.aspx')
+    request.meta['visited_calendar_pages'] = {('2025', 1), ('2025', 2)}
+    response = HtmlResponse(
+        url='https://test.legistar.com/Calendar.aspx',
+        body="""
+        <html>
+          <body>
+            <input id="ctl00_ContentPlaceHolder1_lstYears_Input" value="2025" />
+            <table id="ctl00_ContentPlaceHolder1_gridCalendar_ctl00" class="rgMasterTable">
+              <tbody>
+                <tr>
+                  <td><font><a href="#"><font>Regular Meeting</font></a></font></td>
+                  <td><font>7/16/2025</font></td>
+                  <td></td>
+                  <td><font><span><font>6:00 PM</font></span></font></td>
+                  <td></td><td></td>
+                  <td><font><span><a href="agenda.pdf">Agenda</a></span></font></td>
+                  <td><font><span><a href="minutes.pdf"><font>Minutes</font></a></span></font></td>
+                </tr>
+              </tbody>
+            </table>
+            <a class="rgCurrentPage" href="javascript:__doPostBack('ctl00$ContentPlaceHolder1$gridCalendar$ctl00$ctl02$ctl00$ctl02','')"
+               onclick="Telerik.Web.UI.Grid.NavigateToPage('ctl00_ContentPlaceHolder1_gridCalendar_ctl00', '1'); return false;">1</a>
+            <a href="javascript:__doPostBack('ctl00$ContentPlaceHolder1$gridCalendar$ctl00$ctl02$ctl00$ctl04','')"
+               onclick="Telerik.Web.UI.Grid.NavigateToPage('ctl00_ContentPlaceHolder1_gridCalendar_ctl00', '2'); return false;">2</a>
+          </body>
+        </html>
+        """,
+        encoding='utf-8',
+        request=request,
+    )
+
+    results = list(spider.parse_archive(response))
+
+    assert len(results) == 1
+    assert results[0]['record_date'] == datetime.date(2025, 7, 16)
+
+
+def test_legistar_template_targets_grid_calendar_when_multiple_grids_exist(mocker):
+    mocker.patch('templates.legistar_cms.LegistarCms._get_last_meeting_date', return_value=None)
+    spider = LegistarCms(legistar_url='https://test.legistar.com/Calendar.aspx', city='sunnyvale', state='ca')
+
+    response = HtmlResponse(
+        url='https://test.legistar.com/Calendar.aspx',
+        body="""
+        <html>
+          <body>
+            <input type="hidden" name="__VIEWSTATE" value="state-1" />
+            <input id="ctl00_ContentPlaceHolder1_lstYears_Input" value="2025" />
+            <table id="ctl00_ContentPlaceHolder1_gridUpcomingMeetings_ctl00" class="rgMasterTable">
+              <tbody>
+                <tr>
+                  <td><font><a href="#"><font>Upcoming Meeting</font></a></font></td>
+                  <td><font>4/1/2026</font></td>
+                  <td></td>
+                  <td><font><span><font>6:00 PM</font></span></font></td>
+                  <td></td><td></td>
+                  <td><font><span><a href="upcoming-agenda.pdf">Agenda</a></span></font></td>
+                  <td><font><span><a href="upcoming-minutes.pdf"><font>Minutes</font></a></span></font></td>
+                </tr>
+              </tbody>
+            </table>
+            <table id="ctl00_ContentPlaceHolder1_gridCalendar_ctl00" class="rgMasterTable">
+              <tbody>
+                <tr>
+                  <td><font><a href="#"><font>Regular Meeting</font></a></font></td>
+                  <td><font>7/16/2025</font></td>
+                  <td></td>
+                  <td><font><span><font>6:00 PM</font></span></font></td>
+                  <td></td><td></td>
+                  <td><font><span><a href="agenda.pdf">Agenda</a></span></font></td>
+                  <td><font><span><a href="minutes.pdf"><font>Minutes</font></a></span></font></td>
+                </tr>
+              </tbody>
+            </table>
+            <a class="rgCurrentPage" href="javascript:__doPostBack('ctl00$ContentPlaceHolder1$gridCalendar$ctl00$ctl02$ctl00$ctl02','')"
+               onclick="Telerik.Web.UI.Grid.NavigateToPage('ctl00_ContentPlaceHolder1_gridCalendar_ctl00', '1'); return false;">1</a>
+            <a href="javascript:__doPostBack('ctl00$ContentPlaceHolder1$gridCalendar$ctl00$ctl02$ctl00$ctl04','')"
+               onclick="Telerik.Web.UI.Grid.NavigateToPage('ctl00_ContentPlaceHolder1_gridCalendar_ctl00', '2'); return false;">2</a>
+          </body>
+        </html>
+        """,
+        encoding='utf-8',
+    )
+
+    results = list(spider.parse_archive(response))
+
+    assert len(results) == 2
+    assert results[0]['meeting_type'] == "Regular Meeting"
+    assert results[0]['record_date'] == datetime.date(2025, 7, 16)
+
+
 def test_legistar_template_normalizes_slug_source_but_keeps_display_name(mocker):
     mocker.patch('templates.legistar_cms.LegistarCms._get_last_meeting_date', return_value=None)
     spider = LegistarCms(legistar_url='https://test.legistar.com', city='san mateo', state='ca')

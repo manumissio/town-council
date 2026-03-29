@@ -88,6 +88,79 @@ class LegistarCms(BaseCitySpider):
     def _normalize_header_text(self, text):
         return re.sub(r'\s+', ' ', (text or '').strip().lower())
 
+    def _response_meta(self, response):
+        request = getattr(response, 'request', None)
+        return getattr(request, 'meta', {}) if request is not None else {}
+
+    def _grid_calendar_table(self, response):
+        table = response.xpath('//table[@id="ctl00_ContentPlaceHolder1_gridCalendar_ctl00"]')
+        if table:
+            return table[0]
+        fallback = response.xpath('(//table[contains(@class, "rgMasterTable")])[1]')
+        return fallback[0] if fallback else None
+
+    def _extract_grid_calendar_state(self, response):
+        selected_year = response.xpath(
+            'string(//*[@id="ctl00_ContentPlaceHolder1_lstYears_Input"]/@value)'
+        ).get()
+        current_page = response.xpath(
+            'string((//*[contains(@class, "rgCurrentPage")])[1])'
+        ).get()
+        try:
+            current_page_number = int((current_page or '').strip())
+        except ValueError:
+            current_page_number = 1
+        return (selected_year or '').strip(), current_page_number
+
+    def _build_grid_calendar_page_request(self, response, page_number):
+        pager_link = None
+        for link in response.xpath('//a[contains(@onclick, "NavigateToPage")]'):
+            onclick = link.xpath('@onclick').get() or ''
+            class_name = ' '.join(link.xpath('@class').getall())
+            if (
+                f"NavigateToPage('ctl00_ContentPlaceHolder1_gridCalendar_ctl00', '{page_number}')" in onclick
+                and 'rgCurrentPage' not in class_name
+            ):
+                pager_link = link
+                break
+
+        if pager_link is None:
+            return None
+
+        target_match = re.search(
+            r"__doPostBack\('([^']+)'\s*,\s*'([^']*)'\)",
+            pager_link.xpath('@href').get() or '',
+        )
+        if not target_match:
+            return None
+
+        hidden_fields = {}
+        for input_node in response.xpath('//input[@type="hidden"]'):
+            name = input_node.xpath('@name').get()
+            if not name:
+                continue
+            hidden_fields[name] = input_node.xpath('@value').get(default='')
+
+        hidden_fields['__EVENTTARGET'] = target_match.group(1)
+        hidden_fields['__EVENTARGUMENT'] = target_match.group(2)
+
+        return scrapy.FormRequest(
+            url=response.url,
+            formdata=hidden_fields,
+            callback=self.parse_archive,
+            method='POST',
+            dont_filter=True,
+            cookies=getattr(response.request, 'cookies', None) or None,
+        )
+
+    def _get_next_grid_calendar_page(self, response):
+        _, current_page_number = self._extract_grid_calendar_state(response)
+        next_page_number = current_page_number + 1
+        next_request = self._build_grid_calendar_page_request(response, next_page_number)
+        if not next_request:
+            return None, None
+        return next_page_number, next_request
+
     def _extract_document_urls(self, row, response, header_map):
         documents = []
 
@@ -135,9 +208,11 @@ class LegistarCms(BaseCitySpider):
         return documents
 
     def parse_archive(self, response):
-        # Look for the main results table. Legistar standard uses 'rgMasterTable' class.
-        table_body = response.xpath('//table[contains(@class, "rgMasterTable")]/tbody/tr')
-        header_cells = response.xpath('(//table[contains(@class, "rgMasterTable")])[1]//thead//th')
+        # Telerik CMS tenants can require both a widened year view and pager
+        # traversal on gridCalendar to expose older meeting rows.
+        table = self._grid_calendar_table(response)
+        table_body = table.xpath('./tbody/tr') if table is not None else []
+        header_cells = table.xpath('.//thead//th') if table is not None else []
         header_map = {
             self._normalize_header_text(cell.xpath('string(.)').get()): index
             for index, cell in enumerate(header_cells, start=1)
@@ -174,3 +249,19 @@ class LegistarCms(BaseCitySpider):
                 documents=documents,
                 meeting_type=meeting_type
             )
+
+        selected_year, current_page_number = self._extract_grid_calendar_state(response)
+        visited_pages = set(self._response_meta(response).get('visited_calendar_pages', set()))
+        current_state = (selected_year, current_page_number)
+        visited_pages.add(current_state)
+
+        next_page_number, next_request = self._get_next_grid_calendar_page(response)
+        if not next_request:
+            return
+
+        next_state = (selected_year, next_page_number)
+        if next_state in visited_pages:
+            return
+
+        next_request.meta['visited_calendar_pages'] = visited_pages
+        yield next_request
