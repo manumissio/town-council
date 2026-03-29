@@ -13,6 +13,12 @@ class LegistarCms(BaseCitySpider):
     """
     name = 'legistar_cms'
     historical_year_cookie_value = 'Last Year'
+    document_header_categories = {
+        'agenda': 'agenda',
+        'action minutes': 'minutes',
+        'official minutes': 'minutes',
+        'accessible minutes': 'minutes',
+    }
     
     def __init__(self, legistar_url='', city='', state='', *args, **kwargs):
         if not legistar_url:
@@ -79,9 +85,64 @@ class LegistarCms(BaseCitySpider):
                 return match.group(1), match.group(2)
         return None, None
 
+    def _normalize_header_text(self, text):
+        return re.sub(r'\s+', ' ', (text or '').strip().lower())
+
+    def _extract_document_urls(self, row, response, header_map):
+        documents = []
+
+        # Richer CMS tenants can insert presentation/packet columns before
+        # agenda and minutes, so fixed td offsets misclassify documents.
+        if header_map:
+            seen_urls = set()
+            for header_text, category in self.document_header_categories.items():
+                column_index = header_map.get(header_text)
+                if not column_index:
+                    continue
+                href = row.xpath(f'.//td[{column_index}]//a/@href').extract_first()
+                if not href:
+                    continue
+                url = response.urljoin(href)
+                if url in seen_urls:
+                    continue
+                seen_urls.add(url)
+                documents.append({
+                    'url': url,
+                    'url_hash': url_to_md5(url),
+                    'category': category,
+                })
+            return documents
+
+        agenda_url = row.xpath('.//td[7]//a/@href').extract_first()
+        minutes_url = row.xpath('.//td[8]//a/@href').extract_first()
+
+        if agenda_url:
+            agenda_url = response.urljoin(agenda_url)
+            documents.append({
+                'url': agenda_url,
+                'url_hash': url_to_md5(agenda_url),
+                'category': 'agenda'
+            })
+
+        if minutes_url:
+            minutes_url = response.urljoin(minutes_url)
+            documents.append({
+                'url': minutes_url,
+                'url_hash': url_to_md5(minutes_url),
+                'category': 'minutes'
+            })
+
+        return documents
+
     def parse_archive(self, response):
         # Look for the main results table. Legistar standard uses 'rgMasterTable' class.
         table_body = response.xpath('//table[contains(@class, "rgMasterTable")]/tbody/tr')
+        header_cells = response.xpath('(//table[contains(@class, "rgMasterTable")])[1]//thead//th')
+        header_map = {
+            self._normalize_header_text(cell.xpath('string(.)').get()): index
+            for index, cell in enumerate(header_cells, start=1)
+            if self._normalize_header_text(cell.xpath('string(.)').get())
+        }
         
         if not table_body:
             self.logger.warning(f"No meeting rows found on {response.url}.")
@@ -103,26 +164,7 @@ class LegistarCms(BaseCitySpider):
             if self.should_skip_meeting(record_date):
                 continue
 
-            # Look for Agenda and Minutes links.
-            agenda_url = row.xpath('.//td[7]//a/@href').extract_first()
-            minutes_url = row.xpath('.//td[8]//a/@href').extract_first()
-
-            documents = []
-            if agenda_url:
-                agenda_url = response.urljoin(agenda_url)
-                documents.append({
-                    'url': agenda_url,
-                    'url_hash': url_to_md5(agenda_url),
-                    'category': 'agenda'
-                })
-
-            if minutes_url:
-                minutes_url = response.urljoin(minutes_url)
-                documents.append({
-                    'url': minutes_url,
-                    'url_hash': url_to_md5(minutes_url),
-                    'category': 'minutes'
-                })
+            documents = self._extract_document_urls(row, response, header_map)
 
             # Create the standardized Event Item using the base class factory
             yield self.create_event_item(

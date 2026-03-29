@@ -128,6 +128,90 @@ def test_legistar_template_parsing(mocker):
     event = items[0]
     assert "Testcity, CA" in event['name']
     assert event['meeting_type'] == "Regular Meeting"
+    assert event['documents'][0]['category'] == 'agenda'
+    assert event['documents'][1]['category'] == 'minutes'
+
+def test_legistar_template_maps_documents_by_header_for_rich_cms_tables(mocker):
+    mocker.patch('templates.legistar_cms.LegistarCms._get_last_meeting_date', return_value=None)
+    spider = LegistarCms(legistar_url='https://test.legistar.com', city='hayward', state='ca')
+
+    response = HtmlResponse(
+        url='https://test.legistar.com/Calendar.aspx',
+        body="""
+        <table class="rgMasterTable">
+          <thead>
+            <tr>
+              <th>Name</th>
+              <th>Meeting Date</th>
+              <th>Unused</th>
+              <th>Meeting Time</th>
+              <th>Meeting Details</th>
+              <th>Staff/Project</th>
+              <th>Applicant Presentations</th>
+              <th>Agenda</th>
+              <th>Accessible Agenda</th>
+              <th>Agenda Packet</th>
+              <th>Action Minutes</th>
+              <th>Accessible Minutes</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td>City Council</td>
+              <td>7/22/2025</td>
+              <td></td>
+              <td>7:00 PM</td>
+              <td><a href="detail.html">Meeting details</a></td>
+              <td>None</td>
+              <td><a href="presentation.pdf">Presentation</a></td>
+              <td><a href="agenda.pdf">Agenda</a></td>
+              <td>None</td>
+              <td>None</td>
+              <td><a href="minutes.pdf">Action Minutes</a></td>
+              <td>None</td>
+            </tr>
+            <tr>
+              <td>Planning Commission</td>
+              <td>7/24/2025</td>
+              <td></td>
+              <td>7:00 PM</td>
+              <td><a href="detail-2.html">Meeting details</a></td>
+              <td>None</td>
+              <td>None</td>
+              <td><a href="agenda-only.pdf">Agenda</a></td>
+              <td>None</td>
+              <td>None</td>
+              <td>None</td>
+              <td>None</td>
+            </tr>
+          </tbody>
+        </table>
+        """,
+        encoding='utf-8',
+    )
+
+    items = list(spider.parse_archive(response))
+
+    assert len(items) == 2
+    assert items[0]['documents'] == [
+        {
+            'url': 'https://test.legistar.com/agenda.pdf',
+            'url_hash': items[0]['documents'][0]['url_hash'],
+            'category': 'agenda',
+        },
+        {
+            'url': 'https://test.legistar.com/minutes.pdf',
+            'url_hash': items[0]['documents'][1]['url_hash'],
+            'category': 'minutes',
+        },
+    ]
+    assert items[1]['documents'] == [
+        {
+            'url': 'https://test.legistar.com/agenda-only.pdf',
+            'url_hash': items[1]['documents'][0]['url_hash'],
+            'category': 'agenda',
+        }
+    ]
 
 def test_legistar_template_expands_default_this_month_window(mocker):
     mocker.patch('templates.legistar_cms.LegistarCms._get_last_meeting_date', return_value=None)
