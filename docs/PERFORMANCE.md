@@ -47,16 +47,17 @@ This section summarizes the recent Docker and runtime optimization work that cha
 | Venv-copy + CPU-only Torch | Removed duplicate wheel layers and GPU-class ML payloads | `8.24GB -> 1.42GB` | `9.04GB -> 2.1GB` | `crawler`: `301MB -> 297MB` | no-cache build: failed at `173.28s` before, passed in `105.25s` after | biggest storage/build improvement; fixed `no space left on device` |
 | Worker runtime cleanup | Moved dev-only tooling out of the worker runtime image | `1.42GB -> 1.42GB` | `2.1GB -> 2.07GB` | N/A | `build worker`: `96.58s -> 53.76s` in the measured run | small size win, useful worker rebuild cleanup |
 | Semantic service split | Moved semantic search out of API into internal `semantic` service | `1.42GB -> 345MB` | `2.07GB -> 2.07GB` | new `semantic`: `1.39GB` | API first rebuild: `40.62s -> 11.28s`; API warm rebuild: `0.72s`; worker warm rebuild: `0.73s` | API shed Torch/faiss/sentence-transformers entirely |
+| Semantic worker split | Moved semantic build/index duties off the main worker and onto `semantic-worker` | `345MB -> 345MB` | `2.07GB -> 1.22GB` | `semantic`: `1.39GB -> 1.41GB` | `build worker`: `93.31s -> 35.95s`; `build semantic`: `44.80s -> 42.78s` | main worker no longer installs Torch/transformers/faiss; semantic build work now uses the semantic image |
 
 Current state:
 - API image is now `345MB`, down from `1.42GB` before the semantic split.
-- Worker image remains `2.07GB` and is still the main heavy runtime image.
-- Semantic runtime now lives in its own internal `1.39GB` image.
+- Worker image is now `1.22GB`, down from `2.07GB` before the semantic worker split.
+- Semantic runtime now lives in its own internal `1.41GB` image and also hosts the dedicated `semantic-worker`.
 
 Interpretation:
 - The API is now slim because semantic ML runtime moved into the internal `semantic` service.
-- The worker still owns the heaviest real runtime responsibilities: local inference, NLP, extraction, and semantic build flows.
-- Docker storage pressure is now driven more by persistent local data volumes than by API image bloat.
+- The main worker still owns the heaviest non-semantic runtime responsibilities: local inference, NLP, and extraction, but it no longer carries the semantic ML stack.
+- Docker storage pressure is now driven more by persistent local data volumes and accumulated build cache than by API image bloat.
 
 ### Other Performance-Related Changes
 
@@ -78,7 +79,7 @@ The detailed endpoint timing and soak sections below still apply, but recent run
 
 Semantic endpoint timing should be measured after:
 1. `SEMANTIC_ENABLED=true`
-2. semantic artifacts are built (`python reindex_semantic.py`)
+2. semantic artifacts are built (`docker compose run --rm semantic python ../pipeline/reindex_semantic.py`)
 
 Suggested benchmark endpoint:
 - `GET /search/semantic?q=zoning&limit=20`
