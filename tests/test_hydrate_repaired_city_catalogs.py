@@ -3,6 +3,7 @@ import json
 import sys
 from contextlib import contextmanager
 from pathlib import Path
+from types import SimpleNamespace
 
 
 spec = importlib.util.spec_from_file_location(
@@ -73,6 +74,8 @@ def test_hydrate_repaired_city_catalogs_emits_stage_progress(mocker, capsys):
             "hydrate_repaired_city_catalogs.py",
             "--city",
             "san_mateo",
+            "--url-substring",
+            "ElectronicFile.aspx",
             "--extract-workers",
             "3",
             "--segment-workers",
@@ -94,12 +97,15 @@ def test_hydrate_repaired_city_catalogs_emits_stage_progress(mocker, capsys):
     captured = capsys.readouterr()
     assert exit_code == 0
     assert "[san_mateo] hydrate_finish payload=" in captured.out
+    assert "selector_mode': 'url_substring:ElectronicFile.aspx'" in captured.out
     assert "[san_mateo] extract_timing elapsed_s=2.00" in captured.out
     assert "'updated': 2" in captured.out
+    assert segment_spy.call_args.kwargs["url_substring"] == "ElectronicFile.aspx"
     assert segment_spy.call_args.kwargs["catalog_ids"] == [101, 102]
     assert segment_spy.call_args.kwargs["workers"] == 1
     assert segment_spy.call_args.kwargs["agenda_timeout_seconds"] == 20
     assert segment_spy.call_args.kwargs["segment_mode"] == "maintenance"
+    assert summary_spy.call_args.kwargs["url_substring"] == "ElectronicFile.aspx"
     assert summary_spy.call_args.kwargs["catalog_ids"] == [101, 102]
     assert summary_spy.call_args.kwargs["summary_timeout_seconds"] == 35
     assert summary_spy.call_args.kwargs["summary_fallback_mode"] == "deterministic"
@@ -125,6 +131,7 @@ def test_run_extract_city_emits_progress_and_counts(mocker, capsys):
         "san_mateo",
         limit=3,
         resume_after_id=100,
+        url_substring=None,
         emit_progress=True,
         progress_every=2,
         workers=2,
@@ -143,6 +150,7 @@ def test_run_extract_city_emits_progress_and_counts(mocker, capsys):
     }
     assert ready_ids == [101]
     assert "[san_mateo] extract_start selected=3 limit=3 resume_after_id=100" in captured.out
+    assert "selector='city_agenda_repair'" in captured.out
     assert "[san_mateo] extract_progress done=1/3" in captured.out
     assert "last_status=updated" in captured.out
     assert "[san_mateo] extract_progress done=2/3" in captured.out
@@ -204,7 +212,18 @@ def test_hydrate_repaired_city_catalogs_json_mode(mocker, capsys):
             "deterministic_fallback_complete": 0,
         },
     )
-    mocker.patch.object(sys, "argv", ["hydrate_repaired_city_catalogs.py", "--city", "san_mateo", "--json"])
+    mocker.patch.object(
+        sys,
+        "argv",
+        [
+            "hydrate_repaired_city_catalogs.py",
+            "--city",
+            "san_mateo",
+            "--url-substring",
+            "View.ashx?M=A",
+            "--json",
+        ],
+    )
     mocker.patch.object(mod.time, "perf_counter", side_effect=[0.0, 1.0, 1.0, 2.0, 2.0, 3.0])
 
     exit_code = mod.main()
@@ -212,6 +231,8 @@ def test_hydrate_repaired_city_catalogs_json_mode(mocker, capsys):
     payload = json.loads(capsys.readouterr().out)
     assert exit_code == 0
     assert payload["city"] == "san_mateo"
+    assert payload["selector_mode"] == "url_substring:View.ashx?M=A"
+    assert payload["url_substring"] == "View.ashx?M=A"
     assert payload["extract"]["selected"] == 0
     assert payload["timing"]["extract_seconds"] == 1.0
 
@@ -244,6 +265,7 @@ def test_run_segment_city_counts_fallback_events(mocker, capsys):
         "san_mateo",
         limit=3,
         resume_after_id=100,
+        url_substring=None,
         emit_progress=True,
         progress_every=2,
         catalog_ids=[101, 102, 103],
@@ -262,6 +284,7 @@ def test_run_segment_city_counts_fallback_events(mocker, capsys):
     assert counts["heuristic_complete"] == 1
     assert counts["llm_timeout_then_fallback"] == 2
     assert "[san_mateo] segment_progress done=2/3" in captured.out
+    assert "selector='city_agenda_repair'" in captured.out
 
 
 def test_heuristic_segment_gate_prefers_structured_text():
@@ -348,6 +371,7 @@ def test_run_summary_city_continues_after_summary_error(mocker, capsys):
         "san_mateo",
         limit=3,
         resume_after_id=100,
+        url_substring=None,
         emit_progress=True,
         progress_every=2,
         catalog_ids=[101, 102, 103],
@@ -361,6 +385,7 @@ def test_run_summary_city_continues_after_summary_error(mocker, capsys):
     assert counts["llm_complete"] == 1
     assert counts["deterministic_fallback_complete"] == 1
     assert "last_error='retry-called'" in captured.out
+    assert "selector='city_agenda_repair'" in captured.out
 
 
 def test_summary_timeout_override_is_scoped(mocker):
@@ -377,3 +402,88 @@ def test_summary_timeout_override_is_scoped(mocker):
     assert mod.llm_provider_mod.LOCAL_AI_HTTP_TIMEOUT_SUMMARY_SECONDS == previous_timeout
     assert previous_instance._provider is previous_provider
     assert previous_instance._provider_backend == "http"
+
+
+def test_selector_mode_defaults_and_url_narrowing():
+    assert mod._selector_mode(None) == "city_agenda_repair"
+    assert mod._selector_mode("ElectronicFile.aspx") == "url_substring:ElectronicFile.aspx"
+
+
+def test_select_extract_catalog_ids_defaults_to_any_agenda_url(mocker):
+    rows = [(101, "/tmp/agenda.pdf")]
+
+    class FakeQuery:
+        def __init__(self):
+            self.filters = []
+
+        def join(self, *args, **kwargs):
+            return self
+
+        def filter(self, *conditions):
+            self.filters.extend(conditions)
+            return self
+
+        def order_by(self, *args, **kwargs):
+            return self
+
+        def all(self):
+            return rows
+
+    query = FakeQuery()
+
+    @contextmanager
+    def fake_db_session():
+        yield SimpleNamespace(query=lambda *args, **kwargs: query)
+
+    mocker.patch.object(mod, "db_session", fake_db_session)
+    mocker.patch.object(mod, "_usable_local_artifact_status", return_value=None)
+
+    selected_ids, counts = mod._select_extract_catalog_ids("hayward", limit=None, resume_after_id=None)
+
+    rendered_filters = [str(condition) for condition in query.filters]
+    assert selected_ids == [101]
+    assert counts == {"missing_file": 0, "zero_byte": 0}
+    assert any("document.category" in rendered for rendered in rendered_filters)
+    assert all("catalog.url" not in rendered for rendered in rendered_filters)
+
+
+def test_select_extract_catalog_ids_can_narrow_by_url_substring(mocker):
+    rows = [(101, "/tmp/agenda.pdf")]
+
+    class FakeQuery:
+        def __init__(self):
+            self.filters = []
+
+        def join(self, *args, **kwargs):
+            return self
+
+        def filter(self, *conditions):
+            self.filters.extend(conditions)
+            return self
+
+        def order_by(self, *args, **kwargs):
+            return self
+
+        def all(self):
+            return rows
+
+    query = FakeQuery()
+
+    @contextmanager
+    def fake_db_session():
+        yield SimpleNamespace(query=lambda *args, **kwargs: query)
+
+    mocker.patch.object(mod, "db_session", fake_db_session)
+    mocker.patch.object(mod, "_usable_local_artifact_status", return_value=None)
+
+    selected_ids, counts = mod._select_extract_catalog_ids(
+        "san_mateo",
+        limit=None,
+        resume_after_id=None,
+        url_substring="ElectronicFile.aspx",
+    )
+
+    rendered_filters = [str(condition) for condition in query.filters]
+    assert selected_ids == [101]
+    assert counts == {"missing_file": 0, "zero_byte": 0}
+    assert any("catalog.url" in rendered for rendered in rendered_filters)

@@ -93,11 +93,26 @@ def _usable_local_artifact_status(location: str | None) -> str | None:
     return None
 
 
+def _selector_mode(url_substring: str | None) -> str:
+    if url_substring:
+        return f"url_substring:{url_substring}"
+    return "city_agenda_repair"
+
+
+def _apply_url_substring_filter(query: Any, url_substring: str | None) -> Any:
+    if not url_substring:
+        return query
+    # Repaired agenda hydration should default to city/state selection and only
+    # use URL-shape filters when an operator explicitly wants a narrower batch.
+    return query.filter(Catalog.url.ilike(f"%{url_substring}%"))
+
+
 def _select_extract_catalog_ids(
     city: str,
     *,
     limit: int | None,
     resume_after_id: int | None,
+    url_substring: str | None = None,
 ) -> tuple[list[int], dict[str, int]]:
     with db_session() as session:
         query = (
@@ -108,11 +123,11 @@ def _select_extract_catalog_ids(
                 Event.source.in_(sorted(source_aliases_for_city(city))),
                 Document.category == "agenda",
                 Catalog.summary.is_(None),
-                Catalog.url.ilike("%/ElectronicFile.aspx%"),
                 Catalog.content.is_(None),
             )
             .order_by(Catalog.id)
         )
+        query = _apply_url_substring_filter(query, url_substring)
         if resume_after_id is not None:
             query = query.filter(Catalog.id > resume_after_id)
         rows = query.order_by(Catalog.id).all()
@@ -136,6 +151,7 @@ def _select_segment_catalog_ids(
     limit: int | None,
     resume_after_id: int | None,
     catalog_ids: list[int] | None = None,
+    url_substring: str | None = None,
 ) -> list[int]:
     with db_session() as session:
         query = (
@@ -147,7 +163,6 @@ def _select_segment_catalog_ids(
                 Event.source.in_(sorted(source_aliases_for_city(city))),
                 Document.category == "agenda",
                 Catalog.summary.is_(None),
-                Catalog.url.ilike("%/ElectronicFile.aspx%"),
                 Catalog.content.is_not(None),
                 Catalog.content != "",
                 or_(
@@ -162,6 +177,7 @@ def _select_segment_catalog_ids(
             .distinct()
             .order_by(Catalog.id)
         )
+        query = _apply_url_substring_filter(query, url_substring)
         if catalog_ids is not None:
             if not catalog_ids:
                 return []
@@ -179,6 +195,7 @@ def _select_summary_catalog_ids(
     limit: int | None,
     resume_after_id: int | None,
     catalog_ids: list[int] | None = None,
+    url_substring: str | None = None,
 ) -> list[int]:
     with db_session() as session:
         query = (
@@ -190,12 +207,12 @@ def _select_summary_catalog_ids(
                 Event.source.in_(sorted(source_aliases_for_city(city))),
                 Document.category == "agenda",
                 Catalog.summary.is_(None),
-                Catalog.url.ilike("%/ElectronicFile.aspx%"),
                 Catalog.content.is_not(None),
             )
             .distinct()
             .order_by(Catalog.id)
         )
+        query = _apply_url_substring_filter(query, url_substring)
         if catalog_ids is not None:
             if not catalog_ids:
                 return []
@@ -242,11 +259,17 @@ def _run_extract_city(
     *,
     limit: int | None,
     resume_after_id: int | None,
+    url_substring: str | None,
     emit_progress: bool,
     progress_every: int,
     workers: int,
 ) -> tuple[dict[str, int], list[int]]:
-    catalog_ids, precheck_counts = _select_extract_catalog_ids(city, limit=limit, resume_after_id=resume_after_id)
+    catalog_ids, precheck_counts = _select_extract_catalog_ids(
+        city,
+        limit=limit,
+        resume_after_id=resume_after_id,
+        url_substring=url_substring,
+    )
     counts = {
         "selected": len(catalog_ids),
         "updated": 0,
@@ -260,7 +283,8 @@ def _run_extract_city(
     ready_catalog_ids: list[int] = []
     _emit_progress(
         emit_progress,
-        f"[{city}] extract_start selected={counts['selected']} limit={limit} resume_after_id={resume_after_id}",
+        f"[{city}] extract_start selected={counts['selected']} limit={limit} resume_after_id={resume_after_id} "
+        f"selector={_selector_mode(url_substring)!r}",
     )
     with ThreadPoolExecutor(max_workers=workers) as executor:
         futures = {executor.submit(_extract_one_catalog, catalog_id): catalog_id for catalog_id in catalog_ids}
@@ -289,6 +313,7 @@ def _run_segment_city(
     *,
     limit: int | None,
     resume_after_id: int | None,
+    url_substring: str | None,
     emit_progress: bool,
     progress_every: int,
     catalog_ids: list[int] | None = None,
@@ -301,6 +326,7 @@ def _run_segment_city(
         limit=limit,
         resume_after_id=resume_after_id,
         catalog_ids=catalog_ids,
+        url_substring=url_substring,
     )
     counts = {
         "selected": len(selected_catalog_ids),
@@ -317,7 +343,8 @@ def _run_segment_city(
     }
     _emit_progress(
         emit_progress,
-        f"[{city}] segment_start selected={counts['selected']} limit={limit} resume_after_id={resume_after_id}",
+        f"[{city}] segment_start selected={counts['selected']} limit={limit} resume_after_id={resume_after_id} "
+        f"selector={_selector_mode(url_substring)!r}",
     )
     with _segment_timeout_override(agenda_timeout_seconds), _capture_agenda_fallback_events() as fallback_counts:
         with ThreadPoolExecutor(max_workers=workers) as executor:
@@ -376,6 +403,7 @@ def _run_summary_city(
     *,
     limit: int | None,
     resume_after_id: int | None,
+    url_substring: str | None,
     emit_progress: bool,
     progress_every: int,
     catalog_ids: list[int] | None = None,
@@ -387,12 +415,14 @@ def _run_summary_city(
         limit=limit,
         resume_after_id=resume_after_id,
         catalog_ids=catalog_ids,
+        url_substring=url_substring,
     )
     counts = _empty_summary_counts()
     counts["selected"] = len(selected_catalog_ids)
     _emit_progress(
         emit_progress,
-        f"[{city}] summary_start selected={counts['selected']} limit={limit} resume_after_id={resume_after_id}",
+        f"[{city}] summary_start selected={counts['selected']} limit={limit} resume_after_id={resume_after_id} "
+        f"selector={_selector_mode(url_substring)!r}",
     )
     with _summary_timeout_override(summary_timeout_seconds):
         for index, catalog_id in enumerate(selected_catalog_ids, start=1):
@@ -431,10 +461,15 @@ def _emit_stage_timing(city: str, stage: str, counts: dict[str, int], elapsed_se
 
 
 def main() -> int:
-    parser = argparse.ArgumentParser(description="Hydrate repaired ElectronicFile-backed city agenda catalogs")
+    parser = argparse.ArgumentParser(description="Hydrate repaired city agenda catalogs that still need extraction")
     parser.add_argument("--city", default="san_mateo")
     parser.add_argument("--limit", type=_positive_int, default=None, help="Stage selection limit")
     parser.add_argument("--resume-after-id", type=_nonnegative_int, default=None, dest="resume_after_id")
+    parser.add_argument(
+        "--url-substring",
+        default=None,
+        help="Optional substring to narrow repaired catalog selection to one source URL family",
+    )
     parser.add_argument("--progress-every", type=_positive_int, default=25)
     parser.add_argument("--extract-workers", type=_positive_int, default=4)
     parser.add_argument("--segment-workers", type=_positive_int, default=_default_segment_workers())
@@ -451,6 +486,7 @@ def main() -> int:
         args.city,
         limit=args.limit,
         resume_after_id=args.resume_after_id,
+        url_substring=args.url_substring,
         emit_progress=emit_progress,
         progress_every=args.progress_every,
         workers=args.extract_workers,
@@ -464,6 +500,7 @@ def main() -> int:
         args.city,
         limit=args.limit,
         resume_after_id=args.resume_after_id,
+        url_substring=args.url_substring,
         emit_progress=emit_progress,
         progress_every=args.progress_every,
         catalog_ids=extracted_catalog_ids,
@@ -480,6 +517,7 @@ def main() -> int:
         args.city,
         limit=args.limit,
         resume_after_id=args.resume_after_id,
+        url_substring=args.url_substring,
         emit_progress=emit_progress,
         progress_every=args.progress_every,
         catalog_ids=extracted_catalog_ids,
@@ -492,6 +530,8 @@ def main() -> int:
 
     payload = {
         "city": args.city,
+        "selector_mode": _selector_mode(args.url_substring),
+        "url_substring": args.url_substring,
         "resume_after_id": args.resume_after_id,
         "limit": args.limit,
         "progress_every": args.progress_every,

@@ -81,16 +81,33 @@ docker compose run --rm pipeline python run_pipeline.py
 ```
 
 ### Maintenance hydrate helper for repaired agenda PDFs
-- `scripts/hydrate_repaired_city_catalogs.py` is the maintenance helper for repaired `ElectronicFile.aspx` agenda catalogs.
+- `scripts/hydrate_repaired_city_catalogs.py` is the maintenance helper for repaired city-scoped `agenda` catalogs that still need extract -> segment -> summarize work.
+- By default it selects repaired agenda catalogs by city scope and repair state, not by one historical URL family.
+- Use `--url-substring ...` only when you intentionally want to narrow a run to one recovered source shape such as `ElectronicFile.aspx`.
 - `--segment-mode maintenance` keeps normal pipeline defaults untouched, but lets the helper skip LLM-first agenda extraction when the extracted text is already structured enough for the deterministic parser.
 - `--summary-fallback-mode deterministic` keeps normal summary behavior untouched, but lets the helper persist a deterministic agenda-items summary when maintenance runs hit agenda-summary inference timeouts.
+- Prefer this helper when a city recovery added agenda PDFs that never entered extraction; keep `scripts/staged_hydrate_cities.py` for city-wide unresolved backlog reduction.
 - Watch these counters in helper output when tuning repaired batches:
   - segmentation: `llm_attempted`, `llm_skipped_heuristic_first`, `heuristic_complete`, `llm_timeout_then_fallback`
   - summary: `llm_complete`, `deterministic_fallback_complete`, `error`
 - Example maintenance run:
 ```bash
 docker compose run --rm pipeline python scripts/hydrate_repaired_city_catalogs.py \
+  --city hayward \
+  --limit 25 \
+  --progress-every 5 \
+  --extract-workers 4 \
+  --segment-workers 1 \
+  --segment-mode maintenance \
+  --agenda-timeout-seconds 20 \
+  --summary-timeout-seconds 90 \
+  --summary-fallback-mode deterministic
+```
+- Example narrowed run for one recovered URL family:
+```bash
+docker compose run --rm pipeline python scripts/hydrate_repaired_city_catalogs.py \
   --city san_mateo \
+  --url-substring ElectronicFile.aspx \
   --limit 25 \
   --progress-every 5 \
   --extract-workers 4 \
