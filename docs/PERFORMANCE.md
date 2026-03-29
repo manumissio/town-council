@@ -1,6 +1,6 @@
 # Performance
 
-Last updated: 2026-03-22
+Last updated: 2026-03-29
 
 This page describes how to interpret and reproduce performance evidence for local Docker runs.
 For operational troubleshooting and sorting diagnostics, use `docs/OPERATIONS.md`.
@@ -32,6 +32,39 @@ Comparability checklist:
 - Keep the same dataset/index artifacts and semantic enablement state.
 - Keep the same request mix, sample count, and warm/cold start conditions.
 - Record any missing telemetry separately; missing metrics reduce confidence even when request success stays stable.
+
+## Recent Performance Improvements
+
+This section summarizes the recent Docker and runtime optimization work that changed the local performance profile. Use it as a compact history of the highest-signal improvements before diving into the detailed benchmark sections below.
+
+### Docker Build and Image Optimization
+
+| Phase | Main change | API image | Worker image | Other image(s) | Build timing impact | Result |
+| :--- | :--- | ---: | ---: | ---: | :--- | :--- |
+| Baseline | Monolithic shared Python image | N/A | N/A | old shared pipeline image: `~9.47GB` | cold `docker compose build --no-cache api worker frontend`: `181.15s` | large, slow shared build path |
+| Model bootstrap split | Removed model downloads from image build | N/A | N/A | N/A | cold no-cache build: `181.15s -> 176.94s` | `4.21s` faster (`~2.3%`), but the main bottleneck remained |
+| Role-based image split | Split into `crawler`, `api`, and `worker` images | `8.24GB` | `9.04GB` | `crawler`: `301MB` | `build crawler`: `17.19s`, `build api`: `61.93s`, `build worker`: `78.14s` | better targeted rebuild ownership, but API still carried semantic ML runtime |
+| Venv-copy + CPU-only Torch | Removed duplicate wheel layers and GPU-class ML payloads | `8.24GB -> 1.42GB` | `9.04GB -> 2.1GB` | `crawler`: `301MB -> 297MB` | no-cache build: failed at `173.28s` before, passed in `105.25s` after | biggest storage/build improvement; fixed `no space left on device` |
+| Worker runtime cleanup | Moved dev-only tooling out of the worker runtime image | `1.42GB -> 1.42GB` | `2.1GB -> 2.07GB` | N/A | `build worker`: `96.58s -> 53.76s` in the measured run | small size win, useful worker rebuild cleanup |
+| Semantic service split | Moved semantic search out of API into internal `semantic` service | `1.42GB -> 345MB` | `2.07GB -> 2.07GB` | new `semantic`: `1.39GB` | API first rebuild: `40.62s -> 11.28s`; API warm rebuild: `0.72s`; worker warm rebuild: `0.73s` | API shed Torch/faiss/sentence-transformers entirely |
+
+Current state:
+- API image is now `345MB`, down from `1.42GB` before the semantic split.
+- Worker image remains `2.07GB` and is still the main heavy runtime image.
+- Semantic runtime now lives in its own internal `1.39GB` image.
+
+Interpretation:
+- The API is now slim because semantic ML runtime moved into the internal `semantic` service.
+- The worker still owns the heaviest real runtime responsibilities: local inference, NLP, extraction, and semantic build flows.
+- Docker storage pressure is now driven more by persistent local data volumes than by API image bloat.
+
+### Other Performance-Related Changes
+
+The detailed endpoint timing and soak sections below still apply, but recent runtime work changes how they should be interpreted:
+
+- API endpoint timing examples now reflect a lighter API container path that no longer bundles the semantic ML stack by default.
+- `/search/semantic` remains a public API route, but semantic execution now runs in the internal `semantic` service, so semantic timing should be treated as a separate runtime boundary from the main API image.
+- Recent Docker/runtime work reduced API container overhead, while worker and inference tuning remain the main remaining levers for end-to-end throughput and soak stability.
 
 ## API Endpoint Timing (E2E, 30 samples each)
 
