@@ -30,6 +30,7 @@ from pipeline.config import (
     SEMANTIC_RERANK_CANDIDATE_LIMIT,
     FEATURE_TRENDS_DASHBOARD,
 )
+from pipeline.celery_app import app as celery_app
 from pipeline.semantic_index import (
     get_semantic_backend,
     SemanticCandidate,
@@ -64,7 +65,6 @@ try:
     from pipeline.summary_quality import analyze_source_text, is_source_summarizable, is_source_topicable, build_low_signal_message
     from pipeline.startup_purge import run_startup_purge_if_enabled
     from pipeline.utils import generate_ocd_id
-    from pipeline.llm import LocalAI
     from pipeline.agenda_resolver import agenda_items_look_low_quality
     engine = db_connect()
     SessionLocal = sessionmaker(bind=engine, autoflush=False, autocommit=False)
@@ -147,10 +147,15 @@ async def catch_exceptions_middleware(request: Request, call_next):
             content={"detail": "Internal Server Error. Our team has been notified."}
         )
 
-# Initialize Local AI (Singleton)
-# This wrapper function allows us to 'inject' the AI model into endpoints.
 def get_local_ai():
-    return LocalAI()
+    """
+    Legacy dependency hook preserved for older tests.
+
+    Why this exists:
+    The API no longer instantiates the local LLM directly, but several targeted
+    tests still import and override this symbol.
+    """
+    return None
 
 # SECURITY: Restrict CORS (Cross-Origin Resource Sharing)
 # We load the allowed domains from the environment.
@@ -1317,16 +1322,27 @@ def get_catalogs_batch(
         })
     return results
 
-from pipeline.tasks import (
-    generate_summary_task,
-    generate_topics_task,
-    segment_agenda_task,
-    extract_votes_task,
-    extract_text_task,
-    app as celery_app,
-)
 from celery.result import AsyncResult
 from kombu.exceptions import KombuError
+
+
+class _CeleryTaskProxy:
+    """
+    Keep the API enqueue surface lightweight while preserving test patch points.
+    """
+
+    def __init__(self, task_name: str):
+        self.name = task_name
+
+    def delay(self, *args, **kwargs):
+        return celery_app.send_task(self.name, args=args, kwargs=kwargs)
+
+
+generate_summary_task = _CeleryTaskProxy("pipeline.tasks.generate_summary_task")
+generate_topics_task = _CeleryTaskProxy("pipeline.tasks.generate_topics_task")
+segment_agenda_task = _CeleryTaskProxy("pipeline.tasks.segment_agenda_task")
+extract_votes_task = _CeleryTaskProxy("pipeline.tasks.extract_votes_task")
+extract_text_task = _CeleryTaskProxy("pipeline.tasks.extract_text_task")
 
 
 def _enqueue_task(task_name: str, task_callable, *args, **kwargs):

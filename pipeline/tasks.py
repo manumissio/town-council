@@ -1,4 +1,3 @@
-from celery import Celery
 from celery.signals import worker_ready
 import os
 import sys
@@ -54,6 +53,7 @@ from pipeline.text_cleaning import postprocess_extracted_text
 from pipeline.runtime_guardrails import local_ai_runtime_guardrail_message
 from pipeline.startup_purge import run_startup_purge_if_enabled
 from pipeline.vote_extractor import run_vote_extraction_for_catalog
+from pipeline.celery_app import app
 
 # Register worker metrics (safe in non-worker contexts; the HTTP server only starts
 # when TC_WORKER_METRICS_PORT is set and the Celery worker is ready).
@@ -172,13 +172,6 @@ def _extract_agenda_titles_from_text(text: str, max_titles: int = 3):
                 break
 
     return _dedupe_titles_preserve_order(titles)[:max_titles]
-
-# Celery broker queues tasks; result backend stores task results.
-app = Celery('tasks')
-
-# Read connection settings from environment.
-app.conf.broker_url = os.getenv('CELERY_BROKER_URL', 'redis://redis:6379/0')
-app.conf.result_backend = os.getenv('CELERY_RESULT_BACKEND', 'redis://redis:6379/0')
 
 _SessionLocal = None
 
