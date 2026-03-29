@@ -15,7 +15,10 @@ services:
 
   # Service for running the Scrapy spiders
   crawler:
-    image: town-council-python-base
+    build:
+      context: .
+      target: python-crawler
+    image: town-council-python-crawler
     volumes:
       - .:/app
       - data:/app/data
@@ -33,7 +36,7 @@ services:
 
   # Service for running the downloader pipeline
   pipeline:
-    image: town-council-python-base
+    image: town-council-python-worker
     volumes:
       - .:/app
       - data:/app/data
@@ -98,7 +101,7 @@ services:
 
   # Service for extracting text from downloaded documents.
   extractor:
-    image: town-council-python-base
+    image: town-council-python-worker
     volumes:
       - .:/app
       - data:/app/data
@@ -120,7 +123,10 @@ services:
   # Celery Worker: Handles compute-intensive AI tasks (Summarization, Segmentation)
   # in the background so the API remains fast and responsive.
   worker:
-    image: town-council-python-base
+    build:
+      context: .
+      target: python-worker
+    image: town-council-python-worker
     volumes:
       - .:/app
       - data:/app/data
@@ -184,7 +190,7 @@ services:
 
   # NLP Worker: Uses SpaCy to extract Organizations and Locations from text.
   nlp:
-    image: town-council-python-base
+    image: town-council-python-worker
     volumes:
       - .:/app
       - data:/app/data
@@ -203,7 +209,7 @@ services:
 
   # Table Worker: Uses Camelot to extract structured tables from PDFs.
   tables:
-    image: town-council-python-base
+    image: town-council-python-worker
     volumes:
       - .:/app
       - data:/app/data
@@ -222,7 +228,7 @@ services:
 
   # Topic Modeler: Uses LDA to discover themes across all meeting minutes.
   topics:
-    image: town-council-python-base
+    image: town-council-python-worker
     volumes:
       - .:/app
       - data:/app/data
@@ -269,8 +275,10 @@ services:
 
   # FastAPI Backend: Serves the search API and data to users.
   api:
-    build: .
-    image: town-council-python-base
+    build:
+      context: .
+      target: python-api
+    image: town-council-python-api
     volumes:
       - .:/app
       - data:/app/data
@@ -419,7 +427,7 @@ services:
 
   # Monitor: Custom Python service to export application metrics to Prometheus.
   monitor:
-    image: town-council-python-base
+    image: town-council-python-worker
     volumes:
       - .:/app
       - data:/app/data

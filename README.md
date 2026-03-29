@@ -38,9 +38,10 @@ What it does *not* do:
 - process/index documents (no `run_pipeline.py`)
 
 Why the explicit model bootstrap exists:
-- local model downloads no longer happen during the shared Python image build
+- local model downloads no longer happen during Docker image builds
 - rebuilds stay much faster, while model artifacts persist in a shared Docker volume
 - if you skip the bootstrap step, the worker healthcheck will report the missing local Ollama model explicitly
+- Python images are now split by role (`crawler`, `api`, `worker`) so targeted rebuilds only pay for the dependency family they actually use
 
 Note on Full Text after restart:
 If `STARTUP_PURGE_DERIVED=true`, extracted text is cleared from the DB on startup.
