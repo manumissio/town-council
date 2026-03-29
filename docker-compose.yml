@@ -83,6 +83,7 @@ services:
       - redis
       - tika
       - inference
+      - semantic
 
   # Apache Tika Server for high-performance text extraction.
   tika:
@@ -179,6 +180,7 @@ services:
       - postgres
       - tika
       - inference
+      - semantic
     healthcheck:
       # Keep worker readiness shallow: verify the metrics listener is up and
       # its broker/database dependencies are reachable without enqueueing work.
@@ -255,6 +257,46 @@ services:
     volumes:
       - meili_data:/meili_data
 
+  semantic:
+    build:
+      context: .
+      target: python-semantic
+    image: town-council-python-semantic
+    volumes:
+      - .:/app
+      - data:/app/data
+      - models_data:/models
+    working_dir: /app/semantic_service
+    command: uvicorn main:app --host 0.0.0.0 --port 8010
+    environment:
+      - PYTHONUNBUFFERED=1
+      - PYTHONPATH=/app
+      - DATABASE_URL=${DATABASE_URL:-postgresql://town_council:secure_dev_password@postgres:5432/town_council_db}
+      - MEILI_HOST=${MEILI_HOST:-http://meilisearch:7700}
+      - MEILI_MASTER_KEY=${MEILI_MASTER_KEY:-masterKey}
+      - SEMANTIC_ENABLED=${SEMANTIC_ENABLED:-false}
+      - SEMANTIC_BACKEND=${SEMANTIC_BACKEND:-faiss}
+      - SEMANTIC_MODEL_NAME=${SEMANTIC_MODEL_NAME:-all-MiniLM-L6-v2}
+      - SEMANTIC_INDEX_DIR=${SEMANTIC_INDEX_DIR:-/app/data/semantic}
+      - SEMANTIC_CONTENT_MAX_CHARS=${SEMANTIC_CONTENT_MAX_CHARS:-4000}
+      - SEMANTIC_BASE_TOP_K=${SEMANTIC_BASE_TOP_K:-200}
+      - SEMANTIC_MAX_TOP_K=${SEMANTIC_MAX_TOP_K:-5000}
+      - SEMANTIC_FILTER_EXPANSION_FACTOR=${SEMANTIC_FILTER_EXPANSION_FACTOR:-4}
+      - SEMANTIC_REQUIRE_SINGLE_PROCESS=${SEMANTIC_REQUIRE_SINGLE_PROCESS:-true}
+      - SEMANTIC_ALLOW_MULTIPROCESS=${SEMANTIC_ALLOW_MULTIPROCESS:-false}
+      - SEMANTIC_REQUIRE_FAISS=${SEMANTIC_REQUIRE_FAISS:-false}
+      - HF_HOME=/models/huggingface
+      - SENTENCE_TRANSFORMERS_HOME=/models/sentence-transformers
+    depends_on:
+      - postgres
+      - meilisearch
+    healthcheck:
+      test: ["CMD-SHELL", "python -c \"import urllib.request; urllib.request.urlopen('http://localhost:8010/health', timeout=5)\" || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 45s
+
   # PERFORMANCE: Redis Caching Layer
   # Stores frequently accessed data (like city lists) in RAM for instant access.
   # This reduces database load by ~95% for read-heavy operations.
@@ -301,6 +343,7 @@ services:
       - APP_ENV=${APP_ENV:-dev}
       - STARTUP_PURGE_DERIVED=${STARTUP_PURGE_DERIVED:-false}
       - FEATURE_TRENDS_DASHBOARD=${FEATURE_TRENDS_DASHBOARD:-false}
+      - SEMANTIC_SERVICE_URL=${SEMANTIC_SERVICE_URL:-http://semantic:8010}
       - LOCAL_AI_BACKEND=${LOCAL_AI_BACKEND:-http}
       - LOCAL_AI_HTTP_BASE_URL=${LOCAL_AI_HTTP_BASE_URL:-http://inference:11434}
       - LOCAL_AI_HTTP_TIMEOUT_SECONDS=${LOCAL_AI_HTTP_TIMEOUT_SECONDS:-60}
@@ -324,6 +367,7 @@ services:
       - meilisearch
       - postgres
       - redis
+      - semantic
       - inference
     restart: unless-stopped
 

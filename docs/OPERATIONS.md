@@ -40,7 +40,7 @@ Why the explicit model bootstrap exists:
 - local model downloads no longer happen during Docker image builds
 - rebuilds stay faster because large model artifacts are stored in the shared `models_data` volume instead
 - if you skip the bootstrap step, the worker healthcheck reports the missing local Ollama model explicitly
-- Python images are split by role (`crawler`, `api`, `worker`) so targeted rebuilds no longer drag the full worker dependency stack into every service
+- Python images are split by role (`crawler`, `api`, `semantic`, `worker`) so targeted rebuilds no longer drag the full worker dependency stack into every service
 - If a local rebuild fails with `no space left on device`, check Docker-managed storage first with `docker system df -v`; large local data, Meilisearch, and Ollama volumes can exhaust Docker Desktop storage before host disk space appears constrained.
 - Use `docker image prune -a` or `docker system prune` only as an explicit local cleanup step when you need to reclaim Docker storage.
 

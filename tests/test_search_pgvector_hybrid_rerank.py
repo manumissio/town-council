@@ -2,7 +2,7 @@ from unittest.mock import MagicMock
 
 from fastapi.testclient import TestClient
 
-from api.main import app, get_db
+from semantic_service.main import app, get_db
 from pipeline.semantic_index import SemanticCandidate, SemanticRerankResult
 
 VALID_KEY = "dev_secret_key_change_me"
@@ -57,9 +57,9 @@ def test_semantic_search_pgvector_hybrid_rerank_path(mocker):
     db = MagicMock()
     app.dependency_overrides[get_db] = lambda: db
 
-    mocker.patch("api.main.SEMANTIC_ENABLED", True)
-    mocker.patch("api.main.SEMANTIC_BACKEND", "pgvector")
-    mocker.patch("api.main.get_semantic_backend", return_value=_PgBackend())
+    mocker.patch("semantic_service.main.SEMANTIC_ENABLED", True)
+    mocker.patch("semantic_service.main.SEMANTIC_BACKEND", "pgvector")
+    mocker.patch("semantic_service.main.get_semantic_backend", return_value=_PgBackend())
 
     meili_index = MagicMock()
     meili_index.search.return_value = {
@@ -77,12 +77,12 @@ def test_semantic_search_pgvector_hybrid_rerank_path(mocker):
             }
         ]
     }
-    mocker.patch("api.main.client.index", return_value=meili_index)
+    mocker.patch("semantic_service.main.client.index", return_value=meili_index)
     mocker.patch(
-        "api.main._hydrate_meeting_hits",
+        "semantic_service.main._hydrate_meeting_hits",
         return_value=[{"id": "doc_10", "db_id": 10, "result_type": "meeting", "event_name": "Meeting"}],
     )
-    mocker.patch("api.main._hydrate_agenda_hits", return_value=[])
+    mocker.patch("semantic_service.main._hydrate_agenda_hits", return_value=[])
 
     client = TestClient(app)
     try:
@@ -128,9 +128,9 @@ def test_semantic_search_pgvector_falls_back_to_lexical_when_embeddings_missing(
     db = MagicMock()
     app.dependency_overrides[get_db] = lambda: db
 
-    mocker.patch("api.main.SEMANTIC_ENABLED", True)
-    mocker.patch("api.main.SEMANTIC_BACKEND", "pgvector")
-    mocker.patch("api.main.get_semantic_backend", return_value=_FallbackPgBackend())
+    mocker.patch("semantic_service.main.SEMANTIC_ENABLED", True)
+    mocker.patch("semantic_service.main.SEMANTIC_BACKEND", "pgvector")
+    mocker.patch("semantic_service.main.get_semantic_backend", return_value=_FallbackPgBackend())
 
     meili_index = MagicMock()
     meili_index.search.return_value = {
@@ -148,12 +148,12 @@ def test_semantic_search_pgvector_falls_back_to_lexical_when_embeddings_missing(
             }
         ]
     }
-    mocker.patch("api.main.client.index", return_value=meili_index)
+    mocker.patch("semantic_service.main.client.index", return_value=meili_index)
     mocker.patch(
-        "api.main._hydrate_meeting_hits",
+        "semantic_service.main._hydrate_meeting_hits",
         return_value=[{"id": "doc_10", "db_id": 10, "result_type": "meeting", "event_name": "Meeting"}],
     )
-    mocker.patch("api.main._hydrate_agenda_hits", return_value=[])
+    mocker.patch("semantic_service.main._hydrate_agenda_hits", return_value=[])
 
     client = TestClient(app)
     try:

@@ -15,6 +15,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 COPY council_crawler/requirements.txt ./council_crawler_requirements.txt
 COPY pipeline/requirements.txt ./pipeline_requirements.txt
 COPY api/requirements.txt ./api_requirements.txt
+COPY semantic_service/requirements.txt ./semantic_service_requirements.txt
 COPY docker/semantic-cpu-constraints.txt ./semantic_cpu_constraints.txt
 
 FROM python-build-base AS venv-crawler
@@ -28,12 +29,20 @@ RUN --mount=type=cache,target=/root/.cache/pip \
 FROM python-build-base AS venv-api
 RUN python -m venv /opt/venv
 ENV PATH=/opt/venv/bin:$PATH
+RUN --mount=type=cache,target=/root/.cache/pip \
+    pip install --upgrade pip setuptools wheel && \
+    pip install \
+    -r api_requirements.txt
+
+FROM python-build-base AS venv-semantic
+RUN python -m venv /opt/venv
+ENV PATH=/opt/venv/bin:$PATH
 ENV PIP_EXTRA_INDEX_URL=https://download.pytorch.org/whl/cpu
 RUN --mount=type=cache,target=/root/.cache/pip \
     pip install --upgrade pip setuptools wheel && \
     pip install \
     -c semantic_cpu_constraints.txt \
-    -r api_requirements.txt
+    -r semantic_service_requirements.txt
 
 FROM python-build-base AS venv-worker
 RUN apt-get update && apt-get install -y --no-install-recommends cmake \
@@ -89,7 +98,6 @@ FROM python-runtime-base AS python-api
 USER root
 RUN apt-get update && apt-get install -y --no-install-recommends \
     libpq5 \
-    libgomp1 \
     && apt-get clean && rm -rf /var/lib/apt/lists/*
 COPY --from=venv-api /opt/venv /opt/venv
 ENV PATH=/opt/venv/bin:$PATH
@@ -110,5 +118,15 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     libgomp1 \
     && apt-get clean && rm -rf /var/lib/apt/lists/*
 COPY --from=venv-worker /opt/venv /opt/venv
+ENV PATH=/opt/venv/bin:$PATH
+USER appuser
+
+FROM python-runtime-base AS python-semantic
+USER root
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    libpq5 \
+    libgomp1 \
+    && apt-get clean && rm -rf /var/lib/apt/lists/*
+COPY --from=venv-semantic /opt/venv /opt/venv
 ENV PATH=/opt/venv/bin:$PATH
 USER appuser

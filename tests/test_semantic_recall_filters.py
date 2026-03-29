@@ -2,7 +2,7 @@ from unittest.mock import MagicMock
 
 from fastapi.testclient import TestClient
 
-from api.main import app, get_db
+from semantic_service.main import app, get_db
 from pipeline.semantic_index import SemanticCandidate
 
 VALID_KEY = "dev_secret_key_change_me"
@@ -55,19 +55,19 @@ class _AdaptiveBackend:
 def test_semantic_search_expands_top_k_until_filtered_results_exist(mocker):
     db = MagicMock()
     app.dependency_overrides[get_db] = lambda: db
-    mocker.patch("api.main.SEMANTIC_ENABLED", True)
-    mocker.patch("api.main.SEMANTIC_BASE_TOP_K", 200)
-    mocker.patch("api.main.SEMANTIC_MAX_TOP_K", 1000)
-    mocker.patch("api.main.SEMANTIC_FILTER_EXPANSION_FACTOR", 4)
-    mocker.patch("api.main.get_semantic_backend", return_value=_AdaptiveBackend())
+    mocker.patch("semantic_service.main.SEMANTIC_ENABLED", True)
+    mocker.patch("semantic_service.main.SEMANTIC_BASE_TOP_K", 200)
+    mocker.patch("semantic_service.main.SEMANTIC_MAX_TOP_K", 1000)
+    mocker.patch("semantic_service.main.SEMANTIC_FILTER_EXPANSION_FACTOR", 4)
+    mocker.patch("semantic_service.main.get_semantic_backend", return_value=_AdaptiveBackend())
     mocker.patch(
-        "api.main._hydrate_meeting_hits",
+        "semantic_service.main._hydrate_meeting_hits",
         side_effect=lambda _db, candidates: [
             {"id": f"doc_{c.metadata['db_id']}", "db_id": c.metadata["db_id"], "result_type": "meeting", "event_name": "Meeting"}
             for c in candidates
         ],
     )
-    mocker.patch("api.main._hydrate_agenda_hits", return_value=[])
+    mocker.patch("semantic_service.main._hydrate_agenda_hits", return_value=[])
     client = TestClient(app)
     try:
         resp = client.get("/search/semantic?q=zoning&city=cupertino&limit=20", headers={"X-API-Key": VALID_KEY})
