@@ -17,7 +17,7 @@ This project ingests agendas/minutes, extracts text, indexes search content, and
 
 ### 2) Start stack and initialize DB
 ```bash
-docker compose up -d --build postgres redis meilisearch tika inference api worker frontend
+docker compose up -d --build postgres redis meilisearch tika inference semantic semantic-worker api worker frontend
 bash ./scripts/bootstrap_local_models.sh
 docker compose run --rm pipeline python db_init.py
 ```
@@ -41,7 +41,7 @@ Why the explicit model bootstrap exists:
 - local model downloads no longer happen during Docker image builds
 - rebuilds stay much faster, while model artifacts persist in a shared Docker volume
 - if you skip the bootstrap step, the worker healthcheck will report the missing local Ollama model explicitly
-- Python images are now split by role (`crawler`, `api`, `semantic`, `worker`) so targeted rebuilds only pay for the dependency family they actually use
+- Python images are now split by role (`crawler`, `api`, `semantic`, `worker`), and semantic build work runs on its own `semantic-worker`, so targeted rebuilds only pay for the dependency family they actually use
 - If Docker builds fail with `no space left on device`, inspect Docker-managed storage first with `docker system df -v`; large local data, search, and Ollama volumes can exhaust Docker Desktop storage before host disk space looks low.
 - Use `docker image prune -a` or `docker system prune` only as an explicit local cleanup step when you need to reclaim Docker storage.
 

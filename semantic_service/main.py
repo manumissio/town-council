@@ -477,7 +477,7 @@ def search_documents_semantic(
             status_code=503,
             detail=(
                 "Semantic index artifacts are missing. "
-                "Run `docker compose run --rm pipeline python reindex_semantic.py` and retry."
+                "Run `docker compose run --rm semantic python ../pipeline/reindex_semantic.py` and retry."
             ),
         ) from exc
     except SemanticConfigError as exc:

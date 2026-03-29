@@ -4,6 +4,8 @@ meilisearch==0.31.0
 sqlalchemy==2.0.38
 psycopg2-binary==2.9.10
 pgvector>=0.2.5
-numpy==1.26.4
+celery==5.3.4
+redis==5.0.1
+numpy==2.4.4
 sentence-transformers==3.3.0
-faiss-cpu==1.9.0
+faiss-cpu==1.10.0

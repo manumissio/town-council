@@ -16,7 +16,7 @@ cd "$REPO_ROOT"
 
 ### 1) Start stack
 ```bash
-docker compose up -d --build postgres redis meilisearch tika inference api worker frontend
+docker compose up -d --build postgres redis meilisearch tika inference semantic semantic-worker api worker frontend
 bash ./scripts/bootstrap_local_models.sh
 docker compose run --rm pipeline python db_init.py
 ```
@@ -40,7 +40,7 @@ Why the explicit model bootstrap exists:
 - local model downloads no longer happen during Docker image builds
 - rebuilds stay faster because large model artifacts are stored in the shared `models_data` volume instead
 - if you skip the bootstrap step, the worker healthcheck reports the missing local Ollama model explicitly
-- Python images are split by role (`crawler`, `api`, `semantic`, `worker`) so targeted rebuilds no longer drag the full worker dependency stack into every service
+- Python images are split by role (`crawler`, `api`, `semantic`, `worker`), and semantic build tasks now run on a dedicated `semantic-worker`, so targeted rebuilds no longer drag the full worker dependency stack into every service
 - For the measured before/after image-size and build-time results behind those changes, see `docs/PERFORMANCE.md`.
 - If a local rebuild fails with `no space left on device`, check Docker-managed storage first with `docker system df -v`; large local data, Meilisearch, and Ollama volumes can exhaust Docker Desktop storage before host disk space appears constrained.
 - Use `docker image prune -a` or `docker system prune` only as an explicit local cleanup step when you need to reclaim Docker storage.
@@ -695,24 +695,24 @@ Recommended rollout sequence:
 
 ### Build semantic artifacts
 ```bash
-docker compose run --rm pipeline python reindex_semantic.py
+docker compose run --rm semantic python ../pipeline/reindex_semantic.py
 ```
 
 ### Verify FAISS runtime availability (transitional only)
 ```bash
-docker compose run --rm pipeline python check_faiss_runtime.py
+docker compose run --rm semantic python ../pipeline/check_faiss_runtime.py
 ```
 
 ### Diagnose semantic search
 ```bash
-docker compose run --rm pipeline python diagnose_semantic_search.py --query zoning --limit 10
+docker compose run --rm semantic python ../pipeline/diagnose_semantic_search.py --query zoning --limit 10
 ```
 
 ### Common failures
 - `503 Semantic search is disabled`:
   - enable `SEMANTIC_ENABLED=true`.
 - `503 Semantic index artifacts are missing`:
-  - run `python reindex_semantic.py`.
+  - run `docker compose run --rm semantic python ../pipeline/reindex_semantic.py`.
 - semantic mode returns too few records with strict filters:
   - check `semantic_diagnostics` fields (`k_used`, `expansion_steps`) in response.
 - semantic mode returns lexical-looking records instead of semantic reranks:
@@ -723,7 +723,7 @@ docker compose run --rm pipeline python diagnose_semantic_search.py --query zoni
 - semantic mode works but is slower than expected:
   - check `semantic_diagnostics.engine`; `numpy` means fallback mode (FAISS unavailable in runtime).
   - NumPy fallback now uses partial top-k selection (`argpartition`) to reduce ranking overhead.
-  - fix FAISS install/import, then rebuild artifacts with `python reindex_semantic.py`.
+  - fix FAISS install/import, then rebuild artifacts with `docker compose run --rm semantic python ../pipeline/reindex_semantic.py`.
   - when using pgvector, verify Postgres has `vector` extension and `semantic_embedding` HNSW index.
 
 ### Guardrail note

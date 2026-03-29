@@ -8,6 +8,7 @@ def test_compose_uses_role_specific_python_images_and_model_volume():
     assert "image: town-council-python-api" in source
     assert "image: town-council-python-semantic" in source
     assert "image: town-council-python-worker" in source
+    assert "semantic-worker:" in source
     assert "models_data:/models" in source
 
 
@@ -32,6 +33,7 @@ def test_dev_up_bootstraps_models_before_db_init():
 
     assert 'docker compose up -d --build "${CORE_SERVICES[@]}"' in source
     assert "semantic" in source
+    assert "semantic-worker" in source
     assert "bash ./scripts/bootstrap_local_models.sh" in source
     assert source.index("bash ./scripts/bootstrap_local_models.sh") < source.index(
         "docker compose run --rm pipeline python db_init.py"
@@ -45,3 +47,20 @@ def test_worker_runtime_requirements_exclude_dev_benchmark_tooling():
     for package in ("pytest==8.3.4", "pytest-mock==3.12.0", "pytest-benchmark==5.1.0", "locust==2.33.0"):
         assert package not in runtime
         assert package in dev
+
+
+def test_semantic_dependencies_live_outside_worker_runtime():
+    runtime = Path("pipeline/requirements.txt").read_text(encoding="utf-8")
+    semantic = Path("semantic_service/requirements.txt").read_text(encoding="utf-8")
+
+    for package in ("sentence-transformers==3.3.0", "faiss-cpu==1.10.0"):
+        assert package not in runtime
+        assert package in semantic
+
+
+def test_bootstrap_and_runbook_use_semantic_image_for_semantic_artifacts():
+    bootstrap = Path("scripts/bootstrap_local_models.sh").read_text(encoding="utf-8")
+    ops = Path("docs/OPERATIONS.md").read_text(encoding="utf-8")
+
+    assert 'docker compose run --rm semantic python -c "from sentence_transformers import SentenceTransformer; SentenceTransformer(\'all-MiniLM-L6-v2\')"' in bootstrap
+    assert "docker compose run --rm semantic python ../pipeline/reindex_semantic.py" in ops

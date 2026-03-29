@@ -84,6 +84,7 @@ services:
       - tika
       - inference
       - semantic
+      - semantic-worker
 
   # Apache Tika Server for high-performance text extraction.
   tika:
@@ -136,7 +137,7 @@ services:
     # Conservative D2-lite default: use HTTP inference backend with bounded parallelism.
     # Why this branch exists: lifting concurrency while keeping in-process llama.cpp would
     # duplicate model memory per process and destabilize shared hosts.
-    command: celery -A pipeline.tasks worker --loglevel=info --concurrency=${WORKER_CONCURRENCY:-3} --pool=${WORKER_POOL:-prefork}
+    command: celery -A pipeline.tasks worker --loglevel=info --concurrency=${WORKER_CONCURRENCY:-3} --pool=${WORKER_POOL:-prefork} -Q celery
     environment:
       - PYTHONUNBUFFERED=1
       - PYTHONPATH=/app
@@ -180,11 +181,50 @@ services:
       - postgres
       - tika
       - inference
-      - semantic
     healthcheck:
       # Keep worker readiness shallow: verify the metrics listener is up and
       # its broker/database dependencies are reachable without enqueueing work.
       test: ["CMD-SHELL", "python scripts/worker_healthcheck.py || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 45s
+
+  semantic-worker:
+    image: town-council-python-semantic
+    volumes:
+      - .:/app
+      - data:/app/data
+      - models_data:/models
+    working_dir: /app
+    command: celery -A pipeline.semantic_tasks worker --loglevel=info --pool=solo --concurrency=1 -Q semantic
+    environment:
+      - PYTHONUNBUFFERED=1
+      - PYTHONPATH=/app
+      - DATABASE_URL=${DATABASE_URL:-postgresql://town_council:secure_dev_password@postgres:5432/town_council_db}
+      - REDIS_HOST=redis
+      - REDIS_PASSWORD=${REDIS_PASSWORD:-secure_redis_password}
+      - CELERY_BROKER_URL=redis://:${REDIS_PASSWORD:-secure_redis_password}@redis:6379/0
+      - CELERY_RESULT_BACKEND=redis://:${REDIS_PASSWORD:-secure_redis_password}@redis:6379/0
+      - DATA_DIR=/app/data
+      - SEMANTIC_ENABLED=${SEMANTIC_ENABLED:-false}
+      - SEMANTIC_BACKEND=${SEMANTIC_BACKEND:-faiss}
+      - SEMANTIC_MODEL_NAME=${SEMANTIC_MODEL_NAME:-all-MiniLM-L6-v2}
+      - SEMANTIC_INDEX_DIR=${SEMANTIC_INDEX_DIR:-/app/data/semantic}
+      - SEMANTIC_CONTENT_MAX_CHARS=${SEMANTIC_CONTENT_MAX_CHARS:-4000}
+      - SEMANTIC_BASE_TOP_K=${SEMANTIC_BASE_TOP_K:-200}
+      - SEMANTIC_MAX_TOP_K=${SEMANTIC_MAX_TOP_K:-5000}
+      - SEMANTIC_FILTER_EXPANSION_FACTOR=${SEMANTIC_FILTER_EXPANSION_FACTOR:-4}
+      - SEMANTIC_REQUIRE_SINGLE_PROCESS=${SEMANTIC_REQUIRE_SINGLE_PROCESS:-true}
+      - SEMANTIC_ALLOW_MULTIPROCESS=${SEMANTIC_ALLOW_MULTIPROCESS:-false}
+      - SEMANTIC_REQUIRE_FAISS=${SEMANTIC_REQUIRE_FAISS:-false}
+      - HF_HOME=/models/huggingface
+      - SENTENCE_TRANSFORMERS_HOME=/models/sentence-transformers
+    depends_on:
+      - postgres
+      - redis
+    healthcheck:
+      test: ["CMD-SHELL", "python -c \"from pipeline.semantic_tasks import embed_catalog_task; print(embed_catalog_task.name)\" >/dev/null || exit 1"]
       interval: 30s
       timeout: 10s
       retries: 3

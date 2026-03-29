@@ -36,7 +36,7 @@ def test_semantic_search_missing_artifacts_returns_503(mocker):
         "api.main._semantic_service_get_json",
         side_effect=HTTPException(
             status_code=503,
-            detail="Semantic index artifacts are missing. Run `docker compose run --rm pipeline python reindex_semantic.py` and retry.",
+            detail="Semantic index artifacts are missing. Run `docker compose run --rm semantic python ../pipeline/reindex_semantic.py` and retry.",
         ),
     )
     client = TestClient(app)

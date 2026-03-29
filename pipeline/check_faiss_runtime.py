@@ -31,7 +31,7 @@ def main() -> int:
     meta_path = Path(SEMANTIC_INDEX_DIR) / "semantic_meta.json"
     if not meta_path.exists():
         print(f"semantic_meta=missing path={meta_path}")
-        print("next_step=run docker compose run --rm pipeline python reindex_semantic.py")
+        print("next_step=run docker compose run --rm semantic python ../pipeline/reindex_semantic.py")
         return 0
 
     try:
@@ -45,7 +45,7 @@ def main() -> int:
     if engine != "faiss":
         print(
             "note=faiss imports successfully but current artifacts are not FAISS. "
-            "Rebuild with: docker compose run --rm pipeline python reindex_semantic.py"
+            "Rebuild with: docker compose run --rm semantic python ../pipeline/reindex_semantic.py"
         )
     return 0
 

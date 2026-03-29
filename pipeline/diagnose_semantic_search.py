@@ -63,7 +63,7 @@ def main() -> int:
         if engine == "numpy":
             print(
                 "remediation=Running on numpy fallback. For faster retrieval, install/repair faiss-cpu "
-                "and rebuild with: docker compose run --rm pipeline python reindex_semantic.py"
+                "and rebuild with: docker compose run --rm semantic python ../pipeline/reindex_semantic.py"
             )
         for hit in (payload.get("hits") or [])[: args.limit]:
             print(
