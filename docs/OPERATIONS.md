@@ -170,6 +170,7 @@ docker compose run --rm pipeline python scripts/reset_laserfiche_error_agenda_ro
   agenda summaries still require segmented agenda items, so this category is a backlog-classification fix, not a new summary path.
 - Cleanup for this category is opt-in so default Laserfiche bad-page cleanup stays narrow.
 - The opt-in cleanup only targets unresolved document-shape backlog rows; it does not reset already summarized historical staff-report rows.
+- Deferred follow-up: some remaining San Mateo `ElectronicFile.aspx` agenda rows are currently extractable but still classify as `single_item_staff_report_detected` under the document-shape cleanup rules. Do not change this classifier based on San Mateo alone. Revisit only if comparable evidence appears in additional cities or source families.
 - Dry-run with document-shape rows included:
 ```bash
 docker compose run --rm pipeline python scripts/reset_laserfiche_error_agenda_rows.py --city san_mateo --json --include-document-shape
