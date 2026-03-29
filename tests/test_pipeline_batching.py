@@ -137,6 +137,35 @@ def test_select_catalog_ids_for_summary_hydration_filters_agenda_without_items(b
     assert summarized_catalog.id not in selected
 
 
+def test_select_catalog_ids_for_summary_hydration_treats_agenda_html_like_agenda(batching_db):
+    db, event, place = batching_db
+    agenda_html_with_items = _add_catalog(
+        db,
+        event,
+        place,
+        category="agenda_html",
+        content="agenda html text",
+        summary=None,
+        segmentation_status="complete",
+    )
+    agenda_html_without_items = _add_catalog(
+        db,
+        event,
+        place,
+        category="agenda_html",
+        content="agenda html text",
+        summary=None,
+        segmentation_status=None,
+    )
+    db.add(AgendaItem(catalog_id=agenda_html_with_items.id, event_id=event.id, order=1, title="Item 1"))
+    db.commit()
+
+    selected = select_catalog_ids_for_summary_hydration(db)
+
+    assert agenda_html_with_items.id in selected
+    assert agenda_html_without_items.id not in selected
+
+
 def test_select_catalog_ids_for_agenda_segmentation_excludes_empty_terminal_state(batching_db):
     db, event, place = batching_db
     pending_catalog = _add_catalog(db, event, place, category="agenda", content="agenda text", segmentation_status=None)

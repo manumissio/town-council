@@ -38,6 +38,7 @@ from pipeline.runtime_guardrails import (
     local_ai_guardrail_inputs_from_env,
     local_ai_runtime_guardrail_message,
 )
+from pipeline.document_kinds import normalize_summary_doc_kind
 from pipeline.summary_quality import is_summary_grounded, prune_unsupported_summary_lines
 from pipeline.lexicon import (
     is_procedural_title as lexicon_is_procedural_title,
@@ -971,7 +972,7 @@ def prepare_summary_prompt(text: str, doc_kind: str = "unknown") -> str:
     using a "minutes" prompt, the output will focus on attendance/teleconference
     boilerplate and look incorrect.
     """
-    kind = (doc_kind or "unknown").strip().lower()
+    kind = normalize_summary_doc_kind(doc_kind)
     if kind not in _SUMMARY_DOC_KINDS:
         kind = "unknown"
 

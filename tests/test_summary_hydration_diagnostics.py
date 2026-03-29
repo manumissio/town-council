@@ -15,6 +15,16 @@ def test_predict_summary_path_marks_agenda_without_items_as_needing_segmentation
     assert result == "not_generated_yet_needs_segmentation"
 
 
+def test_predict_summary_path_treats_agenda_html_without_items_as_needing_segmentation():
+    result = predict_summary_path(
+        "agenda_html",
+        has_content=True,
+        has_agenda_items=False,
+        content="Agenda HTML text exists but segmentation has not run yet.",
+    )
+    assert result == "not_generated_yet_needs_segmentation"
+
+
 def test_predict_summary_path_marks_minutes_with_good_text_as_eligible():
     result = predict_summary_path(
         "minutes",

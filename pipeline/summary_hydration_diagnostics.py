@@ -5,6 +5,7 @@ from dataclasses import asdict, dataclass
 from sqlalchemy import and_, func
 
 from pipeline.city_scope import source_aliases_for_city
+from pipeline.document_kinds import normalize_summary_doc_kind, summary_doc_kind_sql_expr
 from pipeline.models import AgendaItem, Catalog, Document
 from pipeline.summary_quality import analyze_source_text, is_source_summarizable
 
@@ -49,7 +50,7 @@ class SummaryHydrationSnapshot:
 
 
 def predict_summary_path(doc_kind: str | None, *, has_content: bool, has_agenda_items: bool, content: str | None) -> str:
-    normalized_kind = (doc_kind or "").strip().lower()
+    normalized_kind = normalize_summary_doc_kind(doc_kind)
     if not has_content:
         return "missing_content"
     if normalized_kind == "agenda":
@@ -89,7 +90,7 @@ def build_summary_hydration_snapshot(db_session, sample_limit: int = 5, city: st
     doc_kind_subquery = (
         db_session.query(
             Document.catalog_id.label("catalog_id"),
-            func.lower(func.coalesce(Document.category, "")).label("doc_kind"),
+            summary_doc_kind_sql_expr(Document.category).label("doc_kind"),
         )
         .join(
             first_document_subquery,

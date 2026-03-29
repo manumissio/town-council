@@ -40,6 +40,7 @@ from pipeline.config import (
 from pipeline.extraction_service import reextract_catalog_content
 from pipeline.indexer import reindex_catalog
 from pipeline.content_hash import compute_content_hash
+from pipeline.document_kinds import normalize_summary_doc_kind, summary_doc_kind_sql_expr
 from pipeline.lineage_service import compute_lineage_assignments
 from pipeline.metrics import record_lineage_recompute
 from pipeline.summary_quality import (
@@ -201,7 +202,7 @@ def _summary_doc_kind_subquery(db):
     return (
         db.query(
             Document.catalog_id.label("catalog_id"),
-            func.lower(func.coalesce(Document.category, "")).label("doc_kind"),
+            summary_doc_kind_sql_expr(Document.category).label("doc_kind"),
         )
         .join(
             first_document,
@@ -433,7 +434,7 @@ def generate_summary_task(self, catalog_id: int, force: bool = False):
         # Many cities publish agenda PDFs without corresponding minutes PDFs.
         # If we summarize an agenda using a "minutes" prompt, the output looks incorrect.
         doc = db.query(Document).filter_by(catalog_id=catalog_id).first()
-        doc_kind = (doc.category or "unknown") if doc else "unknown"
+        doc_kind = normalize_summary_doc_kind(doc.category if doc else "unknown")
 
         if not catalog:
             return {"error": "Catalog not found"}

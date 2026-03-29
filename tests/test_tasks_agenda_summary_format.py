@@ -93,6 +93,42 @@ def test_generate_summary_task_agenda_returns_not_generated_yet_when_no_items(mo
     assert "segmentation" in (result.get("reason") or "").lower()
 
 
+def test_generate_summary_task_agenda_html_returns_not_generated_yet_when_no_items(mocker):
+    mock_db = MagicMock()
+    catalog = MagicMock()
+    catalog.content = (
+        "Agenda HTML text exists but segmentation has not run yet, so we should block."
+        " This content is long enough to pass the quality gate."
+    )
+    catalog.summary = None
+    catalog.content_hash = "h1"
+    catalog.summary_source_hash = None
+    mock_db.get.return_value = catalog
+
+    doc_query = MagicMock()
+    doc_query.filter_by.return_value.first.return_value = MagicMock(category="agenda_html")
+
+    items_query = MagicMock()
+    items_query.filter_by.return_value.order_by.return_value.all.return_value = []
+
+    def _query_side_effect(model):
+        if model is Document:
+            return doc_query
+        if model is AgendaItem:
+            return items_query
+        return MagicMock()
+
+    mock_db.query.side_effect = _query_side_effect
+
+    mocker.patch.object(tasks, "SessionLocal", return_value=mock_db)
+    mock_ai = MagicMock()
+    mocker.patch.object(tasks, "LocalAI", return_value=mock_ai)
+
+    result = tasks.generate_summary_task.run(1, force=True)
+    assert result["status"] == "not_generated_yet"
+    assert "segmentation" in (result.get("reason") or "").lower()
+
+
 def test_generate_summary_task_blocks_laserfiche_error_page_content(mocker):
     mock_db = MagicMock()
     catalog = MagicMock()

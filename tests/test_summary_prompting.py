@@ -14,6 +14,14 @@ def test_prepare_summary_prompt_uses_agenda_language():
     assert "minutes" not in prompt.lower()
 
 
+def test_prepare_summary_prompt_treats_agenda_html_as_agenda():
+    from pipeline.llm import prepare_summary_prompt
+
+    prompt = prepare_summary_prompt("eAgenda item 1: Housing", doc_kind="agenda_html")
+    assert "agenda" in prompt.lower()
+    assert "minutes" not in prompt.lower()
+
+
 def test_prepare_summary_prompt_uses_minutes_language():
     from pipeline.llm import prepare_summary_prompt
 
