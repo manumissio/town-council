@@ -1,0 +1,7 @@
+# Development and benchmark tooling for local verification workflows.
+# Keep these packages out of the worker runtime image so Docker installs only
+# what the service needs to boot and process jobs.
+pytest==8.3.4
+pytest-mock==3.12.0
+pytest-benchmark==5.1.0
+locust==2.33.0

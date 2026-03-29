@@ -20,9 +20,5 @@ pymupdf==1.25.3
 pytextrank==3.3.0
 sentence-transformers==3.3.0
 faiss-cpu==1.9.0
-pytest==8.3.4
-pytest-mock==3.12.0
 httpx==0.28.1
-locust==2.33.0
-pytest-benchmark==5.1.0
 beautifulsoup4==4.12.3
