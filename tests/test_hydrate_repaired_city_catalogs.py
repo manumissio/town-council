@@ -15,7 +15,34 @@ sys.modules[spec.name] = mod
 spec.loader.exec_module(mod)
 
 
+class _FakeRunStatus:
+    def __init__(self, *, tool_name, output_dir, run_id, metadata):
+        self.tool_name = tool_name
+        self.run_id = run_id or "test_run"
+        self.metadata = metadata
+        self.paths = SimpleNamespace(run_dir=Path(output_dir) / tool_name / self.run_id)
+        self.events = []
+        self.heartbeats = []
+        self.results = []
+
+    def heartbeat(self, **payload):
+        self.heartbeats.append(payload)
+
+    def event(self, **payload):
+        self.events.append(payload)
+
+    def result(self, **payload):
+        self.results.append(payload)
+
+
 def test_hydrate_repaired_city_catalogs_emits_stage_progress(mocker, capsys):
+    fake_run = _FakeRunStatus(
+        tool_name="hydrate_repaired_city_catalogs",
+        output_dir="experiments/results/maintenance",
+        run_id="test_run",
+        metadata={},
+    )
+    mocker.patch.object(mod, "MaintenanceRunStatus", return_value=fake_run)
     mocker.patch.object(
         mod,
         "_run_extract_city",
@@ -90,12 +117,13 @@ def test_hydrate_repaired_city_catalogs_emits_stage_progress(mocker, capsys):
             "deterministic",
         ],
     )
-    mocker.patch.object(mod.time, "perf_counter", side_effect=[0.0, 2.0, 2.0, 5.0, 5.0, 9.0])
+    mocker.patch.object(mod.time, "perf_counter", side_effect=[0.0, 0.0, 2.0, 2.0, 5.0, 5.0, 9.0, 9.5])
 
     exit_code = mod.main()
 
     captured = capsys.readouterr()
     assert exit_code == 0
+    assert "[san_mateo] run_status run_id=test_run artifact_dir=experiments/results/maintenance/hydrate_repaired_city_catalogs/test_run" in captured.out
     assert "[san_mateo] hydrate_finish payload=" in captured.out
     assert "selector_mode': 'url_substring:ElectronicFile.aspx'" in captured.out
     assert "[san_mateo] extract_timing elapsed_s=2.00" in captured.out
@@ -161,6 +189,13 @@ def test_run_extract_city_emits_progress_and_counts(mocker, capsys):
 
 
 def test_hydrate_repaired_city_catalogs_json_mode(mocker, capsys):
+    fake_run = _FakeRunStatus(
+        tool_name="hydrate_repaired_city_catalogs",
+        output_dir="experiments/results/maintenance",
+        run_id="json_run",
+        metadata={},
+    )
+    mocker.patch.object(mod, "MaintenanceRunStatus", return_value=fake_run)
     mocker.patch.object(
         mod,
         "_run_extract_city",
@@ -224,7 +259,7 @@ def test_hydrate_repaired_city_catalogs_json_mode(mocker, capsys):
             "--json",
         ],
     )
-    mocker.patch.object(mod.time, "perf_counter", side_effect=[0.0, 1.0, 1.0, 2.0, 2.0, 3.0])
+    mocker.patch.object(mod.time, "perf_counter", side_effect=[0.0, 0.0, 1.0, 1.0, 2.0, 2.0, 3.0, 3.5])
 
     exit_code = mod.main()
 

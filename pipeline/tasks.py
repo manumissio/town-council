@@ -8,6 +8,7 @@ from datetime import datetime, timezone
 from sqlalchemy.orm import sessionmaker
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy import and_, func, or_, text
+from typing import Any, Callable
 
 from pipeline.backlog_maintenance import (
     build_deterministic_agenda_summary_payload,
@@ -256,6 +257,8 @@ def run_summary_hydration_backfill(
     *,
     summary_timeout_seconds: int | None = None,
     summary_fallback_mode: str = "none",
+    progress_callback: Callable[[dict[str, Any]], None] | None = None,
+    progress_every: int = 25,
 ) -> dict[str, int]:
     """
     Generate summaries once across the current eligible backlog snapshot.
@@ -281,10 +284,29 @@ def run_summary_hydration_backfill(
     }
     if not catalog_ids:
         logger.info("summary_hydration_backfill selected=0")
+        if progress_callback:
+            progress_callback(
+                {
+                    "event_type": "stage_finish",
+                    "stage": "summary",
+                    "counts": counts.copy(),
+                    "detail": {"selected": 0},
+                }
+            )
         return counts
 
+    if progress_callback:
+        progress_callback(
+            {
+                "event_type": "stage_start",
+                "stage": "summary",
+                "counts": counts.copy(),
+                "detail": {"selected": len(catalog_ids)},
+            }
+        )
+
     with summary_timeout_override(summary_timeout_seconds):
-        for cid in catalog_ids:
+        for index, cid in enumerate(catalog_ids, start=1):
             result = summarize_catalog_with_optional_fallback(
                 cid,
                 summary_fallback_mode=summary_fallback_mode,
@@ -306,6 +328,22 @@ def run_summary_hydration_backfill(
                 counts["llm_complete"] += 1
             elif completion_mode == "deterministic_fallback":
                 counts["deterministic_fallback_complete"] += 1
+            if progress_callback and (index == 1 or index % progress_every == 0 or index == len(catalog_ids)):
+                progress_callback(
+                    {
+                        "event_type": "progress",
+                        "stage": "summary",
+                        "counts": counts.copy(),
+                        "last_catalog_id": cid,
+                        "detail": {
+                            "done": index,
+                            "total": len(catalog_ids),
+                            "last_status": status,
+                            "completion_mode": completion_mode,
+                            "error": str((result or {}).get("error") or ""),
+                        },
+                    }
+                )
 
     logger.info(
         "summary_hydration_backfill selected=%s complete=%s cached=%s stale=%s blocked_low_signal=%s blocked_ungrounded=%s not_generated_yet=%s error=%s other=%s llm_complete=%s deterministic_fallback_complete=%s",
@@ -321,6 +359,8 @@ def run_summary_hydration_backfill(
         counts["llm_complete"],
         counts["deterministic_fallback_complete"],
     )
+    if progress_callback:
+        progress_callback({"event_type": "stage_finish", "stage": "summary", "counts": counts.copy()})
     return counts
 
 

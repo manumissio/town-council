@@ -1,6 +1,6 @@
 # Operations Runbook
 
-Last updated: 2026-03-28
+Last updated: 2026-03-29
 
 ## Core workflow
 
@@ -116,6 +116,18 @@ docker compose run --rm pipeline python scripts/hydrate_repaired_city_catalogs.p
   --agenda-timeout-seconds 20 \
   --summary-timeout-seconds 90 \
   --summary-fallback-mode deterministic
+```
+- Maintenance run status artifacts:
+  - `scripts/hydrate_repaired_city_catalogs.py` and `scripts/backfill_summaries.py` persist local run status under `experiments/results/maintenance/<tool>/<run_id>/`
+  - artifact meanings:
+    - `run_manifest.json`: startup metadata and summarized arguments
+    - `heartbeat.json`: latest known stage, counts snapshot, and update timestamp
+    - `events.jsonl`: append-only stage transitions and periodic progress checkpoints
+    - `result.json`: terminal success/failure payload with elapsed time
+  - use these artifacts when a long-running maintenance job keeps working after the original terminal session detaches or when stdout alone is ambiguous
+  - quick inspection:
+```bash
+find experiments/results/maintenance -maxdepth 4 -type f | sort
 ```
 
 ### Maintenance salvage helper for flaky Laserfiche agenda PDFs
