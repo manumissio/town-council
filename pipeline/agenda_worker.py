@@ -11,6 +11,7 @@ from pipeline.laserfiche_error_pages import classify_catalog_bad_content
 from pipeline.llm import LocalAI
 from pipeline.agenda_service import persist_agenda_items
 from pipeline.agenda_resolver import has_viable_structured_agenda_source, resolve_agenda_items
+from pipeline.profiling import apply_catalog_id_scope
 
 
 logger = logging.getLogger("agenda-worker")
@@ -43,6 +44,7 @@ def select_catalog_ids_for_agenda_segmentation(session, limit: int | None = None
         .distinct()
         .order_by(Catalog.id)
     )
+    query = apply_catalog_id_scope(query, Catalog.id)
     if limit is not None:
         query = query.limit(limit)
     return [row[0] for row in query.all()]

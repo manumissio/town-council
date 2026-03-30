@@ -20,6 +20,7 @@ from pipeline.config import (
     TABLE_WORKER_CPU_FRACTION,
     TABLE_PROGRESS_LOG_INTERVAL
 )
+from pipeline.profiling import apply_catalog_id_scope
 
 # Setup logging
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
@@ -144,7 +145,8 @@ def run_table_pipeline():
         to_process = session.query(Catalog).filter(
             Catalog.location != 'placeholder',
             Catalog.tables == None
-        ).all()
+        )
+        to_process = apply_catalog_id_scope(to_process, Catalog.id).all()
 
         ids = [r.id for r in to_process]
 

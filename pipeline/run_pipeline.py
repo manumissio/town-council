@@ -1,9 +1,11 @@
 from concurrent.futures import ProcessPoolExecutor, as_completed
 from multiprocessing import cpu_count
 from datetime import datetime
+import os
 import logging
 import sys
 import subprocess
+import time
 from sqlalchemy import Text, cast, or_
 from sqlalchemy.exc import SQLAlchemyError
 
@@ -22,6 +24,8 @@ from pipeline.config import (
     EXTRACTION_TERMINAL_FAILURE_MAX_ATTEMPTS,
 )
 from pipeline.startup_purge import run_startup_purge_if_enabled
+from pipeline.metrics import record_pipeline_phase_duration
+from pipeline.profiling import apply_catalog_id_scope, profile_span
 
 # Setup logging
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
@@ -70,11 +74,27 @@ def _scope_catalog_query_for_onboarding(db, query):
 def run_step(name, command):
     """Helper to run a shell command step."""
     logger.info(f"Step: {name}")
-    try:
-        subprocess.run(command, check=True)
-    except subprocess.CalledProcessError:
-        logger.error(f"Step {name} failed.")
-        sys.exit(1)
+    phase = _phase_name_for_step(name)
+    with profile_span(
+        phase=phase,
+        component="subprocess",
+        metadata={"command": list(command)},
+    ):
+        start_perf = time.perf_counter()
+        try:
+            subprocess.run(command, check=True)
+        except subprocess.CalledProcessError:
+            logger.error(f"Step {name} failed.")
+            record_pipeline_phase_duration(
+                phase,
+                "subprocess",
+                _current_profile_mode(),
+                "failure",
+                time.perf_counter() - start_perf,
+            )
+            sys.exit(1)
+        duration_s = time.perf_counter() - start_perf
+        record_pipeline_phase_duration(phase, "subprocess", _current_profile_mode(), "success", duration_s)
 
 
 def _should_skip_non_gating_onboarding_steps() -> bool:
@@ -137,61 +157,93 @@ def process_document_chunk(catalog_ids, ocr_fallback_enabled=None):
     import random
     import sys
 
-    # Open one DB session for the chunk. Retry with jitter if DB is busy.
-    db = None
-    for attempt in range(3):
-        try:
-            engine = db_connect()
-            Session = sessionmaker(bind=engine)
-            db = Session()
-            # Health check: verify the connection works
-            db.execute(text("SELECT 1"))
-            break
-        except SQLAlchemyError:
-            if db: db.close()
-            time.sleep(random.uniform(DB_RETRY_DELAY_MIN, DB_RETRY_DELAY_MAX))
-            continue
-
-    if not db:
-        print(f"Error: Could not connect to database for chunk {catalog_ids[:2]}...", file=sys.stderr)
-        return 0
-
-    processed_count = 0
-    try:
-        for cid in catalog_ids:
-            catalog = db.get(Catalog, cid)
-            if not catalog:
+    chunk_catalog_ids = [int(cid) for cid in catalog_ids]
+    with profile_span(
+        phase="extract_chunk",
+        component="pipeline",
+        metadata={"catalog_count": len(chunk_catalog_ids)},
+    ) as span_meta:
+        # Open one DB session for the chunk. Retry with jitter if DB is busy.
+        chunk_started = time.perf_counter()
+        db = None
+        for attempt in range(3):
+            try:
+                engine = db_connect()
+                Session = sessionmaker(bind=engine)
+                db = Session()
+                # Health check: verify the connection works
+                db.execute(text("SELECT 1"))
+                break
+            except SQLAlchemyError:
+                if db:
+                    db.close()
+                time.sleep(random.uniform(DB_RETRY_DELAY_MIN, DB_RETRY_DELAY_MAX))
                 continue
 
-            # Extract text only when needed.
-            if not catalog.content and catalog.location:
-                extracted = extract_text(
-                    catalog.location,
-                    ocr_fallback_enabled=ocr_fallback_enabled,
-                )
-                if extracted:
-                    catalog.content = extracted
+        if not db:
+            span_meta["db_connect"] = "failed"
+            record_pipeline_phase_duration(
+                "extract_chunk",
+                "pipeline",
+                _current_profile_mode(),
+                "failure",
+                time.perf_counter() - chunk_started,
+            )
+            print(f"Error: Could not connect to database for chunk {catalog_ids[:2]}...", file=sys.stderr)
+            return 0
+
+        processed_count = 0
+        try:
+            for cid in catalog_ids:
+                catalog = db.get(Catalog, cid)
+                if not catalog:
+                    continue
+
+                # Extract text only when needed.
+                if not catalog.content and catalog.location:
+                    extracted = extract_text(
+                        catalog.location,
+                        ocr_fallback_enabled=ocr_fallback_enabled,
+                    )
+                    if extracted:
+                        catalog.content = extracted
+                        _mark_extraction_complete(catalog, compute_content_hash(catalog.content))
+                    else:
+                        _mark_extraction_failure(catalog, "Extraction returned empty text")
+                elif catalog.content and not getattr(catalog, "content_hash", None):
+                    # Older rows may predate content hashing.
                     _mark_extraction_complete(catalog, compute_content_hash(catalog.content))
-                else:
-                    _mark_extraction_failure(catalog, "Extraction returned empty text")
-            elif catalog.content and not getattr(catalog, "content_hash", None):
-                # Older rows may predate content hashing.
-                _mark_extraction_complete(catalog, compute_content_hash(catalog.content))
-            elif catalog.content:
-                catalog.extraction_status = catalog.extraction_status or "complete"
-                catalog.extraction_attempt_count = int(catalog.extraction_attempt_count or 0)
+                elif catalog.content:
+                    catalog.extraction_status = catalog.extraction_status or "complete"
+                    catalog.extraction_attempt_count = int(catalog.extraction_attempt_count or 0)
 
-            # Commit per document to keep partial progress.
-            db.commit()
-            processed_count += 1
+                # Commit per document to keep partial progress.
+                db.commit()
+                processed_count += 1
 
-        return processed_count
-    except SQLAlchemyError as e:
-        db.rollback()
-        print(f"Error processing batch: {e}", file=sys.stderr)
-        return processed_count
-    finally:
-        db.close()
+            span_meta["processed_count"] = processed_count
+            record_pipeline_phase_duration(
+                "extract_chunk",
+                "pipeline",
+                _current_profile_mode(),
+                "success",
+                time.perf_counter() - chunk_started,
+            )
+            return processed_count
+        except SQLAlchemyError as e:
+            db.rollback()
+            span_meta["error"] = e.__class__.__name__
+            record_pipeline_phase_duration(
+                "extract_chunk",
+                "pipeline",
+                _current_profile_mode(),
+                "failure",
+                time.perf_counter() - chunk_started,
+            )
+            print(f"Error processing batch: {e}", file=sys.stderr)
+            return processed_count
+        finally:
+            db.close()
 
 def _parse_onboarding_started_at(raw_value):
     if not raw_value:
@@ -240,6 +292,7 @@ def select_catalog_ids_for_processing(db):
         Catalog.content.is_(None),
         (Catalog.extraction_status.is_(None)) | (Catalog.extraction_status != "failed_terminal"),
     )
+    extraction_query = apply_catalog_id_scope(extraction_query, Catalog.id)
     extraction_query, _touched_hash_count = _scope_catalog_query_for_onboarding(db, extraction_query)
 
     extraction_ids = [row[0] for row in extraction_query.yield_per(1000)]
@@ -279,6 +332,7 @@ def select_catalog_ids_for_entity_backfill(db):
         Catalog.content != "",
         _catalog_entities_need_nlp(Catalog),
     )
+    query = apply_catalog_id_scope(query, Catalog.id)
     query, _touched_hash_count = _scope_catalog_query_for_onboarding(db, query)
     return [row[0] for row in query.yield_per(1000)]
 
@@ -346,51 +400,83 @@ def run_parallel_processing():
 
     logger.info("Parallel processing worker_count=%s", workers)
 
-    with ProcessPoolExecutor(max_workers=workers) as executor:
-        futures = {
-            executor.submit(
-                process_document_chunk,
-                chunk,
-                settings["ocr_fallback_enabled"],
-            ): chunk
-            for chunk in chunks
-        }
+    with profile_span(
+        phase="extract_parallel",
+        component="pipeline",
+        metadata={
+            "catalog_count": len(catalog_ids),
+            "chunk_count": len(chunks),
+            "worker_count": workers,
+        },
+    ):
+        with ProcessPoolExecutor(max_workers=workers) as executor:
+            futures = {
+                executor.submit(
+                    process_document_chunk,
+                    chunk,
+                    settings["ocr_fallback_enabled"],
+                ): chunk
+                for chunk in chunks
+            }
 
-        # Track completed documents across chunks.
-        completed_docs = 0
-        for future in as_completed(futures):
-            count = future.result()
-            if count:
-                completed_docs += count
-                logger.info(f"Progress: {completed_docs}/{len(catalog_ids)}")
+            # Track completed documents across chunks.
+            completed_docs = 0
+            for future in as_completed(futures):
+                count = future.result()
+                if count:
+                    completed_docs += count
+                    logger.info(f"Progress: {completed_docs}/{len(catalog_ids)}")
 
 def main():
     """
     Main pipeline entrypoint.
     """
     logger.info(">>> Starting High-Performance Pipeline")
-    # Optional startup purge for derived fields. Safe to call repeatedly.
-    purge_result = run_startup_purge_if_enabled()
-    logger.info(f"startup_purge_result={purge_result}")
-    
-    # 1. Setup & Ingest
-    # Keep dev databases compatible with the current SQLAlchemy models.
-    run_step("DB Migrate", ["python", "db_migrate.py"])
-    run_step("Seed Places", ["python", "seed_places.py"])
-    run_step("Promote Staged Events", ["python", "promote_stage.py"])
-    run_step("Downloader", ["python", "downloader.py"])
-    
-    # 2. Parallel Processing (Replaces extractor.py and nlp_worker.py)
-    logger.info(">>> Starting Parallel Processing (OCR + NLP)")
-    run_parallel_processing()
+    with profile_span(phase="pipeline_total", component="pipeline"):
+        # Optional startup purge for derived fields. Safe to call repeatedly.
+        purge_result = run_startup_purge_if_enabled()
+        logger.info(f"startup_purge_result={purge_result}")
 
-    # 3. Derived-generation backfills
-    _run_generation_backfill_steps()
+        # 1. Setup & Ingest
+        # Keep dev databases compatible with the current SQLAlchemy models.
+        run_step("DB Migrate", ["python", "db_migrate.py"])
+        run_step("Seed Places", ["python", "seed_places.py"])
+        run_step("Promote Staged Events", ["python", "promote_stage.py"])
+        run_step("Downloader", ["python", "downloader.py"])
 
-    # 4. Post-Processing
-    _run_post_processing_steps()
-    
+        # 2. Parallel Processing (Replaces extractor.py and nlp_worker.py)
+        logger.info(">>> Starting Parallel Processing (OCR + NLP)")
+        run_parallel_processing()
+
+        # 3. Derived-generation backfills
+        _run_generation_backfill_steps()
+
+        # 4. Post-Processing
+        _run_post_processing_steps()
+
     logger.info("<<< Pipeline Complete")
+
+
+def _phase_name_for_step(step_name: str) -> str:
+    mapping = {
+        "DB Migrate": "db_migrate",
+        "Seed Places": "seed_places",
+        "Promote Staged Events": "promote_stage",
+        "Downloader": "download",
+        "Agenda Segmentation": "segment_agenda",
+        "Summary Hydration": "summarize",
+        "Search Indexing": "index_search",
+        "Entity Backfill": "entity_backfill",
+        "Table Extraction": "table_extraction",
+        "Backfill Organizations": "org_backfill",
+        "Topic Modeling": "topic_modeling",
+        "People Linking": "people_linking",
+    }
+    return mapping.get(step_name, step_name.lower().replace(" ", "_"))
+
+
+def _current_profile_mode() -> str:
+    return str(os.getenv("TC_PROFILE_MODE", "triage") or "triage")
 
 if __name__ == "__main__":
     main()

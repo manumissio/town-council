@@ -10,12 +10,13 @@ from __future__ import annotations
 import math
 import os
 import time
-from typing import Dict
+from typing import Any, Dict
 from urllib.parse import quote, unquote
 
 from celery import signals
 from prometheus_client import Counter, Histogram, REGISTRY, start_http_server
 from prometheus_client.core import Metric
+from pipeline import profiling
 
 try:
     import redis  # type: ignore
@@ -40,6 +41,20 @@ CELERY_TASK_RETRIES_TOTAL = Counter(
     "tc_celery_task_retries_total",
     "Total number of Celery task retries.",
     labelnames=("task_name",),
+)
+
+TASK_QUEUE_WAIT_SECONDS = Histogram(
+    "tc_task_queue_wait_seconds",
+    "Celery task queue wait time in seconds from publish to worker start.",
+    labelnames=("task_name", "queue"),
+    buckets=(0.01, 0.05, 0.1, 0.25, 0.5, 1, 2.5, 5, 10, 30, 60, 120),
+)
+
+PIPELINE_PHASE_DURATION_SECONDS = Histogram(
+    "tc_pipeline_phase_duration_seconds",
+    "Pipeline phase duration in seconds.",
+    labelnames=("phase", "component", "mode", "status"),
+    buckets=(0.01, 0.05, 0.1, 0.25, 0.5, 1, 2.5, 5, 10, 30, 60, 120, 300, 900),
 )
 
 LINEAGE_RECOMPUTE_RUNS_TOTAL = Counter(
@@ -113,6 +128,7 @@ TPS_BUCKETS = (1.0, 2.0, 5.0, 10.0, 20.0, 30.0, 40.0, 60.0, 80.0, 120.0, 200.0, 
 
 
 _TASK_START: Dict[str, float] = {}
+_TASK_CONTEXT: Dict[str, dict[str, Any]] = {}
 _REDIS_CLIENT = None
 _REDIS_INIT = False
 _REDIS_WARNED = False
@@ -419,6 +435,19 @@ def record_task_retry(task_name: str) -> None:
     CELERY_TASK_RETRIES_TOTAL.labels(task_name=task_name).inc()
 
 
+def record_task_queue_wait(task_name: str, queue: str, duration_s: float) -> None:
+    TASK_QUEUE_WAIT_SECONDS.labels(task_name=task_name, queue=queue).observe(max(0.0, duration_s))
+
+
+def record_pipeline_phase_duration(phase: str, component: str, mode: str, status: str, duration_s: float) -> None:
+    PIPELINE_PHASE_DURATION_SECONDS.labels(
+        phase=phase,
+        component=component,
+        mode=mode,
+        status=status,
+    ).observe(max(0.0, duration_s))
+
+
 def record_lineage_recompute(updated_count: int, merge_count: int) -> None:
     LINEAGE_RECOMPUTE_RUNS_TOTAL.inc()
     if updated_count > 0:
@@ -498,21 +527,74 @@ def _start_metrics_server(**_kwargs):
         return
 
 
+@signals.before_task_publish.connect
+def _before_task_publish(headers=None, **_kwargs):
+    if headers is None:
+        return
+    if headers.get("tc_queued_at") is None:
+        headers["tc_queued_at"] = time.time()
+    run_id = profiling.current_run_id()
+    if not run_id:
+        return
+    headers.setdefault("tc_profile_run_id", run_id)
+    headers.setdefault("tc_profile_mode", profiling.current_mode())
+    artifact_dir = os.getenv(profiling.PROFILE_ARTIFACT_DIR_ENV, "")
+    if artifact_dir:
+        headers.setdefault("tc_profile_artifact_dir", artifact_dir)
+    headers.setdefault("tc_profile_baseline_valid", "1" if profiling.baseline_valid() else "0")
+
+
 @signals.task_prerun.connect
 def _task_prerun(task_id=None, task=None, **_kwargs):
-    if task_id and task is not None:
-        _TASK_START[str(task_id)] = time.perf_counter()
+    if not task_id or task is None:
+        return
+    task_id_value = str(task_id)
+    _TASK_START[task_id_value] = time.perf_counter()
+    request = getattr(task, "request", None)
+    headers = getattr(request, "headers", None) or {}
+    delivery = getattr(request, "delivery_info", None) or {}
+    task_name = str(getattr(task, "name", "unknown"))
+    queue = str(delivery.get("routing_key") or delivery.get("queue") or "celery")
+    queue_wait_s = None
+    try:
+        queue_wait_s = max(0.0, time.time() - float(headers.get("tc_queued_at")))
+        record_task_queue_wait(task_name, queue, queue_wait_s)
+    except Exception:
+        queue_wait_s = None
+    _TASK_CONTEXT[task_id_value] = {
+        "task_name": task_name,
+        "queue": queue,
+        "queue_wait_s": queue_wait_s,
+        "queued_at": headers.get("tc_queued_at"),
+        "run_id": headers.get("tc_profile_run_id"),
+        "mode": headers.get("tc_profile_mode"),
+        "artifact_dir": headers.get("tc_profile_artifact_dir"),
+        "baseline_valid": headers.get("tc_profile_baseline_valid"),
+        "catalog_id": _catalog_id_from_request(request),
+    }
 
 
 @signals.task_postrun.connect
 def _task_postrun(task_id=None, task=None, state=None, **_kwargs):
     if not task_id or task is None:
         return
-    start = _TASK_START.pop(str(task_id), None)
+    task_id_value = str(task_id)
+    start = _TASK_START.pop(task_id_value, None)
+    ctx = _TASK_CONTEXT.pop(task_id_value, None) or {}
     if start is None:
         return
     status = "success" if (state or "").lower() in ("success", "succeeded") else "unknown"
-    record_task_duration(getattr(task, "name", "unknown"), status, time.perf_counter() - start)
+    task_name = str(getattr(task, "name", "unknown"))
+    duration_s = time.perf_counter() - start
+    record_task_duration(task_name, status, duration_s)
+    record_pipeline_phase_duration(
+        profiling.phase_from_task_name(task_name),
+        _component_for_queue(ctx.get("queue")),
+        str(ctx.get("mode") or "triage"),
+        status,
+        duration_s,
+    )
+    _write_task_profile_event(ctx, task_name=task_name, status=status, duration_s=duration_s)
 
 
 @signals.task_failure.connect
@@ -522,12 +604,94 @@ def _task_failure(task_id=None, exception=None, sender=None, **_kwargs):
     record_task_failure(task_name, exc_type)
 
     if task_id:
-        start = _TASK_START.pop(str(task_id), None)
+        task_id_value = str(task_id)
+        start = _TASK_START.pop(task_id_value, None)
+        ctx = _TASK_CONTEXT.pop(task_id_value, None) or {}
         if start is not None:
-            record_task_duration(task_name, "failure", time.perf_counter() - start)
+            duration_s = time.perf_counter() - start
+            record_task_duration(task_name, "failure", duration_s)
+            record_pipeline_phase_duration(
+                profiling.phase_from_task_name(str(task_name)),
+                _component_for_queue(ctx.get("queue")),
+                str(ctx.get("mode") or "triage"),
+                "failure",
+                duration_s,
+            )
+            _write_task_profile_event(
+                ctx,
+                task_name=str(task_name),
+                status="failure",
+                duration_s=duration_s,
+                exception_type=exc_type,
+            )
 
 
 @signals.task_retry.connect
 def _task_retry(request=None, **_kwargs):
     task_name = getattr(getattr(request, "task", None), "name", None) or getattr(request, "task_name", None) or "unknown"
     record_task_retry(str(task_name))
+
+
+def _catalog_id_from_request(request) -> int | None:
+    args = getattr(request, "args", None) or ()
+    if not args:
+        return None
+    try:
+        return int(args[0])
+    except Exception:
+        return None
+
+
+def _component_for_queue(queue: Any) -> str:
+    value = str(queue or "")
+    if value == "enrichment":
+        return "enrichment-worker"
+    if value == "semantic":
+        return "semantic-worker"
+    return "worker"
+
+
+def _write_task_profile_event(
+    ctx: dict[str, Any],
+    *,
+    task_name: str,
+    status: str,
+    duration_s: float,
+    exception_type: str | None = None,
+) -> None:
+    run_id = str(ctx.get("run_id") or "").strip()
+    artifact_dir = str(ctx.get("artifact_dir") or "").strip()
+    if not run_id or not artifact_dir:
+        return
+    previous = {
+        profiling.PROFILE_RUN_ID_ENV: os.getenv(profiling.PROFILE_RUN_ID_ENV),
+        profiling.PROFILE_MODE_ENV: os.getenv(profiling.PROFILE_MODE_ENV),
+        profiling.PROFILE_ARTIFACT_DIR_ENV: os.getenv(profiling.PROFILE_ARTIFACT_DIR_ENV),
+        profiling.PROFILE_BASELINE_VALID_ENV: os.getenv(profiling.PROFILE_BASELINE_VALID_ENV),
+    }
+    try:
+        os.environ[profiling.PROFILE_RUN_ID_ENV] = run_id
+        os.environ[profiling.PROFILE_MODE_ENV] = str(ctx.get("mode") or "triage")
+        os.environ[profiling.PROFILE_ARTIFACT_DIR_ENV] = artifact_dir
+        os.environ[profiling.PROFILE_BASELINE_VALID_ENV] = str(ctx.get("baseline_valid") or "0")
+        profiling.append_profile_event(
+            {
+                "event_type": "task_span",
+                "phase": profiling.phase_from_task_name(task_name),
+                "component": _component_for_queue(ctx.get("queue")),
+                "catalog_id": ctx.get("catalog_id"),
+                "task_name": task_name,
+                "queue": ctx.get("queue"),
+                "queued_at": ctx.get("queued_at"),
+                "queue_wait_s": ctx.get("queue_wait_s"),
+                "duration_s": round(float(duration_s), 6),
+                "outcome": status,
+                "metadata": {"exception_type": exception_type} if exception_type else None,
+            }
+        )
+    finally:
+        for key, value in previous.items():
+            if value is None:
+                os.environ.pop(key, None)
+            else:
+                os.environ[key] = value

@@ -7,6 +7,7 @@ sys.path.append(os.path.join(os.path.dirname(__file__), '..'))
 
 from pipeline.models import Catalog, Document, Event, Organization, Person, Membership
 from pipeline.db_session import db_session
+from pipeline.profiling import apply_catalog_id_scope
 from pipeline.utils import generate_ocd_id, find_best_person_match, is_likely_human_name
 
 OFFICIAL_TITLE_PREFIXES = (
@@ -89,6 +90,7 @@ def link_people():
         ).join(
             Event, Document.event_id == Event.id
         ).filter(Catalog.entities != None)
+        query = apply_catalog_id_scope(query, Catalog.id)
 
         total_ready = query.count()
         print(f"Processing {total_ready} documents for people...")

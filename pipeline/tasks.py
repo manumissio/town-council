@@ -42,6 +42,7 @@ from pipeline.content_hash import compute_content_hash
 from pipeline.document_kinds import normalize_summary_doc_kind, summary_doc_kind_sql_expr
 from pipeline.lineage_service import compute_lineage_assignments
 from pipeline.metrics import record_lineage_recompute
+from pipeline.profiling import apply_catalog_id_scope
 from pipeline.summary_quality import (
     analyze_source_text,
     build_low_signal_message,
@@ -238,6 +239,7 @@ def select_catalog_ids_for_summary_hydration(db, limit: int | None = None, city:
         )
         .order_by(Catalog.id)
     )
+    query = apply_catalog_id_scope(query, Catalog.id)
     if city:
         query = query.filter(Event.source.in_(sorted(source_aliases_for_city(city))))
     if limit is not None:

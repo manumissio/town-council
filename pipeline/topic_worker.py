@@ -15,6 +15,7 @@ from pipeline.config import (
     PROGRESS_LOG_INTERVAL
 )
 from pipeline.content_hash import compute_content_hash
+from pipeline.profiling import apply_catalog_id_scope
 from pipeline.text_cleaning import postprocess_extracted_text
 
 # Setup logging
@@ -92,7 +93,8 @@ def run_topic_tagger():
         records = session.query(Catalog).filter(
             Catalog.content != None,
             Catalog.content != ""
-        ).all()
+        )
+        records = apply_catalog_id_scope(records, Catalog.id).all()
 
         # Pre-initialize topics to empty lists
         # Why? Some documents might have no valid topics, we want [] not None

@@ -1,6 +1,8 @@
 from sqlalchemy.orm import sessionmaker
 
 from pipeline.models import db_connect, Place, Organization, Event
+from pipeline.models import Document, Catalog
+from pipeline.profiling import selected_catalog_ids
 from pipeline.utils import generate_ocd_id
 
 def backfill_organizations():
@@ -18,8 +20,23 @@ def backfill_organizations():
     Session = sessionmaker(bind=engine)
     session = Session()
 
-    # 1. Ensure 'City Council' exists for EVERY city
-    places = session.query(Place).all()
+    scoped_catalog_ids = selected_catalog_ids()
+    scoped_place_ids = None
+    scoped_event_query = session.query(Event)
+    if scoped_catalog_ids:
+        scoped_event_query = (
+            scoped_event_query.join(Document, Document.event_id == Event.id)
+            .join(Catalog, Catalog.id == Document.catalog_id)
+            .filter(Catalog.id.in_(sorted(scoped_catalog_ids)))
+            .distinct()
+        )
+        scoped_place_ids = {event.place_id for event in scoped_event_query.all()}
+
+    # 1. Ensure 'City Council' exists for every scoped city.
+    places_query = session.query(Place)
+    if scoped_place_ids is not None:
+        places_query = places_query.filter(Place.id.in_(sorted(scoped_place_ids)))
+    places = places_query.all()
     print(f"Ensuring base organizations for {len(places)} cities...")
     for place in places:
         council = session.query(Organization).filter_by(place_id=place.id, name="City Council").first()
@@ -33,7 +50,7 @@ def backfill_organizations():
     session.flush()
 
     # 2. Link events
-    events = session.query(Event).all()
+    events = scoped_event_query.all()
     print(f"Found {len(events)} events to process.")
 
     count = 0
