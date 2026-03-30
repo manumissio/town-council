@@ -9,7 +9,7 @@ set -euo pipefail
 
 cd "$(dirname "$0")/.."
 
-CORE_SERVICES=(postgres redis meilisearch tika inference semantic semantic-worker api worker frontend)
+CORE_SERVICES=(postgres redis meilisearch tika inference semantic semantic-worker api worker nlp frontend)
 
 echo "[dev_up] Building and starting core services..."
 docker compose up -d --build "${CORE_SERVICES[@]}"

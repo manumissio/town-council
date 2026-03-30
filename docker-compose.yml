@@ -36,7 +36,7 @@ services:
 
   # Service for running the downloader pipeline
   pipeline:
-    image: town-council-python-worker
+    image: town-council-python-worker-nlp
     volumes:
       - .:/app
       - data:/app/data
@@ -103,7 +103,7 @@ services:
 
   # Service for extracting text from downloaded documents.
   extractor:
-    image: town-council-python-worker
+    image: town-council-python-worker-core
     volumes:
       - .:/app
       - data:/app/data
@@ -127,8 +127,8 @@ services:
   worker:
     build:
       context: .
-      target: python-worker
-    image: town-council-python-worker
+      target: python-worker-core
+    image: town-council-python-worker-core
     volumes:
       - .:/app
       - data:/app/data
@@ -224,7 +224,7 @@ services:
       - postgres
       - redis
     healthcheck:
-      test: ["CMD-SHELL", "python -c \"from pipeline.semantic_tasks import embed_catalog_task; print(embed_catalog_task.name)\" >/dev/null || exit 1"]
+      test: ["CMD-SHELL", "python scripts/semantic_worker_healthcheck.py || exit 1"]
       interval: 30s
       timeout: 10s
       retries: 3
@@ -232,7 +232,10 @@ services:
 
   # NLP Worker: Uses SpaCy to extract Organizations and Locations from text.
   nlp:
-    image: town-council-python-worker
+    build:
+      context: .
+      target: python-worker-nlp
+    image: town-council-python-worker-nlp
     volumes:
       - .:/app
       - data:/app/data
@@ -251,7 +254,7 @@ services:
 
   # Table Worker: Uses Camelot to extract structured tables from PDFs.
   tables:
-    image: town-council-python-worker
+    image: town-council-python-worker-nlp
     volumes:
       - .:/app
       - data:/app/data
@@ -270,7 +273,7 @@ services:
 
   # Topic Modeler: Uses LDA to discover themes across all meeting minutes.
   topics:
-    image: town-council-python-worker
+    image: town-council-python-worker-nlp
     volumes:
       - .:/app
       - data:/app/data
@@ -511,7 +514,7 @@ services:
 
   # Monitor: Custom Python service to export application metrics to Prometheus.
   monitor:
-    image: town-council-python-worker
+    image: town-council-python-worker-core
     volumes:
       - .:/app
       - data:/app/data
