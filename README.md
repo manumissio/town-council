@@ -94,6 +94,10 @@ Fast diagnostic run:
 python scripts/profile_pipeline.py --mode triage
 ```
 
+Notes:
+- `triage` selection now happens inside the running Docker stack, so use it against the local compose environment instead of a host-only Python setup.
+- if the report marks a run as `reduced-confidence`, inspect `summary.json` and `result.json` before comparing it to other runs.
+
 Repeatable baseline run:
 ```bash
 python scripts/profile_pipeline.py --mode baseline --manifest profiling/manifests/<name>.txt

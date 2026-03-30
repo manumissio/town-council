@@ -596,6 +596,10 @@ python scripts/profile_pipeline.py --mode baseline --manifest profiling/manifest
 python scripts/analyze_pipeline_profile.py --run-id <run_id>
 ```
 
+Runtime note:
+- `triage` manifest selection is resolved inside the running Docker stack so it uses the same database/runtime context as the live pipeline.
+- `baseline` manifest parsing remains file-only and can run from the host.
+
 Artifacts:
 - `experiments/results/profiling/<run_id>/run_manifest.json`
   - workload identity, profile env, baseline-valid flag, and pre-run provider counters
@@ -620,6 +624,7 @@ Interpretation rules:
 - queue wait and execution time are intentionally separated so backlog is not mistaken for slow model/runtime execution
 - `baseline-valid` requires a pinned manifest and stable workload conditions; `triage` is diagnostic only
 - profiling artifacts are observational and should not be used as a source of business truth
+- `result.json` is the primary contract for elapsed-time totals; if totals are incomplete or derived from fallback spans, the analyzer should mark the run `reduced-confidence`
 
 Manifest guidance:
 - keep baseline manifests checked in under `profiling/manifests/`

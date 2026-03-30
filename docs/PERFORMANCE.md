@@ -105,6 +105,7 @@ Confidence model:
 Ranking model:
 - the analyzer ranks bottlenecks by critical-path phase contribution
 - it separates queue wait from active execution time
+- when both core pipeline and batch enrichment run, contribution percentages are computed against the combined elapsed total rather than only `pipeline_total`
 - each top bottleneck is classified as one of:
   - `queueing`
   - `inference/provider`
@@ -115,6 +116,7 @@ Ranking model:
 Interpretation rule:
 - do not compare `triage` runs to baseline runs as if they were equivalent evidence
 - use `baseline` runs for longitudinal comparison and `triage` runs for local diagnosis
+- if the analyzer reports `reduced-confidence`, inspect `result.json` and run-quality notes before using the ranking to prioritize work
 
 ### Other Performance-Related Changes
 
