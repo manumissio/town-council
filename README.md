@@ -86,6 +86,35 @@ docker compose run --rm tables
 docker compose run --rm topics
 ```
 
+### 5) Profile the pipeline
+Use this when you want end-to-end evidence before tuning runtime behavior.
+
+Fast diagnostic run:
+```bash
+python scripts/profile_pipeline.py --mode triage
+```
+
+Repeatable baseline run:
+```bash
+python scripts/profile_pipeline.py --mode baseline --manifest profiling/manifests/<name>.txt
+```
+
+Analyze an existing profiling run:
+```bash
+python scripts/analyze_pipeline_profile.py --run-id <run_id>
+```
+
+Artifacts land under `experiments/results/profiling/<run_id>/` and include:
+- `run_manifest.json`
+- `spans.jsonl`
+- `summary.json`
+- `top_bottlenecks.md`
+
+Interpretation:
+- `triage` runs are diagnostic and optimized for speed.
+- `baseline` runs use a pinned manifest and are the only profiling runs that should be compared directly over time.
+- queue wait is tracked separately from task execution so the report can distinguish worker backlog from slow execution.
+
 ### Optional: Reindex Meilisearch only (no extraction/AI)
 If you changed indexing logic (or want to refresh search results without re-running the full pipeline):
 ```bash

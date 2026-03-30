@@ -1,6 +1,6 @@
 # Performance
 
-Last updated: 2026-03-29
+Last updated: 2026-03-30
 
 This page describes how to interpret and reproduce performance evidence for local Docker runs.
 For operational troubleshooting and sorting diagnostics, use `docs/OPERATIONS.md`.
@@ -63,6 +63,58 @@ Interpretation:
 - The API is now slim because semantic ML runtime moved into the internal `semantic` service.
 - The main live Celery worker is now slimmer because table-heavy dependencies moved into the dedicated NLP image, while `spacy`, `pytextrank`, and `scikit-learn` intentionally stayed in the core image because current worker code paths still require them.
 - Docker storage pressure is now driven more by persistent local data volumes and accumulated build cache than by API image bloat.
+
+## End-to-end pipeline profiling
+
+Use the profiling harness when the question is "what is actually slow on the critical path?" rather than "which image is large?"
+
+Commands:
+```bash
+python scripts/profile_pipeline.py --mode triage
+python scripts/profile_pipeline.py --mode baseline --manifest profiling/manifests/<name>.txt
+python scripts/analyze_pipeline_profile.py --run-id <run_id>
+```
+
+Artifacts:
+- `experiments/results/profiling/<run_id>/run_manifest.json`
+- `experiments/results/profiling/<run_id>/spans.jsonl`
+- `experiments/results/profiling/<run_id>/summary.json`
+- `experiments/results/profiling/<run_id>/top_bottlenecks.md`
+
+What the profiler attributes:
+- core orchestrator wall-clock time
+- batch enrichment wall-clock time
+- subprocess timings
+- extraction chunk timings
+- Celery queue wait (`tc_task_queue_wait_seconds`)
+- task execution time (`tc_celery_task_duration_seconds`)
+- phase timing (`tc_pipeline_phase_duration_seconds`)
+- provider evidence correlation via existing `tc_provider_*` metrics
+
+Confidence model:
+- `baseline-valid`
+  - pinned manifest
+  - comparable workload identity
+  - suitable for direct before/after comparisons
+- `diagnostic-only`
+  - ad hoc or triage workload
+  - useful for local investigation, not promotion-style comparison
+- `reduced-confidence`
+  - missing queue timestamps, missing provider series, or incomplete artifacts
+
+Ranking model:
+- the analyzer ranks bottlenecks by critical-path phase contribution
+- it separates queue wait from active execution time
+- each top bottleneck is classified as one of:
+  - `queueing`
+  - `inference/provider`
+  - `CPU/parsing`
+  - `database/indexing`
+  - `orchestration/serialization`
+
+Interpretation rule:
+- do not compare `triage` runs to baseline runs as if they were equivalent evidence
+- use `baseline` runs for longitudinal comparison and `triage` runs for local diagnosis
 
 ### Other Performance-Related Changes
 

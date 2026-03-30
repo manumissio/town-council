@@ -575,6 +575,57 @@ Current interpretation:
 - the corrected conservative validation window `soak_20260323_deltafix_day1` + `soak_20260323_deltafix_day2` is the first trustworthy post-fix short-run evidence
 - that corrected 2-day window passed with zero run-local provider timeouts, so `extract_agenda` is no longer the active blocker on the basis of the current evidence
 
+## Pipeline profiling
+
+Use the profiling harness when you need to rank the biggest end-to-end runtime bottlenecks with evidence instead of guessing from logs.
+
+Modes:
+- `triage`
+  - fast local diagnosis on a representative slice
+  - diagnostic only
+- `baseline`
+  - pinned manifest under `profiling/manifests/`
+  - intended for apples-to-apples comparison across runs
+  - only baseline mode should be treated as profiling evidence suitable for direct comparison
+
+Commands:
+```bash
+cd "$REPO_ROOT"
+python scripts/profile_pipeline.py --mode triage
+python scripts/profile_pipeline.py --mode baseline --manifest profiling/manifests/<name>.txt
+python scripts/analyze_pipeline_profile.py --run-id <run_id>
+```
+
+Artifacts:
+- `experiments/results/profiling/<run_id>/run_manifest.json`
+  - workload identity, profile env, baseline-valid flag, and pre-run provider counters
+- `experiments/results/profiling/<run_id>/spans.jsonl`
+  - append-only orchestrator and task timing spans
+- `experiments/results/profiling/<run_id>/summary.json`
+  - ranked bottleneck summary
+- `experiments/results/profiling/<run_id>/top_bottlenecks.md`
+  - human-readable top-3 report
+
+What is measured:
+- orchestrator wall-clock phases from `run_pipeline.py` and `run_batch_enrichment.py`
+- subprocess phase timings
+- extraction chunk timings
+- Celery queue wait via `tc_task_queue_wait_seconds`
+- task execution timings via `tc_celery_task_duration_seconds`
+- phase timings via `tc_pipeline_phase_duration_seconds`
+- existing provider telemetry correlation (`tc_provider_*`)
+
+Interpretation rules:
+- treat missing queue timestamps or missing provider telemetry as reduced confidence, not as zero cost
+- queue wait and execution time are intentionally separated so backlog is not mistaken for slow model/runtime execution
+- `baseline-valid` requires a pinned manifest and stable workload conditions; `triage` is diagnostic only
+- profiling artifacts are observational and should not be used as a source of business truth
+
+Manifest guidance:
+- keep baseline manifests checked in under `profiling/manifests/`
+- use stable catalog sets when you want longitudinal comparisons
+- if cache/artifact state differs materially between runs, treat the comparison as diagnostic only
+
 ### Automated daily soak harness (current local baseline host: M5 Pro)
 
 Fixed manifest:
