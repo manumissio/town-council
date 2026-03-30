@@ -18,7 +18,7 @@ def test_profile_pipeline_requires_manifest_for_baseline(tmp_path: Path):
 
 
 def test_profile_pipeline_writes_manifest_and_result(monkeypatch, tmp_path: Path):
-    monkeypatch.setattr(mod, "_select_triage_catalog_ids", lambda limit, city: [11, 12])
+    monkeypatch.setattr(mod, "_select_triage_catalog_ids_via_docker", lambda limit, city: {"catalog_ids": [11, 12], "catalog_count": 2})
     monkeypatch.setattr(mod, "_provider_counters_before_run", lambda: {"provider_requests_total": 1.0, "provider_timeouts_total": 0.0, "provider_retries_total": 0.0})
     commands = []
 
@@ -36,4 +36,8 @@ def test_profile_pipeline_writes_manifest_and_result(monkeypatch, tmp_path: Path
     result = json.loads((run_dirs[0] / "result.json").read_text(encoding="utf-8"))
     assert manifest["catalog_ids"] == [11, 12]
     assert result["status"] == "completed"
+    assert result["totals"]["core_elapsed_seconds"] is not None
+    assert result["totals"]["batch_elapsed_seconds"] is None
+    assert result["totals"]["combined_elapsed_seconds"] >= result["totals"]["core_elapsed_seconds"]
+    assert result["segments"][0]["name"] == "pipeline"
     assert any("collect_soak_metrics.py" in " ".join(cmd) for cmd, _ in commands)

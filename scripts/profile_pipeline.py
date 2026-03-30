@@ -23,6 +23,9 @@ from pipeline.tasks import select_catalog_ids_for_summary_hydration
 REPO_ROOT = Path(__file__).resolve().parents[1]
 DEFAULT_OUTPUT_DIR = "experiments/results/profiling"
 DEFAULT_TRIAGE_LIMIT = 25
+TRIAGE_SELECTOR_SERVICE = "worker"
+CORE_PROFILE_SERVICE = "worker"
+BATCH_PROFILE_SERVICE = "enrichment-worker"
 
 
 def _safe_run_id(value: str) -> str:
@@ -43,6 +46,10 @@ def _load_soak_metrics_module():
     assert spec.loader is not None
     spec.loader.exec_module(module)
     return module
+
+
+def _json_dump(payload: dict) -> str:
+    return json.dumps(payload, indent=2, sort_keys=True) + "\n"
 
 
 def _selected_city_catalog_ids(db, city: str) -> set[int]:
@@ -120,7 +127,7 @@ def _write_catalog_manifest(path: Path, catalog_ids: list[int]) -> None:
 
 def _write_json(path: Path, payload: dict) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(json.dumps(payload, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+    path.write_text(_json_dump(payload), encoding="utf-8")
 
 
 def _profile_env(*, run_id: str, mode: str, artifact_dir: str, baseline_valid: bool, manifest_path: str) -> dict[str, str]:
@@ -172,6 +179,123 @@ def _run_command(command: list[str], *, env: dict[str, str], cwd: Path, log_path
         raise subprocess.CalledProcessError(completed.returncode, command)
 
 
+def _run_json_command(command: list[str], *, cwd: Path) -> dict:
+    completed = subprocess.run(
+        command,
+        cwd=str(cwd),
+        text=True,
+        capture_output=True,
+    )
+    if completed.returncode != 0:
+        raise subprocess.CalledProcessError(
+            completed.returncode,
+            command,
+            output=completed.stdout,
+            stderr=completed.stderr,
+        )
+    for raw_line in reversed(completed.stdout.splitlines()):
+        line = raw_line.strip()
+        if not line:
+            continue
+        try:
+            payload = json.loads(line)
+        except json.JSONDecodeError:
+            continue
+        if isinstance(payload, dict):
+            return payload
+    raise RuntimeError(f"expected JSON object in stdout for command: {' '.join(command)}")
+
+
+def _select_triage_catalog_ids_via_docker(limit: int, city: str | None) -> dict:
+    selector = (
+        "import json; "
+        "from scripts.profile_pipeline import _select_triage_catalog_ids; "
+        f"ids=_select_triage_catalog_ids(limit={int(limit)}, city={city!r}); "
+        "print(json.dumps({'catalog_ids': ids, 'catalog_count': len(ids)}))"
+    )
+    command = [
+        "docker",
+        "compose",
+        "exec",
+        "-T",
+        TRIAGE_SELECTOR_SERVICE,
+        "python",
+        "-c",
+        selector,
+    ]
+    return _run_json_command(command, cwd=REPO_ROOT)
+
+
+def _build_result_payload(
+    *,
+    run_id: str,
+    status: str,
+    started_at: str,
+    finished_at: str,
+    elapsed_seconds: float,
+    include_batch: bool,
+    segments: list[dict],
+    error_message: str | None,
+    quality: dict,
+) -> dict:
+    core_elapsed = next((float(item["elapsed_seconds"]) for item in segments if item["name"] == "pipeline"), None)
+    batch_elapsed = next((float(item["elapsed_seconds"]) for item in segments if item["name"] == "pipeline-batch"), None)
+    combined_elapsed = sum(float(item["elapsed_seconds"]) for item in segments if item.get("status") == "completed")
+    return {
+        "run_id": run_id,
+        "status": status,
+        "started_at": started_at,
+        "finished_at": finished_at,
+        "elapsed_seconds": round(float(elapsed_seconds), 3),
+        "include_batch": include_batch,
+        "segments": segments,
+        "totals": {
+            "core_elapsed_seconds": round(core_elapsed, 3) if core_elapsed is not None else None,
+            "batch_elapsed_seconds": round(batch_elapsed, 3) if batch_elapsed is not None else None,
+            "combined_elapsed_seconds": round(combined_elapsed, 3),
+        },
+        "quality": quality,
+        "error": error_message,
+    }
+
+
+def _segment_status_from_log(command_log: Path) -> dict:
+    if not command_log.exists():
+        return {"notes": [], "flags": {}}
+    lines = command_log.read_text(encoding="utf-8", errors="ignore").splitlines()
+    notes: list[str] = []
+    flags: dict[str, bool] = {}
+
+    skip_lines = [line for line in lines if "Skipping file:" in line]
+    failed_downloads = [line for line in lines if "Failed to download:" in line]
+    if skip_lines and all("too large" in line for line in skip_lines) and len(failed_downloads) == len(skip_lines):
+        notes.append("downloader_only_encountered_oversized_file_skips")
+        flags["oversized_download_skips_only"] = True
+
+    for idx, line in enumerate(lines):
+        if "Agenda Segmentation Backfill" not in line:
+            continue
+        window = lines[idx:idx + 12]
+        metrics: dict[str, int] = {}
+        for entry in window:
+            if ":" not in entry:
+                continue
+            key, value = entry.split(":", 1)
+            key = key.strip().lower()
+            value = value.strip()
+            if key in {"selected", "complete", "empty", "failed", "other"}:
+                try:
+                    metrics[key] = int(value)
+                except ValueError:
+                    pass
+        if metrics.get("selected", 0) > 0 and metrics.get("failed") == metrics.get("selected") and metrics.get("complete", 0) == 0:
+            notes.append("all_selected_docs_already_in_failed_segmentation_bucket")
+            flags["all_failed_segmentation_bucket"] = True
+            break
+
+    return {"notes": notes, "flags": flags}
+
+
 def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Profile the end-to-end Town Council pipeline.")
     parser.add_argument("--mode", choices=("triage", "baseline"), required=True)
@@ -202,7 +326,8 @@ def main(argv: list[str] | None = None) -> int:
     if args.mode == "baseline":
         catalog_ids = _load_manifest_catalog_ids(Path(args.manifest))
     else:
-        catalog_ids = _select_triage_catalog_ids(limit=max(1, int(args.limit)), city=args.city)
+        selection = _select_triage_catalog_ids_via_docker(limit=max(1, int(args.limit)), city=args.city)
+        catalog_ids = [int(cid) for cid in selection.get("catalog_ids") or []]
     if not catalog_ids:
         raise SystemExit("no catalog ids selected for profiling")
 
@@ -246,18 +371,48 @@ def main(argv: list[str] | None = None) -> int:
     )
 
     commands = [
-        ["docker", "compose", "run", "--rm", "pipeline", "python", "run_pipeline.py"],
+        ["docker", "compose", "exec", "-T", "-e", f"TC_PROFILE_RUN_ID={run_id}", "-e", f"TC_PROFILE_MODE={args.mode}", "-e", f"TC_PROFILE_ARTIFACT_DIR={artifact_dir_rel}", "-e", f"TC_PROFILE_BASELINE_VALID={'1' if args.mode == 'baseline' else '0'}", "-e", f"TC_PROFILE_CATALOG_MANIFEST={manifest_rel}", "-w", "/app/pipeline", CORE_PROFILE_SERVICE, "python", "run_pipeline.py"],
     ]
     if not args.skip_batch:
-        commands.append(["docker", "compose", "run", "--rm", "pipeline-batch", "python", "run_batch_enrichment.py"])
+        commands.append(
+            ["docker", "compose", "exec", "-T", "-e", f"TC_PROFILE_RUN_ID={run_id}", "-e", f"TC_PROFILE_MODE={args.mode}", "-e", f"TC_PROFILE_ARTIFACT_DIR={artifact_dir_rel}", "-e", f"TC_PROFILE_BASELINE_VALID={'1' if args.mode == 'baseline' else '0'}", "-e", f"TC_PROFILE_CATALOG_MANIFEST={manifest_rel}", "-w", "/app/pipeline", BATCH_PROFILE_SERVICE, "python", "run_batch_enrichment.py"]
+        )
 
     command_log = run_dir / "commands.log"
     started = time.perf_counter()
+    started_at = _utc_now_iso()
     status = "failed"
     error_message = None
+    command_segments: list[dict] = []
     try:
         for command in commands:
+            segment_started = time.perf_counter()
+            segment_name = "pipeline-batch" if "run_batch_enrichment.py" in command else "pipeline"
             _run_command(command, env=env, cwd=REPO_ROOT, log_path=command_log)
+            command_segments.append(
+                {
+                    "name": segment_name,
+                    "command": command,
+                    "status": "completed",
+                    "elapsed_seconds": round(time.perf_counter() - segment_started, 3),
+                }
+            )
+
+        quality = _segment_status_from_log(command_log)
+        _write_json(
+            run_dir / "result.json",
+            _build_result_payload(
+                run_id=run_id,
+                status="commands_completed",
+                started_at=started_at,
+                finished_at=_utc_now_iso(),
+                elapsed_seconds=time.perf_counter() - started,
+                include_batch=not args.skip_batch,
+                segments=command_segments,
+                error_message=None,
+                quality=quality,
+            ),
+        )
 
         subprocess.run(
             [
@@ -291,18 +446,37 @@ def main(argv: list[str] | None = None) -> int:
         return 0
     except (subprocess.CalledProcessError, OSError) as exc:
         error_message = f"{exc.__class__.__name__}: {exc}"
+        if isinstance(exc, subprocess.CalledProcessError):
+            if command_segments:
+                last = command_segments[-1]
+                if last["status"] == "completed":
+                    pass
+            attempted = "pipeline-batch" if "run_batch_enrichment.py" in (exc.cmd or []) else "pipeline"
+            if not command_segments or command_segments[-1]["name"] != attempted:
+                command_segments.append(
+                    {
+                        "name": attempted,
+                        "command": exc.cmd,
+                        "status": "failed",
+                        "elapsed_seconds": 0.0,
+                    }
+                )
         raise
     finally:
+        quality = _segment_status_from_log(command_log)
         _write_json(
             run_dir / "result.json",
-            {
-                "run_id": run_id,
-                "status": status,
-                "finished_at": _utc_now_iso(),
-                "elapsed_seconds": round(time.perf_counter() - started, 3),
-                "commands": commands,
-                "error": error_message,
-            },
+            _build_result_payload(
+                run_id=run_id,
+                status=status,
+                started_at=started_at,
+                finished_at=_utc_now_iso(),
+                elapsed_seconds=time.perf_counter() - started,
+                include_batch=not args.skip_batch,
+                segments=command_segments,
+                error_message=error_message,
+                quality=quality,
+            ),
         )
         print(json.dumps({"run_id": run_id, "run_dir": str(run_dir), "status": status}, indent=2))
 

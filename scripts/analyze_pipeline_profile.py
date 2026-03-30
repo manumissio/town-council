@@ -104,21 +104,69 @@ def _classify_bottleneck(phase: str, contribution_pct: float, queue_wait_s: floa
     return "orchestration/serialization"
 
 
-def _aggregate_phase_rows(spans: list[dict[str, Any]]) -> dict[str, dict[str, float]]:
+def _aggregate_phase_rows(spans: list[dict[str, Any]]) -> dict[str, dict[str, Any]]:
     totals: dict[str, dict[str, float]] = {}
     for row in spans:
         phase = str(row.get("phase") or "")
         if phase not in LEAF_PHASES:
             continue
-        bucket = totals.setdefault(phase, {"duration_s": 0.0, "task_duration_s": 0.0, "queue_wait_s": 0.0, "count": 0.0})
+        bucket = totals.setdefault(
+            phase,
+            {
+                "duration_s": 0.0,
+                "task_duration_s": 0.0,
+                "queue_wait_s": 0.0,
+                "count": 0.0,
+                "components": set(),
+                "durations": [],
+            },
+        )
         duration_s = float(row.get("duration_s") or 0.0)
+        component = str(row.get("component") or "unknown")
         if row.get("event_type") == "task_span":
             bucket["task_duration_s"] += duration_s
             bucket["queue_wait_s"] += float(row.get("queue_wait_s") or 0.0)
         elif row.get("event_type") == "span":
             bucket["duration_s"] += duration_s
         bucket["count"] += 1.0
+        bucket["components"].add(component)
+        bucket["durations"].append(round(duration_s, 6))
     return totals
+
+
+def _derived_total_from_spans(spans: list[dict[str, Any]]) -> tuple[float, list[str]]:
+    pipeline_total = next((float(row.get("duration_s") or 0.0) for row in spans if row.get("phase") == "pipeline_total"), 0.0)
+    batch_total = next((float(row.get("duration_s") or 0.0) for row in spans if row.get("phase") == "batch_enrichment_total"), 0.0)
+    notes = []
+    combined = 0.0
+    if pipeline_total > 0:
+        combined += pipeline_total
+        notes.append("pipeline_total")
+    if batch_total > 0:
+        combined += batch_total
+        notes.append("batch_enrichment_total")
+    return combined, notes
+
+
+def _select_total_elapsed_seconds(result: dict[str, Any], spans: list[dict[str, Any]]) -> tuple[float, str | None]:
+    totals = result.get("totals") if isinstance(result.get("totals"), dict) else {}
+    combined_total = float(totals.get("combined_elapsed_seconds") or 0.0)
+    if combined_total > 0:
+        return combined_total, None
+
+    derived_total, notes = _derived_total_from_spans(spans)
+    if derived_total > 0:
+        note = None
+        if not result:
+            note = "result_missing"
+        elif not combined_total:
+            note = f"derived_total_from_{'+'.join(notes)}"
+        return derived_total, note
+
+    fallback = float(result.get("elapsed_seconds") or 0.0)
+    if fallback > 0:
+        return fallback, "fallback_elapsed_seconds_only"
+    return 0.0, "no_total_elapsed_time"
 
 
 def rank_bottlenecks(run_dir: Path) -> dict[str, Any]:
@@ -129,10 +177,7 @@ def rank_bottlenecks(run_dir: Path) -> dict[str, Any]:
     worker_metrics_raw = (run_dir / "worker_metrics.prom").read_text(encoding="utf-8") if (run_dir / "worker_metrics.prom").exists() else ""
     worker_rows = _parse_metrics(worker_metrics_raw)
 
-    total_elapsed_s = float(result.get("elapsed_seconds") or 0.0)
-    if total_elapsed_s <= 0:
-        pipeline_total = next((row for row in spans if row.get("phase") == "pipeline_total"), None)
-        total_elapsed_s = float((pipeline_total or {}).get("duration_s") or 0.0)
+    total_elapsed_s, total_note = _select_total_elapsed_seconds(result, spans)
     phase_totals = _aggregate_phase_rows(spans)
     ranked = []
     for phase, stats in sorted(phase_totals.items(), key=lambda item: item[1]["duration_s"], reverse=True):
@@ -152,6 +197,9 @@ def rank_bottlenecks(run_dir: Path) -> dict[str, Any]:
                 "classification": classification,
                 "provider_metrics_present": bool(day_summary.get("provider_metrics_present")),
                 "provider_requests_total": provider_requests,
+                "occurrence_count": int(stats["count"]),
+                "components": sorted(str(item) for item in stats["components"]),
+                "durations": list(stats["durations"]),
             }
         )
 
@@ -161,6 +209,10 @@ def rank_bottlenecks(run_dir: Path) -> dict[str, Any]:
         confidence = "reduced-confidence:no_spans"
     elif not day_summary.get("provider_metrics_present"):
         confidence = f"reduced-confidence:{day_summary.get('provider_metrics_reason') or 'provider_metrics_missing'}"
+    elif total_note is not None:
+        confidence = f"reduced-confidence:{total_note}"
+    elif total_elapsed_s > 0 and ranked and ranked[0]["contribution_pct"] > 100.0:
+        confidence = "reduced-confidence:inconsistent_totals"
 
     return {
         "run_id": manifest.get("run_id"),
@@ -169,6 +221,7 @@ def rank_bottlenecks(run_dir: Path) -> dict[str, Any]:
         "baseline_valid": bool(manifest.get("baseline_valid")),
         "elapsed_seconds": round(float(total_elapsed_s), 3),
         "confidence": confidence,
+        "elapsed_source": total_note or "result_totals",
         "top_bottlenecks": top_three,
         "all_phases": ranked,
     }
@@ -194,6 +247,7 @@ def render_report(summary: dict[str, Any]) -> str:
                 f"   - contribution_pct: `{item['contribution_pct']}`",
                 f"   - queue_wait_s: `{item['queue_wait_s']}`",
                 f"   - task_duration_s: `{item['task_duration_s']}`",
+                f"   - occurrence_count: `{item['occurrence_count']}`",
             ]
         )
     return "\n".join(lines) + "\n"
