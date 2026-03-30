@@ -36,7 +36,10 @@ services:
 
   # Service for running the downloader pipeline
   pipeline:
-    image: town-council-python-worker-nlp
+    build:
+      context: .
+      target: python-worker-batch
+    image: town-council-python-worker-batch
     volumes:
       - .:/app
       - data:/app/data
@@ -103,7 +106,7 @@ services:
 
   # Service for extracting text from downloaded documents.
   extractor:
-    image: town-council-python-worker-core
+    image: town-council-python-worker-live
     volumes:
       - .:/app
       - data:/app/data
@@ -127,8 +130,8 @@ services:
   worker:
     build:
       context: .
-      target: python-worker-core
-    image: town-council-python-worker-core
+      target: python-worker-live
+    image: town-council-python-worker-live
     volumes:
       - .:/app
       - data:/app/data
@@ -232,10 +235,8 @@ services:
 
   # NLP Worker: Uses SpaCy to extract Organizations and Locations from text.
   nlp:
-    build:
-      context: .
-      target: python-worker-nlp
-    image: town-council-python-worker-nlp
+    image: town-council-python-worker-batch
+    profiles: ["batch-tools"]
     volumes:
       - .:/app
       - data:/app/data
@@ -254,7 +255,8 @@ services:
 
   # Table Worker: Uses Camelot to extract structured tables from PDFs.
   tables:
-    image: town-council-python-worker-nlp
+    image: town-council-python-worker-batch
+    profiles: ["batch-tools"]
     volumes:
       - .:/app
       - data:/app/data
@@ -273,7 +275,8 @@ services:
 
   # Topic Modeler: Uses LDA to discover themes across all meeting minutes.
   topics:
-    image: town-council-python-worker-nlp
+    image: town-council-python-worker-batch
+    profiles: ["batch-tools"]
     volumes:
       - .:/app
       - data:/app/data
@@ -514,7 +517,7 @@ services:
 
   # Monitor: Custom Python service to export application metrics to Prometheus.
   monitor:
-    image: town-council-python-worker-core
+    image: town-council-python-worker-live
     volumes:
       - .:/app
       - data:/app/data

@@ -15,5 +15,6 @@ docker system df -v
 echo
 echo "== Notes =="
 echo "- The largest local storage consumers are usually persistent data volumes and build cache."
+echo "- API image bloat is no longer the main local storage driver after the API and worker splits."
 echo "- Use this report before deciding whether a manual prune is necessary."
 echo "- This helper does not delete images, cache, or volumes."

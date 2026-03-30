@@ -49,12 +49,14 @@ This section summarizes the recent Docker and runtime optimization work that cha
 | Semantic service split | Moved semantic search out of API into internal `semantic` service | `1.42GB -> 345MB` | `2.07GB -> 2.07GB` | new `semantic`: `1.39GB` | API first rebuild: `40.62s -> 11.28s`; API warm rebuild: `0.72s`; worker warm rebuild: `0.73s` | API shed Torch/faiss/sentence-transformers entirely |
 | Semantic worker split | Moved semantic build/index duties off the main worker and onto `semantic-worker` | `345MB -> 345MB` | `2.07GB -> 1.22GB` | `semantic`: `1.39GB -> 1.41GB` | `build worker`: `93.31s -> 35.95s`; `build semantic`: `44.80s -> 42.78s` | main worker no longer installs Torch/transformers/faiss; semantic build work now uses the semantic image |
 | Worker-family split | Split the remaining worker family into `worker-core` and `worker-nlp` images | `345MB -> 345MB` | old shared worker: `1.22GB -> worker-core: 842MB` | `worker-nlp`: `1.89GB`; `semantic`: `1.41GB -> 1.41GB` | `build worker`: `73.57s -> 33.93s`; `build nlp`: `47.32s`; `build semantic`: `41.16s` | live Celery worker shed Camelot/OpenCV/Ghostscript; table-heavy tooling moved to the dedicated NLP image |
+| Live/batch topology cleanup | Renamed the worker family to `worker-live` / `worker-batch`, moved `pipeline` onto the batch image, and turned `nlp` / `tables` / `topics` into on-demand profile services | `345MB -> 345MB` | `worker-core: 842MB -> worker-live: 842MB` | `worker-batch: 1.89GB`; `semantic`: `1.41GB -> 1.41GB` | `build worker`: `5.19s -> 31.67s`; `build pipeline`: `11.56s`; `build semantic`: `32.08s` | default startup no longer launches one-shot batch containers, `monitor` stays in the always-on stack, and batch tools now run explicitly with `docker compose run --rm ...` |
 
 Current state:
 - API image is now `345MB`, down from `1.42GB` before the semantic split.
-- Core worker image is now `842MB`, down from the former single `1.22GB` worker image.
-- NLP/table/topic image is now `1.89GB` and owns the Camelot/OpenCV/Ghostscript stack that no longer ships with the live Celery worker.
+- Live worker image is now `842MB`, down from the former single `1.22GB` worker image.
+- Batch worker image is `1.89GB` and owns the Camelot/OpenCV/Ghostscript stack plus the broad `pipeline` orchestration path that no longer ships with the always-on live worker.
 - Semantic runtime still lives in its own internal `1.41GB` image and also hosts the dedicated `semantic-worker`.
+- Default local startup no longer launches `nlp`, `tables`, or `topics`; those run on demand or behind the `batch-tools` profile.
 
 Interpretation:
 - The API is now slim because semantic ML runtime moved into the internal `semantic` service.

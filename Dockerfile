@@ -14,7 +14,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 
 COPY council_crawler/requirements.txt ./council_crawler_requirements.txt
 COPY pipeline/requirements.txt ./pipeline_requirements.txt
-COPY pipeline/requirements-nlp.txt ./pipeline_requirements_nlp.txt
+COPY pipeline/requirements-batch.txt ./pipeline_requirements_batch.txt
 COPY api/requirements.txt ./api_requirements.txt
 COPY semantic_service/requirements.txt ./semantic_service_requirements.txt
 COPY docker/semantic-cpu-constraints.txt ./semantic_cpu_constraints.txt
@@ -52,7 +52,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends cmake \
 # Compile llama.cpp with conservative CPU flags so the worker image stays portable.
 ENV CMAKE_ARGS="-DGGML_NEON=ON -DGGML_NATIVE=OFF"
 
-FROM worker-build-base AS venv-worker-core
+FROM worker-build-base AS venv-worker-live
 RUN python -m venv /opt/venv
 ENV PATH=/opt/venv/bin:$PATH
 ENV PIP_EXTRA_INDEX_URL=https://download.pytorch.org/whl/cpu
@@ -65,11 +65,11 @@ RUN --mount=type=cache,target=/root/.cache/pip \
     rapidfuzz \
     https://github.com/explosion/spacy-models/releases/download/en_core_web_sm-3.7.0/en_core_web_sm-3.7.0.tar.gz
 
-FROM venv-worker-core AS venv-worker-nlp
+FROM venv-worker-live AS venv-worker-batch
 ENV PATH=/opt/venv/bin:$PATH
 RUN --mount=type=cache,target=/root/.cache/pip \
     pip install \
-    -r pipeline_requirements_nlp.txt
+    -r pipeline_requirements_batch.txt
 
 FROM python:3.12-slim-bookworm AS python-runtime-base
 
@@ -116,24 +116,24 @@ USER appuser
 HEALTHCHECK --interval=30s --timeout=10s --start-period=60s --retries=3 \
   CMD python -c "import urllib.request; urllib.request.urlopen('http://localhost:8000/health', timeout=5)" || exit 1
 
-FROM python-runtime-base AS python-worker-core
+FROM python-runtime-base AS python-worker-live
 USER root
 RUN apt-get update && apt-get install -y --no-install-recommends \
     libpq5 \
     libgomp1 \
     && apt-get clean && rm -rf /var/lib/apt/lists/*
-COPY --from=venv-worker-core /opt/venv /opt/venv
+COPY --from=venv-worker-live /opt/venv /opt/venv
 ENV PATH=/opt/venv/bin:$PATH
 USER appuser
 
-FROM python-worker-core AS python-worker-nlp
+FROM python-worker-live AS python-worker-batch
 USER root
 RUN apt-get update && apt-get install -y --no-install-recommends \
     ghostscript \
     libgl1 \
     libglib2.0-0 \
     && apt-get clean && rm -rf /var/lib/apt/lists/*
-COPY --from=venv-worker-nlp /opt/venv /opt/venv
+COPY --from=venv-worker-batch /opt/venv /opt/venv
 ENV PATH=/opt/venv/bin:$PATH
 USER appuser
 
