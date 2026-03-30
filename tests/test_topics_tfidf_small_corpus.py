@@ -6,7 +6,7 @@ def test_generate_topics_task_handles_single_doc_corpus(mocker):
     Regression: per-catalog topic regeneration should not crash when a city has only
     one extracted document with content (common in dev after startup purge).
     """
-    from pipeline import tasks
+    from pipeline import enrichment_tasks
 
     catalog_id = 401
     catalog = SimpleNamespace(
@@ -71,11 +71,11 @@ def test_generate_topics_task_handles_single_doc_corpus(mocker):
         def close(self):
             return None
 
-    mocker.patch.object(tasks, "SessionLocal", return_value=_FakeSession())
+    mocker.patch.object(enrichment_tasks, "SessionLocal", return_value=_FakeSession())
     # Avoid touching the search index in a unit test.
-    mocker.patch.object(tasks, "reindex_catalog", side_effect=Exception("skip"))
+    mocker.patch.object(enrichment_tasks, "reindex_catalog", side_effect=Exception("skip"))
 
-    result = tasks.generate_topics_task.run(catalog_id, force=True)
+    result = enrichment_tasks.generate_topics_task.run(catalog_id, force=True)
     assert result["status"] in ("complete", "blocked_low_signal")
     if result["status"] == "complete":
         # Ensure we did not emit date tokens or URL fragments as "topics".

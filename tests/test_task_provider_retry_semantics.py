@@ -7,6 +7,7 @@ import pytest
 sys.modules["llama_cpp"] = MagicMock()
 
 from pipeline import llm as llm_mod
+from pipeline import enrichment_tasks
 from pipeline import tasks
 from pipeline.llm_provider import ProviderResponseError, ProviderTimeoutError
 from pipeline.models import AgendaItem, Document
@@ -130,12 +131,12 @@ def test_generate_topics_task_retries_on_transient_generation_errors(mocker):
 
     def _query_side_effect(*args, **kwargs):
         _ = kwargs
-        if len(args) == 1 and args[0] is tasks.Document:
+        if len(args) == 1 and args[0] is enrichment_tasks.Document:
             return doc_query
         return rows_query
 
     mock_db.query.side_effect = _query_side_effect
-    mocker.patch.object(tasks, "SessionLocal", return_value=mock_db)
+    mocker.patch.object(enrichment_tasks, "SessionLocal", return_value=mock_db)
 
     class _BoomVectorizer:
         def __init__(self, *args, **kwargs):
@@ -148,10 +149,9 @@ def test_generate_topics_task_retries_on_transient_generation_errors(mocker):
     mocker.patch("sklearn.feature_extraction.text.TfidfVectorizer", _BoomVectorizer)
 
     retry_exc = RuntimeError("retry-called")
-    retry_mock = mocker.patch.object(tasks.generate_topics_task, "retry", side_effect=retry_exc)
+    retry_mock = mocker.patch.object(enrichment_tasks.generate_topics_task, "retry", side_effect=retry_exc)
     with pytest.raises(RuntimeError, match="retry-called"):
-        tasks.generate_topics_task.run(1, force=True)
+        enrichment_tasks.generate_topics_task.run(1, force=True)
 
     retry_mock.assert_called_once()
     mock_db.rollback.assert_called_once()
-

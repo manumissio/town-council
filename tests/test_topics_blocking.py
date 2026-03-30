@@ -3,7 +3,7 @@ from unittest.mock import MagicMock
 
 sys.modules["llama_cpp"] = MagicMock()
 
-from pipeline import tasks
+from pipeline import enrichment_tasks
 
 
 def test_generate_topics_task_blocks_low_signal_input(mocker):
@@ -18,8 +18,8 @@ def test_generate_topics_task_blocks_low_signal_input(mocker):
     catalog.topics_source_hash = "h1"
     mock_db.get.return_value = catalog
 
-    mocker.patch.object(tasks, "SessionLocal", return_value=mock_db)
-    result = tasks.generate_topics_task.run(1, force=True)
+    mocker.patch.object(enrichment_tasks, "SessionLocal", return_value=mock_db)
+    result = enrichment_tasks.generate_topics_task.run(1, force=True)
 
     assert result["status"] == "blocked_low_signal"
     assert result["topics"] == []

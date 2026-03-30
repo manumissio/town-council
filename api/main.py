@@ -1067,7 +1067,7 @@ class _CeleryTaskProxy:
 
 
 generate_summary_task = _CeleryTaskProxy("pipeline.tasks.generate_summary_task")
-generate_topics_task = _CeleryTaskProxy("pipeline.tasks.generate_topics_task")
+generate_topics_task = _CeleryTaskProxy("pipeline.enrichment_tasks.generate_topics_task")
 segment_agenda_task = _CeleryTaskProxy("pipeline.tasks.segment_agenda_task")
 extract_votes_task = _CeleryTaskProxy("pipeline.tasks.extract_votes_task")
 extract_text_task = _CeleryTaskProxy("pipeline.tasks.extract_text_task")
