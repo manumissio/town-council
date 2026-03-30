@@ -16,7 +16,7 @@ cd "$REPO_ROOT"
 
 ### 1) Start stack
 ```bash
-docker compose up -d --build postgres redis meilisearch tika inference semantic semantic-worker api worker frontend
+docker compose up -d --build postgres redis meilisearch tika inference semantic semantic-worker api worker nlp frontend
 bash ./scripts/bootstrap_local_models.sh
 docker compose run --rm pipeline python db_init.py
 ```
@@ -40,9 +40,10 @@ Why the explicit model bootstrap exists:
 - local model downloads no longer happen during Docker image builds
 - rebuilds stay faster because large model artifacts are stored in the shared `models_data` volume instead
 - if you skip the bootstrap step, the worker healthcheck reports the missing local Ollama model explicitly
-- Python images are split by role (`crawler`, `api`, `semantic`, `worker`), and semantic build tasks now run on a dedicated `semantic-worker`, so targeted rebuilds no longer drag the full worker dependency stack into every service
+- Python images are split by role (`crawler`, `api`, `semantic`, `worker-core`, `worker-nlp`), and semantic build tasks now run on a dedicated `semantic-worker`, so targeted rebuilds no longer drag the full worker dependency stack into every service
+- `worker-core` now backs the live Celery worker, extractor, and monitor paths; `worker-nlp` backs the heavier batch/table/topic services, including the `pipeline` broad hydrator.
 - For the measured before/after image-size and build-time results behind those changes, see `docs/PERFORMANCE.md`.
-- If a local rebuild fails with `no space left on device`, check Docker-managed storage first with `docker system df -v`; large local data, Meilisearch, and Ollama volumes can exhaust Docker Desktop storage before host disk space appears constrained.
+- If a local rebuild fails with `no space left on device`, check Docker-managed storage first with `docker system df -v` or `bash ./scripts/docker_storage_report.sh`; large local data, Meilisearch, and Ollama volumes can exhaust Docker Desktop storage before host disk space appears constrained.
 - Use `docker image prune -a` or `docker system prune` only as an explicit local cleanup step when you need to reclaim Docker storage.
 
 ### 1.5) Verify containers are using the latest image
@@ -75,6 +76,7 @@ docker compose exec -T postgres psql -U town_council -d town_council_db -c "SELE
 Expected signals:
 - `tika` should become `healthy` via an in-container `wget` probe to `127.0.0.1:9998/tika`.
 - `worker` should become `healthy` only after its metrics listener is up and its Redis/Postgres dependencies are reachable.
+- `semantic-worker` should become `healthy` only after its broker/database probes pass, `semantic.embed_catalog` is registered, and the semantic runtime/artifact directory checks succeed.
 - `frontend` should become `healthy` via an in-container `wget` probe to `127.0.0.1:3000/`.
 - If the Postgres query reports mismatched collation versions, treat that as operator maintenance debt before long validation runs.
 
