@@ -17,7 +17,7 @@ This project ingests agendas/minutes, extracts text, indexes search content, and
 
 ### 2) Start stack and initialize DB
 ```bash
-docker compose up -d --build postgres redis meilisearch tika inference semantic semantic-worker api worker monitor frontend
+docker compose up -d --build postgres redis meilisearch tika inference semantic semantic-worker api worker enrichment-worker monitor frontend
 bash ./scripts/bootstrap_local_models.sh
 docker compose run --rm pipeline python db_init.py
 ```
@@ -41,10 +41,12 @@ Why the explicit model bootstrap exists:
 - local model downloads no longer happen during Docker image builds
 - rebuilds stay much faster, while model artifacts persist in a shared Docker volume
 - if you skip the bootstrap step, the worker healthcheck will report the missing local Ollama model explicitly
-- Python images are now split by role (`crawler`, `api`, `semantic`, `worker-live`, `worker-batch`), and semantic build work runs on its own `semantic-worker`, so targeted rebuilds only pay for the dependency family they actually use
-- `worker-live` serves the always-on Celery worker, extractor, and monitor paths; `worker-batch` serves the heavier orchestration and batch/table/topic paths.
-- `nlp`, `tables`, and `topics` are now explicit batch tools, not part of the default stack. Run them with `docker compose run --rm nlp`, `docker compose run --rm tables`, `docker compose run --rm topics`, or opt into `--profile batch-tools`.
+- Python images are now split by role (`crawler`, `api`, `semantic`, `worker-live`, `worker-batch`), and semantic build work runs on its own `semantic-worker`, so targeted rebuilds only pay for the dependency family they actually use.
+- `worker-live` serves the always-on Celery worker, extractor, monitor, and default `pipeline` path. `worker-batch` serves `enrichment-worker` plus the heavier batch enrichment and table/topic tooling.
+- `pipeline` is now the core orchestration path. Heavy post-processing moved to `pipeline-batch`.
+- `pipeline-batch`, `nlp`, `tables`, and `topics` are explicit batch tools, not part of the default stack. Run them with `docker compose run --rm pipeline-batch python run_batch_enrichment.py`, `docker compose run --rm nlp`, `docker compose run --rm tables`, `docker compose run --rm topics`, or opt into `--profile batch-tools`.
 - If Docker builds fail with `no space left on device`, inspect Docker-managed storage first with `docker system df -v` or `bash ./scripts/docker_storage_report.sh`; large local data, search, and Ollama volumes can exhaust Docker Desktop storage before host disk space looks low.
+- To verify the profile split itself, run `bash ./scripts/check_compose_profiles.sh`.
 - Use `docker image prune -a` or `docker system prune` only as an explicit local cleanup step when you need to reclaim Docker storage.
 
 Note on Full Text after restart:
@@ -78,6 +80,7 @@ docker compose run --rm pipeline python run_pipeline.py
 
 Optional batch tools:
 ```bash
+docker compose run --rm pipeline-batch python run_batch_enrichment.py
 docker compose run --rm nlp
 docker compose run --rm tables
 docker compose run --rm topics
