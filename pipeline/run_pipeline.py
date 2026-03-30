@@ -36,6 +36,37 @@ def _catalog_entities_need_nlp(catalog_model):
         cast(catalog_model.entities, Text) == "null",
     )
 
+
+def _scope_catalog_query_for_onboarding(db, query):
+    from pipeline.models import Catalog
+
+    if not PIPELINE_ONBOARDING_CITY:
+        return query, None
+
+    onboarding_started_at = _parse_onboarding_started_at(PIPELINE_ONBOARDING_STARTED_AT_UTC)
+    if onboarding_started_at is None:
+        logger.warning(
+            "onboarding_scope city=%s missing valid started_at; falling back to global selection",
+            PIPELINE_ONBOARDING_CITY,
+        )
+        return query.distinct(), None
+
+    ocd_division_id = _onboarding_ocd_division_id(PIPELINE_ONBOARDING_CITY)
+    touched_hashes = _build_onboarding_touched_hashes_subquery(
+        db,
+        onboarding_started_at,
+        ocd_division_id,
+    )
+    touched_hash_count = db.query(touched_hashes.c.url_hash).distinct().count()
+    scoped = query.join(touched_hashes, touched_hashes.c.url_hash == Catalog.url_hash).distinct()
+    logger.info(
+        "onboarding_scope city=%s ocd_division_id=%s touched_hashes=%s source=url_stage_hist+url_stage",
+        PIPELINE_ONBOARDING_CITY,
+        ocd_division_id,
+        touched_hash_count,
+    )
+    return scoped, touched_hash_count
+
 def run_step(name, command):
     """Helper to run a shell command step."""
     logger.info(f"Step: {name}")
@@ -55,17 +86,12 @@ def _should_skip_non_gating_onboarding_steps() -> bool:
 def _run_post_processing_steps():
     if _should_skip_non_gating_onboarding_steps():
         logger.info(
-            "onboarding_fast_profile city=%s executed_steps=Search Indexing skipped_steps=Table Extraction, Backfill Organizations, Topic Modeling, People Linking",
+            "onboarding_fast_profile city=%s executed_steps=Search Indexing skipped_steps=Batch Enrichment",
             PIPELINE_ONBOARDING_CITY,
         )
         run_step("Search Indexing", ["python", "indexer.py"])
         return
 
-    # These steps depend on the global dataset, so they run sequentially after processing.
-    run_step("Table Extraction", ["python", "table_worker.py"])  # Can fail safely
-    run_step("Backfill Organizations", ["python", "backfill_orgs.py"])
-    run_step("Topic Modeling", ["python", "topic_worker.py"])
-    run_step("People Linking", ["python", "person_linker.py"])
     run_step("Search Indexing", ["python", "indexer.py"])
 
 
@@ -105,7 +131,6 @@ def process_document_chunk(catalog_ids, ocr_fallback_enabled=None):
     from pipeline.models import db_connect, Catalog
     from pipeline.extractor import extract_text
     from pipeline.content_hash import compute_content_hash
-    from pipeline.nlp_worker import extract_entities
     from sqlalchemy.orm import sessionmaker
     from sqlalchemy import text
     import time
@@ -155,10 +180,6 @@ def process_document_chunk(catalog_ids, ocr_fallback_enabled=None):
             elif catalog.content:
                 catalog.extraction_status = catalog.extraction_status or "complete"
                 catalog.extraction_attempt_count = int(catalog.extraction_attempt_count or 0)
-
-            # Extract entities only when needed.
-            if catalog.content and not catalog.entities:
-                catalog.entities = extract_entities(catalog.content)
 
             # Commit per document to keep partial progress.
             db.commit()
@@ -211,7 +232,7 @@ def _build_onboarding_touched_hashes_subquery(db, onboarding_started_at, ocd_div
 
 def select_catalog_ids_for_processing(db):
     """
-    Select catalog IDs that still need extraction/NLP work.
+    Select catalog IDs that still need extraction work.
     """
     from pipeline.models import Catalog
 
@@ -219,43 +240,9 @@ def select_catalog_ids_for_processing(db):
         Catalog.content.is_(None),
         (Catalog.extraction_status.is_(None)) | (Catalog.extraction_status != "failed_terminal"),
     )
-    nlp_only_query = db.query(Catalog.id).filter(
-        Catalog.content.isnot(None),
-        Catalog.content != "",
-        _catalog_entities_need_nlp(Catalog),
-    )
-
-    if PIPELINE_ONBOARDING_CITY:
-        onboarding_started_at = _parse_onboarding_started_at(PIPELINE_ONBOARDING_STARTED_AT_UTC)
-        if onboarding_started_at is not None:
-            ocd_division_id = _onboarding_ocd_division_id(PIPELINE_ONBOARDING_CITY)
-            # Onboarding runs often reuse historical catalog rows, so scope extraction
-            # by the run's touched URL hashes instead of newly created document rows.
-            touched_hashes = _build_onboarding_touched_hashes_subquery(
-                db,
-                onboarding_started_at,
-                ocd_division_id,
-            )
-            touched_hash_count = db.query(touched_hashes.c.url_hash).distinct().count()
-            extraction_query = extraction_query.join(touched_hashes, touched_hashes.c.url_hash == Catalog.url_hash)
-            nlp_only_query = nlp_only_query.join(touched_hashes, touched_hashes.c.url_hash == Catalog.url_hash)
-            logger.info(
-                "onboarding_scope city=%s ocd_division_id=%s touched_hashes=%s source=url_stage_hist+url_stage",
-                PIPELINE_ONBOARDING_CITY,
-                ocd_division_id,
-                touched_hash_count,
-            )
-        else:
-            logger.warning(
-                "onboarding_scope city=%s missing valid started_at; falling back to global selection",
-                PIPELINE_ONBOARDING_CITY,
-            )
-        extraction_query = extraction_query.distinct()
-        nlp_only_query = nlp_only_query.distinct()
+    extraction_query, _touched_hash_count = _scope_catalog_query_for_onboarding(db, extraction_query)
 
     extraction_ids = [row[0] for row in extraction_query.yield_per(1000)]
-    nlp_only_ids = [row[0] for row in nlp_only_query.yield_per(1000)]
-    catalog_ids = list(dict.fromkeys(extraction_ids + nlp_only_ids))
 
     terminal_failures = (
         db.query(Catalog.id)
@@ -264,23 +251,36 @@ def select_catalog_ids_for_processing(db):
     )
     if PIPELINE_ONBOARDING_CITY:
         logger.info(
-            "onboarding_scope city=%s selected_missing_work_catalogs=%s extraction_needed=%s nlp_only=%s excluded_terminal_failures=%s",
+            "onboarding_scope city=%s selected_missing_work_catalogs=%s extraction_needed=%s excluded_terminal_failures=%s",
             PIPELINE_ONBOARDING_CITY,
-            len(catalog_ids),
             len(extraction_ids),
-            len(nlp_only_ids),
+            len(extraction_ids),
             terminal_failures,
         )
     else:
         logger.info(
-            "global_scope selected_missing_work_catalogs=%s extraction_needed=%s nlp_only=%s excluded_terminal_failures=%s",
-            len(catalog_ids),
+            "global_scope selected_missing_work_catalogs=%s extraction_needed=%s excluded_terminal_failures=%s",
             len(extraction_ids),
-            len(nlp_only_ids),
+            len(extraction_ids),
             terminal_failures,
         )
 
-    return catalog_ids
+    return extraction_ids
+
+
+def select_catalog_ids_for_entity_backfill(db):
+    """
+    Select catalog IDs that already have content but still need entity enrichment.
+    """
+    from pipeline.models import Catalog
+
+    query = db.query(Catalog.id).filter(
+        Catalog.content.isnot(None),
+        Catalog.content != "",
+        _catalog_entities_need_nlp(Catalog),
+    )
+    query, _touched_hash_count = _scope_catalog_query_for_onboarding(db, query)
+    return [row[0] for row in query.yield_per(1000)]
 
 
 def _resolve_parallel_processing_settings():

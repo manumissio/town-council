@@ -17,7 +17,7 @@ from pipeline.city_scope import ordered_hydration_cities, source_aliases_for_cit
 
 def test_document_chunk_worker(mocker):
     """
-    Test: Does chunk worker orchestrate OCR and NLP for one document?
+    Test: Does chunk worker orchestrate OCR and extraction metadata for one document?
     """
     # Mock DB
     mock_catalog = MagicMock()
@@ -35,13 +35,8 @@ def test_document_chunk_worker(mocker):
     mocker.patch("sqlalchemy.orm.sessionmaker", return_value=mock_session)
     mocker.patch("pipeline.models.db_connect")
 
-    # Mock Extractor and NLP
+    # Mock Extractor only. NLP enrichment now runs in the batch path.
     extract_text_spy = mocker.patch("pipeline.extractor.extract_text", return_value="Extracted Text")
-    # Provide a lightweight nlp_worker module so process_document_chunk can import it
-    # without pulling in spaCy during this unit test.
-    mock_nlp_module = MagicMock()
-    mock_nlp_module.extract_entities.return_value = {"persons": ["Mayor"]}
-    mocker.patch.dict(sys.modules, {"pipeline.nlp_worker": mock_nlp_module})
     mock_db.execute.return_value = None
 
     # Action
@@ -50,7 +45,7 @@ def test_document_chunk_worker(mocker):
     # Verify
     assert processed_count == 1
     assert mock_catalog.content == "Extracted Text"
-    assert mock_catalog.entities == {"persons": ["Mayor"]}
+    assert mock_catalog.entities is None
     extract_text_spy.assert_called_once_with("/tmp/test.pdf", ocr_fallback_enabled=False)
     mock_db.commit.assert_called_once()
     mock_db.close.assert_called_once()

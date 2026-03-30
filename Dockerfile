@@ -62,14 +62,20 @@ RUN --mount=type=cache,target=/root/.cache/pip \
     pip install \
     -c semantic_cpu_constraints.txt \
     -r pipeline_requirements.txt \
-    rapidfuzz \
-    https://github.com/explosion/spacy-models/releases/download/en_core_web_sm-3.7.0/en_core_web_sm-3.7.0.tar.gz
+    rapidfuzz
 
-FROM venv-worker-live AS venv-worker-batch
+FROM worker-build-base AS venv-worker-batch
+RUN python -m venv /opt/venv
 ENV PATH=/opt/venv/bin:$PATH
+ENV PIP_EXTRA_INDEX_URL=https://download.pytorch.org/whl/cpu
 RUN --mount=type=cache,target=/root/.cache/pip \
+    pip install --upgrade pip setuptools wheel && \
     pip install \
-    -r pipeline_requirements_batch.txt
+    -c semantic_cpu_constraints.txt \
+    -r pipeline_requirements.txt \
+    rapidfuzz \
+    -r pipeline_requirements_batch.txt \
+    https://github.com/explosion/spacy-models/releases/download/en_core_web_sm-3.7.0/en_core_web_sm-3.7.0.tar.gz
 
 FROM python:3.12-slim-bookworm AS python-runtime-base
 
@@ -126,9 +132,11 @@ COPY --from=venv-worker-live /opt/venv /opt/venv
 ENV PATH=/opt/venv/bin:$PATH
 USER appuser
 
-FROM python-worker-live AS python-worker-batch
+FROM python-runtime-base AS python-worker-batch
 USER root
 RUN apt-get update && apt-get install -y --no-install-recommends \
+    libpq5 \
+    libgomp1 \
     ghostscript \
     libgl1 \
     libglib2.0-0 \

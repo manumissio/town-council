@@ -8,6 +8,7 @@ from sqlalchemy.orm import sessionmaker
 from sqlalchemy.exc import SQLAlchemyError
 
 from pipeline import run_pipeline
+from pipeline import run_batch_enrichment
 from pipeline.models import Base, Catalog, Document, Event, Place, UrlStage, UrlStageHist
 
 
@@ -18,10 +19,7 @@ def test_run_step_exits_on_subprocess_failure(mocker):
 
 
 def test_process_document_chunk_returns_zero_when_db_unavailable(mocker):
-    mocker.patch.dict(
-        sys.modules,
-        {"pipeline.extractor": MagicMock(), "pipeline.nlp_worker": MagicMock()},
-    )
+    mocker.patch.dict(sys.modules, {"pipeline.extractor": MagicMock()})
     mocker.patch("pipeline.models.db_connect", side_effect=SQLAlchemyError("db down"))
     sleep_spy = mocker.patch("time.sleep")
 
@@ -60,6 +58,8 @@ def test_main_runs_steps_in_expected_order(mocker):
     assert calls[5][0] == "Agenda Segmentation"
     assert calls[6][0] == "Summary Hydration"
     assert calls[-1][0] == "Search Indexing"
+    assert ("Table Extraction", ("python", "table_worker.py")) not in calls
+    assert ("Topic Modeling", ("python", "topic_worker.py")) not in calls
 
 
 def test_main_skips_non_gating_steps_in_onboarding_fast_profile(mocker):
@@ -84,13 +84,43 @@ def test_main_skips_non_gating_steps_in_onboarding_fast_profile(mocker):
     assert ("People Linking", ("python", "person_linker.py")) not in calls
 
 
+def test_run_batch_enrichment_runs_heavy_steps_in_expected_order(mocker):
+    calls = []
+
+    def fake_run_step(name, command):
+        calls.append((name, tuple(command)))
+
+    mocker.patch("pipeline.run_batch_enrichment.run_step", side_effect=fake_run_step)
+
+    run_batch_enrichment.main()
+
+    assert calls == [
+        ("Entity Backfill", ("python", "backfill_entities.py")),
+        ("Table Extraction", ("python", "table_worker.py")),
+        ("Backfill Organizations", ("python", "backfill_orgs.py")),
+        ("Topic Modeling", ("python", "topic_worker.py")),
+        ("People Linking", ("python", "person_linker.py")),
+        ("Search Indexing", ("python", "indexer.py")),
+    ]
+
+
+def test_run_batch_enrichment_help_exits_before_work(mocker):
+    run_step_spy = mocker.patch("pipeline.run_batch_enrichment.run_step")
+
+    with pytest.raises(SystemExit) as excinfo:
+        run_batch_enrichment.main(["--help"])
+
+    assert excinfo.value.code == 0
+    run_step_spy.assert_not_called()
+
+
 def test_process_document_chunk_returns_count_for_missing_rows(mocker):
     db = MagicMock()
     db.get.side_effect = [None]
     db.execute.return_value = None
     mocker.patch("pipeline.models.db_connect")
     mocker.patch("sqlalchemy.orm.sessionmaker", return_value=lambda: db)
-    mocker.patch.dict(sys.modules, {"pipeline.extractor": MagicMock(), "pipeline.nlp_worker": MagicMock()})
+    mocker.patch.dict(sys.modules, {"pipeline.extractor": MagicMock()})
 
     count = run_pipeline.process_document_chunk([999])
 
@@ -274,7 +304,7 @@ def test_select_catalog_ids_for_processing_falls_back_to_live_url_stage(mocker):
         engine.dispose()
 
 
-def test_select_catalog_ids_for_processing_keeps_nlp_only_rows_and_skips_terminal_failures(mocker):
+def test_select_catalog_ids_for_processing_keeps_extraction_rows_and_skips_terminal_failures(mocker):
     engine = create_engine("sqlite:///:memory:")
     Base.metadata.create_all(engine)
     Session = sessionmaker(bind=engine)
@@ -287,13 +317,6 @@ def test_select_catalog_ids_for_processing_keeps_nlp_only_rows_and_skips_termina
         entities=None,
         extraction_status="pending",
     )
-    nlp_only = Catalog(
-        url_hash="nlp-only",
-        location="/tmp/nlp.pdf",
-        content="ready",
-        entities=None,
-        extraction_status="complete",
-    )
     terminal = Catalog(
         url_hash="failed",
         location="/tmp/failed.pdf",
@@ -301,12 +324,12 @@ def test_select_catalog_ids_for_processing_keeps_nlp_only_rows_and_skips_termina
         entities=None,
         extraction_status="failed_terminal",
     )
-    db.add_all([extraction_needed, nlp_only, terminal])
+    db.add_all([extraction_needed, terminal])
     db.commit()
 
     try:
         ids = run_pipeline.select_catalog_ids_for_processing(db)
-        assert ids == [extraction_needed.id, nlp_only.id]
+        assert ids == [extraction_needed.id]
     finally:
         db.close()
         engine.dispose()
@@ -320,7 +343,7 @@ def test_catalog_entities_need_nlp_uses_postgres_safe_json_null_check():
     assert "CAST(catalog.entities AS TEXT) = %(param_1)s" in compiled
 
 
-def test_select_catalog_ids_for_processing_keeps_json_null_rows(mocker):
+def test_select_catalog_ids_for_entity_backfill_keeps_json_null_rows(mocker):
     engine = create_engine("sqlite:///:memory:")
     Base.metadata.create_all(engine)
     Session = sessionmaker(bind=engine)
@@ -346,8 +369,39 @@ def test_select_catalog_ids_for_processing_keeps_json_null_rows(mocker):
     db.commit()
 
     try:
-        ids = run_pipeline.select_catalog_ids_for_processing(db)
+        ids = run_pipeline.select_catalog_ids_for_entity_backfill(db)
         assert ids == [nlp_json_null.id]
+    finally:
+        db.close()
+        engine.dispose()
+
+
+def test_select_catalog_ids_for_entity_backfill_keeps_nlp_only_rows(mocker):
+    engine = create_engine("sqlite:///:memory:")
+    Base.metadata.create_all(engine)
+    Session = sessionmaker(bind=engine)
+    db = Session()
+
+    needs_entities = Catalog(
+        url_hash="needs-entities",
+        location="/tmp/entities.pdf",
+        content="ready",
+        entities=None,
+        extraction_status="complete",
+    )
+    done_catalog = Catalog(
+        url_hash="done",
+        location="/tmp/done.pdf",
+        content="done",
+        entities={"ok": True},
+        extraction_status="complete",
+    )
+    db.add_all([needs_entities, done_catalog])
+    db.commit()
+
+    try:
+        ids = run_pipeline.select_catalog_ids_for_entity_backfill(db)
+        assert ids == [needs_entities.id]
     finally:
         db.close()
         engine.dispose()
