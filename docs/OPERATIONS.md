@@ -264,7 +264,7 @@ docker compose run --rm pipeline python /app/scripts/audit_city_coverage.py --ci
 - That mode limits extraction to catalogs touched by the current city's staged URL set for the run window instead of waking up the full missing-content backlog.
 - It also reduces parallel extraction pressure (`PIPELINE_ONBOARDING_MAX_WORKERS=1`, smaller chunks) and disables OCR fallback for the onboarding pipeline run (`TIKA_OCR_FALLBACK_ENABLED=false`).
 - `PIPELINE_RUNTIME_PROFILE=onboarding_fast` now keeps onboarding on the gating path only:
-  - runs crawl, download/extract for touched catalogs, segmentation, and search indexing
+  - runs crawl, download/extract for touched catalogs, segmentation, and targeted search updates
   - skips table extraction, organization backfill, topic modeling, and people linking during onboarding validation runs
 - `scripts/onboard_city_wave.sh` now performs an explicit crawler image preflight before running a city crawl.
   - it resolves the crawler image name from `docker compose config --images`
@@ -396,7 +396,7 @@ docker compose start api worker frontend monitor
 - `--json` remains machine-readable only and does not mix human progress lines into stdout.
 
 ### Optional: Reindex Meilisearch only (no extraction/AI)
-If you changed indexing logic (or you want to refresh search after cleaning up bad HTML in stored titles):
+Default pipeline and batch runs now rely on targeted per-catalog reindex hooks. Use the full rebuild only when you changed indexing logic (or you want to refresh search after cleaning up bad HTML in stored titles):
 ```bash
 docker compose run --rm pipeline python reindex_only.py
 ```

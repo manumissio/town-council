@@ -118,6 +118,7 @@ Interpretation:
 - `triage` runs are diagnostic and optimized for speed.
 - `baseline` runs use a pinned manifest and are the only profiling runs that should be compared directly over time.
 - queue wait is tracked separately from task execution so the report can distinguish worker backlog from slow execution.
+- default core and batch pipeline runs now keep search fresh with targeted per-catalog reindex hooks; use the manual reindex command below only when you changed indexing logic or need a repair rebuild.
 
 ### Optional: Reindex Meilisearch only (no extraction/AI)
 If you changed indexing logic (or want to refresh search results without re-running the full pipeline):

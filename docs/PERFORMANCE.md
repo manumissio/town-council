@@ -1,6 +1,6 @@
 # Performance
 
-Last updated: 2026-03-30
+Last updated: 2026-03-31
 
 This page describes how to interpret and reproduce performance evidence for local Docker runs.
 For operational troubleshooting and sorting diagnostics, use `docs/OPERATIONS.md`.
@@ -117,6 +117,12 @@ Interpretation rule:
 - do not compare `triage` runs to baseline runs as if they were equivalent evidence
 - use `baseline` runs for longitudinal comparison and `triage` runs for local diagnosis
 - if the analyzer reports `reduced-confidence`, inspect `result.json` and run-quality notes before using the ranking to prioritize work
+
+### Latest runtime optimization note
+
+- The default core pipeline and batch enrichment paths no longer shell into full `python indexer.py` rebuilds.
+- Search freshness now comes from targeted `reindex_catalog(...)` hooks in the writers that mutate indexed fields.
+- Keep `python reindex_only.py` as the manual repair path for schema/settings changes or explicit full rebuilds.
 
 ### Other Performance-Related Changes
 
