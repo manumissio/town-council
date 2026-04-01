@@ -1,4 +1,5 @@
 from contextlib import contextmanager
+from unittest.mock import MagicMock
 
 from pipeline import person_linker
 from pipeline.models import Place, Organization, Event, Catalog, Document, Person, Membership
@@ -10,6 +11,8 @@ def test_link_people_keeps_mention_without_membership(db_session, monkeypatch):
         yield db_session
 
     monkeypatch.setattr(person_linker, "db_session", fake_db_session)
+    reindex_spy = MagicMock(return_value={"catalogs_considered": 1, "catalogs_reindexed": 1, "catalogs_failed": 0})
+    monkeypatch.setattr(person_linker, "reindex_catalogs", reindex_spy)
 
     place = Place(name="Berkeley", state="CA", ocd_division_id="ocd-division/country:us/state:ca/place:berkeley")
     db_session.add(place)
@@ -33,6 +36,7 @@ def test_link_people_keeps_mention_without_membership(db_session, monkeypatch):
     assert person is not None
     assert person.person_type == "mentioned"
     assert db_session.query(Membership).count() == 0
+    reindex_spy.assert_called_once_with({catalog.id})
 
 
 def test_link_people_promotes_official_with_membership(db_session, monkeypatch):
@@ -41,6 +45,8 @@ def test_link_people_promotes_official_with_membership(db_session, monkeypatch):
         yield db_session
 
     monkeypatch.setattr(person_linker, "db_session", fake_db_session)
+    reindex_spy = MagicMock(return_value={"catalogs_considered": 1, "catalogs_reindexed": 1, "catalogs_failed": 0})
+    monkeypatch.setattr(person_linker, "reindex_catalogs", reindex_spy)
 
     place = Place(name="Berkeley", state="CA", ocd_division_id="ocd-division/country:us/state:ca/place:berkeley")
     db_session.add(place)
@@ -64,3 +70,4 @@ def test_link_people_promotes_official_with_membership(db_session, monkeypatch):
     assert person is not None
     assert person.person_type == "official"
     assert db_session.query(Membership).count() == 1
+    reindex_spy.assert_called_once_with({catalog.id})

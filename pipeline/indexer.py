@@ -2,6 +2,8 @@ import os
 import meilisearch
 from meilisearch.errors import MeilisearchError
 import re
+import logging
+from collections.abc import Iterable
 
 from pipeline.models import Document, Catalog, Event, Place, Organization, AgendaItem, Membership
 from pipeline.db_session import db_session
@@ -13,6 +15,7 @@ MEILI_HOST = os.getenv('MEILI_HOST', 'http://meilisearch:7700')
 MEILI_MASTER_KEY = os.getenv('MEILI_MASTER_KEY', 'masterKey')
 
 _TAG_RE = re.compile(r"<[^>]+>")
+logger = logging.getLogger("indexer")
 
 
 def _strip_any_html(value: str | None) -> str | None:
@@ -348,6 +351,43 @@ def reindex_catalog(catalog_id: int) -> dict:
         "catalog_id": catalog_id,
         "documents_reindexed": len(payload),
         "agenda_item_documents": len(item_docs),
+    }
+
+
+def reindex_catalogs(catalog_ids: Iterable[int] | int | None) -> dict[str, object]:
+    """
+    Best-effort helper for backlog/batch flows that touch many catalogs.
+
+    Why this exists:
+    Batch writers often mutate search-visible fields for a bounded set of catalogs.
+    Reindexing only those catalogs keeps search fresh without forcing a full rebuild.
+    """
+    if catalog_ids is None:
+        return {"catalogs_considered": 0, "catalogs_reindexed": 0, "catalogs_failed": 0, "failed_catalog_ids": []}
+
+    if isinstance(catalog_ids, int):
+        deduped_ids = [int(catalog_ids)]
+    else:
+        deduped_ids = sorted({int(cid) for cid in catalog_ids if cid is not None})
+
+    failed_catalog_ids: list[int] = []
+    reindexed = 0
+    for catalog_id in deduped_ids:
+        try:
+            result = reindex_catalog(catalog_id)
+            if result.get("status") == "ok":
+                reindexed += 1
+            else:
+                failed_catalog_ids.append(catalog_id)
+        except Exception as exc:
+            logger.warning("targeted_reindex_failed catalog_id=%s error=%s", catalog_id, exc)
+            failed_catalog_ids.append(catalog_id)
+
+    return {
+        "catalogs_considered": len(deduped_ids),
+        "catalogs_reindexed": reindexed,
+        "catalogs_failed": len(failed_catalog_ids),
+        "failed_catalog_ids": failed_catalog_ids,
     }
 
 if __name__ == "__main__":

@@ -104,15 +104,7 @@ def _should_skip_non_gating_onboarding_steps() -> bool:
 
 
 def _run_post_processing_steps():
-    if _should_skip_non_gating_onboarding_steps():
-        logger.info(
-            "onboarding_fast_profile city=%s executed_steps=Search Indexing skipped_steps=Batch Enrichment",
-            PIPELINE_ONBOARDING_CITY,
-        )
-        run_step("Search Indexing", ["python", "indexer.py"])
-        return
-
-    run_step("Search Indexing", ["python", "indexer.py"])
+    logger.info("post_processing_search_indexing skipped=1 mode=targeted_only")
 
 
 def _run_generation_backfill_steps():

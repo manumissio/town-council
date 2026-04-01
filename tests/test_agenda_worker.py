@@ -34,6 +34,7 @@ def test_agenda_segmentation_logic(db_session, mocker):
 
     # 2. Mock resolver output (Legistar-first path)
     mocker.patch("pipeline.agenda_worker.LocalAI", return_value=MagicMock())
+    reindex_spy = mocker.patch("pipeline.agenda_worker.reindex_catalog")
     mocker.patch("pipeline.agenda_worker.resolve_agenda_items", return_value={
         "items": [
             {"order": 1, "title": "Zoning Change", "description": "Discussion about Main St", "classification": "Action", "result": "Passed", "page_number": 4},
@@ -56,3 +57,4 @@ def test_agenda_segmentation_logic(db_session, mocker):
     assert items[0].page_number == 4
     assert items[1].title == "Budget 2026"
     assert items[1].event_id == event.id
+    reindex_spy.assert_called_once_with(catalog.id)

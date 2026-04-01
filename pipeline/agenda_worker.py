@@ -11,6 +11,7 @@ from pipeline.laserfiche_error_pages import classify_catalog_bad_content
 from pipeline.llm import LocalAI
 from pipeline.agenda_service import persist_agenda_items
 from pipeline.agenda_resolver import has_viable_structured_agenda_source, resolve_agenda_items
+from pipeline.indexer import reindex_catalog
 from pipeline.profiling import apply_catalog_id_scope
 
 
@@ -126,6 +127,12 @@ def segment_document_agenda(catalog_id):
 
             # Save all items (or empty/failed status) at once.
             session.commit()
+            # Keep search current for the legacy backfill path too; the interactive
+            # task path already does targeted reindexing after agenda mutations.
+            try:
+                reindex_catalog(catalog.id)
+            except Exception:
+                logger.warning("agenda_segmentation.reindex_failed catalog_id=%s", catalog.id)
         except SQLAlchemyError as e:
             # Database errors during agenda segmentation: What can fail?
             # - IntegrityError: Duplicate agenda items (race condition with another worker)

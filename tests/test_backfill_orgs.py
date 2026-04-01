@@ -2,7 +2,7 @@ from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 
 from pipeline.backfill_orgs import backfill_organizations
-from pipeline.models import Base, Event, Organization, Place
+from pipeline.models import Base, Event, Organization, Place, Catalog, Document
 
 
 def _session():
@@ -22,11 +22,19 @@ def test_backfill_creates_default_and_links_events(mocker):
             Event(name="Planning", place_id=place.id, meeting_type="Planning Commission"),
         ]
     )
+    session.flush()
+    events = session.query(Event).order_by(Event.id.asc()).all()
+    for idx, event in enumerate(events, start=1):
+        catalog = Catalog(url_hash=f"h{idx}", location=f"/tmp/{idx}.pdf")
+        session.add(catalog)
+        session.flush()
+        session.add(Document(event_id=event.id, place_id=place.id, catalog_id=catalog.id, url=f"https://example.com/{idx}"))
     session.commit()
     session.close()
 
     mocker.patch("pipeline.backfill_orgs.db_connect", return_value=engine)
     mocker.patch("pipeline.backfill_orgs.generate_ocd_id", side_effect=["ocd-org/1", "ocd-org/2", "ocd-org/3"])
+    reindex_spy = mocker.patch("pipeline.backfill_orgs.reindex_catalogs", return_value={"catalogs_considered": 2, "catalogs_reindexed": 2, "catalogs_failed": 0})
 
     backfill_organizations()
 
@@ -35,6 +43,8 @@ def test_backfill_creates_default_and_links_events(mocker):
     assert "City Council" in org_names
     assert "Planning Commission" in org_names
     assert verify.query(Event).filter(Event.organization_id.is_(None)).count() == 0
+    reindex_spy.assert_called_once()
+    assert set(reindex_spy.call_args.args[0]) == {1, 2}
     verify.close()
     engine.dispose()
 
@@ -45,12 +55,20 @@ def test_backfill_is_idempotent(mocker):
     session.add(place)
     session.flush()
     place_id = place.id
-    session.add(Event(name="Parks", place_id=place.id, meeting_type="Parks Committee"))
+    event = Event(name="Parks", place_id=place.id, meeting_type="Parks Committee")
+    session.add(event)
+    session.flush()
+    catalog = Catalog(url_hash="parks-hash", location="/tmp/parks.pdf")
+    session.add(catalog)
+    session.flush()
+    session.add(Document(event_id=event.id, place_id=place.id, catalog_id=catalog.id, url="https://example.com/parks"))
     session.commit()
+    catalog_id = catalog.id
     session.close()
 
     mocker.patch("pipeline.backfill_orgs.db_connect", return_value=engine)
     mocker.patch("pipeline.backfill_orgs.generate_ocd_id", side_effect=[f"ocd-org/{i}" for i in range(1, 10)])
+    reindex_spy = mocker.patch("pipeline.backfill_orgs.reindex_catalogs", return_value={"catalogs_considered": 1, "catalogs_reindexed": 1, "catalogs_failed": 0})
 
     backfill_organizations()
     backfill_organizations()
@@ -60,5 +78,7 @@ def test_backfill_is_idempotent(mocker):
     parks_count = verify.query(Organization).filter_by(place_id=place_id, name="Parks & Recreation Commission").count()
     assert council_count == 1
     assert parks_count == 1
+    assert reindex_spy.call_count == 1
+    assert reindex_spy.call_args.args[0] == {catalog_id}
     verify.close()
     engine.dispose()

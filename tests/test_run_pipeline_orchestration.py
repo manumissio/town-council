@@ -57,7 +57,8 @@ def test_main_runs_steps_in_expected_order(mocker):
     assert calls[4] == "parallel"
     assert calls[5][0] == "Agenda Segmentation"
     assert calls[6][0] == "Summary Hydration"
-    assert calls[-1][0] == "Search Indexing"
+    assert calls[-1][0] == "Summary Hydration"
+    assert ("Search Indexing", ("python", "indexer.py")) not in calls
     assert ("Table Extraction", ("python", "table_worker.py")) not in calls
     assert ("Topic Modeling", ("python", "topic_worker.py")) not in calls
 
@@ -77,7 +78,7 @@ def test_main_skips_non_gating_steps_in_onboarding_fast_profile(mocker):
 
     assert ("Agenda Segmentation", ("python", "../scripts/backfill_agenda_segmentation.py")) in calls
     assert ("Summary Hydration", ("python", "../scripts/backfill_summaries.py")) in calls
-    assert ("Search Indexing", ("python", "indexer.py")) in calls
+    assert ("Search Indexing", ("python", "indexer.py")) not in calls
     assert ("Table Extraction", ("python", "table_worker.py")) not in calls
     assert ("Backfill Organizations", ("python", "backfill_orgs.py")) not in calls
     assert ("Topic Modeling", ("python", "topic_worker.py")) not in calls
@@ -100,7 +101,6 @@ def test_run_batch_enrichment_runs_heavy_steps_in_expected_order(mocker):
         ("Backfill Organizations", ("python", "backfill_orgs.py")),
         ("Topic Modeling", ("python", "topic_worker.py")),
         ("People Linking", ("python", "person_linker.py")),
-        ("Search Indexing", ("python", "indexer.py")),
     ]
 
 

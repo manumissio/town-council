@@ -39,6 +39,7 @@ def test_segment_document_agenda_sets_empty_status_when_no_items(db_session, moc
     _, event, _, catalog = _build_minimal_meeting(db_session)
 
     mocker.patch("pipeline.agenda_worker.LocalAI", return_value=MagicMock())
+    reindex_spy = mocker.patch("pipeline.agenda_worker.reindex_catalog")
     mocker.patch(
         "pipeline.agenda_worker.resolve_agenda_items",
         return_value={"items": [], "source_used": "llm", "quality_score": 0, "confidence": "low"},
@@ -52,6 +53,7 @@ def test_segment_document_agenda_sets_empty_status_when_no_items(db_session, moc
     assert refreshed.agenda_segmentation_status == "empty"
     assert refreshed.agenda_segmentation_item_count == 0
     assert db_session.query(AgendaItem).filter_by(catalog_id=catalog.id).count() == 0
+    reindex_spy.assert_called_once_with(catalog.id)
 
 
 def test_agenda_worker_selection_excludes_empty_status(db_session):

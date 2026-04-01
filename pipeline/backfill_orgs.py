@@ -2,6 +2,7 @@ from sqlalchemy.orm import sessionmaker
 
 from pipeline.models import db_connect, Place, Organization, Event
 from pipeline.models import Document, Catalog
+from pipeline.indexer import reindex_catalogs
 from pipeline.profiling import selected_catalog_ids
 from pipeline.utils import generate_ocd_id
 
@@ -54,6 +55,7 @@ def backfill_organizations():
     print(f"Found {len(events)} events to process.")
 
     count = 0
+    changed_catalog_ids: set[int] = set()
     for event in events:
         # Determine the Organization name
         org_name = "City Council"
@@ -75,11 +77,28 @@ def backfill_organizations():
             session.add(org)
             session.flush()
         
-        event.organization_id = org.id
-        count += 1
+        if event.organization_id != org.id:
+            event.organization_id = org.id
+            count += 1
+            for catalog_id, in (
+                session.query(Catalog.id)
+                .join(Document, Document.catalog_id == Catalog.id)
+                .filter(Document.event_id == event.id)
+                .distinct()
+                .all()
+            ):
+                changed_catalog_ids.add(catalog_id)
 
     session.commit()
     session.close()
+    if changed_catalog_ids:
+        reindex_summary = reindex_catalogs(changed_catalog_ids)
+        print(
+            "targeted_reindex_summary "
+            f"considered={reindex_summary['catalogs_considered']} "
+            f"reindexed={reindex_summary['catalogs_reindexed']} "
+            f"failed={reindex_summary['catalogs_failed']}"
+        )
     print(f"Backfill complete. Linked {count} events to organizations.")
 
 if __name__ == "__main__":

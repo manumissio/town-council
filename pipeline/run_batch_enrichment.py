@@ -29,7 +29,6 @@ def main(argv=None):
         run_step("Backfill Organizations", ["python", "backfill_orgs.py"])
         run_step("Topic Modeling", ["python", "topic_worker.py"])
         run_step("People Linking", ["python", "person_linker.py"])
-        run_step("Search Indexing", ["python", "indexer.py"])
     record_pipeline_phase_duration(
         "batch_enrichment_total",
         "pipeline-batch",

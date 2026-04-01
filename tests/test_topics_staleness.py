@@ -47,7 +47,7 @@ def test_topics_endpoint_returns_stale_when_hash_mismatches(mocker):
         del app.dependency_overrides[get_db]
 
 
-def test_topic_worker_sets_topics_source_hash(db_session):
+def test_topic_worker_sets_topics_source_hash(db_session, mocker):
     """
     Contract: when topics are generated, topics_source_hash should match the current content_hash.
     """
@@ -59,6 +59,11 @@ def test_topic_worker_sets_topics_source_hash(db_session):
     db_session.add_all([c1, c2])
     db_session.commit()
 
+    reindex_spy = mocker.patch(
+        "pipeline.topic_worker.reindex_catalogs",
+        return_value={"catalogs_considered": 2, "catalogs_reindexed": 2, "catalogs_failed": 0},
+    )
+
     run_topic_tagger()
 
     rows = db_session.query(Catalog).order_by(Catalog.id.asc()).all()
@@ -66,3 +71,4 @@ def test_topic_worker_sets_topics_source_hash(db_session):
     for r in rows:
         assert r.content_hash == compute_content_hash(r.content)
         assert r.topics_source_hash == r.content_hash
+    reindex_spy.assert_called_once_with({c1.id, c2.id})

@@ -195,3 +195,24 @@ def test_reindex_catalog_skips_schema_updates_and_reindexes_agenda_items(mocker)
     sent = fake_index.add_documents.call_args.args[0]
     assert {doc["result_type"] for doc in sent} == {"meeting", "agenda_item"}
     assert result["agenda_item_documents"] == 1
+
+
+def test_reindex_catalogs_dedupes_and_records_failures(mocker):
+    reindex_spy = mocker.patch.object(
+        indexer,
+        "reindex_catalog",
+        side_effect=[
+            {"status": "ok", "catalog_id": 2},
+            RuntimeError("boom"),
+        ],
+    )
+
+    result = indexer.reindex_catalogs([2, 2, 5])
+
+    assert reindex_spy.call_args_list == [mocker.call(2), mocker.call(5)]
+    assert result == {
+        "catalogs_considered": 2,
+        "catalogs_reindexed": 1,
+        "catalogs_failed": 1,
+        "failed_catalog_ids": [5],
+    }

@@ -15,6 +15,7 @@ from pipeline.config import (
     PROGRESS_LOG_INTERVAL
 )
 from pipeline.content_hash import compute_content_hash
+from pipeline.indexer import reindex_catalogs
 from pipeline.profiling import apply_catalog_id_scope
 from pipeline.text_cleaning import postprocess_extracted_text
 
@@ -98,12 +99,14 @@ def run_topic_tagger():
 
         # Pre-initialize topics to empty lists
         # Why? Some documents might have no valid topics, we want [] not None
+        touched_catalog_ids: set[int] = set()
         for r in records:
             # Track which extracted text version topics were generated from.
             # If content changes later (re-extraction), topics become "stale" by hash mismatch.
             if r.content and not getattr(r, "content_hash", None):
                 r.content_hash = compute_content_hash(r.content)
             r.topics = []
+            touched_catalog_ids.add(r.id)
 
         if len(records) < 2:
             logger.warning("Not enough documents to perform TF-IDF analysis.")
@@ -145,6 +148,13 @@ def run_topic_tagger():
             # This prevents infinite retries on documents that legitimately have no topics
             logger.error(f"TF-IDF math failed: {e}")
             session.commit()
+            summary = reindex_catalogs(touched_catalog_ids)
+            logger.info(
+                "topic_reindex_summary considered=%s reindexed=%s failed=%s",
+                summary["catalogs_considered"],
+                summary["catalogs_reindexed"],
+                summary["catalogs_failed"],
+            )
             return
 
         # 5. Extract the top keywords for each document
@@ -187,6 +197,13 @@ def run_topic_tagger():
         # 6. Save all new topics to the database
         # The context manager will automatically rollback if this fails
         session.commit()
+        summary = reindex_catalogs(touched_catalog_ids)
+        logger.info(
+            "topic_reindex_summary considered=%s reindexed=%s failed=%s",
+            summary["catalogs_considered"],
+            summary["catalogs_reindexed"],
+            summary["catalogs_failed"],
+        )
         logger.info("Topic tagging complete and saved to database.")
 
 if __name__ == "__main__":

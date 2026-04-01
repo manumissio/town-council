@@ -7,6 +7,7 @@ sys.path.append(os.path.join(os.path.dirname(__file__), '..'))
 
 from pipeline.models import Catalog, Document, Event, Organization, Person, Membership
 from pipeline.db_session import db_session
+from pipeline.indexer import reindex_catalogs
 from pipeline.profiling import apply_catalog_id_scope
 from pipeline.utils import generate_ocd_id, find_best_person_match, is_likely_human_name
 
@@ -114,6 +115,7 @@ def link_people():
 
         person_count = 0
         membership_count = 0
+        changed_catalog_ids: set[int] = set()
 
         # Process each document
         for catalog, event in query:
@@ -173,9 +175,11 @@ def link_people():
                     # Update our blocking cache so the next doc can find them
                     city_people_cache[event.place_id].append(existing_person)
                     person_count += 1
+                    changed_catalog_ids.add(catalog.id)
                 elif person_type == "official" and existing_person.person_type != "official":
                     # Upgrade mention-only profiles when we later see official evidence.
                     existing_person.person_type = "official"
+                    changed_catalog_ids.add(catalog.id)
 
                 person_id = existing_person.id
 
@@ -200,6 +204,7 @@ def link_people():
                         )
                         session.add(membership)
                         membership_count += 1
+                        changed_catalog_ids.add(catalog.id)
                     # Cache it to avoid duplicate checks
                     membership_cache.add(mem_key)
 
@@ -209,6 +214,14 @@ def link_people():
 
         # Print summary of what we accomplished
         print(f"Linking complete. Created {person_count} new People and {membership_count} new Memberships.")
+        if changed_catalog_ids:
+            reindex_summary = reindex_catalogs(changed_catalog_ids)
+            print(
+                "targeted_reindex_summary "
+                f"considered={reindex_summary['catalogs_considered']} "
+                f"reindexed={reindex_summary['catalogs_reindexed']} "
+                f"failed={reindex_summary['catalogs_failed']}"
+            )
 
 if __name__ == "__main__":
     link_people()
