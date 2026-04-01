@@ -1,6 +1,4 @@
 import os
-import camelot
-import json
 import logging
 from concurrent.futures import ProcessPoolExecutor, as_completed
 from multiprocessing import cpu_count, get_context
@@ -26,6 +24,17 @@ from pipeline.profiling import apply_catalog_id_scope
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 logger = logging.getLogger(__name__)
 
+
+def select_catalog_ids_for_table_extraction(session, limit: int | None = None) -> list[int]:
+    query = session.query(Catalog.id).filter(
+        Catalog.location != 'placeholder',
+        Catalog.tables == None
+    )
+    query = apply_catalog_id_scope(query, Catalog.id)
+    if limit is not None:
+        query = query.limit(limit)
+    return [int(row[0]) for row in query.all()]
+
 def process_single_pdf(catalog_id):
     """
     Worker function: Processes a single PDF for table extraction.
@@ -45,6 +54,8 @@ def process_single_pdf(catalog_id):
     - We try lattice first (more accurate), fallback to stream if needed
     """
     # Use context manager for automatic session cleanup and error handling
+    import camelot
+
     with db_session() as session:
         try:
             record = session.get(Catalog, catalog_id)
@@ -121,7 +132,7 @@ def process_single_pdf(catalog_id):
             logger.error(f"DB Error for {catalog_id}: {e}")
             return 0
 
-def run_table_pipeline():
+def run_table_pipeline(*, catalog_ids: list[int] | None = None):
     """
     Orchestrates parallel table extraction across all PDFs.
 
@@ -139,16 +150,11 @@ def run_table_pipeline():
     - Parallel (2 workers): 100 PDFs × 10 seconds ÷ 2 = 500 seconds (8.3 minutes)
     """
     # Use context manager for automatic session cleanup
-    with db_session() as session:
-        # Find documents needing table extraction
-        # Skip placeholder records and already-processed documents
-        to_process = session.query(Catalog).filter(
-            Catalog.location != 'placeholder',
-            Catalog.tables == None
-        )
-        to_process = apply_catalog_id_scope(to_process, Catalog.id).all()
-
-        ids = [r.id for r in to_process]
+    if catalog_ids is None:
+        with db_session() as session:
+            ids = select_catalog_ids_for_table_extraction(session)
+    else:
+        ids = [int(cid) for cid in catalog_ids]
 
     if not ids:
         logger.info("No documents need table extraction.")

@@ -25,7 +25,7 @@ from pipeline.config import (
 )
 from pipeline.startup_purge import run_startup_purge_if_enabled
 from pipeline.metrics import record_pipeline_phase_duration
-from pipeline.profiling import apply_catalog_id_scope, profile_span
+from pipeline.profiling import apply_catalog_id_scope, profile_span, workload_only_profile
 
 # Setup logging
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
@@ -105,6 +105,18 @@ def _should_skip_non_gating_onboarding_steps() -> bool:
 
 def _run_post_processing_steps():
     logger.info("post_processing_search_indexing skipped=1 mode=targeted_only")
+
+
+def _run_ingest_prelude_steps():
+    # Profiling selected-manifest runs should measure only the chosen workload,
+    # not unrelated global staging activity.
+    if workload_only_profile():
+        logger.info("profiling_workload_only enabled=1 skipped_prelude=db_migrate,seed_places,promote_stage,downloader")
+        return
+    run_step("DB Migrate", ["python", "db_migrate.py"])
+    run_step("Seed Places", ["python", "seed_places.py"])
+    run_step("Promote Staged Events", ["python", "promote_stage.py"])
+    run_step("Downloader", ["python", "downloader.py"])
 
 
 def _run_generation_backfill_steps():
@@ -430,11 +442,7 @@ def main():
         logger.info(f"startup_purge_result={purge_result}")
 
         # 1. Setup & Ingest
-        # Keep dev databases compatible with the current SQLAlchemy models.
-        run_step("DB Migrate", ["python", "db_migrate.py"])
-        run_step("Seed Places", ["python", "seed_places.py"])
-        run_step("Promote Staged Events", ["python", "promote_stage.py"])
-        run_step("Downloader", ["python", "downloader.py"])
+        _run_ingest_prelude_steps()
 
         # 2. Parallel Processing (Replaces extractor.py and nlp_worker.py)
         logger.info(">>> Starting Parallel Processing (OCR + NLP)")

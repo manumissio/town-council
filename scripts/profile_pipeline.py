@@ -137,6 +137,7 @@ def _profile_env(*, run_id: str, mode: str, artifact_dir: str, baseline_valid: b
     env["TC_PROFILE_ARTIFACT_DIR"] = artifact_dir
     env["TC_PROFILE_BASELINE_VALID"] = "1" if baseline_valid else "0"
     env["TC_PROFILE_CATALOG_MANIFEST"] = manifest_path
+    env["TC_PROFILE_WORKLOAD_ONLY"] = "1"
     return env
 
 
@@ -254,6 +255,9 @@ def _build_result_payload(
             "batch_elapsed_seconds": round(batch_elapsed, 3) if batch_elapsed is not None else None,
             "combined_elapsed_seconds": round(combined_elapsed, 3),
         },
+        "profile": {
+            "workload_only": True,
+        },
         "quality": quality,
         "error": error_message,
     }
@@ -344,6 +348,7 @@ def main(argv: list[str] | None = None) -> int:
         "catalog_count": len(catalog_ids),
         "city": args.city,
         "include_batch": not args.skip_batch,
+        "workload_only": True,
         "profile": {
             key: os.getenv(key)
             for key in (
@@ -371,11 +376,11 @@ def main(argv: list[str] | None = None) -> int:
     )
 
     commands = [
-        ["docker", "compose", "exec", "-T", "-e", f"TC_PROFILE_RUN_ID={run_id}", "-e", f"TC_PROFILE_MODE={args.mode}", "-e", f"TC_PROFILE_ARTIFACT_DIR={artifact_dir_rel}", "-e", f"TC_PROFILE_BASELINE_VALID={'1' if args.mode == 'baseline' else '0'}", "-e", f"TC_PROFILE_CATALOG_MANIFEST={manifest_rel}", "-w", "/app/pipeline", CORE_PROFILE_SERVICE, "python", "run_pipeline.py"],
+        ["docker", "compose", "exec", "-T", "-e", f"TC_PROFILE_RUN_ID={run_id}", "-e", f"TC_PROFILE_MODE={args.mode}", "-e", f"TC_PROFILE_ARTIFACT_DIR={artifact_dir_rel}", "-e", f"TC_PROFILE_BASELINE_VALID={'1' if args.mode == 'baseline' else '0'}", "-e", f"TC_PROFILE_CATALOG_MANIFEST={manifest_rel}", "-e", "TC_PROFILE_WORKLOAD_ONLY=1", "-w", "/app/pipeline", CORE_PROFILE_SERVICE, "python", "run_pipeline.py"],
     ]
     if not args.skip_batch:
         commands.append(
-            ["docker", "compose", "exec", "-T", "-e", f"TC_PROFILE_RUN_ID={run_id}", "-e", f"TC_PROFILE_MODE={args.mode}", "-e", f"TC_PROFILE_ARTIFACT_DIR={artifact_dir_rel}", "-e", f"TC_PROFILE_BASELINE_VALID={'1' if args.mode == 'baseline' else '0'}", "-e", f"TC_PROFILE_CATALOG_MANIFEST={manifest_rel}", "-w", "/app/pipeline", BATCH_PROFILE_SERVICE, "python", "run_batch_enrichment.py"]
+            ["docker", "compose", "exec", "-T", "-e", f"TC_PROFILE_RUN_ID={run_id}", "-e", f"TC_PROFILE_MODE={args.mode}", "-e", f"TC_PROFILE_ARTIFACT_DIR={artifact_dir_rel}", "-e", f"TC_PROFILE_BASELINE_VALID={'1' if args.mode == 'baseline' else '0'}", "-e", f"TC_PROFILE_CATALOG_MANIFEST={manifest_rel}", "-e", "TC_PROFILE_WORKLOAD_ONLY=1", "-w", "/app/pipeline", BATCH_PROFILE_SERVICE, "python", "run_batch_enrichment.py"]
         )
 
     command_log = run_dir / "commands.log"

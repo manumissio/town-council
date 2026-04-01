@@ -60,7 +60,7 @@ def test_topic_worker_sets_topics_source_hash(db_session, mocker):
     db_session.commit()
 
     reindex_spy = mocker.patch(
-        "pipeline.topic_worker.reindex_catalogs",
+        "pipeline.indexer.reindex_catalogs",
         return_value={"catalogs_considered": 2, "catalogs_reindexed": 2, "catalogs_failed": 0},
     )
 
@@ -72,3 +72,92 @@ def test_topic_worker_sets_topics_source_hash(db_session, mocker):
         assert r.content_hash == compute_content_hash(r.content)
         assert r.topics_source_hash == r.content_hash
     reindex_spy.assert_called_once_with({c1.id, c2.id})
+
+
+def test_select_catalog_ids_for_topic_hydration_only_returns_missing_or_stale(db_session):
+    from pipeline.models import Catalog, Document, Event, Place
+    from pipeline.topic_worker import select_catalog_ids_for_topic_hydration
+
+    place = Place(
+        name="sample",
+        state="CA",
+        ocd_division_id="ocd-division/country:us/state:ca/place:sample",
+        crawler_name="sample",
+    )
+    db_session.add(place)
+    db_session.flush()
+    event = Event(place_id=place.id, ocd_division_id=place.ocd_division_id, name="Sample Council")
+    db_session.add(event)
+    db_session.flush()
+
+    fresh_content = "Council discussed housing and transit policy."
+    fresh_hash = compute_content_hash(fresh_content)
+    fresh_catalog = Catalog(
+        url="fresh",
+        url_hash="fresh",
+        location="/tmp/fresh.pdf",
+        filename="fresh.pdf",
+        content=fresh_content,
+        content_hash=fresh_hash,
+        topics=["Housing"],
+        topics_source_hash=fresh_hash,
+    )
+    stale_catalog = Catalog(
+        url="stale",
+        url_hash="stale",
+        location="/tmp/stale.pdf",
+        filename="stale.pdf",
+        content="Old agenda now mentions zoning and budgets.",
+        content_hash="new-hash",
+        topics=["Old"],
+        topics_source_hash="old-hash",
+    )
+    missing_catalog = Catalog(
+        url="missing",
+        url_hash="missing",
+        location="/tmp/missing.pdf",
+        filename="missing.pdf",
+        content="Transit and housing updates for the city council.",
+        content_hash=compute_content_hash("Transit and housing updates for the city council."),
+        topics=None,
+        topics_source_hash=None,
+    )
+    db_session.add_all([fresh_catalog, stale_catalog, missing_catalog])
+    db_session.flush()
+    for catalog in (fresh_catalog, stale_catalog, missing_catalog):
+        db_session.add(
+            Document(
+                place_id=place.id,
+                event_id=event.id,
+                catalog_id=catalog.id,
+                url=f"https://example.com/{catalog.id}",
+            )
+        )
+    db_session.commit()
+
+    selected = select_catalog_ids_for_topic_hydration(db_session)
+
+    assert stale_catalog.id in selected
+    assert missing_catalog.id in selected
+    assert fresh_catalog.id not in selected
+
+
+def test_run_topic_hydration_backfill_reuses_single_catalog_task(mocker):
+    from pipeline.topic_worker import run_topic_hydration_backfill
+
+    task_run = mocker.patch(
+        "pipeline.enrichment_tasks.generate_topics_task.run",
+        side_effect=[
+            {"status": "complete", "topics": ["Housing"]},
+            {"status": "cached", "topics": ["Transit"]},
+        ],
+    )
+
+    counts = run_topic_hydration_backfill(catalog_ids=[101, 202])
+
+    assert counts["selected"] == 2
+    assert counts["complete"] == 1
+    assert counts["cached"] == 1
+    assert counts["error"] == 0
+    assert task_run.call_args_list[0].kwargs["force"] is True
+    assert task_run.call_args_list[0].kwargs["max_corpus_docs"] == 600

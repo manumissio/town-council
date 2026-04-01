@@ -12,6 +12,7 @@ from sqlalchemy.orm import sessionmaker
 from pipeline.run_pipeline import process_document_chunk
 from pipeline.tasks import select_catalog_ids_for_summary_hydration, run_summary_hydration_backfill
 from pipeline.agenda_worker import select_catalog_ids_for_agenda_segmentation
+from pipeline.table_worker import select_catalog_ids_for_table_extraction
 from pipeline.models import Base, Catalog, Document, AgendaItem, Event, Place
 from pipeline.city_scope import ordered_hydration_cities, source_aliases_for_city
 
@@ -235,3 +236,19 @@ def test_select_catalog_ids_for_summary_hydration_can_filter_by_city(batching_db
 def test_city_scope_helpers_return_expected_defaults():
     assert source_aliases_for_city("san_mateo") == {"san_mateo", "san mateo"}
     assert ordered_hydration_cities() == ["hayward", "sunnyvale", "berkeley", "cupertino", "san_mateo"]
+
+
+def test_select_catalog_ids_for_table_extraction_only_returns_pending_real_files(batching_db):
+    db, event, place = batching_db
+    pending_catalog = _add_catalog(db, event, place, category="minutes", content="minutes text")
+    done_catalog = _add_catalog(db, event, place, category="minutes", content="done")
+    done_catalog.tables = [["row"]]
+    placeholder_catalog = _add_catalog(db, event, place, category="minutes", content="placeholder")
+    placeholder_catalog.location = "placeholder"
+    db.commit()
+
+    selected = select_catalog_ids_for_table_extraction(db)
+
+    assert pending_catalog.id in selected
+    assert done_catalog.id not in selected
+    assert placeholder_catalog.id not in selected

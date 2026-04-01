@@ -1,21 +1,12 @@
 import logging
 import re
-from sklearn.feature_extraction.text import TfidfVectorizer
-from sklearn.feature_extraction.text import ENGLISH_STOP_WORDS
+from sqlalchemy import or_
 
-from pipeline.models import Catalog
+from pipeline.models import Catalog, Document
 from pipeline.db_session import db_session
 from pipeline.config import (
-    MAX_CONTENT_LENGTH,
-    TFIDF_MAX_DF,
-    TFIDF_MIN_DF,
-    TFIDF_NGRAM_RANGE,
-    TFIDF_MAX_FEATURES,
-    TOP_KEYWORDS_PER_DOC,
     PROGRESS_LOG_INTERVAL
 )
-from pipeline.content_hash import compute_content_hash
-from pipeline.indexer import reindex_catalogs
 from pipeline.profiling import apply_catalog_id_scope
 from pipeline.text_cleaning import postprocess_extracted_text
 
@@ -70,6 +61,94 @@ def run_keyword_tagger():
     """
     run_topic_tagger()
 
+
+def select_catalog_ids_for_topic_hydration(session, limit: int | None = None) -> list[int]:
+    query = (
+        session.query(Catalog.id)
+        .join(Document, Document.catalog_id == Catalog.id)
+        .filter(Catalog.content.isnot(None), Catalog.content != "")
+        .filter(
+            or_(
+                Catalog.topics.is_(None),
+                Catalog.content_hash.is_(None),
+                Catalog.topics_source_hash.is_(None),
+                Catalog.topics_source_hash != Catalog.content_hash,
+            )
+        )
+        .order_by(Catalog.id)
+        .distinct()
+    )
+    query = apply_catalog_id_scope(query, Catalog.id)
+    if limit is not None:
+        query = query.limit(limit)
+    return [int(row[0]) for row in query.all()]
+
+
+def run_topic_hydration_backfill(
+    *,
+    force: bool = True,
+    limit: int | None = None,
+    max_corpus_docs: int = 600,
+    catalog_ids: list[int] | None = None,
+) -> dict[str, int]:
+    if catalog_ids is None:
+        with db_session() as session:
+            catalog_ids = select_catalog_ids_for_topic_hydration(session, limit=limit)
+
+    catalog_ids = [int(cid) for cid in catalog_ids]
+    counts = {
+        "selected": len(catalog_ids),
+        "complete": 0,
+        "cached": 0,
+        "stale": 0,
+        "blocked_low_signal": 0,
+        "error": 0,
+        "other": 0,
+    }
+    if not catalog_ids:
+        logger.info("topic_hydration_backfill selected=0")
+        return counts
+
+    from pipeline.enrichment_tasks import generate_topics_task
+
+    for index, catalog_id in enumerate(catalog_ids, start=1):
+        try:
+            result = generate_topics_task.run(
+                catalog_id,
+                force=force,
+                max_corpus_docs=max_corpus_docs,
+            )
+        except Exception as exc:
+            counts["error"] += 1
+            logger.warning("topic_hydration catalog_id=%s status=error error=%s", catalog_id, exc)
+            continue
+
+        status = str((result or {}).get("status") or "").strip() or ("error" if (result or {}).get("error") else "other")
+        if status in counts:
+            counts[status] += 1
+        else:
+            counts["other"] += 1
+        if index == 1 or index % PROGRESS_LOG_INTERVAL == 0 or index == len(catalog_ids):
+            logger.info(
+                "topic_hydration_backfill progress=%s/%s last_catalog_id=%s last_status=%s",
+                index,
+                len(catalog_ids),
+                catalog_id,
+                status,
+            )
+
+    logger.info(
+        "topic_hydration_backfill selected=%s complete=%s cached=%s stale=%s blocked_low_signal=%s error=%s other=%s",
+        counts["selected"],
+        counts["complete"],
+        counts["cached"],
+        counts["stale"],
+        counts["blocked_low_signal"],
+        counts["error"],
+        counts["other"],
+    )
+    return counts
+
 def run_topic_tagger():
     """
     Automated Topic Discovery using TF-IDF.
@@ -87,6 +166,19 @@ def run_topic_tagger():
     For example, if "housing" appears 50 times in one meeting but only 3 times
     in others, it's likely an important topic for that specific meeting.
     """
+    from sklearn.feature_extraction.text import ENGLISH_STOP_WORDS, TfidfVectorizer
+
+    from pipeline.content_hash import compute_content_hash
+    from pipeline.indexer import reindex_catalogs
+    from pipeline.config import (
+        MAX_CONTENT_LENGTH,
+        TFIDF_MAX_DF,
+        TFIDF_MIN_DF,
+        TFIDF_NGRAM_RANGE,
+        TFIDF_MAX_FEATURES,
+        TOP_KEYWORDS_PER_DOC,
+    )
+
     # Use context manager for automatic session cleanup and error handling
     with db_session() as session:
         # 1. Fetch all documents that have text content

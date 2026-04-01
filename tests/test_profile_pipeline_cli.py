@@ -35,9 +35,12 @@ def test_profile_pipeline_writes_manifest_and_result(monkeypatch, tmp_path: Path
     manifest = json.loads((run_dirs[0] / "run_manifest.json").read_text(encoding="utf-8"))
     result = json.loads((run_dirs[0] / "result.json").read_text(encoding="utf-8"))
     assert manifest["catalog_ids"] == [11, 12]
+    assert manifest["workload_only"] is True
     assert result["status"] == "completed"
+    assert result["profile"]["workload_only"] is True
     assert result["totals"]["core_elapsed_seconds"] is not None
     assert result["totals"]["batch_elapsed_seconds"] is None
     assert result["totals"]["combined_elapsed_seconds"] >= result["totals"]["core_elapsed_seconds"]
     assert result["segments"][0]["name"] == "pipeline"
+    assert any("TC_PROFILE_WORKLOAD_ONLY=1" in " ".join(cmd) for cmd, _ in commands)
     assert any("collect_soak_metrics.py" in " ".join(cmd) for cmd, _ in commands)

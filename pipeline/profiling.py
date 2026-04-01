@@ -14,6 +14,7 @@ PROFILE_MODE_ENV = "TC_PROFILE_MODE"
 PROFILE_ARTIFACT_DIR_ENV = "TC_PROFILE_ARTIFACT_DIR"
 PROFILE_BASELINE_VALID_ENV = "TC_PROFILE_BASELINE_VALID"
 PROFILE_CATALOG_MANIFEST_ENV = "TC_PROFILE_CATALOG_MANIFEST"
+PROFILE_WORKLOAD_ONLY_ENV = "TC_PROFILE_WORKLOAD_ONLY"
 
 _REPO_ROOT = Path(__file__).resolve().parents[1]
 _SELECTED_IDS_CACHE: tuple[str | None, set[int] | None] = (None, None)
@@ -49,6 +50,10 @@ def current_mode() -> str:
 
 def baseline_valid() -> bool:
     return str(os.getenv(PROFILE_BASELINE_VALID_ENV, "") or "").strip().lower() in {"1", "true", "yes"}
+
+
+def workload_only_profile() -> bool:
+    return str(os.getenv(PROFILE_WORKLOAD_ONLY_ENV, "") or "").strip().lower() in {"1", "true", "yes"}
 
 
 def current_artifact_dir() -> Path | None:

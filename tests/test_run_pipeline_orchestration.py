@@ -85,6 +85,27 @@ def test_main_skips_non_gating_steps_in_onboarding_fast_profile(mocker):
     assert ("People Linking", ("python", "person_linker.py")) not in calls
 
 
+def test_main_skips_ingest_prelude_in_workload_only_profile(mocker):
+    calls = []
+    mocker.patch("pipeline.run_pipeline.run_parallel_processing", side_effect=lambda: calls.append("parallel"))
+    mocker.patch("pipeline.run_pipeline._run_generation_backfill_steps", side_effect=lambda: calls.append("generation"))
+    mocker.patch("pipeline.run_pipeline._run_post_processing_steps", side_effect=lambda: calls.append("post"))
+
+    def fake_run_step(name, command):
+        calls.append((name, tuple(command)))
+
+    mocker.patch("pipeline.run_pipeline.run_step", side_effect=fake_run_step)
+    mocker.patch.dict("os.environ", {"TC_PROFILE_WORKLOAD_ONLY": "1"})
+
+    run_pipeline.main()
+
+    assert ("DB Migrate", ("python", "db_migrate.py")) not in calls
+    assert ("Seed Places", ("python", "seed_places.py")) not in calls
+    assert ("Promote Staged Events", ("python", "promote_stage.py")) not in calls
+    assert ("Downloader", ("python", "downloader.py")) not in calls
+    assert calls == ["parallel", "generation", "post"]
+
+
 def test_run_batch_enrichment_runs_heavy_steps_in_expected_order(mocker):
     calls = []
 
@@ -92,6 +113,13 @@ def test_run_batch_enrichment_runs_heavy_steps_in_expected_order(mocker):
         calls.append((name, tuple(command)))
 
     mocker.patch("pipeline.run_batch_enrichment.run_step", side_effect=fake_run_step)
+    mocker.patch("pipeline.run_batch_enrichment.db_session")
+    mocker.patch("pipeline.run_batch_enrichment.select_catalog_ids_for_table_extraction", return_value=[1])
+    mocker.patch("pipeline.run_batch_enrichment.select_catalog_ids_for_topic_hydration", return_value=[2, 3])
+    topic_backfill_spy = mocker.patch(
+        "pipeline.run_batch_enrichment.run_topic_hydration_backfill",
+        return_value={"selected": 2, "complete": 2, "cached": 0, "stale": 0, "blocked_low_signal": 0, "error": 0, "other": 0},
+    )
 
     run_batch_enrichment.main()
 
@@ -99,9 +127,33 @@ def test_run_batch_enrichment_runs_heavy_steps_in_expected_order(mocker):
         ("Entity Backfill", ("python", "backfill_entities.py")),
         ("Table Extraction", ("python", "table_worker.py")),
         ("Backfill Organizations", ("python", "backfill_orgs.py")),
-        ("Topic Modeling", ("python", "topic_worker.py")),
         ("People Linking", ("python", "person_linker.py")),
     ]
+    topic_backfill_spy.assert_called_once_with(catalog_ids=[2, 3])
+
+
+def test_run_batch_enrichment_skips_noop_topic_and_table_steps(mocker):
+    calls = []
+
+    def fake_run_step(name, command):
+        calls.append((name, tuple(command)))
+
+    mocker.patch("pipeline.run_batch_enrichment.run_step", side_effect=fake_run_step)
+    mocker.patch("pipeline.run_batch_enrichment.db_session")
+    mocker.patch("pipeline.run_batch_enrichment.select_catalog_ids_for_table_extraction", return_value=[])
+    mocker.patch("pipeline.run_batch_enrichment.select_catalog_ids_for_topic_hydration", return_value=[])
+    topic_backfill_spy = mocker.patch("pipeline.run_batch_enrichment.run_topic_hydration_backfill")
+
+    run_batch_enrichment.main()
+
+    assert ("Table Extraction", ("python", "table_worker.py")) not in calls
+    assert ("Topic Modeling", ("python", "topic_worker.py")) not in calls
+    assert calls == [
+        ("Entity Backfill", ("python", "backfill_entities.py")),
+        ("Backfill Organizations", ("python", "backfill_orgs.py")),
+        ("People Linking", ("python", "person_linker.py")),
+    ]
+    topic_backfill_spy.assert_not_called()
 
 
 def test_run_batch_enrichment_help_exits_before_work(mocker):
