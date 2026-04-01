@@ -1,6 +1,6 @@
 # Performance
 
-Last updated: 2026-03-31
+Last updated: 2026-04-01
 
 This page describes how to interpret and reproduce performance evidence for local Docker runs.
 For operational troubleshooting and sorting diagnostics, use `docs/OPERATIONS.md`.
@@ -117,12 +117,16 @@ Interpretation rule:
 - do not compare `triage` runs to baseline runs as if they were equivalent evidence
 - use `baseline` runs for longitudinal comparison and `triage` runs for local diagnosis
 - if the analyzer reports `reduced-confidence`, inspect `result.json` and run-quality notes before using the ranking to prioritize work
+- selected-manifest profiling runs are workload-only by default, so unrelated global prelude work such as staged promotion and downloader retries should not appear in the ranked bottlenecks
 
 ### Latest runtime optimization note
 
 - The default core pipeline and batch enrichment paths no longer shell into full `python indexer.py` rebuilds.
 - Search freshness now comes from targeted `reindex_catalog(...)` hooks in the writers that mutate indexed fields.
 - Keep `python reindex_only.py` as the manual repair path for schema/settings changes or explicit full rebuilds.
+- The default batch topic path now hydrates only missing/stale catalogs through the single-catalog topic task instead of sweeping every content-bearing catalog.
+- The default batch table path now preflights eligibility and skips the heavy Camelot subprocess on zero-work runs.
+- The earlier `download` ranking in triage profiling was a workload-fidelity artifact; workload-only profiling now excludes unrelated staged URL work from selected-manifest runs.
 
 ### Other Performance-Related Changes
 

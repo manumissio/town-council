@@ -96,6 +96,7 @@ python scripts/profile_pipeline.py --mode triage
 
 Notes:
 - `triage` selection now happens inside the running Docker stack, so use it against the local compose environment instead of a host-only Python setup.
+- `triage` and manifest-driven `baseline` runs are workload-only by default: they measure the selected catalog set and intentionally skip unrelated global prelude steps like staged download/promotion.
 - if the report marks a run as `reduced-confidence`, inspect `summary.json` and `result.json` before comparing it to other runs.
 
 Repeatable baseline run:
@@ -119,6 +120,7 @@ Interpretation:
 - `baseline` runs use a pinned manifest and are the only profiling runs that should be compared directly over time.
 - queue wait is tracked separately from task execution so the report can distinguish worker backlog from slow execution.
 - default core and batch pipeline runs now keep search fresh with targeted per-catalog reindex hooks; use the manual reindex command below only when you changed indexing logic or need a repair rebuild.
+- default batch topic modeling now hydrates only missing/stale topics via the single-catalog topic task, and table extraction is preflighted so zero-work runs skip the heavy Camelot subprocess entirely.
 
 ### Optional: Reindex Meilisearch only (no extraction/AI)
 If you changed indexing logic (or want to refresh search results without re-running the full pipeline):

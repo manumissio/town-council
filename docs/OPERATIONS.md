@@ -1,6 +1,6 @@
 # Operations Runbook
 
-Last updated: 2026-03-29
+Last updated: 2026-04-01
 
 ## Core workflow
 
@@ -111,6 +111,11 @@ docker compose run --rm nlp
 docker compose run --rm tables
 docker compose run --rm topics
 ```
+
+Batch runtime notes:
+- default `run_batch_enrichment.py` now snapshots eligible topic/table work before invoking heavy steps
+- topic modeling only hydrates catalogs whose topics are missing or stale relative to `content_hash`
+- table extraction skips the Camelot subprocess entirely when there are no eligible catalogs
 
 ### Maintenance hydrate helper for repaired agenda PDFs
 - `scripts/hydrate_repaired_city_catalogs.py` is the maintenance helper for repaired city-scoped `agenda` catalogs that still need extract -> segment -> summarize work.
@@ -599,6 +604,7 @@ python scripts/analyze_pipeline_profile.py --run-id <run_id>
 Runtime note:
 - `triage` manifest selection is resolved inside the running Docker stack so it uses the same database/runtime context as the live pipeline.
 - `baseline` manifest parsing remains file-only and can run from the host.
+- selected-manifest profiling runs are workload-only by default, so they intentionally skip unrelated global prelude work such as staged promotion and downloader processing.
 
 Artifacts:
 - `experiments/results/profiling/<run_id>/run_manifest.json`
