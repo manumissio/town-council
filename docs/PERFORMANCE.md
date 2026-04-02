@@ -1,6 +1,6 @@
 # Performance
 
-Last updated: 2026-04-01
+Last updated: 2026-04-02
 
 This page describes how to interpret and reproduce performance evidence for local Docker runs.
 For operational troubleshooting and sorting diagnostics, use `docs/OPERATIONS.md`.
@@ -150,6 +150,14 @@ Interpretation rule:
 - On the same `baseline_representative_v1` manifest, that reduced combined elapsed time from `17.165s` in `pipeline_profile_baseline_20260402_025623` to `12.391s` in `pipeline_profile_baseline_20260402_110906`.
 - In that run, `entity_backfill` reported `selected=8 complete=8 changed_catalogs=8 execution_mode=in_process chunks=1`, and `people_linking_preflight` selected `8` catalogs instead of the previous full rescan of `30`.
 - After that change, the top 3 shifted to `entity_backfill` (`6.060s`), `summarize` (`2.611s`), and `people_linking` (`1.433s`).
+- The next entity-focused pass makes NER staleness-aware and cheap-first:
+  - `catalog.entities_source_hash` now mirrors the freshness contract already used for summaries/topics
+  - entity backfill now selects missing or stale rows instead of relying on `entities is null` only
+  - agenda-heavy documents now build a smaller candidate slice from roll-call / attendance / motion / speaker cues before running spaCy
+  - clearly low-signal docs can be marked fresh with an empty entity payload instead of repeatedly paying for the full NER pass
+- On the same `baseline_representative_v1` manifest, that reduced combined elapsed time from `12.391s` in `pipeline_profile_baseline_20260402_110906` to `9.199s` in `pipeline_profile_baseline_20260402_220500`.
+- In that run, `entity_backfill` reported `selected=8 complete=8 changed_catalogs=8 execution_mode=in_process chunks=1 ner_processed=8 ner_skipped_low_signal=0 freshness_advanced=8 candidate_slice_fallback_prefix=0`.
+- After that change, the top 3 shifted to `summarize` (`3.647s`), `entity_backfill` (`1.486s`), and `people_linking` (`0.967s`).
 
 ### Other Performance-Related Changes
 

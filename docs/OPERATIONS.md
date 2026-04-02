@@ -1,6 +1,6 @@
 # Operations Runbook
 
-Last updated: 2026-04-01
+Last updated: 2026-04-02
 
 ## Core workflow
 
@@ -116,6 +116,8 @@ Batch runtime notes:
 - default core generation backfills now invoke agenda segmentation and summary hydration in-process; `scripts/backfill_agenda_segmentation.py` and `scripts/backfill_summaries.py` remain manual entrypoints
 - default batch enrichment now invokes entity/org/people backlog runners in-process; `backfill_entities.py`, `backfill_orgs.py`, and `person_linker.py` remain operator tools when you want to run those steps directly
 - entity backfill now reports `changed_catalogs`, `execution_mode`, and `chunks`; small snapshots use an in-process fast path instead of spawning a process pool
+- entity backfill now tracks freshness with `entities_source_hash`; rows are eligible when entities are missing or stale relative to `content_hash`
+- entity backfill now reports `ner_processed`, `ner_skipped_low_signal`, `freshness_advanced`, and `candidate_slice_fallback_prefix`
 - default people linking is now driven by the entity delta from the same batch run rather than rescanning every entity-bearing catalog
 - people linking now reports `catalogs_with_people`, `catalogs_changed`, `exact_matches`, `fuzzy_matches`, and `cities_loaded`
 - default `run_batch_enrichment.py` now snapshots eligible topic/table work before invoking heavy steps

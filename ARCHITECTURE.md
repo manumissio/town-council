@@ -379,6 +379,7 @@ Owners:
 | Entity/field | Contract | Primary owners |
 |---|---|---|
 | `catalog.content_hash` | Canonical hash for extracted text used to detect staleness | `pipeline/content_hash.py`, `pipeline/extraction_service.py`, `pipeline/tasks.py` |
+| `catalog.entities_source_hash` | Hash of source text used to generate current entities | `pipeline/backfill_entities.py`, `pipeline/nlp_worker.py` |
 | `catalog.summary_source_hash` | Hash of source text used to generate current summary | `pipeline/tasks.py`, `api/main.py` |
 | `catalog.topics_source_hash` | Hash of source text used to generate current topics | `pipeline/tasks.py`, `pipeline/topic_worker.py`, `api/main.py` |
 | `agenda_item.result` | Normalized outcome field for agenda/vote interpretation | `pipeline/models.py`, `pipeline/tasks.py` |

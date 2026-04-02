@@ -134,6 +134,7 @@ Interpretation:
 - the script entrypoints for those backfills still exist as manual/operator tools; the pipeline just no longer shells into them by default.
 - default pipeline maintenance backfills now use backlog-specific routing: agenda segmentation runs heuristic-first with a shorter maintenance timeout, and agenda summary hydration is deterministic-first while non-agenda summary hydration keeps the shorter maintenance timeout plus deterministic fallback on provider failure.
 - default batch enrichment is now delta-oriented across entity extraction and people linking: small entity snapshots stay in-process, and people linking scopes itself to the catalogs whose entity payloads changed in that run.
+- entity enrichment is now freshness-aware like summaries/topics: unchanged rows can stay cached via `entities_source_hash`, and agenda-heavy documents send a smaller candidate slice into spaCy before the expensive NER pass.
 - default batch topic modeling now hydrates only missing/stale topics via the single-catalog topic task, and table extraction is preflighted so zero-work runs skip the heavy Camelot subprocess entirely.
 
 ### Optional: Reindex Meilisearch only (no extraction/AI)
