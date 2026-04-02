@@ -71,6 +71,9 @@ Use the profiling harness when the question is "what is actually slow on the cri
 Commands:
 ```bash
 python scripts/profile_pipeline.py --mode triage
+python scripts/build_profile_manifest.py --name <name>
+python scripts/build_profile_manifest.py --name <name> --write
+python scripts/profile_pipeline.py --mode baseline --manifest profiling/manifests/<name>.txt --dry-run-prepare
 python scripts/profile_pipeline.py --mode baseline --manifest profiling/manifests/<name>.txt
 python scripts/analyze_pipeline_profile.py --run-id <run_id>
 ```
@@ -118,6 +121,8 @@ Interpretation rule:
 - use `baseline` runs for longitudinal comparison and `triage` runs for local diagnosis
 - if the analyzer reports `reduced-confidence`, inspect `result.json` and run-quality notes before using the ranking to prioritize work
 - selected-manifest profiling runs are workload-only by default, so unrelated global prelude work such as staged promotion and downloader retries should not appear in the ranked bottlenecks
+- if a baseline manifest has a `.json` sidecar, the harness applies controlled preconditioning to only the selected workload before the run so the baseline still contains real pending work
+- use `--dry-run-prepare` to inspect that preconditioning plan before mutating the selected workload
 
 ### Latest runtime optimization note
 
@@ -129,6 +134,7 @@ Interpretation rule:
 - The default batch topic path now hydrates only missing/stale catalogs through the single-catalog topic task instead of sweeping every content-bearing catalog.
 - The default batch table path now preflights eligibility and skips the heavy Camelot subprocess on zero-work runs.
 - The earlier `download` ranking in triage profiling was a workload-fidelity artifact; workload-only profiling now excludes unrelated staged URL work from selected-manifest runs.
+- The near-no-op triage run that followed those fixes was still useful as a fidelity check, but not as a promotion-grade benchmark; representative baseline evidence now comes from a pinned manifest package plus controlled preconditioning.
 
 ### Other Performance-Related Changes
 

@@ -104,6 +104,14 @@ Repeatable baseline run:
 python scripts/profile_pipeline.py --mode baseline --manifest profiling/manifests/<name>.txt
 ```
 
+Baseline manifest package workflow:
+```bash
+python scripts/build_profile_manifest.py --name <name>
+python scripts/build_profile_manifest.py --name <name> --write
+python scripts/profile_pipeline.py --mode baseline --manifest profiling/manifests/<name>.txt --dry-run-prepare
+python scripts/profile_pipeline.py --mode baseline --manifest profiling/manifests/<name>.txt
+```
+
 Analyze an existing profiling run:
 ```bash
 python scripts/analyze_pipeline_profile.py --run-id <run_id>
@@ -118,6 +126,8 @@ Artifacts land under `experiments/results/profiling/<run_id>/` and include:
 Interpretation:
 - `triage` runs are diagnostic and optimized for speed.
 - `baseline` runs use a pinned manifest and are the only profiling runs that should be compared directly over time.
+- baseline manifests can include a checked-in `.json` sidecar that recreates a representative pending-work workload for just the selected catalog IDs before the run starts.
+- `--dry-run-prepare` shows the exact preconditioning plan without mutating the workload.
 - queue wait is tracked separately from task execution so the report can distinguish worker backlog from slow execution.
 - default core and batch pipeline runs now keep search fresh with targeted per-catalog reindex hooks; use the manual reindex command below only when you changed indexing logic or need a repair rebuild.
 - default snapshot backfills now run in-process on the hot path, so zero-work summary/agenda/entity/org/people phases do not pay Python subprocess startup tax.

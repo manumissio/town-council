@@ -599,6 +599,9 @@ Commands:
 ```bash
 cd "$REPO_ROOT"
 python scripts/profile_pipeline.py --mode triage
+python scripts/build_profile_manifest.py --name <name>
+python scripts/build_profile_manifest.py --name <name> --write
+python scripts/profile_pipeline.py --mode baseline --manifest profiling/manifests/<name>.txt --dry-run-prepare
 python scripts/profile_pipeline.py --mode baseline --manifest profiling/manifests/<name>.txt
 python scripts/analyze_pipeline_profile.py --run-id <run_id>
 ```
@@ -607,6 +610,7 @@ Runtime note:
 - `triage` manifest selection is resolved inside the running Docker stack so it uses the same database/runtime context as the live pipeline.
 - `baseline` manifest parsing remains file-only and can run from the host.
 - selected-manifest profiling runs are workload-only by default, so they intentionally skip unrelated global prelude work such as staged promotion and downloader processing.
+- baseline runs may also load a checked-in manifest sidecar at `profiling/manifests/<name>.json` to reset only the selected workload back into a representative pending-work state before profiling starts.
 
 Artifacts:
 - `experiments/results/profiling/<run_id>/run_manifest.json`
@@ -634,6 +638,13 @@ Interpretation rules:
 - profiling artifacts are observational and should not be used as a source of business truth
 - `result.json` is the primary contract for elapsed-time totals; if totals are incomplete or derived from fallback spans, the analyzer should mark the run `reduced-confidence`
 - zero-work summary/agenda/entity/org/people backlog phases should now be nearly free because the default orchestration invokes their callable runners directly instead of spawning Python subprocesses
+
+Manifest package guidance:
+- keep baseline manifests checked in under `profiling/manifests/`
+- use the `.txt` file as the pinned catalog list and the optional `.json` sidecar as the controlled preconditioning contract
+- run `python scripts/build_profile_manifest.py --name <name>` first to inspect candidate counts before writing a package
+- run `python scripts/profile_pipeline.py --mode baseline --manifest profiling/manifests/<name>.txt --dry-run-prepare` before a baseline profile when a sidecar is present
+- sidecar preconditioning is intentionally scoped to derived or rebuildable fields on the selected workload only; if a candidate is not safe to reset, the builder should reject it instead of broadening the mutation scope
 
 Manifest guidance:
 - keep baseline manifests checked in under `profiling/manifests/`
