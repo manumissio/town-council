@@ -65,6 +65,12 @@ MAX_SUMMARY_TEXT_LENGTH = 50000
 # SpaCy's NLP model can handle this much before memory becomes an issue
 NLP_MAX_TEXT_LENGTH = 100000
 
+# Prefer smaller, entity-rich slices before sending text into spaCy.
+NLP_ENTITY_AGENDA_MAX_TEXT = int(os.getenv("NLP_ENTITY_AGENDA_MAX_TEXT", "24000"))
+NLP_ENTITY_NONAGENDA_MAX_TEXT = int(os.getenv("NLP_ENTITY_NONAGENDA_MAX_TEXT", "16000"))
+NLP_ENTITY_PREFIX_FALLBACK_TEXT = int(os.getenv("NLP_ENTITY_PREFIX_FALLBACK_TEXT", "12000"))
+NLP_ENTITY_MIN_CAPITALIZED_NAME_CUES = int(os.getenv("NLP_ENTITY_MIN_CAPITALIZED_NAME_CUES", "2"))
+
 
 # =============================================================================
 # AI/LLM CONFIGURATION

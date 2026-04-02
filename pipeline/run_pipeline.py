@@ -40,6 +40,9 @@ def _catalog_entities_need_nlp(catalog_model):
     return or_(
         catalog_model.entities.is_(None),
         cast(catalog_model.entities, Text) == "null",
+        catalog_model.content_hash.is_(None),
+        catalog_model.entities_source_hash.is_(None),
+        catalog_model.entities_source_hash != catalog_model.content_hash,
     )
 
 

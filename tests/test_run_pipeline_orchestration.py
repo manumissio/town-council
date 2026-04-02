@@ -480,6 +480,9 @@ def test_catalog_entities_need_nlp_uses_postgres_safe_json_null_check():
 
     assert "catalog.entities IS NULL" in compiled
     assert "CAST(catalog.entities AS TEXT) = %(param_1)s" in compiled
+    assert "catalog.content_hash IS NULL" in compiled
+    assert "catalog.entities_source_hash IS NULL" in compiled
+    assert "catalog.entities_source_hash != catalog.content_hash" in compiled
 
 
 def test_select_catalog_ids_for_entity_backfill_keeps_json_null_rows(mocker):
@@ -492,6 +495,7 @@ def test_select_catalog_ids_for_entity_backfill_keeps_json_null_rows(mocker):
         url_hash="nlp-json-null",
         location="/tmp/nlp-json-null.pdf",
         content="ready",
+        content_hash="hash-ready",
         entities={"placeholder": True},
         extraction_status="complete",
     )
@@ -499,7 +503,9 @@ def test_select_catalog_ids_for_entity_backfill_keeps_json_null_rows(mocker):
         url_hash="done-json",
         location="/tmp/done-json.pdf",
         content="done",
+        content_hash="hash-done",
         entities={"ok": True},
+        entities_source_hash="hash-done",
         extraction_status="complete",
     )
     db.add_all([nlp_json_null, done_catalog])
@@ -525,6 +531,7 @@ def test_select_catalog_ids_for_entity_backfill_keeps_nlp_only_rows(mocker):
         url_hash="needs-entities",
         location="/tmp/entities.pdf",
         content="ready",
+        content_hash="hash-ready",
         entities=None,
         extraction_status="complete",
     )
@@ -532,7 +539,9 @@ def test_select_catalog_ids_for_entity_backfill_keeps_nlp_only_rows(mocker):
         url_hash="done",
         location="/tmp/done.pdf",
         content="done",
+        content_hash="hash-done",
         entities={"ok": True},
+        entities_source_hash="hash-done",
         extraction_status="complete",
     )
     db.add_all([needs_entities, done_catalog])
@@ -541,6 +550,41 @@ def test_select_catalog_ids_for_entity_backfill_keeps_nlp_only_rows(mocker):
     try:
         ids = run_pipeline.select_catalog_ids_for_entity_backfill(db)
         assert ids == [needs_entities.id]
+    finally:
+        db.close()
+        engine.dispose()
+
+
+def test_select_catalog_ids_for_entity_backfill_keeps_stale_rows():
+    engine = create_engine("sqlite:///:memory:")
+    Base.metadata.create_all(engine)
+    Session = sessionmaker(bind=engine)
+    db = Session()
+
+    fresh_catalog = Catalog(
+        url_hash="fresh-entities",
+        location="/tmp/fresh-entities.pdf",
+        content="ready",
+        content_hash="hash-a",
+        entities={"ok": True},
+        entities_source_hash="hash-a",
+        extraction_status="complete",
+    )
+    stale_catalog = Catalog(
+        url_hash="stale-entities",
+        location="/tmp/stale-entities.pdf",
+        content="ready",
+        content_hash="hash-b",
+        entities={"ok": True},
+        entities_source_hash="hash-a",
+        extraction_status="complete",
+    )
+    db.add_all([fresh_catalog, stale_catalog])
+    db.commit()
+
+    try:
+        ids = run_pipeline.select_catalog_ids_for_entity_backfill(db)
+        assert ids == [stale_catalog.id]
     finally:
         db.close()
         engine.dispose()

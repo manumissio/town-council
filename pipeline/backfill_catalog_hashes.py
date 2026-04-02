@@ -43,6 +43,10 @@ def backfill(limit: int | None = None) -> dict:
                 c.topics_source_hash = content_hash
                 changed = True
 
+            if c.entities is not None and not c.entities_source_hash and content_hash:
+                c.entities_source_hash = content_hash
+                changed = True
+
             if changed:
                 updated += 1
 
@@ -53,4 +57,3 @@ def backfill(limit: int | None = None) -> dict:
 
 if __name__ == "__main__":
     print(backfill())
-

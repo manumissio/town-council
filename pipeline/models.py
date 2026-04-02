@@ -329,6 +329,8 @@ class Catalog(Base):
     summary_extractive = Column(Text)
     
     entities = Column(JSON, nullable=True)
+    # Hash of the `content` version that `entities` were generated from.
+    entities_source_hash = Column(String(64), nullable=True)
     tables = Column(JSON, nullable=True)
     topics = Column(JSON, nullable=True)
     # Hash of the `content` version that `topics` were generated from.

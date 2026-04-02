@@ -233,6 +233,21 @@ def _prepare_manifest_package_via_docker(manifest_rel: str, *, dry_run: bool) ->
     return _run_json_command(command, cwd=REPO_ROOT)
 
 
+def _run_db_migrate_via_docker(*, log_path: Path) -> None:
+    command = [
+        "docker",
+        "compose",
+        "exec",
+        "-T",
+        "-w",
+        "/app/pipeline",
+        TRIAGE_SELECTOR_SERVICE,
+        "python",
+        "db_migrate.py",
+    ]
+    _run_command(command, env=os.environ.copy(), cwd=REPO_ROOT, log_path=log_path)
+
+
 def _select_triage_catalog_ids_via_docker(limit: int, city: str | None) -> dict:
     selector = (
         "import json; "
@@ -375,6 +390,9 @@ def main(argv: list[str] | None = None) -> int:
     provider_counters_before_run = _provider_counters_before_run()
     manifest_rel = _path_for_profile_env(manifest_copy)
     prepare_summary = None
+    command_log = run_dir / "commands.log"
+    if manifest_package is not None:
+        _run_db_migrate_via_docker(log_path=command_log)
     if args.dry_run_prepare:
         if args.mode != "baseline":
             raise SystemExit("--dry-run-prepare is only supported for baseline mode")
@@ -437,7 +455,6 @@ def main(argv: list[str] | None = None) -> int:
             ["docker", "compose", "exec", "-T", "-e", f"TC_PROFILE_RUN_ID={run_id}", "-e", f"TC_PROFILE_MODE={args.mode}", "-e", f"TC_PROFILE_ARTIFACT_DIR={artifact_dir_rel}", "-e", f"TC_PROFILE_BASELINE_VALID={'1' if args.mode == 'baseline' else '0'}", "-e", f"TC_PROFILE_CATALOG_MANIFEST={manifest_rel}", "-e", "TC_PROFILE_WORKLOAD_ONLY=1", "-w", "/app/pipeline", BATCH_PROFILE_SERVICE, "python", "run_batch_enrichment.py"]
         )
 
-    command_log = run_dir / "commands.log"
     started = time.perf_counter()
     started_at = _utc_now_iso()
     status = "failed"

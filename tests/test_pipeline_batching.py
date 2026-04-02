@@ -69,6 +69,10 @@ def test_run_entity_backfill_returns_zero_counts_when_nothing_is_selected(mocker
         "updated_catalog_ids": [],
         "execution_mode": "noop",
         "chunks": 0,
+        "ner_processed": 0,
+        "ner_skipped_low_signal": 0,
+        "freshness_advanced": 0,
+        "candidate_slice_fallback_prefix": 0,
     }
 
 
@@ -94,8 +98,117 @@ def test_run_entity_backfill_uses_in_process_fast_path_for_small_snapshots(mocke
     assert counts["changed_catalogs"] == 3
     assert counts["updated_catalog_ids"] == [1, 2, 3]
     assert counts["execution_mode"] == "in_process"
+    assert counts["ner_processed"] == 0
+    assert counts["ner_skipped_low_signal"] == 0
     process_chunk_spy.assert_called_once_with([1, 2, 3])
     executor_spy.assert_not_called()
+
+
+def test_process_entity_chunk_marks_low_signal_docs_fresh_without_spacy(db_session, mocker):
+    from pipeline.backfill_entities import process_entity_chunk
+    from pipeline.content_hash import compute_content_hash
+    from pipeline.models import Catalog, Document, Event, Place
+
+    place = Place(
+        name="sample",
+        state="CA",
+        ocd_division_id="ocd-division/country:us/state:ca/place:sample",
+        crawler_name="sample",
+    )
+    db_session.add(place)
+    db_session.flush()
+    event = Event(place_id=place.id, ocd_division_id=place.ocd_division_id, name="Sample Council")
+    db_session.add(event)
+    db_session.flush()
+
+    catalog = Catalog(
+        url="low-signal",
+        url_hash="low-signal",
+        location="/tmp/low-signal.pdf",
+        filename="low-signal.pdf",
+        content="general budget attachment with appendix tables only",
+        entities=None,
+    )
+    db_session.add(catalog)
+    db_session.flush()
+    db_session.add(
+        Document(
+            place_id=place.id,
+            event_id=event.id,
+            catalog_id=catalog.id,
+            category="agenda",
+            url="https://example.com/low-signal",
+        )
+    )
+    db_session.commit()
+
+    extract_spy = mocker.patch("pipeline.nlp_worker.extract_entities")
+
+    counts = process_entity_chunk([catalog.id])
+
+    db_session.expire_all()
+    refreshed = db_session.get(Catalog, catalog.id)
+    assert counts["complete"] == 1
+    assert counts["ner_processed"] == 0
+    assert counts["ner_skipped_low_signal"] == 1
+    assert refreshed.entities == {"orgs": [], "locs": [], "persons": []}
+    assert refreshed.entities_source_hash == compute_content_hash(refreshed.content)
+    extract_spy.assert_not_called()
+
+
+def test_process_entity_chunk_backfills_missing_entities_source_hash_without_rerunning_ner(db_session, mocker):
+    from pipeline.backfill_entities import process_entity_chunk
+    from pipeline.content_hash import compute_content_hash
+    from pipeline.models import Catalog, Document, Event, Place
+
+    place = Place(
+        name="sample",
+        state="CA",
+        ocd_division_id="ocd-division/country:us/state:ca/place:sample",
+        crawler_name="sample",
+    )
+    db_session.add(place)
+    db_session.flush()
+    event = Event(place_id=place.id, ocd_division_id=place.ocd_division_id, name="Sample Council")
+    db_session.add(event)
+    db_session.flush()
+
+    content = "Roll Call: Mayor Jane Smith, Councilmember Alex Brown"
+    catalog = Catalog(
+        url="missing-entity-hash",
+        url_hash="missing-entity-hash",
+        location="/tmp/missing-entity-hash.pdf",
+        filename="missing-entity-hash.pdf",
+        content=content,
+        content_hash=compute_content_hash(content),
+        entities={"persons": ["Jane Smith", "Alex Brown"], "orgs": [], "locs": []},
+        entities_source_hash=None,
+    )
+    db_session.add(catalog)
+    db_session.flush()
+    db_session.add(
+        Document(
+            place_id=place.id,
+            event_id=event.id,
+            catalog_id=catalog.id,
+            category="agenda",
+            url="https://example.com/missing-entity-hash",
+        )
+    )
+    db_session.commit()
+
+    extract_spy = mocker.patch("pipeline.nlp_worker.extract_entities")
+
+    counts = process_entity_chunk([catalog.id])
+
+    db_session.expire_all()
+    refreshed = db_session.get(Catalog, catalog.id)
+    assert counts["complete"] == 1
+    assert counts["updated_catalog_ids"] == []
+    assert counts["ner_processed"] == 0
+    assert counts["freshness_advanced"] == 1
+    assert refreshed.entities_source_hash == refreshed.content_hash
+    extract_spy.assert_not_called()
 
 
 @pytest.fixture

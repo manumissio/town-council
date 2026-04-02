@@ -26,6 +26,7 @@ def test_purge_clears_catalog_derived_fields_and_agenda_items():
         topics=["Budget"],
         topics_source_hash="content_hash",
         entities={"orgs": ["City"]},
+        entities_source_hash="content_hash",
         related_ids=[1, 2],
         tables=[{"rows": 1}],
     )
@@ -49,6 +50,7 @@ def test_purge_clears_catalog_derived_fields_and_agenda_items():
     assert refreshed.related_ids is None
     assert refreshed.tables is None
     assert refreshed.content_hash is None
+    assert refreshed.entities_source_hash is None
     assert refreshed.summary_source_hash is None
     assert refreshed.topics_source_hash is None
     assert s.query(AgendaItem).count() == 0

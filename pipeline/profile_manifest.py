@@ -283,6 +283,7 @@ def apply_preconditioning(package: dict[str, Any], *, dry_run: bool = False) -> 
                 .update(
                     {
                         Catalog.entities: None,
+                        Catalog.entities_source_hash: None,
                         Catalog.related_ids: None,
                     },
                     synchronize_session=False,
