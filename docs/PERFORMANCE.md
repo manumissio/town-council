@@ -135,6 +135,11 @@ Interpretation rule:
 - The default batch table path now preflights eligibility and skips the heavy Camelot subprocess on zero-work runs.
 - The earlier `download` ranking in triage profiling was a workload-fidelity artifact; workload-only profiling now excludes unrelated staged URL work from selected-manifest runs.
 - The near-no-op triage run that followed those fixes was still useful as a fidelity check, but not as a promotion-grade benchmark; representative baseline evidence now comes from a pinned manifest package plus controlled preconditioning.
+- The next baseline optimization pass moved agenda and summary maintenance onto backlog-specific routing instead of the full interactive defaults:
+  - agenda segmentation now runs heuristic-first in maintenance mode with a shorter maintenance timeout
+  - summary hydration now uses a shorter maintenance timeout and deterministic fallback on provider timeout/unavailable failures
+- On the same `baseline_representative_v1` manifest, that reduced combined elapsed time from `355.655s` in `pipeline_profile_baseline_20260402_020239` to `85.202s` in `pipeline_profile_baseline_20260402_023734`.
+- After that change, `segment_agenda` dropped from `270.549s` to `0.178s`; `summarize` is now the primary remaining provider bottleneck.
 
 ### Other Performance-Related Changes
 

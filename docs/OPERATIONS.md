@@ -638,6 +638,12 @@ Interpretation rules:
 - profiling artifacts are observational and should not be used as a source of business truth
 - `result.json` is the primary contract for elapsed-time totals; if totals are incomplete or derived from fallback spans, the analyzer should mark the run `reduced-confidence`
 - zero-work summary/agenda/entity/org/people backlog phases should now be nearly free because the default orchestration invokes their callable runners directly instead of spawning Python subprocesses
+- default pipeline maintenance backfills now use backlog-specific latency guards:
+  - agenda segmentation runs in `maintenance` mode with heuristic-first routing and a shorter maintenance timeout
+  - summary hydration runs with a shorter maintenance timeout and deterministic fallback enabled only for provider timeout/unavailable failures
+- interpret the one-line backlog logs as the primary maintenance evidence:
+  - `agenda_segmentation_backfill ... llm_skipped_heuristic_first=... heuristic_complete=... timeout_fallbacks=...`
+  - `summary_hydration_backfill ... llm_complete=... deterministic_fallback_complete=...`
 
 Manifest package guidance:
 - keep baseline manifests checked in under `profiling/manifests/`
