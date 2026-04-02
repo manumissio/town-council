@@ -68,15 +68,14 @@ def test_process_document_chunk_keeps_prior_success_when_later_commit_fails(mock
     mocker.patch("pipeline.models.db_connect")
     mock_extractor_module = MagicMock()
     mock_extractor_module.extract_text.side_effect = ["doc1", "doc2"]
-    mock_nlp_module = MagicMock()
-    mock_nlp_module.extract_entities.side_effect = [{"persons": ["A"]}, {"persons": ["B"]}]
     mocker.patch.dict(
         sys.modules,
-        {"pipeline.nlp_worker": mock_nlp_module, "pipeline.extractor": mock_extractor_module},
+        {"pipeline.extractor": mock_extractor_module},
     )
 
     processed = process_document_chunk([1, 2])
 
     assert processed == 1
     assert first.content == "doc1"
-    assert first.entities == {"persons": ["A"]}
+    # NLP enrichment now runs in the batch entity backfill path, not here.
+    assert first.entities is None
