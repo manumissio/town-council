@@ -14,10 +14,10 @@ from sqlalchemy import and_, or_
 from pipeline.backlog_maintenance import (
     build_deterministic_agenda_summary_payload as _build_deterministic_agenda_summary_payload,
     capture_agenda_fallback_events as _capture_agenda_fallback_events,
-    capture_summary_fallback_events as _capture_summary_fallback_events,
     looks_structured_enough_for_heuristic_segmentation as _looks_structured_enough_for_heuristic_segmentation,
     segment_catalog_with_mode as _segment_one_catalog,
     segment_timeout_override as _segment_timeout_override,
+    summarize_catalog_with_maintenance_mode as _summarize_catalog_with_maintenance_mode,
     summary_timeout_override as _summary_timeout_override,
 )
 from pipeline.city_scope import source_aliases_for_city
@@ -75,6 +75,7 @@ def _empty_summary_counts() -> dict[str, int]:
         "not_generated_yet": 0,
         "error": 0,
         "other": 0,
+        "agenda_deterministic_complete": 0,
         "llm_complete": 0,
         "deterministic_fallback_complete": 0,
     }
@@ -433,24 +434,19 @@ def _summarize_one_catalog(
     *,
     summary_fallback_mode: str = "none",
 ) -> dict[str, Any]:
-    with _capture_summary_fallback_events() as fallback_events:
-        try:
-            result = generate_summary_task.run(catalog_id, force=False) or {}
-        except Exception as exc:
-            result = {"status": "error", "error": str(exc)}
-    status = str(result.get("status") or "other")
-    provider_issue = bool(fallback_events.get("timeout", 0) or fallback_events.get("unavailable", 0))
-    if summary_fallback_mode == "deterministic" and status == "error" and provider_issue:
-        fallback_result = _build_deterministic_agenda_summary_payload(
+    try:
+        return _summarize_catalog_with_maintenance_mode(
             catalog_id,
-            reindex_callback=reindex_catalog,
-            embed_callback=lambda target_catalog_id: embed_catalog_task.delay(target_catalog_id),
+            summary_fallback_mode=summary_fallback_mode,
+            generate_summary_callable=lambda target_catalog_id: generate_summary_task.run(target_catalog_id, force=False),
+            deterministic_summary_callable=lambda target_catalog_id: _build_deterministic_agenda_summary_payload(
+                target_catalog_id,
+                reindex_callback=reindex_catalog,
+                embed_callback=lambda summary_catalog_id: embed_catalog_task.delay(summary_catalog_id),
+            ),
         )
-        fallback_result["provider_failure"] = dict(fallback_events)
-        return fallback_result
-    if status == "complete":
-        result["completion_mode"] = "llm"
-    return result
+    except Exception as exc:
+        return {"status": "error", "error": str(exc)}
 
 
 def _run_summary_city(
@@ -498,7 +494,9 @@ def _run_summary_city(
             else:
                 counts["other"] += 1
             completion_mode = str(result.get("completion_mode") or "")
-            if completion_mode == "llm":
+            if completion_mode == "agenda_deterministic":
+                counts["agenda_deterministic_complete"] += 1
+            elif completion_mode == "llm":
                 counts["llm_complete"] += 1
             elif completion_mode == "deterministic_fallback":
                 counts["deterministic_fallback_complete"] += 1

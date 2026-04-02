@@ -198,11 +198,11 @@ def test_run_summary_hydration_backfill_counts_outcomes(mocker):
     mocker.patch("pipeline.tasks.SessionLocal", return_value=mock_db)
     mocker.patch("pipeline.tasks.select_catalog_ids_for_summary_hydration", return_value=[1, 2, 3])
     summarize_spy = mocker.patch(
-        "pipeline.tasks.summarize_catalog_with_optional_fallback",
+        "pipeline.tasks.summarize_catalog_with_maintenance_mode",
         side_effect=[
-            {"status": "complete", "completion_mode": "llm"},
+            {"status": "complete", "completion_mode": "agenda_deterministic"},
             {"status": "blocked_low_signal"},
-            {"status": "complete", "completion_mode": "deterministic_fallback"},
+            {"status": "complete", "completion_mode": "llm"},
         ],
     )
 
@@ -211,8 +211,9 @@ def test_run_summary_hydration_backfill_counts_outcomes(mocker):
     assert counts["selected"] == 3
     assert counts["complete"] == 2
     assert counts["blocked_low_signal"] == 1
+    assert counts["agenda_deterministic_complete"] == 1
     assert counts["llm_complete"] == 1
-    assert counts["deterministic_fallback_complete"] == 1
+    assert counts["deterministic_fallback_complete"] == 0
     assert summarize_spy.call_count == 3
 
 

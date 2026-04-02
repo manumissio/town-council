@@ -16,6 +16,7 @@ from pipeline.agenda_service import persist_agenda_items
 from pipeline.config import AGENDA_SUMMARY_MAX_INPUT_CHARS, AGENDA_SUMMARY_MIN_RESERVED_OUTPUT_CHARS
 from pipeline.content_hash import compute_content_hash
 from pipeline.db_session import db_session
+from pipeline.document_kinds import normalize_summary_doc_kind
 from pipeline.laserfiche_error_pages import classify_catalog_bad_content
 from pipeline.models import AgendaItem, Catalog, Document
 
@@ -354,3 +355,40 @@ def summarize_catalog_with_optional_fallback(
     if status == "complete":
         result["completion_mode"] = "llm"
     return result
+
+
+def summarize_catalog_with_maintenance_mode(
+    catalog_id: int,
+    *,
+    summary_fallback_mode: str = "none",
+    generate_summary_callable: Callable[[int], dict[str, Any] | None],
+    deterministic_summary_callable: Callable[[int], dict[str, Any]],
+) -> dict[str, Any]:
+    """
+    Maintenance hydration is allowed to skip agenda LLM summaries entirely.
+
+    Why:
+    Agenda backlog runs already have structured agenda items, and baseline profiling
+    showed we were often paying for an LLM agenda summary only to replace it with the
+    same deterministic agenda-items summary. Interactive one-off summary generation
+    still uses the normal task path; this optimization is only for maintenance flows.
+    """
+    with db_session() as session:
+        doc = session.query(Document).filter_by(catalog_id=catalog_id).first()
+        doc_kind = normalize_summary_doc_kind(doc.category if doc else "unknown")
+
+    if doc_kind == "agenda":
+        try:
+            result = deterministic_summary_callable(catalog_id)
+        except Exception as exc:
+            return {"status": "error", "error": str(exc)}
+        if str(result.get("status") or "other") == "complete":
+            result["completion_mode"] = "agenda_deterministic"
+        return result
+
+    return summarize_catalog_with_optional_fallback(
+        catalog_id,
+        summary_fallback_mode=summary_fallback_mode,
+        generate_summary_callable=generate_summary_callable,
+        deterministic_summary_callable=deterministic_summary_callable,
+    )

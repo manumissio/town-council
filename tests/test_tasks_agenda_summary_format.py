@@ -4,6 +4,7 @@ from unittest.mock import MagicMock
 # Prevent importing llama-cpp during unit tests.
 sys.modules["llama_cpp"] = MagicMock()
 
+from pipeline import backlog_maintenance
 from pipeline import tasks
 from pipeline.models import AgendaItem, Document
 
@@ -183,7 +184,7 @@ def test_run_summary_hydration_backfill_uses_deterministic_fallback_for_provider
 
     summarize_spy = mocker.patch.object(
         tasks,
-        "summarize_catalog_with_optional_fallback",
+        "summarize_catalog_with_maintenance_mode",
         side_effect=[
             {"status": "complete", "completion_mode": "llm"},
             {"status": "complete", "completion_mode": "deterministic_fallback"},
@@ -202,3 +203,57 @@ def test_run_summary_hydration_backfill_uses_deterministic_fallback_for_provider
     assert counts["llm_complete"] == 1
     assert counts["deterministic_fallback_complete"] == 1
     assert summarize_spy.call_count == 2
+
+
+def test_summarize_catalog_with_maintenance_mode_prefers_deterministic_for_agenda(mocker):
+    mock_session = MagicMock()
+    mock_session.__enter__.return_value = mock_session
+    mock_session.__exit__.return_value = False
+    mock_session.query.return_value.filter_by.return_value.first.return_value = MagicMock(category="agenda_html")
+    mocker.patch.object(backlog_maintenance, "db_session", return_value=mock_session)
+
+    generate_spy = MagicMock()
+    deterministic_spy = MagicMock(return_value={"status": "complete", "summary": "agenda summary"})
+
+    result = backlog_maintenance.summarize_catalog_with_maintenance_mode(
+        101,
+        summary_fallback_mode="deterministic",
+        generate_summary_callable=generate_spy,
+        deterministic_summary_callable=deterministic_spy,
+    )
+
+    assert result["status"] == "complete"
+    assert result["completion_mode"] == "agenda_deterministic"
+    generate_spy.assert_not_called()
+    deterministic_spy.assert_called_once_with(101)
+
+
+def test_summarize_catalog_with_maintenance_mode_keeps_llm_path_for_non_agenda(mocker):
+    mock_session = MagicMock()
+    mock_session.__enter__.return_value = mock_session
+    mock_session.__exit__.return_value = False
+    mock_session.query.return_value.filter_by.return_value.first.return_value = MagicMock(category="minutes")
+    mocker.patch.object(backlog_maintenance, "db_session", return_value=mock_session)
+
+    fallback_spy = mocker.patch.object(
+        backlog_maintenance,
+        "summarize_catalog_with_optional_fallback",
+        return_value={"status": "complete", "completion_mode": "llm"},
+    )
+    generate_spy = MagicMock()
+    deterministic_spy = MagicMock()
+
+    result = backlog_maintenance.summarize_catalog_with_maintenance_mode(
+        202,
+        summary_fallback_mode="deterministic",
+        generate_summary_callable=generate_spy,
+        deterministic_summary_callable=deterministic_spy,
+    )
+
+    assert result["completion_mode"] == "llm"
+    fallback_spy.assert_called_once_with(
+        202,
+        summary_fallback_mode="deterministic",
+        generate_summary_callable=generate_spy,
+        deterministic_summary_callable=deterministic_spy,
+    )

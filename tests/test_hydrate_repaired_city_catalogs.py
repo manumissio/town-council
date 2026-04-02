@@ -90,6 +90,7 @@ def test_hydrate_repaired_city_catalogs_emits_stage_progress(mocker, capsys):
             "not_generated_yet": 0,
             "error": 0,
             "other": 0,
+            "agenda_deterministic_complete": 1,
             "llm_complete": 1,
             "deterministic_fallback_complete": 0,
         },
@@ -243,6 +244,7 @@ def test_hydrate_repaired_city_catalogs_json_mode(mocker, capsys):
             "not_generated_yet": 0,
             "error": 0,
             "other": 0,
+            "agenda_deterministic_complete": 0,
             "llm_complete": 0,
             "deterministic_fallback_complete": 0,
         },
@@ -355,32 +357,31 @@ def test_segment_timeout_override_is_scoped(mocker):
 
 
 def test_summarize_one_catalog_converts_retry_exception_to_error(mocker):
-    mocker.patch.object(mod.generate_summary_task, "run", side_effect=RuntimeError("retry-called"))
+    mocker.patch.object(
+        mod,
+        "_summarize_catalog_with_maintenance_mode",
+        side_effect=RuntimeError("retry-called"),
+    )
 
     result = mod._summarize_one_catalog(101)
 
     assert result == {"status": "error", "error": "retry-called"}
 
 
-def test_summarize_one_catalog_uses_deterministic_fallback_on_timeout(mocker):
-    @contextmanager
-    def _fake_capture():
-        yield {"timeout": 1}
-
-    mocker.patch.object(mod, "_capture_summary_fallback_events", _fake_capture)
-    mocker.patch.object(mod.generate_summary_task, "run", side_effect=RuntimeError("retry-called"))
-    fallback_spy = mocker.patch.object(
+def test_summarize_one_catalog_uses_shared_maintenance_routing(mocker):
+    maintenance_spy = mocker.patch.object(
         mod,
-        "_build_deterministic_agenda_summary_payload",
-        return_value={"status": "complete", "summary": "fallback", "completion_mode": "deterministic_fallback"},
+        "_summarize_catalog_with_maintenance_mode",
+        return_value={"status": "complete", "summary": "agenda summary", "completion_mode": "agenda_deterministic"},
     )
 
     result = mod._summarize_one_catalog(101, summary_fallback_mode="deterministic")
 
     assert result["status"] == "complete"
-    assert result["completion_mode"] == "deterministic_fallback"
-    fallback_spy.assert_called_once()
-    assert fallback_spy.call_args.args == (101,)
+    assert result["completion_mode"] == "agenda_deterministic"
+    maintenance_spy.assert_called_once()
+    assert maintenance_spy.call_args.args == (101,)
+    assert maintenance_spy.call_args.kwargs["summary_fallback_mode"] == "deterministic"
 
 
 def test_run_summary_city_continues_after_summary_error(mocker, capsys):
@@ -389,9 +390,9 @@ def test_run_summary_city_continues_after_summary_error(mocker, capsys):
         mod,
         "_summarize_one_catalog",
         side_effect=[
-            {"status": "complete", "summary": "ok", "completion_mode": "llm"},
+            {"status": "complete", "summary": "ok", "completion_mode": "agenda_deterministic"},
             {"status": "error", "error": "retry-called"},
-            {"status": "complete", "summary": "fallback", "completion_mode": "deterministic_fallback"},
+            {"status": "complete", "summary": "llm", "completion_mode": "llm"},
         ],
     )
 
@@ -417,8 +418,9 @@ def test_run_summary_city_continues_after_summary_error(mocker, capsys):
     captured = capsys.readouterr()
     assert counts["complete"] == 2
     assert counts["error"] == 1
+    assert counts["agenda_deterministic_complete"] == 1
     assert counts["llm_complete"] == 1
-    assert counts["deterministic_fallback_complete"] == 1
+    assert counts["deterministic_fallback_complete"] == 0
     assert "last_error='retry-called'" in captured.out
     assert "selector='city_agenda_repair'" in captured.out
 

@@ -11,7 +11,7 @@ from typing import Any, Callable
 
 from pipeline.backlog_maintenance import (
     build_deterministic_agenda_summary_payload,
-    summarize_catalog_with_optional_fallback,
+    summarize_catalog_with_maintenance_mode,
     summary_timeout_override,
 )
 from pipeline.laserfiche_error_pages import classify_catalog_bad_content
@@ -276,6 +276,7 @@ def run_summary_hydration_backfill(
         "not_generated_yet": 0,
         "error": 0,
         "other": 0,
+        "agenda_deterministic_complete": 0,
         "llm_complete": 0,
         "deterministic_fallback_complete": 0,
     }
@@ -304,7 +305,7 @@ def run_summary_hydration_backfill(
 
     with summary_timeout_override(summary_timeout_seconds):
         for index, cid in enumerate(catalog_ids, start=1):
-            result = summarize_catalog_with_optional_fallback(
+            result = summarize_catalog_with_maintenance_mode(
                 cid,
                 summary_fallback_mode=summary_fallback_mode,
                 generate_summary_callable=lambda catalog_id: generate_summary_task.run(catalog_id, force=force),
@@ -321,7 +322,9 @@ def run_summary_hydration_backfill(
             else:
                 counts["other"] += 1
             completion_mode = str((result or {}).get("completion_mode") or "")
-            if completion_mode == "llm":
+            if completion_mode == "agenda_deterministic":
+                counts["agenda_deterministic_complete"] += 1
+            elif completion_mode == "llm":
                 counts["llm_complete"] += 1
             elif completion_mode == "deterministic_fallback":
                 counts["deterministic_fallback_complete"] += 1
@@ -343,7 +346,7 @@ def run_summary_hydration_backfill(
                 )
 
     logger.info(
-        "summary_hydration_backfill selected=%s complete=%s cached=%s stale=%s blocked_low_signal=%s blocked_ungrounded=%s not_generated_yet=%s error=%s other=%s llm_complete=%s deterministic_fallback_complete=%s",
+        "summary_hydration_backfill selected=%s complete=%s cached=%s stale=%s blocked_low_signal=%s blocked_ungrounded=%s not_generated_yet=%s error=%s other=%s agenda_deterministic_complete=%s llm_complete=%s deterministic_fallback_complete=%s",
         counts["selected"],
         counts["complete"],
         counts["cached"],
@@ -353,6 +356,7 @@ def run_summary_hydration_backfill(
         counts["not_generated_yet"],
         counts["error"],
         counts["other"],
+        counts["agenda_deterministic_complete"],
         counts["llm_complete"],
         counts["deterministic_fallback_complete"],
     )
