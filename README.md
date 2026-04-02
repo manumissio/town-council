@@ -120,6 +120,8 @@ Interpretation:
 - `baseline` runs use a pinned manifest and are the only profiling runs that should be compared directly over time.
 - queue wait is tracked separately from task execution so the report can distinguish worker backlog from slow execution.
 - default core and batch pipeline runs now keep search fresh with targeted per-catalog reindex hooks; use the manual reindex command below only when you changed indexing logic or need a repair rebuild.
+- default snapshot backfills now run in-process on the hot path, so zero-work summary/agenda/entity/org/people phases do not pay Python subprocess startup tax.
+- the script entrypoints for those backfills still exist as manual/operator tools; the pipeline just no longer shells into them by default.
 - default batch topic modeling now hydrates only missing/stale topics via the single-catalog topic task, and table extraction is preflighted so zero-work runs skip the heavy Camelot subprocess entirely.
 
 ### Optional: Reindex Meilisearch only (no extraction/AI)

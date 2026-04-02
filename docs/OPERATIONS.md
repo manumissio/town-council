@@ -113,6 +113,8 @@ docker compose run --rm topics
 ```
 
 Batch runtime notes:
+- default core generation backfills now invoke agenda segmentation and summary hydration in-process; `scripts/backfill_agenda_segmentation.py` and `scripts/backfill_summaries.py` remain manual entrypoints
+- default batch enrichment now invokes entity/org/people backlog runners in-process; `backfill_entities.py`, `backfill_orgs.py`, and `person_linker.py` remain operator tools when you want to run those steps directly
 - default `run_batch_enrichment.py` now snapshots eligible topic/table work before invoking heavy steps
 - topic modeling only hydrates catalogs whose topics are missing or stale relative to `content_hash`
 - table extraction skips the Camelot subprocess entirely when there are no eligible catalogs
@@ -631,6 +633,7 @@ Interpretation rules:
 - `baseline-valid` requires a pinned manifest and stable workload conditions; `triage` is diagnostic only
 - profiling artifacts are observational and should not be used as a source of business truth
 - `result.json` is the primary contract for elapsed-time totals; if totals are incomplete or derived from fallback spans, the analyzer should mark the run `reduced-confidence`
+- zero-work summary/agenda/entity/org/people backlog phases should now be nearly free because the default orchestration invokes their callable runners directly instead of spawning Python subprocesses
 
 Manifest guidance:
 - keep baseline manifests checked in under `profiling/manifests/`

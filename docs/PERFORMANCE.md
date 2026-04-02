@@ -124,6 +124,8 @@ Interpretation rule:
 - The default core pipeline and batch enrichment paths no longer shell into full `python indexer.py` rebuilds.
 - Search freshness now comes from targeted `reindex_catalog(...)` hooks in the writers that mutate indexed fields.
 - Keep `python reindex_only.py` as the manual repair path for schema/settings changes or explicit full rebuilds.
+- The default core and batch snapshot backfills now invoke summary/agenda/entity/org/people runners in-process instead of paying Python subprocess startup on every run.
+- That change is mainly a profiling-fidelity and orchestration win: zero-work backlog phases should now be nearly free, which makes the next triage report more representative of actual useful work.
 - The default batch topic path now hydrates only missing/stale catalogs through the single-catalog topic task instead of sweeping every content-bearing catalog.
 - The default batch table path now preflights eligibility and skips the heavy Camelot subprocess on zero-work runs.
 - The earlier `download` ranking in triage profiling was a workload-fidelity artifact; workload-only profiling now excludes unrelated staged URL work from selected-manifest runs.
