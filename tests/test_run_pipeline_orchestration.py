@@ -42,11 +42,17 @@ def test_run_parallel_processing_returns_when_no_unprocessed_docs(mocker):
 def test_main_runs_steps_in_expected_order(mocker):
     calls = []
     mocker.patch("pipeline.run_pipeline.run_parallel_processing", side_effect=lambda: calls.append("parallel"))
+    mocker.patch("pipeline.agenda_worker.run_agenda_segmentation_backfill", side_effect=lambda: calls.append("agenda"))
+    mocker.patch("pipeline.tasks.run_summary_hydration_backfill", side_effect=lambda: calls.append("summary"))
 
     def fake_run_step(name, command):
         calls.append((name, tuple(command)))
 
     mocker.patch("pipeline.run_pipeline.run_step", side_effect=fake_run_step)
+    mocker.patch(
+        "pipeline.run_pipeline.run_callable_step",
+        side_effect=lambda name, func, component="pipeline": calls.append((name, component)) or func(),
+    )
 
     run_pipeline.main()
 
@@ -55,9 +61,10 @@ def test_main_runs_steps_in_expected_order(mocker):
     assert calls[2][0] == "Promote Staged Events"
     assert calls[3][0] == "Downloader"
     assert calls[4] == "parallel"
-    assert calls[5][0] == "Agenda Segmentation"
-    assert calls[6][0] == "Summary Hydration"
-    assert calls[-1][0] == "Summary Hydration"
+    assert calls[5] == ("Agenda Segmentation", "pipeline")
+    assert calls[6] == "agenda"
+    assert calls[7] == ("Summary Hydration", "pipeline")
+    assert calls[8] == "summary"
     assert ("Search Indexing", ("python", "indexer.py")) not in calls
     assert ("Table Extraction", ("python", "table_worker.py")) not in calls
     assert ("Topic Modeling", ("python", "topic_worker.py")) not in calls
@@ -66,18 +73,24 @@ def test_main_runs_steps_in_expected_order(mocker):
 def test_main_skips_non_gating_steps_in_onboarding_fast_profile(mocker):
     calls = []
     mocker.patch("pipeline.run_pipeline.run_parallel_processing", side_effect=lambda: calls.append("parallel"))
+    mocker.patch("pipeline.agenda_worker.run_agenda_segmentation_backfill", side_effect=lambda: calls.append("agenda"))
+    mocker.patch("pipeline.tasks.run_summary_hydration_backfill", side_effect=lambda: calls.append("summary"))
 
     def fake_run_step(name, command):
         calls.append((name, tuple(command)))
 
     mocker.patch("pipeline.run_pipeline.run_step", side_effect=fake_run_step)
+    mocker.patch(
+        "pipeline.run_pipeline.run_callable_step",
+        side_effect=lambda name, func, component="pipeline": calls.append((name, component)) or func(),
+    )
     mocker.patch.object(run_pipeline, "PIPELINE_ONBOARDING_CITY", "san_leandro")
     mocker.patch.object(run_pipeline, "PIPELINE_RUNTIME_PROFILE", "onboarding_fast")
 
     run_pipeline.main()
 
-    assert ("Agenda Segmentation", ("python", "../scripts/backfill_agenda_segmentation.py")) in calls
-    assert ("Summary Hydration", ("python", "../scripts/backfill_summaries.py")) in calls
+    assert ("Agenda Segmentation", "pipeline") in calls
+    assert ("Summary Hydration", "pipeline") in calls
     assert ("Search Indexing", ("python", "indexer.py")) not in calls
     assert ("Table Extraction", ("python", "table_worker.py")) not in calls
     assert ("Backfill Organizations", ("python", "backfill_orgs.py")) not in calls
@@ -109,51 +122,89 @@ def test_main_skips_ingest_prelude_in_workload_only_profile(mocker):
 def test_run_batch_enrichment_runs_heavy_steps_in_expected_order(mocker):
     calls = []
 
-    def fake_run_step(name, command):
-        calls.append((name, tuple(command)))
-
-    mocker.patch("pipeline.run_batch_enrichment.run_step", side_effect=fake_run_step)
+    mocker.patch(
+        "pipeline.run_batch_enrichment.run_callable_step",
+        side_effect=lambda name, func, component="pipeline-batch": calls.append((name, component)) or func(),
+    )
+    mocker.patch(
+        "pipeline.run_batch_enrichment.run_step",
+        side_effect=lambda name, command: calls.append((name, tuple(command))),
+    )
     mocker.patch("pipeline.run_batch_enrichment.db_session")
+    entity_spy = mocker.patch(
+        "pipeline.run_batch_enrichment.run_entity_backfill",
+        return_value={"selected": 1, "complete": 1},
+    )
     mocker.patch("pipeline.run_batch_enrichment.select_catalog_ids_for_table_extraction", return_value=[1])
     mocker.patch("pipeline.run_batch_enrichment.select_catalog_ids_for_topic_hydration", return_value=[2, 3])
+    org_spy = mocker.patch(
+        "pipeline.run_batch_enrichment.run_organization_backfill",
+        return_value={"selected": 1, "linked": 1, "reindexed": 1, "failed_reindex": 0},
+    )
     topic_backfill_spy = mocker.patch(
         "pipeline.run_batch_enrichment.run_topic_hydration_backfill",
         return_value={"selected": 2, "complete": 2, "cached": 0, "stale": 0, "blocked_low_signal": 0, "error": 0, "other": 0},
+    )
+    people_spy = mocker.patch(
+        "pipeline.run_batch_enrichment.run_people_linking",
+        return_value={"selected": 1, "people_created": 1, "memberships_created": 1, "reindexed": 1, "failed_reindex": 0},
     )
 
     run_batch_enrichment.main()
 
     assert calls == [
-        ("Entity Backfill", ("python", "backfill_entities.py")),
+        ("Entity Backfill", "pipeline-batch"),
         ("Table Extraction", ("python", "table_worker.py")),
-        ("Backfill Organizations", ("python", "backfill_orgs.py")),
-        ("People Linking", ("python", "person_linker.py")),
+        ("Backfill Organizations", "pipeline-batch"),
+        ("People Linking", "pipeline-batch"),
     ]
+    entity_spy.assert_called_once_with()
+    org_spy.assert_called_once_with()
     topic_backfill_spy.assert_called_once_with(catalog_ids=[2, 3])
+    people_spy.assert_called_once_with()
 
 
 def test_run_batch_enrichment_skips_noop_topic_and_table_steps(mocker):
     calls = []
 
-    def fake_run_step(name, command):
-        calls.append((name, tuple(command)))
-
-    mocker.patch("pipeline.run_batch_enrichment.run_step", side_effect=fake_run_step)
+    mocker.patch(
+        "pipeline.run_batch_enrichment.run_callable_step",
+        side_effect=lambda name, func, component="pipeline-batch": calls.append((name, component)) or func(),
+    )
+    mocker.patch(
+        "pipeline.run_batch_enrichment.run_step",
+        side_effect=lambda name, command: calls.append((name, tuple(command))),
+    )
     mocker.patch("pipeline.run_batch_enrichment.db_session")
+    entity_spy = mocker.patch(
+        "pipeline.run_batch_enrichment.run_entity_backfill",
+        return_value={"selected": 0, "complete": 0},
+    )
     mocker.patch("pipeline.run_batch_enrichment.select_catalog_ids_for_table_extraction", return_value=[])
     mocker.patch("pipeline.run_batch_enrichment.select_catalog_ids_for_topic_hydration", return_value=[])
+    org_spy = mocker.patch(
+        "pipeline.run_batch_enrichment.run_organization_backfill",
+        return_value={"selected": 0, "linked": 0, "reindexed": 0, "failed_reindex": 0},
+    )
     topic_backfill_spy = mocker.patch("pipeline.run_batch_enrichment.run_topic_hydration_backfill")
+    people_spy = mocker.patch(
+        "pipeline.run_batch_enrichment.run_people_linking",
+        return_value={"selected": 0, "people_created": 0, "memberships_created": 0, "reindexed": 0, "failed_reindex": 0},
+    )
 
     run_batch_enrichment.main()
 
     assert ("Table Extraction", ("python", "table_worker.py")) not in calls
     assert ("Topic Modeling", ("python", "topic_worker.py")) not in calls
     assert calls == [
-        ("Entity Backfill", ("python", "backfill_entities.py")),
-        ("Backfill Organizations", ("python", "backfill_orgs.py")),
-        ("People Linking", ("python", "person_linker.py")),
+        ("Entity Backfill", "pipeline-batch"),
+        ("Backfill Organizations", "pipeline-batch"),
+        ("People Linking", "pipeline-batch"),
     ]
+    entity_spy.assert_called_once_with()
+    org_spy.assert_called_once_with()
     topic_backfill_spy.assert_not_called()
+    people_spy.assert_called_once_with()
 
 
 def test_run_batch_enrichment_help_exits_before_work(mocker):

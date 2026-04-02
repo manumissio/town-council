@@ -39,9 +39,14 @@ def run_entity_backfill():
     with db_session() as db:
         catalog_ids = select_catalog_ids_for_entity_backfill(db)
 
+    counts = {
+        "selected": len(catalog_ids),
+        "complete": 0,
+    }
+
     if not catalog_ids:
         logger.info("No documents need entity enrichment.")
-        return
+        return counts
 
     settings = _resolve_parallel_processing_settings()
     chunks = [
@@ -70,6 +75,13 @@ def run_entity_backfill():
             if count:
                 completed += count
                 logger.info("Entity backfill progress: %s/%s", completed, len(catalog_ids))
+    counts["complete"] = completed
+    logger.info(
+        "entity_backfill selected=%s complete=%s",
+        counts["selected"],
+        counts["complete"],
+    )
+    return counts
 
 
 if __name__ == "__main__":

@@ -16,6 +16,7 @@ from pipeline.table_worker import select_catalog_ids_for_table_extraction
 from pipeline.models import Base, Catalog, Document, AgendaItem, Event, Place
 from pipeline.city_scope import ordered_hydration_cities, source_aliases_for_city
 
+
 def test_document_chunk_worker(mocker):
     """
     Test: Does chunk worker orchestrate OCR and extraction metadata for one document?
@@ -50,6 +51,18 @@ def test_document_chunk_worker(mocker):
     extract_text_spy.assert_called_once_with("/tmp/test.pdf", ocr_fallback_enabled=False)
     mock_db.commit.assert_called_once()
     mock_db.close.assert_called_once()
+
+
+def test_run_entity_backfill_returns_zero_counts_when_nothing_is_selected(mocker):
+    mock_session = MagicMock()
+    mock_session.__enter__.return_value = mock_session
+    mock_session.__exit__.return_value = False
+    mocker.patch("pipeline.backfill_entities.db_session", return_value=mock_session)
+    mocker.patch("pipeline.backfill_entities.select_catalog_ids_for_entity_backfill", return_value=[])
+
+    from pipeline.backfill_entities import run_entity_backfill
+
+    assert run_entity_backfill() == {"selected": 0, "complete": 0}
 
 
 @pytest.fixture

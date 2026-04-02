@@ -97,6 +97,35 @@ def run_step(name, command):
         record_pipeline_phase_duration(phase, "subprocess", _current_profile_mode(), "success", duration_s)
 
 
+def run_callable_step(name, func, *, component="pipeline"):
+    """Run an in-process orchestration step with the same profiling semantics as run_step."""
+    logger.info("Step: %s", name)
+    phase = _phase_name_for_step(name)
+    with profile_span(phase=phase, component=component):
+        start_perf = time.perf_counter()
+        try:
+            result = func()
+        except Exception:
+            logger.error("Step %s failed.", name)
+            record_pipeline_phase_duration(
+                phase,
+                component,
+                _current_profile_mode(),
+                "failure",
+                time.perf_counter() - start_perf,
+            )
+            sys.exit(1)
+        duration_s = time.perf_counter() - start_perf
+        record_pipeline_phase_duration(
+            phase,
+            component,
+            _current_profile_mode(),
+            "success",
+            duration_s,
+        )
+        return result
+
+
 def _should_skip_non_gating_onboarding_steps() -> bool:
     # Onboarding decisions only gate on crawl, extraction, segmentation, and searchability.
     # Keep enrichment steps out of the hot path when the runner explicitly requests the fast profile.
@@ -120,12 +149,15 @@ def _run_ingest_prelude_steps():
 
 
 def _run_generation_backfill_steps():
+    from pipeline.agenda_worker import run_agenda_segmentation_backfill
+    from pipeline.tasks import run_summary_hydration_backfill
+
     # Agenda summaries depend on structured agenda items, so segmentation must
     # run before summary hydration in the canonical batch pipeline.
-    run_step("Agenda Segmentation", ["python", "../scripts/backfill_agenda_segmentation.py"])
+    run_callable_step("Agenda Segmentation", run_agenda_segmentation_backfill)
     # Reuse the same summary-task rules as the interactive path instead of
     # duplicating prompt, grounding, or caching behavior in the pipeline.
-    run_step("Summary Hydration", ["python", "../scripts/backfill_summaries.py"])
+    run_callable_step("Summary Hydration", run_summary_hydration_backfill)
 
 def _mark_extraction_complete(catalog, content_hash):
     catalog.content_hash = content_hash

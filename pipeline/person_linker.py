@@ -53,7 +53,7 @@ def infer_person_type(raw_name):
     return "official" if has_official_title_context(raw_name) else "mentioned"
 
 
-def link_people():
+def run_people_linking():
     """
     Intelligence Worker: Promotes raw text names to structured Person & Membership records.
 
@@ -214,14 +214,28 @@ def link_people():
 
         # Print summary of what we accomplished
         print(f"Linking complete. Created {person_count} new People and {membership_count} new Memberships.")
+        counts = {
+            "selected": total_ready,
+            "people_created": person_count,
+            "memberships_created": membership_count,
+            "reindexed": 0,
+            "failed_reindex": 0,
+        }
         if changed_catalog_ids:
             reindex_summary = reindex_catalogs(changed_catalog_ids)
+            counts["reindexed"] = reindex_summary["catalogs_reindexed"]
+            counts["failed_reindex"] = reindex_summary["catalogs_failed"]
             print(
                 "targeted_reindex_summary "
                 f"considered={reindex_summary['catalogs_considered']} "
                 f"reindexed={reindex_summary['catalogs_reindexed']} "
                 f"failed={reindex_summary['catalogs_failed']}"
             )
+        return counts
+
+
+def link_people():
+    return run_people_linking()
 
 if __name__ == "__main__":
     link_people()

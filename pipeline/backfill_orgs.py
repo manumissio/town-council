@@ -6,7 +6,7 @@ from pipeline.indexer import reindex_catalogs
 from pipeline.profiling import selected_catalog_ids
 from pipeline.utils import generate_ocd_id
 
-def backfill_organizations():
+def run_organization_backfill():
     """
     Migration Script: Populates the new 'organization' table based on existing meetings.
     
@@ -91,8 +91,16 @@ def backfill_organizations():
 
     session.commit()
     session.close()
+    counts = {
+        "selected": len(events),
+        "linked": count,
+        "reindexed": 0,
+        "failed_reindex": 0,
+    }
     if changed_catalog_ids:
         reindex_summary = reindex_catalogs(changed_catalog_ids)
+        counts["reindexed"] = reindex_summary["catalogs_reindexed"]
+        counts["failed_reindex"] = reindex_summary["catalogs_failed"]
         print(
             "targeted_reindex_summary "
             f"considered={reindex_summary['catalogs_considered']} "
@@ -100,6 +108,11 @@ def backfill_organizations():
             f"failed={reindex_summary['catalogs_failed']}"
         )
     print(f"Backfill complete. Linked {count} events to organizations.")
+    return counts
+
+
+def backfill_organizations():
+    return run_organization_backfill()
 
 if __name__ == "__main__":
     backfill_organizations()
