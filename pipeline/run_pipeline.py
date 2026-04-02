@@ -10,6 +10,7 @@ from sqlalchemy import Text, cast, or_
 from sqlalchemy.exc import SQLAlchemyError
 
 from pipeline.config import (
+    AGENDA_SEGMENT_MAINTENANCE_TIMEOUT_SECONDS,
     DOCUMENT_CHUNK_SIZE,
     MAX_WORKERS,
     PIPELINE_CPU_FRACTION,
@@ -18,6 +19,7 @@ from pipeline.config import (
     PIPELINE_ONBOARDING_DOCUMENT_CHUNK_SIZE,
     PIPELINE_ONBOARDING_MAX_WORKERS,
     PIPELINE_RUNTIME_PROFILE,
+    SUMMARY_HYDRATION_MAINTENANCE_TIMEOUT_SECONDS,
     TIKA_OCR_FALLBACK_ENABLED,
     DB_RETRY_DELAY_MIN,
     DB_RETRY_DELAY_MAX,
@@ -149,15 +151,31 @@ def _run_ingest_prelude_steps():
 
 
 def _run_generation_backfill_steps():
+    from functools import partial
+
     from pipeline.agenda_worker import run_agenda_segmentation_backfill
     from pipeline.tasks import run_summary_hydration_backfill
 
     # Agenda summaries depend on structured agenda items, so segmentation must
     # run before summary hydration in the canonical batch pipeline.
-    run_callable_step("Agenda Segmentation", run_agenda_segmentation_backfill)
+    run_callable_step(
+        "Agenda Segmentation",
+        partial(
+            run_agenda_segmentation_backfill,
+            segment_mode="maintenance",
+            agenda_timeout_seconds=AGENDA_SEGMENT_MAINTENANCE_TIMEOUT_SECONDS,
+        ),
+    )
     # Reuse the same summary-task rules as the interactive path instead of
     # duplicating prompt, grounding, or caching behavior in the pipeline.
-    run_callable_step("Summary Hydration", run_summary_hydration_backfill)
+    run_callable_step(
+        "Summary Hydration",
+        partial(
+            run_summary_hydration_backfill,
+            summary_timeout_seconds=SUMMARY_HYDRATION_MAINTENANCE_TIMEOUT_SECONDS,
+            summary_fallback_mode="deterministic",
+        ),
+    )
 
 def _mark_extraction_complete(catalog, content_hash):
     catalog.content_hash = content_hash

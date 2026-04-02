@@ -104,6 +104,14 @@ LOCAL_AI_HTTP_TIMEOUT_SUMMARY_SECONDS = int(
 LOCAL_AI_HTTP_TIMEOUT_TOPICS_SECONDS = int(
     os.getenv("LOCAL_AI_HTTP_TIMEOUT_TOPICS_SECONDS", str(LOCAL_AI_HTTP_TIMEOUT_SECONDS))
 )
+# Maintenance backfills reuse the same provider stack but should fail faster than
+# interactive paths so a handful of bad documents do not dominate a whole run.
+AGENDA_SEGMENT_MAINTENANCE_TIMEOUT_SECONDS = int(
+    os.getenv("AGENDA_SEGMENT_MAINTENANCE_TIMEOUT_SECONDS", "30")
+)
+SUMMARY_HYDRATION_MAINTENANCE_TIMEOUT_SECONDS = int(
+    os.getenv("SUMMARY_HYDRATION_MAINTENANCE_TIMEOUT_SECONDS", "25")
+)
 LOCAL_AI_HTTP_MAX_RETRIES = int(os.getenv("LOCAL_AI_HTTP_MAX_RETRIES", _HTTP_RETRIES_DEFAULT))
 # Keep 270M as the only default HTTP model to avoid slow 1B timeout loops in shared envs.
 LOCAL_AI_HTTP_MODEL = (os.getenv("LOCAL_AI_HTTP_MODEL", "gemma-3-270m-custom").strip() or "gemma-3-270m-custom")

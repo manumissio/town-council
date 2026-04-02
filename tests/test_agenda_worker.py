@@ -1,9 +1,10 @@
+from contextlib import contextmanager
 import pytest
 from unittest.mock import MagicMock
 import sys
 
 sys.modules["llama_cpp"] = MagicMock()
-from pipeline.agenda_worker import segment_document_agenda
+from pipeline.agenda_worker import run_agenda_segmentation_backfill, segment_document_agenda
 from pipeline.models import Place, Event, Document, Catalog, AgendaItem
 
 def test_agenda_segmentation_logic(db_session, mocker):
@@ -58,3 +59,45 @@ def test_agenda_segmentation_logic(db_session, mocker):
     assert items[1].title == "Budget 2026"
     assert items[1].event_id == event.id
     reindex_spy.assert_called_once_with(catalog.id)
+
+
+def test_run_agenda_segmentation_backfill_uses_maintenance_metrics(mocker):
+    mocker.patch("pipeline.agenda_worker.select_catalog_ids_for_agenda_segmentation", return_value=[101, 102, 103])
+
+    @contextmanager
+    def _fake_db_session():
+        yield MagicMock()
+
+    @contextmanager
+    def _fake_timeout(timeout_seconds):
+        assert timeout_seconds == 17
+        yield
+
+    @contextmanager
+    def _fake_capture():
+        yield {"timeout": 2, "empty_response": 1}
+
+    mocker.patch("pipeline.agenda_worker.db_session", _fake_db_session)
+    mocker.patch("pipeline.agenda_worker.segment_timeout_override", _fake_timeout)
+    mocker.patch("pipeline.agenda_worker.capture_agenda_fallback_events", _fake_capture)
+    segment_spy = mocker.patch(
+        "pipeline.agenda_worker.segment_catalog_with_mode",
+        side_effect=[
+            {"status": "complete", "llm_attempted": 1, "llm_skipped_heuristic_first": 0, "heuristic_complete": 0},
+            {"status": "empty", "llm_attempted": 0, "llm_skipped_heuristic_first": 1, "heuristic_complete": 0},
+            {"status": "complete", "llm_attempted": 0, "llm_skipped_heuristic_first": 1, "heuristic_complete": 1},
+        ],
+    )
+
+    counts = run_agenda_segmentation_backfill(segment_mode="maintenance", agenda_timeout_seconds=17)
+
+    assert counts["selected"] == 3
+    assert counts["complete"] == 2
+    assert counts["empty"] == 1
+    assert counts["timeout_fallbacks"] == 2
+    assert counts["empty_response_fallbacks"] == 1
+    assert counts["llm_attempted"] == 1
+    assert counts["llm_skipped_heuristic_first"] == 2
+    assert counts["heuristic_complete"] == 1
+    assert counts["llm_timeout_then_fallback"] == 2
+    assert segment_spy.call_count == 3

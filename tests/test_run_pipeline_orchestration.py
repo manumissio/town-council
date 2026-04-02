@@ -42,8 +42,14 @@ def test_run_parallel_processing_returns_when_no_unprocessed_docs(mocker):
 def test_main_runs_steps_in_expected_order(mocker):
     calls = []
     mocker.patch("pipeline.run_pipeline.run_parallel_processing", side_effect=lambda: calls.append("parallel"))
-    mocker.patch("pipeline.agenda_worker.run_agenda_segmentation_backfill", side_effect=lambda: calls.append("agenda"))
-    mocker.patch("pipeline.tasks.run_summary_hydration_backfill", side_effect=lambda: calls.append("summary"))
+    agenda_spy = mocker.patch(
+        "pipeline.agenda_worker.run_agenda_segmentation_backfill",
+        side_effect=lambda **kwargs: calls.append("agenda"),
+    )
+    summary_spy = mocker.patch(
+        "pipeline.tasks.run_summary_hydration_backfill",
+        side_effect=lambda **kwargs: calls.append("summary"),
+    )
 
     def fake_run_step(name, command):
         calls.append((name, tuple(command)))
@@ -65,6 +71,14 @@ def test_main_runs_steps_in_expected_order(mocker):
     assert calls[6] == "agenda"
     assert calls[7] == ("Summary Hydration", "pipeline")
     assert calls[8] == "summary"
+    agenda_spy.assert_called_once_with(
+        segment_mode="maintenance",
+        agenda_timeout_seconds=run_pipeline.AGENDA_SEGMENT_MAINTENANCE_TIMEOUT_SECONDS,
+    )
+    summary_spy.assert_called_once_with(
+        summary_timeout_seconds=run_pipeline.SUMMARY_HYDRATION_MAINTENANCE_TIMEOUT_SECONDS,
+        summary_fallback_mode="deterministic",
+    )
     assert ("Search Indexing", ("python", "indexer.py")) not in calls
     assert ("Table Extraction", ("python", "table_worker.py")) not in calls
     assert ("Topic Modeling", ("python", "topic_worker.py")) not in calls
@@ -73,8 +87,14 @@ def test_main_runs_steps_in_expected_order(mocker):
 def test_main_skips_non_gating_steps_in_onboarding_fast_profile(mocker):
     calls = []
     mocker.patch("pipeline.run_pipeline.run_parallel_processing", side_effect=lambda: calls.append("parallel"))
-    mocker.patch("pipeline.agenda_worker.run_agenda_segmentation_backfill", side_effect=lambda: calls.append("agenda"))
-    mocker.patch("pipeline.tasks.run_summary_hydration_backfill", side_effect=lambda: calls.append("summary"))
+    agenda_spy = mocker.patch(
+        "pipeline.agenda_worker.run_agenda_segmentation_backfill",
+        side_effect=lambda **kwargs: calls.append("agenda"),
+    )
+    summary_spy = mocker.patch(
+        "pipeline.tasks.run_summary_hydration_backfill",
+        side_effect=lambda **kwargs: calls.append("summary"),
+    )
 
     def fake_run_step(name, command):
         calls.append((name, tuple(command)))
@@ -91,6 +111,14 @@ def test_main_skips_non_gating_steps_in_onboarding_fast_profile(mocker):
 
     assert ("Agenda Segmentation", "pipeline") in calls
     assert ("Summary Hydration", "pipeline") in calls
+    agenda_spy.assert_called_once_with(
+        segment_mode="maintenance",
+        agenda_timeout_seconds=run_pipeline.AGENDA_SEGMENT_MAINTENANCE_TIMEOUT_SECONDS,
+    )
+    summary_spy.assert_called_once_with(
+        summary_timeout_seconds=run_pipeline.SUMMARY_HYDRATION_MAINTENANCE_TIMEOUT_SECONDS,
+        summary_fallback_mode="deterministic",
+    )
     assert ("Search Indexing", ("python", "indexer.py")) not in calls
     assert ("Table Extraction", ("python", "table_worker.py")) not in calls
     assert ("Backfill Organizations", ("python", "backfill_orgs.py")) not in calls

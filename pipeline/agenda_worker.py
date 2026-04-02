@@ -7,6 +7,11 @@ from sqlalchemy.exc import SQLAlchemyError
 from pipeline.models import Catalog, AgendaItem, Document
 from pipeline.db_session import db_session
 from pipeline.config import AGENDA_BATCH_SIZE
+from pipeline.backlog_maintenance import (
+    capture_agenda_fallback_events,
+    segment_catalog_with_mode,
+    segment_timeout_override,
+)
 from pipeline.laserfiche_error_pages import classify_catalog_bad_content
 from pipeline.llm import LocalAI
 from pipeline.agenda_service import persist_agenda_items
@@ -183,7 +188,12 @@ def segment_agendas():
         segment_document_agenda(cid)
 
 
-def run_agenda_segmentation_backfill(limit: int | None = None) -> dict[str, int]:
+def run_agenda_segmentation_backfill(
+    limit: int | None = None,
+    *,
+    segment_mode: str = "normal",
+    agenda_timeout_seconds: int | None = None,
+) -> dict[str, int]:
     """
     Run agenda segmentation once across the currently eligible backlog.
 
@@ -199,30 +209,67 @@ def run_agenda_segmentation_backfill(limit: int | None = None) -> dict[str, int]
         "empty": 0,
         "failed": 0,
         "other": 0,
+        "timeout_fallbacks": 0,
+        "empty_response_fallbacks": 0,
+        "llm_attempted": 0,
+        "llm_skipped_heuristic_first": 0,
+        "heuristic_complete": 0,
+        "llm_timeout_then_fallback": 0,
     }
     if not catalog_ids:
         logger.info("agenda_segmentation_backfill selected=0")
         return counts
 
-    for cid in catalog_ids:
-        segment_document_agenda(cid)
-        with db_session() as session:
-            catalog = session.get(Catalog, cid)
-            status = getattr(catalog, "agenda_segmentation_status", None) if catalog else None
-        if status in counts:
-            counts[status] += 1
-        else:
-            counts["other"] += 1
+    with segment_timeout_override(agenda_timeout_seconds), capture_agenda_fallback_events() as fallback_counts:
+        for cid in catalog_ids:
+            result = (
+                segment_catalog_with_mode(cid, segment_mode=segment_mode)
+                if segment_mode != "normal" or agenda_timeout_seconds is not None
+                else _segment_catalog_normalized(cid)
+            )
+            status = str((result or {}).get("status") or "other")
+            if status in {"complete", "empty", "failed", "other"}:
+                counts[status] += 1
+            else:
+                counts["other"] += 1
+            counts["llm_attempted"] += int((result or {}).get("llm_attempted", 0) or 0)
+            counts["llm_skipped_heuristic_first"] += int(
+                (result or {}).get("llm_skipped_heuristic_first", 0) or 0
+            )
+            counts["heuristic_complete"] += int((result or {}).get("heuristic_complete", 0) or 0)
+
+        counts["timeout_fallbacks"] = int(fallback_counts.get("timeout", 0))
+        counts["empty_response_fallbacks"] = int(fallback_counts.get("empty_response", 0))
+        counts["llm_timeout_then_fallback"] = int(fallback_counts.get("timeout", 0))
 
     logger.info(
-        "agenda_segmentation_backfill selected=%s complete=%s empty=%s failed=%s other=%s",
+        "agenda_segmentation_backfill selected=%s complete=%s empty=%s failed=%s other=%s timeout_fallbacks=%s empty_response_fallbacks=%s llm_attempted=%s llm_skipped_heuristic_first=%s heuristic_complete=%s llm_timeout_then_fallback=%s",
         counts["selected"],
         counts["complete"],
         counts["empty"],
         counts["failed"],
         counts["other"],
+        counts["timeout_fallbacks"],
+        counts["empty_response_fallbacks"],
+        counts["llm_attempted"],
+        counts["llm_skipped_heuristic_first"],
+        counts["heuristic_complete"],
+        counts["llm_timeout_then_fallback"],
     )
     return counts
+
+
+def _segment_catalog_normalized(catalog_id: int) -> dict[str, int | str | None]:
+    segment_document_agenda(catalog_id)
+    with db_session() as session:
+        catalog = session.get(Catalog, catalog_id)
+        status = getattr(catalog, "agenda_segmentation_status", None) if catalog else None
+    return {
+        "status": status or "other",
+        "llm_attempted": 0,
+        "llm_skipped_heuristic_first": 0,
+        "heuristic_complete": 0,
+    }
 
 if __name__ == "__main__":
     segment_agendas()
