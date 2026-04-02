@@ -115,6 +115,9 @@ docker compose run --rm topics
 Batch runtime notes:
 - default core generation backfills now invoke agenda segmentation and summary hydration in-process; `scripts/backfill_agenda_segmentation.py` and `scripts/backfill_summaries.py` remain manual entrypoints
 - default batch enrichment now invokes entity/org/people backlog runners in-process; `backfill_entities.py`, `backfill_orgs.py`, and `person_linker.py` remain operator tools when you want to run those steps directly
+- entity backfill now reports `changed_catalogs`, `execution_mode`, and `chunks`; small snapshots use an in-process fast path instead of spawning a process pool
+- default people linking is now driven by the entity delta from the same batch run rather than rescanning every entity-bearing catalog
+- people linking now reports `catalogs_with_people`, `catalogs_changed`, `exact_matches`, `fuzzy_matches`, and `cities_loaded`
 - default `run_batch_enrichment.py` now snapshots eligible topic/table work before invoking heavy steps
 - topic modeling only hydrates catalogs whose topics are missing or stale relative to `content_hash`
 - table extraction skips the Camelot subprocess entirely when there are no eligible catalogs

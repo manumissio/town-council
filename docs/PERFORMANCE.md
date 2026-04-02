@@ -144,6 +144,12 @@ Interpretation rule:
 - On the same `baseline_representative_v1` manifest, that reduced combined elapsed time again from `85.202s` in `pipeline_profile_baseline_20260402_023734` to `17.165s` in `pipeline_profile_baseline_20260402_025623`.
 - In that run, `summary_hydration_backfill` reported `agenda_deterministic_complete=12`, `llm_complete=0`, and `deterministic_fallback_complete=0`, and maintenance `summarize_agenda_items` provider calls disappeared from `commands.log`.
 - After that change, the remaining top bottlenecks are `entity_backfill` (`6.849s`), `people_linking` (`5.277s`), and `summarize` (`2.764s`).
+- The next batch-focused pass collapsed entity extraction and people linking into one delta-oriented path:
+  - `entity_backfill` now keeps small snapshots in-process and commits once per chunk
+  - `people_linking` now scopes itself to the catalogs whose entity payloads changed in that same run
+- On the same `baseline_representative_v1` manifest, that reduced combined elapsed time from `17.165s` in `pipeline_profile_baseline_20260402_025623` to `12.391s` in `pipeline_profile_baseline_20260402_110906`.
+- In that run, `entity_backfill` reported `selected=8 complete=8 changed_catalogs=8 execution_mode=in_process chunks=1`, and `people_linking_preflight` selected `8` catalogs instead of the previous full rescan of `30`.
+- After that change, the top 3 shifted to `entity_backfill` (`6.060s`), `summarize` (`2.611s`), and `people_linking` (`1.433s`).
 
 ### Other Performance-Related Changes
 

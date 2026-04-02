@@ -133,6 +133,7 @@ Interpretation:
 - default snapshot backfills now run in-process on the hot path, so zero-work summary/agenda/entity/org/people phases do not pay Python subprocess startup tax.
 - the script entrypoints for those backfills still exist as manual/operator tools; the pipeline just no longer shells into them by default.
 - default pipeline maintenance backfills now use backlog-specific routing: agenda segmentation runs heuristic-first with a shorter maintenance timeout, and agenda summary hydration is deterministic-first while non-agenda summary hydration keeps the shorter maintenance timeout plus deterministic fallback on provider failure.
+- default batch enrichment is now delta-oriented across entity extraction and people linking: small entity snapshots stay in-process, and people linking scopes itself to the catalogs whose entity payloads changed in that run.
 - default batch topic modeling now hydrates only missing/stale topics via the single-catalog topic task, and table extraction is preflighted so zero-work runs skip the heavy Camelot subprocess entirely.
 
 ### Optional: Reindex Meilisearch only (no extraction/AI)
