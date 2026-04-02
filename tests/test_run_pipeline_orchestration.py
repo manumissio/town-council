@@ -155,13 +155,17 @@ def test_run_batch_enrichment_runs_heavy_steps_in_expected_order(mocker):
         side_effect=lambda name, func, component="pipeline-batch": calls.append((name, component)) or func(),
     )
     mocker.patch(
+        "pipeline.run_batch_enrichment.run_batch_callable_step",
+        side_effect=lambda name, phase, func: calls.append((name, phase)) or func(),
+    )
+    mocker.patch(
         "pipeline.run_batch_enrichment.run_step",
         side_effect=lambda name, command: calls.append((name, tuple(command))),
     )
     mocker.patch("pipeline.run_batch_enrichment.db_session")
     entity_spy = mocker.patch(
         "pipeline.run_batch_enrichment.run_entity_backfill",
-        return_value={"selected": 1, "complete": 1},
+        return_value={"selected": 1, "complete": 1, "updated_catalog_ids": [10]},
     )
     mocker.patch("pipeline.run_batch_enrichment.select_catalog_ids_for_table_extraction", return_value=[1])
     mocker.patch("pipeline.run_batch_enrichment.select_catalog_ids_for_topic_hydration", return_value=[2, 3])
@@ -184,12 +188,13 @@ def test_run_batch_enrichment_runs_heavy_steps_in_expected_order(mocker):
         ("Entity Backfill", "pipeline-batch"),
         ("Table Extraction", ("python", "table_worker.py")),
         ("Backfill Organizations", "pipeline-batch"),
-        ("People Linking", "pipeline-batch"),
+        ("Topic Modeling", "topic_modeling"),
+        ("People Linking", "people_linking"),
     ]
     entity_spy.assert_called_once_with()
     org_spy.assert_called_once_with()
     topic_backfill_spy.assert_called_once_with(catalog_ids=[2, 3])
-    people_spy.assert_called_once_with()
+    people_spy.assert_called_once_with(catalog_ids=[10])
 
 
 def test_run_batch_enrichment_skips_noop_topic_and_table_steps(mocker):
@@ -200,13 +205,17 @@ def test_run_batch_enrichment_skips_noop_topic_and_table_steps(mocker):
         side_effect=lambda name, func, component="pipeline-batch": calls.append((name, component)) or func(),
     )
     mocker.patch(
+        "pipeline.run_batch_enrichment.run_batch_callable_step",
+        side_effect=lambda name, phase, func: calls.append((name, phase)) or func(),
+    )
+    mocker.patch(
         "pipeline.run_batch_enrichment.run_step",
         side_effect=lambda name, command: calls.append((name, tuple(command))),
     )
     mocker.patch("pipeline.run_batch_enrichment.db_session")
     entity_spy = mocker.patch(
         "pipeline.run_batch_enrichment.run_entity_backfill",
-        return_value={"selected": 0, "complete": 0},
+        return_value={"selected": 0, "complete": 0, "updated_catalog_ids": []},
     )
     mocker.patch("pipeline.run_batch_enrichment.select_catalog_ids_for_table_extraction", return_value=[])
     mocker.patch("pipeline.run_batch_enrichment.select_catalog_ids_for_topic_hydration", return_value=[])
@@ -227,12 +236,11 @@ def test_run_batch_enrichment_skips_noop_topic_and_table_steps(mocker):
     assert calls == [
         ("Entity Backfill", "pipeline-batch"),
         ("Backfill Organizations", "pipeline-batch"),
-        ("People Linking", "pipeline-batch"),
     ]
     entity_spy.assert_called_once_with()
     org_spy.assert_called_once_with()
     topic_backfill_spy.assert_not_called()
-    people_spy.assert_called_once_with()
+    people_spy.assert_not_called()
 
 
 def test_run_batch_enrichment_help_exits_before_work(mocker):

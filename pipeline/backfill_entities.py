@@ -2,9 +2,8 @@ from concurrent.futures import ProcessPoolExecutor, as_completed
 from multiprocessing import cpu_count, get_context
 import logging
 
-from pipeline.config import MAX_WORKERS, PIPELINE_CPU_FRACTION
+from pipeline.config import ENTITY_BACKFILL_IN_PROCESS_THRESHOLD, MAX_WORKERS, PIPELINE_CPU_FRACTION
 from pipeline.db_session import db_session
-from pipeline.models import Catalog
 from pipeline.run_pipeline import (
     PIPELINE_ONBOARDING_CITY,
     _resolve_parallel_processing_settings,
@@ -16,12 +15,24 @@ logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(levelname)s - %(
 logger = logging.getLogger("entity-backfill")
 
 
+def _empty_counts():
+    return {
+        "selected": 0,
+        "complete": 0,
+        "changed_catalogs": 0,
+        "updated_catalog_ids": [],
+        "execution_mode": "noop",
+        "chunks": 0,
+    }
+
+
 def process_entity_chunk(catalog_ids):
     from pipeline.db_session import db_session
     from pipeline.models import Catalog
     from pipeline.nlp_worker import extract_entities
 
     processed = 0
+    updated_catalog_ids = []
     with db_session() as session:
         for catalog_id in catalog_ids:
             record = session.get(Catalog, catalog_id)
@@ -29,20 +40,26 @@ def process_entity_chunk(catalog_ids):
                 continue
             if record.entities is not None:
                 continue
-            record.entities = extract_entities(record.content)
-            session.commit()
+            extracted_entities = extract_entities(record.content)
+            if extracted_entities == record.entities:
+                continue
+            record.entities = extracted_entities
+            updated_catalog_ids.append(catalog_id)
             processed += 1
-    return processed
+        if updated_catalog_ids:
+            session.commit()
+    return {
+        "complete": processed,
+        "updated_catalog_ids": updated_catalog_ids,
+    }
 
 
 def run_entity_backfill():
     with db_session() as db:
         catalog_ids = select_catalog_ids_for_entity_backfill(db)
 
-    counts = {
-        "selected": len(catalog_ids),
-        "complete": 0,
-    }
+    counts = _empty_counts()
+    counts["selected"] = len(catalog_ids)
 
     if not catalog_ids:
         logger.info("No documents need entity enrichment.")
@@ -68,18 +85,38 @@ def run_entity_backfill():
     )
 
     completed = 0
-    with ProcessPoolExecutor(max_workers=workers, mp_context=get_context("spawn")) as executor:
-        futures = {executor.submit(process_entity_chunk, chunk): chunk for chunk in chunks}
-        for future in as_completed(futures):
-            count = future.result()
+    updated_catalog_ids = []
+    execution_mode = "in_process" if len(catalog_ids) <= ENTITY_BACKFILL_IN_PROCESS_THRESHOLD else "process_pool"
+    if execution_mode == "in_process":
+        for chunk in chunks:
+            chunk_result = process_entity_chunk(chunk)
+            count = int(chunk_result.get("complete", 0))
             if count:
                 completed += count
+                updated_catalog_ids.extend(int(cid) for cid in chunk_result.get("updated_catalog_ids", []))
                 logger.info("Entity backfill progress: %s/%s", completed, len(catalog_ids))
+    else:
+        with ProcessPoolExecutor(max_workers=workers, mp_context=get_context("spawn")) as executor:
+            futures = {executor.submit(process_entity_chunk, chunk): chunk for chunk in chunks}
+            for future in as_completed(futures):
+                chunk_result = future.result()
+                count = int(chunk_result.get("complete", 0))
+                if count:
+                    completed += count
+                    updated_catalog_ids.extend(int(cid) for cid in chunk_result.get("updated_catalog_ids", []))
+                    logger.info("Entity backfill progress: %s/%s", completed, len(catalog_ids))
     counts["complete"] = completed
+    counts["updated_catalog_ids"] = sorted(set(updated_catalog_ids))
+    counts["changed_catalogs"] = len(counts["updated_catalog_ids"])
+    counts["execution_mode"] = execution_mode
+    counts["chunks"] = len(chunks)
     logger.info(
-        "entity_backfill selected=%s complete=%s",
+        "entity_backfill selected=%s complete=%s changed_catalogs=%s execution_mode=%s chunks=%s",
         counts["selected"],
         counts["complete"],
+        counts["changed_catalogs"],
+        counts["execution_mode"],
+        counts["chunks"],
     )
     return counts
 

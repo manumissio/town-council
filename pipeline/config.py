@@ -126,6 +126,12 @@ CITY_SEGMENTATION_WORKERS = int(
     )
 )
 
+# Small entity backfill snapshots should stay in-process so we do not pay
+# process-spawn and spaCy warmup overhead that outweighs the actual work.
+ENTITY_BACKFILL_IN_PROCESS_THRESHOLD = int(
+    os.getenv("ENTITY_BACKFILL_IN_PROCESS_THRESHOLD", "16")
+)
+
 # Semantic search (Milestone B) feature flags and retrieval tuning.
 # During B2 rollout we support dual backends:
 # - faiss: temporary fallback bridge

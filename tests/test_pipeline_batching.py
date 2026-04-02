@@ -62,7 +62,40 @@ def test_run_entity_backfill_returns_zero_counts_when_nothing_is_selected(mocker
 
     from pipeline.backfill_entities import run_entity_backfill
 
-    assert run_entity_backfill() == {"selected": 0, "complete": 0}
+    assert run_entity_backfill() == {
+        "selected": 0,
+        "complete": 0,
+        "changed_catalogs": 0,
+        "updated_catalog_ids": [],
+        "execution_mode": "noop",
+        "chunks": 0,
+    }
+
+
+def test_run_entity_backfill_uses_in_process_fast_path_for_small_snapshots(mocker):
+    mock_session = MagicMock()
+    mock_session.__enter__.return_value = mock_session
+    mock_session.__exit__.return_value = False
+    mocker.patch("pipeline.backfill_entities.db_session", return_value=mock_session)
+    mocker.patch("pipeline.backfill_entities.select_catalog_ids_for_entity_backfill", return_value=[1, 2, 3])
+    mocker.patch("pipeline.backfill_entities._resolve_parallel_processing_settings", return_value={"mode": "global", "chunk_size": 10, "workers_override": None})
+    process_chunk_spy = mocker.patch(
+        "pipeline.backfill_entities.process_entity_chunk",
+        return_value={"complete": 3, "updated_catalog_ids": [1, 2, 3]},
+    )
+    executor_spy = mocker.patch("pipeline.backfill_entities.ProcessPoolExecutor")
+    mocker.patch("pipeline.backfill_entities.ENTITY_BACKFILL_IN_PROCESS_THRESHOLD", 10)
+
+    from pipeline.backfill_entities import run_entity_backfill
+
+    counts = run_entity_backfill()
+
+    assert counts["complete"] == 3
+    assert counts["changed_catalogs"] == 3
+    assert counts["updated_catalog_ids"] == [1, 2, 3]
+    assert counts["execution_mode"] == "in_process"
+    process_chunk_spy.assert_called_once_with([1, 2, 3])
+    executor_spy.assert_not_called()
 
 
 @pytest.fixture
