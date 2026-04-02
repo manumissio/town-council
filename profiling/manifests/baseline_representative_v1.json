@@ -1,0 +1,152 @@
+{
+  "catalog_ids": [
+    1114,
+    2239,
+    2340,
+    2346,
+    2353,
+    2909,
+    3639,
+    3868,
+    1,
+    2,
+    3,
+    4,
+    5,
+    6,
+    7,
+    8,
+    9,
+    10,
+    11,
+    12,
+    13,
+    14,
+    15,
+    16,
+    20,
+    26,
+    17,
+    18,
+    19,
+    21
+  ],
+  "expected_phase_coverage": {
+    "entity": 8,
+    "extract": 8,
+    "org": 2,
+    "people": 4,
+    "segment": 6,
+    "summary": 6
+  },
+  "generated_at": "2026-04-02T02:02:13+00:00",
+  "manifest_name": "baseline_representative_v1",
+  "org_event_resets": [
+    {
+      "catalog_id": 20,
+      "event_id": 15
+    },
+    {
+      "catalog_id": 26,
+      "event_id": 19
+    }
+  ],
+  "people_reset_names": [
+    {
+      "catalog_id": 17,
+      "names": [
+        "Erin Woodell",
+        "P. ROBERTBEATTY",
+        "Rebecca Ayers Azran",
+        "Sam  Fishman"
+      ]
+    },
+    {
+      "catalog_id": 18,
+      "names": [
+        "John Caner",
+        "Weldon Bradstreet"
+      ]
+    },
+    {
+      "catalog_id": 19,
+      "names": [
+        "Erin Woodell",
+        "Rebecca Ayers Azran",
+        "Rebecca Medcalf"
+      ]
+    },
+    {
+      "catalog_id": 21,
+      "names": [
+        "Izzy  Ramsey",
+        "Kitty Calavita"
+      ]
+    }
+  ],
+  "phase_candidates": {
+    "entity": 2893,
+    "extract": 7128,
+    "org": 9090,
+    "people": 2403,
+    "segment": 2798,
+    "summary": 2808
+  },
+  "phase_quotas": {
+    "entity": 4,
+    "extract": 8,
+    "org": 2,
+    "people": 4,
+    "segment": 6,
+    "summary": 6
+  },
+  "safety": {
+    "org_reset_requires_single_document_event": true,
+    "people_reset_mode": "mentioned_exact_name_without_memberships"
+  },
+  "schema_version": 1,
+  "strata": {
+    "entity": [
+      13,
+      14,
+      15,
+      16
+    ],
+    "extract": [
+      1114,
+      2239,
+      2340,
+      2346,
+      2353,
+      2909,
+      3639,
+      3868
+    ],
+    "org": [
+      20,
+      26
+    ],
+    "people": [
+      17,
+      18,
+      19,
+      21
+    ],
+    "segment": [
+      1,
+      2,
+      3,
+      4,
+      5,
+      6
+    ],
+    "summary": [
+      7,
+      8,
+      9,
+      10,
+      11,
+      12
+    ]
+  }
+}

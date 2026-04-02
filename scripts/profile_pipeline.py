@@ -16,6 +16,7 @@ from sqlalchemy.orm import sessionmaker
 from pipeline.agenda_worker import select_catalog_ids_for_agenda_segmentation
 from pipeline.maintenance_run_status import validate_run_id
 from pipeline.models import Catalog, Document, Event, db_connect
+from pipeline.profile_manifest import load_manifest_package, sidecar_path_for_manifest, validate_manifest_package
 from pipeline.run_pipeline import select_catalog_ids_for_processing
 from pipeline.tasks import select_catalog_ids_for_summary_hydration
 
@@ -207,6 +208,31 @@ def _run_json_command(command: list[str], *, cwd: Path) -> dict:
     raise RuntimeError(f"expected JSON object in stdout for command: {' '.join(command)}")
 
 
+def _prepare_manifest_package_via_docker(manifest_rel: str, *, dry_run: bool) -> dict:
+    statement = (
+        "import json; "
+        "from pathlib import Path; "
+        "from pipeline.profile_manifest import apply_preconditioning, load_manifest_package; "
+        f"manifest_path=Path({manifest_rel!r}); "
+        "package=load_manifest_package(manifest_path); "
+        "assert package is not None, 'manifest package missing'; "
+        f"print(json.dumps(apply_preconditioning(package, dry_run={str(bool(dry_run))}), sort_keys=True))"
+    )
+    command = [
+        "docker",
+        "compose",
+        "exec",
+        "-T",
+        "-w",
+        "/app",
+        TRIAGE_SELECTOR_SERVICE,
+        "python",
+        "-c",
+        statement,
+    ]
+    return _run_json_command(command, cwd=REPO_ROOT)
+
+
 def _select_triage_catalog_ids_via_docker(limit: int, city: str | None) -> dict:
     selector = (
         "import json; "
@@ -310,6 +336,7 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser.add_argument("--city", default=None)
     parser.add_argument("--api-url", default="http://localhost:8000")
     parser.add_argument("--skip-batch", action="store_true")
+    parser.add_argument("--dry-run-prepare", action="store_true")
     return parser.parse_args(argv)
 
 
@@ -327,8 +354,14 @@ def main(argv: list[str] | None = None) -> int:
         raise SystemExit(f"run directory already exists: {run_dir}")
     run_dir.mkdir(parents=True, exist_ok=False)
 
+    manifest_package = None
+    manifest_path = Path(args.manifest) if args.manifest else None
     if args.mode == "baseline":
-        catalog_ids = _load_manifest_catalog_ids(Path(args.manifest))
+        assert manifest_path is not None
+        catalog_ids = _load_manifest_catalog_ids(manifest_path)
+        manifest_package = load_manifest_package(manifest_path)
+        if manifest_package is not None:
+            validate_manifest_package(catalog_ids, manifest_package)
     else:
         selection = _select_triage_catalog_ids_via_docker(limit=max(1, int(args.limit)), city=args.city)
         catalog_ids = [int(cid) for cid in selection.get("catalog_ids") or []]
@@ -337,7 +370,19 @@ def main(argv: list[str] | None = None) -> int:
 
     manifest_copy = run_dir / "catalog_manifest.txt"
     _write_catalog_manifest(manifest_copy, catalog_ids)
+    if manifest_package is not None:
+        _write_json(sidecar_path_for_manifest(manifest_copy), manifest_package)
     provider_counters_before_run = _provider_counters_before_run()
+    manifest_rel = _path_for_profile_env(manifest_copy)
+    prepare_summary = None
+    if args.dry_run_prepare:
+        if args.mode != "baseline":
+            raise SystemExit("--dry-run-prepare is only supported for baseline mode")
+        if manifest_package is None:
+            raise SystemExit("--dry-run-prepare requires a manifest package sidecar (.json)")
+        prepare_summary = _prepare_manifest_package_via_docker(manifest_rel, dry_run=True)
+        print(json.dumps(prepare_summary, indent=2, sort_keys=True))
+        return 0
 
     run_manifest = {
         "run_id": run_id,
@@ -363,10 +408,19 @@ def main(argv: list[str] | None = None) -> int:
         },
         "provider_counters_before_run": provider_counters_before_run,
     }
+    if manifest_package is not None:
+        run_manifest["manifest_package"] = {
+            "schema_version": int(manifest_package.get("schema_version") or 0),
+            "manifest_name": manifest_package.get("manifest_name"),
+            "phase_selected_counts": {
+                key: len(value)
+                for key, value in (manifest_package.get("strata") or {}).items()
+            },
+            "expected_phase_coverage": dict(manifest_package.get("expected_phase_coverage") or {}),
+        }
     _write_json(run_dir / "run_manifest.json", run_manifest)
 
     artifact_dir_rel = _path_for_profile_env(run_dir)
-    manifest_rel = _path_for_profile_env(manifest_copy)
     env = _profile_env(
         run_id=run_id,
         mode=args.mode,
@@ -390,6 +444,10 @@ def main(argv: list[str] | None = None) -> int:
     error_message = None
     command_segments: list[dict] = []
     try:
+        if manifest_package is not None:
+            prepare_summary = _prepare_manifest_package_via_docker(manifest_rel, dry_run=False)
+            run_manifest["preconditioning"] = prepare_summary
+            _write_json(run_dir / "run_manifest.json", run_manifest)
         for command in commands:
             segment_started = time.perf_counter()
             segment_name = "pipeline-batch" if "run_batch_enrichment.py" in command else "pipeline"
