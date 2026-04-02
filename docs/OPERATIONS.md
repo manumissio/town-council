@@ -124,11 +124,11 @@ Batch runtime notes:
 - By default it selects repaired agenda catalogs by city scope and repair state, not by one historical URL family.
 - Use `--url-substring ...` only when you intentionally want to narrow a run to one recovered source shape such as `ElectronicFile.aspx`.
 - `--segment-mode maintenance` keeps normal pipeline defaults untouched, but lets the helper skip LLM-first agenda extraction when the extracted text is already structured enough for the deterministic parser.
-- `--summary-fallback-mode deterministic` keeps normal summary behavior untouched, but lets the helper persist a deterministic agenda-items summary when maintenance runs hit agenda-summary inference timeouts.
+- maintenance summary routing is now deterministic-first for agenda catalogs that already have structured agenda items; non-agenda summaries still use the LLM-backed path and only fall back deterministically on provider failures when `--summary-fallback-mode deterministic` is set.
 - Prefer this helper when a city recovery added agenda PDFs that never entered extraction; keep `scripts/staged_hydrate_cities.py` for city-wide unresolved backlog reduction.
 - Watch these counters in helper output when tuning repaired batches:
   - segmentation: `llm_attempted`, `llm_skipped_heuristic_first`, `heuristic_complete`, `llm_timeout_then_fallback`
-  - summary: `llm_complete`, `deterministic_fallback_complete`, `error`
+  - summary: `agenda_deterministic_complete`, `llm_complete`, `deterministic_fallback_complete`, `error`
 - Example maintenance run:
 ```bash
 docker compose run --rm pipeline python scripts/hydrate_repaired_city_catalogs.py \

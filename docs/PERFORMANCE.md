@@ -140,6 +140,10 @@ Interpretation rule:
   - summary hydration now uses a shorter maintenance timeout and deterministic fallback on provider timeout/unavailable failures
 - On the same `baseline_representative_v1` manifest, that reduced combined elapsed time from `355.655s` in `pipeline_profile_baseline_20260402_020239` to `85.202s` in `pipeline_profile_baseline_20260402_023734`.
 - After that change, `segment_agenda` dropped from `270.549s` to `0.178s`; `summarize` is now the primary remaining provider bottleneck.
+- The next summary-focused pass made maintenance agenda summaries deterministic-first instead of paying for an LLM call that grounding checks often replaced anyway.
+- On the same `baseline_representative_v1` manifest, that reduced combined elapsed time again from `85.202s` in `pipeline_profile_baseline_20260402_023734` to `17.165s` in `pipeline_profile_baseline_20260402_025623`.
+- In that run, `summary_hydration_backfill` reported `agenda_deterministic_complete=12`, `llm_complete=0`, and `deterministic_fallback_complete=0`, and maintenance `summarize_agenda_items` provider calls disappeared from `commands.log`.
+- After that change, the remaining top bottlenecks are `entity_backfill` (`6.849s`), `people_linking` (`5.277s`), and `summarize` (`2.764s`).
 
 ### Other Performance-Related Changes
 
