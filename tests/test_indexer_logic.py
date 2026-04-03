@@ -116,6 +116,41 @@ def test_flush_batch_keeps_count_on_error(mocker):
     assert count == 7
 
 
+def test_delete_documents_by_filter_prefers_supported_delete_documents_api():
+    fake_index = MagicMock()
+    fake_index.delete_documents.return_value = {"taskUid": 88}
+
+    result = indexer._delete_documents_by_filter(
+        fake_index,
+        'catalog_id = 9 AND result_type = "agenda_item"',
+    )
+
+    assert result == {"taskUid": 88}
+    fake_index.delete_documents.assert_called_once_with(
+        filter='catalog_id = 9 AND result_type = "agenda_item"'
+    )
+
+
+def test_delete_documents_by_filter_falls_back_when_only_legacy_method_exists():
+    class LegacyIndex:
+        def __init__(self):
+            self.calls = []
+
+        def delete_documents_by_filter(self, filters):
+            self.calls.append(filters)
+            return {"taskUid": 11}
+
+    fake_index = LegacyIndex()
+
+    result = indexer._delete_documents_by_filter(
+        fake_index,
+        'catalog_id = 9 AND result_type = "agenda_item"',
+    )
+
+    assert result == {"taskUid": 11}
+    assert fake_index.calls == [['catalog_id = 9 AND result_type = "agenda_item"']]
+
+
 def test_reindex_catalog_skips_schema_updates_and_reindexes_agenda_items(mocker):
     meeting_doc = SimpleNamespace(
         id=1,
@@ -178,7 +213,7 @@ def test_reindex_catalog_skips_schema_updates_and_reindexes_agenda_items(mocker)
         yield session
 
     fake_index = MagicMock()
-    fake_index.delete_documents_by_filter.return_value = {"taskUid": 88}
+    fake_index.delete_documents.return_value = {"taskUid": 88}
     fake_client = MagicMock()
     fake_client.index.return_value = fake_index
     mocker.patch.object(indexer, "db_session", fake_db_session)
@@ -188,8 +223,8 @@ def test_reindex_catalog_skips_schema_updates_and_reindexes_agenda_items(mocker)
     result = indexer.reindex_catalog(9)
 
     apply_settings.assert_not_called()
-    fake_index.delete_documents_by_filter.assert_called_once_with(
-        ['catalog_id = 9 AND result_type = "agenda_item"']
+    fake_index.delete_documents.assert_called_once_with(
+        filter='catalog_id = 9 AND result_type = "agenda_item"'
     )
     fake_index.add_documents.assert_called_once()
     sent = fake_index.add_documents.call_args.args[0]

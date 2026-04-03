@@ -80,6 +80,23 @@ def _task_uid(task_result) -> int | None:
     return None
 
 
+def _delete_documents_by_filter(index, filter_expr: str):
+    """
+    Meilisearch SDK compatibility wrapper for filtered deletes.
+
+    Why this exists:
+    The repo pins meilisearch==0.31.0, whose Python client supports
+    `delete_documents(filter=...)` but does not expose
+    `delete_documents_by_filter(...)`. Centralizing the compatibility branch keeps
+    targeted reindexing durable across minor SDK surface differences.
+    """
+    if hasattr(index, "delete_documents"):
+        return index.delete_documents(filter=filter_expr)
+    if hasattr(index, "delete_documents_by_filter"):
+        return index.delete_documents_by_filter([filter_expr])
+    raise RuntimeError("Meilisearch client does not support filtered document deletion")
+
+
 def _truncate_content_for_index(content: str | None) -> tuple[str | None, bool, int, int]:
     """
     Truncate content for search indexing and return observability metadata.
@@ -337,8 +354,9 @@ def reindex_catalog(catalog_id: int) -> dict:
         for item, event, place, organization in item_docs:
             payload.append(_build_agenda_item_search_doc(item, event, place, organization))
 
-        delete_task = index.delete_documents_by_filter(
-            [f'catalog_id = {int(catalog_id)} AND result_type = "agenda_item"']
+        delete_task = _delete_documents_by_filter(
+            index,
+            f'catalog_id = {int(catalog_id)} AND result_type = "agenda_item"',
         )
         delete_uid = _task_uid(delete_task)
         if isinstance(delete_uid, int):
