@@ -81,3 +81,28 @@ def test_compare_arms_includes_provider_metric_deltas_without_new_checks():
         "segment_p95",
         "failure_rate",
     }
+
+
+def test_arm_metadata_preserves_model_identity():
+    rows = [
+        {"arm": "A", "model": "gemma-3-270m-custom"},
+        {"arm": "B", "model": "gemma4:e2b"},
+    ]
+    configs = [
+        {
+            "run_id": "A_run1",
+            "arm": "A",
+            "profile": {"LOCAL_AI_HTTP_PROFILE": "conservative", "LOCAL_AI_HTTP_MODEL": "gemma-3-270m-custom"},
+        },
+        {
+            "run_id": "B_run1",
+            "arm": "B",
+            "profile": {"LOCAL_AI_HTTP_PROFILE": "conservative", "LOCAL_AI_HTTP_MODEL": "gemma4:e2b"},
+        },
+    ]
+
+    metadata = mod._arm_metadata(rows, configs)
+
+    assert metadata["A"]["model"] == "gemma-3-270m-custom"
+    assert metadata["B"]["model"] == "gemma4:e2b"
+    assert metadata["B"]["profile"]["LOCAL_AI_HTTP_PROFILE"] == "conservative"

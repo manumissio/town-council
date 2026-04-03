@@ -33,6 +33,13 @@ LEAF_PHASES = {
     "people_linking",
     "semantic_embed",
 }
+PAIRWISE_CONTROLLED_PROFILE_KEYS = (
+    "LOCAL_AI_BACKEND",
+    "LOCAL_AI_HTTP_PROFILE",
+    "WORKER_CONCURRENCY",
+    "WORKER_POOL",
+    "OLLAMA_NUM_PARALLEL",
+)
 
 
 def _load_json(path: Path) -> dict[str, Any]:
@@ -323,6 +330,24 @@ def _load_expected_baseline(path: Path) -> dict[str, Any]:
     return payload
 
 
+def _compare_percentage_metric(name: str, control: float, treatment: float, tolerance_pct: float) -> dict[str, Any]:
+    allowed = round(float(control) * (tolerance_pct / 100.0), 3)
+    delta = round(float(treatment) - float(control), 3)
+    regression_pct = 0.0 if float(control) == 0.0 else round((delta / float(control)) * 100.0, 2)
+    passed = float(treatment) <= float(control) + allowed
+    return {
+        "metric": name,
+        "control": round(float(control), 3),
+        "treatment": round(float(treatment), 3),
+        "delta": delta,
+        "regression_pct": regression_pct,
+        "tolerance_pct": tolerance_pct,
+        "tolerance_abs": allowed,
+        "status": "pass" if passed else "fail",
+        "reason": "timing_regression" if not passed else "within_tolerance",
+    }
+
+
 def _compare_timing_metric(name: str, expected: float, actual: float, tolerance_pct: float) -> dict[str, Any]:
     allowed = round(float(expected) * (tolerance_pct / 100.0), 3)
     delta = round(float(actual) - float(expected), 3)
@@ -348,6 +373,101 @@ def _compare_exact_metric(name: str, expected: Any, actual: Any) -> dict[str, An
         "status": "pass" if passed else "fail",
         "reason": "workload_shape_drift" if not passed else "match",
     }
+
+
+def compare_profile_runs(control_run_dir: Path, treatment_run_dir: Path) -> dict[str, Any]:
+    control_summary = rank_bottlenecks(control_run_dir)
+    treatment_summary = rank_bottlenecks(treatment_run_dir)
+    control_manifest = _load_json(control_run_dir / "run_manifest.json")
+    treatment_manifest = _load_json(treatment_run_dir / "run_manifest.json")
+    control_day = _load_json(control_run_dir / "day_summary.json")
+    treatment_day = _load_json(treatment_run_dir / "day_summary.json")
+
+    result: dict[str, Any] = {
+        "control_run_id": control_summary.get("run_id"),
+        "treatment_run_id": treatment_summary.get("run_id"),
+        "status": "pass",
+        "reason": "matched",
+        "comparable": True,
+        "checks": [],
+        "control_model": (control_manifest.get("profile") or {}).get("LOCAL_AI_HTTP_MODEL"),
+        "treatment_model": (treatment_manifest.get("profile") or {}).get("LOCAL_AI_HTTP_MODEL"),
+        "provider_counters": {
+            "control": {
+                "provider_requests_delta_run": control_day.get("provider_requests_delta_run"),
+                "provider_timeouts_delta_run": control_day.get("provider_timeouts_delta_run"),
+                "provider_retries_delta_run": control_day.get("provider_retries_delta_run"),
+            },
+            "treatment": {
+                "provider_requests_delta_run": treatment_day.get("provider_requests_delta_run"),
+                "provider_timeouts_delta_run": treatment_day.get("provider_timeouts_delta_run"),
+                "provider_retries_delta_run": treatment_day.get("provider_retries_delta_run"),
+            },
+        },
+    }
+
+    if not control_summary.get("baseline_valid") or not treatment_summary.get("baseline_valid"):
+        result.update({"status": "non_comparable", "reason": "baseline_invalid", "comparable": False})
+        return result
+    if str(control_summary.get("confidence") or "").startswith("reduced-confidence"):
+        result.update({"status": "non_comparable", "reason": "control_confidence_reduced", "comparable": False})
+        return result
+    if str(treatment_summary.get("confidence") or "").startswith("reduced-confidence"):
+        result.update({"status": "non_comparable", "reason": "treatment_confidence_reduced", "comparable": False})
+        return result
+
+    checks: list[dict[str, Any]] = []
+    checks.append(
+        _compare_percentage_metric(
+            "elapsed_seconds",
+            float(control_summary.get("elapsed_seconds") or 0.0),
+            float(treatment_summary.get("elapsed_seconds") or 0.0),
+            PHASE_DURATION_TOLERANCE_PCT,
+        )
+    )
+
+    for key in PAIRWISE_CONTROLLED_PROFILE_KEYS:
+        checks.append(
+            _compare_exact_metric(
+                f"profile.{key}",
+                (control_manifest.get("profile") or {}).get(key),
+                (treatment_manifest.get("profile") or {}).get(key),
+            )
+        )
+    checks.append(_compare_exact_metric("catalog_ids", control_manifest.get("catalog_ids"), treatment_manifest.get("catalog_ids")))
+
+    control_phases = {str(item.get("phase")): item for item in control_summary.get("all_phases") or []}
+    treatment_phases = {str(item.get("phase")): item for item in treatment_summary.get("all_phases") or []}
+    for phase in {str(item.get("phase")) for item in control_summary.get("top_bottlenecks") or []}:
+        control_phase = control_phases.get(phase)
+        treatment_phase = treatment_phases.get(phase)
+        if control_phase is None or treatment_phase is None:
+            checks.append(
+                {
+                    "metric": f"phase.{phase}.duration_s",
+                    "control": control_phase.get("duration_s") if control_phase else None,
+                    "treatment": treatment_phase.get("duration_s") if treatment_phase else None,
+                    "status": "fail",
+                    "reason": "artifact_missing",
+                }
+            )
+            continue
+        checks.append(
+            _compare_percentage_metric(
+                f"phase.{phase}.duration_s",
+                float(control_phase.get("duration_s") or 0.0),
+                float(treatment_phase.get("duration_s") or 0.0),
+                PHASE_DURATION_TOLERANCE_PCT,
+            )
+        )
+
+    result["checks"] = checks
+    failures = [check for check in checks if check.get("status") == "fail"]
+    if failures:
+        result["status"] = "fail"
+        result["reason"] = str(failures[0].get("reason") or "regression")
+        result["failed_checks"] = failures
+    return result
 
 
 def compare_against_expected_baseline(run_dir: Path, summary: dict[str, Any], expected_path: Path) -> dict[str, Any]:
@@ -474,11 +594,33 @@ def render_compare_report(summary: dict[str, Any], comparison: dict[str, Any]) -
     return "\n".join(lines) + "\n"
 
 
+def render_pairwise_compare_report(comparison: dict[str, Any]) -> str:
+    lines = [
+        f"# Pairwise Profile Compare: {comparison.get('treatment_run_id')}",
+        "",
+        f"- control_run_id: `{comparison.get('control_run_id')}`",
+        f"- treatment_run_id: `{comparison.get('treatment_run_id')}`",
+        f"- control_model: `{comparison.get('control_model')}`",
+        f"- treatment_model: `{comparison.get('treatment_model')}`",
+        f"- status: `{comparison.get('status')}`",
+        f"- reason: `{comparison.get('reason')}`",
+        f"- comparable: `{comparison.get('comparable')}`",
+        "",
+        "## Checks",
+    ]
+    for check in comparison.get("checks") or []:
+        lines.append(
+            f"- `{check['metric']}`: `{check['status']}` control=`{check.get('control', check.get('expected'))}` treatment=`{check.get('treatment', check.get('actual'))}`"
+        )
+    return "\n".join(lines) + "\n"
+
+
 def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Analyze pipeline profiling artifacts and rank bottlenecks.")
     parser.add_argument("--run-id", required=True)
     parser.add_argument("--output-dir", default="experiments/results/profiling")
     parser.add_argument("--compare-to", default=None)
+    parser.add_argument("--compare-run", default=None)
     return parser.parse_args(argv)
 
 
@@ -486,6 +628,8 @@ def main(argv: list[str] | None = None) -> int:
     args = parse_args(argv)
     output_root = Path(args.output_dir)
     run_dir = output_root / args.run_id if output_root.name != args.run_id else output_root
+    if args.compare_to and args.compare_run:
+        raise SystemExit("--compare-to and --compare-run are mutually exclusive")
     summary = rank_bottlenecks(run_dir)
     (run_dir / "summary.json").write_text(json.dumps(summary, indent=2, sort_keys=True) + "\n", encoding="utf-8")
     (run_dir / "top_bottlenecks.md").write_text(render_report(summary), encoding="utf-8")
@@ -495,6 +639,15 @@ def main(argv: list[str] | None = None) -> int:
         (run_dir / "baseline_compare.json").write_text(json.dumps(comparison, indent=2, sort_keys=True) + "\n", encoding="utf-8")
         (run_dir / "baseline_compare.md").write_text(render_compare_report(summary, comparison), encoding="utf-8")
         payload["baseline_compare"] = str(run_dir / "baseline_compare.json")
+        print(json.dumps(payload, indent=2))
+        return 0 if comparison.get("status") == "pass" else 1
+    if args.compare_run:
+        compare_root = Path(args.output_dir)
+        control_run_dir = compare_root / args.compare_run if compare_root.name != args.compare_run else compare_root
+        comparison = compare_profile_runs(control_run_dir, run_dir)
+        (run_dir / "pairwise_compare.json").write_text(json.dumps(comparison, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+        (run_dir / "pairwise_compare.md").write_text(render_pairwise_compare_report(comparison), encoding="utf-8")
+        payload["pairwise_compare"] = str(run_dir / "pairwise_compare.json")
         print(json.dumps(payload, indent=2))
         return 0 if comparison.get("status") == "pass" else 1
     print(json.dumps(payload, indent=2))

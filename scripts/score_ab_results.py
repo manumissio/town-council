@@ -19,6 +19,15 @@ DEFAULT_GATES = {
     "search_p95_regression_pct_max": 15.0,
 }
 
+PROFILE_KEYS = (
+    "LOCAL_AI_BACKEND",
+    "LOCAL_AI_HTTP_PROFILE",
+    "LOCAL_AI_HTTP_MODEL",
+    "WORKER_CONCURRENCY",
+    "WORKER_POOL",
+    "OLLAMA_NUM_PARALLEL",
+)
+
 
 def _to_bool(value):
     if isinstance(value, bool):
@@ -162,6 +171,33 @@ def _resolve_run_file(base: Path, run_id: str) -> Path:
     raise FileNotFoundError(f"missing ab rows for run {run_id}: expected {json_path} or {csv_path}")
 
 
+def _load_run_config(base: Path, run_id: str) -> dict:
+    path = base / run_id / "run_config.json"
+    if not path.exists():
+        return {}
+    try:
+        payload = json.loads(path.read_text(encoding="utf-8"))
+    except Exception:
+        return {}
+    return payload if isinstance(payload, dict) else {}
+
+
+def _arm_metadata(rows, configs):
+    by_arm = {}
+    for arm in ("A", "B"):
+        arm_rows = [row for row in rows if str(row.get("arm") or "").strip().upper() == arm]
+        models = sorted({str(row.get("model") or "").strip() for row in arm_rows if str(row.get("model") or "").strip()})
+        config = next((cfg for cfg in configs if str(cfg.get("arm") or "").strip().upper() == arm), {})
+        profile = config.get("profile") if isinstance(config.get("profile"), dict) else {}
+        by_arm[arm] = {
+            "run_id": config.get("run_id"),
+            "model": models[0] if len(models) == 1 else (models or [config.get("model") or "unknown"])[0],
+            "models_seen": models or ([str(config.get("model"))] if config.get("model") else []),
+            "profile": {key: profile.get(key) for key in PROFILE_KEYS if profile.get(key) not in (None, "")},
+        }
+    return by_arm
+
+
 def _compute_manual_review_delta(blind_csv: str, key_csv: str) -> float | None:
     blind = {}
     with Path(blind_csv).open("r", encoding="utf-8", newline="") as f:
@@ -203,11 +239,22 @@ def _compute_manual_review_delta(blind_csv: str, key_csv: str) -> float | None:
     return float(median(deltas))
 
 
-def _render_report(control, treatment, comparison, run_ids):
+def _render_report(control, treatment, comparison, run_ids, arm_metadata):
     lines = []
     lines.append("# A/B Report v1")
     lines.append("")
     lines.append(f"Runs: {', '.join(run_ids)}")
+    lines.append("")
+    lines.append("## Arm Identity")
+    lines.append("")
+    lines.append("| Arm | Run ID | Model | Runtime Profile |")
+    lines.append("|---|---|---|---|")
+    for arm in ("A", "B"):
+        meta = arm_metadata.get(arm) or {}
+        profile = meta.get("profile") or {}
+        profile_text = ", ".join(f"{key}={value}" for key, value in profile.items()) or "-"
+        label = "Control (A)" if arm == "A" else "Treatment (B)"
+        lines.append(f"| {label} | {meta.get('run_id') or '-'} | {meta.get('model') or '-'} | {profile_text} |")
     lines.append("")
     lines.append("## Arm Metrics")
     lines.append("")
@@ -268,9 +315,11 @@ def main() -> int:
 
     root = Path(args.results_root)
     all_rows = []
+    run_configs = []
     for run_id in run_ids:
         path = _resolve_run_file(root, run_id)
         all_rows.extend(_load_rows(path))
+        run_configs.append(_load_run_config(root, run_id))
 
     by_arm = defaultdict(list)
     for row in all_rows:
@@ -302,9 +351,11 @@ def main() -> int:
     comparison["extra_checks"] = extra_checks
     comparison["manual_review_median_delta"] = manual_delta
     comparison["all_pass"] = comparison["all_pass"] and all(extra_checks.values())
+    arm_metadata = _arm_metadata(all_rows, run_configs)
 
     out = {
         "runs": run_ids,
+        "arm_metadata": arm_metadata,
         "control": control,
         "treatment": treatment,
         "comparison": comparison,
@@ -323,7 +374,7 @@ def main() -> int:
     md_path = report_dir / "ab_report_v1.md"
 
     json_path.write_text(json.dumps(out, indent=2), encoding="utf-8")
-    md_path.write_text(_render_report(control, treatment, comparison, run_ids), encoding="utf-8")
+    md_path.write_text(_render_report(control, treatment, comparison, run_ids, arm_metadata), encoding="utf-8")
 
     print(f"wrote score json: {json_path}")
     print(f"wrote report: {md_path}")

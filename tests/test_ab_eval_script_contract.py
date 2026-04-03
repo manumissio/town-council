@@ -6,6 +6,8 @@ def test_run_ab_eval_script_contract():
     text = path.read_text(encoding="utf-8")
 
     assert "--arm <A|B>" in text
+    assert "run_config.json" in text
+    assert '"model"' in text
     assert "extract/$cid?force=true&ocr_fallback=false" in text
     assert "segment/$cid?force=true" in text
     assert "summarize/$cid?force=true" in text
@@ -20,6 +22,7 @@ def test_collect_script_emits_required_fields():
     for field in [
         "run_id",
         "arm",
+        "model",
         "catalog_id",
         "doc_kind",
         "segment_duration_s",

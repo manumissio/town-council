@@ -55,6 +55,25 @@ if [[ -n "$ARM_MODEL" ]]; then
   export LOCAL_AI_HTTP_MODEL="$ARM_MODEL"
 fi
 
+cat > "$RESULT_DIR/run_config.json" <<EOF
+{
+  "run_id": "$RUN_ID",
+  "arm": "$ARM",
+  "model": "${LOCAL_AI_HTTP_MODEL:-unknown}",
+  "api_url": "$API_URL",
+  "catalog_file": "$CATALOG_FILE",
+  "wait_seconds": "$WAIT_SECONDS",
+  "profile": {
+    "LOCAL_AI_BACKEND": "${LOCAL_AI_BACKEND:-}",
+    "LOCAL_AI_HTTP_PROFILE": "${LOCAL_AI_HTTP_PROFILE:-}",
+    "LOCAL_AI_HTTP_MODEL": "${LOCAL_AI_HTTP_MODEL:-unknown}",
+    "WORKER_CONCURRENCY": "${WORKER_CONCURRENCY:-}",
+    "WORKER_POOL": "${WORKER_POOL:-}",
+    "OLLAMA_NUM_PARALLEL": "${OLLAMA_NUM_PARALLEL:-}"
+  }
+}
+EOF
+
 echo "run_id=$RUN_ID arm=$ARM model=${LOCAL_AI_HTTP_MODEL:-unknown} cids=${#CIDS[@]}" | tee "$RESULT_DIR/run_meta.txt"
 
 run_endpoint() {
@@ -71,7 +90,7 @@ PY
 
   tid=$(curl -fsS -X POST "$API_URL/$ep" -H "X-API-Key: $API_KEY" | python3 -c 'import sys,json; print(json.load(sys.stdin).get("task_id",""))')
   if [[ -z "$tid" ]]; then
-    payload=$(printf '{"run_id":"%s","arm":"%s","catalog_id":%s,"phase":"%s","status":"failed","task_failed":true,"error":"missing_task_id"}' "$RUN_ID" "$ARM" "$cid" "$phase")
+    payload=$(printf '{"run_id":"%s","arm":"%s","model":"%s","catalog_id":%s,"phase":"%s","status":"failed","task_failed":true,"error":"missing_task_id"}' "$RUN_ID" "$ARM" "${LOCAL_AI_HTTP_MODEL:-unknown}" "$cid" "$phase")
     echo "$payload" >> "$TASKS_JSONL"
     return 1
   fi
@@ -102,15 +121,16 @@ PY
   local failed="false"
   [[ "$status" == "failed" ]] && failed="true"
 
-  payload=$(python3 - <<'PY' "$RUN_ID" "$ARM" "$cid" "$phase" "$tid" "$status" "$duration" "$failed" "$task_resp"
+  payload=$(python3 - <<'PY' "$RUN_ID" "$ARM" "${LOCAL_AI_HTTP_MODEL:-unknown}" "$cid" "$phase" "$tid" "$status" "$duration" "$failed" "$task_resp"
 import json
 import sys
 
-run_id, arm, cid, phase, tid, status, duration, failed, task_resp = sys.argv[1:]
+run_id, arm, model, cid, phase, tid, status, duration, failed, task_resp = sys.argv[1:]
 
 payload = {
     "run_id": run_id,
     "arm": arm,
+    "model": model,
     "catalog_id": int(cid),
     "phase": phase,
     "task_id": tid,

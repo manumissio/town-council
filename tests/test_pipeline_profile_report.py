@@ -248,3 +248,65 @@ def test_compare_against_expected_baseline_marks_reduced_confidence_as_non_compa
 
     assert comparison["status"] == "non_comparable"
     assert comparison["reason"] == "confidence_reduced"
+
+
+def test_compare_profile_runs_passes_for_matching_pair(tmp_path: Path):
+    control_dir = tmp_path / "control_run"
+    treatment_dir = tmp_path / "treatment_run"
+    control_dir.mkdir()
+    treatment_dir.mkdir()
+    _write_compare_fixture(control_dir)
+    _write_compare_fixture(treatment_dir, elapsed_seconds=9.8, summarize_duration=3.8)
+
+    control_manifest = json.loads((control_dir / "run_manifest.json").read_text(encoding="utf-8"))
+    control_manifest["profile"] = {
+        "LOCAL_AI_BACKEND": "http",
+        "LOCAL_AI_HTTP_PROFILE": "conservative",
+        "LOCAL_AI_HTTP_MODEL": "gemma-3-270m-custom",
+        "WORKER_CONCURRENCY": "3",
+        "WORKER_POOL": "prefork",
+        "OLLAMA_NUM_PARALLEL": "1",
+    }
+    (control_dir / "run_manifest.json").write_text(json.dumps(control_manifest), encoding="utf-8")
+
+    treatment_manifest = json.loads((treatment_dir / "run_manifest.json").read_text(encoding="utf-8"))
+    treatment_manifest["catalog_ids"] = control_manifest.get("catalog_ids")
+    treatment_manifest["profile"] = {
+        **control_manifest["profile"],
+        "LOCAL_AI_HTTP_MODEL": "gemma4:e2b",
+    }
+    (treatment_dir / "run_manifest.json").write_text(json.dumps(treatment_manifest), encoding="utf-8")
+    (control_dir / "day_summary.json").write_text(json.dumps({"provider_metrics_present": True, "provider_requests_delta_run": 10.0}), encoding="utf-8")
+    (treatment_dir / "day_summary.json").write_text(json.dumps({"provider_metrics_present": True, "provider_requests_delta_run": 12.0}), encoding="utf-8")
+
+    comparison = mod.compare_profile_runs(control_dir, treatment_dir)
+
+    assert comparison["status"] == "pass"
+    assert comparison["control_model"] == "gemma-3-270m-custom"
+    assert comparison["treatment_model"] == "gemma4:e2b"
+
+
+def test_compare_profile_runs_fails_for_profile_drift(tmp_path: Path):
+    control_dir = tmp_path / "control_run"
+    treatment_dir = tmp_path / "treatment_run"
+    control_dir.mkdir()
+    treatment_dir.mkdir()
+    _write_compare_fixture(control_dir)
+    _write_compare_fixture(treatment_dir)
+    for run_dir, model in ((control_dir, "gemma-3-270m-custom"), (treatment_dir, "gemma4:e2b")):
+        manifest = json.loads((run_dir / "run_manifest.json").read_text(encoding="utf-8"))
+        manifest["profile"] = {
+            "LOCAL_AI_BACKEND": "http",
+            "LOCAL_AI_HTTP_PROFILE": "conservative" if run_dir == control_dir else "balanced",
+            "LOCAL_AI_HTTP_MODEL": model,
+            "WORKER_CONCURRENCY": "3",
+            "WORKER_POOL": "prefork",
+            "OLLAMA_NUM_PARALLEL": "1",
+        }
+        (run_dir / "run_manifest.json").write_text(json.dumps(manifest), encoding="utf-8")
+        (run_dir / "day_summary.json").write_text(json.dumps({"provider_metrics_present": True}), encoding="utf-8")
+
+    comparison = mod.compare_profile_runs(control_dir, treatment_dir)
+
+    assert comparison["status"] == "fail"
+    assert any(check["metric"] == "profile.LOCAL_AI_HTTP_PROFILE" and check["status"] == "fail" for check in comparison["checks"])

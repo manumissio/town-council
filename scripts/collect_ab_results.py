@@ -56,6 +56,17 @@ def _to_int(value):
         return None
 
 
+def _load_run_config(run_dir: Path) -> dict:
+    path = run_dir / "run_config.json"
+    if not path.exists():
+        return {}
+    try:
+        payload = json.loads(path.read_text(encoding="utf-8"))
+    except Exception:
+        return {}
+    return payload if isinstance(payload, dict) else {}
+
+
 def _provider_metric_from_phase_row(row: dict, metric_name: str):
     # Prefer flattened fields from run_ab_eval; fall back to task_result payload.
     direct = row.get(metric_name)
@@ -87,6 +98,7 @@ def main() -> int:
     tasks_path = run_dir / "tasks.jsonl"
     if not tasks_path.exists():
         raise SystemExit(f"missing tasks file: {tasks_path}")
+    run_config = _load_run_config(run_dir)
 
     by_cid_phase = {}
     arm = None
@@ -158,6 +170,7 @@ def main() -> int:
                 {
                     "run_id": args.run_id,
                     "arm": arm or "",
+                    "model": str(summ.get("model") or seg.get("model") or run_config.get("model") or ""),
                     "catalog_id": cid,
                     "doc_kind": doc_kind,
                     "status": status,
@@ -190,6 +203,7 @@ def main() -> int:
     fieldnames = [
         "run_id",
         "arm",
+        "model",
         "catalog_id",
         "doc_kind",
         "status",
