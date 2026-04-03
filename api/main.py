@@ -58,6 +58,8 @@ agenda_items_look_low_quality = None
 try:
     from pipeline.models import db_connect, Document, Event, Place, Catalog, Person, AgendaItem, DataIssue, IssueType, Membership, Organization
     from pipeline.content_hash import compute_content_hash
+    from pipeline.document_kinds import normalize_summary_doc_kind
+    from pipeline.summary_freshness import compute_agenda_items_hash, is_summary_fresh, is_summary_stale
     from pipeline.summary_quality import analyze_source_text, is_source_summarizable, is_source_topicable, build_low_signal_message
     from pipeline.startup_purge import run_startup_purge_if_enabled
     from pipeline.utils import generate_ocd_id
@@ -79,6 +81,22 @@ def get_db():
         yield db
     finally:
         db.close()
+
+
+def _summary_doc_kind_and_hashes(db: SQLAlchemySession, catalog_id: int, catalog: Catalog) -> tuple[str, str | None, str | None]:
+    doc = db.query(Document).filter_by(catalog_id=catalog_id).first()
+    doc_kind = normalize_summary_doc_kind(doc.category if doc else "unknown")
+    content_hash = catalog.content_hash or (compute_content_hash(catalog.content) if catalog.content else None)
+    agenda_items_hash = catalog.agenda_items_hash
+    if doc_kind == "agenda":
+        agenda_items = (
+            db.query(AgendaItem)
+            .filter_by(catalog_id=catalog_id)
+            .order_by(AgendaItem.order)
+            .all()
+        )
+        agenda_items_hash = compute_agenda_items_hash(agenda_items)
+    return doc_kind, content_hash, agenda_items_hash
 
 # SECURITY: API Key Verification
 # This ensures that only authorized users (like our frontend) can 
@@ -617,8 +635,12 @@ def _hydrate_meeting_hits(db: SQLAlchemySession, candidates: list) -> list[dict]
             "summary_extractive": catalog.summary_extractive,
             "topics": catalog.topics,
             "related_ids": catalog.related_ids,
-            "summary_is_stale": bool(
-                catalog.summary and (not catalog.content_hash or catalog.summary_source_hash != catalog.content_hash)
+            "summary_is_stale": is_summary_stale(
+                doc.category,
+                summary=catalog.summary,
+                summary_source_hash=catalog.summary_source_hash,
+                content_hash=catalog.content_hash,
+                agenda_items_hash=catalog.agenda_items_hash,
             ),
             "topics_is_stale": bool(
                 catalog.topics is not None and (not catalog.content_hash or catalog.topics_source_hash != catalog.content_hash)
@@ -1141,14 +1163,13 @@ def summarize_document(
             "reason": build_low_signal_message(quality),
         }
 
-    # "Cached" should mean: generated from the *current* extracted text.
-    # If extracted text changed (re-extraction), we keep the old summary but mark it stale.
-    content_hash = catalog.content_hash or (compute_content_hash(catalog.content) if catalog.content else None)
-    is_fresh = bool(
-        catalog.summary
-        and content_hash
-        and catalog.summary_source_hash
-        and catalog.summary_source_hash == content_hash
+    doc_kind, content_hash, agenda_items_hash = _summary_doc_kind_and_hashes(db, catalog_id, catalog)
+    is_fresh = is_summary_fresh(
+        doc_kind,
+        summary=catalog.summary,
+        summary_source_hash=catalog.summary_source_hash,
+        content_hash=content_hash,
+        agenda_items_hash=agenda_items_hash,
     )
 
     if (not force) and is_fresh:
@@ -1282,9 +1303,13 @@ def get_catalog_derived_status(
     if not catalog:
         raise HTTPException(status_code=404, detail="Document not found")
 
-    content_hash = catalog.content_hash or (compute_content_hash(catalog.content) if catalog.content else None)
-    summary_is_stale = bool(
-        catalog.summary and (not content_hash or catalog.summary_source_hash != content_hash)
+    doc_kind, content_hash, agenda_items_hash = _summary_doc_kind_and_hashes(db, catalog_id, catalog)
+    summary_is_stale = is_summary_stale(
+        doc_kind,
+        summary=catalog.summary,
+        summary_source_hash=catalog.summary_source_hash,
+        content_hash=content_hash,
+        agenda_items_hash=agenda_items_hash,
     )
     topics_is_stale = bool(
         catalog.topics is not None and (not content_hash or catalog.topics_source_hash != content_hash)

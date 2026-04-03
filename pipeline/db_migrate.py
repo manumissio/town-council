@@ -111,6 +111,8 @@ def migrate() -> None:
             conn.execute(text("ALTER TABLE catalog ADD COLUMN extraction_error TEXT"))
         if not _postgres_column_exists(conn, "catalog", "entities_source_hash"):
             conn.execute(text("ALTER TABLE catalog ADD COLUMN entities_source_hash VARCHAR(64)"))
+        if not _postgres_column_exists(conn, "catalog", "agenda_items_hash"):
+            conn.execute(text("ALTER TABLE catalog ADD COLUMN agenda_items_hash VARCHAR(64)"))
 
         conn.execute(
             text(

@@ -44,6 +44,11 @@ from pipeline.document_kinds import normalize_summary_doc_kind, summary_doc_kind
 from pipeline.lineage_service import compute_lineage_assignments
 from pipeline.metrics import record_lineage_recompute
 from pipeline.profiling import apply_catalog_id_scope
+from pipeline.summary_freshness import (
+    compute_agenda_items_hash,
+    compute_summary_source_hash,
+    is_summary_fresh,
+)
 from pipeline.summary_quality import (
     analyze_source_text,
     build_low_signal_message,
@@ -232,10 +237,26 @@ def select_catalog_ids_for_summary_hydration(db, limit: int | None = None, city:
         .filter(
             Catalog.content.isnot(None),
             Catalog.content != "",
-            Catalog.summary.is_(None),
             or_(
-                doc_kind.c.doc_kind != "agenda",
-                and_(doc_kind.c.doc_kind == "agenda", agenda_items_exist),
+                and_(
+                    doc_kind.c.doc_kind != "agenda",
+                    or_(
+                        Catalog.summary.is_(None),
+                        Catalog.summary_source_hash.is_(None),
+                        Catalog.content_hash.is_(None),
+                        Catalog.summary_source_hash != Catalog.content_hash,
+                    ),
+                ),
+                and_(
+                    doc_kind.c.doc_kind == "agenda",
+                    agenda_items_exist,
+                    or_(
+                        Catalog.summary.is_(None),
+                        Catalog.summary_source_hash.is_(None),
+                        Catalog.agenda_items_hash.is_(None),
+                        Catalog.summary_source_hash != Catalog.agenda_items_hash,
+                    ),
+                ),
             ),
         )
         .order_by(Catalog.id)
@@ -535,28 +556,12 @@ def generate_summary_task(self, catalog_id: int, force: bool = False):
                     "summary": None,
                 }
         
-        # Return cached value when already summarized, unless the caller forces a refresh.
-        #
-        # Why have `force`?
-        # Summaries are cached on the Catalog row. When we improve the prompt/cleanup logic,
-        # old low-quality summaries won't change unless we regenerate them.
-        is_fresh = bool(
-            catalog.summary
-            and content_hash
-            and catalog.summary_source_hash
-            and catalog.summary_source_hash == content_hash
-        )
-        if (not force) and is_fresh:
-            return {"status": "cached", "summary": catalog.summary, "changed": False}
-        if (not force) and catalog.summary and not is_fresh:
-            # Keep the old summary visible, but mark it as out-of-date.
-            return {"status": "stale", "summary": catalog.summary, "changed": False}
-
         # Agenda summaries are derived from segmented agenda items (not raw PDF text) so the
         # AI Summary and Structured Agenda tabs cannot drift.
         # Whether we should run the "summary must be lexically grounded in extracted text" check.
         # Agenda summaries are derived from structured items, so we do not ground against the PDF text.
         do_grounding_check = True
+        agenda_items_hash = catalog.agenda_items_hash
         if doc_kind == "agenda":
             # Agenda summaries must be derived from segmented agenda items so the
             # AI Summary and Structured Agenda tabs cannot drift.
@@ -572,6 +577,29 @@ def generate_summary_task(self, catalog_id: int, force: bool = False):
                     "reason": "Agenda summary requires segmented agenda items. Run segmentation first.",
                     "summary": None,
                 }
+            agenda_items_hash = compute_agenda_items_hash(existing_items)
+            if agenda_items_hash != catalog.agenda_items_hash:
+                catalog.agenda_items_hash = agenda_items_hash
+
+        # Return cached value when already summarized, unless the caller forces a refresh.
+        #
+        # Why have `force`?
+        # Summaries are cached on the Catalog row. When we improve the prompt/cleanup logic,
+        # old low-quality summaries won't change unless we regenerate them.
+        is_fresh = is_summary_fresh(
+            doc_kind,
+            summary=catalog.summary,
+            summary_source_hash=catalog.summary_source_hash,
+            content_hash=content_hash,
+            agenda_items_hash=agenda_items_hash,
+        )
+        if (not force) and is_fresh:
+            return {"status": "cached", "summary": catalog.summary, "changed": False}
+        if (not force) and catalog.summary and not is_fresh:
+            # Keep the old summary visible, but mark it as out-of-date.
+            return {"status": "stale", "summary": catalog.summary, "changed": False}
+
+        if doc_kind == "agenda":
 
             # Filter obvious boilerplate titles defensively in case old polluted rows exist.
             from pipeline.llm import _looks_like_agenda_segmentation_boilerplate, _should_drop_from_agenda_summary
@@ -661,13 +689,19 @@ def generate_summary_task(self, catalog_id: int, force: bool = False):
         # Update DB
         prior_summary = catalog.summary
         prior_summary_source_hash = catalog.summary_source_hash
+        summary_source_hash = compute_summary_source_hash(
+            doc_kind,
+            content_hash=content_hash,
+            agenda_items_hash=agenda_items_hash,
+        )
         catalog.summary = summary
         if content_hash:
             catalog.content_hash = content_hash
-            catalog.summary_source_hash = content_hash
+        if summary_source_hash:
+            catalog.summary_source_hash = summary_source_hash
         db.commit()
 
-        changed = bool(prior_summary != summary or prior_summary_source_hash != content_hash)
+        changed = bool(prior_summary != summary or prior_summary_source_hash != summary_source_hash)
         reindexed = 0
         reindex_failed = 0
 

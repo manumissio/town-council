@@ -248,6 +248,21 @@ def _run_db_migrate_via_docker(*, log_path: Path) -> None:
     _run_command(command, env=os.environ.copy(), cwd=REPO_ROOT, log_path=log_path)
 
 
+def _run_backfill_catalog_hashes_via_docker(*, log_path: Path) -> None:
+    command = [
+        "docker",
+        "compose",
+        "exec",
+        "-T",
+        "-w",
+        "/app",
+        TRIAGE_SELECTOR_SERVICE,
+        "python",
+        "pipeline/backfill_catalog_hashes.py",
+    ]
+    _run_command(command, env=os.environ.copy(), cwd=REPO_ROOT, log_path=log_path)
+
+
 def _select_triage_catalog_ids_via_docker(limit: int, city: str | None) -> dict:
     selector = (
         "import json; "
@@ -393,6 +408,7 @@ def main(argv: list[str] | None = None) -> int:
     command_log = run_dir / "commands.log"
     if manifest_package is not None:
         _run_db_migrate_via_docker(log_path=command_log)
+        _run_backfill_catalog_hashes_via_docker(log_path=command_log)
     if args.dry_run_prepare:
         if args.mode != "baseline":
             raise SystemExit("--dry-run-prepare is only supported for baseline mode")

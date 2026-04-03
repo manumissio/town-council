@@ -252,6 +252,7 @@ def apply_preconditioning(package: dict[str, Any], *, dry_run: bool = False) -> 
                         Catalog.agenda_segmentation_attempted_at: None,
                         Catalog.agenda_segmentation_item_count: None,
                         Catalog.agenda_segmentation_error: None,
+                        Catalog.agenda_items_hash: None,
                         Catalog.summary: None,
                         Catalog.summary_source_hash: None,
                         Catalog.summary_extractive: None,
@@ -267,6 +268,7 @@ def apply_preconditioning(package: dict[str, Any], *, dry_run: bool = False) -> 
                 .filter(Catalog.id.in_(summary_ids))
                 .update(
                     {
+                        Catalog.agenda_items_hash: None,
                         Catalog.summary: None,
                         Catalog.summary_source_hash: None,
                         Catalog.summary_extractive: None,

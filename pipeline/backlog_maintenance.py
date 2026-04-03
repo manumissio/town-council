@@ -19,6 +19,7 @@ from pipeline.db_session import db_session
 from pipeline.document_kinds import normalize_summary_doc_kind
 from pipeline.laserfiche_error_pages import classify_catalog_bad_content
 from pipeline.models import AgendaItem, Catalog, Document
+from pipeline.summary_freshness import compute_agenda_items_hash, compute_summary_source_hash
 
 
 @contextmanager
@@ -363,7 +364,9 @@ def build_deterministic_agenda_summary_payloads(
                 continue
 
             content_hash = compute_content_hash(catalog.content) if (catalog.content or "") else None
-            result = _build_deterministic_agenda_summary_result(agenda_items_by_catalog_id.get(catalog_id, []))
+            agenda_items = agenda_items_by_catalog_id.get(catalog_id, [])
+            agenda_items_hash = compute_agenda_items_hash(agenda_items)
+            result = _build_deterministic_agenda_summary_result(agenda_items)
             if result.get("status") != "complete":
                 results[catalog_id] = result
                 continue
@@ -371,12 +374,24 @@ def build_deterministic_agenda_summary_payloads(
             summary = str(result.get("summary") or "")
             prior_summary = catalog.summary
             prior_summary_source_hash = catalog.summary_source_hash
+            prior_agenda_items_hash = catalog.agenda_items_hash
+            summary_source_hash = compute_summary_source_hash(
+                "agenda",
+                content_hash=content_hash,
+                agenda_items_hash=agenda_items_hash,
+            )
             catalog.summary = summary
             if content_hash:
                 catalog.content_hash = content_hash
-                catalog.summary_source_hash = content_hash
+            catalog.agenda_items_hash = agenda_items_hash
+            if summary_source_hash:
+                catalog.summary_source_hash = summary_source_hash
 
-            changed = bool(prior_summary != summary or prior_summary_source_hash != content_hash)
+            changed = bool(
+                prior_summary != summary
+                or prior_summary_source_hash != summary_source_hash
+                or prior_agenda_items_hash != agenda_items_hash
+            )
             if changed:
                 changed_catalog_ids.append(catalog_id)
             results[catalog_id] = {

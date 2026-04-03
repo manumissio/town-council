@@ -1,6 +1,7 @@
 from typing import Dict, List
 
-from pipeline.models import AgendaItem
+from pipeline.models import AgendaItem, Catalog
+from pipeline.summary_freshness import compute_agenda_items_hash
 from pipeline.utils import generate_ocd_id
 
 
@@ -29,5 +30,9 @@ def persist_agenda_items(session, catalog_id: int, event_id: int, items_data: Li
         )
         session.add(item)
         created.append(item)
+
+    catalog = session.get(Catalog, catalog_id)
+    if catalog is not None:
+        catalog.agenda_items_hash = compute_agenda_items_hash(created)
 
     return created

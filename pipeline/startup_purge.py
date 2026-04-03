@@ -43,6 +43,7 @@ def purge_derived_state(session) -> Dict[str, int]:
             Catalog.related_ids: None,
             Catalog.tables: None,
             Catalog.content_hash: None,
+            Catalog.agenda_items_hash: None,
             Catalog.entities_source_hash: None,
             Catalog.summary_source_hash: None,
             Catalog.topics_source_hash: None,

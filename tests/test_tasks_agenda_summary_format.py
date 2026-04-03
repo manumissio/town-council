@@ -7,6 +7,7 @@ sys.modules["llama_cpp"] = MagicMock()
 from pipeline import backlog_maintenance
 from pipeline import tasks
 from pipeline.models import AgendaItem, Document
+from pipeline.summary_freshness import compute_agenda_items_hash
 
 
 def test_generate_summary_task_agenda_requires_segmentation_and_calls_agenda_items_summarizer(mocker):
@@ -50,6 +51,9 @@ def test_generate_summary_task_agenda_requires_segmentation_and_calls_agenda_ite
     assert result["status"] == "complete"
     summary = result["summary"]
     assert summary.startswith("BLUF:")
+    expected_hash = compute_agenda_items_hash(items_query.filter_by.return_value.order_by.return_value.all.return_value)
+    assert catalog.summary_source_hash == expected_hash
+    assert catalog.agenda_items_hash == expected_hash
     mock_ai.summarize_agenda_items.assert_called_once()
     kwargs = mock_ai.summarize_agenda_items.call_args.kwargs
     assert isinstance(kwargs["items"], list)

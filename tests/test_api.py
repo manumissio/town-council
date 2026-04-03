@@ -493,3 +493,52 @@ def test_derived_status_exposes_not_generated_flags():
         assert payload["topics_blocked_reason"] is None
     finally:
         del app.dependency_overrides[get_db]
+
+
+def test_derived_status_marks_agenda_summary_stale_from_structured_items():
+    from api.main import get_db
+    from pipeline.models import AgendaItem, Document
+
+    catalog = MagicMock(
+        id=912,
+        content=(
+            "City council agenda includes housing, transportation, fiscal updates, public comment, "
+            "and multiple action items for adoption and review."
+        ),
+        content_hash="content-hash",
+        agenda_items_hash="stored-old-hash",
+        summary="agenda summary",
+        summary_source_hash="different-old-hash",
+        topics=[],
+        topics_source_hash=None,
+        agenda_segmentation_status="complete",
+        agenda_segmentation_item_count=1,
+        agenda_segmentation_attempted_at=None,
+        agenda_segmentation_error=None,
+    )
+    db = MagicMock()
+    db.get.return_value = catalog
+
+    def _query_side_effect(model):
+        query = MagicMock()
+        if model is Document:
+            query.filter_by.return_value.first.return_value = MagicMock(category="agenda")
+        elif model is AgendaItem:
+            query.filter_by.return_value.order_by.return_value.all.return_value = [
+                MagicMock(order=1, title="Item 1", description="Desc", classification="Agenda", result="", page_number=1)
+            ]
+        return query
+
+    db.query.side_effect = _query_side_effect
+
+    def _mock_get_db():
+        yield db
+
+    app.dependency_overrides[get_db] = _mock_get_db
+    try:
+        resp = client.get("/catalog/912/derived_status", headers={"X-API-Key": VALID_KEY})
+        assert resp.status_code == 200
+        payload = resp.json()
+        assert payload["summary_is_stale"] is True
+    finally:
+        del app.dependency_overrides[get_db]

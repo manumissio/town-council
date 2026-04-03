@@ -10,11 +10,13 @@ from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 
 from pipeline.run_pipeline import process_document_chunk
+from pipeline.agenda_service import persist_agenda_items
 from pipeline.tasks import select_catalog_ids_for_summary_hydration, run_summary_hydration_backfill
 from pipeline.agenda_worker import select_catalog_ids_for_agenda_segmentation
 from pipeline.table_worker import select_catalog_ids_for_table_extraction
 from pipeline.models import Base, Catalog, Document, AgendaItem, Event, Place
 from pipeline.city_scope import ordered_hydration_cities, source_aliases_for_city
+from pipeline.summary_freshness import compute_agenda_items_hash
 
 
 def test_document_chunk_worker(mocker):
@@ -236,12 +238,27 @@ def batching_db():
     db.close()
 
 
-def _add_catalog(db, event, place, *, category, content="content", summary=None, segmentation_status=None):
+def _add_catalog(
+    db,
+    event,
+    place,
+    *,
+    category,
+    content="content",
+    content_hash=None,
+    summary=None,
+    summary_source_hash=None,
+    agenda_items_hash=None,
+    segmentation_status=None,
+):
     catalog = Catalog(
         url_hash=f"{category}-{summary}-{segmentation_status}-{content}-{db.query(Catalog).count()}",
         location="/tmp/doc.pdf",
         content=content,
+        content_hash=content_hash,
         summary=summary,
+        summary_source_hash=summary_source_hash,
+        agenda_items_hash=agenda_items_hash,
         agenda_segmentation_status=segmentation_status,
     )
     db.add(catalog)
@@ -280,7 +297,16 @@ def test_select_catalog_ids_for_summary_hydration_filters_agenda_without_items(b
         summary=None,
         segmentation_status=None,
     )
-    summarized_catalog = _add_catalog(db, event, place, category="minutes", content="done", summary="already done")
+    summarized_catalog = _add_catalog(
+        db,
+        event,
+        place,
+        category="minutes",
+        content="done",
+        content_hash="done-hash",
+        summary="already done",
+        summary_source_hash="done-hash",
+    )
     db.add(AgendaItem(catalog_id=agenda_with_items.id, event_id=event.id, order=1, title="Item 1"))
     db.commit()
 
@@ -319,6 +345,65 @@ def test_select_catalog_ids_for_summary_hydration_treats_agenda_html_like_agenda
 
     assert agenda_html_with_items.id in selected
     assert agenda_html_without_items.id not in selected
+
+
+def test_select_catalog_ids_for_summary_hydration_includes_stale_agenda_but_skips_fresh_agenda(batching_db):
+    db, event, place = batching_db
+    fresh_agenda = _add_catalog(
+        db,
+        event,
+        place,
+        category="agenda",
+        content="agenda text",
+        summary="current agenda summary",
+        segmentation_status="complete",
+    )
+    stale_agenda = _add_catalog(
+        db,
+        event,
+        place,
+        category="agenda",
+        content="agenda text",
+        summary="stale agenda summary",
+        segmentation_status="complete",
+    )
+    fresh_items = [{"order": 1, "title": "Item 1", "description": "Desc", "classification": "Agenda", "result": "", "page_number": 1}]
+    stale_items = [{"order": 1, "title": "Item 2", "description": "Desc", "classification": "Agenda", "result": "", "page_number": 1}]
+    fresh_hash = compute_agenda_items_hash(fresh_items)
+    stale_hash = compute_agenda_items_hash(stale_items)
+    fresh_agenda.agenda_items_hash = fresh_hash
+    fresh_agenda.summary_source_hash = fresh_hash
+    stale_agenda.agenda_items_hash = stale_hash
+    stale_agenda.summary_source_hash = "old-hash"
+    persist_agenda_items(db, fresh_agenda.id, event.id, fresh_items)
+    persist_agenda_items(db, stale_agenda.id, event.id, stale_items)
+    db.commit()
+
+    selected = select_catalog_ids_for_summary_hydration(db)
+
+    assert fresh_agenda.id not in selected
+    assert stale_agenda.id in selected
+
+
+def test_persist_agenda_items_updates_catalog_agenda_items_hash(batching_db):
+    db, event, place = batching_db
+    agenda_catalog = _add_catalog(
+        db,
+        event,
+        place,
+        category="agenda",
+        content="agenda text",
+        segmentation_status="complete",
+    )
+    items = [
+        {"order": 1, "title": "Item 1", "description": "Desc", "classification": "Agenda", "result": "", "page_number": 1}
+    ]
+
+    persist_agenda_items(db, agenda_catalog.id, event.id, items)
+    db.commit()
+
+    refreshed = db.get(Catalog, agenda_catalog.id)
+    assert refreshed.agenda_items_hash == compute_agenda_items_hash(items)
 
 
 def test_select_catalog_ids_for_agenda_segmentation_excludes_empty_terminal_state(batching_db):

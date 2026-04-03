@@ -8,6 +8,7 @@ from collections.abc import Iterable
 from pipeline.models import Document, Catalog, Event, Place, Organization, AgendaItem, Membership
 from pipeline.db_session import db_session
 from pipeline.config import MAX_CONTENT_LENGTH, MEILISEARCH_BATCH_SIZE
+from pipeline.summary_freshness import is_summary_stale
 from sqlalchemy.orm import selectinload
 
 # Configuration for connecting to the Meilisearch search engine.
@@ -199,9 +200,12 @@ def _build_meeting_search_doc(doc, catalog, event, place, organization) -> dict:
         'summary': catalog.summary,
         'summary_extractive': catalog.summary_extractive,
         'topics': catalog.topics,
-        'summary_is_stale': bool(
-            catalog.summary
-            and (not catalog.content_hash or catalog.summary_source_hash != catalog.content_hash)
+        'summary_is_stale': is_summary_stale(
+            doc.category,
+            summary=catalog.summary,
+            summary_source_hash=catalog.summary_source_hash,
+            content_hash=catalog.content_hash,
+            agenda_items_hash=catalog.agenda_items_hash,
         ),
         'topics_is_stale': bool(
             catalog.topics is not None

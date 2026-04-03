@@ -324,9 +324,14 @@ class Catalog(Base):
     extraction_attempt_count = Column(Integer, nullable=True)
     extraction_error = Column(Text, nullable=True)
     summary = Column(Text)
-    # Hash of the `content` version that `summary` was generated from.
+    # Hash of the input version that `summary` was generated from. For text-grounded
+    # summaries this is `content_hash`; for deterministic agenda summaries it is the
+    # structured agenda fingerprint (`agenda_items_hash`).
     summary_source_hash = Column(String(64), nullable=True)
     summary_extractive = Column(Text)
+    # Hash of the substantive agenda-item payload for this catalog. Agenda summaries
+    # use this instead of `content_hash` because they are derived from structured rows.
+    agenda_items_hash = Column(String(64), nullable=True)
     
     entities = Column(JSON, nullable=True)
     # Hash of the `content` version that `entities` were generated from.

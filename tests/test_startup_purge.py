@@ -20,6 +20,7 @@ def test_purge_clears_catalog_derived_fields_and_agenda_items():
         location="/tmp/a.pdf",
         content="Some extracted text",
         content_hash="content_hash",
+        agenda_items_hash="agenda_hash",
         summary="summary",
         summary_source_hash="content_hash",
         summary_extractive="extractive",
@@ -50,6 +51,7 @@ def test_purge_clears_catalog_derived_fields_and_agenda_items():
     assert refreshed.related_ids is None
     assert refreshed.tables is None
     assert refreshed.content_hash is None
+    assert refreshed.agenda_items_hash is None
     assert refreshed.entities_source_hash is None
     assert refreshed.summary_source_hash is None
     assert refreshed.topics_source_hash is None

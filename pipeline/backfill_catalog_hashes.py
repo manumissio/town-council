@@ -2,7 +2,9 @@ import logging
 
 from pipeline.content_hash import compute_content_hash
 from pipeline.db_session import db_session
-from pipeline.models import Catalog
+from pipeline.document_kinds import normalize_summary_doc_kind
+from pipeline.models import AgendaItem, Catalog, Document
+from pipeline.summary_freshness import compute_agenda_items_hash, compute_summary_source_hash
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("backfill_catalog_hashes")
@@ -35,8 +37,30 @@ def backfill(limit: int | None = None) -> dict:
                 c.content_hash = content_hash
                 changed = True
 
-            if c.summary and not c.summary_source_hash and content_hash:
-                c.summary_source_hash = content_hash
+            doc = session.query(Document).filter_by(catalog_id=c.id).first()
+            doc_kind = normalize_summary_doc_kind(doc.category if doc else "unknown")
+            agenda_items_hash = c.agenda_items_hash
+            if doc_kind == "agenda":
+                agenda_items = (
+                    session.query(AgendaItem)
+                    .filter_by(catalog_id=c.id)
+                    .order_by(AgendaItem.order)
+                    .all()
+                )
+                computed_agenda_items_hash = compute_agenda_items_hash(agenda_items)
+                if computed_agenda_items_hash != c.agenda_items_hash:
+                    c.agenda_items_hash = computed_agenda_items_hash
+                    changed = True
+                agenda_items_hash = computed_agenda_items_hash
+
+            summary_source_hash = compute_summary_source_hash(
+                doc_kind,
+                content_hash=content_hash,
+                agenda_items_hash=agenda_items_hash,
+            )
+
+            if c.summary and not c.summary_source_hash and summary_source_hash:
+                c.summary_source_hash = summary_source_hash
                 changed = True
 
             if c.topics is not None and not c.topics_source_hash and content_hash:
