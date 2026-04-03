@@ -220,6 +220,118 @@ def test_staged_hydrate_cities_runs_multiple_chunks_and_bounds_summary(mocker, c
     assert all(call.kwargs["limit"] == 5 for call in summary_spy.call_args_list)
 
 
+def test_staged_hydrate_cities_repeat_until_idle_repeats_then_stops(mocker, capsys):
+    run_payloads = [
+        {
+            "cities": [
+                {
+                    "city": "berkeley",
+                    "before": _snapshot(
+                        missing_summary_total=3,
+                        catalogs_with_summary=0,
+                        agenda_missing_summary_total=3,
+                        agenda_missing_summary_with_items=0,
+                        agenda_missing_summary_without_items=3,
+                        non_agenda_missing_summary_total=0,
+                    ),
+                    "chunks": [],
+                    "segmentation": {"catalog_count": 50},
+                    "summary": {"selected": 50},
+                    "after": _snapshot(
+                        missing_summary_total=1,
+                        catalogs_with_summary=2,
+                        agenda_missing_summary_total=1,
+                        agenda_missing_summary_with_items=0,
+                        agenda_missing_summary_without_items=1,
+                        non_agenda_missing_summary_total=0,
+                    ),
+                    "delta": {"missing_summary_total": -2},
+                }
+            ],
+            "any_work_done": True,
+        },
+        {
+            "cities": [
+                {
+                    "city": "berkeley",
+                    "before": _snapshot(
+                        missing_summary_total=1,
+                        catalogs_with_summary=2,
+                        agenda_missing_summary_total=1,
+                        agenda_missing_summary_with_items=0,
+                        agenda_missing_summary_without_items=1,
+                        non_agenda_missing_summary_total=0,
+                    ),
+                    "chunks": [],
+                    "segmentation": {"catalog_count": 0},
+                    "summary": {"selected": 0},
+                    "after": _snapshot(
+                        missing_summary_total=1,
+                        catalogs_with_summary=2,
+                        agenda_missing_summary_total=1,
+                        agenda_missing_summary_with_items=0,
+                        agenda_missing_summary_without_items=1,
+                        non_agenda_missing_summary_total=0,
+                    ),
+                    "delta": {"missing_summary_total": 0},
+                }
+            ],
+            "any_work_done": False,
+        },
+    ]
+    run_once = mocker.patch.object(mod, "_run_once", side_effect=run_payloads)
+    sleep_spy = mocker.patch.object(mod.time, "sleep")
+    mocker.patch.object(
+        sys,
+        "argv",
+        [
+            "staged_hydrate_cities.py",
+            "--city",
+            "berkeley",
+            "--max-chunks",
+            "50",
+            "--repeat-until-idle",
+            "--sleep-seconds",
+            "0",
+        ],
+    )
+
+    exit_code = mod.main()
+
+    captured = capsys.readouterr()
+    assert exit_code == 0
+    assert run_once.call_count == 2
+    assert "[loop] run_start run=1 max_chunks=50 sleep_seconds=0" in captured.out
+    assert "[loop] run_start run=2 max_chunks=50 sleep_seconds=0" in captured.out
+    assert "[loop] idle_stop run=2" in captured.out
+    assert "runs: 2" in captured.out
+    sleep_spy.assert_not_called()
+
+
+def test_staged_hydrate_cities_repeat_until_idle_json_includes_runs(mocker, capsys):
+    mocker.patch.object(
+        mod,
+        "_run_once",
+        side_effect=[
+            {"cities": [{"city": "berkeley", "before": {}, "chunks": [], "segmentation": {"catalog_count": 1}, "summary": {"selected": 0}, "after": {}, "delta": {}}], "any_work_done": True},
+            {"cities": [{"city": "berkeley", "before": {}, "chunks": [], "segmentation": {"catalog_count": 0}, "summary": {"selected": 0}, "after": {}, "delta": {}}], "any_work_done": False},
+        ],
+    )
+    mocker.patch.object(mod.time, "sleep")
+    mocker.patch.object(
+        sys,
+        "argv",
+        ["staged_hydrate_cities.py", "--city", "berkeley", "--repeat-until-idle", "--sleep-seconds", "0", "--json"],
+    )
+
+    exit_code = mod.main()
+
+    payload = json.loads(capsys.readouterr().out)
+    assert exit_code == 0
+    assert len(payload["runs"]) == 2
+    assert payload["cities"][0]["segmentation"]["catalog_count"] == 0
+
+
 def test_delta_includes_unresolved_segmentation_status_counts():
     delta = mod._delta(
         _snapshot(

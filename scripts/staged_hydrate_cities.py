@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import time
 from typing import Any
 
 from pipeline.city_scope import ordered_hydration_cities
@@ -189,7 +190,7 @@ def _delta(before: dict[str, Any], after: dict[str, Any]) -> dict[str, int]:
     return delta
 
 
-def main() -> int:
+def _build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description="Run staged city hydration: segment -> summarize -> diagnose")
     parser.add_argument("--city", action="append", dest="cities")
     parser.add_argument("--limit", type=_positive_int, default=None, help="Backward-compatible alias for --summary-limit")
@@ -202,10 +203,14 @@ def main() -> int:
     parser.add_argument("--summary-fallback-mode", choices=("none", "deterministic"), default="none")
     parser.add_argument("--resume-after-id", type=_nonnegative_int, default=None, dest="resume_after_id")
     parser.add_argument("--max-chunks", type=_positive_int, default=None)
+    parser.add_argument("--repeat-until-idle", action="store_true", help="Repeat bounded staged runs until no segmentation or summary work remains")
+    parser.add_argument("--sleep-seconds", type=_nonnegative_int, default=2, help="Pause between repeated staged runs")
     parser.add_argument("--force", action="store_true", help="Force summary regeneration for selected cities")
     parser.add_argument("--json", action="store_true", help="Emit machine-readable JSON only")
-    args = parser.parse_args()
+    return parser
 
+
+def _run_once(args: argparse.Namespace) -> dict[str, Any]:
     cities = args.cities or ordered_hydration_cities()
     summary_limit = args.summary_limit if args.summary_limit is not None else args.limit
     human_progress = not args.json
@@ -352,13 +357,50 @@ def main() -> int:
             }
         )
 
+    any_work_done = any(
+        int(result["segmentation"]["catalog_count"]) > 0 or int(result["summary"]["selected"]) > 0 for result in results
+    )
+    return {"cities": results, "any_work_done": any_work_done}
+
+
+def main() -> int:
+    parser = _build_parser()
+    args = parser.parse_args()
+    human_progress = not args.json
+    all_runs: list[dict[str, Any]] = []
+    run_index = 0
+
+    while True:
+        run_index += 1
+        if args.repeat_until_idle:
+            _emit_progress(
+                human_progress,
+                f"[loop] run_start run={run_index} max_chunks={args.max_chunks} sleep_seconds={args.sleep_seconds}",
+            )
+        run_payload = _run_once(args)
+        all_runs.append(run_payload)
+
+        if not args.repeat_until_idle:
+            break
+        if not run_payload["any_work_done"]:
+            _emit_progress(human_progress, f"[loop] idle_stop run={run_index}")
+            break
+        if args.sleep_seconds > 0:
+            _emit_progress(human_progress, f"[loop] sleeping seconds={args.sleep_seconds}")
+            time.sleep(args.sleep_seconds)
+
     if args.json:
-        print(json.dumps({"cities": results}, indent=2, sort_keys=True))
+        payload = {"cities": all_runs[-1]["cities"]}
+        if args.repeat_until_idle:
+            payload["runs"] = all_runs
+        print(json.dumps(payload, indent=2, sort_keys=True))
         return 0
 
     print("Staged City Hydration")
     print("=====================")
-    for result in results:
+    if args.repeat_until_idle:
+        print(f"runs: {len(all_runs)}")
+    for result in all_runs[-1]["cities"]:
         print(f"city: {result['city']}")
         print(f"  before_missing_summary_total: {result['before']['missing_summary_total']}")
         print(f"  after_missing_summary_total: {result['after']['missing_summary_total']}")

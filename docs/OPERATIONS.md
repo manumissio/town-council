@@ -1165,6 +1165,11 @@ docker compose run --rm pipeline python /app/scripts/staged_hydrate_cities.py --
 ```bash
 docker compose run --rm pipeline python /app/scripts/staged_hydrate_cities.py --city san_mateo --segment-limit 25 --summary-limit 25 --segment-workers 2 --resume-after-id 2500 --max-chunks 1
 ```
+- Repeated bounded-run example:
+```bash
+docker compose run --rm pipeline python /app/scripts/staged_hydrate_cities.py --city hayward --city sunnyvale --city berkeley --city cupertino --city san_mateo --segment-limit 50 --summary-limit 50 --segment-workers 2 --max-chunks 50 --repeat-until-idle
+```
+  - Use this when you want the helper to keep launching fresh 50-chunk passes until the selected city backlog goes idle, without wrapping it in an external shell loop.
 - Summary-stage troubleshooting:
   - per-catalog summary failures are partial, not all-or-nothing; the chunk continues and increments `error`
   - `LOCAL_AI_HTTP_TIMEOUT_SUMMARY_SECONDS` is the primary timeout knob when summary hydration stalls on the HTTP inference path
