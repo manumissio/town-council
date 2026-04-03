@@ -1,0 +1,50 @@
+{
+  "baseline_valid": true,
+  "elapsed_seconds": 9.473,
+  "manifest_name": "baseline_representative_v1",
+  "reference_run_id": "pipeline_profile_baseline_20260403_004122",
+  "stable_counters": {
+    "entity_backfill": {
+      "candidate_slice_fallback_prefix": 0,
+      "changed_catalogs": 8,
+      "chunks": 1,
+      "complete": 8,
+      "execution_mode": "in_process",
+      "freshness_advanced": 8,
+      "ner_processed": 8,
+      "ner_skipped_low_signal": 0,
+      "selected": 8
+    },
+    "people_linking_preflight": {
+      "selected": 8
+    },
+    "summary_hydration_backfill": {
+      "agenda_deterministic_complete": 12,
+      "changed_catalogs": 12,
+      "complete": 12,
+      "deterministic_fallback_complete": 0,
+      "embed_dispatch_failed": 0,
+      "embed_enqueued": 12,
+      "error": 0,
+      "llm_complete": 0,
+      "not_generated_yet": 0,
+      "reindex_failed": 0,
+      "reindexed": 12,
+      "selected": 12
+    }
+  },
+  "top_phases": [
+    {
+      "duration_s": 3.601,
+      "phase": "summarize"
+    },
+    {
+      "duration_s": 1.576,
+      "phase": "entity_backfill"
+    },
+    {
+      "duration_s": 0.987,
+      "phase": "people_linking"
+    }
+  ]
+}

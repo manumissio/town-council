@@ -75,7 +75,9 @@ python scripts/build_profile_manifest.py --name <name>
 python scripts/build_profile_manifest.py --name <name> --write
 python scripts/profile_pipeline.py --mode baseline --manifest profiling/manifests/<name>.txt --dry-run-prepare
 python scripts/profile_pipeline.py --mode baseline --manifest profiling/manifests/<name>.txt
+python scripts/profile_pipeline.py --mode baseline --manifest profiling/manifests/<name>.txt --compare-to profiling/baselines/<name>.json
 python scripts/analyze_pipeline_profile.py --run-id <run_id>
+python scripts/analyze_pipeline_profile.py --run-id <run_id> --compare-to profiling/baselines/<name>.json
 ```
 
 Artifacts:
@@ -123,6 +125,12 @@ Interpretation rule:
 - selected-manifest profiling runs are workload-only by default, so unrelated global prelude work such as staged promotion and downloader retries should not appear in the ranked bottlenecks
 - if a baseline manifest has a `.json` sidecar, the harness applies controlled preconditioning to only the selected workload before the run so the baseline still contains real pending work
 - use `--dry-run-prepare` to inspect that preconditioning plan before mutating the selected workload
+- use `--compare-to` to guard steady-state baselines against regressions in elapsed time, top bottleneck phases, and stable workload-shape counters
+- the checked-in baseline expectation for the representative workload lives at `profiling/baselines/baseline_representative_v1.json`
+- compare policy:
+  - timings use percentage tolerances to absorb normal host variance
+  - stable counters from `commands.log` are compared exactly
+  - reduced-confidence or non-baseline-valid runs are reported as non-comparable, not clean passes
 
 ### Latest runtime optimization note
 

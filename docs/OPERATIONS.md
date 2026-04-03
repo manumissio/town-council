@@ -164,16 +164,31 @@ docker compose run --rm pipeline python scripts/hydrate_repaired_city_catalogs.p
   --summary-fallback-mode deterministic
 ```
 - Maintenance run status artifacts:
-  - `scripts/hydrate_repaired_city_catalogs.py` and `scripts/backfill_summaries.py` persist local run status under `experiments/results/maintenance/<tool>/<run_id>/`
+- `scripts/hydrate_repaired_city_catalogs.py` and `scripts/backfill_summaries.py` persist local run status under `experiments/results/maintenance/<tool>/<run_id>/`
   - artifact meanings:
     - `run_manifest.json`: startup metadata and summarized arguments
     - `heartbeat.json`: latest known stage, counts snapshot, and update timestamp
     - `events.jsonl`: append-only stage transitions and periodic progress checkpoints
     - `result.json`: terminal success/failure payload with elapsed time
   - use these artifacts when a long-running maintenance job keeps working after the original terminal session detaches or when stdout alone is ambiguous
-  - quick inspection:
+- quick inspection:
 ```bash
 find experiments/results/maintenance -maxdepth 4 -type f | sort
+```
+
+### Baseline profile guardrail
+- Use the checked-in expectation in `profiling/baselines/baseline_representative_v1.json` to compare a fresh baseline-valid run against the current steady-state bottleneck shape.
+- The compare flow guards:
+  - total elapsed time
+  - top bottleneck phase durations
+  - stable workload-shape counters from `commands.log`
+- Counter drift is treated more strictly than timing drift; reduced-confidence runs are reported as non-comparable rather than clean passes.
+- Example:
+```bash
+PYTHONPATH=. .venv/bin/python scripts/profile_pipeline.py \
+  --mode baseline \
+  --manifest profiling/manifests/baseline_representative_v1.txt \
+  --compare-to profiling/baselines/baseline_representative_v1.json
 ```
 
 ### Maintenance salvage helper for flaky Laserfiche agenda PDFs
