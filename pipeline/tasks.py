@@ -11,6 +11,7 @@ from typing import Any, Callable
 
 from pipeline.backlog_maintenance import (
     build_deterministic_agenda_summary_payload,
+    build_deterministic_agenda_summary_payloads,
     summarize_catalog_with_maintenance_mode,
     summary_timeout_override,
 )
@@ -37,7 +38,7 @@ from pipeline.config import (
     LINEAGE_REQUIRE_MUTUAL_EDGES,
 )
 from pipeline.extraction_service import reextract_catalog_content
-from pipeline.indexer import reindex_catalog
+from pipeline.indexer import reindex_catalog, reindex_catalogs
 from pipeline.content_hash import compute_content_hash
 from pipeline.document_kinds import normalize_summary_doc_kind, summary_doc_kind_sql_expr
 from pipeline.lineage_service import compute_lineage_assignments
@@ -247,6 +248,37 @@ def select_catalog_ids_for_summary_hydration(db, limit: int | None = None, city:
     return [row[0] for row in query.distinct().all()]
 
 
+def _summary_doc_kind_map(db, catalog_ids: list[int]) -> dict[int, str]:
+    if not catalog_ids:
+        return {}
+    doc_kind = _summary_doc_kind_subquery(db)
+    rows = (
+        db.query(doc_kind.c.catalog_id, doc_kind.c.doc_kind)
+        .filter(doc_kind.c.catalog_id.in_(catalog_ids))
+        .all()
+    )
+    return {int(catalog_id): str(kind or "unknown") for catalog_id, kind in rows}
+
+
+def _enqueue_embed_catalogs(catalog_ids: list[int]) -> dict[str, object]:
+    deduped_ids = sorted({int(catalog_id) for catalog_id in catalog_ids if catalog_id is not None})
+    failed_catalog_ids: list[int] = []
+    enqueued = 0
+    for catalog_id in deduped_ids:
+        try:
+            embed_catalog_task.delay(catalog_id)
+            enqueued += 1
+        except Exception as exc:
+            logger.warning("embed_catalog_task.dispatch_failed catalog_id=%s error=%s", catalog_id, exc)
+            failed_catalog_ids.append(catalog_id)
+    return {
+        "catalogs_considered": len(deduped_ids),
+        "embed_enqueued": enqueued,
+        "embed_dispatch_failed": len(failed_catalog_ids),
+        "failed_catalog_ids": failed_catalog_ids,
+    }
+
+
 def run_summary_hydration_backfill(
     force: bool = False,
     limit: int | None = None,
@@ -269,6 +301,7 @@ def run_summary_hydration_backfill(
     counts = {
         "selected": len(catalog_ids),
         "complete": 0,
+        "changed_catalogs": 0,
         "cached": 0,
         "stale": 0,
         "blocked_low_signal": 0,
@@ -279,6 +312,10 @@ def run_summary_hydration_backfill(
         "agenda_deterministic_complete": 0,
         "llm_complete": 0,
         "deterministic_fallback_complete": 0,
+        "reindexed": 0,
+        "reindex_failed": 0,
+        "embed_enqueued": 0,
+        "embed_dispatch_failed": 0,
     }
     if not catalog_ids:
         logger.info("summary_hydration_backfill selected=0")
@@ -303,24 +340,54 @@ def run_summary_hydration_backfill(
             }
         )
 
+    db = SessionLocal()
+    try:
+        doc_kind_by_catalog_id = _summary_doc_kind_map(db, catalog_ids)
+    finally:
+        db.close()
+
+    agenda_catalog_ids = [catalog_id for catalog_id in catalog_ids if doc_kind_by_catalog_id.get(catalog_id) == "agenda"]
+    agenda_results: dict[int, dict[str, Any]] = {}
+    if agenda_catalog_ids:
+        agenda_batch = build_deterministic_agenda_summary_payloads(
+            agenda_catalog_ids,
+            reindex_callback=reindex_catalogs,
+            embed_callback=_enqueue_embed_catalogs,
+        )
+        agenda_results = dict(agenda_batch.get("results") or {})
+        reindex_summary = agenda_batch.get("reindex_summary") or {}
+        counts["reindexed"] += int(reindex_summary.get("catalogs_reindexed") or 0)
+        counts["reindex_failed"] += int(reindex_summary.get("catalogs_failed") or 0)
+        embed_summary = agenda_batch.get("embed_summary") or {}
+        counts["embed_enqueued"] += int(embed_summary.get("embed_enqueued") or 0)
+        counts["embed_dispatch_failed"] += int(embed_summary.get("embed_dispatch_failed") or 0)
+
     with summary_timeout_override(summary_timeout_seconds):
         for index, cid in enumerate(catalog_ids, start=1):
-            result = summarize_catalog_with_maintenance_mode(
-                cid,
-                summary_fallback_mode=summary_fallback_mode,
-                generate_summary_callable=lambda catalog_id: generate_summary_task.run(catalog_id, force=force),
-                deterministic_summary_callable=lambda catalog_id: build_deterministic_agenda_summary_payload(
-                    catalog_id,
-                    reindex_callback=reindex_catalog,
-                    embed_callback=lambda target_catalog_id: embed_catalog_task.delay(target_catalog_id),
-                ),
-            )
+            if cid in agenda_results:
+                result = agenda_results[cid]
+            else:
+                result = summarize_catalog_with_maintenance_mode(
+                    cid,
+                    summary_fallback_mode=summary_fallback_mode,
+                    generate_summary_callable=lambda catalog_id: generate_summary_task.run(catalog_id, force=force),
+                    deterministic_summary_callable=lambda catalog_id: build_deterministic_agenda_summary_payload(
+                        catalog_id,
+                        reindex_callback=reindex_catalog,
+                        embed_callback=lambda target_catalog_id: embed_catalog_task.delay(target_catalog_id),
+                    ),
+                )
 
             status = str((result or {}).get("status") or "other")
             if status in counts:
                 counts[status] += 1
             else:
                 counts["other"] += 1
+            counts["changed_catalogs"] += int(bool((result or {}).get("changed")))
+            counts["reindexed"] += int((result or {}).get("reindexed") or 0)
+            counts["reindex_failed"] += int((result or {}).get("reindex_failed") or 0)
+            counts["embed_enqueued"] += int((result or {}).get("embed_enqueued") or 0)
+            counts["embed_dispatch_failed"] += int((result or {}).get("embed_dispatch_failed") or 0)
             completion_mode = str((result or {}).get("completion_mode") or "")
             if completion_mode == "agenda_deterministic":
                 counts["agenda_deterministic_complete"] += 1
@@ -346,9 +413,10 @@ def run_summary_hydration_backfill(
                 )
 
     logger.info(
-        "summary_hydration_backfill selected=%s complete=%s cached=%s stale=%s blocked_low_signal=%s blocked_ungrounded=%s not_generated_yet=%s error=%s other=%s agenda_deterministic_complete=%s llm_complete=%s deterministic_fallback_complete=%s",
+        "summary_hydration_backfill selected=%s complete=%s changed_catalogs=%s cached=%s stale=%s blocked_low_signal=%s blocked_ungrounded=%s not_generated_yet=%s error=%s other=%s agenda_deterministic_complete=%s llm_complete=%s deterministic_fallback_complete=%s reindexed=%s reindex_failed=%s embed_enqueued=%s embed_dispatch_failed=%s",
         counts["selected"],
         counts["complete"],
+        counts["changed_catalogs"],
         counts["cached"],
         counts["stale"],
         counts["blocked_low_signal"],
@@ -359,6 +427,10 @@ def run_summary_hydration_backfill(
         counts["agenda_deterministic_complete"],
         counts["llm_complete"],
         counts["deterministic_fallback_complete"],
+        counts["reindexed"],
+        counts["reindex_failed"],
+        counts["embed_enqueued"],
+        counts["embed_dispatch_failed"],
     )
     if progress_callback:
         progress_callback({"event_type": "stage_finish", "stage": "summary", "counts": counts.copy()})
@@ -475,10 +547,10 @@ def generate_summary_task(self, catalog_id: int, force: bool = False):
             and catalog.summary_source_hash == content_hash
         )
         if (not force) and is_fresh:
-            return {"status": "cached", "summary": catalog.summary}
+            return {"status": "cached", "summary": catalog.summary, "changed": False}
         if (not force) and catalog.summary and not is_fresh:
             # Keep the old summary visible, but mark it as out-of-date.
-            return {"status": "stale", "summary": catalog.summary}
+            return {"status": "stale", "summary": catalog.summary, "changed": False}
 
         # Agenda summaries are derived from segmented agenda items (not raw PDF text) so the
         # AI Summary and Structured Agenda tabs cannot drift.
@@ -587,28 +659,47 @@ def generate_summary_task(self, catalog_id: int, force: bool = False):
                 }
         
         # Update DB
+        prior_summary = catalog.summary
+        prior_summary_source_hash = catalog.summary_source_hash
         catalog.summary = summary
         if content_hash:
             catalog.content_hash = content_hash
             catalog.summary_source_hash = content_hash
         db.commit()
 
+        changed = bool(prior_summary != summary or prior_summary_source_hash != content_hash)
+        reindexed = 0
+        reindex_failed = 0
+
         # Best-effort: update the search index for just this catalog so stale flags
         # and snippets stay in sync for future searches.
         try:
             reindex_catalog(catalog_id)
+            reindexed = 1
         except Exception:
-            pass
+            reindex_failed = 1
         
         # Fire-and-forget embedding update for semantic B2. We do not block summary success
         # on embedding failures; search can safely fall back to lexical until vectors hydrate.
+        embed_enqueued = 0
+        embed_dispatch_failed = 0
         try:
             embed_catalog_task.delay(catalog_id)
+            embed_enqueued = 1
         except Exception as exc:
             logger.warning("embed_catalog_task.dispatch_failed catalog_id=%s error=%s", catalog_id, exc)
+            embed_dispatch_failed = 1
 
         logger.info(f"Summarization complete for Catalog ID {catalog_id}")
-        return {"status": "complete", "summary": summary}
+        return {
+            "status": "complete",
+            "summary": summary,
+            "changed": changed,
+            "reindexed": reindexed,
+            "reindex_failed": reindex_failed,
+            "embed_enqueued": embed_enqueued,
+            "embed_dispatch_failed": embed_dispatch_failed,
+        }
 
     except LocalAIConfigError as e:
         # Configuration errors are not transient; do not retry.

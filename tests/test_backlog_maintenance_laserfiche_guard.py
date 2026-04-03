@@ -8,7 +8,7 @@ from sqlalchemy.orm import sessionmaker
 sys.modules["llama_cpp"] = MagicMock()
 
 from pipeline import backlog_maintenance as mod
-from pipeline.models import Base, Catalog, Document, Event, Place
+from pipeline.models import AgendaItem, Base, Catalog, Document, Event, Place
 
 
 def _session_fixture(mocker):
@@ -173,3 +173,59 @@ def test_segment_catalog_with_mode_marks_single_item_staff_report_failed(mocker)
     assert refreshed.agenda_segmentation_error == "single_item_staff_report_detected"
     assert refreshed.agenda_segmentation_item_count == 0
     check.close()
+
+
+def test_build_deterministic_agenda_summary_payloads_batches_callbacks_only_for_changed_catalogs(mocker):
+    Session = _session_fixture(mocker)
+    session = Session()
+    place = Place(
+        name="San Mateo",
+        state="CA",
+        ocd_division_id="ocd-division/country:us/state:ca/place:san_mateo",
+        crawler_name="san_mateo",
+    )
+    session.add(place)
+    session.flush()
+    event = Event(place_id=place.id, ocd_division_id=place.ocd_division_id, source="san_mateo", name="Agenda")
+    session.add(event)
+    session.flush()
+
+    first_catalog = Catalog(
+        url_hash="hash-5",
+        location="/tmp/agenda-1.html",
+        url="https://example.com/agenda-1",
+        content="Agenda with housing discussion and public comment.",
+    )
+    second_catalog = Catalog(
+        url_hash="hash-6",
+        location="/tmp/agenda-2.html",
+        url="https://example.com/agenda-2",
+        content="Agenda with budget discussion and final reading.",
+    )
+    session.add_all([first_catalog, second_catalog])
+    session.flush()
+    session.add_all(
+        [
+            Document(place_id=place.id, event_id=event.id, catalog_id=first_catalog.id, category="agenda", url=first_catalog.url),
+            Document(place_id=place.id, event_id=event.id, catalog_id=second_catalog.id, category="agenda", url=second_catalog.url),
+            AgendaItem(catalog_id=first_catalog.id, event_id=event.id, order=1, title="Housing Update", description="Discuss housing pipeline.", page_number=1),
+            AgendaItem(catalog_id=second_catalog.id, event_id=event.id, order=1, title="Budget Adoption", description="Adopt the annual budget.", page_number=1),
+        ]
+    )
+    session.commit()
+
+    seeded = mod.build_deterministic_agenda_summary_payload(first_catalog.id)
+    assert seeded["status"] == "complete"
+
+    reindex_spy = MagicMock(return_value={"catalogs_considered": 1, "catalogs_reindexed": 1, "catalogs_failed": 0, "failed_catalog_ids": []})
+    embed_spy = MagicMock(return_value={"catalogs_considered": 1, "embed_enqueued": 1, "embed_dispatch_failed": 0, "failed_catalog_ids": []})
+
+    result = mod.build_deterministic_agenda_summary_payloads(
+        [first_catalog.id, second_catalog.id],
+        reindex_callback=reindex_spy,
+        embed_callback=embed_spy,
+    )
+
+    assert result["changed_catalog_ids"] == [second_catalog.id]
+    reindex_spy.assert_called_once_with([second_catalog.id])
+    embed_spy.assert_called_once_with([second_catalog.id])

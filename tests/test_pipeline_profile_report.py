@@ -40,6 +40,39 @@ def test_rank_bottlenecks_prefers_longest_leaf_phase(tmp_path: Path):
     assert summary["top_bottlenecks"][0]["classification"] in {"queueing", "inference/provider"}
 
 
+def test_rank_bottlenecks_classifies_deterministic_summary_runs_without_provider_bias(tmp_path: Path):
+    run_dir = tmp_path / "profile_run_deterministic"
+    run_dir.mkdir()
+    (run_dir / "run_manifest.json").write_text(
+        json.dumps({"run_id": "profile_run_deterministic", "mode": "baseline", "catalog_count": 12, "baseline_valid": True}),
+        encoding="utf-8",
+    )
+    (run_dir / "result.json").write_text(
+        json.dumps({"totals": {"combined_elapsed_seconds": 10.0}}),
+        encoding="utf-8",
+    )
+    (run_dir / "day_summary.json").write_text(json.dumps({"provider_metrics_present": True}), encoding="utf-8")
+    (run_dir / "worker_metrics.prom").write_text(
+        'tc_provider_requests_total{provider="http",operation="summarize_text",model="m",outcome="ok"} 4\n',
+        encoding="utf-8",
+    )
+    (run_dir / "commands.log").write_text(
+        "2026-04-02 22:05:08,519 - celery-worker - INFO - summary_hydration_backfill selected=12 complete=12 changed_catalogs=12 cached=0 stale=0 blocked_low_signal=0 blocked_ungrounded=0 not_generated_yet=0 error=0 other=0 agenda_deterministic_complete=12 llm_complete=0 deterministic_fallback_complete=0 reindexed=12 reindex_failed=0 embed_enqueued=12 embed_dispatch_failed=0\n",
+        encoding="utf-8",
+    )
+    (run_dir / "spans.jsonl").write_text(
+        json.dumps({"event_type": "span", "phase": "summarize", "duration_s": 3.6, "component": "pipeline"}) + "\n",
+        encoding="utf-8",
+    )
+
+    summary = mod.rank_bottlenecks(run_dir)
+
+    top = summary["top_bottlenecks"][0]
+    assert top["phase"] == "summarize"
+    assert top["classification"] == "CPU/parsing"
+    assert top["provider_requests_total"] == 0.0
+
+
 def test_rank_bottlenecks_uses_combined_total_for_repeated_phases(tmp_path: Path):
     run_dir = tmp_path / "profile_run_combined"
     run_dir.mkdir()

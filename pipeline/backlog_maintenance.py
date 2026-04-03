@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import logging
 import re
-from collections import Counter
+from collections import Counter, defaultdict
 from contextlib import contextmanager
 from datetime import datetime, timezone
 from typing import Any, Callable
@@ -240,88 +240,198 @@ def build_deterministic_agenda_summary_payload(
     reindex_callback: Callable[[int], Any] | None = None,
     embed_callback: Callable[[int], Any] | None = None,
 ) -> dict[str, Any]:
-    with db_session() as session:
-        catalog = session.get(Catalog, catalog_id)
-        if not catalog:
-            return {"status": "error", "error": "Catalog not found"}
-        classification = classify_catalog_bad_content(catalog)
-        if classification:
-            return {"status": "error", "error": classification.reason}
-        doc = session.query(Document).filter_by(catalog_id=catalog_id).first()
-        if not doc:
-            return {"status": "error", "error": "Document not found"}
-        existing_items = session.query(AgendaItem).filter_by(catalog_id=catalog_id).order_by(AgendaItem.order).all()
-        if not existing_items:
-            return {
-                "status": "not_generated_yet",
-                "reason": "Agenda summary requires segmented agenda items. Run segmentation first.",
-                "summary": None,
-            }
-        content_hash = compute_content_hash(catalog.content) if (catalog.content or "") else None
-        summary_items: list[dict[str, Any]] = []
-        candidate_items_total = 0
-        input_chars = 0
-        max_input_chars = max(1000, AGENDA_SUMMARY_MAX_INPUT_CHARS - AGENDA_SUMMARY_MIN_RESERVED_OUTPUT_CHARS)
-        for item in existing_items:
-            title = (item.title or "").strip()
-            if not title:
-                continue
-            if llm_mod._looks_like_agenda_segmentation_boilerplate(title):
-                continue
-            description = (item.description or "").strip()
-            serialized = title if not description else f"{title} - {description}"
-            if llm_mod._should_drop_from_agenda_summary(serialized):
-                continue
-            candidate_items_total += 1
-            payload = {
-                "title": title,
-                "description": description,
-                "classification": (item.classification or "").strip(),
-                "result": (item.result or "").strip(),
-                "page_number": int(item.page_number or 0),
-            }
-            item_block = (
-                f"Title: {payload['title']}\n"
-                f"Description: {payload['description']}\n"
-                f"Classification: {payload['classification']}\n"
-                f"Result: {payload['result']}\n"
-                f"Page: {payload['page_number']}\n\n"
-            )
-            if (input_chars + len(item_block)) > max_input_chars:
-                break
-            summary_items.append(payload)
-            input_chars += len(item_block)
-        if not summary_items:
-            return {
-                "status": "blocked_low_signal",
-                "reason": "No substantive agenda items detected after boilerplate filtering. Re-segment the agenda.",
-                "summary": None,
-            }
-        summary = llm_mod._deterministic_agenda_items_summary(
-            summary_items,
-            truncation_meta={
-                "items_total": candidate_items_total,
-                "items_included": len(summary_items),
-                "items_truncated": max(0, candidate_items_total - len(summary_items)),
-                "input_chars": input_chars,
-            },
+    batch = build_deterministic_agenda_summary_payloads(
+        [catalog_id],
+        reindex_callback=(lambda catalog_ids: reindex_callback(catalog_id)) if reindex_callback is not None else None,
+        embed_callback=(lambda catalog_ids: embed_callback(catalog_id)) if embed_callback is not None else None,
+    )
+    return batch["results"].get(catalog_id, {"status": "error", "error": "Catalog not found"})
+
+
+def _build_deterministic_agenda_summary_result(existing_items: list[AgendaItem]) -> dict[str, Any]:
+    if not existing_items:
+        return {
+            "status": "not_generated_yet",
+            "reason": "Agenda summary requires segmented agenda items. Run segmentation first.",
+            "summary": None,
+        }
+
+    summary_items: list[dict[str, Any]] = []
+    candidate_items_total = 0
+    input_chars = 0
+    max_input_chars = max(1000, AGENDA_SUMMARY_MAX_INPUT_CHARS - AGENDA_SUMMARY_MIN_RESERVED_OUTPUT_CHARS)
+    for item in existing_items:
+        title = (item.title or "").strip()
+        if not title:
+            continue
+        if llm_mod._looks_like_agenda_segmentation_boilerplate(title):
+            continue
+        description = (item.description or "").strip()
+        serialized = title if not description else f"{title} - {description}"
+        if llm_mod._should_drop_from_agenda_summary(serialized):
+            continue
+        candidate_items_total += 1
+        payload = {
+            "title": title,
+            "description": description,
+            "classification": (item.classification or "").strip(),
+            "result": (item.result or "").strip(),
+            "page_number": int(item.page_number or 0),
+        }
+        item_block = (
+            f"Title: {payload['title']}\n"
+            f"Description: {payload['description']}\n"
+            f"Classification: {payload['classification']}\n"
+            f"Result: {payload['result']}\n"
+            f"Page: {payload['page_number']}\n\n"
         )
-        catalog.summary = summary
-        if content_hash:
-            catalog.content_hash = content_hash
-            catalog.summary_source_hash = content_hash
+        if (input_chars + len(item_block)) > max_input_chars:
+            break
+        summary_items.append(payload)
+        input_chars += len(item_block)
+
+    if not summary_items:
+        return {
+            "status": "blocked_low_signal",
+            "reason": "No substantive agenda items detected after boilerplate filtering. Re-segment the agenda.",
+            "summary": None,
+        }
+
+    summary = llm_mod._deterministic_agenda_items_summary(
+        summary_items,
+        truncation_meta={
+            "items_total": candidate_items_total,
+            "items_included": len(summary_items),
+            "items_truncated": max(0, candidate_items_total - len(summary_items)),
+            "input_chars": input_chars,
+        },
+    )
+    return {"status": "complete", "summary": summary}
+
+
+def build_deterministic_agenda_summary_payloads(
+    catalog_ids: list[int],
+    *,
+    reindex_callback: Callable[[list[int]], Any] | None = None,
+    embed_callback: Callable[[list[int]], Any] | None = None,
+) -> dict[str, Any]:
+    ordered_catalog_ids = [int(catalog_id) for catalog_id in catalog_ids]
+    if not ordered_catalog_ids:
+        return {
+            "results": {},
+            "changed_catalog_ids": [],
+            "reindex_summary": {"catalogs_considered": 0, "catalogs_reindexed": 0, "catalogs_failed": 0, "failed_catalog_ids": []},
+            "embed_summary": {"catalogs_considered": 0, "embed_enqueued": 0, "embed_dispatch_failed": 0, "failed_catalog_ids": []},
+        }
+
+    with db_session() as session:
+        catalogs = {
+            catalog.id: catalog
+            for catalog in session.query(Catalog).filter(Catalog.id.in_(ordered_catalog_ids)).all()
+        }
+        documents_by_catalog_id: dict[int, Document] = {}
+        for document in (
+            session.query(Document)
+            .filter(Document.catalog_id.in_(ordered_catalog_ids))
+            .order_by(Document.catalog_id, Document.id)
+            .all()
+        ):
+            documents_by_catalog_id.setdefault(document.catalog_id, document)
+
+        agenda_items_by_catalog_id: dict[int, list[AgendaItem]] = defaultdict(list)
+        for item in (
+            session.query(AgendaItem)
+            .filter(AgendaItem.catalog_id.in_(ordered_catalog_ids))
+            .order_by(AgendaItem.catalog_id, AgendaItem.order)
+            .all()
+        ):
+            agenda_items_by_catalog_id[item.catalog_id].append(item)
+
+        results: dict[int, dict[str, Any]] = {}
+        changed_catalog_ids: list[int] = []
+        for catalog_id in ordered_catalog_ids:
+            catalog = catalogs.get(catalog_id)
+            if not catalog:
+                results[catalog_id] = {"status": "error", "error": "Catalog not found"}
+                continue
+            classification = classify_catalog_bad_content(catalog)
+            if classification:
+                results[catalog_id] = {"status": "error", "error": classification.reason}
+                continue
+            if catalog_id not in documents_by_catalog_id:
+                results[catalog_id] = {"status": "error", "error": "Document not found"}
+                continue
+
+            content_hash = compute_content_hash(catalog.content) if (catalog.content or "") else None
+            result = _build_deterministic_agenda_summary_result(agenda_items_by_catalog_id.get(catalog_id, []))
+            if result.get("status") != "complete":
+                results[catalog_id] = result
+                continue
+
+            summary = str(result.get("summary") or "")
+            prior_summary = catalog.summary
+            prior_summary_source_hash = catalog.summary_source_hash
+            catalog.summary = summary
+            if content_hash:
+                catalog.content_hash = content_hash
+                catalog.summary_source_hash = content_hash
+
+            changed = bool(prior_summary != summary or prior_summary_source_hash != content_hash)
+            if changed:
+                changed_catalog_ids.append(catalog_id)
+            results[catalog_id] = {
+                **result,
+                "changed": changed,
+                "completion_mode": "agenda_deterministic",
+            }
         session.commit()
-    try:
-        if reindex_callback is not None:
-            reindex_callback(catalog_id)
-    except Exception:
-        pass
-    try:
-        if embed_callback is not None:
-            embed_callback(catalog_id)
-    except Exception:
-        pass
-    return {"status": "complete", "summary": summary, "completion_mode": "deterministic_fallback"}
+
+    reindex_summary = {"catalogs_considered": 0, "catalogs_reindexed": 0, "catalogs_failed": 0, "failed_catalog_ids": []}
+    if changed_catalog_ids and reindex_callback is not None:
+        try:
+            payload = reindex_callback(changed_catalog_ids)
+            if isinstance(payload, dict):
+                reindex_summary = {
+                    "catalogs_considered": int(payload.get("catalogs_considered") or len(changed_catalog_ids)),
+                    "catalogs_reindexed": int(payload.get("catalogs_reindexed") or 0),
+                    "catalogs_failed": int(payload.get("catalogs_failed") or 0),
+                    "failed_catalog_ids": list(payload.get("failed_catalog_ids") or []),
+                }
+        except Exception as exc:
+            reindex_summary = {
+                "catalogs_considered": len(changed_catalog_ids),
+                "catalogs_reindexed": 0,
+                "catalogs_failed": len(changed_catalog_ids),
+                "failed_catalog_ids": list(changed_catalog_ids),
+                "error": str(exc),
+            }
+
+    embed_summary = {"catalogs_considered": 0, "embed_enqueued": 0, "embed_dispatch_failed": 0, "failed_catalog_ids": []}
+    if changed_catalog_ids and embed_callback is not None:
+        try:
+            payload = embed_callback(changed_catalog_ids)
+            if isinstance(payload, dict):
+                embed_summary = {
+                    "catalogs_considered": int(payload.get("catalogs_considered") or len(changed_catalog_ids)),
+                    "embed_enqueued": int(payload.get("embed_enqueued") or 0),
+                    "embed_dispatch_failed": int(payload.get("embed_dispatch_failed") or 0),
+                    "failed_catalog_ids": list(payload.get("failed_catalog_ids") or []),
+                }
+        except Exception as exc:
+            embed_summary = {
+                "catalogs_considered": len(changed_catalog_ids),
+                "embed_enqueued": 0,
+                "embed_dispatch_failed": len(changed_catalog_ids),
+                "failed_catalog_ids": list(changed_catalog_ids),
+                "error": str(exc),
+            }
+
+    return {
+        "results": results,
+        "changed_catalog_ids": changed_catalog_ids,
+        "reindex_summary": reindex_summary,
+        "embed_summary": embed_summary,
+    }
 
 
 def _provider_failure_detected(result: dict[str, Any], fallback_events: dict[str, int]) -> bool:

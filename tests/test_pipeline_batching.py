@@ -343,24 +343,39 @@ def test_run_summary_hydration_backfill_counts_outcomes(mocker):
     mock_db.close.return_value = None
     mocker.patch("pipeline.tasks.SessionLocal", return_value=mock_db)
     mocker.patch("pipeline.tasks.select_catalog_ids_for_summary_hydration", return_value=[1, 2, 3])
+    mocker.patch("pipeline.tasks._summary_doc_kind_map", return_value={1: "agenda", 2: "agenda", 3: "minutes"})
+    batch_spy = mocker.patch(
+        "pipeline.tasks.build_deterministic_agenda_summary_payloads",
+        return_value={
+            "results": {
+                1: {"status": "complete", "completion_mode": "agenda_deterministic", "changed": True},
+                2: {"status": "blocked_low_signal", "changed": False},
+            },
+            "changed_catalog_ids": [1],
+            "reindex_summary": {"catalogs_considered": 1, "catalogs_reindexed": 1, "catalogs_failed": 0, "failed_catalog_ids": []},
+            "embed_summary": {"catalogs_considered": 1, "embed_enqueued": 1, "embed_dispatch_failed": 0, "failed_catalog_ids": []},
+        },
+    )
     summarize_spy = mocker.patch(
         "pipeline.tasks.summarize_catalog_with_maintenance_mode",
-        side_effect=[
-            {"status": "complete", "completion_mode": "agenda_deterministic"},
-            {"status": "blocked_low_signal"},
-            {"status": "complete", "completion_mode": "llm"},
-        ],
+        return_value={"status": "complete", "completion_mode": "llm", "changed": True, "reindexed": 1, "embed_enqueued": 1},
     )
 
     counts = run_summary_hydration_backfill()
 
     assert counts["selected"] == 3
     assert counts["complete"] == 2
+    assert counts["changed_catalogs"] == 2
     assert counts["blocked_low_signal"] == 1
     assert counts["agenda_deterministic_complete"] == 1
     assert counts["llm_complete"] == 1
     assert counts["deterministic_fallback_complete"] == 0
-    assert summarize_spy.call_count == 3
+    assert counts["reindexed"] == 2
+    assert counts["reindex_failed"] == 0
+    assert counts["embed_enqueued"] == 2
+    assert counts["embed_dispatch_failed"] == 0
+    batch_spy.assert_called_once()
+    summarize_spy.assert_called_once()
 
 
 def test_select_catalog_ids_for_summary_hydration_can_filter_by_city(batching_db):

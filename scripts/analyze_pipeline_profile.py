@@ -9,6 +9,11 @@ from typing import Any
 
 
 PROM_LINE = re.compile(r'^(?P<name>[a-zA-Z_:][a-zA-Z0-9_:]*)(?:\{(?P<labels>[^}]*)\})?\s+(?P<value>-?[0-9]+(?:\.[0-9]+)?)$')
+SUMMARY_HYDRATION_LINE = re.compile(
+    r"summary_hydration_backfill .*agenda_deterministic_complete=(?P<agenda>\d+)"
+    r".*llm_complete=(?P<llm>\d+)"
+    r".*deterministic_fallback_complete=(?P<fallback>\d+)"
+)
 LEAF_PHASES = {
     "db_migrate",
     "seed_places",
@@ -104,6 +109,42 @@ def _classify_bottleneck(phase: str, contribution_pct: float, queue_wait_s: floa
     return "orchestration/serialization"
 
 
+def _load_summary_hydration_counts(run_dir: Path) -> dict[str, int]:
+    commands_log = run_dir / "commands.log"
+    if not commands_log.exists():
+        return {}
+    latest: dict[str, int] = {}
+    for line in commands_log.read_text(encoding="utf-8").splitlines():
+        match = SUMMARY_HYDRATION_LINE.search(line)
+        if not match:
+            continue
+        latest = {
+            "agenda_deterministic_complete": int(match.group("agenda")),
+            "llm_complete": int(match.group("llm")),
+            "deterministic_fallback_complete": int(match.group("fallback")),
+        }
+    return latest
+
+
+def _classify_summary_phase(
+    *,
+    contribution_pct: float,
+    queue_wait_s: float,
+    execution_s: float,
+    summary_counts: dict[str, int],
+) -> tuple[str, float]:
+    if queue_wait_s > 0 and queue_wait_s >= max(1.0, execution_s * 0.5):
+        return "queueing", 0.0
+    llm_complete = int(summary_counts.get("llm_complete") or 0)
+    deterministic_fallback_complete = int(summary_counts.get("deterministic_fallback_complete") or 0)
+    agenda_deterministic_complete = int(summary_counts.get("agenda_deterministic_complete") or 0)
+    if llm_complete > 0 or deterministic_fallback_complete > 0:
+        return "inference/provider", float(llm_complete + deterministic_fallback_complete)
+    if agenda_deterministic_complete > 0:
+        return "CPU/parsing", 0.0
+    return _classify_bottleneck("summarize", contribution_pct, queue_wait_s, execution_s), 0.0
+
+
 def _aggregate_phase_rows(spans: list[dict[str, Any]]) -> dict[str, dict[str, Any]]:
     totals: dict[str, dict[str, float]] = {}
     for row in spans:
@@ -176,6 +217,7 @@ def rank_bottlenecks(run_dir: Path) -> dict[str, Any]:
     spans = _load_jsonl(run_dir / "spans.jsonl")
     worker_metrics_raw = (run_dir / "worker_metrics.prom").read_text(encoding="utf-8") if (run_dir / "worker_metrics.prom").exists() else ""
     worker_rows = _parse_metrics(worker_metrics_raw)
+    summary_hydration_counts = _load_summary_hydration_counts(run_dir)
 
     total_elapsed_s, total_note = _select_total_elapsed_seconds(result, spans)
     phase_totals = _aggregate_phase_rows(spans)
@@ -187,6 +229,13 @@ def rank_bottlenecks(run_dir: Path) -> dict[str, Any]:
         task_duration_s = float(stats["task_duration_s"])
         classification = _classify_bottleneck(phase, contribution_pct, queue_wait_s, task_duration_s)
         provider_requests = _sum_metric(worker_rows, "tc_provider_requests_total")
+        if phase == "summarize":
+            classification, provider_requests = _classify_summary_phase(
+                contribution_pct=contribution_pct,
+                queue_wait_s=queue_wait_s,
+                execution_s=task_duration_s,
+                summary_counts=summary_hydration_counts,
+            )
         ranked.append(
             {
                 "phase": phase,
