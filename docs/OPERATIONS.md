@@ -1079,16 +1079,105 @@ Artifacts:
 - `experiments/results/<run_id>/ab_rows.json`
 - `experiments/results/ab_report_v1.md`
 
-## Deferred Model-Selection A/B (disabled by policy)
+## Opt-in Model-Selection Experiment (Gemma 4, non-default)
 
-Model-selection A/B (for example `270M vs <candidate>`) is intentionally disabled
-until a new candidate model is explicitly approved and reintroduced.
+Model-selection experiments are allowed as explicit local experiments as long as
+they do not change the default runtime policy.
 
-Current policy:
-- runtime defaults remain 270M-only (`LOCAL_AI_HTTP_MODEL=gemma-3-270m-custom`);
-- executable A/B in this repo is profile-level (`conservative` vs `balanced`);
-- model-selection A/B resumes only with an explicit roadmap decision and candidate
-  reintroduction PR.
+Current policy remains unchanged:
+- runtime defaults stay 270M-only (`LOCAL_AI_HTTP_MODEL=gemma-3-270m-custom`);
+- baseline-valid regression guardrails still compare Gemma 3 runs against the
+  checked-in Gemma 3 baseline expectation;
+- Gemma 4 evaluation is diagnostic only and can at most justify a future opt-in
+  runtime profile follow-up.
+
+Recommended control/treatment shape:
+- Control: `gemma-3-270m-custom`
+- Treatment: first probe `gemma4:e2b`
+- Only probe `gemma4:e4b` if you are explicitly testing a higher-risk candidate
+  order and you still keep the same Docker memory cap for both arms.
+
+1) Probe the candidate before any A/B or pipeline benchmark:
+```bash
+python scripts/probe_local_model_candidate.py \
+  --candidate gemma4:e2b \
+  --output-dir experiments/results/model_probes
+```
+
+If you explicitly want a second candidate in the same ordered probe:
+```bash
+python scripts/probe_local_model_candidate.py \
+  --candidate gemma4:e2b \
+  --candidate gemma4:e4b \
+  --output-dir experiments/results/model_probes
+```
+
+The probe writes:
+- `experiments/results/model_probes/<run_id>/probe_result.json`
+
+2) Run model-selection A/B with fixed runtime settings and a fixed catalog set.
+
+Arm A (control):
+```bash
+LOCAL_AI_BACKEND=http LOCAL_AI_HTTP_MODEL=gemma-3-270m-custom LOCAL_AI_HTTP_PROFILE=conservative WORKER_CONCURRENCY=3 WORKER_POOL=prefork docker compose up -d --build inference worker api pipeline
+./scripts/run_ab_eval.sh --arm A --catalog-file experiments/ab_catalogs_v1.txt --run-id gemma4_ab_control --arm-model gemma-3-270m-custom
+python scripts/collect_ab_results.py --run-id gemma4_ab_control
+```
+
+Restart the stack before Arm B so queue state and warm-model effects do not leak
+between arms.
+
+Arm B (treatment):
+```bash
+LOCAL_AI_BACKEND=http LOCAL_AI_HTTP_MODEL=gemma4:e2b LOCAL_AI_HTTP_PROFILE=conservative WORKER_CONCURRENCY=3 WORKER_POOL=prefork docker compose up -d --build inference worker api pipeline
+./scripts/run_ab_eval.sh --arm B --catalog-file experiments/ab_catalogs_v1.txt --run-id gemma4_ab_treatment --arm-model gemma4:e2b
+python scripts/collect_ab_results.py --run-id gemma4_ab_treatment
+```
+
+3) Score the A/B run with model-aware artifacts:
+```bash
+python scripts/score_ab_results.py \
+  --runs gemma4_ab_control,gemma4_ab_treatment \
+  --queue-wait-p95-minutes <PROM_QUEUE_WAIT_P95_MINUTES> \
+  --search-p95-regression-pct <SEARCH_P95_REGRESSION_PCT>
+```
+
+The scorer now preserves arm identity from `run_config.json`:
+- `experiments/results/<run_id>/run_config.json`
+- `experiments/results/ab_score_<control>_<treatment>.json`
+- `experiments/results/ab_report_v1.md`
+
+4) Run paired pipeline profiles with the same representative manifest.
+
+Control:
+```bash
+LOCAL_AI_BACKEND=http LOCAL_AI_HTTP_MODEL=gemma-3-270m-custom LOCAL_AI_HTTP_PROFILE=conservative WORKER_CONCURRENCY=3 WORKER_POOL=prefork docker compose up -d --build inference worker api pipeline enrichment-worker
+sleep 1 && PYTHONPATH=. .venv/bin/python scripts/profile_pipeline.py --mode baseline --manifest profiling/manifests/baseline_representative_v1.txt
+```
+
+Treatment:
+```bash
+LOCAL_AI_BACKEND=http LOCAL_AI_HTTP_MODEL=gemma4:e2b LOCAL_AI_HTTP_PROFILE=conservative WORKER_CONCURRENCY=3 WORKER_POOL=prefork docker compose up -d --build inference worker api pipeline enrichment-worker
+sleep 1 && PYTHONPATH=. .venv/bin/python scripts/profile_pipeline.py --mode baseline --manifest profiling/manifests/baseline_representative_v1.txt
+```
+
+5) Compare the treatment profile directly against the control run instead of the
+checked-in baseline guardrail:
+```bash
+PYTHONPATH=. .venv/bin/python scripts/analyze_pipeline_profile.py \
+  --run-id <TREATMENT_RUN_ID> \
+  --output-dir experiments/results/profiling \
+  --compare-run <CONTROL_RUN_ID>
+```
+
+The treatment run writes:
+- `experiments/results/profiling/<TREATMENT_RUN_ID>/pairwise_compare.json`
+- `experiments/results/profiling/<TREATMENT_RUN_ID>/pairwise_compare.md`
+
+Interpretation:
+- `pass`: promising enough for a future opt-in profile follow-up
+- `fail`: treatment breached the paired latency/runtime guardrails
+- `non_comparable`: one arm was not baseline-valid or had reduced-confidence data
 
 Default is `false` for staged rollout.
 
