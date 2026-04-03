@@ -143,3 +143,108 @@ def test_rank_bottlenecks_marks_missing_result_as_reduced_confidence(tmp_path: P
 
     assert summary["elapsed_seconds"] == 30.0
     assert summary["confidence"] == "reduced-confidence:result_missing"
+
+
+def _write_compare_fixture(run_dir: Path, *, elapsed_seconds: float = 9.473, summarize_duration: float = 3.601, selected: int = 12, confidence_provider: bool = True):
+    (run_dir / "run_manifest.json").write_text(
+        json.dumps({"run_id": run_dir.name, "mode": "baseline", "catalog_count": 30, "baseline_valid": True}),
+        encoding="utf-8",
+    )
+    (run_dir / "result.json").write_text(
+        json.dumps({"totals": {"combined_elapsed_seconds": elapsed_seconds}}),
+        encoding="utf-8",
+    )
+    (run_dir / "day_summary.json").write_text(
+        json.dumps({"provider_metrics_present": confidence_provider}),
+        encoding="utf-8",
+    )
+    (run_dir / "worker_metrics.prom").write_text("", encoding="utf-8")
+    (run_dir / "commands.log").write_text(
+        "\n".join(
+            [
+                f"2026-04-03 00:41:44,793 - celery-worker - INFO - summary_hydration_backfill selected={selected} complete=12 changed_catalogs=12 cached=0 stale=0 blocked_low_signal=0 blocked_ungrounded=0 not_generated_yet=0 error=0 other=0 agenda_deterministic_complete=12 llm_complete=0 deterministic_fallback_complete=0 reindexed=12 reindex_failed=0 embed_enqueued=12 embed_dispatch_failed=0",
+                "2026-04-03 00:41:47,581 - entity-backfill - INFO - entity_backfill selected=8 complete=8 changed_catalogs=8 execution_mode=in_process chunks=1 ner_processed=8 ner_skipped_low_signal=0 freshness_advanced=8 candidate_slice_fallback_prefix=0",
+                "2026-04-03 00:41:48,224 - pipeline-batch - INFO - people_linking_preflight selected=8",
+            ]
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    (run_dir / "spans.jsonl").write_text(
+        "\n".join(
+            [
+                json.dumps({"event_type": "span", "phase": "summarize", "duration_s": summarize_duration, "component": "pipeline"}),
+                json.dumps({"event_type": "span", "phase": "entity_backfill", "duration_s": 1.576, "component": "pipeline-batch"}),
+                json.dumps({"event_type": "span", "phase": "people_linking", "duration_s": 0.987, "component": "pipeline-batch"}),
+            ]
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+
+
+def test_compare_against_expected_baseline_passes_for_matching_run(tmp_path: Path):
+    run_dir = tmp_path / "profile_run_match"
+    run_dir.mkdir()
+    _write_compare_fixture(run_dir)
+
+    summary = mod.rank_bottlenecks(run_dir)
+    comparison = mod.compare_against_expected_baseline(
+        run_dir,
+        summary,
+        Path("profiling/baselines/baseline_representative_v1.json"),
+    )
+
+    assert comparison["status"] == "pass"
+    assert comparison["comparable"] is True
+
+
+def test_compare_against_expected_baseline_fails_for_timing_regression(tmp_path: Path):
+    run_dir = tmp_path / "profile_run_slow"
+    run_dir.mkdir()
+    _write_compare_fixture(run_dir, elapsed_seconds=12.5, summarize_duration=5.0)
+
+    summary = mod.rank_bottlenecks(run_dir)
+    comparison = mod.compare_against_expected_baseline(
+        run_dir,
+        summary,
+        Path("profiling/baselines/baseline_representative_v1.json"),
+    )
+
+    assert comparison["status"] == "fail"
+    assert any(check["metric"] == "elapsed_seconds" and check["status"] == "fail" for check in comparison["checks"])
+
+
+def test_compare_against_expected_baseline_fails_for_counter_drift(tmp_path: Path):
+    run_dir = tmp_path / "profile_run_counter_drift"
+    run_dir.mkdir()
+    _write_compare_fixture(run_dir, selected=15)
+
+    summary = mod.rank_bottlenecks(run_dir)
+    comparison = mod.compare_against_expected_baseline(
+        run_dir,
+        summary,
+        Path("profiling/baselines/baseline_representative_v1.json"),
+    )
+
+    assert comparison["status"] == "fail"
+    assert any(
+        check["metric"] == "summary_hydration_backfill.selected" and check["status"] == "fail"
+        for check in comparison["checks"]
+    )
+
+
+def test_compare_against_expected_baseline_marks_reduced_confidence_as_non_comparable(tmp_path: Path):
+    run_dir = tmp_path / "profile_run_low_confidence"
+    run_dir.mkdir()
+    _write_compare_fixture(run_dir, confidence_provider=False)
+
+    summary = mod.rank_bottlenecks(run_dir)
+    comparison = mod.compare_against_expected_baseline(
+        run_dir,
+        summary,
+        Path("profiling/baselines/baseline_representative_v1.json"),
+    )
+
+    assert comparison["status"] == "non_comparable"
+    assert comparison["reason"] == "confidence_reduced"

@@ -14,6 +14,9 @@ SUMMARY_HYDRATION_LINE = re.compile(
     r".*llm_complete=(?P<llm>\d+)"
     r".*deterministic_fallback_complete=(?P<fallback>\d+)"
 )
+KEY_VALUE_TOKEN = re.compile(r"(?P<key>[a-zA-Z_]+)=(?P<value>[^\s]+)")
+TOTAL_ELAPSED_TOLERANCE_PCT = 20.0
+PHASE_DURATION_TOLERANCE_PCT = 25.0
 LEAF_PHASES = {
     "db_migrate",
     "seed_places",
@@ -110,19 +113,48 @@ def _classify_bottleneck(phase: str, contribution_pct: float, queue_wait_s: floa
 
 
 def _load_summary_hydration_counts(run_dir: Path) -> dict[str, int]:
+    latest = _load_latest_counter_line(run_dir, "summary_hydration_backfill")
+    if latest:
+        return latest
     commands_log = run_dir / "commands.log"
     if not commands_log.exists():
         return {}
-    latest: dict[str, int] = {}
+    fallback: dict[str, int] = {}
     for line in commands_log.read_text(encoding="utf-8").splitlines():
         match = SUMMARY_HYDRATION_LINE.search(line)
         if not match:
             continue
-        latest = {
+        fallback = {
             "agenda_deterministic_complete": int(match.group("agenda")),
             "llm_complete": int(match.group("llm")),
             "deterministic_fallback_complete": int(match.group("fallback")),
         }
+    return fallback
+
+
+def _coerce_counter_value(raw: str) -> int | str:
+    value = raw.strip().rstrip(",")
+    if re.fullmatch(r"-?\d+", value):
+        return int(value)
+    return value
+
+
+def _load_latest_counter_line(run_dir: Path, prefix: str) -> dict[str, int | str]:
+    commands_log = run_dir / "commands.log"
+    if not commands_log.exists():
+        return {}
+    latest: dict[str, int | str] = {}
+    for line in commands_log.read_text(encoding="utf-8").splitlines():
+        if prefix not in line:
+            continue
+        if not re.search(rf"\b{re.escape(prefix)}\b", line):
+            continue
+        counters = {
+            match.group("key"): _coerce_counter_value(match.group("value"))
+            for match in KEY_VALUE_TOKEN.finditer(line)
+        }
+        if counters:
+            latest = counters
     return latest
 
 
@@ -276,6 +308,130 @@ def rank_bottlenecks(run_dir: Path) -> dict[str, Any]:
     }
 
 
+def _load_expected_baseline(path: Path) -> dict[str, Any]:
+    payload = _load_json(path)
+    if not payload:
+        raise ValueError(f"baseline expectation missing or invalid: {path}")
+    required = {"manifest_name", "baseline_valid", "elapsed_seconds", "top_phases", "stable_counters"}
+    missing = sorted(required.difference(payload))
+    if missing:
+        raise ValueError(f"baseline expectation missing required keys: {', '.join(missing)}")
+    if not isinstance(payload.get("top_phases"), list):
+        raise ValueError("baseline expectation top_phases must be a list")
+    if not isinstance(payload.get("stable_counters"), dict):
+        raise ValueError("baseline expectation stable_counters must be an object")
+    return payload
+
+
+def _compare_timing_metric(name: str, expected: float, actual: float, tolerance_pct: float) -> dict[str, Any]:
+    allowed = round(float(expected) * (tolerance_pct / 100.0), 3)
+    delta = round(float(actual) - float(expected), 3)
+    passed = float(actual) <= float(expected) + allowed
+    return {
+        "metric": name,
+        "expected": round(float(expected), 3),
+        "actual": round(float(actual), 3),
+        "delta": delta,
+        "tolerance_pct": tolerance_pct,
+        "tolerance_abs": allowed,
+        "status": "pass" if passed else "fail",
+        "reason": "timing_regression" if not passed else "within_tolerance",
+    }
+
+
+def _compare_exact_metric(name: str, expected: Any, actual: Any) -> dict[str, Any]:
+    passed = actual == expected
+    return {
+        "metric": name,
+        "expected": expected,
+        "actual": actual,
+        "status": "pass" if passed else "fail",
+        "reason": "workload_shape_drift" if not passed else "match",
+    }
+
+
+def compare_against_expected_baseline(run_dir: Path, summary: dict[str, Any], expected_path: Path) -> dict[str, Any]:
+    expected = _load_expected_baseline(expected_path)
+    result: dict[str, Any] = {
+        "expected_baseline": str(expected_path),
+        "manifest_name": expected.get("manifest_name"),
+        "status": "pass",
+        "reason": "matched",
+        "comparable": True,
+        "checks": [],
+    }
+    if not summary.get("baseline_valid"):
+        result.update({"status": "non_comparable", "reason": "baseline_invalid", "comparable": False})
+        return result
+    if str(summary.get("confidence") or "").startswith("reduced-confidence"):
+        result.update({"status": "non_comparable", "reason": "confidence_reduced", "comparable": False})
+        return result
+
+    checks: list[dict[str, Any]] = []
+    checks.append(
+        _compare_timing_metric(
+            "elapsed_seconds",
+            float(expected["elapsed_seconds"]),
+            float(summary.get("elapsed_seconds") or 0.0),
+            TOTAL_ELAPSED_TOLERANCE_PCT,
+        )
+    )
+
+    actual_phases = {str(item.get("phase")): item for item in summary.get("all_phases") or []}
+    for phase_entry in expected.get("top_phases") or []:
+        phase = str(phase_entry.get("phase") or "")
+        actual = actual_phases.get(phase)
+        if actual is None:
+            checks.append(
+                {
+                    "metric": f"phase.{phase}",
+                    "expected": round(float(phase_entry.get("duration_s") or 0.0), 3),
+                    "actual": None,
+                    "status": "fail",
+                    "reason": "artifact_missing",
+                }
+            )
+            continue
+        checks.append(
+            _compare_timing_metric(
+                f"phase.{phase}.duration_s",
+                float(phase_entry.get("duration_s") or 0.0),
+                float(actual.get("duration_s") or 0.0),
+                PHASE_DURATION_TOLERANCE_PCT,
+            )
+        )
+
+    for counter_name, expected_counter_values in sorted((expected.get("stable_counters") or {}).items()):
+        actual_counter_values = _load_latest_counter_line(run_dir, counter_name)
+        if not actual_counter_values:
+            checks.append(
+                {
+                    "metric": f"{counter_name}.__present__",
+                    "expected": True,
+                    "actual": False,
+                    "status": "fail",
+                    "reason": "artifact_missing",
+                }
+            )
+            continue
+        for key, expected_value in sorted((expected_counter_values or {}).items()):
+            checks.append(
+                _compare_exact_metric(
+                    f"{counter_name}.{key}",
+                    expected_value,
+                    actual_counter_values.get(key),
+                )
+            )
+
+    result["checks"] = checks
+    failures = [check for check in checks if check.get("status") == "fail"]
+    if failures:
+        result["status"] = "fail"
+        result["reason"] = str(failures[0].get("reason") or "regression")
+        result["failed_checks"] = failures
+    return result
+
+
 def render_report(summary: dict[str, Any]) -> str:
     lines = [
         f"# Pipeline Profile: {summary.get('run_id')}",
@@ -302,10 +458,27 @@ def render_report(summary: dict[str, Any]) -> str:
     return "\n".join(lines) + "\n"
 
 
+def render_compare_report(summary: dict[str, Any], comparison: dict[str, Any]) -> str:
+    lines = [
+        f"# Baseline Compare: {summary.get('run_id')}",
+        "",
+        f"- expected_baseline: `{comparison.get('expected_baseline')}`",
+        f"- status: `{comparison.get('status')}`",
+        f"- reason: `{comparison.get('reason')}`",
+        f"- comparable: `{comparison.get('comparable')}`",
+        "",
+        "## Checks",
+    ]
+    for check in comparison.get("checks") or []:
+        lines.append(f"- `{check['metric']}`: `{check['status']}` expected=`{check.get('expected')}` actual=`{check.get('actual')}`")
+    return "\n".join(lines) + "\n"
+
+
 def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Analyze pipeline profiling artifacts and rank bottlenecks.")
     parser.add_argument("--run-id", required=True)
     parser.add_argument("--output-dir", default="experiments/results/profiling")
+    parser.add_argument("--compare-to", default=None)
     return parser.parse_args(argv)
 
 
@@ -316,7 +489,15 @@ def main(argv: list[str] | None = None) -> int:
     summary = rank_bottlenecks(run_dir)
     (run_dir / "summary.json").write_text(json.dumps(summary, indent=2, sort_keys=True) + "\n", encoding="utf-8")
     (run_dir / "top_bottlenecks.md").write_text(render_report(summary), encoding="utf-8")
-    print(json.dumps({"run_id": args.run_id, "summary": str(run_dir / 'summary.json')}, indent=2))
+    payload: dict[str, Any] = {"run_id": args.run_id, "summary": str(run_dir / "summary.json")}
+    if args.compare_to:
+        comparison = compare_against_expected_baseline(run_dir, summary, Path(args.compare_to))
+        (run_dir / "baseline_compare.json").write_text(json.dumps(comparison, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+        (run_dir / "baseline_compare.md").write_text(render_compare_report(summary, comparison), encoding="utf-8")
+        payload["baseline_compare"] = str(run_dir / "baseline_compare.json")
+        print(json.dumps(payload, indent=2))
+        return 0 if comparison.get("status") == "pass" else 1
+    print(json.dumps(payload, indent=2))
     return 0
 
 

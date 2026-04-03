@@ -367,6 +367,7 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser.add_argument("--api-url", default="http://localhost:8000")
     parser.add_argument("--skip-batch", action="store_true")
     parser.add_argument("--dry-run-prepare", action="store_true")
+    parser.add_argument("--compare-to", default=None)
     return parser.parse_args(argv)
 
 
@@ -538,6 +539,22 @@ def main(argv: list[str] | None = None) -> int:
             check=True,
             env=os.environ.copy(),
         )
+        if args.compare_to:
+            subprocess.run(
+                [
+                    sys.executable,
+                    str(REPO_ROOT / "scripts" / "analyze_pipeline_profile.py"),
+                    "--run-id",
+                    run_id,
+                    "--output-dir",
+                    str(output_root),
+                    "--compare-to",
+                    args.compare_to,
+                ],
+                cwd=str(REPO_ROOT),
+                check=True,
+                env=os.environ.copy(),
+            )
         status = "completed"
         return 0
     except (subprocess.CalledProcessError, OSError) as exc:
