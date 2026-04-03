@@ -158,6 +158,15 @@ Interpretation rule:
 - On the same `baseline_representative_v1` manifest, that reduced combined elapsed time from `12.391s` in `pipeline_profile_baseline_20260402_110906` to `9.199s` in `pipeline_profile_baseline_20260402_220500`.
 - In that run, `entity_backfill` reported `selected=8 complete=8 changed_catalogs=8 execution_mode=in_process chunks=1 ner_processed=8 ner_skipped_low_signal=0 freshness_advanced=8 candidate_slice_fallback_prefix=0`.
 - After that change, the top 3 shifted to `summarize` (`3.647s`), `entity_backfill` (`1.486s`), and `people_linking` (`0.967s`).
+- The next summary-focused pass batched deterministic agenda summary hydration and fixed the profile analyzer so deterministic summary runs are not mislabeled as provider-bound work:
+  - maintenance agenda summaries now preload agenda items for the selected snapshot and persist changed rows before one targeted reindex/embed pass
+  - the profiler now uses `summary_hydration_backfill` evidence from `commands.log` before classifying `summarize` as `inference/provider`
+- On the same `baseline_representative_v1` manifest, that reduced combined elapsed time from `9.199s` in `pipeline_profile_baseline_20260402_220500` to `8.792s` in `pipeline_profile_baseline_20260402_231035`.
+- In that run, `summary_hydration_backfill` reported `selected=12 complete=12 changed_catalogs=12 agenda_deterministic_complete=12 llm_complete=0 deterministic_fallback_complete=0 reindexed=0 reindex_failed=12 embed_enqueued=12 embed_dispatch_failed=0`.
+- After that change, `summarize` remained the top bottleneck, but the report now classifies it as `CPU/parsing` with stage-local `provider_requests_total=0.0`, which matches the deterministic-only workload:
+  - `summarize` `3.385s`
+  - `entity_backfill` `1.532s`
+  - `people_linking` `0.969s`
 
 ### Other Performance-Related Changes
 

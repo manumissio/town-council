@@ -133,7 +133,7 @@ Batch runtime notes:
 - Prefer this helper when a city recovery added agenda PDFs that never entered extraction; keep `scripts/staged_hydrate_cities.py` for city-wide unresolved backlog reduction.
 - Watch these counters in helper output when tuning repaired batches:
   - segmentation: `llm_attempted`, `llm_skipped_heuristic_first`, `heuristic_complete`, `llm_timeout_then_fallback`
-  - summary: `agenda_deterministic_complete`, `llm_complete`, `deterministic_fallback_complete`, `error`
+  - summary: `changed_catalogs`, `agenda_deterministic_complete`, `llm_complete`, `deterministic_fallback_complete`, `reindexed`, `reindex_failed`, `embed_enqueued`, `embed_dispatch_failed`, `error`
 - Example maintenance run:
 ```bash
 docker compose run --rm pipeline python scripts/hydrate_repaired_city_catalogs.py \
@@ -648,7 +648,7 @@ Interpretation rules:
   - summary hydration runs with a shorter maintenance timeout and deterministic fallback enabled only for provider timeout/unavailable failures
 - interpret the one-line backlog logs as the primary maintenance evidence:
   - `agenda_segmentation_backfill ... llm_skipped_heuristic_first=... heuristic_complete=... timeout_fallbacks=...`
-  - `summary_hydration_backfill ... llm_complete=... deterministic_fallback_complete=...`
+  - `summary_hydration_backfill ... changed_catalogs=... agenda_deterministic_complete=... llm_complete=... deterministic_fallback_complete=... reindexed=... reindex_failed=... embed_enqueued=...`
 
 Manifest package guidance:
 - keep baseline manifests checked in under `profiling/manifests/`
