@@ -1,6 +1,6 @@
 # Town Council Architecture (2026)
 
-Last updated: 2026-03-28
+Last updated: 2026-04-03
 
 ## 1) System Overview
 
@@ -138,10 +138,11 @@ flowchart LR
 
 #### Batch enrichment
 1. Extraction writes canonical text to `catalog.content` and computes `content_hash`.
-2. Topic/entity and linking stages enrich records.
-3. Indexer publishes meeting and agenda-item documents to Meilisearch.
-4. Semantic embedding hydration populates `semantic_embedding`.
-5. Maintenance hydration has three supported paths with different scopes:
+2. Agenda segmentation and summary hydration derive structured agenda state and summary state from the extracted corpus.
+3. Entity/topic/org/people stages enrich records after the core derived states exist.
+4. Search freshness is maintained through both broad batch hydration and task-driven targeted reindex of changed catalogs.
+5. Semantic embedding hydration populates `semantic_embedding`.
+6. Maintenance hydration has three supported paths with different scopes:
    - `pipeline/run_pipeline.py` for broad corpus hydration
    - staged city hydration for large unresolved city backlogs
    - repaired-city hydration for city-scoped recovered agenda catalogs that still need extract/segment/summary work
@@ -380,7 +381,8 @@ Owners:
 |---|---|---|
 | `catalog.content_hash` | Canonical hash for extracted text used to detect staleness | `pipeline/content_hash.py`, `pipeline/extraction_service.py`, `pipeline/tasks.py` |
 | `catalog.entities_source_hash` | Hash of source text used to generate current entities | `pipeline/backfill_entities.py`, `pipeline/nlp_worker.py` |
-| `catalog.summary_source_hash` | Hash of source text used to generate current summary | `pipeline/tasks.py`, `api/main.py` |
+| `catalog.agenda_items_hash` | Hash of the normalized structured agenda payload used for agenda-summary freshness | `pipeline/agenda_service.py`, `pipeline/summary_freshness.py`, `pipeline/tasks.py` |
+| `catalog.summary_source_hash` | Hash of the governing summary input; `content_hash` for non-agenda summaries and `agenda_items_hash` for agenda summaries | `pipeline/tasks.py`, `api/main.py`, `pipeline/summary_freshness.py` |
 | `catalog.topics_source_hash` | Hash of source text used to generate current topics | `pipeline/tasks.py`, `pipeline/topic_worker.py`, `api/main.py` |
 | `agenda_item.result` | Normalized outcome field for agenda/vote interpretation | `pipeline/models.py`, `pipeline/tasks.py` |
 | `agenda_item.votes` | Structured vote payload with extraction metadata | `pipeline/models.py`, `pipeline/tasks.py`, `pipeline/ground_truth_sync.py` |
@@ -409,6 +411,7 @@ Owners:
 - Read/search routes are decoupled from write-heavy AI generation via async tasks.
 - Task status has explicit terminal states (complete/failed/error).
 - DB writes are transaction-safe.
+- Search freshness is maintained incrementally through targeted `reindex_catalog(...)` after record-scoped writes; full rebuilds remain the repair/settings path.
 - Startup purge and semantic startup checks are guarded for deterministic behavior.
 
 ### Environment and Compatibility Contract

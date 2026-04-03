@@ -1180,7 +1180,7 @@ docker compose run --rm pipeline python /app/scripts/staged_hydrate_cities.py --
 - API: `POST /extract/{catalog_id}?force=true&ocr_fallback=true`
 
 ### Derived-state meaning
-- `stale`: derived field hash does not match current extracted text hash
+- `stale`: derived field hash does not match its current governing source hash
 - `not generated yet`: derived field is absent
 - `blocked_low_signal`: source text quality below reliability gate
 - `blocked_ungrounded` (summary): generated claims not sufficiently supported by source text
@@ -1199,6 +1199,7 @@ Summary format:
 
 Agenda summary contract:
 - For `Document.category == "agenda"`, summaries are derived from segmented agenda items (Structured Agenda) to avoid drift.
+- Agenda summary freshness is keyed to `agenda_items_hash`; non-agenda summary freshness stays keyed to `content_hash`.
 - Agenda summary input uses structured fields (`title`, `description`, `classification`, `result`, `page_number`) and is hard-capped for context safety.
 - If input is truncated for context budget, summary output discloses partial coverage (`first N of M agenda items`) in `Unknowns`.
 - If an agenda has not been segmented yet, summary generation returns `not_generated_yet` and prompts you to segment first.

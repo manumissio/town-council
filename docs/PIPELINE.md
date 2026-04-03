@@ -1,6 +1,6 @@
 # Town Council Pipeline Guide
 
-Last updated: 2026-03-28
+Last updated: 2026-04-03
 
 ## 1) Purpose and Boundaries
 
@@ -46,13 +46,12 @@ Why this exists:
 - Later stages assume canonical rows, valid schema, and local files already present.
 
 ### Stage B: Parallel document processing
-`run_parallel_processing()` finds records needing extraction or NLP-only enrichment and processes them in chunked parallel workers.
+`run_parallel_processing()` finds records needing extraction or extraction-state repair and processes them in chunked parallel workers.
 
 Per-record behavior in `process_document_chunk()`:
 - extract text when needed
 - compute/repair `content_hash`
 - persist extraction lifecycle state (`pending` / `complete` / `failed_terminal`)
-- run entity extraction when needed
 - commit per record
 
 ### Extraction lifecycle state
@@ -76,13 +75,14 @@ Why this exists:
 - Per-record commits preserve partial progress if a later record fails.
 
 ### Stage C: Derived generation backfills
-- `../scripts/backfill_agenda_segmentation.py`
-- `../scripts/backfill_summaries.py`
+- in-process maintenance agenda segmentation backfill
+- in-process maintenance summary hydration backfill
 
 Why this exists:
 - Agenda summaries depend on structured `AgendaItem` rows, so segmentation must run before summary hydration.
 - Batch pipeline hydration now owns the missing derived-state stages instead of leaving summaries to ad hoc per-record API calls.
 - Summary hydration reuses the existing task logic, so low-signal blocking, grounding checks, and stale/cached semantics stay consistent with the async path.
+- Script entrypoints such as `scripts/backfill_agenda_segmentation.py` and `scripts/backfill_summaries.py` remain available as manual operator tools, but they are no longer the canonical batch stage implementation.
 
 ### Maintenance hydration paths
 The broad batch pipeline is no longer the only supported way to move recovered catalogs through extract -> segment -> summarize:
@@ -104,13 +104,14 @@ Operational commands and troubleshooting stay in [`docs/OPERATIONS.md`](OPERATIO
 
 ### Stage D: Post-processing and indexing
 - `table_worker.py`
-- `backfill_orgs.py`
+- `run_batch_enrichment.py`
 - `topic_worker.py`
 - `person_linker.py`
 - `indexer.py`
 
 Why this exists:
 - These depend on extracted/normalized content from earlier stages.
+- Entity enrichment and later linking now happen after the core extract -> segment -> summarize path instead of inside extraction chunk workers.
 - Search and UI behavior depends on this final indexing step.
 
 ## 4) Async Task Pipeline Walkthrough (`api/main.py` -> `pipeline/tasks.py`)
@@ -237,7 +238,8 @@ Why this exists:
 
 ### Freshness keys and state contracts
 - `catalog.content_hash`: hash of extracted text version.
-- `catalog.summary_source_hash`: source hash tied to current summary.
+- `catalog.agenda_items_hash`: normalized structured-agenda hash used for agenda-summary freshness.
+- `catalog.summary_source_hash`: source hash tied to the current summary input.
 - `catalog.topics_source_hash`: source hash tied to current topics.
 - Agenda segmentation status fields on `catalog`.
 
@@ -250,6 +252,11 @@ Why this exists:
 
 ### Agenda-summary coupling
 Agenda summaries are derived from segmented agenda items, not arbitrary raw text.
+
+Freshness contract:
+- non-agenda summaries use `content_hash`
+- agenda summaries use `agenda_items_hash`
+- `summary_source_hash` stores whichever governing input hash applies to that catalog
 
 Why this exists:
 - Prevents drift between Structured Agenda and AI Summary.
