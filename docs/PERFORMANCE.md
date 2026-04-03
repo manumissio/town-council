@@ -1,6 +1,6 @@
 # Performance
 
-Last updated: 2026-04-02
+Last updated: 2026-04-03
 
 This page describes how to interpret and reproduce performance evidence for local Docker runs.
 For operational troubleshooting and sorting diagnostics, use `docs/OPERATIONS.md`.
@@ -167,6 +167,17 @@ Interpretation rule:
   - `summarize` `3.385s`
   - `entity_backfill` `1.532s`
   - `people_linking` `0.969s`
+- The next summary-freshness pass made agenda summary hydration stale-aware via structured-input hashing:
+  - `Catalog.agenda_items_hash` now fingerprints the normalized `AgendaItem` payload that deterministic agenda summaries actually depend on
+  - deterministic agenda summaries now store `summary_source_hash = agenda_items_hash` instead of `content_hash`
+  - the profiling harness now runs `pipeline/backfill_catalog_hashes.py` before baseline preconditioning so legacy agenda summaries are measured in steady state instead of one-time migration churn
+- On the same `baseline_representative_v1` manifest, the rollout-skewed first run (`pipeline_profile_baseline_20260403_003945`) selected `21` agenda summaries because old rows were missing the new agenda hash metadata, but the steady-state baseline after backfill (`pipeline_profile_baseline_20260403_004122`) returned to `selected=12`.
+- In the steady-state run, `summary_hydration_backfill` reported `selected=12 complete=12 changed_catalogs=12 agenda_deterministic_complete=12 llm_complete=0 deterministic_fallback_complete=0 reindexed=12 reindex_failed=0 embed_enqueued=12 embed_dispatch_failed=0`.
+- After that change, the top 3 remained:
+  - `summarize` `3.601s`
+  - `entity_backfill` `1.576s`
+  - `people_linking` `0.987s`
+- This pass did not make deterministic agenda summaries dramatically cheaper per rebuild; it made the freshness contract correct so already-fresh agenda summaries can now be skipped once their structured input is unchanged.
 
 ### Other Performance-Related Changes
 

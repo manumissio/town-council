@@ -1,6 +1,6 @@
 # Operations Runbook
 
-Last updated: 2026-04-02
+Last updated: 2026-04-03
 
 ## Core workflow
 
@@ -120,6 +120,8 @@ Batch runtime notes:
 - entity backfill now reports `ner_processed`, `ner_skipped_low_signal`, `freshness_advanced`, and `candidate_slice_fallback_prefix`
 - default people linking is now driven by the entity delta from the same batch run rather than rescanning every entity-bearing catalog
 - people linking now reports `catalogs_with_people`, `catalogs_changed`, `exact_matches`, `fuzzy_matches`, and `cities_loaded`
+- agenda summaries now use structured-input freshness: deterministic agenda summaries store `summary_source_hash = agenda_items_hash`, while non-agenda summaries still key freshness to `content_hash`
+- `agenda_items_hash` is maintained when agenda rows are persisted and lets summary hydration skip already-fresh agenda summaries instead of rebuilding them every run
 - default `run_batch_enrichment.py` now snapshots eligible topic/table work before invoking heavy steps
 - topic modeling only hydrates catalogs whose topics are missing or stale relative to `content_hash`
 - table extraction skips the Camelot subprocess entirely when there are no eligible catalogs
