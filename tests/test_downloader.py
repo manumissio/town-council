@@ -1,5 +1,6 @@
 import sys
 import os
+import datetime
 from unittest.mock import MagicMock
 
 # Setup paths
@@ -8,7 +9,7 @@ sys.path.append(root_dir)
 sys.path.append(os.path.join(root_dir, 'pipeline'))
 
 from pipeline.models import Catalog, UrlStage, Event, Place
-from pipeline.downloader import process_single_url, process_staged_urls
+from pipeline.downloader import process_single_url, process_staged_urls, _select_staged_url_ids
 
 def test_downloader_absolute_path(db_session, mocker, monkeypatch):
     """
@@ -139,3 +140,60 @@ def test_process_staged_urls_archives_only_successes(mocker):
 
     process_staged_urls()
     archive_mock.assert_called_once_with([1, 3])
+
+
+def test_select_staged_url_ids_scopes_to_onboarding_city_window(db_session, monkeypatch):
+    place = Place(
+        name="San Leandro",
+        ocd_division_id="ocd-division/country:us/state:ca/place:san_leandro",
+        state="CA",
+    )
+    other_place = Place(
+        name="Berkeley",
+        ocd_division_id="ocd-division/country:us/state:ca/place:berkeley",
+        state="CA",
+    )
+    db_session.add_all([place, other_place])
+    db_session.flush()
+
+    started_at = datetime.datetime(2026, 4, 4, 14, 0, 0)
+    db_session.add_all(
+        [
+            UrlStage(
+                id=1,
+                ocd_division_id=place.ocd_division_id,
+                event="San Leandro Fresh",
+                event_date=datetime.date(2026, 4, 4),
+                url="https://example.com/san-leandro-fresh.pdf",
+                url_hash="sl-fresh",
+                category="agenda",
+                created_at=started_at + datetime.timedelta(minutes=1),
+            ),
+            UrlStage(
+                id=2,
+                ocd_division_id=place.ocd_division_id,
+                event="San Leandro Old",
+                event_date=datetime.date(2026, 4, 3),
+                url="https://example.com/san-leandro-old.pdf",
+                url_hash="sl-old",
+                category="agenda",
+                created_at=started_at - datetime.timedelta(minutes=1),
+            ),
+            UrlStage(
+                id=3,
+                ocd_division_id=other_place.ocd_division_id,
+                event="Berkeley Fresh",
+                event_date=datetime.date(2026, 4, 4),
+                url="https://example.com/berkeley-fresh.pdf",
+                url_hash="bk-fresh",
+                category="agenda",
+                created_at=started_at + datetime.timedelta(minutes=1),
+            ),
+        ]
+    )
+    db_session.commit()
+
+    monkeypatch.setenv("PIPELINE_ONBOARDING_CITY", "san_leandro")
+    monkeypatch.setenv("PIPELINE_ONBOARDING_STARTED_AT_UTC", "2026-04-04T14:00:00Z")
+
+    assert _select_staged_url_ids(db_session) == [1]

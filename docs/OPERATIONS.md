@@ -324,7 +324,8 @@ docker compose run --rm pipeline python /app/scripts/audit_city_coverage.py --ci
 - That mode limits extraction to catalogs touched by the current city's staged URL set for the run window instead of waking up the full missing-content backlog.
 - It also reduces parallel extraction pressure (`PIPELINE_ONBOARDING_MAX_WORKERS=1`, smaller chunks) and disables OCR fallback for the onboarding pipeline run (`TIKA_OCR_FALLBACK_ENABLED=false`).
 - `PIPELINE_RUNTIME_PROFILE=onboarding_fast` now keeps onboarding on the gating path only:
-  - runs crawl, download/extract for touched catalogs, segmentation, and targeted search updates
+  - the `run_pipeline.py` subprocess only crawls plus downloads/extracts staged URLs for the current city and run window
+  - `scripts/onboard_city_wave.sh` then runs city-scoped segmentation and the search smoke check explicitly
   - skips table extraction, organization backfill, topic modeling, and people linking during onboarding validation runs
 - `scripts/onboard_city_wave.sh` now performs an explicit crawler image preflight before running a city crawl.
   - it resolves the crawler image name from `docker compose config --images`
