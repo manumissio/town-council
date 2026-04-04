@@ -3,9 +3,14 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 
 from pipeline.db_session import db_session
 from pipeline.summary_hydration_diagnostics import build_summary_hydration_snapshot
+
+
+def _database_url() -> str:
+    return (os.getenv("DATABASE_URL") or "").strip()
 
 
 def main() -> int:
@@ -14,6 +19,16 @@ def main() -> int:
     parser.add_argument("--sample-limit", type=int, default=5)
     parser.add_argument("--json", action="store_true", help="Emit machine-readable JSON only")
     args = parser.parse_args()
+
+    # This operator diagnostic must read the same configured database as the
+    # running stack; fallback SQLite can produce stale or misleading backlog data.
+    if not _database_url():
+        print("ERROR: DATABASE_URL is not set.")
+        print("Run this diagnostic in the configured pipeline environment, for example:")
+        print("  docker compose run --rm pipeline python /app/scripts/diagnose_summary_hydration.py")
+        print("  docker compose run --rm pipeline python /app/scripts/diagnose_summary_hydration.py --city san_mateo")
+        print("  docker compose run --rm pipeline python /app/scripts/diagnose_summary_hydration.py --json")
+        return 2
 
     with db_session() as session:
         snapshot = build_summary_hydration_snapshot(session, sample_limit=max(1, args.sample_limit), city=args.city)

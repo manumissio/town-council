@@ -56,3 +56,23 @@ def test_diagnose_summary_hydration_cli_labels_cumulative_vs_unresolved(mocker, 
     assert "Backlog buckets (rows where summary is still null)" in captured.out
     assert "Agenda segmentation status counts (unresolved backlog only)" in captured.out
     assert "catalogs_with_summary is cumulative" in captured.out
+
+
+def test_diagnose_summary_hydration_requires_database_url(mocker, capsys):
+    mocker.patch.dict(mod.os.environ, {}, clear=True)
+    db_session = mocker.patch.object(mod, "db_session", side_effect=AssertionError("db_session should not be called"))
+    snapshot_builder = mocker.patch.object(
+        mod,
+        "build_summary_hydration_snapshot",
+        side_effect=AssertionError("snapshot builder should not be called"),
+    )
+    mocker.patch.object(sys, "argv", ["diagnose_summary_hydration.py", "--json"])
+
+    exit_code = mod.main()
+
+    captured = capsys.readouterr()
+    assert exit_code == 2
+    assert "DATABASE_URL is not set" in captured.out
+    assert "docker compose run --rm pipeline python /app/scripts/diagnose_summary_hydration.py" in captured.out
+    assert db_session.call_count == 0
+    assert snapshot_builder.call_count == 0
