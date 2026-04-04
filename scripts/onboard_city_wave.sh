@@ -179,9 +179,9 @@ reset_city_verification_state() {
     local baseline_json='null'
     if [[ -n "$baseline_record_date" ]]; then
       baseline_json="\"$baseline_record_date\""
-      echo "[dry-run] docker compose run --rm -w /app pipeline python scripts/reset_city_verification_state.py --city $city --since $since --baseline-record-date $baseline_record_date"
+      echo "[dry-run] docker compose run --rm -w /app pipeline python scripts/reset_city_verification_state.py --city $city --since $since --baseline-record-date $baseline_record_date" >&2
     else
-      echo "[dry-run] docker compose run --rm -w /app pipeline python scripts/reset_city_verification_state.py --city $city --since $since"
+      echo "[dry-run] docker compose run --rm -w /app pipeline python scripts/reset_city_verification_state.py --city $city --since $since" >&2
     fi
     printf '{"city":"%s","since":"%s","baseline_record_date":%s,"deleted_event_count":0,"deleted_document_count":0,"deleted_catalog_count":0,"catalog_reference_count":0,"deleted_data_issue_count":0,"remaining_event_count":0,"remaining_max_record_date":null,"remaining_max_scraped_datetime":null}\n' "$city" "$since" "$baseline_json"
     return 0

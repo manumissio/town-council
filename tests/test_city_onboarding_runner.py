@@ -76,6 +76,39 @@ def test_onboarding_runner_rejects_unknown_city(tmp_path):
     assert "is not in wave1" in result.stdout or "is not in wave1" in result.stderr
 
 
+def test_onboarding_runner_dry_run_first_time_city_keeps_reset_json_parseable(tmp_path):
+    run_id = "dry_run_first_time"
+    output_dir = tmp_path / "city_onboarding"
+
+    env = os.environ.copy()
+    env["DRY_RUN"] = "1"
+
+    cmd = [
+        "bash",
+        "scripts/onboard_city_wave.sh",
+        "wave1",
+        "--cities",
+        "fremont",
+        "--runs",
+        "3",
+        "--run-id",
+        run_id,
+        "--output-dir",
+        str(output_dir),
+    ]
+    result = subprocess.run(cmd, text=True, capture_output=True, env=env, check=True)
+
+    assert "verification_state_reset_failed" not in result.stdout
+    assert "JSONDecodeError" not in result.stdout
+    assert "JSONDecodeError" not in result.stderr
+    assert "[dry-run] docker compose run --rm -w /app pipeline python scripts/reset_city_verification_state.py --city fremont --since" in result.stderr
+
+    rows = [json.loads(line) for line in (output_dir / run_id / "runs.jsonl").read_text(encoding="utf-8").splitlines() if line.strip()]
+    assert len(rows) == 3
+    assert [row["verification_mode"] for row in rows] == ["first_time_onboarding"] * 3
+    assert [row["state_reset_applied"] for row in rows] == [False, True, True]
+
+
 def test_onboarding_runner_marks_empty_crawl_and_skips_downstream_steps(tmp_path):
     run_id = "empty_crawl"
     output_dir = tmp_path / "city_onboarding"
