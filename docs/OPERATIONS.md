@@ -26,11 +26,22 @@ Optional helper (same steps, fewer flags to remember):
 bash ./scripts/dev_up.sh
 ```
 
+Apple Silicon opt-in helper (host-native Ollama on Metal, current Gemma 3 model only):
+```bash
+bash ./scripts/dev_up_host_metal.sh
+```
+
 What `scripts/dev_up.sh` does:
 - starts the core Docker Compose stack (with `--build`)
 - bootstraps the shared local model volume
 - initializes the DB schema
 - runs a small smoke check (`/health`)
+
+What `scripts/dev_up_host_metal.sh` does:
+- verifies host Ollama is reachable and bootstraps the `gemma-3-270m-custom` alias on the host
+- keeps Docker `inference` stopped to avoid backend ambiguity
+- starts the normal app stack against `http://host.docker.internal:11434`
+- verifies worker readiness and backend provenance before declaring success
 
 What it does *not* do:
 - scrape any city data (no crawler runs)
@@ -64,6 +75,19 @@ Use this when the shared model volume is empty, after pruning Docker volumes, or
 ```bash
 bash ./scripts/bootstrap_local_models.sh
 ```
+
+### 1.56) Apple Silicon host-Metal bootstrap (opt-in)
+Use this only when you explicitly want the supported host-native Ollama path for the current Gemma 3 model.
+
+```bash
+bash ./scripts/bootstrap_host_ollama_270m.sh
+```
+
+What it does:
+- verifies Apple Silicon macOS and `ollama` availability
+- verifies host Ollama is reachable at `HOST_OLLAMA_BASE_URL`
+- creates the `gemma-3-270m-custom` alias on the host if it is missing
+- fails fast instead of silently falling back to Docker `inference`
 
 ### 1.6) Verify stack health contracts
 Use this after `docker compose up -d --build` and before running onboarding or soak flows.
@@ -1105,6 +1129,18 @@ Historical M1 conservative reference:
 ```bash
 docker compose --env-file env/profiles/m1_conservative.env up -d --build inference worker api pipeline frontend
 ```
+
+Apple Silicon host-Metal opt-in:
+```bash
+bash ./scripts/bootstrap_host_ollama_270m.sh
+bash ./scripts/dev_up_host_metal.sh
+```
+
+Interpretation rules:
+- this path is supported for `gemma-3-270m-custom` only
+- this path is explicit opt-in and does not replace the default Docker `inference` workflow
+- Docker `inference` must remain stopped while the host-Metal helper is active
+- if host Ollama is unreachable or the required alias is missing, fail fast and fix the host setup instead of relying on fallback behavior
 
 ### Queue-aware timeout math (why conservative timeout is high)
 
