@@ -78,3 +78,25 @@ def test_gemma4_host_metal_strict_swap_script_contract():
     assert '"docker_inference_expected_running": False' in text
     assert "_host_ollama_ps" in text
     assert "worker env snapshot did not succeed after retries" in text
+
+
+def test_bootstrap_host_ollama_270m_script_contract():
+    text = Path("scripts/bootstrap_host_ollama_270m.sh").read_text(encoding="utf-8")
+
+    assert "gemma3_270m_host_metal_conservative.env" in text
+    assert "This helper supports Apple Silicon macOS only" in text
+    assert "ollama show" in text
+    assert "ollama create" in text
+    assert "host.docker.internal" not in text
+    assert "hf_hub_download" in text
+
+
+def test_dev_up_host_metal_script_contract():
+    text = Path("scripts/dev_up_host_metal.sh").read_text(encoding="utf-8")
+
+    assert "gemma3_270m_host_metal_conservative.env" in text
+    assert "bootstrap_host_ollama_270m.sh" in text
+    assert "docker compose stop inference" in text
+    assert "worker_healthcheck.py" in text
+    assert "LOCAL_AI_HTTP_BASE_URL" in text
+    assert "frontend" in text
