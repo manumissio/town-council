@@ -1,6 +1,6 @@
 # City Onboarding Status
 
-Last updated: 2026-03-15
+Last updated: 2026-04-04
 
 This sheet tracks rollout readiness and quality gates per city.
 Machine-readable rollout truth lives in `city_metadata/city_rollout_registry.csv`; this page mirrors that registry for operator review.
@@ -13,7 +13,7 @@ Machine-readable rollout truth lives in `city_metadata/city_rollout_registry.csv
 | hayward | existing | yes | yes | pass | 2026-03-15 |
 | san_mateo | existing | yes | yes | pass | 2026-03-14 |
 | sunnyvale | existing | yes | yes | pass | 2026-03-15 |
-| san_leandro | existing | yes | no | pending | - |
+| san_leandro | existing | yes | yes | pass | 2026-04-04 |
 | mtn_view | existing | yes | no | pending | - |
 | moraga | existing | yes | no | pending | - |
 | belmont | existing | yes | no | pending | - |
@@ -55,6 +55,7 @@ Current rollout interpretation:
 - San Mateo remains `enabled=yes` on the strength of its latest fresh-evidence passing run.
 - Hayward is now back to `enabled=yes` after proving the stable delta no-op confirmation path in a fresh paired wave-1 run.
 - Sunnyvale is now promoted in `city_metadata/city_rollout_registry.csv` after the passing first-time rerun `city_wave1_sunnyvale_20260315_113626`.
+- San Leandro is now promoted in `city_metadata/city_rollout_registry.csv` after the passing first-time rerun `city_wave1_san_leandro_20260404_161435`.
 
 Latest wave-1 confirmation:
 - `city_wave1_hayward_sanmateo_20260314_213301`
@@ -140,3 +141,12 @@ Pending-city rewind notes:
       - deleted `95` events, `23` documents, and `23` unreferenced catalogs
       - San Leandro DB anchor is clean again
     - interpretation: the shared runtime package and broadened Legistar capability cache are working, but San Leandro still has a smaller residual segmentation-timeout class that needs its own follow-up before promotion
+  - San Leandro rerun `city_wave1_san_leandro_20260404_161435` validated the full stale-state cleanup path and cleared the city gate
+    - preflight artifact: `preflight/san_leandro_flush.json`
+    - baseline artifact: `baseline_event_count=0`, `baseline_max_record_date=null`, `baseline_max_scraped_datetime=null`
+    - all 3 runs: `success`
+    - runs 2 and 3: `state_reset_applied=true`
+    - evaluator result: `pass`
+    - gate reason: `fresh_evidence`
+    - run-window totals: `3` touched agenda catalogs, `3` non-empty extractions, `3` segmentation complete/empty, `0` segmentation failures
+    - interpretation: city-scoped flush plus first-time preflight cleanup removed the stale-state contamination path; San Leandro is now promotion-ready and has been marked `enabled=yes`
