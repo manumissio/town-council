@@ -101,6 +101,7 @@ def test_onboarding_runner_dry_run_first_time_city_keeps_reset_json_parseable(tm
     assert "verification_state_reset_failed" not in result.stdout
     assert "JSONDecodeError" not in result.stdout
     assert "JSONDecodeError" not in result.stderr
+    assert "[dry-run] docker compose run --rm -w /app pipeline python scripts/flush_city_pipeline_state.py --city fremont" in result.stderr
     assert "[dry-run] docker compose run --rm -w /app pipeline python scripts/reset_city_verification_state.py --city fremont --since" in result.stderr
 
     rows = [json.loads(line) for line in (output_dir / run_id / "runs.jsonl").read_text(encoding="utf-8").splitlines() if line.strip()]
@@ -137,6 +138,10 @@ if [[ "$1" == "image" && "$2" == "inspect" && "$3" == "town-council-crawler" ]];
 fi
 if [[ "$*" == *"scripts/reset_city_verification_state.py"* && "$*" == *"--print-baseline"* ]]; then
   printf '%s\\n' '{"city": "fremont", "baseline_event_count": 0, "baseline_max_record_date": null, "baseline_max_scraped_datetime": null}'
+  exit 0
+fi
+if [[ "$*" == *"scripts/flush_city_pipeline_state.py"* ]]; then
+  printf '%s\\n' '{"city": "fremont", "dry_run": false, "deleted_event_stage_count": 0, "deleted_url_stage_count": 0, "deleted_url_stage_hist_count": 0, "deleted_event_count": 0, "deleted_document_count": 0, "deleted_catalog_count": 0, "catalog_reference_count": 0, "deleted_data_issue_count": 0, "remaining_event_stage_count": 0, "remaining_url_stage_count": 0, "remaining_url_stage_hist_count": 0, "remaining_event_count": 0, "remaining_document_count": 0, "remaining_catalog_count": 0}'
   exit 0
 fi
     if [[ "$*" == *"scrapy crawl fremont"* ]]; then
@@ -239,6 +244,10 @@ if [[ "$*" == *"scripts/check_city_crawl_evidence.py"* ]]; then
   printf '%s\\n' '{"city": "fremont", "event_stage_count": 3, "has_evidence": true, "url_stage_count": 2}'
   exit 0
 fi
+if [[ "$*" == *"scripts/flush_city_pipeline_state.py"* ]]; then
+  printf '%s\\n' '{"city": "fremont", "dry_run": false, "deleted_event_stage_count": 0, "deleted_url_stage_count": 0, "deleted_url_stage_hist_count": 0, "deleted_event_count": 0, "deleted_document_count": 0, "deleted_catalog_count": 0, "catalog_reference_count": 0, "deleted_data_issue_count": 0, "remaining_event_stage_count": 0, "remaining_url_stage_count": 0, "remaining_url_stage_hist_count": 0, "remaining_event_count": 0, "remaining_document_count": 0, "remaining_catalog_count": 0}'
+  exit 0
+fi
 if [[ "$*" == *"scripts/reset_city_verification_state.py"* && "$*" == *"--print-baseline"* ]]; then
   printf '%s\\n' '{"city": "fremont", "baseline_event_count": 0, "baseline_max_record_date": null, "baseline_max_scraped_datetime": null}'
   exit 0
@@ -301,11 +310,15 @@ exit 0
     assert [row["state_reset_applied"] for row in rows] == [False, True, True]
     assert {row["overall_status"] for row in rows} == {"success"}
     docker_commands = docker_log.read_text(encoding="utf-8")
+    assert docker_commands.count("scripts/flush_city_pipeline_state.py") == 1
     assert docker_commands.count("scripts/reset_city_verification_state.py") == 3
     assert "--print-baseline" in docker_commands
     assert "--baseline-record-date" not in docker_commands
     assert "restoring first-time verification state for fremont before run 2" in result.stdout
     assert "restoring first-time verification state for fremont before run 3" in result.stdout
+    preflight_payload = json.loads((output_dir / run_id / "preflight" / "fremont_flush.json").read_text(encoding="utf-8"))
+    assert preflight_payload["mode"] == "clean_noop"
+    assert preflight_payload["auto_flush_applied"] is False
     baseline_payload = json.loads((output_dir / run_id / "baselines" / "fremont.json").read_text(encoding="utf-8"))
     assert baseline_payload["baseline_event_count"] == 0
     assert baseline_payload["baseline_max_record_date"] is None
@@ -364,6 +377,10 @@ if [[ "$1" == "image" && "$2" == "inspect" && "$3" == "town-council-crawler" ]];
 fi
 if [[ "$*" == *"scripts/reset_city_verification_state.py"* && "$*" == *"--print-baseline"* ]]; then
   printf '%s\\n' '{"city": "san_leandro", "baseline_event_count": 1, "baseline_max_record_date": "2026-03-01", "baseline_max_scraped_datetime": "2026-03-01T12:00:00Z"}'
+  exit 0
+fi
+if [[ "$*" == *"scripts/flush_city_pipeline_state.py"* ]]; then
+  printf '%s\\n' '{"city": "san_leandro", "dry_run": false, "deleted_event_stage_count": 0, "deleted_url_stage_count": 0, "deleted_url_stage_hist_count": 0, "deleted_event_count": 0, "deleted_document_count": 0, "deleted_catalog_count": 0, "catalog_reference_count": 0, "deleted_data_issue_count": 0, "remaining_event_stage_count": 0, "remaining_url_stage_count": 0, "remaining_url_stage_hist_count": 0, "remaining_event_count": 1, "remaining_document_count": 0, "remaining_catalog_count": 0}'
   exit 0
 fi
 if [[ "$*" == *"scripts/reset_city_verification_state.py"* ]]; then
@@ -438,10 +455,123 @@ exit 0
     assert [row["crawler_status"] for row in rows] == ["success", "success", "success"]
     assert [row["state_reset_applied"] for row in rows] == [False, True, True]
     docker_commands = docker_log.read_text(encoding="utf-8")
+    assert docker_commands.count("scripts/flush_city_pipeline_state.py") == 1
     assert docker_commands.count("--print-baseline") == 1
     assert docker_commands.count("--baseline-record-date 2026-03-01") == 2
     assert "restoring first-time verification state for san_leandro before run 2" in result.stdout
     assert "restoring first-time verification state for san_leandro before run 3" in result.stdout
+    preflight_payload = json.loads((output_dir / run_id / "preflight" / "san_leandro_flush.json").read_text(encoding="utf-8"))
+    assert preflight_payload["mode"] == "clean_noop"
+    assert preflight_payload["auto_flush_applied"] is False
+
+
+def test_onboarding_runner_auto_flushes_contaminated_first_time_city(tmp_path):
+    run_id = "auto_flush"
+    output_dir = tmp_path / "city_onboarding"
+    output_dir.mkdir(parents=True, exist_ok=True)
+
+    db_path = tmp_path / "auto_flush.sqlite"
+    engine = create_engine(f"sqlite:///{db_path}")
+    Base.metadata.create_all(engine)
+    sessionmaker(bind=engine)()
+    engine.dispose()
+
+    bin_dir = tmp_path / "bin"
+    bin_dir.mkdir()
+    docker_log = tmp_path / "docker.log"
+    curl_log = tmp_path / "curl.log"
+
+    docker_stub = """#!/usr/bin/env bash
+set -euo pipefail
+printf '%s\\n' "$*" >> "$DOCKER_LOG"
+if [[ "$*" == "compose config --images" ]]; then
+  printf '%s\\n' 'town-council-crawler'
+  exit 0
+fi
+if [[ "$1" == "image" && "$2" == "inspect" && "$3" == "town-council-crawler" ]]; then
+  exit 0
+fi
+if [[ "$*" == *"scripts/flush_city_pipeline_state.py"* && "$*" == *"--apply"* ]]; then
+  printf '%s\\n' '{"city": "fremont", "dry_run": false, "deleted_event_stage_count": 2, "deleted_url_stage_count": 1, "deleted_url_stage_hist_count": 1, "deleted_event_count": 1, "deleted_document_count": 1, "deleted_catalog_count": 1, "catalog_reference_count": 1, "deleted_data_issue_count": 0, "remaining_event_stage_count": 0, "remaining_url_stage_count": 0, "remaining_url_stage_hist_count": 0, "remaining_event_count": 0, "remaining_document_count": 0, "remaining_catalog_count": 0}'
+  exit 0
+fi
+if [[ "$*" == *"scripts/flush_city_pipeline_state.py"* ]]; then
+  printf '%s\\n' '{"city": "fremont", "dry_run": true, "deleted_event_stage_count": 2, "deleted_url_stage_count": 1, "deleted_url_stage_hist_count": 1, "deleted_event_count": 1, "deleted_document_count": 1, "deleted_catalog_count": 1, "catalog_reference_count": 1, "deleted_data_issue_count": 0, "remaining_event_stage_count": 2, "remaining_url_stage_count": 1, "remaining_url_stage_hist_count": 1, "remaining_event_count": 1, "remaining_document_count": 1, "remaining_catalog_count": 1}'
+  exit 0
+fi
+if [[ "$*" == *"scripts/reset_city_verification_state.py"* && "$*" == *"--print-baseline"* ]]; then
+  printf '%s\\n' '{"city": "fremont", "baseline_event_count": 0, "baseline_max_record_date": null, "baseline_max_scraped_datetime": null}'
+  exit 0
+fi
+if [[ "$*" == *"scripts/reset_city_verification_state.py"* ]]; then
+  printf '%s\\n' '{"city": "fremont", "deleted_document_count": 1, "deleted_event_count": 1, "deleted_catalog_count": 1, "catalog_reference_count": 1, "deleted_data_issue_count": 0, "remaining_event_count": 0, "remaining_max_record_date": null, "remaining_max_scraped_datetime": null}'
+  exit 0
+fi
+if [[ "$*" == *"scrapy crawl fremont"* ]]; then
+  exit 0
+fi
+if [[ "$*" == *"scripts/check_city_crawl_evidence.py"* ]]; then
+  printf '%s\\n' '{"city": "fremont", "event_stage_count": 3, "has_evidence": true, "url_stage_count": 2}'
+  exit 0
+fi
+if [[ "$*" == *"run_pipeline.py"* ]]; then
+  exit 0
+fi
+if [[ "$*" == *"scripts/segment_city_corpus.py --city fremont"* ]]; then
+  exit 0
+fi
+echo "unexpected docker invocation: $*" >&2
+exit 99
+"""
+    curl_stub = """#!/usr/bin/env bash
+set -euo pipefail
+printf '%s\\n' "$*" >> "$CURL_LOG"
+exit 0
+"""
+
+    docker_path = bin_dir / "docker"
+    docker_path.write_text(docker_stub, encoding="utf-8")
+    docker_path.chmod(0o755)
+    curl_path = bin_dir / "curl"
+    curl_path.write_text(curl_stub, encoding="utf-8")
+    curl_path.chmod(0o755)
+
+    env = os.environ.copy()
+    env["DRY_RUN"] = "0"
+    env["DATABASE_URL"] = f"sqlite:///{db_path}"
+    env["DOCKER_LOG"] = str(docker_log)
+    env["CURL_LOG"] = str(curl_log)
+    env["PATH"] = f"{bin_dir}:{env['PATH']}"
+
+    cmd = [
+        "bash",
+        "scripts/onboard_city_wave.sh",
+        "wave1",
+        "--cities",
+        "fremont",
+        "--runs",
+        "3",
+        "--run-id",
+        run_id,
+        "--output-dir",
+        str(output_dir),
+    ]
+    subprocess.run(cmd, text=True, capture_output=True, env=env, check=True)
+
+    rows = [
+        json.loads(line)
+        for line in (output_dir / run_id / "runs.jsonl").read_text(encoding="utf-8").splitlines()
+        if line.strip()
+    ]
+    assert len(rows) == 3
+    assert [row["overall_status"] for row in rows] == ["success", "success", "success"]
+    docker_commands = docker_log.read_text(encoding="utf-8")
+    assert docker_commands.count("scripts/flush_city_pipeline_state.py --city fremont") == 2
+    assert "scripts/flush_city_pipeline_state.py --city fremont --apply" in docker_commands
+    preflight_payload = json.loads((output_dir / run_id / "preflight" / "fremont_flush.json").read_text(encoding="utf-8"))
+    assert preflight_payload["mode"] == "apply"
+    assert preflight_payload["auto_flush_applied"] is True
+    assert preflight_payload["remaining_event_stage_count"] == 0
 
 
 def test_onboarding_runner_marks_stable_noop_for_prior_pass_city(tmp_path):
@@ -518,6 +648,7 @@ exit 99
     assert row["search_status"] == "skipped"
     assert row["overall_status"] == "success"
     assert row["error"] == "stable_delta_noop:city_wave1_hayward_sanmateo_20260313_210210"
+    assert "scripts/flush_city_pipeline_state.py" not in docker_log.read_text(encoding="utf-8")
     assert row["verification_mode"] == "confirmation"
     assert row["state_reset_applied"] is False
     assert "stable delta no-op confirmation for hayward" in result.stdout

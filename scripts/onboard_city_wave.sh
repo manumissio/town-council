@@ -130,9 +130,11 @@ fi
 RUN_DIR="${OUTPUT_DIR%/}/${RUN_ID}"
 RESULTS_JSONL="${RUN_DIR}/runs.jsonl"
 BASELINE_DIR="${RUN_DIR}/baselines"
+PREFLIGHT_DIR="${RUN_DIR}/preflight"
 
 mkdir -p "$RUN_DIR"
 mkdir -p "$BASELINE_DIR"
+mkdir -p "$PREFLIGHT_DIR"
 : > "$RESULTS_JSONL"
 
 run_cmd() {
@@ -194,6 +196,27 @@ reset_city_verification_state() {
   "${args[@]}"
 }
 
+flush_city_pipeline_state() {
+  local city="$1"
+  local apply_mode="${2:-dry-run}"
+
+  if [[ "$DRY_RUN" == "1" ]]; then
+    if [[ "$apply_mode" == "apply" ]]; then
+      echo "[dry-run] docker compose run --rm -w /app pipeline python scripts/flush_city_pipeline_state.py --city $city --apply" >&2
+    else
+      echo "[dry-run] docker compose run --rm -w /app pipeline python scripts/flush_city_pipeline_state.py --city $city" >&2
+    fi
+    printf '{"city":"%s","dry_run":true,"deleted_event_stage_count":0,"deleted_url_stage_count":0,"deleted_url_stage_hist_count":0,"deleted_event_count":0,"deleted_document_count":0,"deleted_catalog_count":0,"catalog_reference_count":0,"deleted_data_issue_count":0,"remaining_event_stage_count":0,"remaining_url_stage_count":0,"remaining_url_stage_hist_count":0,"remaining_event_count":0,"remaining_document_count":0,"remaining_catalog_count":0}\n' "$city"
+    return 0
+  fi
+
+  local args=(docker compose run --rm -w /app pipeline python scripts/flush_city_pipeline_state.py --city "$city")
+  if [[ "$apply_mode" == "apply" ]]; then
+    args+=(--apply)
+  fi
+  "${args[@]}"
+}
+
 registry_field() {
   local city="$1"
   local field="$2"
@@ -245,6 +268,50 @@ if baseline.get("baseline_max_record_date") != reset.get("remaining_max_record_d
 if baseline.get("baseline_max_scraped_datetime") != reset.get("remaining_max_scraped_datetime"):
     raise SystemExit(1)
 PY
+}
+
+flush_output_has_mutations() {
+  local flush_json="$1"
+  "$PYTHON_BIN" - "$flush_json" <<'PY'
+import json
+import sys
+
+payload = json.loads(sys.argv[1])
+keys = [
+    "deleted_event_stage_count",
+    "deleted_url_stage_count",
+    "deleted_url_stage_hist_count",
+    "deleted_event_count",
+    "deleted_document_count",
+    "deleted_catalog_count",
+    "deleted_data_issue_count",
+]
+raise SystemExit(0 if any(int(payload.get(key, 0) or 0) > 0 for key in keys) else 1)
+PY
+}
+
+augment_flush_payload() {
+  local flush_json="$1"
+  local mode="$2"
+  local auto_flush_applied="$3"
+  "$PYTHON_BIN" - "$flush_json" "$mode" "$auto_flush_applied" <<'PY'
+import json
+import sys
+from datetime import datetime, timezone
+
+payload = json.loads(sys.argv[1])
+payload["mode"] = sys.argv[2]
+payload["auto_flush_applied"] = sys.argv[3] == "yes"
+payload["timestamp_utc"] = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+print(json.dumps(payload, sort_keys=True))
+PY
+}
+
+write_preflight_artifact() {
+  local artifact_path="$1"
+  local flush_json="$2"
+  printf '%s\n' "$flush_json" > "$artifact_path"
+  echo "wrote onboarding preflight artifact: $artifact_path"
 }
 
 write_result() {
@@ -299,6 +366,7 @@ PY
 for city in "${cities[@]}"; do
   echo "=== onboarding city: $city ($WAVE) ==="
   echo "using rollout registry: $ROLLOUT_REGISTRY_PATH"
+  city_enabled="$(registry_field "$city" enabled)"
   city_quality_gate="$(registry_field "$city" quality_gate)"
   stable_noop_eligible="$(registry_field "$city" stable_noop_eligible)"
   last_fresh_pass_run_id="$(registry_field "$city" last_fresh_pass_run_id)"
@@ -310,6 +378,7 @@ for city in "${cities[@]}"; do
   echo "verification mode for $city: $verification_mode"
   campaign_started_at=""
   baseline_path="${BASELINE_DIR}/${city}.json"
+  preflight_artifact_path="${PREFLIGHT_DIR}/${city}_flush.json"
   prior_run_had_fresh_evidence="no"
   for ((run_index=1; run_index<=RUNS; run_index++)); do
     started_at="$(date -u +"%Y-%m-%dT%H:%M:%SZ")"
@@ -322,6 +391,33 @@ for city in "${cities[@]}"; do
     if [[ -z "$campaign_started_at" ]]; then
       campaign_started_at="$started_at"
       if [[ "$verification_mode" == "first_time_onboarding" ]]; then
+        if [[ "$city_enabled" == "no" ]]; then
+          # First-time onboarding must start from a clean city footprint. Stale
+          # stage rows can silently repopulate live tables and poison the baseline.
+          if flush_output="$(flush_city_pipeline_state "$city")"; then
+            if flush_output_has_mutations "$flush_output"; then
+              if flush_apply_output="$(flush_city_pipeline_state "$city" apply)"; then
+                write_preflight_artifact "$preflight_artifact_path" "$(augment_flush_payload "$flush_apply_output" "apply" "yes")"
+              else
+                finished_at="$(date -u +"%Y-%m-%dT%H:%M:%SZ")"
+                error_message="city_preflight_flush_failed"
+                write_result "$city" "$run_index" "$started_at" "$finished_at" "$crawler_status" "$pipeline_status" "$segmentation_status" "$search_status" "$error_message" "$verification_mode" "$state_reset_applied"
+                break
+              fi
+            else
+              preflight_mode="clean_noop"
+              if [[ "$DRY_RUN" == "1" ]]; then
+                preflight_mode="dry_run_only"
+              fi
+              write_preflight_artifact "$preflight_artifact_path" "$(augment_flush_payload "$flush_output" "$preflight_mode" "no")"
+            fi
+          else
+            finished_at="$(date -u +"%Y-%m-%dT%H:%M:%SZ")"
+            error_message="city_preflight_flush_failed"
+            write_result "$city" "$run_index" "$started_at" "$finished_at" "$crawler_status" "$pipeline_status" "$segmentation_status" "$search_status" "$error_message" "$verification_mode" "$state_reset_applied"
+            break
+          fi
+        fi
         if capture_city_baseline "$city" "$baseline_path"; then
           echo "captured first-time baseline for $city at $baseline_path"
           cat "$baseline_path"
