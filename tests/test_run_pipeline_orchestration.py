@@ -109,16 +109,10 @@ def test_main_skips_non_gating_steps_in_onboarding_fast_profile(mocker):
 
     run_pipeline.main()
 
-    assert ("Agenda Segmentation", "pipeline") in calls
-    assert ("Summary Hydration", "pipeline") in calls
-    agenda_spy.assert_called_once_with(
-        segment_mode="maintenance",
-        agenda_timeout_seconds=run_pipeline.AGENDA_SEGMENT_MAINTENANCE_TIMEOUT_SECONDS,
-    )
-    summary_spy.assert_called_once_with(
-        summary_timeout_seconds=run_pipeline.SUMMARY_HYDRATION_MAINTENANCE_TIMEOUT_SECONDS,
-        summary_fallback_mode="deterministic",
-    )
+    assert ("Agenda Segmentation", "pipeline") not in calls
+    assert ("Summary Hydration", "pipeline") not in calls
+    agenda_spy.assert_not_called()
+    summary_spy.assert_not_called()
     assert ("Search Indexing", ("python", "indexer.py")) not in calls
     assert ("Table Extraction", ("python", "table_worker.py")) not in calls
     assert ("Backfill Organizations", ("python", "backfill_orgs.py")) not in calls

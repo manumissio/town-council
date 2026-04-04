@@ -180,6 +180,13 @@ def _run_generation_backfill_steps():
         ),
     )
 
+
+def _should_skip_generation_backfill_steps() -> bool:
+    # The onboarding runner already does city-scoped segmentation after the
+    # extraction subprocess returns. Skipping the global backfills here keeps
+    # first-time onboarding from waking unrelated city backlog.
+    return bool(PIPELINE_ONBOARDING_CITY) and PIPELINE_RUNTIME_PROFILE == "onboarding_fast"
+
 def _mark_extraction_complete(catalog, content_hash):
     catalog.content_hash = content_hash
     catalog.extraction_status = "complete"
@@ -502,7 +509,13 @@ def main():
         run_parallel_processing()
 
         # 3. Derived-generation backfills
-        _run_generation_backfill_steps()
+        if _should_skip_generation_backfill_steps():
+            logger.info(
+                "generation_backfills skipped=1 mode=onboarding_fast city=%s handled_by=city_runner",
+                PIPELINE_ONBOARDING_CITY,
+            )
+        else:
+            _run_generation_backfill_steps()
 
         # 4. Post-Processing
         _run_post_processing_steps()
