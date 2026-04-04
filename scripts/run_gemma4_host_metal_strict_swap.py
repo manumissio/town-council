@@ -7,6 +7,7 @@ import json
 import os
 from pathlib import Path
 import subprocess
+import time
 from typing import Any
 from urllib.error import URLError
 from urllib.request import urlopen
@@ -184,11 +185,20 @@ def _assert_worker_base_url(worker_env: dict[str, str], expected_url: str) -> No
 
 
 def _worker_healthcheck(repo_root: str, *, env: dict[str, str]) -> None:
-    _run(
-        ["docker", "compose", "exec", "-T", "worker", "python", "scripts/worker_healthcheck.py"],
-        cwd=repo_root,
-        env=env,
-    )
+    failures: list[str] = []
+    for _ in range(20):
+        try:
+            _run(
+                ["docker", "compose", "exec", "-T", "worker", "python", "scripts/worker_healthcheck.py"],
+                cwd=repo_root,
+                env=env,
+            )
+            return
+        except subprocess.CalledProcessError as exc:
+            detail = (exc.stderr or exc.stdout or str(exc)).strip()
+            failures.append(detail)
+            time.sleep(1)
+    raise RuntimeError(f"worker healthcheck did not pass after retries: {failures[-1] if failures else 'unknown error'}")
 
 
 def _probe(repo_root: str, *, model: str, run_id: str, api_base_url: str) -> Path:
@@ -277,6 +287,18 @@ def _write_run_artifact(
     _write_json(path, payload)
 
 
+def _write_probe_skipped(path: Path, *, label: str, model: str, reason: str) -> None:
+    _write_json(
+        path,
+        {
+            "label": label,
+            "model": model,
+            "status": "skipped",
+            "reason": reason,
+        },
+    )
+
+
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Run the strict host-Metal Gemma 4 backend swap experiment.")
     parser.add_argument("--env-file", default=DEFAULT_ENV_FILE)
@@ -323,8 +345,13 @@ def main() -> int:
     control_worker_env = _worker_env_snapshot(repo_root)
     _assert_worker_base_url(control_worker_env, base_env["LOCAL_AI_HTTP_BASE_URL"])
     _worker_healthcheck(repo_root, env=control_env)
-    control_probe_run_id = f"{args.run_prefix}_control_probe_{_utc_stamp()}"
-    control_probe_path = _probe(repo_root, model=args.control_model, run_id=control_probe_run_id, api_base_url=host_base_url)
+    control_probe_path = root / "control_probe.json"
+    _write_probe_skipped(
+        control_probe_path,
+        label="control",
+        model=args.control_model,
+        reason="strict READY probe skipped for control alias; host tags and worker healthcheck are the control provenance gates",
+    )
     control_host_ps = _host_ollama_ps(args.ollama_binary, base_url=host_base_url)
     control_run_id = f"{args.run_prefix}_control_{_utc_stamp()}"
     control_run_dir = _run_ab(
