@@ -10,7 +10,7 @@ from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 
 import pipeline.db_session as db_session_module
-from pipeline.models import Base, Catalog, Document, Event, Place
+from pipeline.models import Base, Catalog, Document, Event, EventStage, Place, UrlStage, UrlStageHist
 from scripts.reset_city_verification_state import capture_city_verification_baseline, reset_city_verification_state
 
 
@@ -286,3 +286,42 @@ def test_reset_city_verification_state_rewinds_to_baseline_record_date(tmp_path,
     with Session() as session:
         remaining_events = session.query(Event).all()
         assert [event.ocd_id for event in remaining_events] == ["baseline-same-day"]
+
+
+def test_reset_city_verification_state_does_not_delete_stage_rows(tmp_path, monkeypatch):
+    Session = _setup_city_graph(tmp_path / "stage_guard.sqlite", monkeypatch)
+    now = datetime.now(UTC).replace(tzinfo=None, microsecond=0)
+
+    with Session() as session:
+        place = Place(
+            name="Fremont",
+            state="CA",
+            country="us",
+            display_name="Fremont, CA",
+            ocd_division_id="ocd-division/country:us/state:ca/place:fremont",
+        )
+        session.add(place)
+        session.flush()
+        session.add(EventStage(ocd_division_id=place.ocd_division_id, name="Stage", scraped_datetime=now))
+        session.add(UrlStage(ocd_division_id=place.ocd_division_id, event="Stage", event_date=date(2026, 4, 4), url="https://example.com/a.pdf", url_hash="a", category="agenda"))
+        session.add(UrlStageHist(ocd_division_id=place.ocd_division_id, event="Stage", event_date=date(2026, 4, 4), url="https://example.com/a.pdf", url_hash="a", category="agenda"))
+        session.add(
+            Event(
+                ocd_id="event-1",
+                ocd_division_id=place.ocd_division_id,
+                place_id=place.id,
+                scraped_datetime=now + timedelta(minutes=1),
+                record_date=date(2026, 4, 4),
+                source="fremont",
+                source_url="https://example.com/event",
+                name="Meeting",
+            )
+        )
+        session.commit()
+
+    reset_city_verification_state("fremont", now.strftime("%Y-%m-%dT%H:%M:%SZ"))
+
+    with Session() as session:
+        assert session.query(EventStage).count() == 1
+        assert session.query(UrlStage).count() == 1
+        assert session.query(UrlStageHist).count() == 1
