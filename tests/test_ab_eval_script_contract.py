@@ -9,6 +9,7 @@ def test_run_ab_eval_script_contract():
     assert "run_config.json" in text
     assert '"commit_sha"' in text
     assert '"model"' in text
+    assert '"LOCAL_AI_HTTP_BASE_URL"' in text
     assert '"LOCAL_AI_HTTP_TIMEOUT_SEGMENT_SECONDS"' in text
     assert '"INFERENCE_MEM_LIMIT"' in text
     assert "extract/$cid?force=true&ocr_fallback=false" in text
@@ -61,3 +62,18 @@ def test_gemma4_profile_verification_script_contract():
     assert "scripts/probe_local_model_candidate.py" in text
     assert "--force-recreate" in text
     assert "_assert_inference_memory" in text
+
+
+def test_gemma4_host_metal_strict_swap_script_contract():
+    path = Path("scripts/run_gemma4_host_metal_strict_swap.py")
+    text = path.read_text(encoding="utf-8")
+
+    assert "env/profiles/gemma4_e2b_host_metal_strict.env" in text
+    assert "LOCAL_AI_HTTP_BASE_URL" in text
+    assert "HOST_OLLAMA_BASE_URL" in text
+    assert "docker compose stop inference" not in text  # command is structured, not shell-concatenated
+    assert '"docker", "compose", "stop", "inference"' in text
+    assert "--no-deps" in text
+    assert "scripts/worker_healthcheck.py" in text
+    assert '"docker_inference_expected_running": False' in text
+    assert "_host_ollama_ps" in text

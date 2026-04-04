@@ -16,6 +16,7 @@ import requests
 DEFAULT_OUTPUT_DIR = "experiments/results/model_probes"
 PROFILE_KEYS = (
     "LOCAL_AI_BACKEND",
+    "LOCAL_AI_HTTP_BASE_URL",
     "LOCAL_AI_HTTP_PROFILE",
     "LOCAL_AI_HTTP_MODEL",
     "WORKER_CONCURRENCY",
