@@ -278,6 +278,13 @@ docker compose run --rm pipeline python scripts/reset_laserfiche_error_agenda_ro
 ```
 
 ### Summary hydration diagnostics
+- Run this diagnostic in the configured pipeline environment:
+```bash
+docker compose run --rm pipeline python /app/scripts/diagnose_summary_hydration.py
+docker compose run --rm pipeline python /app/scripts/diagnose_summary_hydration.py --city san_mateo
+docker compose run --rm pipeline python /app/scripts/diagnose_summary_hydration.py --json
+```
+- Direct local runs without `DATABASE_URL` now fail fast by design instead of falling back to `test_db.sqlite`.
 - `scripts/diagnose_summary_hydration.py` mixes two kinds of metrics on purpose:
   - cumulative totals, such as `catalogs_with_summary`
   - unresolved backlog metrics, which only count rows where `summary` is still null
