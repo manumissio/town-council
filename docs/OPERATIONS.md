@@ -1,6 +1,6 @@
 # Operations Runbook
 
-Last updated: 2026-04-03
+Last updated: 2026-04-04
 
 ## Core workflow
 
@@ -660,6 +660,48 @@ Interpretation rules:
 - treat the run as invalid if Docker `inference` is running at any point
 - treat `tasks.jsonl`, worker logs, and host Ollama provenance artifacts as the primary evidence
 - use this experiment only to answer whether the Docker CPU-only backend was the main bottleneck; it is not baseline-valid evidence for a default policy change
+
+## Gemma 4 host-Metal quality checkpoint
+
+Use this after the strict swap has already shown the host-Metal path is runtime-viable.
+This checkpoint is about segmentation quality only.
+
+Pinned cohort:
+- `experiments/gemma4_quality_checkpoint_cohort_v1.txt`
+  - `3`
+  - `609`
+  - `933`
+
+Command:
+
+```bash
+cd <REPO_ROOT>
+PYTHONPATH=. .venv/bin/python scripts/run_gemma4_host_metal_quality_checkpoint.py
+```
+
+What it does:
+- reuses the strict host-Metal path with Docker `inference` stopped
+- reruns control `gemma-3-270m-custom` and treatment `gemma4:e2b` on the pinned heavy-agenda cohort
+- writes a blinded segmentation review packet under `review_packet/`
+- writes an automated quality checkpoint report under `analysis/`
+- records a manifest linking the strict run, review packet, and QA report
+
+Artifacts:
+- `experiments/results/<run_id>/quality_checkpoint_manifest.json`
+- `experiments/results/<run_id>/review_packet/segmentation_review_blind_v1.csv`
+- `experiments/results/<run_id>/review_packet/segmentation_review_key_v1.csv`
+- `experiments/results/<run_id>/analysis/segmentation_quality_checkpoint_report.json`
+
+Manual review rubric:
+- compare the segmented item lists against the source excerpt, not against item count alone
+- mark `major_items_missing_in_a` or `major_items_missing_in_b` only for substantively missing agenda actions, hearings, or approvals
+- mark `obvious_boilerplate_in_a` or `obvious_boilerplate_in_b` for participation notices, procedural wrappers, or other non-item noise
+- use `better_overall_option` only after checking both missing-item and boilerplate risk
+
+Interpretation rules:
+- if treatment is missing a reviewer-significant major agenda item on any catalog, the checkpoint result is `Kill`, not `Iterate`
+- if treatment passes manual review and is not worse than control by more than 10 QA severity points on any catalog, it may advance to broader host-Metal tuning
+- do not use this checkpoint to justify a default runtime change
 
 Modes:
 - `triage`
