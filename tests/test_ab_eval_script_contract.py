@@ -77,3 +77,4 @@ def test_gemma4_host_metal_strict_swap_script_contract():
     assert "scripts/worker_healthcheck.py" in text
     assert '"docker_inference_expected_running": False' in text
     assert "_host_ollama_ps" in text
+    assert "worker env snapshot did not succeed after retries" in text

@@ -174,8 +174,16 @@ def _worker_env_snapshot(repo_root: str) -> dict[str, str]:
             "print(json.dumps({k: os.getenv(k, '') for k in keys}, sort_keys=True))"
         ),
     ]
-    out = _run(cmd, cwd=repo_root, capture=True).stdout.strip()
-    return json.loads(out)
+    failures: list[str] = []
+    for _ in range(20):
+        try:
+            out = _run(cmd, cwd=repo_root, capture=True).stdout.strip()
+            return json.loads(out)
+        except subprocess.CalledProcessError as exc:
+            detail = (exc.stderr or exc.stdout or str(exc)).strip()
+            failures.append(detail)
+            time.sleep(1)
+    raise RuntimeError(f"worker env snapshot did not succeed after retries: {failures[-1] if failures else 'unknown error'}")
 
 
 def _assert_worker_base_url(worker_env: dict[str, str], expected_url: str) -> None:
