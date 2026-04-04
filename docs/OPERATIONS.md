@@ -633,6 +633,34 @@ Interpretation rule:
 - use `tasks.jsonl`, worker logs, and inference logs as ground truth for pass/fail
 - treat `ab_rows.json` as secondary because failed treatment rows can otherwise inherit current DB summary state
 
+## Gemma 4 host-Metal strict swap
+
+Use this only for the strict backend-swap experiment. It keeps the Docker app stack but moves Ollama to the host so Apple Silicon can use Metal acceleration.
+
+Prerequisites:
+- host-native Ollama is installed and running on macOS
+- host Ollama has both `gemma-3-270m-custom` and `gemma4:e2b` available
+- Docker `inference` must be stopped for the run
+
+Command:
+
+```bash
+cd <REPO_ROOT>
+PYTHONPATH=. .venv/bin/python scripts/run_gemma4_host_metal_strict_swap.py
+```
+
+What it does:
+- stops Docker `inference`
+- recreates `worker`, `api`, and `pipeline` under `env/profiles/gemma4_e2b_host_metal_strict.env`
+- points the Docker app stack at `http://host.docker.internal:11434`
+- records host Ollama version, host tags, worker env snapshots, and proof that Docker `inference` remained stopped
+- runs the fixed smoke set with host-native control first and host-native `gemma4:e2b` treatment second
+
+Interpretation rules:
+- treat the run as invalid if Docker `inference` is running at any point
+- treat `tasks.jsonl`, worker logs, and host Ollama provenance artifacts as the primary evidence
+- use this experiment only to answer whether the Docker CPU-only backend was the main bottleneck; it is not baseline-valid evidence for a default policy change
+
 Modes:
 - `triage`
   - fast local diagnosis on a representative slice
