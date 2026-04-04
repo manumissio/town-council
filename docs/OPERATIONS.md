@@ -366,11 +366,13 @@ docker compose start api worker frontend monitor
 - `scripts/onboard_city_wave.sh` now writes `verification_mode` into `runs.jsonl` for every onboarding attempt.
 - Cities with `quality_gate=pass` in the rollout registry run in `confirmation` mode.
 - Cities still in `pending` or `fail` state run in `first_time_onboarding` mode.
+- Before a first-time baseline is captured, the runner now dry-runs a city-scoped full flush and auto-applies it only when stale stage/live rows already exist for that disabled pending/failing city.
 - First-time onboarding still keeps the 3-run evidence policy, but the runner now captures a pre-run baseline artifact and restores the city's effective delta anchor between runs 2 and 3 so delta crawlers are measured against the same pre-run anchor instead of self-advancing after run 1.
 - The baseline artifact lives under `experiments/results/city_onboarding/<run_id>/baselines/<city>.json` and records:
   - `baseline_event_count`
   - `baseline_max_record_date`
   - `baseline_max_scraped_datetime`
+- The preflight flush artifact lives under `experiments/results/city_onboarding/<run_id>/preflight/<city>_flush.json` and records whether stale city state was detected and auto-flushed before baseline capture.
 - The reset is city-scoped and removes rows that advance the city's crawl anchor beyond that captured baseline; it does not broaden into a full database rollback.
 - If run 1 for a first-time city stages no evidence, the runner stops that city immediately instead of spending runs 2 and 3 on guaranteed `crawler_empty` repeats.
 
@@ -393,6 +395,31 @@ docker compose start api worker frontend monitor
 docker compose stop api worker pipeline crawler frontend monitor
 docker compose run --rm -w /app pipeline python scripts/rewind_pending_city_onboarding.py --city sunnyvale --since 2026-03-15T02:08:17Z
 docker compose run --rm -w /app pipeline python scripts/rewind_pending_city_onboarding.py --city sunnyvale --since 2026-03-15T02:08:17Z --apply
+docker compose start api worker frontend monitor
+```
+
+### Full city pipeline-state flush
+- Use this when stale city rows remain in staging tables and a baseline-aware rewind is not enough.
+- The supported recovery entrypoint is `scripts/flush_city_pipeline_state.py`.
+- This flush removes city-scoped rows from:
+  - `event_stage`
+  - `url_stage`
+  - `url_stage_hist`
+  - `event`
+  - linked `document`
+  - linked `data_issue`
+  - unreferenced `catalog`
+- Shared catalogs are preserved when another city still references them.
+- Safety rules:
+  - dry-run first
+  - use a city slug that is still `enabled=no`
+  - stop write-capable services before `--apply` when running it manually
+- Example shape:
+
+```bash
+docker compose stop api worker pipeline crawler frontend monitor
+docker compose run --rm -w /app pipeline python scripts/flush_city_pipeline_state.py --city san_leandro
+docker compose run --rm -w /app pipeline python scripts/flush_city_pipeline_state.py --city san_leandro --apply
 docker compose start api worker frontend monitor
 ```
 
