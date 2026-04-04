@@ -558,6 +558,10 @@ Policy guardrails:
 Run profile:
 - `env/profiles/m5_conservative.env` for the current M5 Pro baseline host.
 - `env/profiles/m1_conservative.env` remains available for historical M1 Pro comparisons only.
+- `env/profiles/gemma4_e2b_second_tier.env` for diagnostic Gemma 4 verification only.
+  - not baseline-valid
+  - raises `INFERENCE_MEM_LIMIT` to `10G`
+  - keeps the checked-in M5 conservative HTTP timeout budgets
 
 Shared gate table:
 - `provider_timeout_rate`:
@@ -607,6 +611,27 @@ Current interpretation:
 ## Pipeline profiling
 
 Use the profiling harness when you need to rank the biggest end-to-end runtime bottlenecks with evidence instead of guessing from logs.
+
+## Gemma 4 second-tier verification
+
+Use this only for the explicit Gemma 4 profile-verification experiment. It is diagnostic and must not replace the default Gemma 3 local-first workflow.
+
+Command:
+
+```bash
+cd <REPO_ROOT>
+PYTHONPATH=. .venv/bin/python scripts/run_gemma4_profile_verification.py
+```
+
+What it does:
+- brings up `inference`, `worker`, `api`, and `pipeline` under `env/profiles/gemma4_e2b_second_tier.env`
+- records the active commit SHA, worker env snapshot, and `inference` memory cap for both control and treatment
+- runs the control smoke arm, then probes and runs the `gemma4:e2b` treatment smoke arm
+- writes an experiment manifest plus per-arm snapshots under `experiments/results/`
+
+Interpretation rule:
+- use `tasks.jsonl`, worker logs, and inference logs as ground truth for pass/fail
+- treat `ab_rows.json` as secondary because failed treatment rows can otherwise inherit current DB summary state
 
 Modes:
 - `triage`
