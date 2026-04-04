@@ -32,17 +32,22 @@ def _html_location_predicate(column):
 def _catalog_ids_for_city(city: str, *, limit: int | None = None, resume_after_id: int | None = None) -> list[int]:
     aliases = sorted(source_aliases_for_city(city))
     with db_session() as session:
+        # Keep staged segmentation aligned with summary routing: HTML agendas are
+        # still real agendas, so they belong in the actionable backlog queue.
         rows = (
             session.query(Catalog.id)
             .join(Document, Catalog.id == Document.catalog_id)
             .join(Event, Document.event_id == Event.id)
             .outerjoin(AgendaItem, Catalog.id == AgendaItem.catalog_id)
             .filter(
-                Document.category == "agenda",
+                Document.category.in_(("agenda", "agenda_html")),
                 Catalog.content.is_not(None),
                 Catalog.content != "",
                 Event.source.in_(aliases),
                 Catalog.id > resume_after_id if resume_after_id is not None else True,
+                # We retry rows that have never been segmented, rows that errored,
+                # and "complete" rows whose stored items are missing page metadata.
+                # "empty" stays excluded because it is treated as a terminal no-items result.
                 or_(
                     Catalog.agenda_segmentation_status == None,
                     Catalog.agenda_segmentation_status == "failed",
@@ -66,6 +71,8 @@ def _prioritized_catalog_ids(city: str, catalog_ids: list[int]) -> list[int]:
         return []
     aliases = sorted(source_aliases_for_city(city))
     with db_session() as session:
+        # We inspect sibling agenda locations so HTML-backed meetings can be
+        # attempted before weaker PDF variants from the same event.
         rows = (
             session.query(Catalog.id, Catalog.location, Event.id)
             .join(Document, Catalog.id == Document.catalog_id)
@@ -102,6 +109,8 @@ def _prioritized_catalog_ids(city: str, catalog_ids: list[int]) -> list[int]:
 
     def _priority(catalog_id: int) -> tuple[int, int]:
         metadata = metadata_by_catalog_id[int(catalog_id)]
+        # Direct HTML agendas usually preserve structure better than scanned PDFs,
+        # so they get first priority when we have a choice.
         if metadata["location"] and metadata["location"].lower().endswith((".html", ".htm")):
             return (0, int(catalog_id))
         if metadata["event_id"] in html_event_ids:
@@ -177,6 +186,8 @@ def _segment_catalog_subprocess(
     agenda_timeout_seconds: int | None = None,
 ) -> tuple[str, float, dict[str, int | str | None]]:
     started_at = time.monotonic()
+    # Each catalog runs in its own short-lived subprocess so a bad segmentation
+    # attempt can time out cleanly without poisoning the parent batch runner.
     command = [
         sys.executable,
         "-c",
@@ -249,6 +260,9 @@ def _segment_catalog_batch(
     if total_catalogs == 0:
         return {"city": city, "catalog_count": 0, **counts}
 
+    # Single-worker mode keeps the control flow easy to reason about during
+    # guarded maintenance runs, while higher worker counts fan out subprocesses
+    # only on the HTTP backend.
     if workers <= 1:
         for index, catalog_id in enumerate(catalog_ids, start=1):
             outcome, duration_seconds, detail = _segment_catalog_subprocess(

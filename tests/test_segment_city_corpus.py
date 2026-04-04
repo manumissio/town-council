@@ -140,30 +140,48 @@ def test_catalog_ids_for_city_respects_priority_limit_and_resume(city_db):
     plain_event = Event(place_id=place.id, ocd_division_id=place.ocd_division_id, source="berkeley", name="Plain")
     html_event = Event(place_id=place.id, ocd_division_id=place.ocd_division_id, source="berkeley", name="HTML")
     sibling_event = Event(place_id=place.id, ocd_division_id=place.ocd_division_id, source="berkeley", name="Sibling")
+    html_doc_event = Event(place_id=place.id, ocd_division_id=place.ocd_division_id, source="berkeley", name="HTML Document")
+    empty_event = Event(place_id=place.id, ocd_division_id=place.ocd_division_id, source="berkeley", name="Empty")
     session.add_all([plain_event, html_event, sibling_event])
+    session.add_all([html_doc_event, empty_event])
     session.flush()
 
     plain_catalog = _add_catalog(session, plain_event, place, location="/tmp/plain.pdf")
     html_catalog = _add_catalog(session, html_event, place, location="/tmp/current.html")
     sibling_pdf_catalog = _add_catalog(session, sibling_event, place, location="/tmp/sibling.pdf")
+    html_doc_catalog = _add_catalog(
+        session,
+        html_doc_event,
+        place,
+        location="/tmp/html-doc.html",
+        category="agenda_html",
+    )
+    _add_catalog(
+        session,
+        empty_event,
+        place,
+        location="/tmp/empty.pdf",
+        status="empty",
+    )
     _add_catalog(session, sibling_event, place, location="/tmp/reference.html", content="")
     plain_catalog_id = plain_catalog.id
     html_catalog_id = html_catalog.id
     sibling_pdf_catalog_id = sibling_pdf_catalog.id
+    html_doc_catalog_id = html_doc_catalog.id
     session.commit()
     session.close()
 
     selected = mod._catalog_ids_for_city("berkeley")
-    assert selected == [plain_catalog_id, html_catalog_id, sibling_pdf_catalog_id]
+    assert selected == [plain_catalog_id, html_catalog_id, sibling_pdf_catalog_id, html_doc_catalog_id]
 
     prioritized = mod._prioritized_catalog_ids("berkeley", selected)
-    assert prioritized == [html_catalog_id, sibling_pdf_catalog_id, plain_catalog_id]
+    assert prioritized == [html_catalog_id, html_doc_catalog_id, sibling_pdf_catalog_id, plain_catalog_id]
 
     limited = mod._catalog_ids_for_city("berkeley", limit=2)
     assert limited == [plain_catalog_id, html_catalog_id]
 
     resumed = mod._catalog_ids_for_city("berkeley", resume_after_id=html_catalog_id)
-    assert resumed == [sibling_pdf_catalog_id]
+    assert resumed == [sibling_pdf_catalog_id, html_doc_catalog_id]
 
 
 def test_catalog_worker_count_clamps_guarded_inprocess(mocker):
