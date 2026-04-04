@@ -1,0 +1,5 @@
+# Pinned heavy-agenda quality checkpoint cohort for host-Metal Gemma 4 review.
+# One CID per line, comments allowed.
+3
+609
+933
