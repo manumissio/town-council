@@ -45,6 +45,20 @@ def _docker_memory_limit_bytes() -> int | None:
         return None
 
 
+def _git_commit_sha() -> str | None:
+    try:
+        completed = subprocess.run(
+            ["git", "rev-parse", "HEAD"],
+            check=True,
+            text=True,
+            capture_output=True,
+        )
+    except Exception:
+        return None
+    value = completed.stdout.strip()
+    return value or None
+
+
 def _profile_snapshot() -> dict[str, str]:
     return {
         key: value
@@ -173,6 +187,7 @@ def main(argv: list[str] | None = None) -> int:
     payload = {
         "run_id": run_id,
         "started_at": _utc_now_iso(),
+        "commit_sha": _git_commit_sha(),
         "status": "pass" if selected else "fail",
         "selected_candidate": selected,
         "attempts": attempts,

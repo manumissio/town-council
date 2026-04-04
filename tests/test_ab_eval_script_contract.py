@@ -7,7 +7,10 @@ def test_run_ab_eval_script_contract():
 
     assert "--arm <A|B>" in text
     assert "run_config.json" in text
+    assert '"commit_sha"' in text
     assert '"model"' in text
+    assert '"LOCAL_AI_HTTP_TIMEOUT_SEGMENT_SECONDS"' in text
+    assert '"INFERENCE_MEM_LIMIT"' in text
     assert "extract/$cid?force=true&ocr_fallback=false" in text
     assert "segment/$cid?force=true" in text
     assert "summarize/$cid?force=true" in text
@@ -36,3 +39,25 @@ def test_collect_script_emits_required_fields():
         "partial_coverage_disclosed",
     ]:
         assert field in text
+
+
+def test_collect_script_avoids_db_summary_for_failed_rows():
+    path = Path("scripts/collect_ab_results.py")
+    text = path.read_text(encoding="utf-8")
+
+    assert "_summary_text_from_sources" in text
+    assert 'if summarize_row.get("task_failed")' in text
+    assert 'return ""' in text
+
+
+def test_gemma4_profile_verification_script_contract():
+    path = Path("scripts/run_gemma4_profile_verification.py")
+    text = path.read_text(encoding="utf-8")
+
+    assert "env/profiles/gemma4_e2b_second_tier.env" in text
+    assert "experiment_manifest.json" in text
+    assert "control_snapshot.json" in text
+    assert "treatment_snapshot.json" in text
+    assert "scripts/probe_local_model_candidate.py" in text
+    assert "--force-recreate" in text
+    assert "_assert_inference_memory" in text

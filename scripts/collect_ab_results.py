@@ -88,6 +88,17 @@ def _provider_metric_from_phase_row(row: dict, metric_name: str):
     return None
 
 
+def _summary_text_from_sources(*, catalog: Catalog, summarize_row: dict) -> str:
+    task_result = summarize_row.get("task_result")
+    if isinstance(task_result, dict):
+        summary = task_result.get("summary")
+        if isinstance(summary, str):
+            return summary.strip()
+    if summarize_row.get("task_failed"):
+        return ""
+    return (catalog.summary or "").strip()
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description="Collect A/B run results into CSV/JSON artifacts")
     parser.add_argument("--run-id", required=True)
@@ -135,7 +146,9 @@ def main() -> int:
             )
             agenda_items_count = len(items)
 
-            summary_text = (catalog.summary or "").strip()
+            seg = by_cid_phase.get((cid, "segment"), {})
+            summ = by_cid_phase.get((cid, "summarize"), {})
+            summary_text = _summary_text_from_sources(catalog=catalog, summarize_row=summ)
             if doc_kind == "agenda":
                 source = "\n".join(
                     " | ".join(
@@ -152,9 +165,6 @@ def main() -> int:
                 source = (catalog.content or "")
 
             grounding = is_summary_grounded(summary_text, source or "")
-
-            seg = by_cid_phase.get((cid, "segment"), {})
-            summ = by_cid_phase.get((cid, "summarize"), {})
             telemetry_source = summ if summ else seg
 
             prompt_tokens = _to_int(_provider_metric_from_phase_row(telemetry_source, "prompt_tokens"))
