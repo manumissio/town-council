@@ -334,6 +334,12 @@ docker compose run --rm pipeline python /app/scripts/audit_city_coverage.py --ci
 rg -n "vote_worker|ground_truth_sync|similarity_worker|Legacy batch processing function" pipeline scripts docs tests
 ```
 
+Current keep-for-now note:
+- `pipeline/ground_truth_sync.py` stays because it still has doc and test anchors for vote extraction validation.
+- `pipeline/similarity_worker.py` stays because it still has tests and still feeds related-document behavior indirectly consumed elsewhere.
+- `pipeline/summarizer.py` stays because it still owns the retained extractive summarization helper path.
+- Those modules need a later ownership review before any retirement decision.
+
 ### Onboarding-safe extraction mode
 - `scripts/onboard_city_wave.sh` runs the pipeline in an onboarding-scoped extraction mode.
 - That mode limits extraction to catalogs touched by the current city's staged URL set for the run window instead of waking up the full missing-content backlog.

@@ -1,11 +1,13 @@
 """
 Print per-city ingestion counts from the database.
 
-Why this exists:
-When adding a new city (like Cupertino), it's easy to run the crawler and
-pipeline but still not be sure if data actually landed where it should.
-This script provides a quick, non-UI sanity check without relying on
-city-specific expectations.
+Why this existed:
+When adding a new city (like Cupertino), it was useful to run a quick, non-UI
+sanity check to confirm that events, documents, and agenda items had landed.
+
+Historical note:
+- this tool is retained for archive/reference purposes only
+- it is not a supported active operator entrypoint
 """
 
 from __future__ import annotations
@@ -15,7 +17,7 @@ import argparse
 from sqlalchemy import func
 from sqlalchemy.orm import sessionmaker
 
-from pipeline.models import db_connect, Place, Event, Document, AgendaItem
+from pipeline.models import AgendaItem, Document, Event, Place, db_connect
 
 
 def _build_counts(db):
@@ -58,12 +60,12 @@ def main() -> int:
     args = parser.parse_args()
 
     engine = db_connect()
-    Session = sessionmaker(bind=engine)
-    db = Session()
+    session_factory = sessionmaker(bind=engine)
+    db = session_factory()
     try:
         events_ct, docs_ct, catalogs_ct, agenda_ct = _build_counts(db)
 
-        q = (
+        query = (
             db.query(
                 Place.display_name,
                 Place.name,
@@ -80,14 +82,14 @@ def main() -> int:
         )
 
         if args.filter:
-            f = f"%{args.filter.lower()}%"
-            q = q.filter(
-                func.lower(func.coalesce(Place.display_name, "")).like(f)
-                | func.lower(Place.name).like(f)
+            place_filter = f"%{args.filter.lower()}%"
+            query = query.filter(
+                func.lower(func.coalesce(Place.display_name, "")).like(place_filter)
+                | func.lower(Place.name).like(place_filter)
             )
 
         print("display_name,name,events,documents,catalogs,agenda_items")
-        for row in q.all():
+        for row in query.all():
             print(
                 f"{row.display_name or ''},{row.name},{row.events},{row.documents},{row.catalogs},{row.agenda_items}"
             )
@@ -100,4 +102,3 @@ def main() -> int:
 
 if __name__ == "__main__":
     raise SystemExit(main())
-

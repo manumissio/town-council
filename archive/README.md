@@ -9,3 +9,6 @@ How to use it:
 - For active behavior and architecture, prefer `README.md`, `ARCHITECTURE.md`, and `docs/`.
 - Historical scripts live under `archive/scripts/` when a former `scripts/`
   entrypoint is no longer supported but still worth preserving for reference.
+- Historical `pipeline/` entrypoints live under `archive/pipeline/` when a
+  former `pipeline/` tool is no longer supported but still worth preserving for
+  reference.
