@@ -261,3 +261,100 @@ def test_summarize_catalog_with_maintenance_mode_keeps_llm_path_for_non_agenda(m
         generate_summary_callable=generate_spy,
         deterministic_summary_callable=deterministic_spy,
     )
+
+
+def test_generate_summary_task_agenda_matches_maintenance_summary_inputs(mocker):
+    mock_db = MagicMock()
+    catalog = MagicMock()
+    catalog.content = (
+        "City council agenda includes zoning updates, budget adoption, public hearings, "
+        "and transportation decisions with multiple action items."
+    )
+    catalog.summary = None
+    catalog.content_hash = None
+    catalog.summary_source_hash = None
+    catalog.agenda_items_hash = None
+    mock_db.get.return_value = catalog
+
+    doc = MagicMock(category="agenda")
+    doc.event = MagicMock(name="City Council", record_date="2026-02-10")
+
+    agenda_items = [
+        MagicMock(title="Housing Update", description="Discuss housing pipeline.", classification="Agenda Item", result="", page_number=1),
+        MagicMock(title="Public Comment", description="Take public comment.", classification="Agenda Item", result="", page_number=2),
+        MagicMock(title="Budget Adoption", description="Adopt the annual budget.", classification="Agenda Item", result="Approved", page_number=3),
+    ]
+
+    def _query_side_effect(model):
+        query = MagicMock()
+        if model is Document:
+            query.filter_by.return_value.first.return_value = doc
+        elif model is AgendaItem:
+            query.filter_by.return_value.order_by.return_value.all.return_value = agenda_items
+        return query
+
+    mock_db.query.side_effect = _query_side_effect
+    mocker.patch.object(tasks, "SessionLocal", return_value=mock_db)
+    mocker.patch.object(tasks, "classify_catalog_bad_content", return_value=None)
+    mocker.patch.object(tasks, "reindex_catalog")
+    mocker.patch.object(tasks.embed_catalog_task, "delay")
+
+    agenda_bundle = backlog_maintenance.build_agenda_summary_input_bundle(
+        catalog=catalog,
+        document=doc,
+        agenda_items=agenda_items,
+    )
+    expected_summary = backlog_maintenance.llm_mod._deterministic_agenda_items_summary(
+        agenda_bundle["summary_items"],
+        truncation_meta=agenda_bundle["truncation_meta"],
+    )
+
+    fake_ai = MagicMock()
+    fake_ai.summarize_agenda_items.side_effect = (
+        lambda *, meeting_title, meeting_date, items, truncation_meta: backlog_maintenance.llm_mod._deterministic_agenda_items_summary(
+            items,
+            truncation_meta=truncation_meta,
+        )
+    )
+    mocker.patch.object(tasks, "LocalAI", return_value=fake_ai)
+
+    result = tasks.generate_summary_task.run(1, force=True)
+
+    assert result["status"] == "complete"
+    assert result["summary"] == expected_summary
+    assert catalog.summary == expected_summary
+    assert catalog.agenda_items_hash == agenda_bundle["agenda_items_hash"]
+    assert catalog.summary_source_hash == agenda_bundle["agenda_items_hash"]
+
+
+def test_build_agenda_summary_input_bundle_preserves_truncation_disclosure(monkeypatch):
+    catalog = MagicMock(content="Agenda content")
+    doc = MagicMock(category="agenda")
+    doc.event = MagicMock(name="Council", record_date="2026-02-10")
+    agenda_items = [
+        MagicMock(
+            title=f"Long Agenda Item {index}",
+            description="Detailed description " * 6,
+            classification="Agenda Item",
+            result="",
+            page_number=index,
+        )
+        for index in range(1, 7)
+    ]
+
+    monkeypatch.setattr(backlog_maintenance, "AGENDA_SUMMARY_MAX_INPUT_CHARS", 220)
+    monkeypatch.setattr(backlog_maintenance, "AGENDA_SUMMARY_MIN_RESERVED_OUTPUT_CHARS", 100)
+
+    agenda_bundle = backlog_maintenance.build_agenda_summary_input_bundle(
+        catalog=catalog,
+        document=doc,
+        agenda_items=agenda_items,
+    )
+    summary = backlog_maintenance.llm_mod._deterministic_agenda_items_summary(
+        agenda_bundle["summary_items"],
+        truncation_meta=agenda_bundle["truncation_meta"],
+    )
+
+    assert agenda_bundle["status"] == "ready"
+    assert agenda_bundle["truncation_meta"]["items_truncated"] > 0
+    assert f"first {agenda_bundle['truncation_meta']['items_included']} of {agenda_bundle['truncation_meta']['items_total']} agenda items" in summary.lower()
