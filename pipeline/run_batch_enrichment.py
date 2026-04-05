@@ -14,8 +14,15 @@ from pipeline.table_worker import select_catalog_ids_for_table_extraction
 from pipeline.topic_worker import run_topic_hydration_backfill, select_catalog_ids_for_topic_hydration
 
 
-logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(name)s - %(levelname)s - %(message)s")
-logger = logging.getLogger("pipeline-batch")
+LOGGER_NAME = "pipeline-batch"
+LOGGER_FORMAT = "%(asctime)s - %(name)s - %(levelname)s - %(message)s"
+
+logger = logging.getLogger(LOGGER_NAME)
+
+
+def _configure_cli_logging() -> None:
+    """Keep logging setup at the CLI edge so imports stay side-effect free."""
+    logging.basicConfig(level=logging.INFO, format=LOGGER_FORMAT)
 
 
 def parse_args(argv=None):
@@ -32,7 +39,7 @@ def run_batch_callable_step(name, phase, func):
         try:
             result = func()
         except Exception:
-            logger.error("Step %s failed.", name)
+            logger.exception("Step %s failed.", name)
             record_pipeline_phase_duration(
                 phase,
                 "pipeline-batch",
@@ -53,6 +60,7 @@ def run_batch_callable_step(name, phase, func):
 
 
 def main(argv=None):
+    _configure_cli_logging()
     parse_args([] if argv is None else argv)
     logger.info(">>> Starting Batch Enrichment Pipeline")
     started = time.perf_counter()

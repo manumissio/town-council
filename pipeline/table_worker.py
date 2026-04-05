@@ -20,9 +20,22 @@ from pipeline.config import (
 )
 from pipeline.profiling import apply_catalog_id_scope
 
-# Setup logging
-logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
-logger = logging.getLogger(__name__)
+LOGGER_NAME = "table-worker"
+LOGGER_FORMAT = "%(asctime)s - %(levelname)s - %(message)s"
+
+logger = logging.getLogger(LOGGER_NAME)
+
+
+def _configure_cli_logging() -> None:
+    """Keep logging setup at the CLI edge so imports stay side-effect free."""
+    logging.basicConfig(level=logging.INFO, format=LOGGER_FORMAT)
+
+
+def _catalog_id_from_row(row) -> int:
+    """Support SQLAlchemy row tuples and simple object stubs in tests."""
+    if hasattr(row, "id"):
+        return int(row.id)
+    return int(row[0])
 
 
 def select_catalog_ids_for_table_extraction(session, limit: int | None = None) -> list[int]:
@@ -33,7 +46,7 @@ def select_catalog_ids_for_table_extraction(session, limit: int | None = None) -
     query = apply_catalog_id_scope(query, Catalog.id)
     if limit is not None:
         query = query.limit(limit)
-    return [int(row[0]) for row in query.all()]
+    return [_catalog_id_from_row(row) for row in query.all()]
 
 def process_single_pdf(catalog_id):
     """
@@ -185,5 +198,11 @@ def run_table_pipeline(*, catalog_ids: list[int] | None = None):
                 if processed % TABLE_PROGRESS_LOG_INTERVAL == 0:
                     logger.info(f"Table Progress: {processed}/{len(ids)}")
 
-if __name__ == "__main__":
+
+def main() -> int:
+    _configure_cli_logging()
     run_table_pipeline()
+    return 0
+
+if __name__ == "__main__":
+    raise SystemExit(main())

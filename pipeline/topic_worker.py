@@ -10,9 +10,15 @@ from pipeline.config import (
 from pipeline.profiling import apply_catalog_id_scope
 from pipeline.text_cleaning import postprocess_extracted_text
 
-# Setup logging
-logging.basicConfig(level=logging.INFO)
-logger = logging.getLogger("topic-worker")
+LOGGER_NAME = "topic-worker"
+LOGGER_FORMAT = "%(asctime)s - %(levelname)s - %(message)s"
+
+logger = logging.getLogger(LOGGER_NAME)
+
+
+def _configure_cli_logging() -> None:
+    """Keep logging setup at the entrypoint so imports stay side-effect free."""
+    logging.basicConfig(level=logging.INFO, format=LOGGER_FORMAT)
 
 # MUNICIPAL STOP WORDS
 # These are words that appear constantly in city documents but aren't useful as 'Topics'.
@@ -120,7 +126,12 @@ def run_topic_hydration_backfill(
             )
         except Exception as exc:
             counts["error"] += 1
-            logger.warning("topic_hydration catalog_id=%s status=error error=%s", catalog_id, exc)
+            logger.warning(
+                "topic_hydration catalog_id=%s status=error error=%s",
+                catalog_id,
+                exc,
+                exc_info=True,
+            )
             continue
 
         status = str((result or {}).get("status") or "").strip() or ("error" if (result or {}).get("error") else "other")
@@ -298,5 +309,11 @@ def run_topic_tagger():
         )
         logger.info("Topic tagging complete and saved to database.")
 
-if __name__ == "__main__":
+
+def main() -> int:
+    _configure_cli_logging()
     run_topic_tagger()
+    return 0
+
+if __name__ == "__main__":
+    raise SystemExit(main())

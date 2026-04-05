@@ -12,8 +12,15 @@ from pipeline.run_pipeline import (
 )
 
 
-logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s")
-logger = logging.getLogger("entity-backfill")
+LOGGER_NAME = "entity-backfill"
+LOGGER_FORMAT = "%(asctime)s - %(levelname)s - %(message)s"
+
+logger = logging.getLogger(LOGGER_NAME)
+
+
+def _configure_cli_logging() -> None:
+    """Keep logging setup in the CLI path so imports remain side-effect free."""
+    logging.basicConfig(level=logging.INFO, format=LOGGER_FORMAT)
 
 
 def _empty_counts():
@@ -180,5 +187,11 @@ def run_entity_backfill():
     return counts
 
 
-if __name__ == "__main__":
+def main() -> int:
+    _configure_cli_logging()
     run_entity_backfill()
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())
