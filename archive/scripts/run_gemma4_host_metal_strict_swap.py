@@ -1,4 +1,7 @@
 #!/usr/bin/env python3
+# Historical reference only: this former experiment runner was archived after
+# the Gemma 4 host-Metal strict-swap workflow left the supported scripts set.
+
 from __future__ import annotations
 
 import argparse

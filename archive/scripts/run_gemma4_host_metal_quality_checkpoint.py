@@ -1,4 +1,7 @@
 #!/usr/bin/env python3
+# Historical reference only: this former experiment runner was archived after
+# the Gemma 4 host-Metal quality checkpoint left the supported scripts set.
+
 from __future__ import annotations
 
 import argparse
@@ -44,7 +47,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--catalog-file", default=DEFAULT_CATALOG_FILE)
     parser.add_argument("--results-root", default=DEFAULT_RESULTS_ROOT)
     parser.add_argument("--run-prefix", default=DEFAULT_RUN_PREFIX)
-    parser.add_argument("--strict-runner", default="scripts/run_gemma4_host_metal_strict_swap.py")
+    parser.add_argument("--strict-runner", default="archive/scripts/run_gemma4_host_metal_strict_swap.py")
     parser.add_argument("--seed", type=int, default=42)
     parser.add_argument("--ollama-binary", default="ollama")
     return parser.parse_args()

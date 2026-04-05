@@ -1,3 +1,6 @@
+# Historical reference only: this former pipeline entrypoint was archived after
+# the vote-sync workflow fell out of the supported runtime/operator surface.
+
 import os
 import time
 import requests

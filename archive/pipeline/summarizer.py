@@ -1,3 +1,6 @@
+# Historical reference only: this former pipeline entrypoint was archived after
+# extractive summarization stopped being a supported standalone workflow.
+
 import threading
 
 from pipeline.models import Catalog

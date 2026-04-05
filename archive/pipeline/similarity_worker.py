@@ -1,3 +1,6 @@
+# Historical reference only: this former pipeline entrypoint was archived after
+# related-document generation stopped being a supported standalone workflow.
+
 import logging
 import numpy as np
 import sys
