@@ -5,9 +5,8 @@ import json
 import re
 from pathlib import Path
 
-from sqlalchemy.orm import sessionmaker
-
-from pipeline.models import db_connect, Catalog, Document, AgendaItem
+from pipeline.db_session import db_session
+from pipeline.models import Catalog, Document, AgendaItem
 from pipeline.summary_quality import is_summary_grounded
 
 REQUIRED_SECTIONS = [
@@ -45,14 +44,14 @@ def _detect_partial_coverage(summary: str) -> bool:
 def _to_float(value):
     try:
         return float(value)
-    except Exception:
+    except (TypeError, ValueError):
         return None
 
 
 def _to_int(value):
     try:
         return int(value)
-    except Exception:
+    except (TypeError, ValueError):
         return None
 
 
@@ -62,9 +61,13 @@ def _load_run_config(run_dir: Path) -> dict:
         return {}
     try:
         payload = json.loads(path.read_text(encoding="utf-8"))
-    except Exception:
+    except (OSError, json.JSONDecodeError):
         return {}
     return payload if isinstance(payload, dict) else {}
+
+
+def _emit_output_summary(*, row_count: int, csv_path: Path, json_path: Path) -> None:
+    print(f"wrote {row_count} rows to {csv_path} and {json_path}")
 
 
 def _provider_metric_from_phase_row(row: dict, metric_name: str):
@@ -126,12 +129,8 @@ def main() -> int:
 
     cids = sorted({cid for cid, _ in by_cid_phase.keys()})
 
-    engine = db_connect()
-    Session = sessionmaker(bind=engine)
-    db = Session()
-
     out_rows = []
-    try:
+    with db_session() as db:
         for cid in cids:
             catalog = db.get(Catalog, cid)
             if catalog is None:
@@ -205,8 +204,6 @@ def main() -> int:
                     "eval_duration_ms": _to_float(_provider_metric_from_phase_row(telemetry_source, "eval_duration_ms")),
                 }
             )
-    finally:
-        db.close()
 
     csv_path = run_dir / "ab_rows.csv"
     json_path = run_dir / "ab_rows.json"
@@ -244,7 +241,7 @@ def main() -> int:
     with json_path.open("w", encoding="utf-8") as f:
         json.dump(out_rows, f, indent=2)
 
-    print(f"wrote {len(out_rows)} rows to {csv_path} and {json_path}")
+    _emit_output_summary(row_count=len(out_rows), csv_path=csv_path, json_path=json_path)
     return 0
 
 

@@ -1,23 +1,17 @@
 import logging
-from sqlalchemy.orm import sessionmaker
 from sqlalchemy.exc import SQLAlchemyError
 
-from pipeline.models import db_connect, AgendaItem, Catalog, Document
+from pipeline.models import db_connect, AgendaItem, Catalog
 from pipeline.utils import find_text_coordinates
-from rapidfuzz import fuzz
 
-# Setup logging
-logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 logger = logging.getLogger("verification-service")
 
-_SessionLocal = None
 
+def _new_session():
+    from sqlalchemy.orm import sessionmaker
 
-def SessionLocal():
-    global _SessionLocal
-    if _SessionLocal is None:
-        _SessionLocal = sessionmaker(bind=db_connect())
-    return _SessionLocal()
+    session_factory = sessionmaker(bind=db_connect())
+    return session_factory()
 
 class VerificationService:
     """
@@ -29,7 +23,8 @@ class VerificationService:
     
     def verify_all(self):
         """Processes all items that have ground truth but no spatial alignment yet."""
-        with SessionLocal() as db:
+        db = _new_session()
+        try:
             items = db.query(AgendaItem).filter(
                 AgendaItem.raw_history != None,
                 AgendaItem.spatial_coords == None
@@ -39,6 +34,8 @@ class VerificationService:
 
             for item in items:
                 self.verify_item(item, db=db)
+        finally:
+            db.close()
             
     def verify_item(self, item, *, db=None):
         """
@@ -51,7 +48,7 @@ class VerificationService:
         - This lets us show users exactly where to look in the document
         """
         owns_session = db is None
-        session = db or SessionLocal()
+        session = db or _new_session()
 
         try:
             # STEP 1: Get the PDF file path from our catalog
@@ -111,5 +108,6 @@ class VerificationService:
                 session.close()
 
 if __name__ == "__main__":
+    logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
     service = VerificationService()
     service.verify_all()

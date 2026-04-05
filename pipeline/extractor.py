@@ -1,3 +1,4 @@
+import logging
 import os
 import re
 import time
@@ -19,6 +20,11 @@ from pipeline.config import (
 
 # Define where the Tika server is located (usually a separate Docker container)
 TIKA_SERVER_ENDPOINT = os.getenv('TIKA_SERVER_ENDPOINT', 'http://tika:9998')
+EXTRACTION_RETRY_ATTEMPTS = 3
+OCR_STRATEGY_NO_OCR = "no_ocr"
+OCR_STRATEGY_OCR_ONLY = "ocr_only"
+
+logger = logging.getLogger(__name__)
 
 def inject_page_markers(pages: list[str], mode: str) -> str:
     """
@@ -71,6 +77,23 @@ def is_safe_path(path):
     target_path = os.path.abspath(path)
     return target_path.startswith(base_dir)
 
+
+def _catalogs_needing_extraction(session):
+    from sqlalchemy import or_
+
+    return session.query(Catalog).filter(
+        Catalog.location != 'placeholder',
+        or_(
+            Catalog.content == None,
+            Catalog.content.notlike('%[PAGE %')
+        )
+    ).all()
+
+
+def _update_catalog_content(record):
+    record.content = extract_text(record.location)
+    record.content_hash = compute_content_hash(record.content)
+
 def extract_text(file_path, *, ocr_fallback_enabled=None, min_chars_threshold=None):
     """
     Extracts text from a single file using Apache Tika.
@@ -105,7 +128,7 @@ def extract_text(file_path, *, ocr_fallback_enabled=None, min_chars_threshold=No
         """
         # Retry logic with exponential backoff
         # Why retry? Tika server might be temporarily busy or restarting
-        for attempt in range(3):
+        for attempt in range(EXTRACTION_RETRY_ATTEMPTS):
             try:
                 headers = {
                     "X-Tika-PDFOcrStrategy": ocr_strategy,
@@ -140,15 +163,25 @@ def extract_text(file_path, *, ocr_fallback_enabled=None, min_chars_threshold=No
 
                 raise ValueError("Tika returned empty response")
             except (ValueError, OSError, ConnectionError, TimeoutError) as e:
-                if attempt < 2:
+                if attempt < EXTRACTION_RETRY_ATTEMPTS - 1:
                     wait_time = (attempt + 1) * TIKA_RETRY_BACKOFF_MULTIPLIER
-                    print(
-                        f"Tika issue on {file_path} (ocr_strategy={ocr_strategy}), retrying in {wait_time}s... "
-                        f"(Attempt {attempt + 1}/3)"
+                    logger.warning(
+                        "tika_retry_scheduled file=%s ocr_strategy=%s wait_seconds=%s attempt=%s max_attempts=%s",
+                        file_path,
+                        ocr_strategy,
+                        wait_time,
+                        attempt + 1,
+                        EXTRACTION_RETRY_ATTEMPTS,
                     )
                     time.sleep(wait_time)
                 else:
-                    print(f"Error extracting {file_path} (ocr_strategy={ocr_strategy}) after 3 attempts: {e}")
+                    logger.error(
+                        "tika_extract_failed file=%s ocr_strategy=%s attempts=%s error=%s",
+                        file_path,
+                        ocr_strategy,
+                        EXTRACTION_RETRY_ATTEMPTS,
+                        e,
+                    )
                     return ""
         return ""
 
@@ -160,13 +193,13 @@ def extract_text(file_path, *, ocr_fallback_enabled=None, min_chars_threshold=No
         min_chars_threshold = TIKA_MIN_EXTRACTED_CHARS_FOR_NO_OCR
 
     # Fast path: try digital text layer only.
-    no_ocr_text = _tika_extract_with_strategy("no_ocr")
+    no_ocr_text = _tika_extract_with_strategy(OCR_STRATEGY_NO_OCR)
     if no_ocr_text and len(no_ocr_text) >= min_chars_threshold:
         return postprocess_extracted_text(no_ocr_text)
 
     # Slow fallback: if enabled and the digital layer was empty/too short, retry with OCR.
     if ocr_fallback_enabled:
-        ocr_text = _tika_extract_with_strategy("ocr_only")
+        ocr_text = _tika_extract_with_strategy(OCR_STRATEGY_OCR_ONLY)
         return postprocess_extracted_text(ocr_text or no_ocr_text)
 
     return postprocess_extracted_text(no_ocr_text)
@@ -192,41 +225,30 @@ def extract_content():
     """
     # Use context manager for automatic session cleanup and error handling
     with db_session() as session:
-        # Find documents that have been downloaded but don't have text extracted yet
-        # OR documents that don't have the [PAGE ] marker yet
-        from sqlalchemy import or_
-        to_process = session.query(Catalog).filter(
-            Catalog.location != 'placeholder',
-            or_(
-                Catalog.content == None,
-                Catalog.content.notlike('%[PAGE %')
-            )
-        ).all()
+        to_process = _catalogs_needing_extraction(session)
 
-        print(f"Found {len(to_process)} documents to process.")
+        logger.info("extract_content_selected count=%s", len(to_process))
 
         processed_count = 0
 
         # Process each document
         for record in to_process:
-            print(f"Extracting text from: {record.filename}")
-
-            # Extract text using Tika (can take 1-10 seconds per document)
-            record.content = extract_text(record.location)
-            record.content_hash = compute_content_hash(record.content)
+            logger.info("extract_content_catalog filename=%s", record.filename)
+            _update_catalog_content(record)
             processed_count += 1
 
             # Commit in batches for safety and performance
             # Why? If we crash halfway through, we don't lose all progress
             if processed_count % EXTRACTION_BATCH_SIZE == 0:
                 session.commit()
-                print(f"Committed batch of {EXTRACTION_BATCH_SIZE} records.")
+                logger.info("extract_content_batch_committed batch_size=%s", EXTRACTION_BATCH_SIZE)
 
         # Final commit for any remaining documents
         # The context manager will automatically rollback if this fails
         session.commit()
-        print("Text extraction process complete.")
+        logger.info("extract_content_complete processed_count=%s", processed_count)
 
 if __name__ == "__main__":
-    print(f"Connecting to Tika server at {TIKA_SERVER_ENDPOINT}...")
+    logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
+    logger.info("tika_connect endpoint=%s", TIKA_SERVER_ENDPOINT)
     extract_content()

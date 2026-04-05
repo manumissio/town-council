@@ -6,7 +6,6 @@ from pipeline.document_kinds import normalize_summary_doc_kind
 from pipeline.models import AgendaItem, Catalog, Document
 from pipeline.summary_freshness import compute_agenda_items_hash, compute_summary_source_hash
 
-logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("backfill_catalog_hashes")
 
 
@@ -23,7 +22,7 @@ def backfill(limit: int | None = None) -> dict:
     skipped = 0
     with db_session() as session:
         q = session.query(Catalog).order_by(Catalog.id.asc())
-        if limit:
+        if limit is not None:
             q = q.limit(limit)
 
         for c in q:
@@ -79,5 +78,11 @@ def backfill(limit: int | None = None) -> dict:
     return {"status": "ok", "updated": updated, "skipped": skipped}
 
 
+def main() -> int:
+    logging.basicConfig(level=logging.INFO)
+    logger.info("catalog_hash_backfill_complete payload=%s", backfill())
+    return 0
+
+
 if __name__ == "__main__":
-    print(backfill())
+    raise SystemExit(main())

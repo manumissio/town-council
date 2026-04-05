@@ -5,9 +5,8 @@ from datetime import datetime, timezone
 from concurrent.futures import ThreadPoolExecutor
 from sqlalchemy import text, bindparam
 from sqlalchemy.exc import SQLAlchemyError
-from sqlalchemy.orm import sessionmaker
 
-from pipeline.models import Place, UrlStage, Event, Catalog, Document, UrlStageHist, db_connect
+from pipeline.models import Place, UrlStage, Event, Catalog, Document, db_connect
 from pipeline.db_session import db_session
 from pipeline.config import (
     MAX_FILE_SIZE_BYTES,
@@ -16,10 +15,13 @@ from pipeline.config import (
     DOWNLOAD_WORKERS
 )
 
-# Setup logging
-logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 logger = logging.getLogger(__name__)
 ISO_FMT = "%Y-%m-%dT%H:%M:%SZ"
+DEFAULT_CONTENT_TYPE = 'application/pdf'
+PDF_CONTENT_MARKER = 'pdf'
+HTML_CONTENT_MARKER = 'html'
+DEFAULT_DOCUMENT_EXTENSION = '.pdf'
+FALLBACK_OCD_DIRECTORY = "misc"
 
 
 def _parse_onboarding_started_at(raw_value: str | None):
@@ -83,7 +85,7 @@ class Media():
         """
         Normalize response content type for extension detection.
         """
-        content_type = headers.get('Content-Type', 'application/pdf')
+        content_type = headers.get('Content-Type', DEFAULT_CONTENT_TYPE)
         content_type = content_type.split(';')[0]  # Remove charset if present (e.g., "text/html; charset=utf-8")
         return content_type
 
@@ -99,14 +101,19 @@ class Media():
                 # Reject files above configured maximum size.
                 content_length = r.headers.get('Content-Length')
                 if content_length and int(content_length) > MAX_FILE_SIZE_BYTES:
-                    logger.warning(f"Skipping file: {document_url} is too large ({content_length} bytes, max: {MAX_FILE_SIZE_BYTES})")
+                    logger.warning(
+                        "download_skip_oversized url=%s content_length=%s max_bytes=%s",
+                        document_url,
+                        content_length,
+                        MAX_FILE_SIZE_BYTES,
+                    )
                     return None
                 return r
             else:
                 return r.status_code
         except requests.RequestException as e:
             # Any network failure returns None so caller can skip safely.
-            logger.error(f"Request failed for {document_url}: {e}")
+            logger.error("download_request_failed url=%s error=%s", document_url, e)
             return None
 
     def _store_document(self, response, content_type, url_hash):
@@ -116,13 +123,13 @@ class Media():
         file_path = self._create_fp_from_ocd_id(self.doc.ocd_division_id)
         
         # Determine the correct file extension
-        if 'pdf' in content_type:
-            ext = '.pdf'
-        elif 'html' in content_type:
+        if PDF_CONTENT_MARKER in content_type:
+            ext = DEFAULT_DOCUMENT_EXTENSION
+        elif HTML_CONTENT_MARKER in content_type:
             ext = '.html'
         else:
             # Default to .pdf if unknown as most meeting docs are PDFs
-            ext = '.pdf'
+            ext = DEFAULT_DOCUMENT_EXTENSION
 
         full_path = os.path.join(file_path, f'{url_hash}{ext}')
         # Ensure we store the absolute path in the database
@@ -163,8 +170,13 @@ class Media():
 
         except (ValueError, OSError) as e:
             # Keep ingestion moving even when location metadata is malformed.
-            logger.warning(f"Malformed OCD-ID '{ocd_id_str}': {e}. Using fallback 'misc'.")
-            fallback_path = os.path.join(self.working_dir, "misc")
+            logger.warning(
+                "downloader_ocd_fallback ocd_division_id=%r error=%s fallback_dir=%s",
+                ocd_id_str,
+                e,
+                FALLBACK_OCD_DIRECTORY,
+            )
+            fallback_path = os.path.join(self.working_dir, FALLBACK_OCD_DIRECTORY)
             os.makedirs(fallback_path, exist_ok=True)
             return fallback_path
 
@@ -173,82 +185,86 @@ def process_single_url(url_record_id):
     """
     Process one staged URL and link it to catalog/document rows.
     """
-    engine = db_connect()
-    Session = sessionmaker(bind=engine)
-    session = Session()
-
     try:
-        url_record = session.get(UrlStage, url_record_id)
-        if not url_record:
-            return False
-
-        # Find the matching event so the downloaded file can be linked.
-        event_record = session.query(Event).filter(
-            Event.ocd_division_id == url_record.ocd_division_id,
-            Event.record_date == url_record.event_date,
-            Event.name == url_record.event
-        ).first()
-        
-        if not event_record:
-            logger.info(f"Skipping: Event not found for {url_record.event} ({url_record.event_date})")
-            return False
-
-        # Reuse existing catalog row when URL hash already exists.
-        catalog_entry = session.query(Catalog).filter(
-            Catalog.url_hash == url_record.url_hash
-        ).first()
-
-        if not catalog_entry:
-            logger.info(f"Downloading new document: {url_record.url}")
-            downloader = Media(url_record)
-            file_location = downloader.gather()
-
-            if file_location:
-                try:
-                    catalog_entry = Catalog(
-                        url=url_record.url,
-                        url_hash=url_record.url_hash,
-                        location=file_location,
-                        filename=os.path.basename(file_location)
-                    )
-                    session.add(catalog_entry)
-                    session.flush()
-                except SQLAlchemyError:
-                    # Another worker may have inserted the same hash first.
-                    session.rollback()
-                    catalog_entry = session.query(Catalog).filter(
-                        Catalog.url_hash == url_record.url_hash
-                    ).first()
-            else:
-                logger.error(f"Failed to download: {url_record.url}")
+        with db_session() as session:
+            url_record = session.get(UrlStage, url_record_id)
+            if not url_record:
                 return False
 
-        # Avoid duplicate event/catalog links.
-        existing_doc = session.query(Document).filter(
-            Document.event_id == event_record.id,
-            Document.catalog_id == catalog_entry.id
-        ).first()
-
-        if not existing_doc:
-            document = Document(
-                place_id=event_record.place_id,
-                event_id=event_record.id,
-                catalog_id=catalog_entry.id,
-                url=url_record.url,
-                url_hash=url_record.url_hash,
-                category=url_record.category
-            )
-            session.add(document)
+            # Find the matching event so the downloaded file can be linked.
+            event_record = session.query(Event).filter(
+                Event.ocd_division_id == url_record.ocd_division_id,
+                Event.record_date == url_record.event_date,
+                Event.name == url_record.event
+            ).first()
         
-        session.commit()
-        return True
+            if not event_record:
+                logger.info(
+                    "downloader_skip_missing_event url_record_id=%s event=%s event_date=%s",
+                    url_record_id,
+                    url_record.event,
+                    url_record.event_date,
+                )
+                return False
 
+            # Reuse existing catalog row when URL hash already exists.
+            catalog_entry = session.query(Catalog).filter(
+                Catalog.url_hash == url_record.url_hash
+            ).first()
+
+            if not catalog_entry:
+                logger.info("downloader_fetch_start url_record_id=%s url=%s", url_record_id, url_record.url)
+                downloader = Media(url_record)
+                file_location = downloader.gather()
+
+                if file_location:
+                    try:
+                        catalog_entry = Catalog(
+                            url=url_record.url,
+                            url_hash=url_record.url_hash,
+                            location=file_location,
+                            filename=os.path.basename(file_location)
+                        )
+                        session.add(catalog_entry)
+                        session.flush()
+                    except SQLAlchemyError:
+                        # Another worker may have inserted the same hash first.
+                        session.rollback()
+                        logger.info(
+                            "downloader_catalog_race_recovered url_record_id=%s url_hash=%s",
+                            url_record_id,
+                            url_record.url_hash,
+                        )
+                        catalog_entry = session.query(Catalog).filter(
+                            Catalog.url_hash == url_record.url_hash
+                        ).first()
+                else:
+                    logger.error("downloader_fetch_failed url_record_id=%s url=%s", url_record_id, url_record.url)
+                    return False
+
+            # Avoid duplicate event/catalog links.
+            existing_doc = session.query(Document).filter(
+                Document.event_id == event_record.id,
+                Document.catalog_id == catalog_entry.id
+            ).first()
+
+            if not existing_doc:
+                document = Document(
+                    place_id=event_record.place_id,
+                    event_id=event_record.id,
+                    catalog_id=catalog_entry.id,
+                    url=url_record.url,
+                    url_hash=url_record.url_hash,
+                    category=url_record.category
+                )
+                session.add(document)
+        
+            session.commit()
+            return True
     except SQLAlchemyError as e:
-        logger.error(f"Error processing URL record {url_record_id}: {e}")
-        session.rollback()
+        logger.error("downloader_process_failed url_record_id=%s error=%s", url_record_id, e)
         return False
-    finally:
-        session.close()
+        
 
 
 def process_staged_urls():
@@ -296,4 +312,5 @@ def archive_url_stage(processed_ids):
 
 
 if __name__ == "__main__":
+    logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
     process_staged_urls()
