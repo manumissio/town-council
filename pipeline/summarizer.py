@@ -1,8 +1,6 @@
-import time
 import threading
-from sqlalchemy.orm import sessionmaker
 
-from pipeline.models import Catalog, db_connect
+from pipeline.models import Catalog
 from pipeline.db_session import db_session
 from pipeline.config import MAX_SUMMARY_TEXT_LENGTH
 
@@ -89,26 +87,3 @@ def extract_summarize_catalog(catalog_id):
         # No need for except/finally - the context manager handles:
         # - Automatic rollback if an exception occurs
         # - Automatic session close when we exit the "with" block
-
-def summarize_documents():
-    """
-    Legacy batch processing function.
-    """
-    engine = db_connect()
-    Session = sessionmaker(bind=engine)
-    session = Session()
-
-    to_summarize = session.query(Catalog).filter(
-        Catalog.content != None,
-        Catalog.content != "",
-        Catalog.summary_extractive == None
-    ).limit(50).all()
-
-    ids = [c.id for c in to_summarize]
-    session.close()
-
-    for cid in ids:
-        extract_summarize_catalog(cid)
-
-if __name__ == "__main__":
-    summarize_documents()

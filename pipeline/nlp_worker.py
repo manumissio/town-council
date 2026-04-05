@@ -1,14 +1,11 @@
 import sys
 import os
-import time
 import threading
 import re
 
 # Add project root to path for consistent imports
 sys.path.append(os.path.join(os.path.dirname(__file__), '..'))
 
-from pipeline.models import Catalog
-from pipeline.db_session import db_session
 from pipeline.utils import is_likely_human_name
 from pipeline.config import (
     NLP_ENTITY_AGENDA_MAX_TEXT,
@@ -17,7 +14,6 @@ from pipeline.config import (
     NLP_ENTITY_PREFIX_FALLBACK_TEXT,
     NLP_MAX_TEXT_LENGTH,
 )
-from pipeline.content_hash import compute_content_hash
 
 # Global cache for the NLP model to avoid reloading in the same process
 # Why cache? Loading SpaCy's NLP model takes ~2 seconds and uses ~500MB RAM
@@ -316,53 +312,3 @@ def extract_entities(text):
             entities["locs"].append(name)
             
     return entities
-
-def run_nlp_pipeline():
-    """
-    Legacy batch processing function.
-
-    What this does:
-    1. Loads the customized NLP model (with municipal document filters)
-    2. Finds all documents that need entity extraction
-    3. Extracts persons, organizations, and locations from each document
-    4. Saves the results to the database
-
-    This is called "legacy" because it processes all documents at once.
-    Modern usage: Call extract_entities() directly for individual documents.
-    """
-    print("Loading Customized Municipal NLP model...")
-    nlp = get_municipal_nlp_model()
-
-    # Use context manager for automatic session cleanup and error handling
-    # Why? The context manager automatically rolls back on errors and closes the session
-    with db_session() as session:
-        # Find all documents that have content but haven't been processed for entities yet
-        to_process = session.query(Catalog).filter(
-            Catalog.content != None,
-            Catalog.content != "",
-            Catalog.entities == None
-        ).all()
-
-        print(f"Found {len(to_process)} documents for NLP processing.")
-
-        # Process each document: extract names, places, organizations
-        for record in to_process:
-            candidate_text, meta = build_entity_candidate_text(
-                record.content,
-                category=getattr(record.document, "category", None),
-            )
-            if meta["skip_low_signal"]:
-                record.entities = empty_entities_payload()
-            else:
-                record.entities = extract_entities(candidate_text)
-            record.content_hash = compute_content_hash(record.content)
-            record.entities_source_hash = record.content_hash
-            print(f"Processed {record.filename}")
-
-        # Save all changes to the database at once
-        # If this fails, the context manager will automatically rollback
-        session.commit()
-        print("NLP processing complete.")
-
-if __name__ == "__main__":
-    run_nlp_pipeline()

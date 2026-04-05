@@ -1,7 +1,6 @@
-import pytest
 from pipeline.models import Catalog
 
-def test_nlp_extraction_mocked(db_session, mocker):
+def test_extract_entities_mocked(db_session, mocker):
     """
     Test: Does the NLP worker correctly identify Organizations and Locations?
     """
@@ -41,10 +40,9 @@ def test_nlp_extraction_mocked(db_session, mocker):
     mocker.patch.object(nlp_worker, "get_municipal_nlp_model", return_value=mock_nlp)
 
     # 3. Action
-    nlp_worker.run_nlp_pipeline()
+    extracted = nlp_worker.extract_entities(doc.content)
 
     # 4. Verify
-    db_session.refresh(doc)
-    assert doc.entities is not None
-    assert "The Belmont Police Department" in doc.entities['orgs']
-    assert "PG&E" in doc.entities['orgs']
+    assert "The Belmont Police Department" in extracted["orgs"]
+    assert "PG&E" in extracted["orgs"]
+    assert "City Hall" in extracted["locs"]
