@@ -28,6 +28,7 @@ from pipeline.config import (
 from pipeline.startup_purge import run_startup_purge_if_enabled
 from pipeline.metrics import record_pipeline_phase_duration
 from pipeline.profiling import apply_catalog_id_scope, profile_span, workload_only_profile
+from pipeline.extraction_state import mark_extraction_complete, mark_extraction_failure
 
 # Setup logging
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
@@ -187,25 +188,6 @@ def _should_skip_generation_backfill_steps() -> bool:
     # first-time onboarding from waking unrelated city backlog.
     return bool(PIPELINE_ONBOARDING_CITY) and PIPELINE_RUNTIME_PROFILE == "onboarding_fast"
 
-def _mark_extraction_complete(catalog, content_hash):
-    catalog.content_hash = content_hash
-    catalog.extraction_status = "complete"
-    catalog.extraction_attempt_count = max(1, int(catalog.extraction_attempt_count or 0))
-    catalog.extraction_attempted_at = datetime.utcnow()
-    catalog.extraction_error = None
-
-
-def _mark_extraction_failure(catalog, error_message: str):
-    attempts = int(catalog.extraction_attempt_count or 0) + 1
-    catalog.extraction_attempt_count = attempts
-    catalog.extraction_attempted_at = datetime.utcnow()
-    catalog.extraction_error = (error_message or "Extraction returned empty text")[:500]
-    catalog.extraction_status = (
-        "failed_terminal"
-        if attempts >= EXTRACTION_TERMINAL_FAILURE_MAX_ATTEMPTS
-        else "pending"
-    )
-
 
 def process_document_chunk(catalog_ids, ocr_fallback_enabled=None):
     """
@@ -271,12 +253,12 @@ def process_document_chunk(catalog_ids, ocr_fallback_enabled=None):
                     )
                     if extracted:
                         catalog.content = extracted
-                        _mark_extraction_complete(catalog, compute_content_hash(catalog.content))
+                        mark_extraction_complete(catalog, compute_content_hash(catalog.content))
                     else:
-                        _mark_extraction_failure(catalog, "Extraction returned empty text")
+                        mark_extraction_failure(catalog, "Extraction returned empty text")
                 elif catalog.content and not getattr(catalog, "content_hash", None):
                     # Older rows may predate content hashing.
-                    _mark_extraction_complete(catalog, compute_content_hash(catalog.content))
+                    mark_extraction_complete(catalog, compute_content_hash(catalog.content))
                 elif catalog.content:
                     catalog.extraction_status = catalog.extraction_status or "complete"
                     catalog.extraction_attempt_count = int(catalog.extraction_attempt_count or 0)

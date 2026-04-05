@@ -1,6 +1,6 @@
 import datetime
-import os
 import json
+import os
 
 from sqlalchemy import create_engine, func
 from sqlalchemy import Column, Boolean, String, Integer, Date, DateTime, JSON, Text, CheckConstraint, Float
@@ -66,18 +66,10 @@ def db_connect():
             pool_timeout=30,
             pool_recycle=1800
         )
-    elif database_url:
-        # Custom URL (e.g. sqlite)
+    if database_url:
+        # Custom URL (for example, test SQLite or an explicit local Postgres DSN).
         return create_engine(database_url)
-    else:
-        # Fallback to a local SQLite file
-
-        # This makes it easy to run scripts on your own laptop.
-        current_dir = os.path.dirname(os.path.abspath(__file__))
-        project_root = os.path.dirname(current_dir)
-        db_path = os.path.join(project_root, 'test_db.sqlite')
-        print("WARNING: DATABASE_URL not set. Using local SQLite.")
-        return create_engine(f'sqlite:///{db_path}')
+    raise RuntimeError("DATABASE_URL is not set. Configure it explicitly for runtime or tests.")
 
 
 def create_tables(engine):

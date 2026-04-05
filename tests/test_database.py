@@ -1,3 +1,4 @@
+import importlib
 import sys
 import os
 import pytest
@@ -101,3 +102,13 @@ def test_promotion_keeps_blocked_rows_in_event_stage(db_session, mocker):
     remaining = db_session.query(EventStage).all()
     assert len(remaining) == 1
     assert remaining[0].name == "Blocked Meeting"
+
+
+def test_db_connect_requires_explicit_database_url(monkeypatch):
+    import pipeline.models as models
+
+    monkeypatch.delenv("DATABASE_URL", raising=False)
+    models = importlib.reload(models)
+
+    with pytest.raises(RuntimeError, match="DATABASE_URL is not set"):
+        models.db_connect()

@@ -51,29 +51,41 @@ logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(name)s - %(level
 logger = logging.getLogger("town-council-api")
 SEMANTIC_SERVICE_URL = os.getenv("SEMANTIC_SERVICE_URL", "http://semantic:8010").rstrip("/")
 
-# We initialize these as None first. If the import works, we fill them.
+# We initialize these as None first and wire the DB lazily during startup.
 SessionLocal = None
+_db_init_error = None
 agenda_items_look_low_quality = None
 
-try:
-    from pipeline.models import db_connect, Document, Event, Place, Catalog, Person, AgendaItem, DataIssue, IssueType, Membership, Organization
-    from pipeline.content_hash import compute_content_hash
-    from pipeline.document_kinds import normalize_summary_doc_kind
-    from pipeline.summary_freshness import compute_agenda_items_hash, is_summary_fresh, is_summary_stale
-    from pipeline.summary_quality import analyze_source_text, is_source_summarizable, is_source_topicable, build_low_signal_message
-    from pipeline.startup_purge import run_startup_purge_if_enabled
-    from pipeline.utils import generate_ocd_id
-    from pipeline.agenda_resolver import agenda_items_look_low_quality
-    engine = db_connect()
-    SessionLocal = sessionmaker(bind=engine, autoflush=False, autocommit=False)
-except Exception as e:
-    logger.error(f"CRITICAL: Could not load database models: {e}")
+from pipeline.models import db_connect, Document, Event, Place, Catalog, Person, AgendaItem, DataIssue, IssueType, Membership, Organization
+from pipeline.content_hash import compute_content_hash
+from pipeline.document_kinds import normalize_summary_doc_kind
+from pipeline.summary_freshness import compute_agenda_items_hash, is_summary_fresh, is_summary_stale
+from pipeline.summary_quality import analyze_source_text, is_source_summarizable, is_source_topicable, build_low_signal_message
+from pipeline.startup_purge import run_startup_purge_if_enabled
+from pipeline.utils import generate_ocd_id
+from pipeline.agenda_resolver import agenda_items_look_low_quality
+
+
+def initialize_database():
+    global SessionLocal, _db_init_error
+    if SessionLocal is not None:
+        return SessionLocal
+    try:
+        engine = db_connect()
+        SessionLocal = sessionmaker(bind=engine, autoflush=False, autocommit=False)
+        _db_init_error = None
+    except Exception as exc:
+        SessionLocal = None
+        _db_init_error = exc
+        logger.error(f"CRITICAL: Could not initialize database session factory: {exc}")
+    return SessionLocal
 
 def is_db_ready():
     return SessionLocal is not None
 
 # Security & Reliability: Dependency Injection for database sessions.
 def get_db():
+    initialize_database()
     if not is_db_ready():
         raise HTTPException(status_code=503, detail="Database service is unavailable")
     db = SessionLocal()
@@ -119,6 +131,9 @@ async def lifespan(app: FastAPI):
     key = os.getenv("API_AUTH_KEY", "dev_secret_key_change_me")
     if key == "dev_secret_key_change_me":
         logger.critical("SECURITY WARNING: You are using the default API Key. Please set API_AUTH_KEY in production.")
+    initialize_database()
+    if not is_db_ready():
+        logger.warning("database_session_factory=unavailable")
     # Startup purge is lock-protected. If another service already purged, we skip.
     purge_result = run_startup_purge_if_enabled()
     logger.info(f"startup_purge_result={purge_result}")
