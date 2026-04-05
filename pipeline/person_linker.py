@@ -1,9 +1,4 @@
-import os
-import sys
 from rapidfuzz import fuzz, process
-
-# Add project root to path
-sys.path.append(os.path.join(os.path.dirname(__file__), '..'))
 
 from pipeline.models import Catalog, Document, Event, Organization, Person, Membership
 from pipeline.db_session import db_session

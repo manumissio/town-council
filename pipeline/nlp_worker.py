@@ -1,10 +1,5 @@
-import sys
-import os
 import threading
 import re
-
-# Add project root to path for consistent imports
-sys.path.append(os.path.join(os.path.dirname(__file__), '..'))
 
 from pipeline.utils import is_likely_human_name
 from pipeline.config import (
