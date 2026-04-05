@@ -319,6 +319,21 @@ docker compose run --rm pipeline python /app/scripts/audit_city_coverage.py --ci
   - coverage audit asks "did we capture enough of the city's meetings?"
   - hydration diagnostics ask "how much known catalog work is still unresolved?"
 
+### Dead-code audit loop
+- Prefer small cleanup batches over broad dead-code sweeps.
+- First classify candidates into:
+  - high-confidence dead runtime code
+  - medium-confidence manual or legacy operator tools
+  - non-code clutter such as archive artifacts or OS metadata files
+- First-batch rule:
+  - remove only the high-confidence candidates
+  - update docs and tests in the same change
+  - hold medium-confidence tools for a second review instead of deleting them on sight
+- Useful inspection command:
+```bash
+rg -n "vote_worker|ground_truth_sync|similarity_worker|Legacy batch processing function" pipeline scripts docs tests
+```
+
 ### Onboarding-safe extraction mode
 - `scripts/onboard_city_wave.sh` runs the pipeline in an onboarding-scoped extraction mode.
 - That mode limits extraction to catalogs touched by the current city's staged URL set for the run window instead of waking up the full missing-content backlog.

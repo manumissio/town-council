@@ -68,7 +68,6 @@ Use these names in roadmap, docs, and release communication:
   - `InProcessLlamaProvider` (current)
   - `HttpInferenceProvider` (Ollama/vLLM/llama.cpp server)
 - `embedding_worker.py` for offline embedding generation
-- `vote_worker.py` (or extend existing agenda task pipeline) for structured vote extraction
 
 ## Decision Integrity: Vote/Outcome Extraction + Scorecard Foundations
 
