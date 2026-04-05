@@ -89,7 +89,7 @@ def test_verify_all_processes_pending_items(mocker):
     db = mocker.MagicMock()
     items = [SimpleNamespace(id=1), SimpleNamespace(id=2)]
     db.query.return_value.filter.return_value.all.return_value = items
-    mocker.patch.object(verification_module, "SessionLocal", return_value=_SessionContext(db))
+    mocker.patch.object(verification_module, "_new_session", return_value=db)
     verify_spy = mocker.patch.object(service, "verify_item")
 
     service.verify_all()
@@ -97,3 +97,4 @@ def test_verify_all_processes_pending_items(mocker):
     assert verify_spy.call_count == 2
     verify_spy.assert_any_call(items[0], db=db)
     verify_spy.assert_any_call(items[1], db=db)
+    db.close.assert_called_once()

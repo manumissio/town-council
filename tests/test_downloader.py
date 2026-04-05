@@ -9,7 +9,7 @@ sys.path.append(root_dir)
 sys.path.append(os.path.join(root_dir, 'pipeline'))
 
 from pipeline.models import Catalog, UrlStage, Event, Place
-from pipeline.downloader import process_single_url, process_staged_urls, _select_staged_url_ids
+from pipeline.downloader import Media, process_single_url, process_staged_urls, _select_staged_url_ids
 
 def test_downloader_absolute_path(db_session, mocker, monkeypatch):
     """
@@ -197,3 +197,13 @@ def test_select_staged_url_ids_scopes_to_onboarding_city_window(db_session, monk
     monkeypatch.setenv("PIPELINE_ONBOARDING_STARTED_AT_UTC", "2026-04-04T14:00:00Z")
 
     assert _select_staged_url_ids(db_session) == [1]
+
+
+def test_downloader_uses_misc_fallback_for_malformed_ocd_id(tmp_path, monkeypatch):
+    monkeypatch.setenv("DATA_DIR", str(tmp_path))
+    media = Media(type("Doc", (), {"url": "https://example.com/test.pdf"})())
+
+    fallback_path = media._create_fp_from_ocd_id("not-a-valid-ocd-id")
+
+    assert fallback_path == os.path.join(str(tmp_path), "misc")
+    assert os.path.isdir(fallback_path)
