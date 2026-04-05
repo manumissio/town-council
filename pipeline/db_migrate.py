@@ -54,8 +54,8 @@ def migrate() -> None:
     engine = db_connect()
     with engine.begin() as conn:
         if engine.dialect.name != "postgresql":
-            # SQLite is commonly used in tests and local scripts. We only apply
-            # additive migrations for Postgres here.
+            # SQLite remains useful for tests and explicit ad hoc scripts, but
+            # additive runtime migrations only target PostgreSQL databases.
             return
 
         # Keep db_migrate as the one supported upgrade entrypoint, even for

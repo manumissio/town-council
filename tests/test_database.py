@@ -112,3 +112,35 @@ def test_db_connect_requires_explicit_database_url(monkeypatch):
 
     with pytest.raises(RuntimeError, match="DATABASE_URL is not set"):
         models.db_connect()
+
+
+def test_db_connect_uses_postgresql_pooling(monkeypatch, mocker):
+    import pipeline.models as models
+
+    database_url = "postgresql://town-council:test@localhost/town_council"
+    monkeypatch.setenv("DATABASE_URL", database_url)
+    models = importlib.reload(models)
+    create_engine_mock = mocker.patch.object(models, "create_engine", autospec=True)
+
+    models.db_connect()
+
+    create_engine_mock.assert_called_once_with(
+        database_url,
+        pool_size=10,
+        max_overflow=20,
+        pool_timeout=30,
+        pool_recycle=1800,
+    )
+
+
+def test_db_connect_allows_explicit_sqlite_url_without_fallback_pooling(monkeypatch, mocker):
+    import pipeline.models as models
+
+    database_url = "sqlite:///:memory:"
+    monkeypatch.setenv("DATABASE_URL", database_url)
+    models = importlib.reload(models)
+    create_engine_mock = mocker.patch.object(models, "create_engine", autospec=True)
+
+    models.db_connect()
+
+    create_engine_mock.assert_called_once_with(database_url)

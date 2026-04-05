@@ -10,6 +10,8 @@ OPTIONAL_NLP_IMPORT_ERRORS = (ImportError, ModuleNotFoundError, OSError, Runtime
 # Use a process-unique shared in-memory database:
 # - shared within one pytest process (workers create their own engines)
 # - isolated across concurrent pytest processes (avoids DDL races on drop/create)
+# This fixture is intentionally SQLite because most tests exercise backend-
+# agnostic behavior rather than the PostgreSQL runtime contract.
 TEST_DB_URL = f"sqlite:///file:tc_testdb_{os.getpid()}?mode=memory&cache=shared&uri=true"
 
 @pytest.fixture(scope="session", autouse=True)

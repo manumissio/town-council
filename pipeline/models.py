@@ -47,17 +47,23 @@ class Base(DeclarativeBase):
     pass
 
 
+POSTGRESQL_SCHEME = "postgresql"
+DATABASE_URL_MISSING_ERROR = (
+    "DATABASE_URL is not set. Configure it explicitly for runtime or tests."
+)
+
+
 def db_connect():
     """
-    Connects to the database (PostgreSQL in production, SQLite for local testing).
-    
-    Why this is needed:
-    It handles the secure connection details and ensures we can talk to the database.
-    It automatically switches between 'real' database mode (Docker) and 'test' mode.
+    Build a SQLAlchemy engine from the explicit DATABASE_URL contract.
+
+    Runtime stays PostgreSQL-first and fails fast when DATABASE_URL is unset.
+    Tests and ad hoc tooling may still pass an explicit SQLite URL when they
+    intentionally need a lightweight fixture database.
     """
     database_url = os.getenv('DATABASE_URL')
     
-    if database_url and database_url.startswith('postgresql'):
+    if database_url and database_url.startswith(POSTGRESQL_SCHEME):
         # Use PostgreSQL with connection pooling for high performance.
         return create_engine(
             database_url,
@@ -67,9 +73,9 @@ def db_connect():
             pool_recycle=1800
         )
     if database_url:
-        # Custom URL (for example, test SQLite or an explicit local Postgres DSN).
+        # Explicit non-default URLs stay available for tests and ad hoc scripts.
         return create_engine(database_url)
-    raise RuntimeError("DATABASE_URL is not set. Configure it explicitly for runtime or tests.")
+    raise RuntimeError(DATABASE_URL_MISSING_ERROR)
 
 
 def create_tables(engine):
