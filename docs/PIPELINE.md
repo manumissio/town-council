@@ -44,6 +44,9 @@ Town Council uses two complementary pipelines:
 
 Why this exists:
 - Later stages assume canonical rows, valid schema, and local files already present.
+- `db_migrate.py` is the supported additive upgrade entrypoint for older Postgres schemas.
+  It keeps legacy column/backfill repairs in one place and delegates only the still-live
+  specialized sub-migrations in `pipeline/migrate_v8.py` and `pipeline/migrate_v9.py`.
 
 ### Stage B: Parallel document processing
 `run_parallel_processing()` finds records needing extraction or extraction-state repair and processes them in chunked parallel workers.

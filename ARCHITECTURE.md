@@ -219,6 +219,7 @@ Primary owners:
 Primary owners:
 - `api/main.py`
 - `pipeline/semantic_index.py`
+- `pipeline/db_migrate.py`
 - `pipeline/migrate_v8.py`
 
 #### Lineage + Trends (Stable)
@@ -278,7 +279,8 @@ Primary owners:
 - Update semantic retrieval behavior:
   - `api/main.py` (`/search` and `/search/semantic` paths)
   - `pipeline/semantic_index.py`
-  - `pipeline/migrate_v8.py` (bridge/migration path)
+  - `pipeline/db_migrate.py` (supported additive migration entrypoint)
+  - `pipeline/migrate_v8.py` (pgvector bridge/migration path)
 
 ### Code Map by Concern
 
@@ -289,7 +291,7 @@ Primary owners:
 - API surface and auth: `api/main.py`, `api/search/query_builder.py`, `api/metrics.py`
 - Semantic retrieval and embeddings: `pipeline/semantic_index.py`, `pipeline/models.py`
 - Frontend query/task UX: `frontend/app/page.js`, `frontend/state/search-state.js`, `frontend/components/ResultCard.js`
-- Data model and persistence: `pipeline/models.py`, migrations in `pipeline/migrate_*.py`
+- Data model and persistence: `pipeline/models.py`, `pipeline/db_migrate.py`, `pipeline/migrate_v8.py`, `pipeline/migrate_v9.py`
 - Onboarding orchestration and evaluation: `scripts/onboard_city_wave.sh`, `scripts/check_city_crawl_evidence.py`, `scripts/evaluate_city_onboarding.py`
 
 ### Runtime Lifecycles
