@@ -1,4 +1,9 @@
 #!/usr/bin/env python3
+"""Historical manual-review pack helper retained for archive/reference only.
+
+This is not a supported active operator entrypoint.
+"""
+
 import argparse
 import csv
 import json

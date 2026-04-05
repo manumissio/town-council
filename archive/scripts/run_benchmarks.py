@@ -6,6 +6,10 @@ Why this exists:
 - benchmark numbers are only comparable when we know exactly which code and
   environment produced them
 - pytest-benchmark JSON alone is not enough for this repo's evidence contract
+
+Historical note:
+- this script is retained for archive/reference purposes only
+- it is not a supported active operator entrypoint
 """
 
 from __future__ import annotations
@@ -23,7 +27,7 @@ from pathlib import Path
 from urllib.request import urlopen
 
 
-REPO_ROOT = Path(__file__).resolve().parents[1]
+REPO_ROOT = Path(__file__).resolve().parents[2]
 DEFAULT_ENDPOINTS = [
     ("search_newest", "/search?q=zoning&sort=newest&limit=20"),
     ("search_semantic", "/search/semantic?q=zoning&limit=20"),

@@ -1239,12 +1239,10 @@ python scripts/score_ab_results.py \
   --search-p95-regression-pct <SEARCH_P95_REGRESSION_PCT>
 ```
 
-5) Optional blinded manual review pack:
-```bash
-python scripts/sample_ab_manual_review.py --runs A_run1,B_run1 --sample-size 20
-```
-
-After reviewers fill `manual_review_blind_v1.csv`, re-run scorer with manual inputs:
+5) Optional blinded manual review scoring:
+- The former blind-pack generator has been retired from the active `scripts/` surface.
+- Its implementation remains under `archive/scripts/` as historical experiment reference only, not as a supported fallback command.
+- If you already have `manual_review_blind_v1.csv` and `manual_review_key_v1.csv`, re-run scorer with manual inputs:
 ```bash
 python scripts/score_ab_results.py \
   --runs A_run1,B_run1 \

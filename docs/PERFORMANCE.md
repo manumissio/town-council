@@ -419,24 +419,7 @@ Recommended rerun notes:
 
 ## Reproducible benchmark capture
 
-Preferred entrypoint:
-```bash
-python scripts/run_benchmarks.py
-```
-
-This writes benchmark artifacts under `experiments/results/benchmarks/<timestamp>/` with:
-- `metadata.json`
-- `pytest_benchmark.json`
-- `endpoint_timings.json`
-
-`metadata.json` captures the comparability contract:
-- commit SHA and short SHA
-- dirty worktree status
-- host/platform metadata
-- benchmark commands and exit codes
-
-Recommended usage notes:
-- run from a clean worktree when you want promotion-grade comparison
-- keep the same runtime profile, dataset/index state, and endpoint sample count across runs
-- use `--skip-endpoint-benchmarks` when the API stack is not available
-- use `--skip-pytest-benchmarks` when you only want endpoint timings
+Historical note:
+- The former benchmark capture helper has been retired from the active `scripts/` surface.
+- Its implementation remains under `archive/scripts/` as historical experiment reference only, not as a supported fallback command.
+- If benchmark capture becomes an active workflow again, restore a supported entrypoint with fresh docs and tests instead of pointing operators at archived code.

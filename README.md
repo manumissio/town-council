@@ -261,7 +261,6 @@ Model A/B tooling:
 - `scripts/run_ab_eval.sh`
 - `scripts/collect_ab_results.py`
 - `scripts/score_ab_results.py`
-- `scripts/sample_ab_manual_review.py`
 
 ## GitHub Pages Demo
 

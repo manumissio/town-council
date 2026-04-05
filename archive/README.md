@@ -7,3 +7,5 @@ Why this directory exists:
 How to use it:
 - Treat these files as historical context, not as current source of truth.
 - For active behavior and architecture, prefer `README.md`, `ARCHITECTURE.md`, and `docs/`.
+- Historical scripts live under `archive/scripts/` when a former `scripts/`
+  entrypoint is no longer supported but still worth preserving for reference.
