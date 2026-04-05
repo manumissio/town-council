@@ -52,7 +52,7 @@ def test_collect_script_avoids_db_summary_for_failed_rows():
 
 
 def test_gemma4_profile_verification_script_contract():
-    path = Path("scripts/run_gemma4_profile_verification.py")
+    path = Path("archive/scripts/run_gemma4_profile_verification.py")
     text = path.read_text(encoding="utf-8")
 
     assert "env/profiles/gemma4_e2b_second_tier.env" in text
@@ -65,7 +65,7 @@ def test_gemma4_profile_verification_script_contract():
 
 
 def test_gemma4_host_metal_strict_swap_script_contract():
-    path = Path("scripts/run_gemma4_host_metal_strict_swap.py")
+    path = Path("archive/scripts/run_gemma4_host_metal_strict_swap.py")
     text = path.read_text(encoding="utf-8")
 
     assert "env/profiles/gemma4_e2b_host_metal_strict.env" in text

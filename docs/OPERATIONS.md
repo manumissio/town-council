@@ -1,6 +1,6 @@
 # Operations Runbook
 
-Last updated: 2026-04-04
+Last updated: 2026-04-05
 
 ## Core workflow
 
@@ -332,14 +332,13 @@ docker compose run --rm pipeline python /app/scripts/audit_city_coverage.py --ci
   - hold medium-confidence tools for a second review instead of deleting them on sight
 - Useful inspection command:
 ```bash
-rg -n "vote_worker|ground_truth_sync|similarity_worker|Legacy batch processing function" pipeline scripts docs tests
+rg -n "ground_truth_sync|similarity_worker|summarizer|run_gemma4_profile_verification|run_gemma4_host_metal_quality_checkpoint|run_gemma4_host_metal_strict_swap" pipeline scripts docs tests archive
 ```
 
-Current keep-for-now note:
-- `pipeline/ground_truth_sync.py` stays because it still has doc and test anchors for vote extraction validation.
-- `pipeline/similarity_worker.py` stays because it still has tests and still feeds related-document behavior indirectly consumed elsewhere.
-- `pipeline/summarizer.py` stays because it still owns the retained extractive summarization helper path.
-- Those modules need a later ownership review before any retirement decision.
+Current archive note:
+- `archive/pipeline/ground_truth_sync.py`, `archive/pipeline/similarity_worker.py`, and `archive/pipeline/summarizer.py` are historical/manual entrypoints that no longer belong on the supported `pipeline/` surface.
+- `archive/scripts/run_gemma4_profile_verification.py`, `archive/scripts/run_gemma4_host_metal_quality_checkpoint.py`, and `archive/scripts/run_gemma4_host_metal_strict_swap.py` are archived Gemma 4 experiment runners, not current supported operator scripts.
+- Treat those archived files as historical context only. If we revive one of those workflows, move it back to an active path with fresh docs and tests instead of treating the archive path as supported tooling.
 
 ### Onboarding-safe extraction mode
 - `scripts/onboard_city_wave.sh` runs the pipeline in an onboarding-scoped extraction mode.
@@ -693,91 +692,15 @@ Current interpretation:
 
 Use the profiling harness when you need to rank the biggest end-to-end runtime bottlenecks with evidence instead of guessing from logs.
 
-## Gemma 4 second-tier verification
+## Gemma 4 historical experiments
 
-Use this only for the explicit Gemma 4 profile-verification experiment. It is diagnostic and must not replace the default Gemma 3 local-first workflow.
+The Gemma 4 second-tier experiment runners are now archived under `archive/scripts/`.
+Treat them as historical reference only, not as supported operator workflows:
+- `archive/scripts/run_gemma4_profile_verification.py`
+- `archive/scripts/run_gemma4_host_metal_strict_swap.py`
+- `archive/scripts/run_gemma4_host_metal_quality_checkpoint.py`
 
-Command:
-
-```bash
-cd <REPO_ROOT>
-PYTHONPATH=. .venv/bin/python scripts/run_gemma4_profile_verification.py
-```
-
-What it does:
-- brings up `inference`, `worker`, `api`, and `pipeline` under `env/profiles/gemma4_e2b_second_tier.env`
-- records the active commit SHA, worker env snapshot, and `inference` memory cap for both control and treatment
-- runs the control smoke arm, then probes and runs the `gemma4:e2b` treatment smoke arm
-- writes an experiment manifest plus per-arm snapshots under `experiments/results/`
-
-Interpretation rule:
-- use `tasks.jsonl`, worker logs, and inference logs as ground truth for pass/fail
-- treat `ab_rows.json` as secondary because failed treatment rows can otherwise inherit current DB summary state
-
-## Gemma 4 host-Metal strict swap
-
-Use this only for the strict backend-swap experiment. It keeps the Docker app stack but moves Ollama to the host so Apple Silicon can use Metal acceleration.
-
-Prerequisites:
-- host-native Ollama is installed and running on macOS
-- host Ollama has both `gemma-3-270m-custom` and `gemma4:e2b` available
-- Docker `inference` must be stopped for the run
-
-Command:
-
-```bash
-cd <REPO_ROOT>
-PYTHONPATH=. .venv/bin/python scripts/run_gemma4_host_metal_strict_swap.py
-```
-
-What it does:
-- stops Docker `inference`
-- recreates `worker`, `api`, and `pipeline` under `env/profiles/gemma4_e2b_host_metal_strict.env`
-- points the Docker app stack at `http://host.docker.internal:11434`
-- records host Ollama version, host tags, worker env snapshots, and proof that Docker `inference` remained stopped
-- runs the fixed smoke set with host-native control first and host-native `gemma4:e2b` treatment second
-
-Interpretation rules:
-- treat the run as invalid if Docker `inference` is running at any point
-- treat `tasks.jsonl`, worker logs, and host Ollama provenance artifacts as the primary evidence
-- use this experiment only to answer whether the Docker CPU-only backend was the main bottleneck; it is not baseline-valid evidence for a default policy change
-
-## Gemma 4 host-Metal quality checkpoint
-
-Use this after the strict swap has already shown the host-Metal path is runtime-viable.
-This checkpoint is about segmentation quality only.
-
-Pinned cohort:
-- `experiments/gemma4_quality_checkpoint_cohort_v1.txt`
-  - `3`
-  - `609`
-  - `933`
-
-Command:
-
-```bash
-cd <REPO_ROOT>
-PYTHONPATH=. .venv/bin/python scripts/run_gemma4_host_metal_quality_checkpoint.py
-```
-
-What it does:
-- reuses the strict host-Metal path with Docker `inference` stopped
-- reruns control `gemma-3-270m-custom` and treatment `gemma4:e2b` on the pinned heavy-agenda cohort
-- writes a blinded segmentation review packet under `review_packet/`
-- writes an automated quality checkpoint report under `analysis/`
-- records a manifest linking the strict run, review packet, and QA report
-
-Artifacts:
-- `experiments/results/<run_id>/quality_checkpoint_manifest.json`
-- `experiments/results/<run_id>/review_packet/segmentation_review_blind_v1.csv`
-- `experiments/results/<run_id>/review_packet/segmentation_review_key_v1.csv`
-- `experiments/results/<run_id>/analysis/segmentation_quality_checkpoint_report.json`
-
-Manual review rubric:
-- compare the segmented item lists against the source excerpt, not against item count alone
-- mark `major_items_missing_in_a` or `major_items_missing_in_b` only for substantively missing agenda actions, hearings, or approvals
-- mark `obvious_boilerplate_in_a` or `obvious_boilerplate_in_b` for participation notices, procedural wrappers, or other non-item noise
-- use `better_overall_option` only after checking both missing-item and boilerplate risk
+If we revive any of those experiments, move the script back into `scripts/` and refresh the runbook instead of treating the archived path as a supported command.
 
 Interpretation rules:
 - if treatment is missing a reviewer-significant major agenda item on any catalog, the checkpoint result is `Kill`, not `Iterate`

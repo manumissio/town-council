@@ -44,9 +44,7 @@ def mock_db_connect(monkeypatch, shared_engine):
     targets = [
         "pipeline.models.db_connect",
         "pipeline.agenda_worker.db_connect",
-        "pipeline.summarizer.db_connect",
         "pipeline.topic_worker.db_connect",
-        "pipeline.similarity_worker.db_connect",
         "pipeline.nlp_worker.db_connect",
         "pipeline.promote_stage.db_connect",
         "pipeline.downloader.db_connect",

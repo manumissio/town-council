@@ -1,6 +1,6 @@
 # Town Council Architecture (2026)
 
-Last updated: 2026-04-03
+Last updated: 2026-04-05
 
 ## 1) System Overview
 
@@ -387,7 +387,7 @@ Owners:
 | `catalog.summary_source_hash` | Hash of the governing summary input; `content_hash` for non-agenda summaries and `agenda_items_hash` for agenda summaries | `pipeline/tasks.py`, `api/main.py`, `pipeline/summary_freshness.py` |
 | `catalog.topics_source_hash` | Hash of source text used to generate current topics | `pipeline/tasks.py`, `pipeline/topic_worker.py`, `api/main.py` |
 | `agenda_item.result` | Normalized outcome field for agenda/vote interpretation | `pipeline/models.py`, `pipeline/tasks.py` |
-| `agenda_item.votes` | Structured vote payload with extraction metadata | `pipeline/models.py`, `pipeline/tasks.py`, `pipeline/ground_truth_sync.py` |
+| `agenda_item.votes` | Structured vote payload with extraction metadata | `pipeline/models.py`, `pipeline/tasks.py` |
 | `catalog.lineage_id`, `catalog.lineage_confidence`, `catalog.lineage_updated_at` | Meeting-level lineage identity and confidence | `pipeline/lineage_service.py`, `api/main.py` |
 | `semantic_embedding` | pgvector-backed embedding storage for hybrid semantic retrieval | `pipeline/models.py`, `pipeline/semantic_index.py`, `pipeline/tasks.py` |
 

@@ -10,7 +10,6 @@ import sqlalchemy
     [
         "pipeline.models",
         "pipeline.tasks",
-        "pipeline.ground_truth_sync",
         "pipeline.verification_service",
     ],
 )

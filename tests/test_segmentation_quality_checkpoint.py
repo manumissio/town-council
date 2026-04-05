@@ -113,9 +113,9 @@ def test_per_catalog_report_applies_severity_and_count_guardrails():
 
 
 def test_quality_checkpoint_script_contract():
-    text = Path("scripts/run_gemma4_host_metal_quality_checkpoint.py").read_text(encoding="utf-8")
+    text = Path("archive/scripts/run_gemma4_host_metal_quality_checkpoint.py").read_text(encoding="utf-8")
     assert "experiments/gemma4_quality_checkpoint_cohort_v1.txt" in text
-    assert "scripts/run_gemma4_host_metal_strict_swap.py" in text
+    assert "archive/scripts/run_gemma4_host_metal_strict_swap.py" in text
     assert "scripts/build_segmentation_review_packet.py" in text
     assert "scripts/analyze_segmentation_quality_checkpoint.py" in text
     assert "quality_checkpoint_manifest.json" in text
