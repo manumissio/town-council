@@ -10,8 +10,10 @@ from sqlalchemy import and_, func, or_, text
 from typing import Any, Callable
 
 from pipeline.backlog_maintenance import (
+    build_agenda_summary_input_bundle,
     build_deterministic_agenda_summary_payload,
     build_deterministic_agenda_summary_payloads,
+    persist_agenda_summary,
     summarize_catalog_with_maintenance_mode,
     summary_timeout_override,
 )
@@ -28,8 +30,6 @@ from pipeline.config import (
     LOCAL_AI_REQUIRE_SOLO_POOL,
     LOCAL_AI_BACKEND,
     ENABLE_VOTE_EXTRACTION,
-    AGENDA_SUMMARY_MAX_INPUT_CHARS,
-    AGENDA_SUMMARY_MIN_RESERVED_OUTPUT_CHARS,
     SEMANTIC_ENABLED,
     SEMANTIC_BACKEND,
     SEMANTIC_MODEL_NAME,
@@ -562,22 +562,22 @@ def generate_summary_task(self, catalog_id: int, force: bool = False):
         # Agenda summaries are derived from structured items, so we do not ground against the PDF text.
         do_grounding_check = True
         agenda_items_hash = catalog.agenda_items_hash
+        agenda_summary_bundle = None
         if doc_kind == "agenda":
-            # Agenda summaries must be derived from segmented agenda items so the
-            # AI Summary and Structured Agenda tabs cannot drift.
-            existing_items = (
-                db.query(AgendaItem)
-                .filter_by(catalog_id=catalog_id)
-                .order_by(AgendaItem.order)
-                .all()
+            agenda_summary_bundle = build_agenda_summary_input_bundle(
+                catalog=catalog,
+                document=doc,
+                agenda_items=(
+                    db.query(AgendaItem)
+                    .filter_by(catalog_id=catalog_id)
+                    .order_by(AgendaItem.order)
+                    .all()
+                ),
+                include_meeting_context=True,
             )
-            if not existing_items:
-                return {
-                    "status": "not_generated_yet",
-                    "reason": "Agenda summary requires segmented agenda items. Run segmentation first.",
-                    "summary": None,
-                }
-            agenda_items_hash = compute_agenda_items_hash(existing_items)
+            if agenda_summary_bundle.get("status") != "ready":
+                return agenda_summary_bundle
+            agenda_items_hash = agenda_summary_bundle["agenda_items_hash"]
             if agenda_items_hash != catalog.agenda_items_hash:
                 catalog.agenda_items_hash = agenda_items_hash
 
@@ -600,64 +600,13 @@ def generate_summary_task(self, catalog_id: int, force: bool = False):
             return {"status": "stale", "summary": catalog.summary, "changed": False}
 
         if doc_kind == "agenda":
-
-            # Filter obvious boilerplate titles defensively in case old polluted rows exist.
-            from pipeline.llm import _looks_like_agenda_segmentation_boilerplate, _should_drop_from_agenda_summary
-            summary_items = []
-            candidate_items_total = 0
-            input_chars = 0
-            max_input_chars = max(1000, AGENDA_SUMMARY_MAX_INPUT_CHARS - AGENDA_SUMMARY_MIN_RESERVED_OUTPUT_CHARS)
-            # Why this branch exists: we must cap prompt size to avoid llama.cpp context overflow
-            # when councils publish many long agenda descriptions.
-            for it in existing_items:
-                title = (it.title or "").strip()
-                if not title:
-                    continue
-                if _looks_like_agenda_segmentation_boilerplate(title):
-                    continue
-                description = (it.description or "").strip()
-                serialized = title if not description else f"{title} - {description}"
-                if _should_drop_from_agenda_summary(serialized):
-                    continue
-                candidate_items_total += 1
-                item_payload = {
-                    "title": title,
-                    "description": description,
-                    "classification": (it.classification or "").strip(),
-                    "result": (it.result or "").strip(),
-                    "page_number": int(it.page_number or 0),
-                }
-                item_block = (
-                    f"Title: {item_payload['title']}\n"
-                    f"Description: {item_payload['description']}\n"
-                    f"Classification: {item_payload['classification']}\n"
-                    f"Result: {item_payload['result']}\n"
-                    f"Page: {item_payload['page_number']}\n\n"
-                )
-                if (input_chars + len(item_block)) > max_input_chars:
-                    break
-                summary_items.append(item_payload)
-                input_chars += len(item_block)
-
-            if not summary_items:
-                return {
-                    "status": "blocked_low_signal",
-                    "reason": "No substantive agenda items detected after boilerplate filtering. Re-segment the agenda.",
-                    "summary": None,
-                }
-
             # Use all available titles, bounded only by model context. If we must truncate,
             # we disclose it in the prompt requirements.
             summary = local_ai.summarize_agenda_items(
-                meeting_title=(doc.event.name if doc and doc.event and doc.event.name else ""),
-                meeting_date=(str(doc.event.record_date) if doc and doc.event and doc.event.record_date else ""),
-                items=summary_items,
-                truncation_meta={
-                    "items_total": candidate_items_total,
-                    "items_included": len(summary_items),
-                    "items_truncated": max(0, candidate_items_total - len(summary_items)),
-                    "input_chars": input_chars,
-                },
+                meeting_title=agenda_summary_bundle["meeting_title"],
+                meeting_date=agenda_summary_bundle["meeting_date"],
+                items=agenda_summary_bundle["summary_items"],
+                truncation_meta=agenda_summary_bundle["truncation_meta"],
             )
             # Agenda summaries are derived from structured titles, not raw text.
             do_grounding_check = False
@@ -687,21 +636,34 @@ def generate_summary_task(self, catalog_id: int, force: bool = False):
                 }
         
         # Update DB
-        prior_summary = catalog.summary
-        prior_summary_source_hash = catalog.summary_source_hash
-        summary_source_hash = compute_summary_source_hash(
-            doc_kind,
-            content_hash=content_hash,
-            agenda_items_hash=agenda_items_hash,
-        )
-        catalog.summary = summary
-        if content_hash:
-            catalog.content_hash = content_hash
-        if summary_source_hash:
-            catalog.summary_source_hash = summary_source_hash
+        if doc_kind == "agenda":
+            persisted_summary = persist_agenda_summary(
+                catalog=catalog,
+                summary=summary,
+                content_hash=agenda_summary_bundle["content_hash"],
+                agenda_items_hash=agenda_summary_bundle["agenda_items_hash"],
+            )
+        else:
+            prior_summary = catalog.summary
+            prior_summary_source_hash = catalog.summary_source_hash
+            summary_source_hash = compute_summary_source_hash(
+                doc_kind,
+                content_hash=content_hash,
+                agenda_items_hash=agenda_items_hash,
+            )
+            catalog.summary = summary
+            if content_hash:
+                catalog.content_hash = content_hash
+            if summary_source_hash:
+                catalog.summary_source_hash = summary_source_hash
+            persisted_summary = {
+                "status": "complete",
+                "summary": summary,
+                "changed": bool(prior_summary != summary or prior_summary_source_hash != summary_source_hash),
+            }
         db.commit()
 
-        changed = bool(prior_summary != summary or prior_summary_source_hash != summary_source_hash)
+        changed = bool(persisted_summary["changed"])
         reindexed = 0
         reindex_failed = 0
 

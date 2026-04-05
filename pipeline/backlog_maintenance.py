@@ -21,6 +21,12 @@ from pipeline.laserfiche_error_pages import classify_catalog_bad_content
 from pipeline.models import AgendaItem, Catalog, Document
 from pipeline.summary_freshness import compute_agenda_items_hash, compute_summary_source_hash
 
+AGENDA_SUMMARY_READY_STATUS = "ready"
+AGENDA_SUMMARY_SEGMENTATION_REQUIRED_REASON = "Agenda summary requires segmented agenda items. Run segmentation first."
+AGENDA_SUMMARY_BLOCKED_LOW_SIGNAL_REASON = "No substantive agenda items detected after boilerplate filtering. Re-segment the agenda."
+AGENDA_SUMMARY_CATALOG_NOT_FOUND_ERROR = "Catalog not found"
+AGENDA_SUMMARY_DOCUMENT_NOT_FOUND_ERROR = "Document not found"
+
 
 @contextmanager
 def provider_timeout_override(*, segment_timeout_seconds: int | None = None, summary_timeout_seconds: int | None = None):
@@ -249,11 +255,74 @@ def build_deterministic_agenda_summary_payload(
     return batch["results"].get(catalog_id, {"status": "error", "error": "Catalog not found"})
 
 
-def _build_deterministic_agenda_summary_result(existing_items: list[AgendaItem]) -> dict[str, Any]:
-    if not existing_items:
+def _agenda_summary_ready_payload(
+    *,
+    catalog: Catalog,
+    content_hash: str | None,
+    agenda_items_hash: str | None,
+    summary_items: list[dict[str, Any]],
+    truncation_meta: dict[str, int],
+    meeting_title: str,
+    meeting_date: str,
+) -> dict[str, Any]:
+    return {
+        "status": AGENDA_SUMMARY_READY_STATUS,
+        "catalog": catalog,
+        "content_hash": content_hash,
+        "agenda_items_hash": agenda_items_hash,
+        "summary_items": summary_items,
+        "truncation_meta": truncation_meta,
+        "meeting_title": meeting_title,
+        "meeting_date": meeting_date,
+    }
+
+
+def _agenda_summary_item_payload(item: AgendaItem) -> dict[str, Any] | None:
+    title = (item.title or "").strip()
+    if not title:
+        return None
+    if llm_mod._looks_like_agenda_segmentation_boilerplate(title):
+        return None
+
+    description = (item.description or "").strip()
+    serialized = title if not description else f"{title} - {description}"
+    if llm_mod._should_drop_from_agenda_summary(serialized):
+        return None
+
+    return {
+        "title": title,
+        "description": description,
+        "classification": (item.classification or "").strip(),
+        "result": (item.result or "").strip(),
+        "page_number": int(item.page_number or 0),
+    }
+
+
+def _agenda_summary_item_block(summary_item: dict[str, Any]) -> str:
+    return (
+        f"Title: {summary_item['title']}\n"
+        f"Description: {summary_item['description']}\n"
+        f"Classification: {summary_item['classification']}\n"
+        f"Result: {summary_item['result']}\n"
+        f"Page: {summary_item['page_number']}\n\n"
+    )
+
+
+def build_agenda_summary_input_bundle(
+    *,
+    catalog: Catalog | None,
+    document: Document | None,
+    agenda_items: list[AgendaItem],
+    include_meeting_context: bool = False,
+) -> dict[str, Any]:
+    if catalog is None:
+        return {"status": "error", "error": AGENDA_SUMMARY_CATALOG_NOT_FOUND_ERROR}
+    if document is None:
+        return {"status": "error", "error": AGENDA_SUMMARY_DOCUMENT_NOT_FOUND_ERROR}
+    if not agenda_items:
         return {
             "status": "not_generated_yet",
-            "reason": "Agenda summary requires segmented agenda items. Run segmentation first.",
+            "reason": AGENDA_SUMMARY_SEGMENTATION_REQUIRED_REASON,
             "summary": None,
         }
 
@@ -261,53 +330,89 @@ def _build_deterministic_agenda_summary_result(existing_items: list[AgendaItem])
     candidate_items_total = 0
     input_chars = 0
     max_input_chars = max(1000, AGENDA_SUMMARY_MAX_INPUT_CHARS - AGENDA_SUMMARY_MIN_RESERVED_OUTPUT_CHARS)
-    for item in existing_items:
-        title = (item.title or "").strip()
-        if not title:
-            continue
-        if llm_mod._looks_like_agenda_segmentation_boilerplate(title):
-            continue
-        description = (item.description or "").strip()
-        serialized = title if not description else f"{title} - {description}"
-        if llm_mod._should_drop_from_agenda_summary(serialized):
+    for item in agenda_items:
+        summary_item = _agenda_summary_item_payload(item)
+        if summary_item is None:
             continue
         candidate_items_total += 1
-        payload = {
-            "title": title,
-            "description": description,
-            "classification": (item.classification or "").strip(),
-            "result": (item.result or "").strip(),
-            "page_number": int(item.page_number or 0),
-        }
-        item_block = (
-            f"Title: {payload['title']}\n"
-            f"Description: {payload['description']}\n"
-            f"Classification: {payload['classification']}\n"
-            f"Result: {payload['result']}\n"
-            f"Page: {payload['page_number']}\n\n"
-        )
+        item_block = _agenda_summary_item_block(summary_item)
         if (input_chars + len(item_block)) > max_input_chars:
             break
-        summary_items.append(payload)
+        summary_items.append(summary_item)
         input_chars += len(item_block)
 
     if not summary_items:
         return {
             "status": "blocked_low_signal",
-            "reason": "No substantive agenda items detected after boilerplate filtering. Re-segment the agenda.",
+            "reason": AGENDA_SUMMARY_BLOCKED_LOW_SIGNAL_REASON,
             "summary": None,
         }
 
+    content_hash = compute_content_hash(catalog.content) if (catalog.content or "") else None
+    agenda_items_hash = compute_agenda_items_hash(agenda_items)
+    truncation_meta = {
+        "items_total": candidate_items_total,
+        "items_included": len(summary_items),
+        "items_truncated": max(0, candidate_items_total - len(summary_items)),
+        "input_chars": input_chars,
+    }
+    meeting_title = ""
+    meeting_date = ""
+    if include_meeting_context:
+        event = getattr(document, "event", None)
+        meeting_title = event.name if event and event.name else ""
+        meeting_date = str(event.record_date) if event and event.record_date else ""
+    return _agenda_summary_ready_payload(
+        catalog=catalog,
+        content_hash=content_hash,
+        agenda_items_hash=agenda_items_hash,
+        summary_items=summary_items,
+        truncation_meta=truncation_meta,
+        meeting_title=meeting_title,
+        meeting_date=meeting_date,
+    )
+
+
+def _build_deterministic_agenda_summary_result(summary_bundle: dict[str, Any]) -> dict[str, Any]:
     summary = llm_mod._deterministic_agenda_items_summary(
-        summary_items,
-        truncation_meta={
-            "items_total": candidate_items_total,
-            "items_included": len(summary_items),
-            "items_truncated": max(0, candidate_items_total - len(summary_items)),
-            "input_chars": input_chars,
-        },
+        summary_bundle["summary_items"],
+        truncation_meta=summary_bundle["truncation_meta"],
     )
     return {"status": "complete", "summary": summary}
+
+
+def persist_agenda_summary(
+    *,
+    catalog: Catalog,
+    summary: str,
+    content_hash: str | None,
+    agenda_items_hash: str | None,
+) -> dict[str, Any]:
+    prior_summary = catalog.summary
+    prior_summary_source_hash = catalog.summary_source_hash
+    prior_agenda_items_hash = catalog.agenda_items_hash
+    summary_source_hash = compute_summary_source_hash(
+        "agenda",
+        content_hash=content_hash,
+        agenda_items_hash=agenda_items_hash,
+    )
+    catalog.summary = summary
+    if content_hash:
+        catalog.content_hash = content_hash
+    catalog.agenda_items_hash = agenda_items_hash
+    if summary_source_hash:
+        catalog.summary_source_hash = summary_source_hash
+
+    changed = bool(
+        prior_summary != summary
+        or prior_summary_source_hash != summary_source_hash
+        or prior_agenda_items_hash != agenda_items_hash
+    )
+    return {
+        "status": "complete",
+        "summary": summary,
+        "changed": changed,
+    }
 
 
 def build_deterministic_agenda_summary_payloads(
@@ -353,50 +458,33 @@ def build_deterministic_agenda_summary_payloads(
         for catalog_id in ordered_catalog_ids:
             catalog = catalogs.get(catalog_id)
             if not catalog:
-                results[catalog_id] = {"status": "error", "error": "Catalog not found"}
+                results[catalog_id] = {"status": "error", "error": AGENDA_SUMMARY_CATALOG_NOT_FOUND_ERROR}
                 continue
             classification = classify_catalog_bad_content(catalog)
             if classification:
                 results[catalog_id] = {"status": "error", "error": classification.reason}
                 continue
-            if catalog_id not in documents_by_catalog_id:
-                results[catalog_id] = {"status": "error", "error": "Document not found"}
+
+            summary_bundle = build_agenda_summary_input_bundle(
+                catalog=catalog,
+                document=documents_by_catalog_id.get(catalog_id),
+                agenda_items=agenda_items_by_catalog_id.get(catalog_id, []),
+            )
+            if summary_bundle.get("status") != AGENDA_SUMMARY_READY_STATUS:
+                results[catalog_id] = summary_bundle
                 continue
 
-            content_hash = compute_content_hash(catalog.content) if (catalog.content or "") else None
-            agenda_items = agenda_items_by_catalog_id.get(catalog_id, [])
-            agenda_items_hash = compute_agenda_items_hash(agenda_items)
-            result = _build_deterministic_agenda_summary_result(agenda_items)
-            if result.get("status") != "complete":
-                results[catalog_id] = result
-                continue
-
-            summary = str(result.get("summary") or "")
-            prior_summary = catalog.summary
-            prior_summary_source_hash = catalog.summary_source_hash
-            prior_agenda_items_hash = catalog.agenda_items_hash
-            summary_source_hash = compute_summary_source_hash(
-                "agenda",
-                content_hash=content_hash,
-                agenda_items_hash=agenda_items_hash,
+            summary_result = _build_deterministic_agenda_summary_result(summary_bundle)
+            persisted_result = persist_agenda_summary(
+                catalog=catalog,
+                summary=str(summary_result.get("summary") or ""),
+                content_hash=summary_bundle["content_hash"],
+                agenda_items_hash=summary_bundle["agenda_items_hash"],
             )
-            catalog.summary = summary
-            if content_hash:
-                catalog.content_hash = content_hash
-            catalog.agenda_items_hash = agenda_items_hash
-            if summary_source_hash:
-                catalog.summary_source_hash = summary_source_hash
-
-            changed = bool(
-                prior_summary != summary
-                or prior_summary_source_hash != summary_source_hash
-                or prior_agenda_items_hash != agenda_items_hash
-            )
-            if changed:
+            if persisted_result["changed"]:
                 changed_catalog_ids.append(catalog_id)
             results[catalog_id] = {
-                **result,
-                "changed": changed,
+                **persisted_result,
                 "completion_mode": "agenda_deterministic",
             }
         session.commit()
