@@ -1,4 +1,5 @@
 import csv
+import logging
 import os
 from typing import Optional
 from urllib.parse import urlparse
@@ -6,6 +7,18 @@ from sqlalchemy.orm import sessionmaker
 from sqlalchemy.exc import SQLAlchemyError
 
 from pipeline.models import Place, db_connect, create_tables
+
+LOGGER_NAME = "seed-places"
+LOGGER_FORMAT = "%(asctime)s - %(levelname)s - %(message)s"
+CITY_METADATA_PATH = os.path.join(os.path.dirname(__file__), "..", "city_metadata", "list_of_cities.csv")
+
+logger = logging.getLogger(LOGGER_NAME)
+
+
+def _configure_cli_logging() -> None:
+    """Keep logging setup at the entrypoint so imports stay side-effect free."""
+    logging.basicConfig(level=logging.INFO, format=LOGGER_FORMAT)
+
 
 def _derive_legistar_client(seed_url: str, hosting_services: str) -> Optional[str]:
     """
@@ -47,17 +60,17 @@ def seed_places():
     """
     engine = db_connect()
     create_tables(engine)
-    Session = sessionmaker(bind=engine)
-    session = Session()
+    session_factory = sessionmaker(bind=engine)
+    session = session_factory()
 
     # Locate the CSV file containing the city list.
-    csv_path = os.path.join(os.path.dirname(__file__), '..', 'city_metadata', 'list_of_cities.csv')
+    csv_path = CITY_METADATA_PATH
     
     if not os.path.exists(csv_path):
-        print(f"Error: Metadata file not found at {csv_path}")
+        logger.error("Metadata file not found at %s", csv_path)
         return
 
-    print(f"Seeding places from {csv_path}...")
+    logger.info("Seeding places from %s...", csv_path)
 
     with open(csv_path, mode='r', encoding='utf-8') as f:
         reader = csv.DictReader(f)
@@ -90,27 +103,34 @@ def seed_places():
                     crawler_type='scrapy'
                 )
                 session.add(place)
-                print(f"Added place: {row['display_name']}")
+                logger.info("Added place: %s", row["display_name"])
             else:
                 # If it exists, update the URL and hosting service details just in case they changed.
                 existing.seed_url = row['city_council_url']
                 existing.hosting_service = row['hosting_services']
                 existing.legistar_client = legistar_client
-                print(f"Updated place: {row['display_name']}")
+                logger.info("Updated place: %s", row["display_name"])
 
     try:
         session.commit()
-        print("Seeding complete.")
+        logger.info("Seeding complete.")
     except (SQLAlchemyError, OSError, ValueError) as e:
         # Seeding errors: What can fail when loading city data?
         # - SQLAlchemyError: Database error (duplicate city, invalid foreign key)
         # - OSError: CSV file not found or unreadable
         # - ValueError: Malformed CSV (missing columns, invalid data)
         # Why rollback? Partial seeding creates inconsistent state
-        print(f"Error during seeding: {e}")
+        logger.error("Error during seeding: %s", e, exc_info=True)
         session.rollback()
     finally:
         session.close()
 
-if __name__ == "__main__":
+
+def main() -> int:
+    _configure_cli_logging()
     seed_places()
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())
