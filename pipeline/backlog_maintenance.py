@@ -5,6 +5,7 @@ import re
 from collections import Counter, defaultdict
 from contextlib import contextmanager
 from datetime import datetime, timezone
+from time import perf_counter
 from typing import Any, Callable
 
 from sqlalchemy.exc import SQLAlchemyError
@@ -26,6 +27,18 @@ AGENDA_SUMMARY_SEGMENTATION_REQUIRED_REASON = "Agenda summary requires segmented
 AGENDA_SUMMARY_BLOCKED_LOW_SIGNAL_REASON = "No substantive agenda items detected after boilerplate filtering. Re-segment the agenda."
 AGENDA_SUMMARY_CATALOG_NOT_FOUND_ERROR = "Catalog not found"
 AGENDA_SUMMARY_DOCUMENT_NOT_FOUND_ERROR = "Document not found"
+AGENDA_SUMMARY_BUNDLE_BUILD_MS = "agenda_summary_bundle_build_ms"
+AGENDA_SUMMARY_RENDER_MS = "agenda_summary_render_ms"
+AGENDA_SUMMARY_PERSIST_MS = "agenda_summary_persist_ms"
+AGENDA_SUMMARY_REINDEX_MS = "agenda_summary_reindex_ms"
+AGENDA_SUMMARY_EMBED_DISPATCH_MS = "agenda_summary_embed_dispatch_ms"
+AGENDA_SUMMARY_TIMING_KEYS = (
+    AGENDA_SUMMARY_BUNDLE_BUILD_MS,
+    AGENDA_SUMMARY_RENDER_MS,
+    AGENDA_SUMMARY_PERSIST_MS,
+    AGENDA_SUMMARY_REINDEX_MS,
+    AGENDA_SUMMARY_EMBED_DISPATCH_MS,
+)
 
 
 @contextmanager
@@ -308,6 +321,21 @@ def _agenda_summary_item_block(summary_item: dict[str, Any]) -> str:
     )
 
 
+def _empty_agenda_summary_timings() -> dict[str, float]:
+    return {metric_name: 0 for metric_name in AGENDA_SUMMARY_TIMING_KEYS}
+
+
+def _elapsed_millis(started_at: float) -> float:
+    return (perf_counter() - started_at) * 1000.0
+
+
+def _rounded_agenda_summary_timings(agenda_summary_timings: dict[str, float]) -> dict[str, int]:
+    return {
+        metric_name: int(round(agenda_summary_timings.get(metric_name, 0.0)))
+        for metric_name in AGENDA_SUMMARY_TIMING_KEYS
+    }
+
+
 def build_agenda_summary_input_bundle(
     *,
     catalog: Catalog | None,
@@ -381,6 +409,99 @@ def _build_deterministic_agenda_summary_result(summary_bundle: dict[str, Any]) -
     return {"status": "complete", "summary": summary}
 
 
+def _time_agenda_summary_bundle_build(
+    agenda_summary_timings: dict[str, int],
+    *,
+    catalog: Catalog | None,
+    document: Document | None,
+    agenda_items: list[AgendaItem],
+) -> dict[str, Any]:
+    # Batch profiling needs this split so we can tell setup cost from render cost.
+    started_at = perf_counter()
+    summary_bundle = build_agenda_summary_input_bundle(
+        catalog=catalog,
+        document=document,
+        agenda_items=agenda_items,
+    )
+    agenda_summary_timings[AGENDA_SUMMARY_BUNDLE_BUILD_MS] += _elapsed_millis(started_at)
+    return summary_bundle
+
+
+def _time_agenda_summary_render(
+    agenda_summary_timings: dict[str, int],
+    summary_bundle: dict[str, Any],
+) -> dict[str, Any]:
+    # Deterministic rendering is the last summarize-specific CPU step before DB writes.
+    started_at = perf_counter()
+    summary_result = _build_deterministic_agenda_summary_result(summary_bundle)
+    agenda_summary_timings[AGENDA_SUMMARY_RENDER_MS] += _elapsed_millis(started_at)
+    return summary_result
+
+
+def _time_reindex_callback(
+    agenda_summary_timings: dict[str, int],
+    changed_catalog_ids: list[int],
+    reindex_callback: Callable[[list[int]], Any] | None,
+) -> dict[str, Any]:
+    reindex_summary = {"catalogs_considered": 0, "catalogs_reindexed": 0, "catalogs_failed": 0, "failed_catalog_ids": []}
+    if not changed_catalog_ids or reindex_callback is None:
+        return reindex_summary
+
+    started_at = perf_counter()
+    try:
+        payload = reindex_callback(changed_catalog_ids)
+        if isinstance(payload, dict):
+            reindex_summary = {
+                "catalogs_considered": int(payload.get("catalogs_considered") or len(changed_catalog_ids)),
+                "catalogs_reindexed": int(payload.get("catalogs_reindexed") or 0),
+                "catalogs_failed": int(payload.get("catalogs_failed") or 0),
+                "failed_catalog_ids": list(payload.get("failed_catalog_ids") or []),
+            }
+    except Exception as exc:
+        reindex_summary = {
+            "catalogs_considered": len(changed_catalog_ids),
+            "catalogs_reindexed": 0,
+            "catalogs_failed": len(changed_catalog_ids),
+            "failed_catalog_ids": list(changed_catalog_ids),
+            "error": str(exc),
+        }
+    finally:
+        agenda_summary_timings[AGENDA_SUMMARY_REINDEX_MS] += _elapsed_millis(started_at)
+    return reindex_summary
+
+
+def _time_embed_callback(
+    agenda_summary_timings: dict[str, int],
+    changed_catalog_ids: list[int],
+    embed_callback: Callable[[list[int]], Any] | None,
+) -> dict[str, Any]:
+    embed_summary = {"catalogs_considered": 0, "embed_enqueued": 0, "embed_dispatch_failed": 0, "failed_catalog_ids": []}
+    if not changed_catalog_ids or embed_callback is None:
+        return embed_summary
+
+    started_at = perf_counter()
+    try:
+        payload = embed_callback(changed_catalog_ids)
+        if isinstance(payload, dict):
+            embed_summary = {
+                "catalogs_considered": int(payload.get("catalogs_considered") or len(changed_catalog_ids)),
+                "embed_enqueued": int(payload.get("embed_enqueued") or 0),
+                "embed_dispatch_failed": int(payload.get("embed_dispatch_failed") or 0),
+                "failed_catalog_ids": list(payload.get("failed_catalog_ids") or []),
+            }
+    except Exception as exc:
+        embed_summary = {
+            "catalogs_considered": len(changed_catalog_ids),
+            "embed_enqueued": 0,
+            "embed_dispatch_failed": len(changed_catalog_ids),
+            "failed_catalog_ids": list(changed_catalog_ids),
+            "error": str(exc),
+        }
+    finally:
+        agenda_summary_timings[AGENDA_SUMMARY_EMBED_DISPATCH_MS] += _elapsed_millis(started_at)
+    return embed_summary
+
+
 def persist_agenda_summary(
     *,
     catalog: Catalog,
@@ -428,8 +549,10 @@ def build_deterministic_agenda_summary_payloads(
             "changed_catalog_ids": [],
             "reindex_summary": {"catalogs_considered": 0, "catalogs_reindexed": 0, "catalogs_failed": 0, "failed_catalog_ids": []},
             "embed_summary": {"catalogs_considered": 0, "embed_enqueued": 0, "embed_dispatch_failed": 0, "failed_catalog_ids": []},
+            "agenda_summary_timings": _rounded_agenda_summary_timings(_empty_agenda_summary_timings()),
         }
 
+    agenda_summary_timings = _empty_agenda_summary_timings()
     with db_session() as session:
         catalogs = {
             catalog.id: catalog
@@ -465,7 +588,8 @@ def build_deterministic_agenda_summary_payloads(
                 results[catalog_id] = {"status": "error", "error": classification.reason}
                 continue
 
-            summary_bundle = build_agenda_summary_input_bundle(
+            summary_bundle = _time_agenda_summary_bundle_build(
+                agenda_summary_timings,
                 catalog=catalog,
                 document=documents_by_catalog_id.get(catalog_id),
                 agenda_items=agenda_items_by_catalog_id.get(catalog_id, []),
@@ -474,66 +598,34 @@ def build_deterministic_agenda_summary_payloads(
                 results[catalog_id] = summary_bundle
                 continue
 
-            summary_result = _build_deterministic_agenda_summary_result(summary_bundle)
+            summary_result = _time_agenda_summary_render(agenda_summary_timings, summary_bundle)
+            persist_started_at = perf_counter()
             persisted_result = persist_agenda_summary(
                 catalog=catalog,
                 summary=str(summary_result.get("summary") or ""),
                 content_hash=summary_bundle["content_hash"],
                 agenda_items_hash=summary_bundle["agenda_items_hash"],
             )
+            agenda_summary_timings[AGENDA_SUMMARY_PERSIST_MS] += _elapsed_millis(persist_started_at)
             if persisted_result["changed"]:
                 changed_catalog_ids.append(catalog_id)
             results[catalog_id] = {
                 **persisted_result,
                 "completion_mode": "agenda_deterministic",
             }
+        commit_started_at = perf_counter()
         session.commit()
+        agenda_summary_timings[AGENDA_SUMMARY_PERSIST_MS] += _elapsed_millis(commit_started_at)
 
-    reindex_summary = {"catalogs_considered": 0, "catalogs_reindexed": 0, "catalogs_failed": 0, "failed_catalog_ids": []}
-    if changed_catalog_ids and reindex_callback is not None:
-        try:
-            payload = reindex_callback(changed_catalog_ids)
-            if isinstance(payload, dict):
-                reindex_summary = {
-                    "catalogs_considered": int(payload.get("catalogs_considered") or len(changed_catalog_ids)),
-                    "catalogs_reindexed": int(payload.get("catalogs_reindexed") or 0),
-                    "catalogs_failed": int(payload.get("catalogs_failed") or 0),
-                    "failed_catalog_ids": list(payload.get("failed_catalog_ids") or []),
-                }
-        except Exception as exc:
-            reindex_summary = {
-                "catalogs_considered": len(changed_catalog_ids),
-                "catalogs_reindexed": 0,
-                "catalogs_failed": len(changed_catalog_ids),
-                "failed_catalog_ids": list(changed_catalog_ids),
-                "error": str(exc),
-            }
-
-    embed_summary = {"catalogs_considered": 0, "embed_enqueued": 0, "embed_dispatch_failed": 0, "failed_catalog_ids": []}
-    if changed_catalog_ids and embed_callback is not None:
-        try:
-            payload = embed_callback(changed_catalog_ids)
-            if isinstance(payload, dict):
-                embed_summary = {
-                    "catalogs_considered": int(payload.get("catalogs_considered") or len(changed_catalog_ids)),
-                    "embed_enqueued": int(payload.get("embed_enqueued") or 0),
-                    "embed_dispatch_failed": int(payload.get("embed_dispatch_failed") or 0),
-                    "failed_catalog_ids": list(payload.get("failed_catalog_ids") or []),
-                }
-        except Exception as exc:
-            embed_summary = {
-                "catalogs_considered": len(changed_catalog_ids),
-                "embed_enqueued": 0,
-                "embed_dispatch_failed": len(changed_catalog_ids),
-                "failed_catalog_ids": list(changed_catalog_ids),
-                "error": str(exc),
-            }
+    reindex_summary = _time_reindex_callback(agenda_summary_timings, changed_catalog_ids, reindex_callback)
+    embed_summary = _time_embed_callback(agenda_summary_timings, changed_catalog_ids, embed_callback)
 
     return {
         "results": results,
         "changed_catalog_ids": changed_catalog_ids,
         "reindex_summary": reindex_summary,
         "embed_summary": embed_summary,
+        "agenda_summary_timings": _rounded_agenda_summary_timings(agenda_summary_timings),
     }
 
 

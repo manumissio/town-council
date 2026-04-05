@@ -40,6 +40,18 @@ PAIRWISE_CONTROLLED_PROFILE_KEYS = (
     "WORKER_POOL",
     "OLLAMA_NUM_PARALLEL",
 )
+AGENDA_SUMMARY_BUNDLE_BUILD_MS = "agenda_summary_bundle_build_ms"
+AGENDA_SUMMARY_RENDER_MS = "agenda_summary_render_ms"
+AGENDA_SUMMARY_PERSIST_MS = "agenda_summary_persist_ms"
+AGENDA_SUMMARY_REINDEX_MS = "agenda_summary_reindex_ms"
+AGENDA_SUMMARY_EMBED_DISPATCH_MS = "agenda_summary_embed_dispatch_ms"
+AGENDA_SUMMARY_SUBPHASE_KEYS = (
+    AGENDA_SUMMARY_BUNDLE_BUILD_MS,
+    AGENDA_SUMMARY_RENDER_MS,
+    AGENDA_SUMMARY_PERSIST_MS,
+    AGENDA_SUMMARY_REINDEX_MS,
+    AGENDA_SUMMARY_EMBED_DISPATCH_MS,
+)
 
 
 def _load_json(path: Path) -> dict[str, Any]:
@@ -146,6 +158,16 @@ def _coerce_counter_value(raw: str) -> int | str:
     return value
 
 
+def _safe_int_counter(counter_values: dict[str, int | str], key: str) -> int:
+    raw_value = counter_values.get(key, 0)
+    if isinstance(raw_value, int):
+        return raw_value
+    try:
+        return int(str(raw_value).strip())
+    except (TypeError, ValueError):
+        return 0
+
+
 def _load_latest_counter_line(run_dir: Path, prefix: str) -> dict[str, int | str]:
     commands_log = run_dir / "commands.log"
     if not commands_log.exists():
@@ -174,14 +196,21 @@ def _classify_summary_phase(
 ) -> tuple[str, float]:
     if queue_wait_s > 0 and queue_wait_s >= max(1.0, execution_s * 0.5):
         return "queueing", 0.0
-    llm_complete = int(summary_counts.get("llm_complete") or 0)
-    deterministic_fallback_complete = int(summary_counts.get("deterministic_fallback_complete") or 0)
-    agenda_deterministic_complete = int(summary_counts.get("agenda_deterministic_complete") or 0)
+    llm_complete = _safe_int_counter(summary_counts, "llm_complete")
+    deterministic_fallback_complete = _safe_int_counter(summary_counts, "deterministic_fallback_complete")
+    agenda_deterministic_complete = _safe_int_counter(summary_counts, "agenda_deterministic_complete")
     if llm_complete > 0 or deterministic_fallback_complete > 0:
         return "inference/provider", float(llm_complete + deterministic_fallback_complete)
     if agenda_deterministic_complete > 0:
         return "CPU/parsing", 0.0
     return _classify_bottleneck("summarize", contribution_pct, queue_wait_s, execution_s), 0.0
+
+
+def _extract_summary_subphase_timings(summary_counts: dict[str, int | str]) -> dict[str, int]:
+    return {
+        metric_name: _safe_int_counter(summary_counts, metric_name)
+        for metric_name in AGENDA_SUMMARY_SUBPHASE_KEYS
+    }
 
 
 def _aggregate_phase_rows(spans: list[dict[str, Any]]) -> dict[str, dict[str, Any]]:
@@ -312,6 +341,8 @@ def rank_bottlenecks(run_dir: Path) -> dict[str, Any]:
         "elapsed_source": total_note or "result_totals",
         "top_bottlenecks": top_three,
         "all_phases": ranked,
+        "summary_hydration_backfill": summary_hydration_counts,
+        "summarize_subphase_timings_ms": _extract_summary_subphase_timings(summary_hydration_counts),
     }
 
 
@@ -573,6 +604,19 @@ def render_report(summary: dict[str, Any]) -> str:
                 f"   - queue_wait_s: `{item['queue_wait_s']}`",
                 f"   - task_duration_s: `{item['task_duration_s']}`",
                 f"   - occurrence_count: `{item['occurrence_count']}`",
+            ]
+        )
+    summary_timings = summary.get("summarize_subphase_timings_ms") or {}
+    if any(int(summary_timings.get(metric_name) or 0) > 0 for metric_name in AGENDA_SUMMARY_SUBPHASE_KEYS):
+        lines.extend(
+            [
+                "",
+                "## Summarize Subphase Timings (ms)",
+                f"- `{AGENDA_SUMMARY_BUNDLE_BUILD_MS}`: `{int(summary_timings.get(AGENDA_SUMMARY_BUNDLE_BUILD_MS) or 0)}`",
+                f"- `{AGENDA_SUMMARY_RENDER_MS}`: `{int(summary_timings.get(AGENDA_SUMMARY_RENDER_MS) or 0)}`",
+                f"- `{AGENDA_SUMMARY_PERSIST_MS}`: `{int(summary_timings.get(AGENDA_SUMMARY_PERSIST_MS) or 0)}`",
+                f"- `{AGENDA_SUMMARY_REINDEX_MS}`: `{int(summary_timings.get(AGENDA_SUMMARY_REINDEX_MS) or 0)}`",
+                f"- `{AGENDA_SUMMARY_EMBED_DISPATCH_MS}`: `{int(summary_timings.get(AGENDA_SUMMARY_EMBED_DISPATCH_MS) or 0)}`",
             ]
         )
     return "\n".join(lines) + "\n"

@@ -10,6 +10,11 @@ from sqlalchemy import and_, func, or_, text
 from typing import Any, Callable
 
 from pipeline.backlog_maintenance import (
+    AGENDA_SUMMARY_BUNDLE_BUILD_MS,
+    AGENDA_SUMMARY_EMBED_DISPATCH_MS,
+    AGENDA_SUMMARY_PERSIST_MS,
+    AGENDA_SUMMARY_REINDEX_MS,
+    AGENDA_SUMMARY_RENDER_MS,
     build_agenda_summary_input_bundle,
     build_deterministic_agenda_summary_payload,
     build_deterministic_agenda_summary_payloads,
@@ -337,6 +342,11 @@ def run_summary_hydration_backfill(
         "reindex_failed": 0,
         "embed_enqueued": 0,
         "embed_dispatch_failed": 0,
+        AGENDA_SUMMARY_BUNDLE_BUILD_MS: 0,
+        AGENDA_SUMMARY_RENDER_MS: 0,
+        AGENDA_SUMMARY_PERSIST_MS: 0,
+        AGENDA_SUMMARY_REINDEX_MS: 0,
+        AGENDA_SUMMARY_EMBED_DISPATCH_MS: 0,
     }
     if not catalog_ids:
         logger.info("summary_hydration_backfill selected=0")
@@ -382,6 +392,12 @@ def run_summary_hydration_backfill(
         embed_summary = agenda_batch.get("embed_summary") or {}
         counts["embed_enqueued"] += int(embed_summary.get("embed_enqueued") or 0)
         counts["embed_dispatch_failed"] += int(embed_summary.get("embed_dispatch_failed") or 0)
+        agenda_summary_timings = agenda_batch.get("agenda_summary_timings") or {}
+        counts[AGENDA_SUMMARY_BUNDLE_BUILD_MS] += int(agenda_summary_timings.get(AGENDA_SUMMARY_BUNDLE_BUILD_MS) or 0)
+        counts[AGENDA_SUMMARY_RENDER_MS] += int(agenda_summary_timings.get(AGENDA_SUMMARY_RENDER_MS) or 0)
+        counts[AGENDA_SUMMARY_PERSIST_MS] += int(agenda_summary_timings.get(AGENDA_SUMMARY_PERSIST_MS) or 0)
+        counts[AGENDA_SUMMARY_REINDEX_MS] += int(agenda_summary_timings.get(AGENDA_SUMMARY_REINDEX_MS) or 0)
+        counts[AGENDA_SUMMARY_EMBED_DISPATCH_MS] += int(agenda_summary_timings.get(AGENDA_SUMMARY_EMBED_DISPATCH_MS) or 0)
 
     with summary_timeout_override(summary_timeout_seconds):
         for index, cid in enumerate(catalog_ids, start=1):
@@ -434,7 +450,7 @@ def run_summary_hydration_backfill(
                 )
 
     logger.info(
-        "summary_hydration_backfill selected=%s complete=%s changed_catalogs=%s cached=%s stale=%s blocked_low_signal=%s blocked_ungrounded=%s not_generated_yet=%s error=%s other=%s agenda_deterministic_complete=%s llm_complete=%s deterministic_fallback_complete=%s reindexed=%s reindex_failed=%s embed_enqueued=%s embed_dispatch_failed=%s",
+        "summary_hydration_backfill selected=%s complete=%s changed_catalogs=%s cached=%s stale=%s blocked_low_signal=%s blocked_ungrounded=%s not_generated_yet=%s error=%s other=%s agenda_deterministic_complete=%s llm_complete=%s deterministic_fallback_complete=%s reindexed=%s reindex_failed=%s embed_enqueued=%s embed_dispatch_failed=%s agenda_summary_bundle_build_ms=%s agenda_summary_render_ms=%s agenda_summary_persist_ms=%s agenda_summary_reindex_ms=%s agenda_summary_embed_dispatch_ms=%s",
         counts["selected"],
         counts["complete"],
         counts["changed_catalogs"],
@@ -452,6 +468,11 @@ def run_summary_hydration_backfill(
         counts["reindex_failed"],
         counts["embed_enqueued"],
         counts["embed_dispatch_failed"],
+        counts[AGENDA_SUMMARY_BUNDLE_BUILD_MS],
+        counts[AGENDA_SUMMARY_RENDER_MS],
+        counts[AGENDA_SUMMARY_PERSIST_MS],
+        counts[AGENDA_SUMMARY_REINDEX_MS],
+        counts[AGENDA_SUMMARY_EMBED_DISPATCH_MS],
     )
     if progress_callback:
         progress_callback({"event_type": "stage_finish", "stage": "summary", "counts": counts.copy()})
