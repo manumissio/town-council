@@ -439,6 +439,13 @@ def test_run_summary_hydration_backfill_counts_outcomes(mocker):
             "changed_catalog_ids": [1],
             "reindex_summary": {"catalogs_considered": 1, "catalogs_reindexed": 1, "catalogs_failed": 0, "failed_catalog_ids": []},
             "embed_summary": {"catalogs_considered": 1, "embed_enqueued": 1, "embed_dispatch_failed": 0, "failed_catalog_ids": []},
+            "agenda_summary_timings": {
+                "agenda_summary_bundle_build_ms": 11,
+                "agenda_summary_render_ms": 22,
+                "agenda_summary_persist_ms": 33,
+                "agenda_summary_reindex_ms": 44,
+                "agenda_summary_embed_dispatch_ms": 55,
+            },
         },
     )
     summarize_spy = mocker.patch(
@@ -459,6 +466,11 @@ def test_run_summary_hydration_backfill_counts_outcomes(mocker):
     assert counts["reindex_failed"] == 0
     assert counts["embed_enqueued"] == 2
     assert counts["embed_dispatch_failed"] == 0
+    assert counts["agenda_summary_bundle_build_ms"] == 11
+    assert counts["agenda_summary_render_ms"] == 22
+    assert counts["agenda_summary_persist_ms"] == 33
+    assert counts["agenda_summary_reindex_ms"] == 44
+    assert counts["agenda_summary_embed_dispatch_ms"] == 55
     batch_spy.assert_called_once()
     summarize_spy.assert_called_once()
 
