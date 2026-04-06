@@ -84,6 +84,7 @@ Do:
 - Run targeted verification before completion.
 - Report exact commands and outcomes.
 - Run `./.venv/bin/ruff check api pipeline scripts tests` when changing Python code, guardrail config, or guardrail workflow files.
+- Run `./.venv/bin/mypy api/metrics.py pipeline/summary_freshness.py scripts/analyze_pipeline_profile.py` when changing the typed subtree or type-check config.
 - When task scope, affected files, or applicable verification row is ambiguous, stop and ask before proceeding. Do not resolve ambiguity with assumptions.
 - Make one logical change, run its verification row, confirm pass, then proceed to the next change.
 - All verification commands must be reported exactly as run, with pass/fail outcome.
@@ -103,8 +104,9 @@ Docs-only changes (`README.md`, `docs/**`, `AGENTS.md`, `ARCHITECTURE.md`):
 - Required: `PYTHONPATH=. .venv/bin/pytest -q tests/test_docs_links.py`
 - Optional (if architecture/policy text changed materially): `PYTHONPATH=. .venv/bin/pytest -q tests/test_env_example_profile_alignment.py`
 
-Guardrail/tooling changes (`ruff.toml`, `.pre-commit-config.yaml`, `.github/workflows/python-guardrails.yml`, `tests/test_repository_guardrails.py`):
+Guardrail/tooling changes (`ruff.toml`, `mypy.ini`, `.pre-commit-config.yaml`, `.github/workflows/python-guardrails.yml`, `tests/test_repository_guardrails.py`):
 - `./.venv/bin/ruff check api pipeline scripts tests`
+- `./.venv/bin/mypy api/metrics.py pipeline/summary_freshness.py scripts/analyze_pipeline_profile.py`
 - `PYTHONPATH=. .venv/bin/pytest -q tests/test_repository_guardrails.py`
 - `PYTHONPATH=. .venv/bin/pytest -q tests/test_docs_links.py`
 

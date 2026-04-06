@@ -12,6 +12,7 @@ on:
       - "api/**"
       - "scripts/**"
       - "tests/**"
+      - "mypy.ini"
       - "ruff.toml"
   push:
     branches: ["master"]
@@ -25,6 +26,7 @@ on:
       - "api/**"
       - "scripts/**"
       - "tests/**"
+      - "mypy.ini"
       - "ruff.toml"
 
 jobs:
@@ -43,6 +45,9 @@ jobs:
       - name: Run static guardrails
         run: python -m ruff check api pipeline scripts tests
 
+      - name: Run typed subtree checks
+        run: python -m mypy api/metrics.py pipeline/summary_freshness.py scripts/analyze_pipeline_profile.py
+
       - name: Run guardrail tests
         run: |
           PYTHONPATH=. python -m pytest -q tests/test_repository_guardrails.py
@@ -51,4 +56,3 @@ jobs:
           PYTHONPATH=. python -m pytest -q tests/test_summary_staleness.py
           PYTHONPATH=. python -m pytest -q tests/test_pipeline_profile_report.py
           PYTHONPATH=. python -m pytest -q tests/test_docs_links.py
-
