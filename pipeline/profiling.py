@@ -6,7 +6,7 @@ import json
 import os
 from pathlib import Path
 import time
-from typing import Any, Iterator
+from typing import Any, Iterator, Protocol, Sequence, TypeVar
 
 
 PROFILE_RUN_ID_ENV = "TC_PROFILE_RUN_ID"
@@ -18,6 +18,18 @@ PROFILE_WORKLOAD_ONLY_ENV = "TC_PROFILE_WORKLOAD_ONLY"
 
 _REPO_ROOT = Path(__file__).resolve().parents[1]
 _SELECTED_IDS_CACHE: tuple[str | None, set[int] | None] = (None, None)
+QueryT = TypeVar("QueryT", bound="CatalogScopedQuery")
+
+
+class CatalogIdPredicate(Protocol):
+    def in_(self, values: Sequence[int]) -> object:
+        ...
+
+
+class CatalogScopedQuery(Protocol):
+    # Keep the typing local to profiling so callers do not need SQLAlchemy-specific imports.
+    def filter(self: QueryT, criterion: object) -> QueryT:
+        ...
 
 
 def utc_now_iso() -> str:
@@ -86,7 +98,7 @@ def selected_catalog_ids() -> set[int] | None:
     return resolved
 
 
-def apply_catalog_id_scope(query, catalog_id_column):
+def apply_catalog_id_scope(query: QueryT, catalog_id_column: CatalogIdPredicate) -> QueryT:
     ids = selected_catalog_ids()
     if not ids:
         return query
