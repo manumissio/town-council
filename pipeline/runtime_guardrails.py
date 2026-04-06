@@ -1,7 +1,8 @@
 import os
+from typing import SupportsInt
 
 
-def _coerce_int(value) -> int | None:
+def _coerce_int(value: str | SupportsInt | None) -> int | None:
     try:
         if value is None or value == "":
             return None
