@@ -19,13 +19,13 @@ D2-lite moved inference to HTTP with worker concurrency >1. On Apple Silicon, co
 
 ## 4) Model provenance
 - Runtime selection:
-  - `/Users/dennisshah/Documents/GitHub/town-council/env/profiles/m1_conservative.env:3`
-  - `/Users/dennisshah/Documents/GitHub/town-council/pipeline/config.py:107`
+  - `env/profiles/m1_conservative.env:3`
+  - `pipeline/config.py:107`
 - Compose defaults:
-  - `/Users/dennisshah/Documents/GitHub/town-council/docker-compose.yml:49`
-  - `/Users/dennisshah/Documents/GitHub/town-council/docker-compose.yml:284`
+  - `docker-compose.yml:49`
+  - `docker-compose.yml:284`
 - Source model artifact in image build:
-  - `/Users/dennisshah/Documents/GitHub/town-council/Dockerfile:97`
+  - `Dockerfile:97`
   - `unsloth/gemma-3-270m-it-GGUF` file `gemma-3-270m-it-Q4_K_M.gguf`
 
 ## 5) Metrics collected

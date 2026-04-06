@@ -10,6 +10,7 @@ from __future__ import annotations
 import math
 import os
 import time
+import logging
 from typing import Any, Dict
 from urllib.parse import quote, unquote
 
@@ -17,6 +18,9 @@ from celery import signals
 from prometheus_client import Counter, Histogram, REGISTRY, start_http_server
 from prometheus_client.core import Metric
 from pipeline import profiling
+
+
+logger = logging.getLogger(__name__)
 
 try:
     import redis  # type: ignore
@@ -159,7 +163,7 @@ def _redis_client():
 
     if redis is None:
         if not _REDIS_WARNED:
-            print("[metrics] redis module unavailable; provider metrics backend degraded")
+            logger.warning("metrics.redis_unavailable redis module unavailable; provider metrics backend degraded")
             _REDIS_WARNED = True
         _REDIS_BACKEND_UP = 0.0
         return None
@@ -174,7 +178,10 @@ def _redis_client():
         return _REDIS_CLIENT
     except Exception as exc:
         if not _REDIS_WARNED:
-            print(f"[metrics] redis backend unavailable; falling back to local metrics only: {exc}")
+            logger.warning(
+                "metrics.redis_backend_unavailable falling back to local metrics only error=%s",
+                exc,
+            )
             _REDIS_WARNED = True
         _REDIS_BACKEND_UP = 0.0
         _REDIS_CLIENT = None

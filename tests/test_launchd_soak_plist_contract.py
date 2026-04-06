@@ -12,5 +12,6 @@ def test_launchd_plist_contract():
     assert "StartCalendarInterval" in text
     assert "<integer>19</integer>" in text
     assert "<integer>55</integer>" in text
-    assert "/Users/dennisshah/GitHub/town-council/experiments/results/soak/launchd.out.log" in text
-    assert "/Users/dennisshah/GitHub/town-council/experiments/results/soak/launchd.err.log" in text
+    assert "__REPO_ROOT__/scripts/run_soak_day.sh" in text
+    assert "__REPO_ROOT__/experiments/results/soak/launchd.out.log" in text
+    assert "__REPO_ROOT__/experiments/results/soak/launchd.err.log" in text

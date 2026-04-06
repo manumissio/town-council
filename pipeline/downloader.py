@@ -6,7 +6,7 @@ from concurrent.futures import ThreadPoolExecutor
 from sqlalchemy import text, bindparam
 from sqlalchemy.exc import SQLAlchemyError
 
-from pipeline.models import Place, UrlStage, Event, Catalog, Document, db_connect
+from pipeline.models import UrlStage, Event, Catalog, Document, db_connect
 from pipeline.db_session import db_session
 from pipeline.config import (
     MAX_FILE_SIZE_BYTES,

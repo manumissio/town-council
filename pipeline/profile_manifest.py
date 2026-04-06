@@ -8,11 +8,9 @@ from typing import Any
 
 from sqlalchemy import func
 
-from pipeline.agenda_worker import select_catalog_ids_for_agenda_segmentation
 from pipeline.db_session import db_session
 from pipeline.models import AgendaItem, Catalog, Document, Event, Membership, Person
 from pipeline.person_linker import has_official_title_context, normalize_person_name
-from pipeline.tasks import select_catalog_ids_for_summary_hydration
 from pipeline.run_pipeline import select_catalog_ids_for_entity_backfill, select_catalog_ids_for_processing
 from pipeline.utils import is_likely_human_name
 

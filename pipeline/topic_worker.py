@@ -219,8 +219,6 @@ def run_topic_tagger():
         # 2. Prepare the corpus (the collection of all documents)
         # We truncate each document to prevent memory issues with very large PDFs
         corpus = [_sanitize_text_for_topics(r.content[:MAX_CONTENT_LENGTH]) for r in records]
-        filenames = [r.filename for r in records]
-
         logger.info(f"Analyzing {len(corpus)} documents...")
 
         # 3. Setup the TF-IDF Vectorizer

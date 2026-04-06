@@ -880,15 +880,18 @@ sudo pmset repeat wake MTWRFSU 19:50:00
 
 Install the daily launchd job:
 ```bash
-launchctl bootstrap gui/$(id -u) /Users/dennisshah/GitHub/town-council/ops/launchd/com.towncouncil.soak.daily.plist && launchctl enable gui/$(id -u)/com.towncouncil.soak.daily
+REPO_ROOT="/absolute/path/to/town-council"
+sed "s|__REPO_ROOT__|$REPO_ROOT|g" ops/launchd/com.towncouncil.soak.daily.plist > /tmp/com.towncouncil.soak.daily.plist
+launchctl bootstrap gui/$(id -u) /tmp/com.towncouncil.soak.daily.plist && launchctl enable gui/$(id -u)/com.towncouncil.soak.daily
 ```
 
 Notes:
 - Schedule is system local timezone.
 - launchd target time is 19:55 daily (system local timezone).
+- `ops/launchd/com.towncouncil.soak.daily.plist` is a tracked template. Replace `__REPO_ROOT__` with your local repo path before bootstrapping it.
 - Logs:
-  - `/Users/dennisshah/GitHub/town-council/experiments/results/soak/launchd.out.log`
-  - `/Users/dennisshah/GitHub/town-council/experiments/results/soak/launchd.err.log`
+  - `<REPO_ROOT>/experiments/results/soak/launchd.out.log`
+  - `<REPO_ROOT>/experiments/results/soak/launchd.err.log`
 
 Shared filter semantics:
 - `/search` and `/trends/*` now use one QueryBuilder path.

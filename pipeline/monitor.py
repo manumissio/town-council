@@ -1,7 +1,5 @@
 import time
-import os
 from prometheus_client import start_http_server, Gauge
-from sqlalchemy.orm import sessionmaker
 from sqlalchemy import text
 from sqlalchemy.exc import SQLAlchemyError
 

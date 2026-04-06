@@ -2,7 +2,7 @@ import redis
 import json
 import hashlib
 from functools import wraps
-from typing import Optional, Callable
+from typing import Callable
 import os
 import logging
 

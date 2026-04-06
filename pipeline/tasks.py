@@ -1,5 +1,4 @@
 from celery.signals import worker_ready
-import os
 import sys
 import logging
 import re
@@ -23,7 +22,7 @@ from pipeline.backlog_maintenance import (
     summary_timeout_override,
 )
 from pipeline.laserfiche_error_pages import classify_catalog_bad_content
-from pipeline.models import db_connect, Catalog, Document, Event, SemanticEmbedding
+from pipeline.models import db_connect, Catalog, Document, Event
 from pipeline.llm import LocalAI, LocalAIConfigError
 from pipeline.agenda_service import persist_agenda_items
 from pipeline.agenda_resolver import has_viable_structured_agenda_source, resolve_agenda_items
@@ -35,10 +34,6 @@ from pipeline.config import (
     LOCAL_AI_REQUIRE_SOLO_POOL,
     LOCAL_AI_BACKEND,
     ENABLE_VOTE_EXTRACTION,
-    SEMANTIC_ENABLED,
-    SEMANTIC_BACKEND,
-    SEMANTIC_MODEL_NAME,
-    SEMANTIC_CONTENT_MAX_CHARS,
     LINEAGE_MIN_EDGE_CONFIDENCE,
     LINEAGE_REQUIRE_MUTUAL_EDGES,
 )
@@ -50,7 +45,6 @@ from pipeline.lineage_service import compute_lineage_assignments
 from pipeline.metrics import record_lineage_recompute
 from pipeline.profiling import apply_catalog_id_scope
 from pipeline.summary_freshness import (
-    compute_agenda_items_hash,
     compute_summary_source_hash,
     is_summary_fresh,
 )
@@ -58,7 +52,6 @@ from pipeline.summary_quality import (
     analyze_source_text,
     build_low_signal_message,
     is_source_summarizable,
-    is_source_topicable,
     is_summary_grounded,
 )
 from pipeline.text_cleaning import postprocess_extracted_text

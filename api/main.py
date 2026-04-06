@@ -2,7 +2,6 @@ import os
 import logging
 import hmac
 import re
-import time
 import csv
 import io
 import uuid
@@ -24,11 +23,6 @@ from sqlalchemy import text
 from api.cache import cached
 from pipeline.config import (
     SEMANTIC_ENABLED,
-    SEMANTIC_BACKEND,
-    SEMANTIC_BASE_TOP_K,
-    SEMANTIC_FILTER_EXPANSION_FACTOR,
-    SEMANTIC_MAX_TOP_K,
-    SEMANTIC_RERANK_CANDIDATE_LIMIT,
     FEATURE_TRENDS_DASHBOARD,
 )
 from pipeline.celery_app import app as celery_app
@@ -62,7 +56,6 @@ from pipeline.document_kinds import normalize_summary_doc_kind
 from pipeline.summary_freshness import compute_agenda_items_hash, is_summary_fresh, is_summary_stale
 from pipeline.summary_quality import analyze_source_text, is_source_summarizable, is_source_topicable, build_low_signal_message
 from pipeline.startup_purge import run_startup_purge_if_enabled
-from pipeline.utils import generate_ocd_id
 from pipeline.agenda_resolver import agenda_items_look_low_quality
 
 
@@ -845,7 +838,7 @@ def get_trends_compare(
 
     # Discover shared high-signal topics first to keep comparison compact.
     pooled: dict[str, int] = {}
-    for city, docs in docs_by_city.items():
+    for _city, docs in docs_by_city.items():
         counts = _count_topics_from_docs(docs, date_from=date_from, date_to=date_to)
         for topic, count in counts.items():
             pooled[topic] = pooled.get(topic, 0) + int(count)
@@ -1077,7 +1070,7 @@ def get_catalogs_batch(
 
     
     results = []
-    for cat, doc, event, place in records:
+    for cat, _doc, event, place in records:
         results.append({
             "id": cat.id,
             "filename": cat.filename,

@@ -155,9 +155,9 @@ def segment_document_agenda(catalog_id):
                     catalog.agenda_segmentation_error = str(e)[:500]
                     session.commit()
             except Exception:
-                # The context manager will rollback; keep legacy print for visibility.
+                # The context manager will rollback; the outer error log still records the failure.
                 pass
-            print(f"Error segmenting {catalog_id}: {e}")
+            logger.error("agenda_segmentation.failed catalog_id=%s error=%s", catalog_id, e)
             # The context manager will automatically rollback on exception
 
 def segment_agendas():

@@ -5,7 +5,6 @@ from sqlalchemy.orm import sessionmaker
 from pipeline.celery_app import app
 from pipeline.config import (
     SEMANTIC_BACKEND,
-    SEMANTIC_CONTENT_MAX_CHARS,
     SEMANTIC_ENABLED,
     SEMANTIC_MODEL_NAME,
 )

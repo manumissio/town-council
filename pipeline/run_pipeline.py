@@ -23,7 +23,6 @@ from pipeline.config import (
     TIKA_OCR_FALLBACK_ENABLED,
     DB_RETRY_DELAY_MIN,
     DB_RETRY_DELAY_MAX,
-    EXTRACTION_TERMINAL_FAILURE_MAX_ATTEMPTS,
 )
 from pipeline.startup_purge import run_startup_purge_if_enabled
 from pipeline.metrics import record_pipeline_phase_duration
@@ -212,7 +211,7 @@ def process_document_chunk(catalog_ids, ocr_fallback_enabled=None):
         # Open one DB session for the chunk. Retry with jitter if DB is busy.
         chunk_started = time.perf_counter()
         db = None
-        for attempt in range(3):
+        for _attempt in range(3):
             try:
                 engine = db_connect()
                 Session = sessionmaker(bind=engine)

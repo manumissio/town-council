@@ -1,6 +1,10 @@
+import logging
 import uuid
 import re
 from rapidfuzz import fuzz, process
+
+
+logger = logging.getLogger(__name__)
 
 def validate_ocd_id(ocd_id):
     """
@@ -58,8 +62,13 @@ def find_best_person_match(name, existing_people, threshold=85):
     if result:
         match_name, score, index = result
         if score >= threshold:
-            # novice-friendly log to show the math in action
-            print(f"Fuzzy Match Found: '{name}' matches '{match_name}' (Score: {score})")
+            # Match diagnostics help explain why we linked a clerk-facing name variant.
+            logger.info(
+                "people_match.fuzzy_hit candidate_name=%s matched_name=%s score=%s",
+                name,
+                match_name,
+                score,
+            )
             return choices[match_name]
             
     return None

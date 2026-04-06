@@ -14,7 +14,7 @@
   <array>
     <string>/bin/zsh</string>
     <string>-lc</string>
-    <string>cd /Users/dennisshah/GitHub/town-council &amp;&amp; RUN_ID="soak_$(date +%Y%m%d)" &amp;&amp; /bin/bash /Users/dennisshah/GitHub/town-council/scripts/run_soak_day.sh --run-id "$RUN_ID" --catalog-file experiments/soak_catalogs_m1_v1.txt --output-dir experiments/results/soak; PYTHONPATH=. .venv/bin/python scripts/collect_soak_metrics.py --run-id "$RUN_ID" --output-dir experiments/results/soak</string>
+    <string>cd __REPO_ROOT__ &amp;&amp; RUN_ID="soak_$(date +%Y%m%d)" &amp;&amp; /bin/bash __REPO_ROOT__/scripts/run_soak_day.sh --run-id "$RUN_ID" --catalog-file experiments/soak_catalogs_m1_v1.txt --output-dir experiments/results/soak; PYTHONPATH=. .venv/bin/python scripts/collect_soak_metrics.py --run-id "$RUN_ID" --output-dir experiments/results/soak</string>
   </array>
 
   <key>StartCalendarInterval</key>
@@ -29,8 +29,8 @@
   <false/>
 
   <key>StandardOutPath</key>
-  <string>/Users/dennisshah/GitHub/town-council/experiments/results/soak/launchd.out.log</string>
+  <string>__REPO_ROOT__/experiments/results/soak/launchd.out.log</string>
   <key>StandardErrorPath</key>
-  <string>/Users/dennisshah/GitHub/town-council/experiments/results/soak/launchd.err.log</string>
+  <string>__REPO_ROOT__/experiments/results/soak/launchd.err.log</string>
 </dict>
 </plist>
