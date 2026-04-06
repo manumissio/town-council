@@ -1,5 +1,6 @@
 import datetime
 import json
+import logging
 import os
 
 from sqlalchemy import create_engine, func
@@ -8,6 +9,9 @@ from sqlalchemy import ForeignKey
 from sqlalchemy.orm import relationship, DeclarativeBase
 from sqlalchemy.schema import Index
 from sqlalchemy.types import TypeDecorator
+
+
+logger = logging.getLogger(__name__)
 
 try:
     from pgvector.sqlalchemy import Vector
@@ -37,8 +41,10 @@ except Exception:  # pragma: no cover
                 parsed = json.loads(value)
                 if isinstance(parsed, list):
                     return parsed
-            except Exception:
-                pass
+            except Exception as json_error:
+                # Legacy rows may store plain text instead of JSON arrays; returning the raw
+                # value preserves read compatibility while the warning surfaces cleanup debt.
+                logger.warning("sqlalchemy.json_list_decode_failed error=%s", json_error)
             return value
 
 # Modern SQLAlchemy 2.0 style: Subclassing DeclarativeBase instead of calling a function.

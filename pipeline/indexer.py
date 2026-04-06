@@ -148,9 +148,10 @@ def _apply_index_settings(client, index) -> None:
     for uid in [t for t in task_ids if isinstance(t, int)]:
         try:
             client.wait_for_task(uid)
-        except Exception:
-            # Best-effort: settings should still apply eventually, but waiting makes it deterministic.
-            pass
+        except Exception as settings_wait_error:
+            # Settings still apply asynchronously in Meilisearch; this wait only improves
+            # determinism for tests and maintenance paths when the server cooperates.
+            logger.warning("search_index.settings_wait_failed task_id=%s error=%s", uid, settings_wait_error)
 
 
 def _ensure_documents_index(client, *, apply_settings: bool) -> any:

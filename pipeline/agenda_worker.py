@@ -154,9 +154,14 @@ def segment_document_agenda(catalog_id):
                     catalog.agenda_segmentation_attempted_at = datetime.now(timezone.utc)
                     catalog.agenda_segmentation_error = str(e)[:500]
                     session.commit()
-            except Exception:
-                # The context manager will rollback; the outer error log still records the failure.
-                pass
+            except Exception as catalog_error:
+                # If the failure row cannot be persisted, the outer error log still preserves
+                # the original segmentation failure and the db_session rollback keeps state safe.
+                logger.warning(
+                    "agenda_segmentation.failure_persist_failed catalog_id=%s error=%s",
+                    catalog_id,
+                    catalog_error,
+                )
             logger.error("agenda_segmentation.failed catalog_id=%s error=%s", catalog_id, e)
             # The context manager will automatically rollback on exception
 

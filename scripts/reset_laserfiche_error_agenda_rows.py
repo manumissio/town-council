@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import logging
 from typing import Any
 
 from pipeline.city_scope import source_aliases_for_city
@@ -11,6 +12,9 @@ from pipeline.db_session import db_session
 from pipeline.indexer import reindex_catalog
 from pipeline.laserfiche_error_pages import DOCUMENT_SHAPE_FAMILY, classify_catalog_bad_content
 from pipeline.models import AgendaItem, Catalog, Document, Event, SemanticEmbedding
+
+
+logger = logging.getLogger(__name__)
 
 
 def _positive_int(value: str) -> int:
@@ -186,8 +190,9 @@ def _apply_reset(city: str, *, limit: int | None = None, include_document_shape:
         try:
             reindex_catalog(catalog_id)
             reindexed += 1
-        except Exception:
-            pass
+        except Exception as reindex_error:
+            # Catalog reset is already committed, so reindex remains best-effort for this operator script.
+            logger.warning("laserfiche_reset.reindex_failed catalog_id=%s error=%s", catalog_id, reindex_error)
 
     return {
         "city": city,

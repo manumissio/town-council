@@ -9,7 +9,9 @@ overwhelm Prometheus and make dashboards unusable.
 
 from __future__ import annotations
 
+from collections.abc import Awaitable, Callable
 import time
+from typing import Any
 
 from prometheus_client import CONTENT_TYPE_LATEST, Counter, Gauge, Histogram, generate_latest
 from starlette.responses import Response
@@ -34,7 +36,7 @@ HTTP_REQUESTS_IN_FLIGHT = Gauge(
 )
 
 
-def _path_template_from_scope(scope) -> str:
+def _path_template_from_scope(scope: dict[str, Any]) -> str:
     route = scope.get("route")
     if route is not None and getattr(route, "path", None):
         return str(route.path)
@@ -46,17 +48,20 @@ def _metrics_response() -> Response:
     return Response(generate_latest(), media_type=CONTENT_TYPE_LATEST)
 
 
-def instrument_app(app) -> None:
+def instrument_app(app: Any) -> None:
     """
     Register the /metrics endpoint and record request count/latency.
     """
 
     @app.get("/metrics", include_in_schema=False)
-    def _metrics_endpoint():
+    def _metrics_endpoint() -> Response:
         return _metrics_response()
 
     @app.middleware("http")
-    async def _prometheus_middleware(request, call_next):
+    async def _prometheus_middleware(
+        request: Any,
+        call_next: Callable[[Any], Awaitable[Response]],
+    ) -> Response:
         # Avoid self-observation loops.
         if request.url.path == "/metrics":
             return await call_next(request)

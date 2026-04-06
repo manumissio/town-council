@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from typing import Any
+
 from sqlalchemy import case, func
 
 
@@ -19,7 +21,7 @@ def normalize_summary_doc_kind(raw_kind: str | None) -> str:
     return "unknown"
 
 
-def summary_doc_kind_sql_expr(column):
+def summary_doc_kind_sql_expr(column: Any) -> Any:
     lowered = func.lower(func.coalesce(column, ""))
     return case(
         (lowered.in_(("agenda", "agenda_html")), "agenda"),

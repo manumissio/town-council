@@ -1,3 +1,4 @@
+import logging
 import re
 
 from sqlalchemy.exc import SQLAlchemyError
@@ -13,6 +14,9 @@ from pipeline.summary_quality import (
 )
 from pipeline.tasks import SessionLocal, _extract_agenda_titles_from_text
 from pipeline.text_cleaning import postprocess_extracted_text
+
+
+logger = logging.getLogger(__name__)
 
 
 @app.task(bind=True, max_retries=3, name="enrichment.generate_topics")
@@ -161,8 +165,9 @@ def generate_topics_task(self, catalog_id: int, force: bool = False, max_corpus_
             db.commit()
             try:
                 reindex_catalog(catalog_id)
-            except Exception:
-                pass
+            except Exception as reindex_error:
+                # Topic extraction is already persisted, so search reindex remains best-effort.
+                logger.warning("topic_extraction.reindex_failed catalog_id=%s error=%s", catalog_id, reindex_error)
             return {"status": "complete", "topics": keywords}
 
         max_df = (1.0 if n_docs < 2 else TFIDF_MAX_DF)
@@ -201,8 +206,9 @@ def generate_topics_task(self, catalog_id: int, force: bool = False, max_corpus_
         db.commit()
         try:
             reindex_catalog(catalog_id)
-        except Exception:
-            pass
+        except Exception as reindex_error:
+            # Topic extraction is already persisted, so search reindex remains best-effort.
+            logger.warning("topic_extraction.reindex_failed catalog_id=%s error=%s", catalog_id, reindex_error)
 
         return {"status": "complete", "topics": keywords}
     except (SQLAlchemyError, RuntimeError, ValueError) as exc:

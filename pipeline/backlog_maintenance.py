@@ -249,8 +249,14 @@ def segment_catalog_with_mode(catalog_id: int, *, segment_mode: str = "normal") 
                     catalog.agenda_segmentation_attempted_at = datetime.now(timezone.utc)
                     catalog.agenda_segmentation_error = str(exc)[:500]
                     session.commit()
-            except Exception:
-                pass
+            except Exception as catalog_error:
+                # If the failure row cannot be persisted, the returned failed status still
+                # tells the caller the segment step did not complete for this catalog.
+                logger.warning(
+                    "agenda_segmentation.failure_persist_failed catalog_id=%s error=%s",
+                    catalog_id,
+                    catalog_error,
+                )
             return _empty_segment_result("failed", error=str(exc))
 
 

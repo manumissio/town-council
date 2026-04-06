@@ -519,8 +519,10 @@ def _run_startup_purge_on_worker_ready(sender=None, **kwargs):
             raise SystemExit(1)
     except SystemExit:
         raise
-    except Exception:
-        pass
+    except Exception as guardrail_error:
+        # Startup should stay resilient in non-worker contexts, but we log the check failure so
+        # runtime misconfiguration never disappears silently.
+        logger.warning("worker_ready.guardrail_check_failed error=%s", guardrail_error)
 
     # The purge is env-gated and DB-lock protected so concurrent starters are safe.
     result = run_startup_purge_if_enabled()
@@ -686,8 +688,9 @@ def generate_summary_task(self, catalog_id: int, force: bool = False):
         try:
             reindex_catalog(catalog_id)
             reindexed = 1
-        except Exception:
+        except Exception as reindex_error:
             reindex_failed = 1
+            logger.warning("summary_generation.reindex_failed catalog_id=%s error=%s", catalog_id, reindex_error)
         
         # Fire-and-forget embedding update for semantic B2. We do not block summary success
         # on embedding failures; search can safely fall back to lexical until vectors hydrate.
@@ -818,8 +821,9 @@ def segment_agenda_task(self, catalog_id: int):
             db.commit()
             try:
                 reindex_catalog(catalog_id)
-            except Exception:
-                pass
+            except Exception as reindex_error:
+                # Agenda items are already persisted, so targeted reindex remains best-effort.
+                logger.warning("agenda_segmentation.reindex_failed catalog_id=%s error=%s", catalog_id, reindex_error)
         else:
             # Terminal state: agenda segmentation ran but found no substantive items.
             catalog.agenda_segmentation_status = "empty"
@@ -936,8 +940,9 @@ def extract_votes_task(self, catalog_id: int, force: bool = False):
 
         try:
             reindex_catalog(catalog_id)
-        except Exception:
-            pass
+        except Exception as reindex_error:
+            # Summary persistence already succeeded, so targeted reindex remains best-effort.
+            logger.warning("summary_generation.reindex_failed catalog_id=%s error=%s", catalog_id, reindex_error)
 
         return {"status": "complete", **counters}
     except LocalAIConfigError as e:

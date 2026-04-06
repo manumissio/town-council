@@ -5,7 +5,7 @@ import argparse
 import json
 import re
 from pathlib import Path
-from typing import Any
+from typing import Any, Mapping, cast
 
 
 PROM_LINE = re.compile(r'^(?P<name>[a-zA-Z_:][a-zA-Z0-9_:]*)(?:\{(?P<labels>[^}]*)\})?\s+(?P<value>-?[0-9]+(?:\.[0-9]+)?)$')
@@ -131,14 +131,18 @@ def _classify_bottleneck(phase: str, contribution_pct: float, queue_wait_s: floa
     return "orchestration/serialization"
 
 
-def _load_summary_hydration_counts(run_dir: Path) -> dict[str, int]:
+CounterValue = int | str
+PhaseStats = dict[str, Any]
+
+
+def _load_summary_hydration_counts(run_dir: Path) -> dict[str, CounterValue]:
     latest = _load_latest_counter_line(run_dir, "summary_hydration_backfill")
     if latest:
         return latest
     commands_log = run_dir / "commands.log"
     if not commands_log.exists():
         return {}
-    fallback: dict[str, int] = {}
+    fallback: dict[str, CounterValue] = {}
     for line in commands_log.read_text(encoding="utf-8").splitlines():
         match = SUMMARY_HYDRATION_LINE.search(line)
         if not match:
@@ -158,7 +162,7 @@ def _coerce_counter_value(raw: str) -> int | str:
     return value
 
 
-def _safe_int_counter(counter_values: dict[str, int | str], key: str) -> int:
+def _safe_int_counter(counter_values: Mapping[str, CounterValue], key: str) -> int:
     raw_value = counter_values.get(key, 0)
     if isinstance(raw_value, int):
         return raw_value
@@ -168,7 +172,7 @@ def _safe_int_counter(counter_values: dict[str, int | str], key: str) -> int:
         return 0
 
 
-def _load_latest_counter_line(run_dir: Path, prefix: str) -> dict[str, int | str]:
+def _load_latest_counter_line(run_dir: Path, prefix: str) -> dict[str, CounterValue]:
     commands_log = run_dir / "commands.log"
     if not commands_log.exists():
         return {}
@@ -192,7 +196,7 @@ def _classify_summary_phase(
     contribution_pct: float,
     queue_wait_s: float,
     execution_s: float,
-    summary_counts: dict[str, int],
+    summary_counts: Mapping[str, CounterValue],
 ) -> tuple[str, float]:
     if queue_wait_s > 0 and queue_wait_s >= max(1.0, execution_s * 0.5):
         return "queueing", 0.0
@@ -206,7 +210,7 @@ def _classify_summary_phase(
     return _classify_bottleneck("summarize", contribution_pct, queue_wait_s, execution_s), 0.0
 
 
-def _extract_summary_subphase_timings(summary_counts: dict[str, int | str]) -> dict[str, int]:
+def _extract_summary_subphase_timings(summary_counts: Mapping[str, CounterValue]) -> dict[str, int]:
     return {
         metric_name: _safe_int_counter(summary_counts, metric_name)
         for metric_name in AGENDA_SUMMARY_SUBPHASE_KEYS
@@ -214,7 +218,7 @@ def _extract_summary_subphase_timings(summary_counts: dict[str, int | str]) -> d
 
 
 def _aggregate_phase_rows(spans: list[dict[str, Any]]) -> dict[str, dict[str, Any]]:
-    totals: dict[str, dict[str, float]] = {}
+    totals: dict[str, PhaseStats] = {}
     for row in spans:
         phase = str(row.get("phase") or "")
         if phase not in LEAF_PHASES:
@@ -258,7 +262,8 @@ def _derived_total_from_spans(spans: list[dict[str, Any]]) -> tuple[float, list[
 
 
 def _select_total_elapsed_seconds(result: dict[str, Any], spans: list[dict[str, Any]]) -> tuple[float, str | None]:
-    totals = result.get("totals") if isinstance(result.get("totals"), dict) else {}
+    raw_totals = result.get("totals")
+    totals: dict[str, Any] = raw_totals if isinstance(raw_totals, dict) else {}
     combined_total = float(totals.get("combined_elapsed_seconds") or 0.0)
     if combined_total > 0:
         return combined_total, None
@@ -286,6 +291,8 @@ def rank_bottlenecks(run_dir: Path) -> dict[str, Any]:
     worker_metrics_raw = (run_dir / "worker_metrics.prom").read_text(encoding="utf-8") if (run_dir / "worker_metrics.prom").exists() else ""
     worker_rows = _parse_metrics(worker_metrics_raw)
     summary_hydration_counts = _load_summary_hydration_counts(run_dir)
+    provider_metrics_present = bool(day_summary.get("provider_metrics_present")) if isinstance(day_summary, dict) else False
+    provider_metrics_reason = str(day_summary.get("provider_metrics_reason") or "provider_metrics_missing") if isinstance(day_summary, dict) else "provider_metrics_missing"
 
     total_elapsed_s, total_note = _select_total_elapsed_seconds(result, spans)
     phase_totals = _aggregate_phase_rows(spans)
@@ -312,7 +319,7 @@ def rank_bottlenecks(run_dir: Path) -> dict[str, Any]:
                 "queue_wait_s": round(queue_wait_s, 3),
                 "task_duration_s": round(task_duration_s, 3),
                 "classification": classification,
-                "provider_metrics_present": bool(day_summary.get("provider_metrics_present")),
+                "provider_metrics_present": provider_metrics_present,
                 "provider_requests_total": provider_requests,
                 "occurrence_count": int(stats["count"]),
                 "components": sorted(str(item) for item in stats["components"]),
@@ -324,11 +331,11 @@ def rank_bottlenecks(run_dir: Path) -> dict[str, Any]:
     confidence = "ok"
     if not spans:
         confidence = "reduced-confidence:no_spans"
-    elif not day_summary.get("provider_metrics_present"):
-        confidence = f"reduced-confidence:{day_summary.get('provider_metrics_reason') or 'provider_metrics_missing'}"
+    elif not provider_metrics_present:
+        confidence = f"reduced-confidence:{provider_metrics_reason}"
     elif total_note is not None:
         confidence = f"reduced-confidence:{total_note}"
-    elif total_elapsed_s > 0 and ranked and ranked[0]["contribution_pct"] > 100.0:
+    elif total_elapsed_s > 0 and ranked and float(cast(Any, ranked[0].get("contribution_pct")) or 0.0) > 100.0:
         confidence = "reduced-confidence:inconsistent_totals"
 
     return {
