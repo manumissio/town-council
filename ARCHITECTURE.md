@@ -1,6 +1,6 @@
 # Town Council Architecture (2026)
 
-Last updated: 2026-04-05
+Last updated: 2026-04-06
 
 ## 1) System Overview
 
@@ -438,12 +438,15 @@ Owners:
 
 ### Decision Log Index
 
-For architecture decisions and rollout semantics, track deltas in:
+Use [docs/ADR.md](docs/ADR.md) as the indexed decision log for material architecture decisions.
+
+For ongoing detailed semantics, track deltas in:
+- [docs/ADR.md](docs/ADR.md) for the short decision record and links to the authoritative docs.
 - [`ROADMAP.md`](ROADMAP.md) for milestone intent and sequence.
 - [`docs/OPERATIONS.md`](docs/OPERATIONS.md) for operational policy/application.
 - [`docs/PERFORMANCE.md`](docs/PERFORMANCE.md) for benchmark/comparability outcomes.
 
-When material architecture decisions are introduced, record the rationale in the relevant canonical doc and link it from this section.
+When material architecture decisions are introduced, add a short ADR entry and link it to the relevant canonical doc instead of duplicating the full operational narrative.
 
 ### When to Update This File
 
