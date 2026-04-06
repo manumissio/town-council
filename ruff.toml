@@ -1,0 +1,19 @@
+target-version = "py314"
+line-length = 120
+src = ["api", "pipeline", "scripts", "tests"]
+respect-gitignore = true
+extend-exclude = [
+    "archive",
+    "data",
+    "frontend",
+    "monitoring",
+    "semantic_service",
+    "tmp",
+]
+
+[lint]
+select = ["E722", "F401", "F841", "B006", "B007", "B023"]
+
+[lint.per-file-ignores]
+"scripts/*.py" = ["F401", "F841"]
+"tests/*.py" = ["F401", "F841", "B007"]

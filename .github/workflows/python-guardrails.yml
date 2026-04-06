@@ -1,0 +1,54 @@
+name: Python Guardrails
+
+on:
+  pull_request:
+    paths:
+      - "AGENTS.md"
+      - ".pre-commit-config.yaml"
+      - ".github/workflows/python-guardrails.yml"
+      - "docs/**"
+      - "ops/**"
+      - "pipeline/**"
+      - "api/**"
+      - "scripts/**"
+      - "tests/**"
+      - "ruff.toml"
+  push:
+    branches: ["master"]
+    paths:
+      - "AGENTS.md"
+      - ".pre-commit-config.yaml"
+      - ".github/workflows/python-guardrails.yml"
+      - "docs/**"
+      - "ops/**"
+      - "pipeline/**"
+      - "api/**"
+      - "scripts/**"
+      - "tests/**"
+      - "ruff.toml"
+
+jobs:
+  python-guardrails:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.14"
+
+      - name: Install guardrail dependencies
+        run: python -m pip install -r pipeline/requirements-dev.txt
+
+      - name: Run static guardrails
+        run: python -m ruff check api pipeline scripts tests
+
+      - name: Run guardrail tests
+        run: |
+          PYTHONPATH=. python -m pytest -q tests/test_repository_guardrails.py
+          PYTHONPATH=. python -m pytest -q tests/test_pipeline_import_side_effects.py
+          PYTHONPATH=. python -m pytest -q tests/test_provider_error_mapping_retry_vs_fallback.py
+          PYTHONPATH=. python -m pytest -q tests/test_summary_staleness.py
+          PYTHONPATH=. python -m pytest -q tests/test_pipeline_profile_report.py
+          PYTHONPATH=. python -m pytest -q tests/test_docs_links.py
+

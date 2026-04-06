@@ -83,6 +83,7 @@ Do:
 - Keep changes small and scoped.
 - Run targeted verification before completion.
 - Report exact commands and outcomes.
+- Run `./.venv/bin/ruff check api pipeline scripts tests` when changing Python code, guardrail config, or guardrail workflow files.
 - When task scope, affected files, or applicable verification row is ambiguous, stop and ask before proceeding. Do not resolve ambiguity with assumptions.
 - Make one logical change, run its verification row, confirm pass, then proceed to the next change.
 - All verification commands must be reported exactly as run, with pass/fail outcome.
@@ -101,6 +102,11 @@ If multiple change types apply, run the union of required command sets.
 Docs-only changes (`README.md`, `docs/**`, `AGENTS.md`, `ARCHITECTURE.md`):
 - Required: `PYTHONPATH=. .venv/bin/pytest -q tests/test_docs_links.py`
 - Optional (if architecture/policy text changed materially): `PYTHONPATH=. .venv/bin/pytest -q tests/test_env_example_profile_alignment.py`
+
+Guardrail/tooling changes (`ruff.toml`, `.pre-commit-config.yaml`, `.github/workflows/python-guardrails.yml`, `tests/test_repository_guardrails.py`):
+- `./.venv/bin/ruff check api pipeline scripts tests`
+- `PYTHONPATH=. .venv/bin/pytest -q tests/test_repository_guardrails.py`
+- `PYTHONPATH=. .venv/bin/pytest -q tests/test_docs_links.py`
 
 API/search behavior changes (`api/**`, query contracts):
 - `PYTHONPATH=. .venv/bin/pytest -q tests/test_api.py`
