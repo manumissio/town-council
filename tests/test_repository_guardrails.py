@@ -91,10 +91,13 @@ APPROVED_BROAD_EXCEPTION_PATHS = {
 BLE001_WILDCARD_PATHS = {"scripts/*.py", "tests/*.py"}
 TYPED_SUBTREE_PATHS = (
     "api/metrics.py",
+    "pipeline/city_scope.py",
     "pipeline/content_hash.py",
     "pipeline/document_kinds.py",
     "pipeline/extraction_state.py",
     "pipeline/maintenance_run_status.py",
+    "pipeline/rollout_registry.py",
+    "pipeline/runtime_guardrails.py",
     "pipeline/summary_freshness.py",
     "scripts/analyze_pipeline_profile.py",
 )
