@@ -46,7 +46,7 @@ jobs:
         run: python -m ruff check api pipeline scripts tests
 
       - name: Run typed subtree checks
-        run: python -m mypy api/metrics.py pipeline/summary_freshness.py scripts/analyze_pipeline_profile.py
+        run: python -m mypy
 
       - name: Run guardrail tests
         run: |

@@ -89,6 +89,16 @@ APPROVED_BROAD_EXCEPTION_PATHS = {
     "scripts/worker_healthcheck.py",
 }
 BLE001_WILDCARD_PATHS = {"scripts/*.py", "tests/*.py"}
+TYPED_SUBTREE_PATHS = (
+    "api/metrics.py",
+    "pipeline/content_hash.py",
+    "pipeline/document_kinds.py",
+    "pipeline/extraction_state.py",
+    "pipeline/maintenance_run_status.py",
+    "pipeline/summary_freshness.py",
+    "scripts/analyze_pipeline_profile.py",
+)
+CANDIDATE_FORMATTER_WAVE_PATHS = TYPED_SUBTREE_PATHS
 
 
 def _tracked_files() -> list[Path]:
@@ -126,6 +136,19 @@ def _ruff_per_file_ignore_entries() -> dict[str, set[str]]:
             if token.strip()
         }
     return entries
+
+
+def _mypy_enrolled_paths() -> tuple[str, ...]:
+    config_text = (ROOT / "mypy.ini").read_text(encoding="utf-8")
+    files_match = re.search(r"^files =\n(?P<paths>(?:\s+.+\n?)*)", config_text, flags=re.MULTILINE)
+    if not files_match:
+        return ()
+    enrolled_paths: list[str] = []
+    for raw_line in files_match.group("paths").splitlines():
+        path = raw_line.strip().rstrip(",")
+        if path:
+            enrolled_paths.append(path)
+    return tuple(enrolled_paths)
 
 
 def test_tracked_text_files_do_not_contain_personal_absolute_paths():
@@ -186,6 +209,35 @@ def test_ruff_guardrail_config_keeps_scope_and_exceptions_narrow():
     assert "select = [\"E722\", \"F401\", \"F841\", \"B006\", \"B007\", \"B023\", \"BLE001\"]" in config_text
     assert "pipeline/*.py" not in config_text
     assert "api/*.py" not in config_text
+
+
+def test_typed_subtree_config_stays_explicit_and_aligned():
+    enrolled_paths = _mypy_enrolled_paths()
+    docs_text = (ROOT / "docs" / "ENGINEERING_GUARDRAILS.md").read_text(encoding="utf-8")
+    agents_text = (ROOT / "AGENTS.md").read_text(encoding="utf-8")
+    workflow_text = (ROOT / ".github" / "workflows" / "python-guardrails.yml").read_text(encoding="utf-8")
+
+    assert enrolled_paths == TYPED_SUBTREE_PATHS
+    assert "./.venv/bin/mypy\n" in docs_text
+    assert "./.venv/bin/mypy" in agents_text
+    assert "python -m mypy" in workflow_text
+    assert "python -m mypy api/metrics.py" not in workflow_text
+
+
+def test_first_formatter_wave_stays_path_scoped_and_non_blocking():
+    docs_text = (ROOT / "docs" / "ENGINEERING_GUARDRAILS.md").read_text(encoding="utf-8")
+    agents_text = (ROOT / "AGENTS.md").read_text(encoding="utf-8")
+    workflow_text = (ROOT / ".github" / "workflows" / "python-guardrails.yml").read_text(encoding="utf-8")
+    expected_command = (
+        "./.venv/bin/ruff format --check "
+        + " ".join(CANDIDATE_FORMATTER_WAVE_PATHS)
+    )
+
+    assert expected_command in docs_text
+    assert "measure readiness for the first mechanical formatting wave" in docs_text
+    assert "./.venv/bin/ruff format --check api pipeline scripts tests" not in docs_text
+    assert "ruff format --check" not in agents_text
+    assert "ruff format --check" not in workflow_text
 
 
 def test_broad_exception_allowlist_stays_explicit():
