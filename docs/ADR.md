@@ -25,3 +25,23 @@ Use each entry to record:
   - [ARCHITECTURE.md](../ARCHITECTURE.md)
   - [docs/OPERATIONS.md](OPERATIONS.md)
   - [ROADMAP.md](../ROADMAP.md)
+
+## 2026-04-06: Enroll extraction_service before larger service waves
+
+- Status: Accepted
+- Decision:
+  - `pipeline/extraction_service.py` is the next strict-typing enrollment target after the seam-creation prep wave.
+  - The service should isolate extractor, text-cleaning, and bad-content classification behind local typed wrappers so the typed subtree can expand without dragging those neighbors into the same wave.
+  - `pipeline/agenda_service.py` remains deferred because its current import surface still spills into untyped `pipeline.models` and `pipeline.utils`.
+- Why:
+  - The extraction seam was already in place, which made it the narrowest meaningful post-seam enrollment candidate.
+  - A direct agenda-service enrollment would still require broader model/helper typing work.
+  - This keeps strict-typing progress incremental while preserving the larger model-coupled service wave for later.
+- Affected boundaries:
+  - `pipeline/extraction_service.py` remains the extraction orchestration layer.
+  - extractor, cleaning, and bad-content classification stay behind locally typed service wrappers.
+  - the typed subtree expands by one service file without widening into `pipeline.models`.
+- Canonical references:
+  - [ARCHITECTURE.md](../ARCHITECTURE.md)
+  - [docs/ENGINEERING_GUARDRAILS.md](ENGINEERING_GUARDRAILS.md)
+  - [ROADMAP.md](../ROADMAP.md)
