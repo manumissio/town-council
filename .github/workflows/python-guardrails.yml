@@ -39,8 +39,11 @@ jobs:
         with:
           python-version: "3.14"
 
-      - name: Install guardrail dependencies
-        run: python -m pip install -r pipeline/requirements-dev.txt
+      - name: Install guardrail and runtime dependencies
+        run: |
+          python -m pip install -r pipeline/requirements.txt
+          python -m pip install -r api/requirements.txt
+          python -m pip install -r pipeline/requirements-dev.txt
 
       - name: Run static guardrails
         run: python -m ruff check api pipeline scripts tests
