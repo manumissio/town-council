@@ -101,6 +101,7 @@ TYPED_SUBTREE_PATHS = (
     "pipeline/profiling.py",
     "pipeline/rollout_registry.py",
     "pipeline/runtime_guardrails.py",
+    "pipeline/summary_hydration_diagnostics.py",
     "pipeline/summary_quality.py",
     "pipeline/summary_freshness.py",
     "scripts/analyze_pipeline_profile.py",

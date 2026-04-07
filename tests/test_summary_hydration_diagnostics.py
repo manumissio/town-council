@@ -38,6 +38,16 @@ def test_predict_summary_path_marks_minutes_with_good_text_as_eligible():
     assert result == "eligible_non_agenda_summary"
 
 
+def test_predict_summary_path_marks_missing_content_explicitly():
+    result = predict_summary_path(
+        "minutes",
+        has_content=False,
+        has_agenda_items=False,
+        content=None,
+    )
+    assert result == "missing_content"
+
+
 def test_infer_primary_root_cause_prefers_segmentation_when_agenda_backlog_dominates():
     snapshot = SummaryHydrationSnapshot(
         city=None,
@@ -59,6 +69,30 @@ def test_infer_primary_root_cause_prefers_segmentation_when_agenda_backlog_domin
         likely_root_cause="pending",
     )
     assert infer_primary_root_cause(snapshot) == "agenda_summaries_blocked_on_segmentation"
+
+
+def test_infer_primary_root_cause_prefers_quality_gate_after_unscheduled_non_agenda_is_cleared():
+    snapshot = SummaryHydrationSnapshot(
+        city="berkeley",
+        catalogs_with_content=42,
+        catalogs_with_summary=30,
+        missing_summary_total=12,
+        agenda_missing_summary_total=0,
+        agenda_missing_summary_with_items=0,
+        agenda_missing_summary_without_items=0,
+        non_agenda_missing_summary_total=12,
+        non_agenda_summarizable=0,
+        non_agenda_blocked_low_signal=12,
+        agenda_segmentation_status_counts={},
+        sample_catalog_ids={
+            "non_agenda_missing_summary": [5, 6],
+            "agenda_missing_summary_with_items": [],
+            "agenda_missing_summary_without_items": [],
+        },
+        likely_root_cause="pending",
+    )
+
+    assert infer_primary_root_cause(snapshot) == "summary_quality_gate_blocking_non_agenda"
 
 
 def test_snapshot_to_dict_exposes_cumulative_and_unresolved_aliases():
