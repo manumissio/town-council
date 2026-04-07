@@ -42,7 +42,7 @@ def test_reextract_catalog_content_rejects_unsafe_path(mocker):
         extraction_error=None,
         extraction_attempted_at=None,
     )
-    mocker.patch("pipeline.extraction_service.is_safe_path", return_value=False)
+    mocker.patch("pipeline.extraction_service._is_safe_catalog_path", return_value=False)
 
     result = reextract_catalog_content(catalog, force=False, ocr_fallback=False, min_chars=10)
 
@@ -64,7 +64,7 @@ def test_reextract_catalog_content_rejects_missing_file(mocker):
         extraction_error=None,
         extraction_attempted_at=None,
     )
-    mocker.patch("pipeline.extraction_service.is_safe_path", return_value=True)
+    mocker.patch("pipeline.extraction_service._is_safe_catalog_path", return_value=True)
     mocker.patch("pipeline.extraction_service.os.path.exists", return_value=False)
 
     result = reextract_catalog_content(catalog, force=False, ocr_fallback=False, min_chars=10)
@@ -87,7 +87,7 @@ def test_reextract_catalog_content_returns_cached_when_existing_text_is_good_eno
         extraction_error=None,
         extraction_attempted_at=None,
     )
-    mocker.patch("pipeline.extraction_service.is_safe_path", return_value=True)
+    mocker.patch("pipeline.extraction_service._is_safe_catalog_path", return_value=True)
     mocker.patch("pipeline.extraction_service.os.path.exists", return_value=True)
 
     result = reextract_catalog_content(catalog, force=False, ocr_fallback=False, min_chars=10)
@@ -108,9 +108,9 @@ def test_reextract_catalog_content_rejects_empty_extraction(mocker):
         extraction_error=None,
         extraction_attempted_at=None,
     )
-    mocker.patch("pipeline.extraction_service.is_safe_path", return_value=True)
+    mocker.patch("pipeline.extraction_service._is_safe_catalog_path", return_value=True)
     mocker.patch("pipeline.extraction_service.os.path.exists", return_value=True)
-    mocker.patch("pipeline.extraction_service.extract_text", return_value="")
+    mocker.patch("pipeline.extraction_service._extract_catalog_text", return_value="")
 
     result = reextract_catalog_content(catalog, force=False, ocr_fallback=False, min_chars=10)
 
@@ -133,10 +133,10 @@ def test_reextract_catalog_content_rejects_laserfiche_error_html(mocker):
         extraction_attempted_at=None,
     )
 
-    mocker.patch("pipeline.extraction_service.is_safe_path", return_value=True)
+    mocker.patch("pipeline.extraction_service._is_safe_catalog_path", return_value=True)
     mocker.patch("pipeline.extraction_service.os.path.exists", return_value=True)
     mocker.patch(
-        "pipeline.extraction_service.extract_text",
+        "pipeline.extraction_service._extract_catalog_text",
         return_value=(
             "The system has encountered an error and could not complete your request. "
             "If the problem persists, please contact the site administrator."
@@ -165,10 +165,10 @@ def test_reextract_catalog_content_rejects_laserfiche_loading_shell_html(mocker)
         extraction_attempted_at=None,
     )
 
-    mocker.patch("pipeline.extraction_service.is_safe_path", return_value=True)
+    mocker.patch("pipeline.extraction_service._is_safe_catalog_path", return_value=True)
     mocker.patch("pipeline.extraction_service.os.path.exists", return_value=True)
     mocker.patch(
-        "pipeline.extraction_service.extract_text",
+        "pipeline.extraction_service._extract_catalog_text",
         return_value=(
             "[PAGE 1] Loading... The URL can be used to link to this page "
             "Your browser does not support the video tag."
@@ -196,10 +196,10 @@ def test_reextract_catalog_content_updates_catalog_after_success(mocker):
         extraction_error=None,
         extraction_attempted_at=None,
     )
-    mocker.patch("pipeline.extraction_service.is_safe_path", return_value=True)
+    mocker.patch("pipeline.extraction_service._is_safe_catalog_path", return_value=True)
     mocker.patch("pipeline.extraction_service.os.path.exists", return_value=True)
-    mocker.patch("pipeline.extraction_service.extract_text", return_value="Raw extracted text")
-    mocker.patch("pipeline.extraction_service.postprocess_extracted_text", return_value="Clean extracted text")
+    mocker.patch("pipeline.extraction_service._extract_catalog_text", return_value="Raw extracted text")
+    mocker.patch("pipeline.extraction_service._postprocess_catalog_text", return_value="Clean extracted text")
 
     result = reextract_catalog_content(catalog, force=False, ocr_fallback=True, min_chars=10)
 

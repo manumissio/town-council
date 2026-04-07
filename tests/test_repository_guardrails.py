@@ -95,6 +95,7 @@ TYPED_SUBTREE_PATHS = (
     "pipeline/city_scope.py",
     "pipeline/content_hash.py",
     "pipeline/document_kinds.py",
+    "pipeline/extraction_service.py",
     "pipeline/extraction_state.py",
     "pipeline/maintenance_run_status.py",
     "pipeline/profiling.py",
