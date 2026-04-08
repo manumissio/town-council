@@ -166,3 +166,24 @@ Use each entry to record:
   - [ARCHITECTURE.md](../ARCHITECTURE.md)
   - [docs/ENGINEERING_GUARDRAILS.md](ENGINEERING_GUARDRAILS.md)
   - [ROADMAP.md](../ROADMAP.md)
+
+## 2026-04-08: Extract task families before introducing any generic task wrapper
+
+- Status: Accepted
+- Decision:
+  - The first `pipeline/tasks.py` cleanup wave extracts family-local helpers for text extraction, vote extraction, and summary generation while keeping the Celery task entrypoints in place.
+  - `pipeline/tasks.py` remains the retry boundary: each bound task still owns `SessionLocal()`, rollback, `self.retry(...)`, and final payload shape.
+  - The extracted helpers own only family-specific orchestration such as loading records, enforcing preconditions, persisting writes, and running best-effort post-commit side effects.
+  - The cleanup intentionally avoids a shared task executor, shared retry engine, or hidden transaction wrapper.
+- Why:
+  - `pipeline/tasks.py` had repeated inline orchestration, but the repeated parts were not uniform enough to justify a generic wrapper without risking retry and transaction drift.
+  - Celery retries need to stay explicit at the task boundary, and DB commit/rollback ownership needs to remain obvious and short-lived.
+  - Family-by-family extraction reduces duplication now while preserving current task signatures, retry semantics, and post-write best-effort behavior.
+- Affected boundaries:
+  - `pipeline/tasks.py` remains the Celery entrypoint layer.
+  - Extracted family helpers stay file-local and do not bypass existing domain services such as `pipeline.extraction_service` or `pipeline.vote_extractor`.
+  - Higher-risk task families such as agenda segmentation, worker startup handling, and lineage recompute remain separate follow-ups.
+- Canonical references:
+  - [ARCHITECTURE.md](../ARCHITECTURE.md)
+  - [docs/ENGINEERING_GUARDRAILS.md](ENGINEERING_GUARDRAILS.md)
+  - [ROADMAP.md](../ROADMAP.md)
