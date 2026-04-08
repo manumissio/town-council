@@ -106,3 +106,22 @@ Use each entry to record:
   - [ARCHITECTURE.md](../ARCHITECTURE.md)
   - [docs/ENGINEERING_GUARDRAILS.md](ENGINEERING_GUARDRAILS.md)
   - [ROADMAP.md](../ROADMAP.md)
+
+## 2026-04-08: Enforce Ruff formatting for the scoped formatter-ready path set
+
+- Status: Accepted
+- Decision:
+  - The current formatter-ready path set is mechanically normalized with Ruff and now enforced in CI with a path-scoped `ruff format --check` command.
+  - Formatter enforcement remains limited to the existing formatter-ready path set rather than expanding to repo-wide Python coverage.
+- Why:
+  - The reusable pipeline core is now stable enough to support a dedicated mechanical formatting wave.
+  - The repo already had an explicit formatter-ready path set, which made it possible to enforce formatting without widening into unrelated modules.
+  - Keeping the formatter command path-scoped preserves low-risk rollout and avoids conflating formatting policy with broader cleanup.
+- Affected boundaries:
+  - `docs/ENGINEERING_GUARDRAILS.md` remains the human-readable formatter policy.
+  - `tests/test_repository_guardrails.py` remains the alignment check for the scoped formatter command.
+  - `.github/workflows/python-guardrails.yml` enforces the same explicit path set in CI.
+- Canonical references:
+  - [docs/ENGINEERING_GUARDRAILS.md](ENGINEERING_GUARDRAILS.md)
+  - [ARCHITECTURE.md](../ARCHITECTURE.md)
+  - [ROADMAP.md](../ROADMAP.md)
