@@ -36,6 +36,7 @@ Keep exceptions narrow and path-specific.
 
 - For stdout-driven operator tools, document why stdout is the contract.
 - For broader exception handling, keep it in an approved boundary file, log with context, and explain what invariant remains true.
+- Remove path-specific suppressions only when both the current lint checks and the guardrail tests prove they are stale, instead of letting exception lists drift forward indefinitely.
 - Do not add broad repo-wide ignores when a per-path exception is enough.
 
 ## Boundary exception handlers
