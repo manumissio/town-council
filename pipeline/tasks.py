@@ -68,6 +68,12 @@ from pipeline import metrics as _worker_metrics  # noqa: F401
 # Setup logging
 logger = logging.getLogger("celery-worker")
 
+_TRANSIENT_TEXT_EXTRACTION_ERRORS = frozenset(
+    {
+        "extraction returned empty text",
+    }
+)
+
 
 def _dedupe_titles_preserve_order(values):
     """
@@ -528,6 +534,301 @@ def _run_startup_purge_on_worker_ready(sender=None, **kwargs):
     result = run_startup_purge_if_enabled()
     logger.info(f"startup_purge_result={result}")
 
+
+def _is_transient_text_extraction_error(error_message: str) -> bool:
+    """
+    Keep retry policy explicit for text extraction without hiding it in a generic wrapper.
+    """
+    return error_message.lower() in _TRANSIENT_TEXT_EXTRACTION_ERRORS
+
+
+def _run_extract_text_task_family(
+    db,
+    catalog_id: int,
+    *,
+    force: bool,
+    ocr_fallback: bool,
+) -> dict[str, Any]:
+    """
+    Run the single-catalog text re-extraction flow while leaving retry ownership to the task.
+    """
+    catalog = db.get(Catalog, catalog_id)
+    result = reextract_catalog_content(
+        catalog,
+        force=force,
+        ocr_fallback=ocr_fallback,
+        min_chars=TIKA_MIN_EXTRACTED_CHARS_FOR_NO_OCR,
+    )
+    if "error" in result:
+        error_message = str(result["error"])
+        if _is_transient_text_extraction_error(error_message):
+            raise RuntimeError(error_message)
+        return result
+
+    db.commit()
+
+    # The DB write is already durable here, so targeted reindex stays best-effort.
+    try:
+        reindex_catalog(catalog_id)
+    except Exception as reindex_error:
+        return {**result, "reindex_error": str(reindex_error)}
+
+    return result
+
+
+def _run_extract_votes_task_family(
+    db,
+    catalog_id: int,
+    *,
+    force: bool,
+    local_ai: LocalAI,
+) -> dict[str, Any]:
+    """
+    Run vote extraction for one catalog while leaving retries and session cleanup to the task.
+    """
+    catalog = db.get(Catalog, catalog_id)
+    if not catalog:
+        return {"error": "Catalog not found"}
+
+    doc = db.query(Document).filter_by(catalog_id=catalog_id).first()
+    if not doc:
+        return {"error": "Document not linked to catalog"}
+
+    if not ENABLE_VOTE_EXTRACTION and not force:
+        return {
+            "status": "disabled",
+            "reason": "Vote extraction is disabled. Set ENABLE_VOTE_EXTRACTION=true or run with force=true.",
+            "processed_items": 0,
+            "updated_items": 0,
+            "skipped_items": 0,
+            "failed_items": 0,
+            "skip_reasons": {},
+        }
+
+    existing_items = (
+        db.query(AgendaItem)
+        .filter_by(catalog_id=catalog_id)
+        .order_by(AgendaItem.order)
+        .all()
+    )
+    if not existing_items:
+        return {
+            "status": "not_generated_yet",
+            "reason": "Vote extraction requires segmented agenda items. Run segmentation first.",
+            "processed_items": 0,
+            "updated_items": 0,
+            "skipped_items": 0,
+            "failed_items": 0,
+            "skip_reasons": {},
+        }
+
+    counters = run_vote_extraction_for_catalog(
+        db,
+        local_ai,
+        catalog,
+        doc,
+        force=force,
+        agenda_items=existing_items,
+    )
+    db.commit()
+
+    try:
+        reindex_catalog(catalog_id)
+    except Exception as reindex_error:
+        # Vote extraction updates are already persisted, so targeted reindex remains best-effort.
+        logger.warning("summary_generation.reindex_failed catalog_id=%s error=%s", catalog_id, reindex_error)
+
+    return {"status": "complete", **counters}
+
+
+def _run_summary_generation_side_effects(catalog_id: int) -> dict[str, int]:
+    """
+    Summary persistence is the source of truth; search and embedding side effects stay best-effort.
+    """
+    reindexed = 0
+    reindex_failed = 0
+    try:
+        reindex_catalog(catalog_id)
+        reindexed = 1
+    except Exception as reindex_error:
+        reindex_failed = 1
+        logger.warning("summary_generation.reindex_failed catalog_id=%s error=%s", catalog_id, reindex_error)
+
+    embed_enqueued = 0
+    embed_dispatch_failed = 0
+    try:
+        embed_catalog_task.delay(catalog_id)
+        embed_enqueued = 1
+    except Exception as exc:
+        logger.warning("embed_catalog_task.dispatch_failed catalog_id=%s error=%s", catalog_id, exc)
+        embed_dispatch_failed = 1
+
+    return {
+        "reindexed": reindexed,
+        "reindex_failed": reindex_failed,
+        "embed_enqueued": embed_enqueued,
+        "embed_dispatch_failed": embed_dispatch_failed,
+    }
+
+
+def _run_generate_summary_task_family(
+    db,
+    catalog_id: int,
+    *,
+    force: bool,
+) -> dict[str, Any]:
+    """
+    Run summary generation for one catalog while leaving retry and session ownership to the task.
+    """
+    catalog = db.get(Catalog, catalog_id)
+
+    # Decide how to summarize based on the *document type*.
+    # Many cities publish agenda PDFs without corresponding minutes PDFs.
+    # If we summarize an agenda using a "minutes" prompt, the output looks incorrect.
+    doc = db.query(Document).filter_by(catalog_id=catalog_id).first()
+    doc_kind = normalize_summary_doc_kind(doc.category if doc else "unknown")
+
+    if not catalog:
+        return {"error": "Catalog not found"}
+    classification = classify_catalog_bad_content(catalog)
+    if classification:
+        return {"status": "error", "error": classification.reason}
+    local_ai = LocalAI()
+
+    # Ensure we have a stable fingerprint for "is this summary stale?"
+    content_hash = compute_content_hash(catalog.content) if (catalog.content or "") else None
+    if content_hash:
+        catalog.content_hash = content_hash
+
+    # Minutes/unknown summaries are grounded in extracted text, so we block low-signal inputs.
+    # Agenda summaries are derived from segmented agenda items, so the extracted-text quality
+    # gate is not the right control (Legistar items can be good even if PDF text is sparse).
+    if doc_kind != "agenda":
+        if not catalog.content:
+            return {"error": "No content to summarize"}
+        quality = analyze_source_text(catalog.content)
+        if not is_source_summarizable(quality):
+            # We do not run Gemma on low-signal content because it tends to hallucinate.
+            return {
+                "status": "blocked_low_signal",
+                "reason": build_low_signal_message(quality),
+                "summary": None,
+            }
+
+    # Agenda summaries are derived from segmented agenda items (not raw PDF text) so the
+    # AI Summary and Structured Agenda tabs cannot drift.
+    # Whether we should run the "summary must be lexically grounded in extracted text" check.
+    # Agenda summaries are derived from structured items, so we do not ground against the PDF text.
+    do_grounding_check = True
+    agenda_items_hash = catalog.agenda_items_hash
+    agenda_summary_bundle = None
+    if doc_kind == "agenda":
+        agenda_summary_bundle = build_agenda_summary_input_bundle(
+            catalog=catalog,
+            document=doc,
+            agenda_items=(
+                db.query(AgendaItem)
+                .filter_by(catalog_id=catalog_id)
+                .order_by(AgendaItem.order)
+                .all()
+            ),
+            include_meeting_context=True,
+        )
+        if agenda_summary_bundle.get("status") != "ready":
+            return agenda_summary_bundle
+        agenda_items_hash = agenda_summary_bundle["agenda_items_hash"]
+        if agenda_items_hash != catalog.agenda_items_hash:
+            catalog.agenda_items_hash = agenda_items_hash
+
+    # Return cached value when already summarized, unless the caller forces a refresh.
+    #
+    # Why have `force`?
+    # Summaries are cached on the Catalog row. When we improve the prompt/cleanup logic,
+    # old low-quality summaries won't change unless we regenerate them.
+    is_fresh = is_summary_fresh(
+        doc_kind,
+        summary=catalog.summary,
+        summary_source_hash=catalog.summary_source_hash,
+        content_hash=content_hash,
+        agenda_items_hash=agenda_items_hash,
+    )
+    if (not force) and is_fresh:
+        return {"status": "cached", "summary": catalog.summary, "changed": False}
+    if (not force) and catalog.summary and not is_fresh:
+        # Keep the old summary visible, but mark it as out-of-date.
+        return {"status": "stale", "summary": catalog.summary, "changed": False}
+
+    if doc_kind == "agenda":
+        # Use all available titles, bounded only by model context. If we must truncate,
+        # we disclose it in the prompt requirements.
+        summary = local_ai.summarize_agenda_items(
+            meeting_title=agenda_summary_bundle["meeting_title"],
+            meeting_date=agenda_summary_bundle["meeting_date"],
+            items=agenda_summary_bundle["summary_items"],
+            truncation_meta=agenda_summary_bundle["truncation_meta"],
+        )
+        # Agenda summaries are derived from structured titles, not raw text.
+        do_grounding_check = False
+    else:
+        summary = local_ai.summarize(postprocess_extracted_text(catalog.content), doc_kind=doc_kind)
+
+    # Retry instead of storing an empty summary.
+    if summary is None:
+        raise RuntimeError("AI Summarization returned None (Model missing or error)")
+
+    # Guardrail: block ungrounded model claims (deterministic agenda-title summaries are exempt).
+    if do_grounding_check:
+        # Ground against the extracted text. This is conservative and may block on
+        # paraphrases; if it becomes too strict for agenda-item summaries, we can
+        # switch to grounding against the agenda-items payload instead.
+        grounding = is_summary_grounded(summary, postprocess_extracted_text(catalog.content))
+        if not grounding.is_grounded:
+            reason = (
+                "Generated summary appears unsupported by extracted text. "
+                f"(coverage={grounding.coverage:.2f})"
+            )
+            return {
+                "status": "blocked_ungrounded",
+                "reason": reason,
+                "unsupported_claims": grounding.unsupported_claims[:3],
+                "summary": None,
+            }
+
+    if doc_kind == "agenda":
+        persisted_summary = persist_agenda_summary(
+            catalog=catalog,
+            summary=summary,
+            content_hash=agenda_summary_bundle["content_hash"],
+            agenda_items_hash=agenda_summary_bundle["agenda_items_hash"],
+        )
+    else:
+        prior_summary = catalog.summary
+        prior_summary_source_hash = catalog.summary_source_hash
+        summary_source_hash = compute_summary_source_hash(
+            doc_kind,
+            content_hash=content_hash,
+            agenda_items_hash=agenda_items_hash,
+        )
+        catalog.summary = summary
+        if content_hash:
+            catalog.content_hash = content_hash
+        if summary_source_hash:
+            catalog.summary_source_hash = summary_source_hash
+        persisted_summary = {
+            "status": "complete",
+            "summary": summary,
+            "changed": bool(prior_summary != summary or prior_summary_source_hash != summary_source_hash),
+        }
+    db.commit()
+
+    side_effects = _run_summary_generation_side_effects(catalog_id)
+    return {
+        "status": "complete",
+        "summary": summary,
+        "changed": bool(persisted_summary["changed"]),
+        **side_effects,
+    }
+
 @app.task(bind=True, max_retries=3)
 def generate_summary_task(self, catalog_id: int, force: bool = False):
     """
@@ -537,182 +838,14 @@ def generate_summary_task(self, catalog_id: int, force: bool = False):
     
     try:
         logger.info(f"Starting summarization for Catalog ID {catalog_id}")
-        catalog = db.get(Catalog, catalog_id)
-        
-        # Decide how to summarize based on the *document type*.
-        # Many cities publish agenda PDFs without corresponding minutes PDFs.
-        # If we summarize an agenda using a "minutes" prompt, the output looks incorrect.
-        doc = db.query(Document).filter_by(catalog_id=catalog_id).first()
-        doc_kind = normalize_summary_doc_kind(doc.category if doc else "unknown")
-
-        if not catalog:
-            return {"error": "Catalog not found"}
-        classification = classify_catalog_bad_content(catalog)
-        if classification:
-            return {"status": "error", "error": classification.reason}
-        local_ai = LocalAI()
-
-        # Ensure we have a stable fingerprint for "is this summary stale?"
-        content_hash = compute_content_hash(catalog.content) if (catalog.content or "") else None
-        if content_hash:
-            catalog.content_hash = content_hash
-
-        # Minutes/unknown summaries are grounded in extracted text, so we block low-signal inputs.
-        # Agenda summaries are derived from segmented agenda items, so the extracted-text quality
-        # gate is not the right control (Legistar items can be good even if PDF text is sparse).
-        if doc_kind != "agenda":
-            if not catalog.content:
-                return {"error": "No content to summarize"}
-            quality = analyze_source_text(catalog.content)
-            if not is_source_summarizable(quality):
-                # We do not run Gemma on low-signal content because it tends to hallucinate.
-                return {
-                    "status": "blocked_low_signal",
-                    "reason": build_low_signal_message(quality),
-                    "summary": None,
-                }
-        
-        # Agenda summaries are derived from segmented agenda items (not raw PDF text) so the
-        # AI Summary and Structured Agenda tabs cannot drift.
-        # Whether we should run the "summary must be lexically grounded in extracted text" check.
-        # Agenda summaries are derived from structured items, so we do not ground against the PDF text.
-        do_grounding_check = True
-        agenda_items_hash = catalog.agenda_items_hash
-        agenda_summary_bundle = None
-        if doc_kind == "agenda":
-            agenda_summary_bundle = build_agenda_summary_input_bundle(
-                catalog=catalog,
-                document=doc,
-                agenda_items=(
-                    db.query(AgendaItem)
-                    .filter_by(catalog_id=catalog_id)
-                    .order_by(AgendaItem.order)
-                    .all()
-                ),
-                include_meeting_context=True,
-            )
-            if agenda_summary_bundle.get("status") != "ready":
-                return agenda_summary_bundle
-            agenda_items_hash = agenda_summary_bundle["agenda_items_hash"]
-            if agenda_items_hash != catalog.agenda_items_hash:
-                catalog.agenda_items_hash = agenda_items_hash
-
-        # Return cached value when already summarized, unless the caller forces a refresh.
-        #
-        # Why have `force`?
-        # Summaries are cached on the Catalog row. When we improve the prompt/cleanup logic,
-        # old low-quality summaries won't change unless we regenerate them.
-        is_fresh = is_summary_fresh(
-            doc_kind,
-            summary=catalog.summary,
-            summary_source_hash=catalog.summary_source_hash,
-            content_hash=content_hash,
-            agenda_items_hash=agenda_items_hash,
+        result = _run_generate_summary_task_family(
+            db,
+            catalog_id,
+            force=force,
         )
-        if (not force) and is_fresh:
-            return {"status": "cached", "summary": catalog.summary, "changed": False}
-        if (not force) and catalog.summary and not is_fresh:
-            # Keep the old summary visible, but mark it as out-of-date.
-            return {"status": "stale", "summary": catalog.summary, "changed": False}
-
-        if doc_kind == "agenda":
-            # Use all available titles, bounded only by model context. If we must truncate,
-            # we disclose it in the prompt requirements.
-            summary = local_ai.summarize_agenda_items(
-                meeting_title=agenda_summary_bundle["meeting_title"],
-                meeting_date=agenda_summary_bundle["meeting_date"],
-                items=agenda_summary_bundle["summary_items"],
-                truncation_meta=agenda_summary_bundle["truncation_meta"],
-            )
-            # Agenda summaries are derived from structured titles, not raw text.
-            do_grounding_check = False
-        else:
-            summary = local_ai.summarize(postprocess_extracted_text(catalog.content), doc_kind=doc_kind)
-        
-        # Retry instead of storing an empty summary.
-        if summary is None:
-            raise RuntimeError("AI Summarization returned None (Model missing or error)")
-
-        # Guardrail: block ungrounded model claims (deterministic agenda-title summaries are exempt).
-        if do_grounding_check:
-            # Ground against the extracted text. This is conservative and may block on
-            # paraphrases; if it becomes too strict for agenda-item summaries, we can
-            # switch to grounding against the agenda-items payload instead.
-            grounding = is_summary_grounded(summary, postprocess_extracted_text(catalog.content))
-            if not grounding.is_grounded:
-                reason = (
-                    "Generated summary appears unsupported by extracted text. "
-                    f"(coverage={grounding.coverage:.2f})"
-                )
-                return {
-                    "status": "blocked_ungrounded",
-                    "reason": reason,
-                    "unsupported_claims": grounding.unsupported_claims[:3],
-                    "summary": None,
-                }
-        
-        # Update DB
-        if doc_kind == "agenda":
-            persisted_summary = persist_agenda_summary(
-                catalog=catalog,
-                summary=summary,
-                content_hash=agenda_summary_bundle["content_hash"],
-                agenda_items_hash=agenda_summary_bundle["agenda_items_hash"],
-            )
-        else:
-            prior_summary = catalog.summary
-            prior_summary_source_hash = catalog.summary_source_hash
-            summary_source_hash = compute_summary_source_hash(
-                doc_kind,
-                content_hash=content_hash,
-                agenda_items_hash=agenda_items_hash,
-            )
-            catalog.summary = summary
-            if content_hash:
-                catalog.content_hash = content_hash
-            if summary_source_hash:
-                catalog.summary_source_hash = summary_source_hash
-            persisted_summary = {
-                "status": "complete",
-                "summary": summary,
-                "changed": bool(prior_summary != summary or prior_summary_source_hash != summary_source_hash),
-            }
-        db.commit()
-
-        changed = bool(persisted_summary["changed"])
-        reindexed = 0
-        reindex_failed = 0
-
-        # Best-effort: update the search index for just this catalog so stale flags
-        # and snippets stay in sync for future searches.
-        try:
-            reindex_catalog(catalog_id)
-            reindexed = 1
-        except Exception as reindex_error:
-            reindex_failed = 1
-            logger.warning("summary_generation.reindex_failed catalog_id=%s error=%s", catalog_id, reindex_error)
-        
-        # Fire-and-forget embedding update for semantic B2. We do not block summary success
-        # on embedding failures; search can safely fall back to lexical until vectors hydrate.
-        embed_enqueued = 0
-        embed_dispatch_failed = 0
-        try:
-            embed_catalog_task.delay(catalog_id)
-            embed_enqueued = 1
-        except Exception as exc:
-            logger.warning("embed_catalog_task.dispatch_failed catalog_id=%s error=%s", catalog_id, exc)
-            embed_dispatch_failed = 1
-
-        logger.info(f"Summarization complete for Catalog ID {catalog_id}")
-        return {
-            "status": "complete",
-            "summary": summary,
-            "changed": changed,
-            "reindexed": reindexed,
-            "reindex_failed": reindex_failed,
-            "embed_enqueued": embed_enqueued,
-            "embed_dispatch_failed": embed_dispatch_failed,
-        }
+        if result.get("status") == "complete":
+            logger.info(f"Summarization complete for Catalog ID {catalog_id}")
+        return result
 
     except LocalAIConfigError as e:
         # Configuration errors are not transient; do not retry.
@@ -892,59 +1025,12 @@ def extract_votes_task(self, catalog_id: int, force: bool = False):
     local_ai = LocalAI()
 
     try:
-        catalog = db.get(Catalog, catalog_id)
-        if not catalog:
-            return {"error": "Catalog not found"}
-
-        doc = db.query(Document).filter_by(catalog_id=catalog_id).first()
-        if not doc:
-            return {"error": "Document not linked to catalog"}
-
-        if not ENABLE_VOTE_EXTRACTION and not force:
-            return {
-                "status": "disabled",
-                "reason": "Vote extraction is disabled. Set ENABLE_VOTE_EXTRACTION=true or run with force=true.",
-                "processed_items": 0,
-                "updated_items": 0,
-                "skipped_items": 0,
-                "failed_items": 0,
-                "skip_reasons": {},
-            }
-
-        existing_items = (
-            db.query(AgendaItem)
-            .filter_by(catalog_id=catalog_id)
-            .order_by(AgendaItem.order)
-            .all()
-        )
-        if not existing_items:
-            return {
-                "status": "not_generated_yet",
-                "reason": "Vote extraction requires segmented agenda items. Run segmentation first.",
-                "processed_items": 0,
-                "updated_items": 0,
-                "skipped_items": 0,
-                "failed_items": 0,
-                "skip_reasons": {},
-            }
-
-        counters = run_vote_extraction_for_catalog(
+        return _run_extract_votes_task_family(
             db,
-            local_ai,
-            catalog,
-            doc,
+            catalog_id,
             force=force,
-            agenda_items=existing_items,
+            local_ai=local_ai,
         )
-        db.commit()
-
-        try:
-            reindex_catalog(catalog_id)
-        except Exception as reindex_error:
-            # Summary persistence already succeeded, so targeted reindex remains best-effort.
-            logger.warning("summary_generation.reindex_failed catalog_id=%s error=%s", catalog_id, reindex_error)
-
-        return {"status": "complete", **counters}
     except LocalAIConfigError as e:
         logger.critical(f"LocalAI misconfiguration: {e}")
         db.rollback()
@@ -969,33 +1055,12 @@ def extract_text_task(self, catalog_id: int, force: bool = False, ocr_fallback: 
     """
     db = SessionLocal()
     try:
-        catalog = db.get(Catalog, catalog_id)
-        result = reextract_catalog_content(
-            catalog,
+        return _run_extract_text_task_family(
+            db,
+            catalog_id,
             force=force,
             ocr_fallback=ocr_fallback,
-            min_chars=TIKA_MIN_EXTRACTED_CHARS_FOR_NO_OCR,
         )
-        if "error" in result:
-            # Only retry for transient extraction failures. Missing files / unsafe paths
-            # should return immediately so the user can take action.
-            transient = result["error"].lower() in {
-                "extraction returned empty text",
-            }
-            if transient:
-                raise RuntimeError(result["error"])
-            return result
-
-        db.commit()
-
-        # Best-effort: update the search index for just this catalog.
-        try:
-            reindex_catalog(catalog_id)
-        except Exception as e:
-            # If reindexing fails, keep the extracted text (DB is source of truth).
-            return {**result, "reindex_error": str(e)}
-
-        return result
     except (SQLAlchemyError, RuntimeError, ValueError) as e:
         db.rollback()
         raise self.retry(exc=e, countdown=60)

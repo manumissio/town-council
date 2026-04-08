@@ -84,3 +84,77 @@ def test_extract_votes_task_requires_segmented_items(mocker):
 
     assert result["status"] == "not_generated_yet"
     assert "Run segmentation first" in result["reason"]
+
+
+def test_extract_votes_task_returns_disabled_when_feature_is_off(mocker):
+    mock_db = MagicMock()
+    catalog = MagicMock()
+    catalog.id = 77
+    catalog.content = "Meeting text"
+    mock_db.get.return_value = catalog
+
+    doc = MagicMock()
+    doc.category = "minutes"
+    doc.event = MagicMock(name="Council", record_date="2026-01-10")
+    doc_query = MagicMock()
+    doc_query.filter_by.return_value.first.return_value = doc
+
+    mock_db.query.return_value = doc_query
+
+    mocker.patch.object(tasks, "SessionLocal", return_value=mock_db)
+    mocker.patch.object(tasks, "LocalAI", return_value=MagicMock())
+    mocker.patch.object(tasks, "ENABLE_VOTE_EXTRACTION", False)
+
+    result = tasks.extract_votes_task.run(77, force=False)
+
+    assert result["status"] == "disabled"
+    assert "Vote extraction is disabled" in result["reason"]
+    mock_db.commit.assert_not_called()
+
+
+def test_extract_votes_task_keeps_success_when_reindex_fails(mocker):
+    mock_db = MagicMock()
+    catalog = MagicMock()
+    catalog.id = 99
+    catalog.content = "Meeting text with vote lines."
+    mock_db.get.return_value = catalog
+
+    doc = MagicMock()
+    doc.category = "minutes"
+    doc.event = MagicMock(name="City Council", record_date="2026-01-10")
+    doc_query = MagicMock()
+    doc_query.filter_by.return_value.first.return_value = doc
+
+    item = MagicMock()
+    item.order = 1
+    agenda_query = MagicMock()
+    agenda_query.filter_by.return_value.order_by.return_value.all.return_value = [item]
+
+    def query_side_effect(model):
+        if model is tasks.Document:
+            return doc_query
+        return agenda_query
+
+    mock_db.query.side_effect = query_side_effect
+
+    mocker.patch.object(tasks, "SessionLocal", return_value=mock_db)
+    mocker.patch.object(tasks, "LocalAI", return_value=MagicMock())
+    mocker.patch.object(tasks, "ENABLE_VOTE_EXTRACTION", True)
+    mocker.patch.object(
+        tasks,
+        "run_vote_extraction_for_catalog",
+        return_value={
+            "processed_items": 4,
+            "updated_items": 3,
+            "skipped_items": 1,
+            "failed_items": 0,
+            "skip_reasons": {"low_confidence": 1},
+        },
+    )
+    mocker.patch.object(tasks, "reindex_catalog", side_effect=RuntimeError("search unavailable"))
+
+    result = tasks.extract_votes_task.run(99, force=False)
+
+    assert result["status"] == "complete"
+    assert result["updated_items"] == 3
+    mock_db.commit.assert_called_once()
