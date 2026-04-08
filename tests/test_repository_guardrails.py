@@ -116,6 +116,10 @@ TYPED_SUBTREE_PATHS = (
     "scripts/analyze_pipeline_profile.py",
 )
 CANDIDATE_FORMATTER_WAVE_PATHS = TYPED_SUBTREE_PATHS
+FORMATTER_WAVE_COMMAND = (
+    "./.venv/bin/ruff format --check "
+    + " ".join(CANDIDATE_FORMATTER_WAVE_PATHS)
+)
 
 
 def _tracked_files() -> list[Path]:
@@ -246,20 +250,17 @@ def test_typed_subtree_config_stays_explicit_and_aligned():
     assert "python -m mypy api/metrics.py" not in workflow_text
 
 
-def test_first_formatter_wave_stays_path_scoped_and_non_blocking():
+def test_first_formatter_wave_stays_path_scoped_and_enforced():
     docs_text = (ROOT / "docs" / "ENGINEERING_GUARDRAILS.md").read_text(encoding="utf-8")
     agents_text = (ROOT / "AGENTS.md").read_text(encoding="utf-8")
     workflow_text = (ROOT / ".github" / "workflows" / "python-guardrails.yml").read_text(encoding="utf-8")
-    expected_command = (
-        "./.venv/bin/ruff format --check "
-        + " ".join(CANDIDATE_FORMATTER_WAVE_PATHS)
-    )
 
-    assert expected_command in docs_text
-    assert "measure readiness for the first mechanical formatting wave" in docs_text
+    assert FORMATTER_WAVE_COMMAND in docs_text
+    assert "scoped formatter guardrail" in docs_text
     assert "./.venv/bin/ruff format --check api pipeline scripts tests" not in docs_text
     assert "ruff format --check" not in agents_text
-    assert "ruff format --check" not in workflow_text
+    assert "python -m ruff format --check " + " ".join(CANDIDATE_FORMATTER_WAVE_PATHS) in workflow_text
+    assert "python -m ruff format --check api pipeline scripts tests" not in workflow_text
 
 
 def test_broad_exception_allowlist_stays_explicit():

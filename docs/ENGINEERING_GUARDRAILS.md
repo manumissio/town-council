@@ -91,7 +91,7 @@ cd <REPO_ROOT>
 ./.venv/bin/ruff format --check api/metrics.py api/search/query_builder.py pipeline/agenda_crosscheck.py pipeline/agenda_legistar.py pipeline/agenda_resolver.py pipeline/city_scope.py pipeline/content_hash.py pipeline/document_kinds.py pipeline/agenda_service.py pipeline/agenda_verification_model_access.py pipeline/extraction_service.py pipeline/extraction_state.py pipeline/maintenance_run_status.py pipeline/models.py pipeline/profiling.py pipeline/rollout_registry.py pipeline/runtime_guardrails.py pipeline/summary_hydration_diagnostics.py pipeline/summary_quality.py pipeline/summary_freshness.py pipeline/utils.py pipeline/verification_service.py pipeline/vote_extractor.py scripts/analyze_pipeline_profile.py
 ```
 
-Use that path-scoped command to measure readiness for the first mechanical formatting wave. Do not make formatter checks blocking for a path until the path has been normalized in a dedicated mechanical commit, and do not mix formatting with behavioral edits.
+Use that exact path-scoped command as the scoped formatter guardrail for the current formatter-ready wave. Keep formatter enforcement limited to this explicit path set, and do not mix formatting with behavioral edits.
 
 ## How to add a new guardrail
 
