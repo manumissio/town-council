@@ -65,3 +65,23 @@ Use each entry to record:
   - [ARCHITECTURE.md](../ARCHITECTURE.md)
   - [docs/ENGINEERING_GUARDRAILS.md](ENGINEERING_GUARDRAILS.md)
   - [ROADMAP.md](../ROADMAP.md)
+
+## 2026-04-07: Establish a shared models seam before the next service enrollments
+
+- Status: Accepted
+- Decision:
+  - Strict typing should stop relying on one-off service wrappers and instead introduce a shared `pipeline.models` access seam for agenda and verification workflows.
+  - `pipeline/agenda_service.py` is enrolled through that seam as the first consumer.
+  - `pipeline/verification_service.py` adopts the seam selectively for session and catalog/item loading, but remains outside the typed subtree until its remaining local annotation debt is addressed separately.
+- Why:
+  - Repeated direct-enrollment probes had reached the same structural blocker: broad imports from `pipeline.models` and `pipeline.utils`.
+  - A shared seam keeps service modules dependent on the smallest record/query contracts they actually consume.
+  - `agenda_service` was the narrowest path to prove the seam is reusable without dragging in a full verification cleanup wave.
+- Affected boundaries:
+  - `pipeline.models` remains the ORM layer.
+  - `pipeline/agenda_verification_model_access.py` becomes the typed boundary for narrow agenda and verification model access.
+  - `pipeline/agenda_service.py` remains an agenda-domain service and no longer imports broad ORM symbols directly.
+- Canonical references:
+  - [ARCHITECTURE.md](../ARCHITECTURE.md)
+  - [docs/ENGINEERING_GUARDRAILS.md](ENGINEERING_GUARDRAILS.md)
+  - [ROADMAP.md](../ROADMAP.md)
