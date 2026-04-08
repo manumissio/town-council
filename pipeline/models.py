@@ -24,6 +24,7 @@ VECTOR_COLUMN_TYPE: type[TypeDecorator[object | None]]
 try:
     from pgvector.sqlalchemy import Vector as PgVector
 except Exception:  # pragma: no cover
+
     class FallbackVector(TypeDecorator[object | None]):
         """
         Lightweight fallback so local imports/tests do not crash when pgvector is absent.
@@ -56,9 +57,11 @@ except Exception:  # pragma: no cover
                 # value preserves read compatibility while the warning surfaces cleanup debt.
                 logger.warning("sqlalchemy.json_list_decode_failed error=%s", json_error)
             return value
+
     VECTOR_COLUMN_TYPE = FallbackVector
 else:
     VECTOR_COLUMN_TYPE = PgVector
+
 
 # Modern SQLAlchemy 2.0 style: Subclassing DeclarativeBase instead of calling a function.
 # This makes the code more robust and compatible with modern Python tools.
@@ -72,9 +75,7 @@ POSTGRESQL_MAX_OVERFLOW: Final = 20
 POSTGRESQL_POOL_TIMEOUT: Final = 30
 POSTGRESQL_POOL_RECYCLE_SECONDS: Final = 1800
 DATABASE_URL_ENV_VAR: Final = "DATABASE_URL"
-DATABASE_URL_MISSING_ERROR: Final = (
-    "DATABASE_URL is not set. Configure it explicitly for runtime or tests."
-)
+DATABASE_URL_MISSING_ERROR: Final = "DATABASE_URL is not set. Configure it explicitly for runtime or tests."
 
 
 def db_connect() -> Engine:
@@ -86,7 +87,7 @@ def db_connect() -> Engine:
     intentionally need a lightweight fixture database.
     """
     database_url = os.getenv(DATABASE_URL_ENV_VAR)
-    
+
     if database_url and database_url.startswith(POSTGRESQL_SCHEME):
         # Use PostgreSQL with connection pooling for high performance.
         return create_engine(
@@ -108,22 +109,25 @@ def create_tables(engine: Engine) -> None:
     """
     Base.metadata.create_all(engine)
 
+
 # Removed: create_tables(engine) from global scope to avoid import-side effects
 class IssueType(enum.Enum):
     """
     Standardized types of data problems a user can report.
     Using an Enum prevents 'typos' and ensures data consistency.
     """
-    BROKEN_LINK = "broken_link"      # The PDF link gives a 404 error
-    GARBLED_TEXT = "garbled_text"    # OCR failed and text is unreadable
-    WRONG_CITY = "wrong_city"        # Meeting is assigned to the wrong town
-    OTHER = "other"                  # Catch-all for unique issues
+
+    BROKEN_LINK = "broken_link"  # The PDF link gives a 404 error
+    GARBLED_TEXT = "garbled_text"  # OCR failed and text is unreadable
+    WRONG_CITY = "wrong_city"  # Meeting is assigned to the wrong town
+    OTHER = "other"  # Catch-all for unique issues
+
 
 class DataIssue(Base):
-    __tablename__ = 'data_issue'
+    __tablename__ = "data_issue"
 
     id = Column(Integer, primary_key=True)
-    event_id = Column(Integer, ForeignKey('event.id'), index=True, nullable=False)
+    event_id = Column(Integer, ForeignKey("event.id"), index=True, nullable=False)
     issue_type = Column(String(50), nullable=False)
     description = Column(String(500))
     status = Column(String(20), default="open")
@@ -131,8 +135,9 @@ class DataIssue(Base):
 
     event = relationship("Event")
 
+
 class Place(Base):
-    __tablename__ = 'place'
+    __tablename__ = "place"
 
     id = Column(Integer, primary_key=True)
     name = Column(String(255), nullable=False)
@@ -153,21 +158,21 @@ class Place(Base):
 
 
 class Organization(Base):
-    __tablename__ = 'organization'
+    __tablename__ = "organization"
 
     id = Column(Integer, primary_key=True)
     ocd_id = Column(String(255), unique=True, index=True)
-    place_id = Column(Integer, ForeignKey('place.id'), nullable=False, index=True)
+    place_id = Column(Integer, ForeignKey("place.id"), nullable=False, index=True)
     name = Column(String(255), nullable=False)
     classification = Column(String(100))
-    
+
     place = relationship("Place", back_populates="organizations")
     events = relationship("Event", back_populates="organization")
     memberships = relationship("Membership", back_populates="organization")
 
 
 class Person(Base):
-    __tablename__ = 'person'
+    __tablename__ = "person"
 
     id = Column(Integer, primary_key=True)
     ocd_id = Column(String(255), unique=True, index=True)
@@ -178,19 +183,19 @@ class Person(Base):
     is_elected = Column(Boolean, default=False, index=True)
     # Distinguishes official records from mention-only NLP detections.
     person_type = Column(String(20), default="mentioned", index=True, nullable=False)
-    
+
     created_at = Column(DateTime, default=datetime.datetime.now)
 
     memberships = relationship("Membership", back_populates="person")
 
 
 class Membership(Base):
-    __tablename__ = 'membership'
+    __tablename__ = "membership"
 
     id = Column(Integer, primary_key=True)
-    person_id = Column(Integer, ForeignKey('person.id'), nullable=False, index=True)
-    organization_id = Column(Integer, ForeignKey('organization.id'), nullable=False, index=True)
-    
+    person_id = Column(Integer, ForeignKey("person.id"), nullable=False, index=True)
+    organization_id = Column(Integer, ForeignKey("organization.id"), nullable=False, index=True)
+
     label = Column(String(255))
     role = Column(String(100), default="member")
     start_date = Column(Date, nullable=True)
@@ -201,7 +206,7 @@ class Membership(Base):
 
 
 class UrlStage(Base):
-    __tablename__ = 'url_stage'
+    __tablename__ = "url_stage"
 
     id = Column(Integer, primary_key=True)
     ocd_division_id = Column(String(255))
@@ -214,7 +219,7 @@ class UrlStage(Base):
 
 
 class EventStage(Base):
-    __tablename__ = 'event_stage'
+    __tablename__ = "event_stage"
 
     id = Column(Integer, primary_key=True)
     ocd_division_id = Column(String(255))
@@ -228,13 +233,13 @@ class EventStage(Base):
 
 
 class Event(Base):
-    __tablename__ = 'event'
+    __tablename__ = "event"
 
     id = Column(Integer, primary_key=True)
     ocd_id = Column(String(255), unique=True, index=True)
     ocd_division_id = Column(String(255))
-    place_id = Column(Integer, ForeignKey('place.id'), nullable=False)
-    organization_id = Column(Integer, ForeignKey('organization.id'), nullable=True, index=True)
+    place_id = Column(Integer, ForeignKey("place.id"), nullable=False)
+    organization_id = Column(Integer, ForeignKey("organization.id"), nullable=True, index=True)
     name = Column(String(255))
     scraped_datetime = Column(DateTime, default=datetime.datetime.now)
     record_date = Column(Date)
@@ -242,44 +247,44 @@ class Event(Base):
     source_url = Column(String(500))
     meeting_type = Column(String(100))
 
-    place = relationship('Place')
-    organization = relationship('Organization', back_populates='events')
+    place = relationship("Place")
+    organization = relationship("Organization", back_populates="events")
     documents = relationship("Document", back_populates="event", cascade="all, delete-orphan")
-    agenda_items = relationship('AgendaItem', back_populates='event', cascade="all, delete-orphan")
-    data_issues = relationship('DataIssue', back_populates='event')
+    agenda_items = relationship("AgendaItem", back_populates="event", cascade="all, delete-orphan")
+    data_issues = relationship("DataIssue", back_populates="event")
 
     __table_args__ = (
-        Index('idx_event_date_place', 'record_date', 'place_id'),
-        Index('idx_event_org', 'organization_id', 'record_date'),
+        Index("idx_event_date_place", "record_date", "place_id"),
+        Index("idx_event_org", "organization_id", "record_date"),
     )
 
 
 class AgendaItem(Base):
-    __tablename__ = 'agenda_item'
+    __tablename__ = "agenda_item"
 
     id = Column(Integer, primary_key=True)
     ocd_id = Column(String(255), unique=True, index=True)
-    event_id = Column(Integer, ForeignKey('event.id'), nullable=False, index=True)
-    
+    event_id = Column(Integer, ForeignKey("event.id"), nullable=False, index=True)
+
     order = Column(Integer)
     title = Column(String(1000), nullable=False)
     description = Column(Text)
     classification = Column(String(100))
     result = Column(String(100))
-    
+
     page_number = Column(Integer, nullable=True)
     text_offset = Column(Integer, nullable=True)
-    
+
     # Ground Truth fields for verification
     votes = Column(JSON, nullable=True)
     raw_history = Column(Text, nullable=True)
     legistar_matter_id = Column(Integer, nullable=True, index=True)
     spatial_coords = Column(JSON, nullable=True)
-    
-    catalog_id = Column(Integer, ForeignKey('catalog.id'), nullable=True)
 
-    event = relationship('Event', back_populates='agenda_items')
-    catalog = relationship('Catalog', back_populates='agenda_items')
+    catalog_id = Column(Integer, ForeignKey("catalog.id"), nullable=True)
+
+    event = relationship("Event", back_populates="agenda_items")
+    catalog = relationship("Catalog", back_populates="agenda_items")
     semantic_embeddings = relationship("SemanticEmbedding", back_populates="agenda_item", cascade="all, delete-orphan")
 
 
@@ -311,7 +316,7 @@ class SemanticEmbedding(Base):
 
 
 class UrlStageHist(Base):
-    __tablename__ = 'url_stage_hist'
+    __tablename__ = "url_stage_hist"
 
     id = Column(Integer, primary_key=True)
     ocd_division_id = Column(String(255))
@@ -324,14 +329,14 @@ class UrlStageHist(Base):
 
 
 class Catalog(Base):
-    __tablename__ = 'catalog'
+    __tablename__ = "catalog"
 
     id = Column(Integer, primary_key=True)
     url = Column(String(500))
     url_hash = Column(String(64), unique=True, nullable=False)
     location = Column(String(500))
     filename = Column(String(255))
-    
+
     content = Column(Text)
     # Hash of extracted `content` (normalized). Used to detect when derived fields
     # like summaries/topics are stale after re-extraction.
@@ -349,7 +354,7 @@ class Catalog(Base):
     # Hash of the substantive agenda-item payload for this catalog. Agenda summaries
     # use this instead of `content_hash` because they are derived from structured rows.
     agenda_items_hash = Column(String(64), nullable=True)
-    
+
     entities = Column(JSON, nullable=True)
     # Hash of the `content` version that `entities` were generated from.
     entities_source_hash = Column(String(64), nullable=True)
@@ -368,7 +373,7 @@ class Catalog(Base):
     agenda_segmentation_attempted_at = Column(DateTime, nullable=True)
     agenda_segmentation_item_count = Column(Integer, nullable=True)
     agenda_segmentation_error = Column(Text, nullable=True)
-    
+
     processed = Column(Boolean, default=False)
     created_at = Column(DateTime, default=func.now())
     uploaded_at = Column(DateTime, default=datetime.datetime.now)
@@ -378,32 +383,32 @@ class Catalog(Base):
     semantic_embeddings = relationship("SemanticEmbedding", back_populates="catalog", cascade="all, delete-orphan")
 
     __table_args__ = (
-        Index('idx_catalog_hash', 'url_hash'),
-        Index('ix_catalog_extraction_status', 'extraction_status'),
-        Index('ix_catalog_extraction_attempted_at', 'extraction_attempted_at'),
+        Index("idx_catalog_hash", "url_hash"),
+        Index("ix_catalog_extraction_status", "extraction_status"),
+        Index("ix_catalog_extraction_attempted_at", "extraction_attempted_at"),
     )
 
 
 class Document(Base):
-    __tablename__ = 'document'
+    __tablename__ = "document"
 
     id = Column(Integer, primary_key=True)
-    place_id = Column(Integer, ForeignKey('place.id'), nullable=False)
-    event_id = Column(Integer, ForeignKey('event.id'), nullable=False)
-    catalog_id = Column(Integer, ForeignKey('catalog.id'), nullable=True)
+    place_id = Column(Integer, ForeignKey("place.id"), nullable=False)
+    event_id = Column(Integer, ForeignKey("event.id"), nullable=False)
+    catalog_id = Column(Integer, ForeignKey("catalog.id"), nullable=True)
     url = Column(String(500))
     url_hash = Column(String(64))
     media_type = Column(String(100))
     category = Column(String(50))
     created_at = Column(DateTime, default=datetime.datetime.now)
     page_count = Column(Integer)
-    
-    place = relationship('Place')
-    event = relationship('Event', back_populates='documents')
-    catalog = relationship('Catalog', back_populates='document')
+
+    place = relationship("Place")
+    event = relationship("Event", back_populates="documents")
+    catalog = relationship("Catalog", back_populates="document")
 
     __table_args__ = (
-        Index('idx_doc_place_event', 'place_id', 'event_id'),
-        Index('idx_doc_category', 'category', 'created_at'),
-        Index('idx_doc_catalog', 'catalog_id'),
+        Index("idx_doc_place_event", "place_id", "event_id"),
+        Index("idx_doc_category", "category", "created_at"),
+        Index("idx_doc_catalog", "catalog_id"),
     )

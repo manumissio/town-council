@@ -8,7 +8,9 @@ from pathlib import Path
 from typing import Any, Mapping, cast
 
 
-PROM_LINE = re.compile(r'^(?P<name>[a-zA-Z_:][a-zA-Z0-9_:]*)(?:\{(?P<labels>[^}]*)\})?\s+(?P<value>-?[0-9]+(?:\.[0-9]+)?)$')
+PROM_LINE = re.compile(
+    r"^(?P<name>[a-zA-Z_:][a-zA-Z0-9_:]*)(?:\{(?P<labels>[^}]*)\})?\s+(?P<value>-?[0-9]+(?:\.[0-9]+)?)$"
+)
 SUMMARY_HYDRATION_LINE = re.compile(
     r"summary_hydration_backfill .*agenda_deterministic_complete=(?P<agenda>\d+)"
     r".*llm_complete=(?P<llm>\d+)"
@@ -168,7 +170,7 @@ def _safe_int_counter(counter_values: Mapping[str, CounterValue], key: str) -> i
         return raw_value
     try:
         return int(str(raw_value).strip())
-    except (TypeError, ValueError):
+    except TypeError, ValueError:
         return 0
 
 
@@ -183,8 +185,7 @@ def _load_latest_counter_line(run_dir: Path, prefix: str) -> dict[str, CounterVa
         if not re.search(rf"\b{re.escape(prefix)}\b", line):
             continue
         counters = {
-            match.group("key"): _coerce_counter_value(match.group("value"))
-            for match in KEY_VALUE_TOKEN.finditer(line)
+            match.group("key"): _coerce_counter_value(match.group("value")) for match in KEY_VALUE_TOKEN.finditer(line)
         }
         if counters:
             latest = counters
@@ -211,10 +212,7 @@ def _classify_summary_phase(
 
 
 def _extract_summary_subphase_timings(summary_counts: Mapping[str, CounterValue]) -> dict[str, int]:
-    return {
-        metric_name: _safe_int_counter(summary_counts, metric_name)
-        for metric_name in AGENDA_SUMMARY_SUBPHASE_KEYS
-    }
+    return {metric_name: _safe_int_counter(summary_counts, metric_name) for metric_name in AGENDA_SUMMARY_SUBPHASE_KEYS}
 
 
 def _aggregate_phase_rows(spans: list[dict[str, Any]]) -> dict[str, dict[str, Any]]:
@@ -248,8 +246,12 @@ def _aggregate_phase_rows(spans: list[dict[str, Any]]) -> dict[str, dict[str, An
 
 
 def _derived_total_from_spans(spans: list[dict[str, Any]]) -> tuple[float, list[str]]:
-    pipeline_total = next((float(row.get("duration_s") or 0.0) for row in spans if row.get("phase") == "pipeline_total"), 0.0)
-    batch_total = next((float(row.get("duration_s") or 0.0) for row in spans if row.get("phase") == "batch_enrichment_total"), 0.0)
+    pipeline_total = next(
+        (float(row.get("duration_s") or 0.0) for row in spans if row.get("phase") == "pipeline_total"), 0.0
+    )
+    batch_total = next(
+        (float(row.get("duration_s") or 0.0) for row in spans if row.get("phase") == "batch_enrichment_total"), 0.0
+    )
     notes = []
     combined = 0.0
     if pipeline_total > 0:
@@ -288,11 +290,21 @@ def rank_bottlenecks(run_dir: Path) -> dict[str, Any]:
     result = _load_json(run_dir / "result.json")
     day_summary = _load_json(run_dir / "day_summary.json")
     spans = _load_jsonl(run_dir / "spans.jsonl")
-    worker_metrics_raw = (run_dir / "worker_metrics.prom").read_text(encoding="utf-8") if (run_dir / "worker_metrics.prom").exists() else ""
+    worker_metrics_raw = (
+        (run_dir / "worker_metrics.prom").read_text(encoding="utf-8")
+        if (run_dir / "worker_metrics.prom").exists()
+        else ""
+    )
     worker_rows = _parse_metrics(worker_metrics_raw)
     summary_hydration_counts = _load_summary_hydration_counts(run_dir)
-    provider_metrics_present = bool(day_summary.get("provider_metrics_present")) if isinstance(day_summary, dict) else False
-    provider_metrics_reason = str(day_summary.get("provider_metrics_reason") or "provider_metrics_missing") if isinstance(day_summary, dict) else "provider_metrics_missing"
+    provider_metrics_present = (
+        bool(day_summary.get("provider_metrics_present")) if isinstance(day_summary, dict) else False
+    )
+    provider_metrics_reason = (
+        str(day_summary.get("provider_metrics_reason") or "provider_metrics_missing")
+        if isinstance(day_summary, dict)
+        else "provider_metrics_missing"
+    )
 
     total_elapsed_s, total_note = _select_total_elapsed_seconds(result, spans)
     phase_totals = _aggregate_phase_rows(spans)
@@ -472,7 +484,9 @@ def compare_profile_runs(control_run_dir: Path, treatment_run_dir: Path) -> dict
                 (treatment_manifest.get("profile") or {}).get(key),
             )
         )
-    checks.append(_compare_exact_metric("catalog_ids", control_manifest.get("catalog_ids"), treatment_manifest.get("catalog_ids")))
+    checks.append(
+        _compare_exact_metric("catalog_ids", control_manifest.get("catalog_ids"), treatment_manifest.get("catalog_ids"))
+    )
 
     control_phases = {str(item.get("phase")): item for item in control_summary.get("all_phases") or []}
     treatment_phases = {str(item.get("phase")): item for item in treatment_summary.get("all_phases") or []}
@@ -641,7 +655,9 @@ def render_compare_report(summary: dict[str, Any], comparison: dict[str, Any]) -
         "## Checks",
     ]
     for check in comparison.get("checks") or []:
-        lines.append(f"- `{check['metric']}`: `{check['status']}` expected=`{check.get('expected')}` actual=`{check.get('actual')}`")
+        lines.append(
+            f"- `{check['metric']}`: `{check['status']}` expected=`{check.get('expected')}` actual=`{check.get('actual')}`"
+        )
     return "\n".join(lines) + "\n"
 
 
@@ -687,7 +703,9 @@ def main(argv: list[str] | None = None) -> int:
     payload: dict[str, Any] = {"run_id": args.run_id, "summary": str(run_dir / "summary.json")}
     if args.compare_to:
         comparison = compare_against_expected_baseline(run_dir, summary, Path(args.compare_to))
-        (run_dir / "baseline_compare.json").write_text(json.dumps(comparison, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+        (run_dir / "baseline_compare.json").write_text(
+            json.dumps(comparison, indent=2, sort_keys=True) + "\n", encoding="utf-8"
+        )
         (run_dir / "baseline_compare.md").write_text(render_compare_report(summary, comparison), encoding="utf-8")
         payload["baseline_compare"] = str(run_dir / "baseline_compare.json")
         print(json.dumps(payload, indent=2))
@@ -696,7 +714,9 @@ def main(argv: list[str] | None = None) -> int:
         compare_root = Path(args.output_dir)
         control_run_dir = compare_root / args.compare_run if compare_root.name != args.compare_run else compare_root
         comparison = compare_profile_runs(control_run_dir, run_dir)
-        (run_dir / "pairwise_compare.json").write_text(json.dumps(comparison, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+        (run_dir / "pairwise_compare.json").write_text(
+            json.dumps(comparison, indent=2, sort_keys=True) + "\n", encoding="utf-8"
+        )
         (run_dir / "pairwise_compare.md").write_text(render_pairwise_compare_report(comparison), encoding="utf-8")
         payload["pairwise_compare"] = str(run_dir / "pairwise_compare.json")
         print(json.dumps(payload, indent=2))

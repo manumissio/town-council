@@ -136,9 +136,7 @@ def _filter_legistar_items(items: list[AgendaItemRecord]) -> list[AgendaItemReco
         if any(pattern.search(title) for pattern in _LEGISTAR_NOTICE_PATTERNS):
             continue
         if len(title) >= 180 and (
-            "public hearing" not in lowered
-            and "subject:" not in lowered
-            and "application no" not in lowered
+            "public hearing" not in lowered and "subject:" not in lowered and "application no" not in lowered
         ):
             continue
         filtered.append({**item, "title": title})
@@ -313,7 +311,8 @@ def _best_html_items_for_event(
         event_documents = [
             event_doc
             for event_doc in (event.documents or [])
-            if getattr(getattr(event_doc, "catalog", None), "location", "") and str(event_doc.catalog.location).lower().endswith(".html")
+            if getattr(getattr(event_doc, "catalog", None), "location", "")
+            and str(event_doc.catalog.location).lower().endswith(".html")
         ]
     else:
         event_documents = (

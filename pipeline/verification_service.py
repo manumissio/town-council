@@ -38,11 +38,11 @@ def _find_verification_locations(pdf_path: str, search_text: str) -> list[dict[s
 class VerificationService:
     """
     Reconciles official API records (Ground Truth) with PDF content.
-    
+
     Why this is needed:
     To provide a 'Verified' badge on search results and ensure deep-link accuracy.
     """
-    
+
     def verify_all(self) -> None:
         """Processes all items that have ground truth but no spatial alignment yet."""
         db = _new_session()
@@ -55,7 +55,7 @@ class VerificationService:
                 self.verify_item(item, db=db)
         finally:
             db.close()
-            
+
     def verify_item(
         self,
         item: AgendaItemRecord,

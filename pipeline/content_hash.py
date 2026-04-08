@@ -34,4 +34,3 @@ def compute_content_hash(text: Optional[str]) -> Optional[str]:
     if not normalized:
         return None
     return sha256_text(normalized)
-

@@ -236,7 +236,7 @@ def parse_vote_extraction_response(raw_output: str, council_size: int | None = N
     confidence = payload.get("confidence", 0.0)
     try:
         confidence_value = float(confidence)
-    except (TypeError, ValueError):
+    except TypeError, ValueError:
         confidence_value = 0.0
     confidence_value = max(0.0, min(1.0, confidence_value))
 
@@ -332,7 +332,7 @@ def _is_high_confidence_existing_llm_vote(votes: object) -> bool:
     confidence = votes.get("confidence", 0.0)
     try:
         confidence_value = float(confidence)
-    except (TypeError, ValueError):
+    except TypeError, ValueError:
         confidence_value = 0.0
     return source == LLM_EXTRACTED_VOTE_SOURCE and confidence_value >= VOTE_EXTRACTION_CONFIDENCE_THRESHOLD
 

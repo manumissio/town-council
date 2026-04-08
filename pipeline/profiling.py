@@ -22,14 +22,12 @@ QueryT = TypeVar("QueryT", bound="CatalogScopedQuery")
 
 
 class CatalogIdPredicate(Protocol):
-    def in_(self, values: Sequence[int]) -> object:
-        ...
+    def in_(self, values: Sequence[int]) -> object: ...
 
 
 class CatalogScopedQuery(Protocol):
     # Keep the typing local to profiling so callers do not need SQLAlchemy-specific imports.
-    def filter(self: QueryT, criterion: object) -> QueryT:
-        ...
+    def filter(self: QueryT, criterion: object) -> QueryT: ...
 
 
 def utc_now_iso() -> str:

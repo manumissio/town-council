@@ -73,10 +73,7 @@ def build_legistar_session() -> requests.Session:
 def _safe_title(item: dict[str, object]) -> str:
     # Legistar payload fields vary by city; use first useful title-like value.
     raw = str(
-        item.get("EventItemTitle")
-        or item.get("EventItemMatterName")
-        or item.get("EventItemMatterFile")
-        or ""
+        item.get("EventItemTitle") or item.get("EventItemMatterName") or item.get("EventItemMatterFile") or ""
     ).strip()
     return strip_html_to_text(raw)
 
@@ -151,8 +148,7 @@ def fetch_legistar_agenda_items(
 
         # Step 1: find Legistar event id for our meeting date.
         events_url = (
-            f"https://webapi.legistar.com/v1/{legistar_client}/events"
-            f"?$filter=EventDate eq datetime'{date_str}'"
+            f"https://webapi.legistar.com/v1/{legistar_client}/events?$filter=EventDate eq datetime'{date_str}'"
         )
         events_res = session.get(events_url, timeout=(LEGISTAR_CONNECT_TIMEOUT_SECONDS, timeout))
         try:
@@ -212,15 +208,17 @@ def fetch_legistar_agenda_items(
             agenda_number = str(raw.get("EventItemAgendaNumber") or "").strip()
             matter_id = raw.get("EventItemMatterId")
 
-            normalized.append({
-                "order": len(normalized) + 1,
-                "title": title,
-                "description": f"Legistar item {agenda_number}" if agenda_number else "Legistar agenda item",
-                "classification": "Agenda Item",
-                "result": "",
-                "page_number": None,
-                "legistar_matter_id": matter_id,
-            })
+            normalized.append(
+                {
+                    "order": len(normalized) + 1,
+                    "title": title,
+                    "description": f"Legistar item {agenda_number}" if agenda_number else "Legistar agenda item",
+                    "classification": "Agenda Item",
+                    "result": "",
+                    "page_number": None,
+                    "legistar_matter_id": matter_id,
+                }
+            )
 
         return normalized
     except requests.RequestException as exc:

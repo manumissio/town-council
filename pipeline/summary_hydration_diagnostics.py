@@ -154,7 +154,8 @@ def predict_summary_path(
 def infer_primary_root_cause(snapshot: SummaryHydrationSnapshot) -> str:
     if (
         snapshot.agenda_missing_summary_without_items > 0
-        and snapshot.agenda_missing_summary_without_items >= snapshot.missing_summary_total * MISSING_SUMMARY_ROOT_CAUSE_RATIO_THRESHOLD
+        and snapshot.agenda_missing_summary_without_items
+        >= snapshot.missing_summary_total * MISSING_SUMMARY_ROOT_CAUSE_RATIO_THRESHOLD
     ):
         return AGENDA_SEGMENTATION_BLOCKED_ROOT_CAUSE
     if snapshot.non_agenda_summarizable > 0:
@@ -203,7 +204,9 @@ def _build_scoped_catalog_ids(
     document_model: DocumentModelLike,
     event_model: EventModelLike | None,
 ) -> Any:
-    base_catalog_ids = db_session.query(catalog_model.id).join(document_model, document_model.catalog_id == catalog_model.id)
+    base_catalog_ids = db_session.query(catalog_model.id).join(
+        document_model, document_model.catalog_id == catalog_model.id
+    )
     if city:
         if event_model is None:
             raise RuntimeError("Event model is required for city-scoped hydration diagnostics")
@@ -213,7 +216,9 @@ def _build_scoped_catalog_ids(
     return base_catalog_ids.distinct().subquery("scoped_catalog_ids")
 
 
-def _count_catalogs_with_content(db_session: Session, *, catalog_model: CatalogModelLike, scoped_catalog_ids: Any) -> int:
+def _count_catalogs_with_content(
+    db_session: Session, *, catalog_model: CatalogModelLike, scoped_catalog_ids: Any
+) -> int:
     return int(
         db_session.query(func.count(catalog_model.id))
         .join(scoped_catalog_ids, scoped_catalog_ids.c.id == catalog_model.id)
@@ -223,7 +228,9 @@ def _count_catalogs_with_content(db_session: Session, *, catalog_model: CatalogM
     )
 
 
-def _count_catalogs_with_summary(db_session: Session, *, catalog_model: CatalogModelLike, scoped_catalog_ids: Any) -> int:
+def _count_catalogs_with_summary(
+    db_session: Session, *, catalog_model: CatalogModelLike, scoped_catalog_ids: Any
+) -> int:
     return int(
         db_session.query(func.count(catalog_model.id))
         .join(scoped_catalog_ids, scoped_catalog_ids.c.id == catalog_model.id)

@@ -89,16 +89,12 @@ def validate_rollout_registry(
         if entry.quality_gate not in VALID_QUALITY_GATES:
             raise ValueError(f"invalid quality_gate for {entry.city_slug}: {entry.quality_gate}")
         if entry.stable_noop_eligible not in VALID_STABLE_NOOP_ELIGIBLE:
-            raise ValueError(
-                f"invalid stable_noop_eligible value for {entry.city_slug}: {entry.stable_noop_eligible}"
-            )
+            raise ValueError(f"invalid stable_noop_eligible value for {entry.city_slug}: {entry.stable_noop_eligible}")
         if entry.stable_noop_eligible == "yes" and not entry.last_fresh_pass_run_id:
             raise ValueError(f"stable_noop_eligible city is missing last_fresh_pass_run_id: {entry.city_slug}")
         metadata_city_slug = CITY_METADATA_ALIASES.get(entry.city_slug, entry.city_slug)
         if metadata_city_slug not in known_city_slugs:
-            raise ValueError(
-                f"rollout registry city_slug {entry.city_slug} is missing from {CITY_METADATA_PATH}"
-            )
+            raise ValueError(f"rollout registry city_slug {entry.city_slug} is missing from {CITY_METADATA_PATH}")
         seen.add(entry.city_slug)
 
 
