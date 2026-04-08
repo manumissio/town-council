@@ -406,6 +406,29 @@ def test_persist_agenda_items_updates_catalog_agenda_items_hash(batching_db):
     assert refreshed.agenda_items_hash == compute_agenda_items_hash(items)
 
 
+def test_persist_agenda_items_skips_rows_without_titles(batching_db):
+    db, event, place = batching_db
+    agenda_catalog = _add_catalog(
+        db,
+        event,
+        place,
+        category="agenda",
+        content="agenda text",
+        segmentation_status="complete",
+    )
+    items = [
+        {"order": 1, "title": "Kept Item", "description": "Desc", "classification": "Agenda", "result": "", "page_number": 1},
+        {"order": 2, "title": "", "description": "Skipped", "classification": "Agenda", "result": "", "page_number": 2},
+    ]
+
+    created_items = persist_agenda_items(db, agenda_catalog.id, event.id, items)
+    db.commit()
+
+    refreshed = db.get(Catalog, agenda_catalog.id)
+    assert [agenda_item.title for agenda_item in created_items] == ["Kept Item"]
+    assert refreshed.agenda_items_hash == compute_agenda_items_hash(created_items)
+
+
 def test_select_catalog_ids_for_agenda_segmentation_excludes_empty_terminal_state(batching_db):
     db, event, place = batching_db
     pending_catalog = _add_catalog(db, event, place, category="agenda", content="agenda text", segmentation_status=None)
