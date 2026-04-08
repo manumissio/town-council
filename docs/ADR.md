@@ -125,3 +125,23 @@ Use each entry to record:
   - [docs/ENGINEERING_GUARDRAILS.md](ENGINEERING_GUARDRAILS.md)
   - [ARCHITECTURE.md](../ARCHITECTURE.md)
   - [ROADMAP.md](../ROADMAP.md)
+
+## 2026-04-08: Start legacy cleanup with stale suppression inventory only
+
+- Status: Accepted
+- Decision:
+  - The first legacy-cleanup wave audits stale suppressions and matching allowlist entries before any structural cleanup.
+  - A suppression or allowlist entry is removable only when both the Ruff layer and the repository guardrail layer prove it is stale.
+  - Runtime refactors, broad exception-policy rewrites, and wildcard suppression cleanup remain out of scope for this first pass.
+- Why:
+  - The remaining cleanup debt now splits between low-risk hygiene/config drift and high-risk structural legacy refactors.
+  - Some files can look stale in one enforcement layer while still being active in another, so a dual-proof rule avoids accidental policy drift.
+  - This creates a narrower, safer baseline for later structural cleanup waves.
+- Affected boundaries:
+  - `ruff.toml` remains the suppression source of truth.
+  - `tests/test_repository_guardrails.py` remains the alignment and enforcement source of truth.
+  - `docs/ENGINEERING_GUARDRAILS.md` now states that stale path-specific suppressions should be removed only when both layers prove they are unnecessary.
+- Canonical references:
+  - [docs/ENGINEERING_GUARDRAILS.md](ENGINEERING_GUARDRAILS.md)
+  - [ARCHITECTURE.md](../ARCHITECTURE.md)
+  - [ROADMAP.md](../ROADMAP.md)
