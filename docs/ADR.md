@@ -85,3 +85,24 @@ Use each entry to record:
   - [ARCHITECTURE.md](../ARCHITECTURE.md)
   - [docs/ENGINEERING_GUARDRAILS.md](ENGINEERING_GUARDRAILS.md)
   - [ROADMAP.md](../ROADMAP.md)
+
+## 2026-04-07: Finish strict typing for the reusable pipeline core
+
+- Status: Accepted
+- Decision:
+  - Strict typing for the reusable pipeline core is complete once the remaining shared foundations and helper modules are enrolled together.
+  - `pipeline/models.py`, `pipeline/utils.py`, and `pipeline/verification_service.py` are enrolled alongside the next reusable helper layer: `pipeline/agenda_resolver.py` and `pipeline/vote_extractor.py`.
+  - `pipeline/agenda_crosscheck.py` and `pipeline/agenda_legistar.py` are enrolled with `agenda_resolver.py` because they are now part of the same typed helper boundary.
+- Why:
+  - The shared `pipeline.models` seam removed the structural blocker that had kept `verification_service` out of the typed subtree.
+  - The remaining reusable-core debt was concentrated in typed foundations and helper modules, not in new architecture work.
+  - Stopping here keeps strict typing scoped to reusable pipeline modules without widening into worker entrypoints or backend-heavy modules.
+- Affected boundaries:
+  - `pipeline.models` remains the ORM layer, but its helper surface is now part of the strict typed core.
+  - `pipeline.utils` remains the shared utility boundary, now with explicit contracts.
+  - `pipeline.verification_service`, `pipeline.agenda_resolver`, and `pipeline.vote_extractor` are part of the reusable typed pipeline core.
+  - worker/orchestration modules and backend-heavy modules remain separate follow-ups.
+- Canonical references:
+  - [ARCHITECTURE.md](../ARCHITECTURE.md)
+  - [docs/ENGINEERING_GUARDRAILS.md](ENGINEERING_GUARDRAILS.md)
+  - [ROADMAP.md](../ROADMAP.md)
