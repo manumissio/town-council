@@ -1,7 +1,9 @@
+from __future__ import annotations
+
 import logging
 import time
 from datetime import date
-from typing import List, Dict, Any, Optional
+from typing import Final
 
 import html as _html
 import re
@@ -14,8 +16,12 @@ from pipeline.config import LEGISTAR_EVENT_ITEMS_CAPABILITY_TTL_SECONDS
 
 logger = logging.getLogger("agenda-legistar")
 
+LegistarAgendaItem = dict[str, object]
+LEGISTAR_CONNECT_TIMEOUT_SECONDS: Final = 3.0
+LEGISTAR_DEFAULT_TIMEOUT_SECONDS: Final = 8.0
+LEGISTAR_DEFAULT_MAX_ITEMS: Final = 50
 _TAG_RE = re.compile(r"<[^>]+>")
-_LEGISTAR_EVENT_ITEMS_CAPABILITY_CACHE: Dict[str, tuple[bool, float]] = {}
+_LEGISTAR_EVENT_ITEMS_CAPABILITY_CACHE: dict[str, tuple[bool, float]] = {}
 _LEGISTAR_EVENT_ITEMS_CAPABILITY_ERROR_MARKERS = (
     "agenda draft status",
     "agenda status not viewable by the public",
@@ -46,6 +52,7 @@ def strip_html_to_text(value: str) -> str:
     v = re.sub(r"\s+", " ", v).strip()
     return v
 
+
 def build_legistar_session() -> requests.Session:
     """
     Build a requests session with small retry budget for transient 5xx errors.
@@ -63,9 +70,9 @@ def build_legistar_session() -> requests.Session:
     return session
 
 
-def _safe_title(item: Dict[str, Any]) -> str:
+def _safe_title(item: dict[str, object]) -> str:
     # Legistar payload fields vary by city; use first useful title-like value.
-    raw = (
+    raw = str(
         item.get("EventItemTitle")
         or item.get("EventItemMatterName")
         or item.get("EventItemMatterFile")
@@ -74,7 +81,7 @@ def _safe_title(item: Dict[str, Any]) -> str:
     return strip_html_to_text(raw)
 
 
-def _response_text(response: Optional[requests.Response]) -> str:
+def _response_text(response: requests.Response | None) -> str:
     if response is None:
         return ""
     try:
@@ -91,7 +98,7 @@ def _is_event_items_capability_miss(exc: requests.HTTPError) -> bool:
     return any(marker in body for marker in _LEGISTAR_EVENT_ITEMS_CAPABILITY_ERROR_MARKERS)
 
 
-def _get_cached_legistar_capability(legistar_client: str) -> Optional[bool]:
+def _get_cached_legistar_capability(legistar_client: str) -> bool | None:
     cached = _LEGISTAR_EVENT_ITEMS_CAPABILITY_CACHE.get(legistar_client)
     if cached is None:
         return None
@@ -116,12 +123,12 @@ def _set_cached_legistar_capability(legistar_client: str, supported: bool) -> No
 
 
 def fetch_legistar_agenda_items(
-    legistar_client: Optional[str],
-    event_date: Optional[date],
-    timeout: float = 8.0,
-    max_items: int = 50,
-    http: Optional[requests.Session] = None,
-) -> List[Dict[str, Any]]:
+    legistar_client: str | None,
+    event_date: date | None,
+    timeout: float = LEGISTAR_DEFAULT_TIMEOUT_SECONDS,
+    max_items: int = LEGISTAR_DEFAULT_MAX_ITEMS,
+    http: requests.Session | None = None,
+) -> list[LegistarAgendaItem]:
     """
     Fetch normalized agenda items from Legistar for one city/date.
     """
@@ -147,7 +154,7 @@ def fetch_legistar_agenda_items(
             f"https://webapi.legistar.com/v1/{legistar_client}/events"
             f"?$filter=EventDate eq datetime'{date_str}'"
         )
-        events_res = session.get(events_url, timeout=(3.0, timeout))
+        events_res = session.get(events_url, timeout=(LEGISTAR_CONNECT_TIMEOUT_SECONDS, timeout))
         try:
             events_res.raise_for_status()
         except requests.HTTPError as exc:
@@ -162,16 +169,21 @@ def fetch_legistar_agenda_items(
                 return []
             raise
         events_payload = events_res.json() or []
+        if not isinstance(events_payload, list):
+            return []
         if not events_payload:
             return []
 
-        event_id = events_payload[0].get("EventId")
+        first_event = events_payload[0]
+        if not isinstance(first_event, dict):
+            return []
+        event_id = first_event.get("EventId")
         if not event_id:
             return []
 
         # Step 2: get item rows and normalize to our schema.
         items_url = f"https://webapi.legistar.com/v1/{legistar_client}/events/{event_id}/EventItems"
-        items_res = session.get(items_url, timeout=(3.0, timeout))
+        items_res = session.get(items_url, timeout=(LEGISTAR_CONNECT_TIMEOUT_SECONDS, timeout))
         try:
             items_res.raise_for_status()
         except requests.HTTPError as exc:
@@ -186,10 +198,14 @@ def fetch_legistar_agenda_items(
                 return []
             raise
         raw_items = items_res.json() or []
+        if not isinstance(raw_items, list):
+            return []
         _set_cached_legistar_capability(legistar_client, True)
 
-        normalized = []
+        normalized: list[LegistarAgendaItem] = []
         for raw in raw_items[:max_items]:
+            if not isinstance(raw, dict):
+                continue
             title = _safe_title(raw)
             if not title:
                 continue
@@ -208,5 +224,10 @@ def fetch_legistar_agenda_items(
 
         return normalized
     except requests.RequestException as exc:
-        logger.warning(f"Legistar cross-check failed for client={legistar_client} date={date_str}: {exc}")
+        logger.warning(
+            "Legistar cross-check failed for client=%s date=%s: %s",
+            legistar_client,
+            date_str,
+            exc,
+        )
         return []

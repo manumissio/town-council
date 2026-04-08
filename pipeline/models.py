@@ -1,11 +1,17 @@
+from __future__ import annotations
+
 import datetime
+import enum
 import json
 import logging
 import os
+from typing import Final
 
 from sqlalchemy import create_engine, func
 from sqlalchemy import Column, Boolean, String, Integer, Date, DateTime, JSON, Text, CheckConstraint, Float
 from sqlalchemy import ForeignKey
+from sqlalchemy.engine import Engine
+from sqlalchemy.engine.interfaces import Dialect
 from sqlalchemy.orm import relationship, DeclarativeBase
 from sqlalchemy.schema import Index
 from sqlalchemy.types import TypeDecorator
@@ -13,10 +19,12 @@ from sqlalchemy.types import TypeDecorator
 
 logger = logging.getLogger(__name__)
 
+VECTOR_COLUMN_TYPE: type[TypeDecorator[object | None]]
+
 try:
-    from pgvector.sqlalchemy import Vector
+    from pgvector.sqlalchemy import Vector as PgVector
 except Exception:  # pragma: no cover
-    class Vector(TypeDecorator):
+    class FallbackVector(TypeDecorator[object | None]):
         """
         Lightweight fallback so local imports/tests do not crash when pgvector is absent.
         """
@@ -24,19 +32,21 @@ except Exception:  # pragma: no cover
         impl = Text
         cache_ok = True
 
-        def __init__(self, *args, **kwargs):
+        def __init__(self, *args: object, **kwargs: object) -> None:
             super().__init__()
 
-        def process_bind_param(self, value, dialect):
+        def process_bind_param(self, value: object | None, dialect: Dialect) -> str | None:
             if value is None:
                 return None
             if isinstance(value, (list, tuple)):
                 return json.dumps(list(value))
             return str(value)
 
-        def process_result_value(self, value, dialect):
+        def process_result_value(self, value: object | None, dialect: Dialect) -> object | None:
             if value is None:
                 return None
+            if not isinstance(value, (str, bytes, bytearray)):
+                return value
             try:
                 parsed = json.loads(value)
                 if isinstance(parsed, list):
@@ -46,6 +56,9 @@ except Exception:  # pragma: no cover
                 # value preserves read compatibility while the warning surfaces cleanup debt.
                 logger.warning("sqlalchemy.json_list_decode_failed error=%s", json_error)
             return value
+    VECTOR_COLUMN_TYPE = FallbackVector
+else:
+    VECTOR_COLUMN_TYPE = PgVector
 
 # Modern SQLAlchemy 2.0 style: Subclassing DeclarativeBase instead of calling a function.
 # This makes the code more robust and compatible with modern Python tools.
@@ -53,13 +66,18 @@ class Base(DeclarativeBase):
     pass
 
 
-POSTGRESQL_SCHEME = "postgresql"
-DATABASE_URL_MISSING_ERROR = (
+POSTGRESQL_SCHEME: Final = "postgresql"
+POSTGRESQL_POOL_SIZE: Final = 10
+POSTGRESQL_MAX_OVERFLOW: Final = 20
+POSTGRESQL_POOL_TIMEOUT: Final = 30
+POSTGRESQL_POOL_RECYCLE_SECONDS: Final = 1800
+DATABASE_URL_ENV_VAR: Final = "DATABASE_URL"
+DATABASE_URL_MISSING_ERROR: Final = (
     "DATABASE_URL is not set. Configure it explicitly for runtime or tests."
 )
 
 
-def db_connect():
+def db_connect() -> Engine:
     """
     Build a SQLAlchemy engine from the explicit DATABASE_URL contract.
 
@@ -67,16 +85,16 @@ def db_connect():
     Tests and ad hoc tooling may still pass an explicit SQLite URL when they
     intentionally need a lightweight fixture database.
     """
-    database_url = os.getenv('DATABASE_URL')
+    database_url = os.getenv(DATABASE_URL_ENV_VAR)
     
     if database_url and database_url.startswith(POSTGRESQL_SCHEME):
         # Use PostgreSQL with connection pooling for high performance.
         return create_engine(
             database_url,
-            pool_size=10,
-            max_overflow=20,
-            pool_timeout=30,
-            pool_recycle=1800
+            pool_size=POSTGRESQL_POOL_SIZE,
+            max_overflow=POSTGRESQL_MAX_OVERFLOW,
+            pool_timeout=POSTGRESQL_POOL_TIMEOUT,
+            pool_recycle=POSTGRESQL_POOL_RECYCLE_SECONDS,
         )
     if database_url:
         # Explicit non-default URLs stay available for tests and ad hoc scripts.
@@ -84,18 +102,13 @@ def db_connect():
     raise RuntimeError(DATABASE_URL_MISSING_ERROR)
 
 
-def create_tables(engine):
+def create_tables(engine: Engine) -> None:
     """
     Creates all the tables defined below if they't already exist.
     """
     Base.metadata.create_all(engine)
 
 # Removed: create_tables(engine) from global scope to avoid import-side effects
-
-
-
-import enum
-
 class IssueType(enum.Enum):
     """
     Standardized types of data problems a user can report.
@@ -278,7 +291,7 @@ class SemanticEmbedding(Base):
     agenda_item_id = Column(Integer, ForeignKey("agenda_item.id", ondelete="CASCADE"), nullable=True)
     model_name = Column(String(120), nullable=False, default="all-MiniLM-L6-v2")
     embedding_dim = Column(Integer, nullable=False, default=384)
-    embedding = Column(Vector(384), nullable=True)
+    embedding: object = Column(VECTOR_COLUMN_TYPE(384), nullable=True)
     # Hash of the exact text payload used to create this vector.
     source_hash = Column(String(64), nullable=True)
     updated_at = Column(DateTime, default=func.now(), onupdate=func.now())

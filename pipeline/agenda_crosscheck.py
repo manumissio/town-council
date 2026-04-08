@@ -1,15 +1,21 @@
+from __future__ import annotations
+
 import html
 import os
 import re
+from typing import Final
 
 from bs4 import BeautifulSoup
 
+AgendaItemRecord = dict[str, object]
+MAX_PARSED_EAGENDA_ITEMS: Final = 40
 
-def _normalize(text):
+
+def _normalize(text: str | None) -> str:
     return re.sub(r"\s+", " ", (text or "")).strip()
 
 
-def _extract_text_lines_from_html(raw_html):
+def _extract_text_lines_from_html(raw_html: str | None) -> list[str]:
     # Normalize malformed closing tags that appear in some portal exports.
     normalized_html = re.sub(r"(?i)</script\s+>", "</script>", raw_html or "")
     normalized_html = re.sub(r"(?i)</style\s+>", "</style>", normalized_html)
@@ -28,14 +34,14 @@ def _extract_text_lines_from_html(raw_html):
     return [line for line in lines if line]
 
 
-def parse_eagenda_items_from_html(raw_html):
+def parse_eagenda_items_from_html(raw_html: str | None) -> list[AgendaItemRecord]:
     """
     Parse likely agenda items from Berkeley-style eAgenda HTML text.
 
     This parser is intentionally conservative: it only accepts lines with a
     clear section/item marker so we do not pull random prose into results.
     """
-    items = []
+    items: list[AgendaItemRecord] = []
     seen_titles = set()
     lines = _extract_text_lines_from_html(raw_html)
 
@@ -58,23 +64,25 @@ def parse_eagenda_items_from_html(raw_html):
             continue
         seen_titles.add(title_key)
 
-        items.append({
-            "order": len(items) + 1,
-            "title": title,
-            "description": f"eAgenda section {marker}",
-            "classification": "Agenda Item",
-            "result": "",
-            "page_number": None,
-        })
+        items.append(
+            {
+                "order": len(items) + 1,
+                "title": title,
+                "description": f"eAgenda section {marker}",
+                "classification": "Agenda Item",
+                "result": "",
+                "page_number": None,
+            }
+        )
 
         # Defensive cap so malformed HTML does not flood rows.
-        if len(items) >= 40:
+        if len(items) >= MAX_PARSED_EAGENDA_ITEMS:
             break
 
     return items
 
 
-def parse_eagenda_items_from_file(file_path):
+def parse_eagenda_items_from_file(file_path: str | None) -> list[AgendaItemRecord]:
     """
     Read an HTML eAgenda file and return parsed agenda items.
     """
@@ -90,7 +98,10 @@ def parse_eagenda_items_from_file(file_path):
     return parse_eagenda_items_from_html(raw_html)
 
 
-def merge_ai_with_eagenda(ai_items, eagenda_items):
+def merge_ai_with_eagenda(
+    ai_items: list[AgendaItemRecord] | None,
+    eagenda_items: list[AgendaItemRecord] | None,
+) -> list[AgendaItemRecord]:
     """
     Merge strategy:
     - If eAgenda parsed at least 3 items, treat it as authoritative.
@@ -102,11 +113,11 @@ def merge_ai_with_eagenda(ai_items, eagenda_items):
     if len(eagenda_items) >= 3:
         return eagenda_items
 
-    merged = []
+    merged: list[AgendaItemRecord] = []
     seen_titles = set()
 
     for item in ai_items:
-        title = _normalize(item.get("title"))
+        title = _normalize(str(item.get("title") or ""))
         if not title:
             continue
         key = title.lower()
@@ -116,7 +127,7 @@ def merge_ai_with_eagenda(ai_items, eagenda_items):
         merged.append(item)
 
     for item in eagenda_items:
-        title = _normalize(item.get("title"))
+        title = _normalize(str(item.get("title") or ""))
         if not title:
             continue
         key = title.lower()

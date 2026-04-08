@@ -1,6 +1,7 @@
 import sys
 import os
 import pytest
+from types import SimpleNamespace
 
 # Setup: Add the project folders to the Python path so we can import our code.
 root_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))
@@ -10,7 +11,7 @@ sys.path.append(os.path.join(root_dir, 'council_crawler'))
 
 from council_crawler.utils import url_to_md5, parse_date_string
 from pipeline.extractor import is_safe_path
-from pipeline.utils import generate_ocd_id
+from pipeline.utils import find_text_coordinates, generate_ocd_id
 import re
 
 def test_ocd_id_format():
@@ -80,3 +81,10 @@ def test_is_safe_path(monkeypatch):
     # 4. Test a completely outside path.
     outside = "/tmp/malicious.pdf"
     assert is_safe_path(outside) is False
+
+
+def test_find_text_coordinates_returns_empty_list_on_pdf_error(monkeypatch):
+    broken_pymupdf = SimpleNamespace(open=lambda _path: (_ for _ in ()).throw(RuntimeError("broken pdf")))
+    monkeypatch.setitem(sys.modules, "pymupdf", broken_pymupdf)
+
+    assert find_text_coordinates("/tmp/missing.pdf", "needle") == []

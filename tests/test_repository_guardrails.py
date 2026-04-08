@@ -92,6 +92,9 @@ BLE001_WILDCARD_PATHS = {"scripts/*.py", "tests/*.py"}
 TYPED_SUBTREE_PATHS = (
     "api/metrics.py",
     "api/search/query_builder.py",
+    "pipeline/agenda_crosscheck.py",
+    "pipeline/agenda_legistar.py",
+    "pipeline/agenda_resolver.py",
     "pipeline/city_scope.py",
     "pipeline/content_hash.py",
     "pipeline/document_kinds.py",
@@ -100,12 +103,16 @@ TYPED_SUBTREE_PATHS = (
     "pipeline/extraction_service.py",
     "pipeline/extraction_state.py",
     "pipeline/maintenance_run_status.py",
+    "pipeline/models.py",
     "pipeline/profiling.py",
     "pipeline/rollout_registry.py",
     "pipeline/runtime_guardrails.py",
     "pipeline/summary_hydration_diagnostics.py",
     "pipeline/summary_quality.py",
     "pipeline/summary_freshness.py",
+    "pipeline/utils.py",
+    "pipeline/verification_service.py",
+    "pipeline/vote_extractor.py",
     "scripts/analyze_pipeline_profile.py",
 )
 CANDIDATE_FORMATTER_WAVE_PATHS = TYPED_SUBTREE_PATHS
@@ -150,11 +157,16 @@ def _ruff_per_file_ignore_entries() -> dict[str, set[str]]:
 
 def _mypy_enrolled_paths() -> tuple[str, ...]:
     config_text = (ROOT / "mypy.ini").read_text(encoding="utf-8")
-    files_match = re.search(r"^files =\n(?P<paths>(?:\s+.+\n?)*)", config_text, flags=re.MULTILINE)
-    if not files_match:
-        return ()
     enrolled_paths: list[str] = []
-    for raw_line in files_match.group("paths").splitlines():
+    in_files_block = False
+    for raw_line in config_text.splitlines():
+        if raw_line == "files =":
+            in_files_block = True
+            continue
+        if not in_files_block:
+            continue
+        if not raw_line.startswith("    "):
+            break
         path = raw_line.strip().rstrip(",")
         if path:
             enrolled_paths.append(path)

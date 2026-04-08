@@ -1,9 +1,12 @@
+from __future__ import annotations
+
+import logging
 import re
-from typing import Any, Dict, List
+from collections.abc import Sequence
+from datetime import date
+from typing import Protocol, TypeAlias
 
 from rapidfuzz import fuzz, process
-import logging
-
 from pipeline.agenda_crosscheck import merge_ai_with_eagenda, parse_eagenda_items_from_file
 from pipeline.agenda_legistar import fetch_legistar_agenda_items
 from pipeline.lexicon import (
@@ -16,6 +19,44 @@ from pipeline.models import Document, Catalog
 
 
 logger = logging.getLogger("agenda-resolver")
+AgendaItemRecord: TypeAlias = dict[str, object]
+ResolvedAgendaPayload: TypeAlias = dict[str, object]
+
+
+class AgendaExtractor(Protocol):
+    def extract_agenda(self, content: str) -> list[AgendaItemRecord]: ...
+
+
+class CatalogLike(Protocol):
+    location: str | None
+    content: str | None
+
+
+class PlaceLike(Protocol):
+    legistar_client: str | None
+
+
+class EventLike(Protocol):
+    record_date: date | None
+    place: PlaceLike | None
+    documents: Sequence[Document] | None
+
+
+class DocumentLike(Protocol):
+    event_id: int | None
+    event: EventLike | None
+
+
+class AgendaDocumentQuery(Protocol):
+    def join(self, *args: object) -> "AgendaDocumentQuery": ...
+    def filter(self, *args: object) -> "AgendaDocumentQuery": ...
+    def all(self) -> list[Document]: ...
+
+
+class AgendaResolverSession(Protocol):
+    def query(self, model: type[Document]) -> AgendaDocumentQuery: ...
+
+
 _LEGISTAR_PROCEDURAL_PATTERNS = [
     re.compile(r"(?i)^call to order$"),
     re.compile(r"(?i)^roll call$"),
@@ -57,7 +98,7 @@ _LEGISTAR_NOTICE_PATTERNS = [
 ]
 
 
-def _get_value(item: Any, key: str):
+def _get_value(item: object, key: str) -> object | None:
     if isinstance(item, dict):
         return item.get(key)
     return getattr(item, key, None)
@@ -74,14 +115,14 @@ def _normalize_title(title: str) -> str:
     return re.sub(r"\s+", " ", raw).strip()
 
 
-def _filter_legistar_items(items: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+def _filter_legistar_items(items: list[AgendaItemRecord]) -> list[AgendaItemRecord]:
     """
     Remove portal wrapper rows so deterministic Legistar structure is graded on
     substantive agenda items instead of meeting scaffolding.
     """
-    filtered: List[Dict[str, Any]] = []
+    filtered: list[AgendaItemRecord] = []
     for item in items or []:
-        title = _normalize_title(item.get("title", ""))
+        title = _normalize_title(str(item.get("title") or ""))
         if not title:
             continue
         lowered = title.lower()
@@ -104,19 +145,22 @@ def _filter_legistar_items(items: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
     return filtered
 
 
-def _legistar_items_are_acceptable(items: List[Dict[str, Any]]) -> bool:
+def _legistar_items_are_acceptable(items: list[AgendaItemRecord]) -> bool:
     if len(items) < 3:
         return False
     substantive_count = sum(
         1
         for item in items
-        if not is_procedural_title(item.get("title", ""))
-        and not is_contact_or_letterhead_noise(item.get("title", ""), item.get("description", "") or "")
+        if not is_procedural_title(str(item.get("title") or ""))
+        and not is_contact_or_letterhead_noise(
+            str(item.get("title") or ""),
+            str(item.get("description") or ""),
+        )
     )
     return substantive_count >= 3
 
 
-def agenda_quality_score(items: List[Any]) -> int:
+def agenda_quality_score(items: Sequence[object]) -> int:
     """
     Return a simple 0-100 quality score for agenda item title sets.
     """
@@ -133,7 +177,7 @@ def agenda_quality_score(items: List[Any]) -> int:
     name_like_hits = 0
 
     for item in items:
-        title = _normalize_title(_get_value(item, "title") or "")
+        title = _normalize_title(str(_get_value(item, "title") or ""))
         page_number = _get_value(item, "page_number")
 
         if page_number in (None, 1):
@@ -153,7 +197,7 @@ def agenda_quality_score(items: List[Any]) -> int:
             procedural_hits += 1
             score -= 14
 
-        if is_contact_or_letterhead_noise(title, _get_value(item, "description") or ""):
+        if is_contact_or_letterhead_noise(title, str(_get_value(item, "description") or "")):
             contact_hits += 1
             score -= 14
 
@@ -214,7 +258,7 @@ def agenda_quality_score(items: List[Any]) -> int:
 
         # Vote/result text is an optional confidence signal only.
         # We never require it, but if present it usually indicates a substantive item block.
-        result_text = _normalize_title(_get_value(item, "result") or "")
+        result_text = _normalize_title(str(_get_value(item, "result") or ""))
         if result_text:
             score += 2
 
@@ -242,7 +286,7 @@ def agenda_quality_score(items: List[Any]) -> int:
     return max(0, min(100, score))
 
 
-def agenda_items_look_low_quality(items: List[Any]) -> bool:
+def agenda_items_look_low_quality(items: Sequence[object]) -> bool:
     """
     Low-quality means likely extraction noise that should be regenerated.
     """
@@ -251,24 +295,36 @@ def agenda_items_look_low_quality(items: List[Any]) -> bool:
     return agenda_quality_score(items) < 45
 
 
-def _best_html_items_for_event(session, catalog, doc):
-    html_candidates = []
+def _best_html_items_for_event(
+    session: AgendaResolverSession,
+    catalog: CatalogLike,
+    doc: DocumentLike | None,
+) -> list[AgendaItemRecord]:
+    html_candidates: list[list[AgendaItemRecord]] = []
+    if doc is None:
+        return []
 
     if catalog.location and str(catalog.location).lower().endswith(".html"):
         html_candidates.append(parse_eagenda_items_from_file(catalog.location))
 
-    event_documents = None
-    if doc and getattr(doc, "event", None) and getattr(doc.event, "documents", None) is not None:
+    event_documents: Sequence[Document] | list[Document]
+    event = getattr(doc, "event", None)
+    if event and getattr(event, "documents", None) is not None:
         event_documents = [
             event_doc
-            for event_doc in (doc.event.documents or [])
+            for event_doc in (event.documents or [])
             if getattr(getattr(event_doc, "catalog", None), "location", "") and str(event_doc.catalog.location).lower().endswith(".html")
         ]
     else:
-        event_documents = session.query(Document).join(Catalog, Document.catalog_id == Catalog.id).filter(
-            Document.event_id == doc.event_id,
-            Catalog.location.like('%.html')
-        ).all()
+        event_documents = (
+            session.query(Document)
+            .join(Catalog, Document.catalog_id == Catalog.id)
+            .filter(
+                Document.event_id == doc.event_id,
+                Catalog.location.like("%.html"),
+            )
+            .all()
+        )
 
     for html_doc in event_documents:
         if html_doc.catalog and html_doc.catalog.location:
@@ -284,7 +340,11 @@ def _best_html_items_for_event(session, catalog, doc):
     return sorted(html_candidates, key=agenda_quality_score, reverse=True)[0]
 
 
-def has_viable_structured_agenda_source(session, catalog, doc) -> bool:
+def has_viable_structured_agenda_source(
+    session: AgendaResolverSession,
+    catalog: CatalogLike,
+    doc: DocumentLike | None,
+) -> bool:
     html_items = _best_html_items_for_event(session, catalog, doc)
     if len(html_items) >= 2 and agenda_quality_score(html_items) >= 55:
         return True
@@ -300,7 +360,10 @@ def has_viable_structured_agenda_source(session, catalog, doc) -> bool:
     return _legistar_items_are_acceptable(filtered_legistar_items)
 
 
-def _apply_page_numbers_from_reference(primary_items: List[Dict[str, Any]], reference_items: List[Dict[str, Any]]):
+def _apply_page_numbers_from_reference(
+    primary_items: list[AgendaItemRecord],
+    reference_items: list[AgendaItemRecord],
+) -> list[AgendaItemRecord]:
     """
     Preserve deep-link quality by reusing page numbers from local extraction when possible.
     """
@@ -308,9 +371,9 @@ def _apply_page_numbers_from_reference(primary_items: List[Dict[str, Any]], refe
         return primary_items
 
     title_to_page = {
-        _normalize_title(item.get("title", "")): item.get("page_number")
+        _normalize_title(str(item.get("title") or "")): item.get("page_number")
         for item in reference_items
-        if _normalize_title(item.get("title", "")) and item.get("page_number") not in (None, 0)
+        if _normalize_title(str(item.get("title") or "")) and item.get("page_number") not in (None, 0)
     }
     if not title_to_page:
         return primary_items
@@ -318,7 +381,7 @@ def _apply_page_numbers_from_reference(primary_items: List[Dict[str, Any]], refe
     for item in primary_items:
         if item.get("page_number") not in (None, 0):
             continue
-        title = _normalize_title(item.get("title", ""))
+        title = _normalize_title(str(item.get("title") or ""))
         if not title:
             continue
         match = process.extractOne(title, list(title_to_page.keys()), scorer=fuzz.token_sort_ratio)
@@ -328,7 +391,12 @@ def _apply_page_numbers_from_reference(primary_items: List[Dict[str, Any]], refe
     return primary_items
 
 
-def resolve_agenda_items(session, catalog, doc, local_ai) -> Dict[str, Any]:
+def resolve_agenda_items(
+    session: AgendaResolverSession,
+    catalog: CatalogLike,
+    doc: DocumentLike | None,
+    local_ai: AgendaExtractor,
+) -> ResolvedAgendaPayload:
     """
     Resolve agenda items in priority order:
     Legistar -> HTML -> LLM.

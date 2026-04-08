@@ -1,9 +1,12 @@
+from __future__ import annotations
+
 import json
 import logging
 import re
+from collections.abc import Sequence
 from dataclasses import dataclass
 from datetime import datetime, timezone
-from typing import Any
+from typing import Protocol, TypedDict
 
 from pipeline.config import (
     VOTE_EXTRACTION_CONFIDENCE_THRESHOLD,
@@ -15,6 +18,14 @@ from pipeline.config import (
 from pipeline.models import AgendaItem
 
 logger = logging.getLogger("vote-extractor")
+LLM_EXTRACTED_VOTE_SOURCE = "llm_extracted"
+SKIP_REASON_MISSING_TITLE = "missing_title"
+SKIP_REASON_TRUSTED_SOURCE = "trusted_source"
+SKIP_REASON_ALREADY_HIGH_CONFIDENCE = "already_high_confidence"
+SKIP_REASON_EXISTING_RESULT = "existing_result"
+SKIP_REASON_INSUFFICIENT_TEXT = "insufficient_text"
+SKIP_REASON_LOW_CONFIDENCE = "low_confidence"
+SKIP_REASON_UNKNOWN_NO_TALLY = "unknown_no_tally"
 
 VALID_OUTCOME_LABELS = {
     "passed",
@@ -68,6 +79,50 @@ VOTE_KEYWORDS = (
 )
 
 
+class VoteExtractionModel(Protocol):
+    def generate_json(self, prompt: str, max_tokens: int) -> str | None: ...
+
+
+class AgendaItemLike(Protocol):
+    id: object
+    title: object
+    description: object
+    result: object
+    votes: object
+
+
+class AgendaItemQuery(Protocol):
+    def filter_by(self, **kwargs: object) -> "AgendaItemQuery": ...
+    def order_by(self, *args: object) -> "AgendaItemQuery": ...
+    def all(self) -> list[AgendaItemLike]: ...
+
+
+class AgendaItemSession(Protocol):
+    def query(self, model: type[AgendaItem]) -> AgendaItemQuery: ...
+
+
+class CatalogLike(Protocol):
+    id: object
+    content: str | None
+
+
+class EventLike(Protocol):
+    name: object
+    record_date: object
+
+
+class DocumentLike(Protocol):
+    event: EventLike | None
+
+
+class VoteExtractionCounters(TypedDict):
+    processed_items: int
+    updated_items: int
+    skipped_items: int
+    failed_items: int
+    skip_reasons: dict[str, int]
+
+
 @dataclass
 class VoteExtractionResult:
     outcome_label: str
@@ -116,7 +171,7 @@ def prepare_vote_extraction_prompt(item_title: str, item_text: str, meeting_cont
     )
 
 
-def normalize_outcome_label(value: Any) -> str:
+def normalize_outcome_label(value: object) -> str:
     raw = str(value or "").strip().lower()
     if not raw:
         return "unknown"
@@ -154,7 +209,7 @@ def _extract_first_json_object(text: str) -> str:
     raise ValueError("unterminated json object")
 
 
-def _coerce_optional_int(value: Any) -> int | None:
+def _coerce_optional_int(value: object | None) -> int | None:
     if value is None:
         return None
     if isinstance(value, bool):
@@ -220,7 +275,12 @@ def parse_vote_extraction_response(raw_output: str, council_size: int | None = N
     )
 
 
-def extract_vote_outcome(local_ai, item_title: str, item_text: str, meeting_context: str = "") -> VoteExtractionResult:
+def extract_vote_outcome(
+    local_ai: VoteExtractionModel,
+    item_title: str,
+    item_text: str,
+    meeting_context: str = "",
+) -> VoteExtractionResult:
     prompt = prepare_vote_extraction_prompt(item_title, item_text, meeting_context=meeting_context)
     raw = local_ai.generate_json(prompt, max_tokens=VOTE_EXTRACTION_MAX_TOKENS)
     if not raw:
@@ -265,7 +325,7 @@ def _result_text_from_label(outcome_label: str) -> str:
     return mapping.get(outcome_label, "Unknown")
 
 
-def _is_high_confidence_existing_llm_vote(votes: Any) -> bool:
+def _is_high_confidence_existing_llm_vote(votes: object) -> bool:
     if not isinstance(votes, dict):
         return False
     source = str(votes.get("source") or "").strip().lower()
@@ -274,10 +334,10 @@ def _is_high_confidence_existing_llm_vote(votes: Any) -> bool:
         confidence_value = float(confidence)
     except (TypeError, ValueError):
         confidence_value = 0.0
-    return source == "llm_extracted" and confidence_value >= VOTE_EXTRACTION_CONFIDENCE_THRESHOLD
+    return source == LLM_EXTRACTED_VOTE_SOURCE and confidence_value >= VOTE_EXTRACTION_CONFIDENCE_THRESHOLD
 
 
-def _is_trusted_existing_vote(votes: Any) -> bool:
+def _is_trusted_existing_vote(votes: object) -> bool:
     if not isinstance(votes, dict):
         return False
     source = str(votes.get("source") or "").strip().lower()
@@ -309,19 +369,20 @@ def _apply_ambiguity_penalty(result: VoteExtractionResult, item_text: str) -> Vo
 
 
 def run_vote_extraction_for_catalog(
-    db,
-    local_ai,
-    catalog,
-    doc,
+    db: AgendaItemSession | None,
+    local_ai: VoteExtractionModel,
+    catalog: CatalogLike,
+    doc: DocumentLike,
     *,
     force: bool = False,
-    agenda_items: list[Any] | None = None,
-) -> dict:
-    items = agenda_items
+    agenda_items: Sequence[AgendaItemLike] | None = None,
+) -> VoteExtractionCounters:
+    items = list(agenda_items) if agenda_items is not None else None
     if items is None:
+        assert db is not None, "db session required when agenda_items are not provided"
         items = db.query(AgendaItem).filter_by(catalog_id=catalog.id).order_by(AgendaItem.order).all()
 
-    counters = {
+    counters: VoteExtractionCounters = {
         "processed_items": 0,
         "updated_items": 0,
         "skipped_items": 0,
@@ -340,23 +401,31 @@ def run_vote_extraction_for_catalog(
         item_title = str(getattr(item, "title", "") or "").strip()
         if not item_title:
             counters["skipped_items"] += 1
-            counters["skip_reasons"]["missing_title"] = counters["skip_reasons"].get("missing_title", 0) + 1
+            counters["skip_reasons"][SKIP_REASON_MISSING_TITLE] = (
+                counters["skip_reasons"].get(SKIP_REASON_MISSING_TITLE, 0) + 1
+            )
             continue
 
         # Non-negotiable source hierarchy: Manual > Legistar > LLM.
         if _is_trusted_existing_vote(getattr(item, "votes", None)):
             counters["skipped_items"] += 1
-            counters["skip_reasons"]["trusted_source"] = counters["skip_reasons"].get("trusted_source", 0) + 1
+            counters["skip_reasons"][SKIP_REASON_TRUSTED_SOURCE] = (
+                counters["skip_reasons"].get(SKIP_REASON_TRUSTED_SOURCE, 0) + 1
+            )
             continue
 
         if not force and _is_high_confidence_existing_llm_vote(getattr(item, "votes", None)):
             counters["skipped_items"] += 1
-            counters["skip_reasons"]["already_high_confidence"] = counters["skip_reasons"].get("already_high_confidence", 0) + 1
+            counters["skip_reasons"][SKIP_REASON_ALREADY_HIGH_CONFIDENCE] = (
+                counters["skip_reasons"].get(SKIP_REASON_ALREADY_HIGH_CONFIDENCE, 0) + 1
+            )
             continue
 
         if not force and _has_non_unknown_result(getattr(item, "result", None)):
             counters["skipped_items"] += 1
-            counters["skip_reasons"]["existing_result"] = counters["skip_reasons"].get("existing_result", 0) + 1
+            counters["skip_reasons"][SKIP_REASON_EXISTING_RESULT] = (
+                counters["skip_reasons"].get(SKIP_REASON_EXISTING_RESULT, 0) + 1
+            )
             continue
 
         context_text = _build_vote_context_text(
@@ -366,7 +435,9 @@ def run_vote_extraction_for_catalog(
         )
         if len(context_text) < VOTE_EXTRACTION_MIN_TEXT_CHARS:
             counters["skipped_items"] += 1
-            counters["skip_reasons"]["insufficient_text"] = counters["skip_reasons"].get("insufficient_text", 0) + 1
+            counters["skip_reasons"][SKIP_REASON_INSUFFICIENT_TEXT] = (
+                counters["skip_reasons"].get(SKIP_REASON_INSUFFICIENT_TEXT, 0) + 1
+            )
             continue
 
         counters["processed_items"] += 1
@@ -384,7 +455,9 @@ def run_vote_extraction_for_catalog(
 
         if extracted.confidence < VOTE_EXTRACTION_CONFIDENCE_THRESHOLD:
             counters["skipped_items"] += 1
-            counters["skip_reasons"]["low_confidence"] = counters["skip_reasons"].get("low_confidence", 0) + 1
+            counters["skip_reasons"][SKIP_REASON_LOW_CONFIDENCE] = (
+                counters["skip_reasons"].get(SKIP_REASON_LOW_CONFIDENCE, 0) + 1
+            )
             continue
 
         if extracted.outcome_label == "unknown" and all(
@@ -397,7 +470,9 @@ def run_vote_extraction_for_catalog(
             )
         ):
             counters["skipped_items"] += 1
-            counters["skip_reasons"]["unknown_no_tally"] = counters["skip_reasons"].get("unknown_no_tally", 0) + 1
+            counters["skip_reasons"][SKIP_REASON_UNKNOWN_NO_TALLY] = (
+                counters["skip_reasons"].get(SKIP_REASON_UNKNOWN_NO_TALLY, 0) + 1
+            )
             continue
 
         item.result = _result_text_from_label(extracted.outcome_label)
@@ -411,7 +486,7 @@ def run_vote_extraction_for_catalog(
             "absent_count": extracted.absent_count,
             "confidence": extracted.confidence,
             "evidence_snippet": extracted.evidence_snippet,
-            "source": "llm_extracted",
+            "source": LLM_EXTRACTED_VOTE_SOURCE,
             "extracted_at": datetime.now(timezone.utc).isoformat(),
         }
         counters["updated_items"] += 1
