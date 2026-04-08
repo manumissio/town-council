@@ -145,3 +145,24 @@ Use each entry to record:
   - [docs/ENGINEERING_GUARDRAILS.md](ENGINEERING_GUARDRAILS.md)
   - [ARCHITECTURE.md](../ARCHITECTURE.md)
   - [ROADMAP.md](../ROADMAP.md)
+
+## 2026-04-08: Refactor the provider boundary before wider runtime cleanup
+
+- Status: Accepted
+- Decision:
+  - The first structural legacy-cleanup wave targets the inference provider boundary in `pipeline/llm_provider.py` and the provider-facing `LocalAI` methods in `pipeline/llm.py`.
+  - Transitional provider shims are removed in favor of explicit operation methods for agenda extraction, summary generation, topic generation, and JSON generation.
+  - Provider code owns transport classification, timeout policy, retry-budget policy, payload validation, and provider metrics.
+  - `LocalAI` remains the layer that interprets typed provider failures into product behavior such as deterministic fallback or `None`.
+- Why:
+  - This boundary is smaller, more testable, and more cross-cutting than a first-pass refactor of task orchestration or the full LLM heuristic module.
+  - Cleaning the seam preserves Town Council's local-first and fail-fast defaults while reducing duplication and ambiguity around provider errors.
+  - Keeping retry ownership above the provider layer avoids hidden orchestration drift.
+- Affected boundaries:
+  - `pipeline/llm_provider.py` now owns operation-specific provider methods and typed failure mapping.
+  - `pipeline/llm.py` continues to own fallback and degradation policy.
+  - Runtime profiles and backend defaults remain unchanged.
+- Canonical references:
+  - [ARCHITECTURE.md](../ARCHITECTURE.md)
+  - [docs/ENGINEERING_GUARDRAILS.md](ENGINEERING_GUARDRAILS.md)
+  - [ROADMAP.md](../ROADMAP.md)
