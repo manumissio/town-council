@@ -10,8 +10,8 @@ def _reset_local_ai_singleton():
     LocalAI._instance = None
 
 
-def _fake_grounded_text(_self, prompt, max_tokens, temperature, response_format=None):
-    _ = (prompt, max_tokens, temperature, response_format)
+def _fake_grounded_text(_self, prompt, max_tokens, temperature):
+    _ = (prompt, max_tokens, temperature)
     return (
         "BLUF: Agenda includes 1 substantive item.\n"
         "Why this matters:\n"
@@ -31,8 +31,8 @@ def _run(backend, monkeypatch):
     from pipeline import llm as llm_mod
 
     monkeypatch.setattr(llm_mod, "LOCAL_AI_BACKEND", backend)
-    monkeypatch.setattr(llm_mod.InProcessLlamaProvider, "generate", _fake_grounded_text)
-    monkeypatch.setattr(llm_mod.HttpInferenceProvider, "generate", _fake_grounded_text)
+    monkeypatch.setattr(llm_mod.InProcessLlamaProvider, "summarize_agenda_items", _fake_grounded_text)
+    monkeypatch.setattr(llm_mod.HttpInferenceProvider, "summarize_agenda_items", _fake_grounded_text)
     _reset_local_ai_singleton()
 
     ai = llm_mod.LocalAI()

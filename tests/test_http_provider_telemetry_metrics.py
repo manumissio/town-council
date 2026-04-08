@@ -2,7 +2,12 @@ import pytest
 import requests
 
 import pipeline.llm_provider as llm_provider
-from pipeline.llm_provider import HttpInferenceProvider, ProviderResponseError, ProviderTimeoutError
+from pipeline.llm_provider import (
+    HttpInferenceProvider,
+    ProviderResponseError,
+    ProviderTimeoutError,
+    ProviderUnavailableError,
+)
 
 
 def test_http_provider_timeout_emits_single_attempt_metrics_in_conservative_profile(monkeypatch):
@@ -145,3 +150,37 @@ def test_http_provider_invalid_json_is_response_error_without_retry(monkeypatch)
         provider.summarize_text("hello", temperature=0.1, max_tokens=16)
 
     assert events["retry"] == 0
+
+
+def test_http_provider_client_http_error_is_response_error_without_retry(monkeypatch):
+    events = {"retry": 0}
+
+    class _ClientErrorResponse:
+        status_code = 422
+
+    def _raise_http_error(*_args, **_kwargs):
+        response = _ClientErrorResponse()
+        raise requests.exceptions.HTTPError("bad request", response=response)
+
+    monkeypatch.setattr("pipeline.llm_provider.record_provider_retry", lambda *args, **kwargs: events.__setitem__("retry", events["retry"] + 1))
+    monkeypatch.setattr(requests, "post", _raise_http_error)
+
+    provider = HttpInferenceProvider()
+    provider.max_retries = 2
+    with pytest.raises(ProviderResponseError):
+        provider.summarize_text("hello", temperature=0.1, max_tokens=16)
+
+    assert events["retry"] == 0
+
+
+def test_http_provider_request_exception_maps_to_unavailable(monkeypatch):
+    monkeypatch.setattr(
+        requests,
+        "post",
+        lambda *args, **kwargs: (_ for _ in ()).throw(requests.exceptions.ConnectionError("down")),
+    )
+
+    provider = HttpInferenceProvider()
+    provider.max_retries = 0
+    with pytest.raises(ProviderUnavailableError):
+        provider.summarize_text("hello", temperature=0.1, max_tokens=16)

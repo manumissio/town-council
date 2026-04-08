@@ -1617,6 +1617,24 @@ class LocalAI:
             self._provider_backend = backend
         return self._provider
 
+    def _log_provider_failure(self, operation_label: str, error: Exception) -> None:
+        logger.error("%s failed: %s", operation_label, error)
+
+    def _call_provider_text_or_none(
+        self,
+        provider_call: Callable[[], str | None],
+        *,
+        operation_label: str,
+    ) -> str | None:
+        try:
+            return provider_call()
+        except (ProviderTimeoutError, ProviderUnavailableError, ProviderResponseError) as error:
+            self._log_provider_failure(operation_label, error)
+            return None
+        except Exception as error:
+            self._log_provider_failure(operation_label, error)
+            return None
+
     def _load_model(self):
         """
         Loads the AI model from disk into memory.
@@ -1688,26 +1706,21 @@ class LocalAI:
         """
         provider = self._get_provider()
         prompt = prepare_summary_prompt(text, doc_kind=doc_kind)
-
-        try:
-            raw = (
+        raw = self._call_provider_text_or_none(
+            lambda: (
                 provider.summarize_text(
                     prompt,
                     max_tokens=LLM_SUMMARY_MAX_TOKENS,
                     temperature=0.1,
                 )
                 or ""
-            ).strip()
-            if not raw:
-                return None
-            normalized = _normalize_summary_output_to_bluf(raw, source_text=text)
-            return normalized or raw
-        except (ProviderTimeoutError, ProviderUnavailableError, ProviderResponseError) as e:
-            logger.error(f"AI Summarization failed: {e}")
+            ).strip(),
+            operation_label="AI Summarization",
+        )
+        if not raw:
             return None
-        except Exception as e:
-            logger.error(f"AI Summarization failed: {e}")
-            return None
+        normalized = _normalize_summary_output_to_bluf(raw, source_text=text)
+        return normalized or raw
 
     def generate_json(self, prompt: str, max_tokens: int = 256) -> str | None:
         """
@@ -1717,29 +1730,15 @@ class LocalAI:
         plain generation so callers can still apply strict post-parse validation.
         """
         provider = self._get_provider()
-        try:
-            if hasattr(provider, "generate_json"):
-                text = (provider.generate_json(prompt, max_tokens=max_tokens) or "").strip()
-            else:
-                text = (
-                    provider.summarize_text(
-                        prompt,
-                        max_tokens=max_tokens,
-                        temperature=0.0,
-                    )
-                    or ""
-                ).strip()
-            if not text:
-                return None
-            if text.startswith("{"):
-                return text
-            return "{" + text
-        except (ProviderTimeoutError, ProviderUnavailableError, ProviderResponseError) as e:
-            logger.error(f"AI JSON generation failed: {e}")
+        text = self._call_provider_text_or_none(
+            lambda: (provider.generate_json(prompt, max_tokens=max_tokens) or "").strip(),
+            operation_label="AI JSON generation",
+        )
+        if not text:
             return None
-        except Exception as e:
-            logger.error(f"AI JSON generation failed: {e}")
-            return None
+        if text.startswith("{"):
+            return text
+        return "{" + text
 
     def summarize_agenda_items(
         self,
@@ -1857,11 +1856,11 @@ class LocalAI:
                 max_bullets=AGENDA_SUMMARY_MAX_BULLETS,
                 truncation_meta=truncation_meta,
             )
-        except (ProviderTimeoutError, ProviderUnavailableError) as e:
-            logger.error(f"AI Agenda Items Summarization failed: {e}")
+        except (ProviderTimeoutError, ProviderUnavailableError) as error:
+            self._log_provider_failure("AI Agenda Items Summarization", error)
             return None
-        except Exception as e:
-            logger.error(f"AI Agenda Items Summarization failed: {e}")
+        except Exception as error:
+            self._log_provider_failure("AI Agenda Items Summarization", error)
             return None
 
     def repair_title_spacing(self, raw_line: str) -> str | None:
@@ -1889,22 +1888,20 @@ class LocalAI:
             "<end_of_turn>\n"
             "<start_of_turn>model\n"
         )
-        try:
-            text = (
+        text = self._call_provider_text_or_none(
+            lambda: (
                 provider.summarize_text(
                     prompt,
                     max_tokens=64,
                     temperature=0.0,
                 )
                 or ""
-            ).strip()
-            return " ".join(text.splitlines()).strip()
-        except (ProviderTimeoutError, ProviderUnavailableError, ProviderResponseError) as e:
-            logger.error(f"AI title spacing repair failed: {e}")
+            ).strip(),
+            operation_label="AI title spacing repair",
+        )
+        if not text:
             return None
-        except Exception as e:
-            logger.error(f"AI title spacing repair failed: {e}")
-            return None
+        return " ".join(text.splitlines()).strip()
 
     def extract_agenda(self, text):
         """

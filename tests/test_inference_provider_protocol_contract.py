@@ -35,6 +35,7 @@ def test_http_provider_has_protocol_methods():
     assert hasattr(provider, "summarize_agenda_items")
     assert hasattr(provider, "summarize_text")
     assert hasattr(provider, "generate_topics")
+    assert hasattr(provider, "generate_json")
 
 
 def test_local_ai_defaults_to_http_provider_when_backend_unset(monkeypatch):
