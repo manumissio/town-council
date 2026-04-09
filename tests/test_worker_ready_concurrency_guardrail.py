@@ -8,6 +8,7 @@ def test_worker_ready_exits_on_unsafe_concurrency(monkeypatch):
     """
     import pipeline.tasks as tasks
 
+    monkeypatch.setattr(tasks, "LOCAL_AI_BACKEND", "inprocess")
     monkeypatch.setattr(tasks, "LOCAL_AI_ALLOW_MULTIPROCESS", False)
     monkeypatch.setattr(tasks, "LOCAL_AI_REQUIRE_SOLO_POOL", True)
     monkeypatch.setattr(tasks, "run_startup_purge_if_enabled", lambda: {"status": "skipped"})
@@ -70,4 +71,28 @@ def test_worker_ready_allows_http_backend_without_inprocess_guardrails(monkeypat
         argv = ["celery", "-A", "pipeline.tasks", "worker", "--pool=prefork", "--concurrency=4"]
 
     tasks._run_startup_purge_on_worker_ready(sender=_Sender())
+    assert purge_called["n"] == 1
+
+
+def test_worker_ready_guardrail_check_failures_still_run_startup_purge(monkeypatch):
+    import pipeline.tasks as tasks
+
+    purge_called = {"n": 0}
+    monkeypatch.setattr(
+        tasks,
+        "local_ai_runtime_guardrail_message",
+        lambda **_kwargs: (_ for _ in ()).throw(RuntimeError("guardrail blew up")),
+    )
+    monkeypatch.setattr(
+        tasks,
+        "run_startup_purge_if_enabled",
+        lambda: purge_called.__setitem__("n", purge_called["n"] + 1) or {"status": "skipped"},
+    )
+
+    class _Sender:
+        concurrency = 1
+        argv = ["celery", "-A", "pipeline.tasks", "worker", "--pool=solo", "--concurrency=1"]
+
+    tasks._run_startup_purge_on_worker_ready(sender=_Sender())
+
     assert purge_called["n"] == 1

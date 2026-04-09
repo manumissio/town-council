@@ -43,6 +43,8 @@ def test_generate_summary_task_agenda_requires_segmentation_and_calls_agenda_ite
     mock_db.query.side_effect = _query_side_effect
 
     mocker.patch.object(tasks, "SessionLocal", return_value=mock_db)
+    mocker.patch.object(tasks, "reindex_catalog")
+    mocker.patch.object(tasks.embed_catalog_task, "delay")
     mock_ai = MagicMock()
     mock_ai.summarize_agenda_items.return_value = "BLUF: Agenda focuses on core policy and operational items."
     mocker.patch.object(tasks, "LocalAI", return_value=mock_ai)
@@ -90,6 +92,8 @@ def test_generate_summary_task_agenda_returns_not_generated_yet_when_no_items(mo
     mock_db.query.side_effect = _query_side_effect
 
     mocker.patch.object(tasks, "SessionLocal", return_value=mock_db)
+    mocker.patch.object(tasks, "reindex_catalog")
+    mocker.patch.object(tasks.embed_catalog_task, "delay")
     mock_ai = MagicMock()
     mocker.patch.object(tasks, "LocalAI", return_value=mock_ai)
 
@@ -126,6 +130,8 @@ def test_generate_summary_task_agenda_html_returns_not_generated_yet_when_no_ite
     mock_db.query.side_effect = _query_side_effect
 
     mocker.patch.object(tasks, "SessionLocal", return_value=mock_db)
+    mocker.patch.object(tasks, "reindex_catalog")
+    mocker.patch.object(tasks.embed_catalog_task, "delay")
     mock_ai = MagicMock()
     mocker.patch.object(tasks, "LocalAI", return_value=mock_ai)
 

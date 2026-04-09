@@ -1,32 +1,20 @@
 from celery.signals import worker_ready
-import sys
-import logging
 import re
 from datetime import datetime, timezone
-from sqlalchemy.orm import sessionmaker
 from sqlalchemy.exc import SQLAlchemyError
-from sqlalchemy import and_, func, or_, text
 from typing import Any, Callable
 
 from pipeline.backlog_maintenance import (
-    AGENDA_SUMMARY_BUNDLE_BUILD_MS,
-    AGENDA_SUMMARY_EMBED_DISPATCH_MS,
-    AGENDA_SUMMARY_PERSIST_MS,
-    AGENDA_SUMMARY_REINDEX_MS,
-    AGENDA_SUMMARY_RENDER_MS,
     build_agenda_summary_input_bundle,
-    build_deterministic_agenda_summary_payload,
     build_deterministic_agenda_summary_payloads,
     persist_agenda_summary,
     summarize_catalog_with_maintenance_mode,
-    summary_timeout_override,
 )
 from pipeline.laserfiche_error_pages import classify_catalog_bad_content
-from pipeline.models import db_connect, Catalog, Document, Event
+from pipeline.models import Catalog, Document
 from pipeline.llm import LocalAI, LocalAIConfigError
 from pipeline.agenda_service import persist_agenda_items
 from pipeline.agenda_resolver import has_viable_structured_agenda_source, resolve_agenda_items
-from pipeline.city_scope import source_aliases_for_city
 from pipeline.models import AgendaItem
 from pipeline.config import (
     TIKA_MIN_EXTRACTED_CHARS_FOR_NO_OCR,
@@ -34,16 +22,11 @@ from pipeline.config import (
     LOCAL_AI_REQUIRE_SOLO_POOL,
     LOCAL_AI_BACKEND,
     ENABLE_VOTE_EXTRACTION,
-    LINEAGE_MIN_EDGE_CONFIDENCE,
-    LINEAGE_REQUIRE_MUTUAL_EDGES,
 )
 from pipeline.extraction_service import reextract_catalog_content
-from pipeline.indexer import reindex_catalog, reindex_catalogs
+from pipeline.indexer import reindex_catalog
 from pipeline.content_hash import compute_content_hash
-from pipeline.document_kinds import normalize_summary_doc_kind, summary_doc_kind_sql_expr
-from pipeline.lineage_service import compute_lineage_assignments
-from pipeline.metrics import record_lineage_recompute
-from pipeline.profiling import apply_catalog_id_scope
+from pipeline.document_kinds import normalize_summary_doc_kind
 from pipeline.summary_freshness import (
     compute_summary_source_hash,
     is_summary_fresh,
@@ -57,6 +40,19 @@ from pipeline.summary_quality import (
 from pipeline.text_cleaning import postprocess_extracted_text
 from pipeline.runtime_guardrails import local_ai_runtime_guardrail_message
 from pipeline.startup_purge import run_startup_purge_if_enabled
+from pipeline.summary_backfill import (
+    _summary_doc_kind_map as _summary_doc_kind_map_impl,
+    _summary_doc_kind_subquery as _summary_doc_kind_subquery_impl,
+    _enqueue_embed_catalogs as _enqueue_embed_catalogs_impl,
+    run_summary_hydration_backfill as run_summary_hydration_backfill_impl,
+    select_catalog_ids_for_summary_hydration as select_catalog_ids_for_summary_hydration_impl,
+)
+from pipeline.lineage_task_support import run_lineage_recompute
+from pipeline.task_startup import (
+    get_celery_pool_from_argv as get_celery_pool_from_argv_impl,
+    run_startup_purge_on_worker_ready as run_startup_purge_on_worker_ready_impl,
+)
+from pipeline.task_runtime import logger, task_session
 from pipeline.vote_extractor import run_vote_extraction_for_catalog
 from pipeline.celery_app import app
 from pipeline.semantic_tasks import embed_catalog_task
@@ -64,9 +60,6 @@ from pipeline.semantic_tasks import embed_catalog_task
 # Register worker metrics (safe in non-worker contexts; the HTTP server only starts
 # when TC_WORKER_METRICS_PORT is set and the Celery worker is ready).
 from pipeline import metrics as _worker_metrics  # noqa: F401
-
-# Setup logging
-logger = logging.getLogger("celery-worker")
 
 _TRANSIENT_TEXT_EXTRACTION_ERRORS = frozenset(
     {
@@ -185,123 +178,24 @@ def _extract_agenda_titles_from_text(text: str, max_titles: int = 3):
 
     return _dedupe_titles_preserve_order(titles)[:max_titles]
 
-_SessionLocal = None
-
-
 def SessionLocal():
-    global _SessionLocal
-    if _SessionLocal is None:
-        _SessionLocal = sessionmaker(bind=db_connect())
-    return _SessionLocal()
+    return task_session()
 
 
 def _summary_doc_kind_subquery(db):
-    first_document = (
-        db.query(
-            Document.catalog_id.label("catalog_id"),
-            func.min(Document.id).label("document_id"),
-        )
-        .group_by(Document.catalog_id)
-        .subquery("first_document")
-    )
-    return (
-        db.query(
-            Document.catalog_id.label("catalog_id"),
-            summary_doc_kind_sql_expr(Document.category).label("doc_kind"),
-        )
-        .join(
-            first_document,
-            and_(
-                Document.catalog_id == first_document.c.catalog_id,
-                Document.id == first_document.c.document_id,
-            ),
-        )
-        .subquery("summary_doc_kind")
-    )
+    return _summary_doc_kind_subquery_impl(db)
 
 
 def select_catalog_ids_for_summary_hydration(db, limit: int | None = None, city: str | None = None) -> list[int]:
-    """
-    Select catalogs eligible for batch summary hydration.
-
-    Agenda catalogs are included only when structured agenda items already exist,
-    which keeps the batch path aligned with the interactive summary contract.
-    """
-    doc_kind = _summary_doc_kind_subquery(db)
-    agenda_items_exist = (
-        db.query(AgendaItem.id)
-        .filter(AgendaItem.catalog_id == Catalog.id)
-        .exists()
-    )
-    query = (
-        db.query(Catalog.id)
-        .join(doc_kind, doc_kind.c.catalog_id == Catalog.id)
-        .join(Document, Document.catalog_id == Catalog.id)
-        .join(Event, Event.id == Document.event_id)
-        .filter(
-            Catalog.content.isnot(None),
-            Catalog.content != "",
-            or_(
-                and_(
-                    doc_kind.c.doc_kind != "agenda",
-                    or_(
-                        Catalog.summary.is_(None),
-                        Catalog.summary_source_hash.is_(None),
-                        Catalog.content_hash.is_(None),
-                        Catalog.summary_source_hash != Catalog.content_hash,
-                    ),
-                ),
-                and_(
-                    doc_kind.c.doc_kind == "agenda",
-                    agenda_items_exist,
-                    or_(
-                        Catalog.summary.is_(None),
-                        Catalog.summary_source_hash.is_(None),
-                        Catalog.agenda_items_hash.is_(None),
-                        Catalog.summary_source_hash != Catalog.agenda_items_hash,
-                    ),
-                ),
-            ),
-        )
-        .order_by(Catalog.id)
-    )
-    query = apply_catalog_id_scope(query, Catalog.id)
-    if city:
-        query = query.filter(Event.source.in_(sorted(source_aliases_for_city(city))))
-    if limit is not None:
-        query = query.limit(limit)
-    return [row[0] for row in query.distinct().all()]
+    return select_catalog_ids_for_summary_hydration_impl(db, limit=limit, city=city)
 
 
 def _summary_doc_kind_map(db, catalog_ids: list[int]) -> dict[int, str]:
-    if not catalog_ids:
-        return {}
-    doc_kind = _summary_doc_kind_subquery(db)
-    rows = (
-        db.query(doc_kind.c.catalog_id, doc_kind.c.doc_kind)
-        .filter(doc_kind.c.catalog_id.in_(catalog_ids))
-        .all()
-    )
-    return {int(catalog_id): str(kind or "unknown") for catalog_id, kind in rows}
+    return _summary_doc_kind_map_impl(db, catalog_ids)
 
 
 def _enqueue_embed_catalogs(catalog_ids: list[int]) -> dict[str, object]:
-    deduped_ids = sorted({int(catalog_id) for catalog_id in catalog_ids if catalog_id is not None})
-    failed_catalog_ids: list[int] = []
-    enqueued = 0
-    for catalog_id in deduped_ids:
-        try:
-            embed_catalog_task.delay(catalog_id)
-            enqueued += 1
-        except Exception as exc:
-            logger.warning("embed_catalog_task.dispatch_failed catalog_id=%s error=%s", catalog_id, exc)
-            failed_catalog_ids.append(catalog_id)
-    return {
-        "catalogs_considered": len(deduped_ids),
-        "embed_enqueued": enqueued,
-        "embed_dispatch_failed": len(failed_catalog_ids),
-        "failed_catalog_ids": failed_catalog_ids,
-    }
+    return _enqueue_embed_catalogs_impl(catalog_ids)
 
 
 def run_summary_hydration_backfill(
@@ -314,225 +208,38 @@ def run_summary_hydration_backfill(
     progress_callback: Callable[[dict[str, Any]], None] | None = None,
     progress_every: int = 25,
 ) -> dict[str, int]:
-    """
-    Generate summaries once across the current eligible backlog snapshot.
-    """
-    db = SessionLocal()
-    try:
-        catalog_ids = select_catalog_ids_for_summary_hydration(db, limit=limit, city=city)
-    finally:
-        db.close()
-
-    counts = {
-        "selected": len(catalog_ids),
-        "complete": 0,
-        "changed_catalogs": 0,
-        "cached": 0,
-        "stale": 0,
-        "blocked_low_signal": 0,
-        "blocked_ungrounded": 0,
-        "not_generated_yet": 0,
-        "error": 0,
-        "other": 0,
-        "agenda_deterministic_complete": 0,
-        "llm_complete": 0,
-        "deterministic_fallback_complete": 0,
-        "reindexed": 0,
-        "reindex_failed": 0,
-        "embed_enqueued": 0,
-        "embed_dispatch_failed": 0,
-        AGENDA_SUMMARY_BUNDLE_BUILD_MS: 0,
-        AGENDA_SUMMARY_RENDER_MS: 0,
-        AGENDA_SUMMARY_PERSIST_MS: 0,
-        AGENDA_SUMMARY_REINDEX_MS: 0,
-        AGENDA_SUMMARY_EMBED_DISPATCH_MS: 0,
-    }
-    if not catalog_ids:
-        logger.info("summary_hydration_backfill selected=0")
-        if progress_callback:
-            progress_callback(
-                {
-                    "event_type": "stage_finish",
-                    "stage": "summary",
-                    "counts": counts.copy(),
-                    "detail": {"selected": 0},
-                }
-            )
-        return counts
-
-    if progress_callback:
-        progress_callback(
-            {
-                "event_type": "stage_start",
-                "stage": "summary",
-                "counts": counts.copy(),
-                "detail": {"selected": len(catalog_ids)},
-            }
-        )
-
-    db = SessionLocal()
-    try:
-        doc_kind_by_catalog_id = _summary_doc_kind_map(db, catalog_ids)
-    finally:
-        db.close()
-
-    agenda_catalog_ids = [catalog_id for catalog_id in catalog_ids if doc_kind_by_catalog_id.get(catalog_id) == "agenda"]
-    agenda_results: dict[int, dict[str, Any]] = {}
-    if agenda_catalog_ids:
-        agenda_batch = build_deterministic_agenda_summary_payloads(
-            agenda_catalog_ids,
-            reindex_callback=reindex_catalogs,
-            embed_callback=_enqueue_embed_catalogs,
-        )
-        agenda_results = dict(agenda_batch.get("results") or {})
-        reindex_summary = agenda_batch.get("reindex_summary") or {}
-        counts["reindexed"] += int(reindex_summary.get("catalogs_reindexed") or 0)
-        counts["reindex_failed"] += int(reindex_summary.get("catalogs_failed") or 0)
-        embed_summary = agenda_batch.get("embed_summary") or {}
-        counts["embed_enqueued"] += int(embed_summary.get("embed_enqueued") or 0)
-        counts["embed_dispatch_failed"] += int(embed_summary.get("embed_dispatch_failed") or 0)
-        agenda_summary_timings = agenda_batch.get("agenda_summary_timings") or {}
-        counts[AGENDA_SUMMARY_BUNDLE_BUILD_MS] += int(agenda_summary_timings.get(AGENDA_SUMMARY_BUNDLE_BUILD_MS) or 0)
-        counts[AGENDA_SUMMARY_RENDER_MS] += int(agenda_summary_timings.get(AGENDA_SUMMARY_RENDER_MS) or 0)
-        counts[AGENDA_SUMMARY_PERSIST_MS] += int(agenda_summary_timings.get(AGENDA_SUMMARY_PERSIST_MS) or 0)
-        counts[AGENDA_SUMMARY_REINDEX_MS] += int(agenda_summary_timings.get(AGENDA_SUMMARY_REINDEX_MS) or 0)
-        counts[AGENDA_SUMMARY_EMBED_DISPATCH_MS] += int(agenda_summary_timings.get(AGENDA_SUMMARY_EMBED_DISPATCH_MS) or 0)
-
-    with summary_timeout_override(summary_timeout_seconds):
-        for index, cid in enumerate(catalog_ids, start=1):
-            if cid in agenda_results:
-                result = agenda_results[cid]
-            else:
-                result = summarize_catalog_with_maintenance_mode(
-                    cid,
-                    summary_fallback_mode=summary_fallback_mode,
-                    generate_summary_callable=lambda catalog_id: generate_summary_task.run(catalog_id, force=force),
-                    deterministic_summary_callable=lambda catalog_id: build_deterministic_agenda_summary_payload(
-                        catalog_id,
-                        reindex_callback=reindex_catalog,
-                        embed_callback=lambda target_catalog_id: embed_catalog_task.delay(target_catalog_id),
-                    ),
-                )
-
-            status = str((result or {}).get("status") or "other")
-            if status in counts:
-                counts[status] += 1
-            else:
-                counts["other"] += 1
-            counts["changed_catalogs"] += int(bool((result or {}).get("changed")))
-            counts["reindexed"] += int((result or {}).get("reindexed") or 0)
-            counts["reindex_failed"] += int((result or {}).get("reindex_failed") or 0)
-            counts["embed_enqueued"] += int((result or {}).get("embed_enqueued") or 0)
-            counts["embed_dispatch_failed"] += int((result or {}).get("embed_dispatch_failed") or 0)
-            completion_mode = str((result or {}).get("completion_mode") or "")
-            if completion_mode == "agenda_deterministic":
-                counts["agenda_deterministic_complete"] += 1
-            elif completion_mode == "llm":
-                counts["llm_complete"] += 1
-            elif completion_mode == "deterministic_fallback":
-                counts["deterministic_fallback_complete"] += 1
-            if progress_callback and (index == 1 or index % progress_every == 0 or index == len(catalog_ids)):
-                progress_callback(
-                    {
-                        "event_type": "progress",
-                        "stage": "summary",
-                        "counts": counts.copy(),
-                        "last_catalog_id": cid,
-                        "detail": {
-                            "done": index,
-                            "total": len(catalog_ids),
-                            "last_status": status,
-                            "completion_mode": completion_mode,
-                            "error": str((result or {}).get("error") or ""),
-                        },
-                    }
-                )
-
-    logger.info(
-        "summary_hydration_backfill selected=%s complete=%s changed_catalogs=%s cached=%s stale=%s blocked_low_signal=%s blocked_ungrounded=%s not_generated_yet=%s error=%s other=%s agenda_deterministic_complete=%s llm_complete=%s deterministic_fallback_complete=%s reindexed=%s reindex_failed=%s embed_enqueued=%s embed_dispatch_failed=%s agenda_summary_bundle_build_ms=%s agenda_summary_render_ms=%s agenda_summary_persist_ms=%s agenda_summary_reindex_ms=%s agenda_summary_embed_dispatch_ms=%s",
-        counts["selected"],
-        counts["complete"],
-        counts["changed_catalogs"],
-        counts["cached"],
-        counts["stale"],
-        counts["blocked_low_signal"],
-        counts["blocked_ungrounded"],
-        counts["not_generated_yet"],
-        counts["error"],
-        counts["other"],
-        counts["agenda_deterministic_complete"],
-        counts["llm_complete"],
-        counts["deterministic_fallback_complete"],
-        counts["reindexed"],
-        counts["reindex_failed"],
-        counts["embed_enqueued"],
-        counts["embed_dispatch_failed"],
-        counts[AGENDA_SUMMARY_BUNDLE_BUILD_MS],
-        counts[AGENDA_SUMMARY_RENDER_MS],
-        counts[AGENDA_SUMMARY_PERSIST_MS],
-        counts[AGENDA_SUMMARY_REINDEX_MS],
-        counts[AGENDA_SUMMARY_EMBED_DISPATCH_MS],
+    return run_summary_hydration_backfill_impl(
+        force=force,
+        limit=limit,
+        city=city,
+        summary_timeout_seconds=summary_timeout_seconds,
+        summary_fallback_mode=summary_fallback_mode,
+        progress_callback=progress_callback,
+        progress_every=progress_every,
+        generate_summary_callable=lambda catalog_id: generate_summary_task.run(catalog_id, force=force),
+        session_factory=SessionLocal,
+        select_catalog_ids_callable=select_catalog_ids_for_summary_hydration,
+        summary_doc_kind_map_callable=_summary_doc_kind_map,
+        agenda_summary_batch_builder=build_deterministic_agenda_summary_payloads,
+        summarize_catalog_callable=summarize_catalog_with_maintenance_mode,
     )
-    if progress_callback:
-        progress_callback({"event_type": "stage_finish", "stage": "summary", "counts": counts.copy()})
-    return counts
 
 
 def _get_celery_pool_from_argv(argv: list[str]) -> str | None:
-    """
-    Best-effort extraction of the Celery pool from argv.
-
-    Why this exists:
-    Celery's "sender" object passed to worker_ready isn't guaranteed to expose pool
-    details across versions/configs, but argv is stable for our Docker entrypoint.
-    """
-    if not argv:
-        return None
-    for i, arg in enumerate(argv):
-        if arg.startswith("--pool="):
-            return arg.split("=", 1)[1].strip() or None
-        if arg == "--pool" and (i + 1) < len(argv):
-            return (argv[i + 1] or "").strip() or None
-    return None
+    return get_celery_pool_from_argv_impl(argv)
 
 
 @worker_ready.connect
 def _run_startup_purge_on_worker_ready(sender=None, **kwargs):
-    # Guardrail: LocalAI's singleton is per-process. If a worker is configured with
-    # concurrency > 1 (or a multiprocessing pool), each process will load its own model.
-    # This can OOM a dev machine quickly.
-    try:
-        backend = (LOCAL_AI_BACKEND or "inprocess").strip().lower()
-        concurrency = getattr(sender, "concurrency", None)
-        if concurrency is None and sender is not None:
-            concurrency = getattr(getattr(sender, "app", None), "conf", {}).get("worker_concurrency")  # type: ignore[attr-defined]
-        try:
-            if concurrency is not None:
-                concurrency = int(concurrency)
-        except Exception:
-            concurrency = None
-        pool = _get_celery_pool_from_argv(getattr(sender, "argv", None) or sys.argv)  # type: ignore[arg-type]
-
-        guardrail_message = local_ai_runtime_guardrail_message(
-            backend=backend,
-            allow_multiprocess=LOCAL_AI_ALLOW_MULTIPROCESS,
-            require_solo_pool=LOCAL_AI_REQUIRE_SOLO_POOL,
-            concurrency=concurrency,
-            pool=pool,
-        )
-        if guardrail_message:
-            logger.critical(guardrail_message)
-            raise SystemExit(1)
-    except SystemExit:
-        raise
-    except Exception as guardrail_error:
-        # Startup should stay resilient in non-worker contexts, but we log the check failure so
-        # runtime misconfiguration never disappears silently.
-        logger.warning("worker_ready.guardrail_check_failed error=%s", guardrail_error)
-
-    # The purge is env-gated and DB-lock protected so concurrent starters are safe.
-    result = run_startup_purge_if_enabled()
-    logger.info(f"startup_purge_result={result}")
+    _ = kwargs
+    run_startup_purge_on_worker_ready_impl(
+        sender,
+        backend=LOCAL_AI_BACKEND,
+        allow_multiprocess=LOCAL_AI_ALLOW_MULTIPROCESS,
+        require_solo_pool=LOCAL_AI_REQUIRE_SOLO_POOL,
+        guardrail_message_builder=local_ai_runtime_guardrail_message,
+        startup_purge_callable=run_startup_purge_if_enabled,
+    )
 
 
 def _is_transient_text_extraction_error(error_message: str) -> bool:
@@ -1140,42 +847,13 @@ def compute_lineage_task(self):
     Recompute meeting-level lineage assignments from related_ids.
     """
     db = SessionLocal()
-    lock_key = 90412031
-    lock_acquired = False
     try:
-        is_postgres = db.get_bind().dialect.name == "postgresql"
-        if is_postgres:
-            row = db.execute(text("SELECT pg_try_advisory_lock(:k)"), {"k": lock_key}).first()
-            lock_acquired = bool(row and row[0])
-            if not lock_acquired:
-                return {"status": "skipped", "reason": "lineage_recompute_in_progress"}
-
-        # Full recompute is intentional: one new bridge edge can merge multiple prior components.
-        result = compute_lineage_assignments(
-            db,
-            min_edge_confidence=LINEAGE_MIN_EDGE_CONFIDENCE,
-            require_mutual_edges=LINEAGE_REQUIRE_MUTUAL_EDGES,
-        )
-        db.commit()
-        record_lineage_recompute(updated_count=result.updated_count, merge_count=result.merge_count)
-        return {
-            "status": "complete",
-            "catalog_count": result.catalog_count,
-            "component_count": result.component_count,
-            "merge_count": result.merge_count,
-            "updated_count": result.updated_count,
-        }
+        return run_lineage_recompute(db)
     except (SQLAlchemyError, RuntimeError, ValueError) as e:
         db.rollback()
         logger.error("compute_lineage_task failed: %s", e)
         raise self.retry(exc=e, countdown=30)
     finally:
-        if lock_acquired:
-            try:
-                db.execute(text("SELECT pg_advisory_unlock(:k)"), {"k": lock_key})
-                db.commit()
-            except Exception:
-                db.rollback()
         db.close()
 
 
