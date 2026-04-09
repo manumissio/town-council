@@ -234,3 +234,24 @@ Use each entry to record:
   - [ARCHITECTURE.md](../ARCHITECTURE.md)
   - [docs/ENGINEERING_GUARDRAILS.md](ENGINEERING_GUARDRAILS.md)
   - [ROADMAP.md](../ROADMAP.md)
+
+## 2026-04-09: Extract the agenda-summary subsystem before broader `pipeline/llm.py` cleanup
+
+- Status: Accepted
+- Decision:
+  - The next `pipeline/llm.py` legacy-cleanup wave extracts the agenda-summary subsystem centered on `LocalAI.summarize_agenda_items(...)` into a dedicated support module.
+  - `LocalAI` remains the orchestration and provider-policy boundary: it still owns provider acquisition plus interpretation of typed provider failures into deterministic fallback or `None`.
+  - The extracted module owns agenda-summary-specific flow only: item coercion/filtering, scaffold construction, prompt assembly, output normalization, grounding/pruning, and deterministic fallback selection.
+  - Generic summary generation, JSON generation, agenda extraction heuristics, runtime defaults, and task retry ownership remain unchanged.
+- Why:
+  - After the provider and task-layer cleanup waves, the agenda-summary path is the narrowest high-value seam left inside `pipeline/llm.py`.
+  - The path already has dense contract tests for structure, grounding, truncation disclosure, unknowns, and fallback semantics, which makes cleanup safer than a broad `LocalAI` rewrite.
+  - Keeping provider policy in `LocalAI` avoids mixing transport outcomes with summary transformation logic.
+- Affected boundaries:
+  - `pipeline/llm.py` remains the product-policy boundary for local AI behavior.
+  - `pipeline/agenda_summary.py` owns agenda-summary transformation and normalization flow.
+  - `pipeline/llm_provider.py` continues to own provider transport, payload validation, timeout policy, retry-budget policy, and typed provider failures.
+- Canonical references:
+  - [ARCHITECTURE.md](../ARCHITECTURE.md)
+  - [docs/ENGINEERING_GUARDRAILS.md](ENGINEERING_GUARDRAILS.md)
+  - [ROADMAP.md](../ROADMAP.md)
