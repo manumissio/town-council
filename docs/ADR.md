@@ -208,3 +208,29 @@ Use each entry to record:
   - [ARCHITECTURE.md](../ARCHITECTURE.md)
   - [docs/ENGINEERING_GUARDRAILS.md](ENGINEERING_GUARDRAILS.md)
   - [ROADMAP.md](../ROADMAP.md)
+
+## 2026-04-08: Finish `pipeline/tasks.py` by extracting the remaining orchestration clusters
+
+- Status: Accepted
+- Decision:
+  - The final `pipeline/tasks.py` cleanup wave extracts the remaining orchestration-heavy clusters into dedicated support modules:
+    - summary hydration/backfill orchestration
+    - lineage recompute orchestration
+    - worker startup guardrail and startup purge orchestration
+  - `pipeline/tasks.py` remains the Celery and signal entrypoint layer and continues to own visible retry boundaries, task decorators, and task payload boundaries.
+  - The cleanup keeps compatibility wrappers for the summary-hydration helper entrypoints so existing maintenance scripts can continue importing them from `pipeline.tasks`.
+  - No generic task executor, retry abstraction, or shared transaction wrapper is introduced.
+- Why:
+  - After the earlier task-family waves, the remaining complexity in `pipeline/tasks.py` no longer represented one task family; it represented three separate orchestration domains.
+  - Extracting those domains finishes the file without hiding retry/session ownership or widening into unrelated runtime cleanup.
+  - Keeping the summary-hydration entrypoints importable from `pipeline.tasks` preserves maintenance tooling compatibility while moving the real orchestration out of the task module.
+- Affected boundaries:
+  - `pipeline/tasks.py` is now mostly an entrypoint module.
+  - `pipeline/summary_backfill.py` owns backlog selection, summary hydration counting, progress reporting, and embed dispatch orchestration.
+  - `pipeline/lineage_task_support.py` owns lineage recompute lock/recompute/metrics orchestration.
+  - `pipeline/task_startup.py` owns worker-startup guardrail and startup-purge orchestration.
+  - `pipeline/task_runtime.py` centralizes the task logger and shared session factory used by the extracted support modules.
+- Canonical references:
+  - [ARCHITECTURE.md](../ARCHITECTURE.md)
+  - [docs/ENGINEERING_GUARDRAILS.md](ENGINEERING_GUARDRAILS.md)
+  - [ROADMAP.md](../ROADMAP.md)
