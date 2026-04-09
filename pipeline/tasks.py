@@ -671,6 +671,191 @@ def _run_summary_generation_side_effects(catalog_id: int) -> dict[str, int]:
     }
 
 
+def _record_agenda_segmentation_status(
+    catalog: Catalog,
+    *,
+    status: str,
+    item_count: int,
+    error_message: str | None,
+) -> None:
+    """
+    Keep segmentation status writes explicit without introducing a generic task-state helper.
+    """
+    catalog.agenda_segmentation_status = status
+    catalog.agenda_segmentation_item_count = item_count
+    catalog.agenda_segmentation_attempted_at = datetime.now(timezone.utc)
+    catalog.agenda_segmentation_error = error_message
+
+
+def _run_post_segmentation_vote_extraction(
+    db,
+    *,
+    local_ai: LocalAI,
+    catalog: Catalog,
+    doc: Document,
+    created_items: list[AgendaItem],
+) -> dict[str, Any]:
+    """
+    Vote extraction remains a non-gating post-segmentation stage in this task family.
+    """
+    if not ENABLE_VOTE_EXTRACTION:
+        return {
+            "status": "disabled",
+            "processed_items": 0,
+            "updated_items": 0,
+            "skipped_items": 0,
+            "failed_items": 0,
+            "skip_reasons": {},
+        }
+
+    try:
+        vote_counters = run_vote_extraction_for_catalog(
+            db,
+            local_ai,
+            catalog,
+            doc,
+            force=False,
+            agenda_items=created_items,
+        )
+        return {"status": "complete", **vote_counters}
+    except Exception as vote_exc:
+        logger.warning(
+            "vote_extraction.post_segment_failed catalog_id=%s error=%s",
+            catalog.id,
+            vote_exc.__class__.__name__,
+        )
+        return {
+            "status": "failed",
+            "error": vote_exc.__class__.__name__,
+            "processed_items": 0,
+            "updated_items": 0,
+            "skipped_items": 0,
+            "failed_items": 0,
+            "skip_reasons": {},
+        }
+
+
+def _persist_agenda_segmentation_failure_status(
+    db,
+    catalog_id: int,
+    error_message: str,
+) -> None:
+    """
+    Failure persistence is best-effort and stays under task-wrapper ownership.
+    """
+    catalog = db.get(Catalog, catalog_id)
+    if not catalog:
+        return
+    _record_agenda_segmentation_status(
+        catalog,
+        status="failed",
+        item_count=0,
+        error_message=error_message[:500],
+    )
+    db.commit()
+
+
+def _run_segment_agenda_task_family(
+    db,
+    catalog_id: int,
+    *,
+    local_ai: LocalAI,
+) -> dict[str, Any]:
+    """
+    Run agenda segmentation for one catalog while leaving retries and failure persistence to the task.
+    """
+    catalog = db.get(Catalog, catalog_id)
+
+    if not catalog or not catalog.content:
+        return {"error": "No content"}
+
+    doc = db.query(Document).filter_by(catalog_id=catalog_id).first()
+    if not doc:
+        return {"error": "Document not linked to event"}
+
+    classification = classify_catalog_bad_content(
+        catalog,
+        document_category=getattr(doc, "category", None),
+        include_document_shape=True,
+        has_viable_structured_source=has_viable_structured_agenda_source(db, catalog, doc),
+    )
+    if classification:
+        _record_agenda_segmentation_status(
+            catalog,
+            status="failed",
+            item_count=0,
+            error_message=classification.reason,
+        )
+        db.commit()
+        return {"status": "error", "error": classification.reason}
+
+    resolved = resolve_agenda_items(db, catalog, doc, local_ai)
+    items_data = resolved["items"]
+
+    count = 0
+    items_to_return = []
+    if items_data:
+        created_items = persist_agenda_items(db, catalog_id, doc.event_id, items_data)
+        items_to_return = [
+            {
+                "title": item.title,
+                "description": item.description,
+                "order": item.order,
+                "classification": item.classification,
+                "result": item.result,
+                "page_number": item.page_number,
+                "source": resolved["source_used"],
+            }
+            for item in created_items
+        ]
+        count = len(items_to_return)
+        vote_extraction = _run_post_segmentation_vote_extraction(
+            db,
+            local_ai=local_ai,
+            catalog=catalog,
+            doc=doc,
+            created_items=created_items,
+        )
+        _record_agenda_segmentation_status(
+            catalog,
+            status="complete",
+            item_count=count,
+            error_message=None,
+        )
+        db.commit()
+        try:
+            reindex_catalog(catalog_id)
+        except Exception as reindex_error:
+            # Agenda items are already persisted, so targeted reindex remains best-effort.
+            logger.warning("agenda_segmentation.reindex_failed catalog_id=%s error=%s", catalog_id, reindex_error)
+    else:
+        _record_agenda_segmentation_status(
+            catalog,
+            status="empty",
+            item_count=0,
+            error_message=None,
+        )
+        db.commit()
+        vote_extraction = {
+            "status": "skipped_no_items",
+            "processed_items": 0,
+            "updated_items": 0,
+            "skipped_items": 0,
+            "failed_items": 0,
+            "skip_reasons": {},
+        }
+
+    logger.info(f"Segmentation complete: {count} items found (source={resolved['source_used']})")
+    return {
+        "status": "complete",
+        "item_count": count,
+        "items": items_to_return,
+        "source_used": resolved["source_used"],
+        "quality_score": resolved["quality_score"],
+        "vote_extraction": vote_extraction,
+    }
+
+
 def _run_generate_summary_task_family(
     db,
     catalog_id: int,
@@ -869,131 +1054,18 @@ def segment_agenda_task(self, catalog_id: int):
     
     try:
         logger.info(f"Starting segmentation for Catalog ID {catalog_id}")
-        catalog = db.get(Catalog, catalog_id)
-        
-        if not catalog or not catalog.content:
-            return {"error": "No content"}
-        doc = db.query(Document).filter_by(catalog_id=catalog_id).first()
-        if not doc:
-            return {"error": "Document not linked to event"}
-        classification = classify_catalog_bad_content(
-            catalog,
-            document_category=getattr(doc, "category", None),
-            include_document_shape=True,
-            has_viable_structured_source=has_viable_structured_agenda_source(db, catalog, doc),
-        )
-        if classification:
-            catalog.agenda_segmentation_status = "failed"
-            catalog.agenda_segmentation_item_count = 0
-            catalog.agenda_segmentation_attempted_at = datetime.now(timezone.utc)
-            catalog.agenda_segmentation_error = classification.reason
-            db.commit()
-            return {"status": "error", "error": classification.reason}
         local_ai = LocalAI()
-            
-        resolved = resolve_agenda_items(db, catalog, doc, local_ai)
-        items_data = resolved["items"]
-        
-        count = 0
-        vote_extraction = {
-            "status": "disabled",
-            "processed_items": 0,
-            "updated_items": 0,
-            "skipped_items": 0,
-            "failed_items": 0,
-            "skip_reasons": {},
-        }
-        items_to_return = []
-        if items_data:
-            created_items = persist_agenda_items(db, catalog_id, doc.event_id, items_data)
-            for item in created_items:
-                items_to_return.append({
-                    "title": item.title,
-                    "description": item.description,
-                    "order": item.order,
-                    "classification": item.classification,
-                    "result": item.result,
-                    "page_number": item.page_number,
-                    "source": resolved["source_used"],
-                })
-                count += 1
-
-            # Vote/outcome extraction is a separate post-segmentation stage.
-            # Keep segmentation successful even if vote extraction later fails.
-            if ENABLE_VOTE_EXTRACTION:
-                try:
-                    vote_counters = run_vote_extraction_for_catalog(
-                        db,
-                        local_ai,
-                        catalog,
-                        doc,
-                        force=False,
-                        agenda_items=created_items,
-                    )
-                    vote_extraction = {"status": "complete", **vote_counters}
-                except Exception as vote_exc:
-                    logger.warning(
-                        "vote_extraction.post_segment_failed catalog_id=%s error=%s",
-                        catalog_id,
-                        vote_exc.__class__.__name__,
-                    )
-                    vote_extraction = {
-                        "status": "failed",
-                        "error": vote_exc.__class__.__name__,
-                        "processed_items": 0,
-                        "updated_items": 0,
-                        "skipped_items": 0,
-                        "failed_items": 0,
-                        "skip_reasons": {},
-                    }
-            
-            catalog.agenda_segmentation_status = "complete"
-            catalog.agenda_segmentation_item_count = count
-            catalog.agenda_segmentation_attempted_at = datetime.now(timezone.utc)
-            catalog.agenda_segmentation_error = None
-            db.commit()
-            try:
-                reindex_catalog(catalog_id)
-            except Exception as reindex_error:
-                # Agenda items are already persisted, so targeted reindex remains best-effort.
-                logger.warning("agenda_segmentation.reindex_failed catalog_id=%s error=%s", catalog_id, reindex_error)
-        else:
-            # Terminal state: agenda segmentation ran but found no substantive items.
-            catalog.agenda_segmentation_status = "empty"
-            catalog.agenda_segmentation_item_count = 0
-            catalog.agenda_segmentation_attempted_at = datetime.now(timezone.utc)
-            catalog.agenda_segmentation_error = None
-            db.commit()
-            vote_extraction = {
-                "status": "skipped_no_items",
-                "processed_items": 0,
-                "updated_items": 0,
-                "skipped_items": 0,
-                "failed_items": 0,
-                "skip_reasons": {},
-            }
-            
-        logger.info(f"Segmentation complete: {count} items found (source={resolved['source_used']})")
-        return {
-            "status": "complete",
-            "item_count": count,
-            "items": items_to_return,
-            "source_used": resolved["source_used"],
-            "quality_score": resolved["quality_score"],
-            "vote_extraction": vote_extraction,
-        }
+        return _run_segment_agenda_task_family(
+            db,
+            catalog_id,
+            local_ai=local_ai,
+        )
 
     except LocalAIConfigError as e:
         logger.critical(f"LocalAI misconfiguration: {e}")
         db.rollback()
         try:
-            catalog = db.get(Catalog, catalog_id)
-            if catalog:
-                catalog.agenda_segmentation_status = "failed"
-                catalog.agenda_segmentation_item_count = 0
-                catalog.agenda_segmentation_attempted_at = datetime.now(timezone.utc)
-                catalog.agenda_segmentation_error = str(e)[:500]
-                db.commit()
+            _persist_agenda_segmentation_failure_status(db, catalog_id, str(e))
         except Exception:
             db.rollback()
         return {"status": "error", "error": str(e)}
@@ -1002,13 +1074,7 @@ def segment_agenda_task(self, catalog_id: int):
         db.rollback()
         # Best-effort: persist failure status so batch workers don't spin forever.
         try:
-            catalog = db.get(Catalog, catalog_id)
-            if catalog:
-                catalog.agenda_segmentation_status = "failed"
-                catalog.agenda_segmentation_item_count = 0
-                catalog.agenda_segmentation_attempted_at = datetime.now(timezone.utc)
-                catalog.agenda_segmentation_error = str(e)[:500]
-                db.commit()
+            _persist_agenda_segmentation_failure_status(db, catalog_id, str(e))
         except Exception:
             db.rollback()
         raise self.retry(exc=e, countdown=60)

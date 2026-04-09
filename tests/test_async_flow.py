@@ -348,3 +348,154 @@ def test_segment_task_reindexes_catalog_after_success(mocker):
     tasks.segment_agenda_task.run(1)
 
     reindex.assert_called_once_with(1)
+
+
+def test_segment_task_classification_failure_persists_failed_status(mocker):
+    mock_db = MagicMock()
+    mock_catalog = MagicMock()
+    mock_catalog.content = "Agenda text"
+    mock_db.get.return_value = mock_catalog
+
+    mock_doc = MagicMock()
+    mock_doc.event_id = 42
+    mock_doc_query = MagicMock()
+    mock_doc_query.filter_by.return_value.first.return_value = mock_doc
+
+    def query_side_effect(model):
+        if model is tasks.Document:
+            return mock_doc_query
+        return MagicMock()
+
+    mock_db.query.side_effect = query_side_effect
+
+    mocker.patch.object(tasks, "SessionLocal", return_value=mock_db)
+    mocker.patch.object(tasks, "LocalAI", return_value=MagicMock())
+    mocker.patch.object(
+        tasks,
+        "classify_catalog_bad_content",
+        return_value=MagicMock(reason="laserfiche_error_page_detected"),
+    )
+
+    result = tasks.segment_agenda_task.run(1)
+
+    assert result == {"status": "error", "error": "laserfiche_error_page_detected"}
+    assert mock_catalog.agenda_segmentation_status == "failed"
+    assert mock_catalog.agenda_segmentation_item_count == 0
+    assert mock_catalog.agenda_segmentation_error == "laserfiche_error_page_detected"
+    assert mock_catalog.agenda_segmentation_attempted_at is not None
+    mock_db.commit.assert_called_once()
+
+
+def test_segment_task_vote_extraction_failure_is_non_gating(mocker):
+    mock_db = MagicMock()
+    mock_catalog = MagicMock()
+    mock_catalog.id = 1
+    mock_catalog.content = "Agenda text"
+    mock_db.get.return_value = mock_catalog
+
+    mock_doc = MagicMock()
+    mock_doc.event_id = 42
+    mock_doc_query = MagicMock()
+    mock_doc_query.filter_by.return_value.first.return_value = mock_doc
+
+    created_item = MagicMock()
+    created_item.title = "Budget Amendment"
+    created_item.description = "Approve revised allocations"
+    created_item.order = 1
+    created_item.classification = "Agenda Item"
+    created_item.result = ""
+    created_item.page_number = 7
+
+    def query_side_effect(model):
+        if model is tasks.Document:
+            return mock_doc_query
+        return MagicMock()
+
+    mock_db.query.side_effect = query_side_effect
+
+    mocker.patch.object(tasks, "SessionLocal", return_value=mock_db)
+    mocker.patch.object(tasks, "LocalAI", return_value=MagicMock())
+    mocker.patch.object(
+        tasks,
+        "resolve_agenda_items",
+        return_value={
+            "items": [{
+                "order": 1,
+                "title": "Budget Amendment",
+                "description": "Approve revised allocations",
+                "classification": "Agenda Item",
+                "result": "",
+                "page_number": 7,
+            }],
+            "source_used": "legistar",
+            "quality_score": 82,
+            "confidence": "high",
+        },
+    )
+    mocker.patch.object(tasks, "persist_agenda_items", return_value=[created_item])
+    mocker.patch.object(tasks, "ENABLE_VOTE_EXTRACTION", True)
+    mocker.patch.object(tasks, "run_vote_extraction_for_catalog", side_effect=RuntimeError("vote parse failed"))
+
+    result = tasks.segment_agenda_task.run(1)
+
+    assert result["status"] == "complete"
+    assert result["vote_extraction"]["status"] == "failed"
+    assert result["vote_extraction"]["error"] == "RuntimeError"
+    assert mock_catalog.agenda_segmentation_status == "complete"
+    mock_db.commit.assert_called_once()
+
+
+def test_segment_task_local_ai_config_error_persists_failed_status_without_retry(mocker):
+    mock_db = MagicMock()
+    mock_catalog = MagicMock()
+    mock_catalog.content = "Agenda text"
+    mock_db.get.return_value = mock_catalog
+
+    mocker.patch.object(tasks, "SessionLocal", return_value=mock_db)
+    mocker.patch.object(tasks, "LocalAI", side_effect=tasks.LocalAIConfigError("missing backend config"))
+    retry = mocker.patch.object(tasks.segment_agenda_task, "retry")
+
+    result = tasks.segment_agenda_task.run(1)
+
+    assert result == {"status": "error", "error": "missing backend config"}
+    retry.assert_not_called()
+    mock_db.rollback.assert_called_once()
+    assert mock_catalog.agenda_segmentation_status == "failed"
+    assert mock_catalog.agenda_segmentation_item_count == 0
+    assert mock_catalog.agenda_segmentation_error == "missing backend config"
+    mock_db.commit.assert_called_once()
+
+
+def test_segment_task_retryable_error_persists_failed_status_before_retry(mocker):
+    mock_db = MagicMock()
+    mock_catalog = MagicMock()
+    mock_catalog.content = "Agenda text"
+    mock_db.get.return_value = mock_catalog
+
+    mock_doc = MagicMock()
+    mock_doc.event_id = 42
+    mock_doc_query = MagicMock()
+    mock_doc_query.filter_by.return_value.first.return_value = mock_doc
+
+    def query_side_effect(model):
+        if model is tasks.Document:
+            return mock_doc_query
+        return MagicMock()
+
+    mock_db.query.side_effect = query_side_effect
+
+    mocker.patch.object(tasks, "SessionLocal", return_value=mock_db)
+    mocker.patch.object(tasks, "LocalAI", return_value=MagicMock())
+    mocker.patch.object(tasks, "resolve_agenda_items", side_effect=RuntimeError("resolver exploded"))
+    retry_exc = RuntimeError("retry-called")
+    retry = mocker.patch.object(tasks.segment_agenda_task, "retry", side_effect=retry_exc)
+
+    with pytest.raises(RuntimeError, match="retry-called"):
+        tasks.segment_agenda_task.run(1)
+
+    retry.assert_called_once()
+    mock_db.rollback.assert_called_once()
+    assert mock_catalog.agenda_segmentation_status == "failed"
+    assert mock_catalog.agenda_segmentation_item_count == 0
+    assert mock_catalog.agenda_segmentation_error == "resolver exploded"
+    mock_db.commit.assert_called_once()
