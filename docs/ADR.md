@@ -187,3 +187,24 @@ Use each entry to record:
   - [ARCHITECTURE.md](../ARCHITECTURE.md)
   - [docs/ENGINEERING_GUARDRAILS.md](ENGINEERING_GUARDRAILS.md)
   - [ROADMAP.md](../ROADMAP.md)
+
+## 2026-04-08: Extract the segmentation task family without widening the worker boundary
+
+- Status: Accepted
+- Decision:
+  - The next `pipeline/tasks.py` cleanup wave extracts the `segment_agenda_task` family into private file-local helpers.
+  - The segmentation family now has one helper for the main segmentation flow and one helper for the non-gating post-segmentation vote extraction stage.
+  - `segment_agenda_task` remains the retry boundary and continues to own `SessionLocal()`, rollback, `self.retry(...)`, and best-effort failure-status persistence in exception paths.
+  - The cleanup does not refactor `pipeline.agenda_worker` or backlog-maintenance segmentation flows in the same wave.
+- Why:
+  - `segment_agenda_task` was the largest remaining mixed-responsibility task wrapper after the earlier family extractions.
+  - Splitting the family locally reduces inline orchestration without hiding retry or transaction semantics behind a generic wrapper.
+  - Keeping post-segmentation vote extraction inside the family preserves the rule that segmentation success must survive vote-extraction failure.
+- Affected boundaries:
+  - `pipeline/tasks.py` remains the Celery entrypoint and retry boundary.
+  - `pipeline.agenda_resolver`, `pipeline.agenda_service`, and `pipeline.vote_extractor` keep owning their existing domain logic.
+  - `pipeline.agenda_worker` and backlog-maintenance segmentation paths remain separate follow-ups.
+- Canonical references:
+  - [ARCHITECTURE.md](../ARCHITECTURE.md)
+  - [docs/ENGINEERING_GUARDRAILS.md](ENGINEERING_GUARDRAILS.md)
+  - [ROADMAP.md](../ROADMAP.md)
