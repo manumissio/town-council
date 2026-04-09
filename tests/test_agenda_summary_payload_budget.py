@@ -3,6 +3,7 @@ from unittest.mock import MagicMock
 
 sys.modules["llama_cpp"] = MagicMock()
 
+from pipeline import backlog_maintenance
 from pipeline import tasks
 from pipeline.models import AgendaItem, Document
 
@@ -39,8 +40,8 @@ def test_generate_summary_task_applies_payload_budget_and_truncation_meta(mocker
     mock_ai = MagicMock()
     mock_ai.summarize_agenda_items.return_value = "BLUF: Budget test summary."
     mocker.patch.object(tasks, "LocalAI", return_value=mock_ai)
-    mocker.patch.object(tasks, "AGENDA_SUMMARY_MAX_INPUT_CHARS", 1200)
-    mocker.patch.object(tasks, "AGENDA_SUMMARY_MIN_RESERVED_OUTPUT_CHARS", 200)
+    mocker.patch.object(backlog_maintenance, "AGENDA_SUMMARY_MAX_INPUT_CHARS", 1200)
+    mocker.patch.object(backlog_maintenance, "AGENDA_SUMMARY_MIN_RESERVED_OUTPUT_CHARS", 200)
 
     result = tasks.generate_summary_task.run(1, force=True)
     assert result["status"] == "complete"

@@ -3,12 +3,15 @@ import logging
 import threading
 import re
 from rapidfuzz import fuzz
+
 try:
     # Optional dependency: we still want the pipeline to run (heuristic fallbacks)
     # even if llama-cpp isn't installed in the current environment.
     from llama_cpp import Llama
 except Exception:  # pragma: no cover
     Llama = None
+
+from pipeline.agenda_summary import AgendaSummaryHelpers, run_agenda_summary_pipeline
 from pipeline.utils import is_likely_human_name
 from pipeline.config import (
     LLM_CONTEXT_WINDOW,
@@ -28,7 +31,6 @@ from pipeline.config import (
     AGENDA_SUMMARY_MIN_ITEM_DESC_CHARS,
     AGENDA_SUMMARY_MAX_BULLETS,
     AGENDA_SUMMARY_SINGLE_ITEM_MODE,
-    AGENDA_SUMMARY_TEMPERATURE,
     LOCAL_AI_ALLOW_MULTIPROCESS,
     LOCAL_AI_BACKEND,
     LOCAL_AI_REQUIRE_SOLO_POOL,
@@ -38,7 +40,6 @@ from pipeline.runtime_guardrails import (
     local_ai_runtime_guardrail_message,
 )
 from pipeline.document_kinds import normalize_summary_doc_kind
-from pipeline.summary_quality import is_summary_grounded, prune_unsupported_summary_lines
 from pipeline.lexicon import (
     is_procedural_title as lexicon_is_procedural_title,
     is_contact_or_letterhead_noise as lexicon_is_contact_or_letterhead_noise,
@@ -1450,6 +1451,38 @@ def _strip_llm_acknowledgements(text: str) -> str:
 
     return "\n".join(lines[i:]).strip()
 
+
+def _normalize_model_agenda_summary_output(text: str, scaffold: dict) -> str:
+    """
+    Normalize model output into Town Council's plain-text decision-brief contract.
+    """
+    cleaned = _strip_markdown_emphasis(text).strip()
+    cleaned = _strip_llm_acknowledgements(cleaned).strip()
+    cleaned = _normalize_bullets_to_dash(cleaned).strip()
+    if cleaned and not cleaned.startswith("BLUF:"):
+        cleaned = f"BLUF: {scaffold.get('bluf_seed', 'Agenda summary.')}"
+    return _ensure_single_item_decision_section(cleaned, scaffold)
+
+
+def _agenda_summary_helpers() -> AgendaSummaryHelpers:
+    """
+    Keep agenda-summary orchestration separate while LocalAI still owns provider policy.
+    """
+    return AgendaSummaryHelpers(
+        coerce_item=_coerce_agenda_summary_item,
+        should_drop_item=_should_drop_from_agenda_summary,
+        build_scaffold=lambda items, truncation_meta: _build_agenda_summary_scaffold(
+            items,
+            truncation_meta=truncation_meta,
+            profile=AGENDA_SUMMARY_PROFILE,
+        ),
+        build_prompt=_prepare_structured_agenda_items_summary_prompt,
+        source_text=_agenda_items_source_text,
+        normalize_output=_normalize_model_agenda_summary_output,
+        deterministic_summary=_deterministic_agenda_items_summary,
+        is_too_short=_agenda_items_summary_is_too_short,
+    )
+
 def parse_llm_agenda_items(llm_text: str) -> list[dict]:
     """
     Parse the LLM's agenda extraction output.
@@ -1752,107 +1785,20 @@ class LocalAI:
         """
         provider = self._get_provider()
 
-        structured_items = [_coerce_agenda_summary_item(item, idx=i) for i, item in enumerate(items or [])]
-        filtered_items = []
-        summary_filtered_notice_fragments = 0
-        for item in structured_items:
-            serialized = item.get("title", "")
-            if item.get("description"):
-                serialized = f"{serialized} - {item['description']}"
-            if _should_drop_from_agenda_summary(serialized):
-                summary_filtered_notice_fragments += 1
-                continue
-            filtered_items.append(item)
-
-        counters = {
-            "agenda_summary_items_total": len(structured_items),
-            "agenda_summary_items_included": len(filtered_items),
-            "agenda_summary_items_truncated": int((truncation_meta or {}).get("items_truncated", 0)),
-            "agenda_summary_input_chars": int((truncation_meta or {}).get("input_chars", 0)),
-            "agenda_summary_single_item_mode": 0,
-            "agenda_summary_unknowns_count": 0,
-            "agenda_summary_grounding_pruned_lines": 0,
-            "agenda_summary_fallback_deterministic": 0,
-        }
-
-        scaffold = _build_agenda_summary_scaffold(
-            filtered_items,
-            truncation_meta=truncation_meta,
-            profile=AGENDA_SUMMARY_PROFILE,
-        )
-        counters["agenda_summary_single_item_mode"] = int(bool(scaffold.get("single_item_mode")))
-        counters["agenda_summary_unknowns_count"] = len(scaffold.get("unknowns", []))
-
-        logger.info(
-            "agenda_summary.counters total_items=%s kept_items=%s summary_filtered_notice_fragments=%s "
-            "agenda_summary_items_total=%s agenda_summary_items_included=%s agenda_summary_items_truncated=%s "
-            "agenda_summary_input_chars=%s agenda_summary_single_item_mode=%s agenda_summary_unknowns_count=%s",
-            len(structured_items),
-            len(filtered_items),
-            summary_filtered_notice_fragments,
-            counters["agenda_summary_items_total"],
-            counters["agenda_summary_items_included"],
-            counters["agenda_summary_items_truncated"],
-            counters["agenda_summary_input_chars"],
-            counters["agenda_summary_single_item_mode"],
-            counters["agenda_summary_unknowns_count"],
-        )
-
-        if not filtered_items:
-            counters["agenda_summary_fallback_deterministic"] = 1
-            logger.info("agenda_summary.counters agenda_summary_fallback_deterministic=%s", 1)
-            return _deterministic_agenda_items_summary([], truncation_meta=truncation_meta)
-
-        prompt = _prepare_structured_agenda_items_summary_prompt(
-            meeting_title=meeting_title,
-            meeting_date=meeting_date,
-            items=filtered_items,
-            scaffold=scaffold,
-            truncation_meta=truncation_meta,
-        )
-        grounding_source = _agenda_items_source_text(filtered_items)
-
         try:
-            raw = (
-                provider.summarize_agenda_items(
-                    prompt,
-                    max_tokens=LLM_SUMMARY_MAX_TOKENS,
-                    temperature=AGENDA_SUMMARY_TEMPERATURE,
-                )
-                or ""
-            ).strip()
-            cleaned = _strip_markdown_emphasis(raw).strip()
-            cleaned = _strip_llm_acknowledgements(cleaned).strip()
-            cleaned = _normalize_bullets_to_dash(cleaned).strip()
-            if cleaned and not cleaned.startswith("BLUF:"):
-                cleaned = f"BLUF: {scaffold.get('bluf_seed', 'Agenda summary.')}"
-            cleaned = _ensure_single_item_decision_section(cleaned, scaffold)
-
-            pruned, removed_count = prune_unsupported_summary_lines(cleaned, grounding_source)
-            counters["agenda_summary_grounding_pruned_lines"] = int(removed_count)
-            if removed_count:
-                logger.info(
-                    "agenda_summary.counters agenda_summary_grounding_pruned_lines=%s",
-                    removed_count,
-                )
-            cleaned = pruned or cleaned
-
-            grounded = is_summary_grounded(cleaned, grounding_source)
-            if (not grounded.is_grounded) or _agenda_items_summary_is_too_short(cleaned):
-                counters["agenda_summary_fallback_deterministic"] = 1
-                logger.info("agenda_summary.counters agenda_summary_fallback_deterministic=%s", 1)
-                return _deterministic_agenda_items_summary(
-                    filtered_items,
-                    max_bullets=AGENDA_SUMMARY_MAX_BULLETS,
-                    truncation_meta=truncation_meta,
-                )
-            return cleaned
+            return run_agenda_summary_pipeline(
+                provider,
+                meeting_title=meeting_title,
+                meeting_date=meeting_date,
+                items=items,
+                truncation_meta=truncation_meta,
+                helpers=_agenda_summary_helpers(),
+            )
         except ProviderResponseError as e:
             logger.error(f"AI Agenda Items Summarization failed (response): {e}")
-            counters["agenda_summary_fallback_deterministic"] = 1
             logger.info("agenda_summary.counters agenda_summary_fallback_deterministic=%s", 1)
             return _deterministic_agenda_items_summary(
-                filtered_items,
+                items,
                 max_bullets=AGENDA_SUMMARY_MAX_BULLETS,
                 truncation_meta=truncation_meta,
             )
