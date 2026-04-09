@@ -44,7 +44,7 @@ def run_startup_purge_on_worker_ready(
         try:
             if concurrency is not None:
                 concurrency = int(concurrency)
-        except Exception:  # noqa: BLE001
+        except (TypeError, ValueError):
             concurrency = None
 
         pool = get_celery_pool_from_argv(getattr(sender, "argv", None) or sys.argv)  # type: ignore[arg-type]

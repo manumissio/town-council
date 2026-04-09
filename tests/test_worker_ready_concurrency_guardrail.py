@@ -96,3 +96,33 @@ def test_worker_ready_guardrail_check_failures_still_run_startup_purge(monkeypat
     tasks._run_startup_purge_on_worker_ready(sender=_Sender())
 
     assert purge_called["n"] == 1
+
+
+def test_worker_ready_treats_malformed_concurrency_as_unknown(monkeypatch):
+    import pipeline.tasks as tasks
+
+    purge_called = {"n": 0}
+    guardrail_calls: list[dict[str, object]] = []
+
+    def _guardrail_message_builder(**kwargs):
+        guardrail_calls.append(kwargs)
+        return None
+
+    monkeypatch.setattr(tasks, "LOCAL_AI_BACKEND", "inprocess")
+    monkeypatch.setattr(tasks, "LOCAL_AI_ALLOW_MULTIPROCESS", False)
+    monkeypatch.setattr(tasks, "LOCAL_AI_REQUIRE_SOLO_POOL", True)
+    monkeypatch.setattr(tasks, "local_ai_runtime_guardrail_message", _guardrail_message_builder)
+    monkeypatch.setattr(
+        tasks,
+        "run_startup_purge_if_enabled",
+        lambda: purge_called.__setitem__("n", purge_called["n"] + 1) or {"status": "skipped"},
+    )
+
+    class _Sender:
+        concurrency = "not-a-number"
+        argv = ["celery", "-A", "pipeline.tasks", "worker", "--pool=solo"]
+
+    tasks._run_startup_purge_on_worker_ready(sender=_Sender())
+
+    assert purge_called["n"] == 1
+    assert guardrail_calls[0]["concurrency"] is None

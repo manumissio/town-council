@@ -3,6 +3,7 @@ from __future__ import annotations
 from typing import Any
 
 from sqlalchemy import text
+from sqlalchemy.exc import SQLAlchemyError
 
 from pipeline.config import LINEAGE_MIN_EDGE_CONFIDENCE, LINEAGE_REQUIRE_MUTUAL_EDGES
 from pipeline.lineage_service import compute_lineage_assignments
@@ -51,5 +52,5 @@ def run_lineage_recompute(db) -> dict[str, Any]:
             try:
                 db.execute(text("SELECT pg_advisory_unlock(:k)"), {"k": LINEAGE_RECOMPUTE_LOCK_KEY})
                 db.commit()
-            except Exception:  # noqa: BLE001
+            except SQLAlchemyError:
                 db.rollback()
