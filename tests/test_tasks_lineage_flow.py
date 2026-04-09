@@ -2,6 +2,7 @@ from types import SimpleNamespace
 from unittest.mock import MagicMock
 
 import pytest
+from sqlalchemy.exc import SQLAlchemyError
 
 from pipeline import tasks
 
@@ -73,3 +74,26 @@ def test_run_lineage_recompute_returns_complete_payload_and_records_metrics(mock
         "updated_count": 4,
     }
     metric_spy.assert_called_once_with(updated_count=4, merge_count=2)
+
+
+def test_run_lineage_recompute_rolls_back_when_unlock_cleanup_hits_db_error(mocker):
+    from pipeline import lineage_task_support as support
+
+    recompute_result = SimpleNamespace(
+        catalog_count=7,
+        component_count=3,
+        merge_count=2,
+        updated_count=4,
+    )
+    mock_db = _postgres_db((True,))
+    mock_db.execute.side_effect = [
+        MagicMock(first=MagicMock(return_value=(True,))),
+        SQLAlchemyError("unlock failed"),
+    ]
+    mocker.patch.object(support, "compute_lineage_assignments", return_value=recompute_result)
+    mocker.patch.object(support, "record_lineage_recompute")
+
+    result = support.run_lineage_recompute(mock_db)
+
+    assert result["status"] == "complete"
+    mock_db.rollback.assert_called_once()
