@@ -7,6 +7,21 @@ import sys
 sys.modules["llama_cpp"] = MagicMock()
 from pipeline.llm import LocalAI
 
+
+def _reset_local_ai_singleton():
+    LocalAI._instance = None
+
+
+def _patch_extract_agenda_provider(monkeypatch, response_text: str):
+    from pipeline import llm as llm_mod
+
+    def _fake_extract(_self, prompt, *, temperature, max_tokens):
+        _ = (prompt, temperature, max_tokens)
+        return response_text
+
+    monkeypatch.setattr(llm_mod, "LOCAL_AI_BACKEND", "http")
+    monkeypatch.setattr(llm_mod.HttpInferenceProvider, "extract_agenda", _fake_extract)
+
 def test_local_ai_singleton():
     """
     Test: Does the singleton pattern correctly reuse the same instance?
@@ -15,22 +30,16 @@ def test_local_ai_singleton():
     ai2 = LocalAI()
     assert ai1 is ai2
 
-def test_local_ai_agenda_extraction():
+def test_local_ai_agenda_extraction(monkeypatch):
     """
     Test: Does the extraction logic correctly parse the ITEM format?
     """
-    LocalAI._instance = None
+    _reset_local_ai_singleton()
     ai = LocalAI()
-    mock_llm = MagicMock()
-    ai.llm = mock_llm
 
     # Mock returning the current expected format: ITEM X: Title (Page Y) - Description
     mock_text_response = " Budget Review (Page 3) - Discussion of fiscal year\nITEM 2: Zoning Change (Page 5) - Main Street rezoning"
-    mock_llm.return_value = {
-        "choices": [
-            {"text": mock_text_response}
-        ]
-    }
+    _patch_extract_agenda_provider(monkeypatch, mock_text_response)
 
     items = ai.extract_agenda("Text content here")
 
@@ -55,24 +64,23 @@ def test_degraded_mode_missing_model(mocker):
     assert result is None
     assert ai.llm is None
 
-def test_local_ai_fallback_logic(mocker):
+def test_local_ai_fallback_logic(monkeypatch):
     """
     Test: Does the system fall back to page-based splitting if AI returns nothing?
     """
-    LocalAI._instance = None
+    _reset_local_ai_singleton()
     ai = LocalAI()
-    mock_llm = MagicMock()
-    ai.llm = mock_llm
-
-    # Mock returning nothing to trigger fallback
-    mock_llm.return_value = {
-        "choices": [
-            {"text": ""}
-        ]
-    }
+    _patch_extract_agenda_provider(monkeypatch, "")
 
     # Test text with PAGE markers (the format the fallback expects)
-    text = "[PAGE 1]\n\nBudget Review for 2026\nDetailed discussion of the annual budget\n\n[PAGE 2]\n\nZoning Changes\nProposed changes to Main Street zoning"
+    text = (
+        "[PAGE 1]\n\n"
+        "1. Budget Review for 2026\n"
+        "Detailed discussion of the annual budget\n\n"
+        "[PAGE 2]\n\n"
+        "2. Zoning Changes\n"
+        "Proposed changes to Main Street zoning"
+    )
     items = ai.extract_agenda(text)
 
     # Fallback should extract items from page markers
@@ -80,21 +88,13 @@ def test_local_ai_fallback_logic(mocker):
     assert "Budget Review" in items[0]['title']
     assert "Zoning Changes" in items[1]['title']
 
-def test_local_ai_error_handling():
+def test_local_ai_error_handling(monkeypatch):
     """
     Test: Does the system fail gracefully if the AI returns garbage?
     """
-    LocalAI._instance = None
+    _reset_local_ai_singleton()
     ai = LocalAI()
-    mock_llm = MagicMock()
-    ai.llm = mock_llm
-
-    # Mock returning garbage that won't match the ITEM pattern
-    mock_llm.return_value = {
-        "choices": [
-            {"text": "Garbage without proper format"}
-        ]
-    }
+    _patch_extract_agenda_provider(monkeypatch, "Garbage without proper format")
 
     # Should fall back to page-based splitting when AI output doesn't parse
     text = "[PAGE 1]\n\nAnnual Budget Proposal\nDiscussion of revenue and expenses for the upcoming fiscal year"
@@ -103,21 +103,13 @@ def test_local_ai_error_handling():
     assert "Budget" in items[0]['title'] or "Annual" in items[0]['title']
 
 
-def test_local_ai_fallback_filters_header_noise():
+def test_local_ai_fallback_filters_header_noise(monkeypatch):
     """
     Regression: fallback should ignore meeting headers and spaced-letter OCR noise.
     """
-    LocalAI._instance = None
+    _reset_local_ai_singleton()
     ai = LocalAI()
-    mock_llm = MagicMock()
-    ai.llm = mock_llm
-
-    # Force fallback path by returning non-parseable AI output.
-    mock_llm.return_value = {
-        "choices": [
-            {"text": "No parseable agenda output"}
-        ]
-    }
+    _patch_extract_agenda_provider(monkeypatch, "No parseable agenda output")
 
     text = (
         "[PAGE 1]\n\n"
@@ -132,16 +124,14 @@ def test_local_ai_fallback_filters_header_noise():
     assert "budget amendment" in items[0]["title"].lower()
 
 
-def test_local_ai_fallback_uses_inline_page_headers_and_skips_speaker_lists():
+def test_local_ai_fallback_uses_inline_page_headers_and_skips_speaker_lists(monkeypatch):
     """
     Regression: if OCR only has [PAGE 1], fallback should still detect later "Page N" headers.
     Also ensure numbered speaker lists under Communications do not become agenda items.
     """
-    LocalAI._instance = None
+    _reset_local_ai_singleton()
     ai = LocalAI()
-    mock_llm = MagicMock()
-    ai.llm = mock_llm
-    mock_llm.return_value = {"choices": [{"text": "No parseable agenda output"}]}
+    _patch_extract_agenda_provider(monkeypatch, "No parseable agenda output")
 
     text = (
         "[PAGE 1]\n\n"
@@ -167,15 +157,13 @@ def test_local_ai_fallback_uses_inline_page_headers_and_skips_speaker_lists():
         assert item["page_number"] == 2
 
 
-def test_local_ai_fallback_extracts_vote_result_from_item_block():
+def test_local_ai_fallback_extracts_vote_result_from_item_block(monkeypatch):
     """
     Regression: fallback should carry vote outcomes into result so the UI can display them.
     """
-    LocalAI._instance = None
+    _reset_local_ai_singleton()
     ai = LocalAI()
-    mock_llm = MagicMock()
-    ai.llm = mock_llm
-    mock_llm.return_value = {"choices": [{"text": "No parseable agenda output"}]}
+    _patch_extract_agenda_provider(monkeypatch, "No parseable agenda output")
 
     text = (
         "[PAGE 1]\n\n"
@@ -190,16 +178,14 @@ def test_local_ai_fallback_extracts_vote_result_from_item_block():
     assert items[0]["result"] == "All Ayes."
 
 
-def test_local_ai_fallback_skips_person_heavy_numbered_lists_without_keyword():
+def test_local_ai_fallback_skips_person_heavy_numbered_lists_without_keyword(monkeypatch):
     """
     Regression: some pages contain numbered speaker lists without "Communications" label.
     If the block is mostly names, those lines should be excluded.
     """
-    LocalAI._instance = None
+    _reset_local_ai_singleton()
     ai = LocalAI()
-    mock_llm = MagicMock()
-    ai.llm = mock_llm
-    mock_llm.return_value = {"choices": [{"text": "No parseable agenda output"}]}
+    _patch_extract_agenda_provider(monkeypatch, "No parseable agenda output")
 
     text = (
         "[PAGE 1]\n\n"
@@ -222,15 +208,13 @@ def test_local_ai_fallback_skips_person_heavy_numbered_lists_without_keyword():
     assert "Susan Jones" not in titles
 
 
-def test_local_ai_fallback_filters_metadata_headers():
+def test_local_ai_fallback_filters_metadata_headers(monkeypatch):
     """
     Regression: date/location/official header lines should not become agenda items.
     """
-    LocalAI._instance = None
+    _reset_local_ai_singleton()
     ai = LocalAI()
-    mock_llm = MagicMock()
-    ai.llm = mock_llm
-    mock_llm.return_value = {"choices": [{"text": "No parseable agenda output"}]}
+    _patch_extract_agenda_provider(monkeypatch, "No parseable agenda output")
 
     text = (
         "[PAGE 1]\n\n"
@@ -247,15 +231,13 @@ def test_local_ai_fallback_filters_metadata_headers():
     assert "ADENA ISHII, MAYOR" not in titles
 
 
-def test_local_ai_paragraph_fallback_skips_name_lines_in_communications_pages():
+def test_local_ai_paragraph_fallback_skips_name_lines_in_communications_pages(monkeypatch):
     """
     Regression: paragraph mode should not treat public speaker names as agenda items.
     """
-    LocalAI._instance = None
+    _reset_local_ai_singleton()
     ai = LocalAI()
-    mock_llm = MagicMock()
-    ai.llm = mock_llm
-    mock_llm.return_value = {"choices": [{"text": "No parseable agenda output"}]}
+    _patch_extract_agenda_provider(monkeypatch, "No parseable agenda output")
 
     text = (
         "[PAGE 1]\n\n"
