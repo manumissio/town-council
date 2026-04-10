@@ -3,7 +3,7 @@ from unittest.mock import MagicMock
 import sys
 import os
 
-from pipeline.llm import LocalAI
+from pipeline.llm import HttpInferenceProvider, LocalAI
 
 def test_local_ai_missing_model_returns_none(mocker):
     """
@@ -25,16 +25,25 @@ def test_ai_prompt_schema():
     """
     LocalAI._instance = None
     ai = LocalAI()
+    captured_prompt: dict[str, str] = {}
 
-    mock_llm = MagicMock()
-    mock_llm.return_value = {"choices": [{"text": " Budget (Page 1) - Desc"}]}
-    ai.llm = mock_llm
+    def fake_extract_agenda(self, prompt: str, **_: object) -> str:
+        captured_prompt["prompt"] = prompt
+        return "ITEM: Budget (Page 1) - Desc"
 
-    ai.extract_agenda("meeting text")
+    original_backend = sys.modules["pipeline.llm"].LOCAL_AI_BACKEND
+    sys.modules["pipeline.llm"].LOCAL_AI_BACKEND = "http"
+    original_provider = HttpInferenceProvider.extract_agenda
+    HttpInferenceProvider.extract_agenda = fake_extract_agenda
 
-    # Check the call arguments
-    args, _ = mock_llm.call_args
-    prompt_text = args[0]
+    try:
+        ai.extract_agenda("meeting text")
+    finally:
+        HttpInferenceProvider.extract_agenda = original_provider
+        sys.modules["pipeline.llm"].LOCAL_AI_BACKEND = original_backend
+        LocalAI._instance = None
+
+    prompt_text = captured_prompt["prompt"]
 
     # Verify prompt asks for agenda items with page numbers and specific format
     assert "agenda items" in prompt_text.lower()
