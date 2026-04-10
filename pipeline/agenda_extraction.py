@@ -1,8 +1,21 @@
 import logging
 import re
 from dataclasses import dataclass, field
-from typing import Any, Callable
+from typing import Any
 
+from pipeline.agenda_text_heuristics import (
+    dedupe_agenda_items_for_document,
+    is_contact_or_letterhead_noise,
+    is_procedural_noise_title,
+    is_probable_line_fragment_title,
+    is_tabular_fragment,
+    looks_like_agenda_segmentation_boilerplate,
+    looks_like_end_marker_line,
+    looks_like_teleconference_endpoint_line,
+    normalize_spaces,
+    should_accept_llm_item,
+    should_stop_after_marker,
+)
 from pipeline.config import (
     AGENDA_FALLBACK_MAX_CONSECUTIVE_REJECTS_PER_PAGE,
     AGENDA_FALLBACK_MAX_ITEMS_PER_DOC,
@@ -56,21 +69,6 @@ _EXTRACTION_COUNTERS_LOG = (
     "context_carryover_pages=%s stop_marker_candidates=%s stopped_after_end_marker=%s "
     "rejected_noise=%s deduped_toc_duplicates=%s"
 )
-
-
-@dataclass(frozen=True)
-class AgendaExtractionHelpers:
-    normalize_spaces: Callable[[str], str]
-    is_probable_line_fragment_title: Callable[[str], bool]
-    is_procedural_noise_title: Callable[[str], bool]
-    is_contact_or_letterhead_noise: Callable[[str, str], bool]
-    looks_like_teleconference_endpoint_line: Callable[[str], bool]
-    looks_like_agenda_segmentation_boilerplate: Callable[[str], bool]
-    is_tabular_fragment: Callable[[str, str, dict | None], bool]
-    should_accept_llm_item: Callable[[dict, str], bool]
-    dedupe_agenda_items_for_document: Callable[[list[dict]], tuple[list[dict], int]]
-    looks_like_end_marker_line: Callable[[str], bool]
-    should_stop_after_marker: Callable[[str, str], bool]
 
 
 def build_agenda_extraction_prompt(text: str, *, max_text: int = LLM_AGENDA_MAX_TEXT) -> str:
@@ -217,9 +215,8 @@ def run_agenda_extraction_pipeline(
     text: str,
     raw_provider_content: str | None,
     mode: str,
-    helpers: AgendaExtractionHelpers,
 ) -> list[dict]:
-    context = _AgendaExtractionContext(mode=mode, helpers=helpers)
+    context = _AgendaExtractionContext(mode=mode)
     if raw_provider_content:
         context.accept_provider_output(raw_provider_content)
     if not context.items:
@@ -230,7 +227,6 @@ def run_agenda_extraction_pipeline(
 @dataclass
 class _AgendaExtractionContext:
     mode: str
-    helpers: AgendaExtractionHelpers
     items: list[dict] = field(default_factory=list)
     stats: dict[str, int] = field(default_factory=lambda: {
         "rejected_procedural": 0,
@@ -292,7 +288,7 @@ class _AgendaExtractionContext:
                 break
 
     def finalize(self) -> list[dict]:
-        self.items, deduped = self.helpers.dedupe_agenda_items_for_document(self.items)
+        self.items, deduped = dedupe_agenda_items_for_document(self.items)
         self.stats["deduped_toc_duplicates"] = deduped
         self.stats["accepted_items_final"] = len(self.items)
         logger.info(
@@ -325,15 +321,15 @@ class _AgendaExtractionContext:
         source_type: str = "fallback",
         context: dict | None = None,
     ) -> None:
-        clean_title = self.helpers.normalize_spaces(title)
-        clean_description = self.helpers.normalize_spaces(description) if description else ""
-        if source_type == "fallback" and self.helpers.is_probable_line_fragment_title(clean_title):
+        clean_title = normalize_spaces(title)
+        clean_description = normalize_spaces(description) if description else ""
+        if source_type == "fallback" and is_probable_line_fragment_title(clean_title):
             self.stats["rejected_lowercase_fragment"] += 1
             return
-        if self.helpers.is_tabular_fragment(clean_title, clean_description, context):
+        if is_tabular_fragment(clean_title, clean_description, context):
             self.stats["rejected_tabular_fragment"] += 1
             return
-        if self.helpers.looks_like_agenda_segmentation_boilerplate(clean_title):
+        if looks_like_agenda_segmentation_boilerplate(clean_title):
             self.stats["rejected_notice_fragment"] += 1
             return
         if self.is_noise_title(clean_title):
@@ -341,13 +337,13 @@ class _AgendaExtractionContext:
             return
 
         if source_type == "llm":
-            if self.helpers.is_procedural_noise_title(clean_title):
+            if is_procedural_noise_title(clean_title):
                 self.stats["rejected_procedural"] += 1
                 return
-            if self.helpers.is_contact_or_letterhead_noise(clean_title, clean_description):
+            if is_contact_or_letterhead_noise(clean_title, clean_description):
                 self.stats["rejected_contact"] += 1
                 return
-            if not self.helpers.should_accept_llm_item(
+            if not should_accept_llm_item(
                 {
                     "title": clean_title,
                     "description": clean_description,
@@ -366,21 +362,21 @@ class _AgendaExtractionContext:
                 "page_number": page_number,
                 "description": clean_description,
                 "classification": "Agenda Item",
-                "result": self.helpers.normalize_spaces(result),
+                "result": normalize_spaces(result),
             }
         )
 
     def is_noise_title(self, title: str) -> bool:
-        lowered = self.helpers.normalize_spaces(title).lower()
+        lowered = normalize_spaces(title).lower()
         if not lowered or len(lowered) < AGENDA_MIN_TITLE_CHARS:
             return True
-        if self.helpers.is_procedural_noise_title(lowered):
+        if is_procedural_noise_title(lowered):
             return True
-        if self.helpers.is_contact_or_letterhead_noise(lowered, ""):
+        if is_contact_or_letterhead_noise(lowered, ""):
             return True
         if _IP_ADDRESS_RE.search(lowered):
             return True
-        if self.helpers.looks_like_teleconference_endpoint_line(lowered):
+        if looks_like_teleconference_endpoint_line(lowered):
             return True
         if re.search(r"\b(us west|us east)\b", lowered):
             return True
@@ -398,7 +394,7 @@ class _AgendaExtractionContext:
             return True
         if "mayor" in lowered or "councilmembers" in lowered:
             return True
-        if self.helpers.looks_like_agenda_segmentation_boilerplate(lowered):
+        if looks_like_agenda_segmentation_boilerplate(lowered):
             return True
         if _ACCESSIBILITY_RE.search(lowered):
             return True
@@ -435,14 +431,14 @@ class _AgendaExtractionContext:
         return bool(_DISTRICT_RE.match(lowered))
 
     def looks_like_spaced_ocr(self, value: str) -> bool:
-        tokens = [token for token in self.helpers.normalize_spaces(value).split(" ") if token]
+        tokens = [token for token in normalize_spaces(value).split(" ") if token]
         if not tokens:
             return False
         single_char_tokens = sum(1 for token in tokens if len(token) == 1 and token.isalpha())
         return (single_char_tokens / len(tokens)) >= 0.6
 
     def is_probable_person_name(self, value: str) -> bool:
-        clean = self.helpers.normalize_spaces(value)
+        clean = normalize_spaces(value)
         if not clean:
             return False
         clean = re.sub(r"\(\d+\)", "", clean).strip()
@@ -464,7 +460,7 @@ class _AgendaExtractionContext:
         return False
 
     def merge_wrapped_title_lines(self, base_title: str, block_text: str) -> str:
-        title = self.helpers.normalize_spaces(base_title)
+        title = normalize_spaces(base_title)
         if not block_text:
             return title
 
@@ -479,7 +475,7 @@ class _AgendaExtractionContext:
                 break
             if len(line) < 3:
                 break
-            title = self.helpers.normalize_spaces(f"{title} {line}")
+            title = normalize_spaces(f"{title} {line}")
             added += 1
             if added >= 2:
                 break
@@ -522,12 +518,12 @@ class _AgendaExtractionContext:
         for line_index, raw_line in enumerate(lines):
             candidate_line = raw_line.strip()
             line_length = len(raw_line)
-            if not self.helpers.looks_like_end_marker_line(candidate_line):
+            if not looks_like_end_marker_line(candidate_line):
                 cursor += line_length
                 continue
             self.stats["stop_marker_candidates"] += 1
             lookahead_window = "".join(lines[line_index : line_index + 25]) + "\n" + trailing_text[:2500]
-            if self.helpers.should_stop_after_marker(candidate_line, lookahead_window):
+            if should_stop_after_marker(candidate_line, lookahead_window):
                 truncated_page_content = page_content[:cursor]
                 self.stats["stopped_after_end_marker"] += 1
                 stop_after_page = True
@@ -557,7 +553,7 @@ class _AgendaExtractionContext:
             1
             for match in numbered_lines
             if self.is_noise_title(match.group(2).strip())
-            or self.helpers.looks_like_agenda_segmentation_boilerplate(match.group(2).strip())
+            or looks_like_agenda_segmentation_boilerplate(match.group(2).strip())
         )
         mostly_noise_numbered_list = len(numbered_lines) >= 4 and (noise_like_count / len(numbered_lines)) >= 0.5
         if mostly_noise_numbered_list:
@@ -610,9 +606,9 @@ class _AgendaExtractionContext:
                 continue
             if self.is_probable_person_name(title) and (speaker_context or person_heavy_numbered_list):
                 continue
-            if self.helpers.is_procedural_noise_title(title):
+            if is_procedural_noise_title(title):
                 continue
-            if self.helpers.is_contact_or_letterhead_noise(title, ""):
+            if is_contact_or_letterhead_noise(title, ""):
                 continue
 
             block_start = match.end()
@@ -636,7 +632,7 @@ class _AgendaExtractionContext:
                 },
             )
             if len(self.items) > before_count and is_top_level_numeric:
-                self.parse_state["active_parent_item"] = self.helpers.normalize_spaces(title)
+                self.parse_state["active_parent_item"] = normalize_spaces(title)
                 self.parse_state["active_parent_page"] = page_number
                 self.parse_state["parent_context_confidence"] = 1.0
                 self.parse_state["seen_top_level_items"] += 1
