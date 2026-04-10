@@ -301,3 +301,27 @@ Use each entry to record:
   - [ARCHITECTURE.md](../ARCHITECTURE.md)
   - [docs/ENGINEERING_GUARDRAILS.md](ENGINEERING_GUARDRAILS.md)
   - [ROADMAP.md](../ROADMAP.md)
+
+## 2026-04-10: Extract the agenda-summary maintenance family before wider backlog-maintenance cleanup
+
+- Status: Accepted
+- Decision:
+  - The next `pipeline/backlog_maintenance.py` cleanup wave extracts the agenda-summary maintenance family into `pipeline/agenda_summary_maintenance.py`.
+  - The extracted module owns agenda-summary bundle construction, deterministic rendering, summary persistence/hash updates, batch reindex/embed timing helpers, and maintenance summary fallback orchestration.
+  - `pipeline/backlog_maintenance.py` remains the maintenance-facing compatibility facade for the currently imported summary-maintenance names.
+  - The segmentation maintenance family, timeout overrides, and fallback-event capture helpers remain in `pipeline/backlog_maintenance.py` for now.
+  - Summary-backfill reporting fields, timing names, progress payloads, `completion_mode` values, retry ownership, and session ownership remain unchanged.
+- Why:
+  - The agenda-summary maintenance cluster was the clearest coherent seam left in `pipeline/backlog_maintenance.py` after the provider, task, and `pipeline/llm.py` cleanup waves.
+  - That cluster was already consumed as a service-style API by `pipeline/summary_backfill.py`, task maintenance flows, and maintenance scripts, so extracting it sharpens an existing boundary instead of introducing a new abstraction.
+  - Deferring segmentation maintenance avoids widening this wave into the more fragile timeout/log-capture cluster or into `pipeline/agenda_worker.py` behavior changes.
+- Affected boundaries:
+  - `pipeline/backlog_maintenance.py` remains the compatibility import surface for maintenance helpers.
+  - `pipeline/agenda_summary_maintenance.py` owns agenda-summary maintenance orchestration only.
+  - `pipeline/summary_backfill.py` continues to own backlog selection, reporting, and hydration-loop orchestration.
+  - `pipeline/tasks.py` and `pipeline/agenda_worker.py` keep their current retry/session and non-maintenance boundaries.
+
+- Canonical references:
+  - [ARCHITECTURE.md](../ARCHITECTURE.md)
+  - [docs/ENGINEERING_GUARDRAILS.md](ENGINEERING_GUARDRAILS.md)
+  - [ROADMAP.md](../ROADMAP.md)
