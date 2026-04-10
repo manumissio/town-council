@@ -11,17 +11,20 @@ try:
 except Exception:  # pragma: no cover
     Llama = None
 
+from pipeline.agenda_extraction import (
+    AgendaExtractionHelpers,
+    build_agenda_extraction_prompt,
+    iter_fallback_paragraphs as iter_fallback_paragraphs_impl,
+    parse_llm_agenda_items as parse_llm_agenda_items_impl,
+    run_agenda_extraction_pipeline,
+)
 from pipeline.agenda_summary import AgendaSummaryHelpers, run_agenda_summary_pipeline
-from pipeline.utils import is_likely_human_name
 from pipeline.config import (
     LLM_CONTEXT_WINDOW,
     LLM_SUMMARY_MAX_TEXT,
     LLM_SUMMARY_MAX_TOKENS,
     LLM_AGENDA_MAX_TEXT,
     LLM_AGENDA_MAX_TOKENS,
-    AGENDA_FALLBACK_MAX_ITEMS_PER_DOC,
-    AGENDA_FALLBACK_MAX_ITEMS_PER_PAGE_PARAGRAPH,
-    AGENDA_FALLBACK_MAX_CONSECUTIVE_REJECTS_PER_PAGE,
     AGENDA_SEGMENTATION_MODE,
     AGENDA_MIN_TITLE_CHARS,
     AGENDA_MIN_SUBSTANTIVE_DESC_CHARS,
@@ -1483,125 +1486,37 @@ def _agenda_summary_helpers() -> AgendaSummaryHelpers:
         is_too_short=_agenda_items_summary_is_too_short,
     )
 
+def _agenda_extraction_helpers() -> AgendaExtractionHelpers:
+    """
+    Keep extraction heuristics reusable while LocalAI still owns provider behavior.
+    """
+    return AgendaExtractionHelpers(
+        normalize_spaces=_normalize_spaces,
+        is_probable_line_fragment_title=_is_probable_line_fragment_title,
+        is_procedural_noise_title=_is_procedural_noise_title,
+        is_contact_or_letterhead_noise=_is_contact_or_letterhead_noise,
+        looks_like_teleconference_endpoint_line=_looks_like_teleconference_endpoint_line,
+        looks_like_agenda_segmentation_boilerplate=_looks_like_agenda_segmentation_boilerplate,
+        is_tabular_fragment=_is_tabular_fragment,
+        should_accept_llm_item=_should_accept_llm_item,
+        dedupe_agenda_items_for_document=_dedupe_agenda_items_for_document,
+        looks_like_end_marker_line=_looks_like_end_marker_line,
+        should_stop_after_marker=_should_stop_after_marker,
+    )
+
+
 def parse_llm_agenda_items(llm_text: str) -> list[dict]:
     """
-    Parse the LLM's agenda extraction output.
-
-    Why this exists:
-    The model sometimes emits multi-line descriptions. A line-by-line parse will
-    drop any continuation lines that don't match the header regex.
-
-    We accept small formatting variance (dash/en-dash/em-dash/colon separators)
-    and default missing/invalid page numbers to 1 rather than dropping the item.
+    Backwards-compatible wrapper for agenda parser tests and diagnostic callers.
     """
-    text = (llm_text or "").strip()
-    if not text:
-        return []
+    return parse_llm_agenda_items_impl(llm_text)
 
-    header = re.compile(r"(?im)^\s*ITEM\s+(?P<order>\d+)\s*:\s*")
-    headers = list(header.finditer(text))
-    if not headers:
-        return []
-
-    out: list[dict] = []
-    for idx, m in enumerate(headers):
-        try:
-            order = int(m.group("order"))
-        except Exception:
-            continue
-
-        start = m.end()
-        end = headers[idx + 1].start() if idx + 1 < len(headers) else len(text)
-        body = text[start:end].strip()
-        if not body:
-            continue
-
-        # Prefer the explicit "(Page N)" marker when present.
-        page_match = re.search(r"(?i)\(\s*page\s*(\d+)\s*\)", body)
-        page = 1
-        title_part = body
-        desc_part = ""
-        if page_match:
-            try:
-                page = int(page_match.group(1))
-            except Exception:
-                page = 1
-            title_part = body[: page_match.start()].strip()
-            desc_part = body[page_match.end() :].strip()
-        else:
-            # If the page marker is missing, split on the first reasonable separator.
-            sep = re.search(r"\s+[-\u2013\u2014:]\s+", body)
-            if sep:
-                title_part = body[: sep.start()].strip()
-                desc_part = body[sep.end() :].strip()
-            else:
-                # Fall back to first-line title + remainder as description.
-                first, *rest = body.splitlines()
-                title_part = first.strip()
-                desc_part = " ".join([ln.strip() for ln in rest]).strip()
-
-        title = " ".join((title_part or "").split())
-        if not title:
-            continue
-
-        desc = (desc_part or "").strip()
-        desc = re.sub(r"^[-\u2013\u2014:]\s*", "", desc)  # trim leading separator
-        desc = " ".join(desc.split())
-
-        out.append({"order": order, "title": title, "page_number": page, "description": desc})
-
-    # If the model accidentally repeats ITEM numbers, keep the first occurrence.
-    seen = set()
-    deduped: list[dict] = []
-    for item in out:
-        key = (item["order"], item["title"].lower())
-        if key in seen:
-            continue
-        seen.add(key)
-        deduped.append(item)
-    return deduped
 
 def iter_fallback_paragraphs(page_content: str) -> list[str]:
     """
-    Extract paragraph-like chunks from a page for the weakest heuristic fallback.
-
-    OCR often collapses paragraphs to single newlines. We prefer blank-line splits,
-    but if blank lines are scarce we use "boundary lines" (numbered items, Subject:,
-    and obvious headings) as delimiters.
+    Backwards-compatible wrapper for fallback paragraph diagnostics.
     """
-    raw = (page_content or "").replace("\r\n", "\n").replace("\r", "\n")
-    if not raw.strip():
-        return []
-
-    blank_paras = [p.strip() for p in re.split(r"\n\s*\n+", raw) if p.strip()]
-    if len(blank_paras) >= 3:
-        return blank_paras
-
-    boundary = re.compile(
-        r"(?i)^\s*("
-        r"subject\s*:"
-        r"|item\s*#?\s*\d{1,3}\b"
-        r"|#?\s*\d{1,2}(?:\.\d+)?[\.\):]\s+"
-        r"|[A-Z][A-Z\s]{12,}"
-        r")"
-    )
-    lines = [ln.strip() for ln in raw.splitlines()]
-    paras: list[str] = []
-    current: list[str] = []
-    for ln in lines:
-        if not ln:
-            if current:
-                paras.append("\n".join(current).strip())
-                current = []
-            continue
-        if boundary.match(ln) and current:
-            paras.append("\n".join(current).strip())
-            current = [ln]
-            continue
-        current.append(ln)
-    if current:
-        paras.append("\n".join(current).strip())
-    return [p for p in paras if p]
+    return iter_fallback_paragraphs_impl(page_content)
 
 
 class LocalAI:
@@ -1856,550 +1771,26 @@ class LocalAI:
         Returns a list of agenda items with titles, page numbers, and descriptions.
         """
         provider = self._get_provider()
-
-        items = []
         mode = (AGENDA_SEGMENTATION_MODE or "balanced").strip().lower()
-        stats = {
-            "rejected_procedural": 0,
-            "rejected_contact": 0,
-            "rejected_low_substance": 0,
-            "rejected_lowercase_fragment": 0,
-            "rejected_notice_fragment": 0,
-            "rejected_tabular_fragment": 0,
-            "rejected_nested_subitem": 0,
-            "context_carryover_pages": 0,
-            "stop_marker_candidates": 0,
-            "stopped_after_end_marker": 0,
-            "rejected_noise": 0,
-            "deduped_toc_duplicates": 0,
-            "accepted_items_final": 0,
-        }
-        parse_state = {
-            "active_parent_item": None,
-            "active_parent_page": None,
-            "parent_context_confidence": 0.0,
-            "seen_top_level_items": 0,
-        }
-
-        def normalize_spaces(value):
-            return _normalize_spaces(value)
-
-        def looks_like_spaced_ocr(value):
-            tokens = [t for t in normalize_spaces(value).split(" ") if t]
-            if not tokens:
-                return False
-            single_char_tokens = sum(1 for t in tokens if len(t) == 1 and t.isalpha())
-            return (single_char_tokens / len(tokens)) >= 0.6
-
-        def is_noise_title(title):
-            lowered = normalize_spaces(title).lower()
-            if not lowered:
-                return True
-            if len(lowered) < AGENDA_MIN_TITLE_CHARS:
-                return True
-            if _is_procedural_noise_title(lowered):
-                return True
-            if _is_contact_or_letterhead_noise(lowered, ""):
-                return True
-            # IP / endpoint fragments from teleconference templates should not become agenda items.
-            if re.search(r"\b\d{1,3}(?:\.\d{1,3}){3}\b", lowered):
-                return True
-            if _looks_like_teleconference_endpoint_line(lowered):
-                return True
-            if re.search(r"\b(us west|us east)\b", lowered):
-                return True
-            if looks_like_spaced_ocr(lowered):
-                return True
-            if lowered.startswith("http://") or lowered.startswith("https://"):
-                return True
-            # URLs embedded in a line are almost always boilerplate, not an agenda topic.
-            if "http://" in lowered or "https://" in lowered or "www." in lowered:
-                return True
-            # Dates, times, and location/address lines are metadata, not agenda topics.
-            if re.match(r"^[A-Za-z]+,\s+[A-Za-z]+\s+\d{1,2},\s+\d{4}$", title):
-                return True
-            if re.search(r"\b\d{1,2}:\d{2}\s*(?:a\.m\.|p\.m\.|am|pm)\b", lowered):
-                return True
-            if re.search(r"\b\d{2,6}\s+[A-Za-z].*(street|st|avenue|ave|road|rd|blvd|boulevard)\b", lowered):
-                return True
-            if "mayor" in lowered or "councilmembers" in lowered:
-                return True
-            # Participation/COVID/ADA boilerplate often looks like a "numbered item".
-            # This keeps it out of structured agenda output.
-            if _looks_like_agenda_segmentation_boilerplate(lowered):
-                return True
-            # Common accessibility / participation boilerplate.
-            if re.search(r"\b(disability[- ]related|accommodation\\(s\\)|auxiliary aids|interpreters?)\b", lowered):
-                return True
-            if re.search(r"\b(brown act|executive orders?)\b", lowered):
-                return True
-            if re.search(r"\b(communication access information|questions regarding|public comment portion)\b", lowered):
-                return True
-            if re.search(r"\b(agendas? and agenda reports?|agenda reports? may be accessed)\b", lowered):
-                return True
-            if re.search(r"\b(may participate in the public comment|meeting will be conducted in accordance)\b", lowered):
-                return True
-            if re.search(r"\b(city clerk|cityofberkeley\\.info|cityofberkeley\\.org)\b", lowered):
-                return True
-            if "as follows" in lowered and len(lowered) <= 40:
-                return True
-            if lowered.endswith(":") and len(lowered) <= 45:
-                return True
-
-            # Common meeting header noise that should not become agenda items.
-            header_noise = [
-                "special closed meeting",
-                "calling a special meeting",
-                "agenda packet",
-                "table of contents",
-                "supplemental communications",
-                "form letters",
-            ]
-            if any(token in lowered for token in header_noise):
-                return True
-            # Narrow legal-notice boilerplate pattern (Berkeley Levine Act block).
-            if "government code section 84308" in lowered or "levine act" in lowered:
-                return True
-            if "parties to a proceeding involving a license, permit, or other" in lowered:
-                return True
-            if re.match(r"^district\s+\d+\b", lowered):
-                return True
-
-            return False
-
-        def add_item(order, title, page_number, description, result="", source_type="fallback", context=None):
-            clean_title = normalize_spaces(title)
-            clean_description = normalize_spaces(description) if description else ""
-            if source_type == "fallback" and _is_probable_line_fragment_title(clean_title):
-                stats["rejected_lowercase_fragment"] += 1
-                return
-            if _is_tabular_fragment(clean_title, clean_description, context=context):
-                stats["rejected_tabular_fragment"] += 1
-                return
-            if _looks_like_agenda_segmentation_boilerplate(clean_title):
-                stats["rejected_notice_fragment"] += 1
-                return
-            if is_noise_title(clean_title):
-                stats["rejected_noise"] += 1
-                return
-
-            if source_type == "llm":
-                if _is_procedural_noise_title(clean_title):
-                    stats["rejected_procedural"] += 1
-                    return
-                if _is_contact_or_letterhead_noise(clean_title, clean_description):
-                    stats["rejected_contact"] += 1
-                    return
-                if not _should_accept_llm_item(
-                    {
-                        "title": clean_title,
-                        "description": clean_description,
-                        "page_number": page_number,
-                        "context": context or {},
-                    },
-                    mode=mode,
-                ):
-                    stats["rejected_low_substance"] += 1
-                    return
-
-            items.append({
-                "order": order,
-                "title": clean_title,
-                "page_number": page_number,
-                "description": clean_description,
-                "classification": "Agenda Item",
-                "result": normalize_spaces(result)
-            })
-
-        def is_probable_person_name(value):
-            """
-            Heuristic guardrail:
-            speaker roll lists are often numbered lines with person names.
-            """
-            clean = normalize_spaces(value)
-            if not clean:
-                return False
-            clean = re.sub(r"\(\d+\)", "", clean).strip()
-            lowered = clean.lower()
-            # Speaker roll entries frequently contain this phrase.
-            if "on behalf of" in lowered:
-                return True
-            if re.search(
-                r"\b(update|plan|zoning|hearing|budget|report|session|meeting|ordinance|resolution|project|communications|adjournment|amendment|specific|corridor|worksession)\b",
-                lowered
-            ):
-                return False
-            if is_likely_human_name(clean, allow_single_word=True):
-                return True
-            # Catch multi-person entries that may include "&" / "and".
-            if " and " in lowered or " & " in clean:
-                tokens = re.split(r"\s+(?:and|&)\s+|\s+", clean)
-                tokens = [t for t in tokens if t]
-                if 2 <= len(tokens) <= 8 and all(re.match(r"^[A-Z][A-Za-z'’\.\-]*$", t) for t in tokens):
-                    return True
-            return False
-
-        def _merge_wrapped_title_lines(base_title: str, block_text: str) -> str:
-            """
-            Merge wrapped title continuation lines for fallback parsing.
-
-            Some PDFs split a single long agenda title across multiple lines. We collect
-            immediate continuation lines until we hit known section boundaries.
-            """
-            title = normalize_spaces(base_title)
-            if not block_text:
-                return title
-
-            boundary_re = re.compile(
-                r"(?i)^\s*(from|recommendation|recommended action|financial implications|contact|vote|result|action|subject)\s*:"
-            )
-            # Stop if we hit a new numbered/lettered list entry.
-            list_item_re = re.compile(r"^\s*(?:item\s*)?#?\s*(\d{1,2}(?:\.\d+)?|[A-Z]|[IVXLC]+)[\.\):]\s+")
-
-            added = 0
-            for raw_line in (block_text or "").splitlines():
-                line = raw_line.strip()
-                if not line:
-                    if added > 0:
-                        break
-                    continue
-                if boundary_re.match(line) or list_item_re.match(line):
-                    break
-                if len(line) < 3:
-                    break
-                title = normalize_spaces(f"{title} {line}")
-                added += 1
-                # Keep title stitching conservative.
-                if added >= 2:
-                    break
-            return title
-
-        def split_text_by_page_markers(raw_text):
-            """
-            Build page chunks from either explicit OCR tags ([PAGE N]) or document headers
-            like "... Page 2". This avoids defaulting everything to page 1 when OCR tags are sparse.
-            """
-            markers = []
-            for match in re.finditer(r"\[PAGE\s+(\d+)\]", raw_text, flags=re.IGNORECASE):
-                markers.append((match.start(), int(match.group(1))))
-            for match in re.finditer(r"(?im)^.*\bPage\s+(\d+)\s*$", raw_text):
-                markers.append((match.start(), int(match.group(1))))
-
-            if not markers:
-                return [(1, raw_text)]
-
-            markers.sort(key=lambda item: item[0])
-
-            # Deduplicate near-identical markers that point to same page.
-            deduped = []
-            for pos, page in markers:
-                if deduped and deduped[-1][1] == page and (pos - deduped[-1][0]) < 120:
-                    continue
-                deduped.append((pos, page))
-
-            chunks = []
-            for i, (start_pos, page_num) in enumerate(deduped):
-                end_pos = deduped[i + 1][0] if i + 1 < len(deduped) else len(raw_text)
-                chunk = raw_text[start_pos:end_pos].strip()
-                if chunk:
-                    chunks.append((page_num, chunk))
-            return chunks or [(1, raw_text)]
-
-        if provider is not None:
-            # We increase context slightly to catch more items, focusing on the start
-            safe_text = text[:LLM_AGENDA_MAX_TEXT]
-            
-            # PROMPT: We now ask for Page numbers and a clean list.
-            # We explicitly tell it to ignore boilerplate and headers.
-            prompt = (
-                "<start_of_turn>user\n"
-                "Extract ONLY the real agenda items from this meeting document. "
-                "Include the page number where each item starts. "
-                "Format: ITEM [Order]: [Title] (Page [X]) - [Brief Summary]\n"
-                "Rules:\n"
-                "- Do NOT extract procedural placeholders (Call to Order, Roll Call, Adjournment, Public Comment).\n"
-                "- Do NOT extract teleconference/Zoom/ADA/how-to-attend instructions.\n"
-                "- Do NOT extract Table of Contents entries.\n"
-                "- Do NOT extract contact/letterhead metadata (addresses, phone/fax, email, website, From:/To: lines).\n\n"
-                "- HIERARCHY RULE: If a primary item contains a table/list/subparts, extract ONLY the parent item. "
-                "Do not emit each row/sub-part as a separate item.\n\n"
-                f"Text:\n{safe_text}<end_of_turn>\n"
-                "<start_of_turn>model\n"
-                "ITEM 1:"
-            )
-            
-            try:
-                raw_content = (
-                    provider.extract_agenda(
-                        prompt,
-                        max_tokens=LLM_AGENDA_MAX_TOKENS,
-                        temperature=0.1,
-                    )
-                    or ""
-                ).strip()
-                # The prompt pins the model's output stream at "ITEM 1:", but llama.cpp
-                # returns only the continuation text. Only reconstruct "ITEM 1:" when the
-                # continuation looks like it actually followed the requested format.
-                content = raw_content
-                if (
-                    "(page" in raw_content.lower()
-                    or re.search(r"(?im)^\s*ITEM\s+\d+\s*:", raw_content)
-                    or re.search(r"(?im)\n\s*ITEM\s+\d+\s*:", raw_content)
-                ):
-                    content = "ITEM 1:" + raw_content
-
-                # Parse across the full model output so we don't drop multi-line descriptions.
-                for parsed in parse_llm_agenda_items(content):
-                    add_item(
-                        parsed["order"],
-                        parsed["title"],
-                        parsed["page_number"],
-                        parsed["description"],
-                        source_type="llm",
-                        context={"has_active_parent": False},
-                    )
-            except (ProviderTimeoutError, ProviderUnavailableError, ProviderResponseError) as e:
-                logger.error(f"AI Agenda Extraction failed: {e}")
-            except Exception as e:
-                # AI agenda extraction errors: Same rationale as above
-                # The model can fail during generation, response parsing, or regex matching
-                # DECISION: Log the error but return partial results (items extracted so far)
-                # rather than crashing. The fallback heuristic will catch items anyway.
-                logger.error(f"AI Agenda Extraction failed: {e}")
-
-        # FALLBACK: If AI fails, use text heuristics with page-aware chunking.
-        if not items:
-            page_chunks = split_text_by_page_markers(text)
-            for page_idx, (page_num, page_content) in enumerate(page_chunks):
-                if parse_state["active_parent_item"] is not None and page_idx > 0:
-                    previous_page_num = page_chunks[page_idx - 1][0]
-                    if previous_page_num != page_num:
-                        stats["context_carryover_pages"] += 1
-
-                trailing_text = "\n".join(chunk for _, chunk in page_chunks[page_idx:])
-                truncated_page_content = page_content
-                stop_after_page = False
-                lines = page_content.splitlines(keepends=True)
-                cursor = 0
-                for line_idx, raw_line in enumerate(lines):
-                    candidate_line = raw_line.strip()
-                    line_len = len(raw_line)
-                    if not _looks_like_end_marker_line(candidate_line):
-                        cursor += line_len
-                        continue
-                    stats["stop_marker_candidates"] += 1
-                    lookahead_window = "".join(lines[line_idx : line_idx + 25]) + "\n" + trailing_text[:2500]
-                    if _should_stop_after_marker(candidate_line, lookahead_window):
-                        truncated_page_content = page_content[:cursor]
-                        stats["stopped_after_end_marker"] += 1
-                        stop_after_page = True
-                        break
-                    cursor += line_len
-
-                page_content = truncated_page_content
-                page_lower = page_content.lower()
-                speaker_context = (
-                    "communications" in page_lower
-                    or "speakers" in page_lower
-                    or "public comment" in page_lower
-                    or "item #1" in page_lower
-                    or "item #2" in page_lower
+        raw_provider_content = None
+        prompt = build_agenda_extraction_prompt(text, max_text=LLM_AGENDA_MAX_TEXT)
+        try:
+            raw_provider_content = (
+                provider.extract_agenda(
+                    prompt,
+                    max_tokens=LLM_AGENDA_MAX_TOKENS,
+                    temperature=0.1,
                 )
-
-                # Prefer explicit numbered agenda lines when available.
-                numbered_line_pattern = re.compile(
-                    r"(?m)^\s*(?:item\s*)?#?\s*(\d{1,2}(?:\.\d+)?|[A-Z]|[IVXLC]+)[\.\):]\s+(.{6,400})$"
-                )
-
-                numbered_lines = list(numbered_line_pattern.finditer(page_content))
-                if numbered_lines:
-                    # If a numbered block is mostly person-name lines, it is likely a speaker list.
-                    person_like_count = sum(
-                        1 for m in numbered_lines if is_probable_person_name(m.group(2).strip())
-                    )
-                    person_heavy_numbered_list = (
-                        len(numbered_lines) >= 5
-                        and (person_like_count / len(numbered_lines)) >= 0.5
-                    )
-
-                    # If a numbered block is mostly participation/COVID/ADA boilerplate,
-                    # treat it as a template section and do not convert it into items.
-                    noise_like_count = sum(
-                        1 for m in numbered_lines
-                        if is_noise_title(m.group(2).strip())
-                        or _looks_like_agenda_segmentation_boilerplate(m.group(2).strip())
-                    )
-                    mostly_noise_numbered_list = (
-                        len(numbered_lines) >= 4
-                        and (noise_like_count / len(numbered_lines)) >= 0.5
-                    )
-                    if mostly_noise_numbered_list:
-                        logger.debug(
-                            "agenda_segmentation.skip_numbered_block",
-                            extra={
-                                "page": page_num,
-                                "numbered_lines": len(numbered_lines),
-                                "noise_like": noise_like_count,
-                            },
-                        )
-                        # Fall through to paragraph parsing for this page (and later pages).
-                        numbered_lines = []
-
-                    for idx, match in enumerate(numbered_lines):
-                        marker = match.group(1)
-                        title = match.group(2).strip()
-                        marker_normalized = (marker or "").strip()
-                        marker_upper = marker_normalized.upper()
-                        is_top_level_numeric = bool(re.fullmatch(r"\d{1,2}(?:\.\d+)?", marker_normalized))
-                        preceding_window = page_content[max(0, match.start() - 500):match.start()].lower()
-                        looks_like_nested_numeric_recommendation = bool(
-                            parse_state["active_parent_item"]
-                            and is_top_level_numeric
-                            and "recommendation:" in preceding_window
-                            and ("would:" in preceding_window or "following action" in preceding_window)
-                            and "subject:" not in preceding_window[-160:]
-                        )
-                        is_contextual_subitem = bool(
-                            parse_state["active_parent_item"]
-                            and (
-                                re.fullmatch(r"[A-Z]", marker_upper)
-                                or re.fullmatch(r"[IVXLC]+", marker_upper)
-                                or re.fullmatch(r"\d{1,2}[A-Za-z]", marker_normalized)
-                                or looks_like_nested_numeric_recommendation
-                            )
-                        )
-                        if is_contextual_subitem:
-                            stats["rejected_nested_subitem"] += 1
-                            continue
-                        if is_probable_person_name(title) and (
-                            speaker_context or person_heavy_numbered_list
-                        ):
-                            # Do not promote speaker-name roll calls into agenda topics.
-                            continue
-                        if _is_procedural_noise_title(title):
-                            continue
-                        if _is_contact_or_letterhead_noise(title, ""):
-                            continue
-
-                        block_start = match.end()
-                        block_end = numbered_lines[idx + 1].start() if idx + 1 < len(numbered_lines) else len(page_content)
-                        block_text = page_content[block_start:block_end]
-                        title = _merge_wrapped_title_lines(title, block_text)
-                        vote_match = re.search(r"(?im)\bVote:\s*([^\n\r]+)", block_text)
-                        vote_result = vote_match.group(1) if vote_match else ""
-
-                        before_count = len(items)
-                        add_item(
-                            len(items) + 1,
-                            title,
-                            page_num,
-                            f"Agenda section {marker}",
-                            result=vote_result,
-                            context={
-                                "has_active_parent": parse_state["active_parent_item"] is not None,
-                                "parent_context_confidence": parse_state["parent_context_confidence"],
-                                "seen_top_level_items": parse_state["seen_top_level_items"],
-                            },
-                        )
-                        if len(items) > before_count and is_top_level_numeric:
-                            parse_state["active_parent_item"] = normalize_spaces(title)
-                            parse_state["active_parent_page"] = page_num
-                            parse_state["parent_context_confidence"] = 1.0
-                            parse_state["seen_top_level_items"] += 1
-                        if len(items) >= AGENDA_FALLBACK_MAX_ITEMS_PER_DOC:
-                            break
-                    if numbered_lines:
-                        if stop_after_page:
-                            break
-                        continue
-
-                # Fallback for unnumbered formats: use paragraph starts carefully.
-                paragraphs = [
-                    p for p in iter_fallback_paragraphs(page_content)
-                    if 10 < len(p.strip()) < 1000
-                ]
-
-                added_from_paragraphs = 0
-                consecutive_rejects = 0
-                for p in paragraphs:
-                    if len(items) >= AGENDA_FALLBACK_MAX_ITEMS_PER_DOC:
-                        break
-                    if added_from_paragraphs >= AGENDA_FALLBACK_MAX_ITEMS_PER_PAGE_PARAGRAPH:
-                        break
-
-                    lines = p.split("\n")
-                    if not lines:
-                        consecutive_rejects += 1
-                        if consecutive_rejects >= AGENDA_FALLBACK_MAX_CONSECUTIVE_REJECTS_PER_PAGE:
-                            break
-                        continue
-
-                    title = re.sub(r"^\s*\d+(?:\.\d+)?[\.\):]?\s*", "", lines[0].strip())
-                    title_l = title.lower()
-
-                    # Keep only plausible title lengths and skip common extraction junk.
-                    if not (10 < len(title) < 150):
-                        consecutive_rejects += 1
-                        if consecutive_rejects >= AGENDA_FALLBACK_MAX_CONSECUTIVE_REJECTS_PER_PAGE:
-                            break
-                        continue
-
-                    if any(b in title_l for b in ["page", "packet", "continuing"]):
-                        consecutive_rejects += 1
-                        if consecutive_rejects >= AGENDA_FALLBACK_MAX_CONSECUTIVE_REJECTS_PER_PAGE:
-                            break
-                        continue
-
-                    if title_l.startswith("item #") or is_probable_person_name(title):
-                        consecutive_rejects += 1
-                        if consecutive_rejects >= AGENDA_FALLBACK_MAX_CONSECUTIVE_REJECTS_PER_PAGE:
-                            break
-                        continue
-
-                    desc = (p[:500] + "...") if len(p) > 500 else p
-                    before = len(items)
-                    add_item(
-                        len(items) + 1,
-                        title,
-                        page_num,
-                        desc,
-                        context={
-                            "has_active_parent": parse_state["active_parent_item"] is not None,
-                            "parent_context_confidence": parse_state["parent_context_confidence"],
-                            "seen_top_level_items": parse_state["seen_top_level_items"],
-                        },
-                    )
-                    if len(items) > before:
-                        added_from_paragraphs += 1
-                        consecutive_rejects = 0
-                    else:
-                        consecutive_rejects += 1
-                        if consecutive_rejects >= AGENDA_FALLBACK_MAX_CONSECUTIVE_REJECTS_PER_PAGE:
-                            break
-
-                if len(items) >= AGENDA_FALLBACK_MAX_ITEMS_PER_DOC:
-                    break
-                if stop_after_page:
-                    break
-
-        items, deduped = _dedupe_agenda_items_for_document(items)
-        stats["deduped_toc_duplicates"] = deduped
-        stats["accepted_items_final"] = len(items)
-        logger.info(
-            "agenda_segmentation.counters mode=%s accepted_items_final=%s rejected_procedural=%s rejected_contact=%s rejected_low_substance=%s rejected_lowercase_fragment=%s rejected_notice_fragment=%s rejected_tabular_fragment=%s rejected_nested_subitem=%s context_carryover_pages=%s stop_marker_candidates=%s stopped_after_end_marker=%s rejected_noise=%s deduped_toc_duplicates=%s",
-            mode,
-            stats["accepted_items_final"],
-            stats["rejected_procedural"],
-            stats["rejected_contact"],
-            stats["rejected_low_substance"],
-            stats["rejected_lowercase_fragment"],
-            stats["rejected_notice_fragment"],
-            stats["rejected_tabular_fragment"],
-            stats["rejected_nested_subitem"],
-            stats["context_carryover_pages"],
-            stats["stop_marker_candidates"],
-            stats["stopped_after_end_marker"],
-            stats["rejected_noise"],
-            stats["deduped_toc_duplicates"],
+                or ""
+            ).strip()
+        except (ProviderTimeoutError, ProviderUnavailableError, ProviderResponseError) as error:
+            logger.error("%s failed: %s", "AI Agenda Extraction", error)
+        except Exception as error:
+            # Provider/runtime extraction failures should preserve heuristic fallback behavior.
+            logger.error("%s failed: %s", "AI Agenda Extraction", error)
+        return run_agenda_extraction_pipeline(
+            text=text,
+            raw_provider_content=raw_provider_content,
+            mode=mode,
+            helpers=_agenda_extraction_helpers(),
         )
-        return items

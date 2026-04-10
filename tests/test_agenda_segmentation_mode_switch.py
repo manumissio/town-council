@@ -2,15 +2,14 @@ def test_segmentation_mode_switch_changes_llm_acceptance(monkeypatch):
     import pipeline.llm as llm_mod
     from pipeline.llm import LocalAI
 
-    class _FakeLLM:
-        def __call__(self, prompt, max_tokens=0, temperature=0.0):
-            return {"choices": [{"text": " Committee Update (Page 2) - Brief note"}]}
+    def _fake_extract(_self, prompt, *, temperature, max_tokens):
+        _ = (prompt, temperature, max_tokens)
+        return " Committee Update (Page 2) - Brief note"
 
-        def reset(self):
-            return None
-
+    LocalAI._instance = None
+    monkeypatch.setattr(llm_mod, "LOCAL_AI_BACKEND", "http")
+    monkeypatch.setattr(llm_mod.HttpInferenceProvider, "extract_agenda", _fake_extract)
     ai = LocalAI()
-    monkeypatch.setattr(ai, "_load_model", lambda: setattr(ai, "llm", _FakeLLM()))
 
     monkeypatch.setattr(llm_mod, "AGENDA_SEGMENTATION_MODE", "aggressive")
     aggressive_items = ai.extract_agenda("[PAGE 2]\nX")
