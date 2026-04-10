@@ -255,3 +255,24 @@ Use each entry to record:
   - [ARCHITECTURE.md](../ARCHITECTURE.md)
   - [docs/ENGINEERING_GUARDRAILS.md](ENGINEERING_GUARDRAILS.md)
   - [ROADMAP.md](../ROADMAP.md)
+
+## 2026-04-09: Extract the agenda-extraction subsystem before finishing broader `pipeline/llm.py` cleanup
+
+- Status: Accepted
+- Decision:
+  - The next `pipeline/llm.py` legacy-cleanup wave extracts the agenda-extraction subsystem centered on `LocalAI.extract_agenda(...)` into a dedicated support module.
+  - `LocalAI` remains the orchestration and provider-policy boundary: it still owns provider acquisition plus interpretation of typed provider failures into heuristic fallback behavior.
+  - The extracted module owns agenda-extraction-specific flow only: prompt assembly, provider-output parsing, fallback paragraph/numbered-line parsing, grounding-style acceptance checks, deduplication, and extraction counter logging.
+  - Generic summary generation, JSON generation, agenda-summary behavior, runtime defaults, and task retry ownership remain unchanged.
+- Why:
+  - After the provider cleanup, task extraction waves, and agenda-summary extraction, the agenda-extraction path was the next coherent subsystem still embedded inside `pipeline/llm.py`.
+  - That path already had focused regression coverage for prompt budgets, parser behavior, segmentation heuristics, backend parity, and task-facing retry semantics, which made it a safer cleanup target than a full `LocalAI` rewrite.
+  - Keeping provider outcome interpretation in `LocalAI` avoids mixing provider-policy behavior with extraction heuristics and normalization code.
+- Affected boundaries:
+  - `pipeline/llm.py` remains the product-policy boundary for local AI behavior.
+  - `pipeline/agenda_extraction.py` owns agenda-extraction transformation and fallback parsing flow.
+  - `pipeline/llm_provider.py` continues to own provider transport, payload validation, timeout policy, retry-budget policy, and typed provider failures.
+- Canonical references:
+  - [ARCHITECTURE.md](../ARCHITECTURE.md)
+  - [docs/ENGINEERING_GUARDRAILS.md](ENGINEERING_GUARDRAILS.md)
+  - [ROADMAP.md](../ROADMAP.md)
