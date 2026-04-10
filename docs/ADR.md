@@ -276,3 +276,28 @@ Use each entry to record:
   - [ARCHITECTURE.md](../ARCHITECTURE.md)
   - [docs/ENGINEERING_GUARDRAILS.md](ENGINEERING_GUARDRAILS.md)
   - [ROADMAP.md](../ROADMAP.md)
+
+## 2026-04-09: Finish `pipeline/llm.py` by extracting heuristics, generic generation, and runtime bootstrap
+
+- Status: Accepted
+- Decision:
+  - The final structural cleanup wave for `pipeline/llm.py` extracts three remaining mixed-responsibility clusters into dedicated support modules:
+    - `pipeline/agenda_text_heuristics.py` for shared agenda lexical and filtering heuristics
+    - `pipeline/text_generation.py` for generic summary, JSON-generation normalization, and title-spacing generation helpers
+    - `pipeline/local_ai_runtime.py` for backend normalization, provider construction, and in-process runtime bootstrap
+  - `pipeline/llm.py` remains the public `LocalAI` product-policy boundary and keeps the public methods `summarize(...)`, `generate_json(...)`, `summarize_agenda_items(...)`, `repair_title_spacing(...)`, and `extract_agenda(...)`.
+  - `pipeline/llm.py` also keeps compatibility exports for currently used helper seams so in-repo callers and tests do not need a concurrent migration.
+  - Provider-failure semantics, runtime defaults, local-first/fail-fast guardrails, and task retry ownership remain unchanged.
+- Why:
+  - After the provider cleanup plus the agenda-summary and agenda-extraction extractions, the remaining complexity in `pipeline/llm.py` was no longer one coherent subsystem; it was a mix of residual heuristics, generic text-generation code, and runtime/bootstrap code.
+  - Extracting those clusters finishes the file structurally without widening into policy redesign or retry/session abstraction changes.
+  - Keeping `LocalAI` as the product-policy boundary preserves the current `None` vs deterministic-fallback behavior while making the implementation easier to reason about and test.
+- Affected boundaries:
+  - `pipeline/llm.py` is now a thin public boundary centered on `LocalAI` plus compatibility exports.
+  - `pipeline/agenda_text_heuristics.py` owns shared agenda text heuristics used by agenda extraction, agenda summary, and a small set of compatibility callers.
+  - `pipeline/text_generation.py` owns generic summary formatting, JSON normalization, and title-spacing prompt/output helpers.
+  - `pipeline/local_ai_runtime.py` owns runtime/bootstrap mechanics and provider construction while `LocalAI` retains the public seam.
+- Canonical references:
+  - [ARCHITECTURE.md](../ARCHITECTURE.md)
+  - [docs/ENGINEERING_GUARDRAILS.md](ENGINEERING_GUARDRAILS.md)
+  - [ROADMAP.md](../ROADMAP.md)
