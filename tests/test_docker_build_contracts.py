@@ -89,7 +89,7 @@ def test_worker_live_and_batch_requirements_split_table_stack_only():
         assert package not in core
         assert package in batch
 
-    for package in ("spacy==3.7.4", "pytextrank==3.3.0", "scikit-learn==1.5.0", "pypdf==6.9.2"):
+    for package in ("spacy==3.7.4", "pytextrank==3.3.0", "scikit-learn==1.5.0", "pypdf==6.10.0"):
         assert package not in core
         assert package in batch
 
