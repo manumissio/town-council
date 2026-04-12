@@ -250,7 +250,7 @@ def segment_catalog_with_mode(
                     catalog.agenda_segmentation_attempted_at = datetime.now(timezone.utc)
                     catalog.agenda_segmentation_error = str(exc)[:500]
                     session.commit()
-            except Exception as catalog_error:  # noqa: BLE001
+            except SQLAlchemyError as catalog_error:
                 # If the failure row cannot be persisted, the returned failed status still
                 # tells the caller the segment step did not complete for this catalog.
                 logger.warning(

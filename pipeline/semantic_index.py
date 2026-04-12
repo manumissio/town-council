@@ -23,8 +23,13 @@ from pipeline.config import (
     SEMANTIC_REQUIRE_FAISS,
     SEMANTIC_REQUIRE_SINGLE_PROCESS,
 )
-from pipeline.content_hash import compute_content_hash
 from pipeline.models import AgendaItem, Catalog, Document, Event, Organization, Place, SemanticEmbedding
+from pipeline.semantic_text import (
+    _build_chunks_from_content,
+    _safe_text,
+    catalog_semantic_source_hash,
+    catalog_semantic_text,
+)
 
 logger = logging.getLogger("semantic-index")
 
@@ -95,54 +100,6 @@ def _looks_like_multiprocess_worker() -> bool:
         except ValueError:
             continue
     return False
-
-
-def _safe_text(value: str | None) -> str:
-    return " ".join((value or "").split()).strip()
-
-
-def catalog_semantic_text(value: str | None) -> str:
-    """
-    Canonicalize summary text so batch builds, task refreshes, and staleness checks
-    all agree on the exact payload we expect to be embedded for meetings.
-    """
-    return _safe_text(value)[:SEMANTIC_CONTENT_MAX_CHARS]
-
-
-def catalog_semantic_source_hash(value: str | None) -> str | None:
-    payload = catalog_semantic_text(value)
-    if len(payload) < 20:
-        return None
-    return compute_content_hash(payload)
-
-
-def _build_chunks_from_content(content: str, max_chars: int) -> list[str]:
-    """
-    We chunk fallback text instead of embedding only the first N chars.
-    That keeps later meeting sections searchable when summaries are missing.
-    """
-    text = _safe_text(content)
-    if not text:
-        return []
-    hard_limited = text[: max_chars * 3]
-    words = hard_limited.split()
-    if not words:
-        return []
-    chunks: list[str] = []
-    current: list[str] = []
-    current_len = 0
-    for w in words:
-        add_len = len(w) + (1 if current else 0)
-        if current and current_len + add_len > max_chars:
-            chunks.append(" ".join(current))
-            current = [w]
-            current_len = len(w)
-            continue
-        current.append(w)
-        current_len += add_len
-    if current:
-        chunks.append(" ".join(current))
-    return chunks[:5]
 
 
 class FaissSemanticBackend(SemanticBackend):

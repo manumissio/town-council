@@ -1,8 +1,9 @@
-from api.main import _dedupe_semantic_candidates
 from pipeline.semantic_index import SemanticCandidate
 
 
 def test_semantic_dedup_uses_best_score_per_catalog():
+    from semantic_service.main import _dedupe_semantic_candidates
+
     candidates = [
         SemanticCandidate(row_id=1, score=0.70, metadata={"result_type": "meeting", "catalog_id": 10, "db_id": 1}),
         SemanticCandidate(row_id=2, score=0.95, metadata={"result_type": "meeting", "catalog_id": 10, "db_id": 1}),
