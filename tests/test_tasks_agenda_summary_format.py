@@ -269,6 +269,39 @@ def test_summarize_catalog_with_maintenance_mode_keeps_llm_path_for_non_agenda(m
     )
 
 
+def test_summarize_catalog_with_optional_fallback_uses_deterministic_on_runtime_provider_failure():
+    deterministic_spy = MagicMock(return_value={"status": "complete", "summary": "fallback summary"})
+
+    fallback_summary_result = backlog_maintenance.summarize_catalog_with_optional_fallback(
+        303,
+        summary_fallback_mode="deterministic",
+        generate_summary_callable=MagicMock(side_effect=RuntimeError("provider timed out")),
+        deterministic_summary_callable=deterministic_spy,
+    )
+
+    assert fallback_summary_result["status"] == "complete"
+    assert fallback_summary_result["summary"] == "fallback summary"
+    assert fallback_summary_result["provider_failure"] == {}
+    deterministic_spy.assert_called_once_with(303)
+
+
+def test_summarize_catalog_with_maintenance_mode_returns_error_when_agenda_deterministic_fails(mocker):
+    mock_session = MagicMock()
+    mock_session.__enter__.return_value = mock_session
+    mock_session.__exit__.return_value = False
+    mock_session.query.return_value.filter_by.return_value.first.return_value = MagicMock(category="agenda")
+    mocker.patch.object(backlog_maintenance, "db_session", return_value=mock_session)
+
+    maintenance_summary_result = backlog_maintenance.summarize_catalog_with_maintenance_mode(
+        404,
+        summary_fallback_mode="deterministic",
+        generate_summary_callable=MagicMock(),
+        deterministic_summary_callable=MagicMock(side_effect=RuntimeError("deterministic render failed")),
+    )
+
+    assert maintenance_summary_result == {"status": "error", "error": "deterministic render failed"}
+
+
 def test_generate_summary_task_agenda_matches_maintenance_summary_inputs(mocker):
     mock_db = MagicMock()
     catalog = MagicMock()

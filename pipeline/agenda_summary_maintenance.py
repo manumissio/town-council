@@ -5,6 +5,11 @@ from contextlib import nullcontext
 from time import perf_counter
 from typing import Any, Callable
 
+from celery.exceptions import CeleryError
+from kombu.exceptions import KombuError
+from meilisearch.errors import MeilisearchError
+from sqlalchemy.exc import SQLAlchemyError
+
 from pipeline import llm as llm_mod
 from pipeline.config import AGENDA_SUMMARY_MAX_INPUT_CHARS, AGENDA_SUMMARY_MIN_RESERVED_OUTPUT_CHARS
 from pipeline.content_hash import compute_content_hash
@@ -37,6 +42,23 @@ AGENDA_SUMMARY_TIMING_KEYS = (
 )
 
 _PROVIDER_FAILURE_TOKENS = ("timed out", "timeout", "unavailable", "connection")
+AGENDA_SUMMARY_REINDEX_ERRORS = (
+    MeilisearchError,
+    SQLAlchemyError,
+    RuntimeError,
+    TypeError,
+    ValueError,
+    KeyError,
+)
+AGENDA_SUMMARY_EMBED_DISPATCH_ERRORS = (
+    CeleryError,
+    KombuError,
+    RuntimeError,
+    TypeError,
+    ValueError,
+    KeyError,
+)
+AGENDA_SUMMARY_CALLABLE_ERRORS = (RuntimeError, TypeError, ValueError, KeyError)
 
 
 def build_deterministic_agenda_summary_payload(
@@ -273,7 +295,7 @@ def _time_reindex_callback(
                 "catalogs_failed": int(payload.get("catalogs_failed") or 0),
                 "failed_catalog_ids": list(payload.get("failed_catalog_ids") or []),
             }
-    except Exception as error:  # noqa: BLE001
+    except AGENDA_SUMMARY_REINDEX_ERRORS as error:
         # Reindex is post-commit maintenance work. If it fails, the summary write is
         # still durable and the caller needs failure details instead of a rollback.
         reindex_summary = {
@@ -311,7 +333,7 @@ def _time_embed_callback(
                 "embed_dispatch_failed": int(payload.get("embed_dispatch_failed") or 0),
                 "failed_catalog_ids": list(payload.get("failed_catalog_ids") or []),
             }
-    except Exception as error:  # noqa: BLE001
+    except AGENDA_SUMMARY_EMBED_DISPATCH_ERRORS as error:
         # Embed dispatch is also post-commit. We surface the failure so maintenance
         # reporting stays accurate without downgrading the durable summary write.
         embed_summary = {
@@ -483,7 +505,7 @@ def summarize_catalog_with_optional_fallback(
     with fallback_context as fallback_events:
         try:
             result = generate_summary_callable(catalog_id) or {}
-        except Exception as error:  # noqa: BLE001
+        except AGENDA_SUMMARY_CALLABLE_ERRORS as error:
             result = {"status": "error", "error": str(error)}
 
     status = str(result.get("status") or "other")
@@ -516,7 +538,7 @@ def summarize_catalog_with_maintenance_mode(
     if doc_kind == "agenda":
         try:
             result = deterministic_summary_callable(catalog_id)
-        except Exception as error:  # noqa: BLE001
+        except AGENDA_SUMMARY_CALLABLE_ERRORS as error:
             return {"status": "error", "error": str(error)}
         if str(result.get("status") or "other") == "complete":
             result["completion_mode"] = "agenda_deterministic"
