@@ -348,3 +348,24 @@ Use each entry to record:
   - [ARCHITECTURE.md](../ARCHITECTURE.md)
   - [docs/ENGINEERING_GUARDRAILS.md](ENGINEERING_GUARDRAILS.md)
   - [ROADMAP.md](../ROADMAP.md)
+
+## 2026-04-11: Start semantic-index cleanup with shared semantic text utilities
+
+- Status: Accepted
+- Decision:
+  - The first `pipeline/semantic_index.py` cleanup wave extracts shared semantic text normalization, source hashing, and fallback content chunking into `pipeline/semantic_text.py`.
+  - `pipeline.semantic_index` remains the public compatibility facade for semantic backend classes, backend selection, and existing text-helper imports.
+  - Backend extraction is deferred: `PgvectorSemanticBackend`, `FaissSemanticBackend` / NumPy artifact fallback, and runtime guardrails remain in `pipeline.semantic_index`.
+  - Semantic ranking, source-hash semantics, diagnostics, config defaults, and runtime guardrails remain unchanged.
+- Why:
+  - `pipeline.semantic_index` is directly imported by semantic tasks, semantic service code, and tests, so splitting backend classes first would risk class-identity, singleton, and monkeypatch drift.
+  - The shared text helpers are a low-risk boundary that already supports both semantic indexing and embedding freshness checks.
+  - Keeping backend internals in place preserves FAISS/NumPy artifact behavior, pgvector rerank SQL, model loading, and guardrail policy while still reducing mixed responsibility in the module.
+- Affected boundaries:
+  - `pipeline/semantic_text.py` owns semantic text normalization, truncation, source hashing, and fallback chunking.
+  - `pipeline/semantic_index.py` remains the semantic backend facade and compatibility import surface.
+  - `pipeline/semantic_tasks.py` and `semantic_service/main.py` keep their existing public contracts.
+- Canonical references:
+  - [ARCHITECTURE.md](../ARCHITECTURE.md)
+  - [docs/ENGINEERING_GUARDRAILS.md](ENGINEERING_GUARDRAILS.md)
+  - [ROADMAP.md](../ROADMAP.md)
