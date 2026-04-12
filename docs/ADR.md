@@ -325,3 +325,26 @@ Use each entry to record:
   - [ARCHITECTURE.md](../ARCHITECTURE.md)
   - [docs/ENGINEERING_GUARDRAILS.md](ENGINEERING_GUARDRAILS.md)
   - [ROADMAP.md](../ROADMAP.md)
+
+## 2026-04-11: Finish backlog-maintenance cleanup by extracting agenda-segmentation maintenance
+
+- Status: Accepted
+- Decision:
+  - The final structural cleanup wave for `pipeline/backlog_maintenance.py` extracts the agenda-segmentation maintenance family into `pipeline/agenda_segmentation_maintenance.py`.
+  - The extracted module owns maintenance timeout overrides, fallback-event capture, heuristic-first segmentation gating, segmentation status persistence, and `segment_catalog_with_mode(...)`.
+  - `pipeline/backlog_maintenance.py` remains the maintenance-facing compatibility facade for both agenda-summary and agenda-segmentation maintenance names.
+  - Existing task, worker, script, and test import paths remain stable during this wave.
+  - Task retry ownership, session ownership, fallback-counter names, segmentation status semantics, and summary-backfill reporting contracts remain unchanged.
+- Why:
+  - After agenda-summary maintenance was extracted, the remaining behavior in `pipeline/backlog_maintenance.py` formed one coherent segmentation maintenance family plus the timeout/log-capture helpers that support it.
+  - Keeping a compatibility facade avoids a broad patch-path migration while still making the domain boundary explicit.
+  - Deferring any redesign of log-derived fallback counters keeps this wave focused on structure rather than behavior.
+- Affected boundaries:
+  - `pipeline/backlog_maintenance.py` is now a compatibility import surface for maintenance helpers.
+  - `pipeline/agenda_segmentation_maintenance.py` owns agenda-segmentation maintenance orchestration.
+  - `pipeline/agenda_summary_maintenance.py` continues to own agenda-summary maintenance orchestration.
+  - `pipeline/agenda_worker.py` and maintenance scripts keep their existing caller-facing contracts.
+- Canonical references:
+  - [ARCHITECTURE.md](../ARCHITECTURE.md)
+  - [docs/ENGINEERING_GUARDRAILS.md](ENGINEERING_GUARDRAILS.md)
+  - [ROADMAP.md](../ROADMAP.md)
