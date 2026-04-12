@@ -5,8 +5,6 @@ from sqlalchemy.exc import SQLAlchemyError
 from typing import Any, Callable
 
 from pipeline.backlog_maintenance import (
-    AGENDA_SUMMARY_MAX_INPUT_CHARS,
-    AGENDA_SUMMARY_MIN_RESERVED_OUTPUT_CHARS,
     build_agenda_summary_input_bundle,
     build_deterministic_agenda_summary_payloads,
     persist_agenda_summary,
@@ -627,8 +625,6 @@ def _run_generate_summary_task_family(
                 .all()
             ),
             include_meeting_context=True,
-            max_input_chars=AGENDA_SUMMARY_MAX_INPUT_CHARS,
-            min_reserved_output_chars=AGENDA_SUMMARY_MIN_RESERVED_OUTPUT_CHARS,
         )
         if agenda_summary_bundle.get("status") != "ready":
             return agenda_summary_bundle
