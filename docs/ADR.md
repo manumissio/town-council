@@ -369,3 +369,29 @@ Use each entry to record:
   - [ARCHITECTURE.md](../ARCHITECTURE.md)
   - [docs/ENGINEERING_GUARDRAILS.md](ENGINEERING_GUARDRAILS.md)
   - [ROADMAP.md](../ROADMAP.md)
+
+## 2026-04-12: Finish semantic-index cleanup with backend extraction
+
+- Status: Accepted
+- Decision:
+  - The final structural cleanup wave for `pipeline/semantic_index.py` extracts backend contracts into `pipeline/semantic_backend_types.py`.
+  - Pgvector embedding build and hybrid rerank implementation move into `pipeline/semantic_pgvector_backend.py`.
+  - FAISS direct vector search, NumPy fallback behavior, and artifact read/write implementation move into `pipeline/semantic_faiss_backend.py`.
+  - Runtime guardrail detection and backend selection helpers move into `pipeline/semantic_backend_runtime.py`.
+  - `pipeline.semantic_index` remains the public compatibility facade and monkeypatch surface for existing callers and tests.
+  - Semantic ranking, source-hash semantics, diagnostics, config defaults, FAISS retirement policy, and runtime guardrails remain unchanged.
+- Why:
+  - The prior semantic cleanup wave deliberately deferred backend extraction to avoid class-identity, singleton, and monkeypatch drift.
+  - Keeping `pipeline.semantic_index` as a facade preserves imports from semantic tasks, semantic service code, scripts, and tests while letting each backend own its implementation details.
+  - Pgvector, FAISS/NumPy, and runtime selection are separate orchestration domains, so extracting them sharpens boundaries without introducing a generic vector-backend framework.
+- Affected boundaries:
+  - `pipeline/semantic_index.py` remains the semantic backend facade and compatibility import surface.
+  - `pipeline/semantic_backend_types.py` owns shared backend contracts and result types.
+  - `pipeline/semantic_pgvector_backend.py` owns pgvector build and hybrid rerank behavior.
+  - `pipeline/semantic_faiss_backend.py` owns FAISS/NumPy artifact and direct vector query behavior.
+  - `pipeline/semantic_backend_runtime.py` owns runtime guardrail detection and backend selection helpers.
+  - `pipeline/semantic_tasks.py` and `semantic_service/main.py` keep their existing public contracts.
+- Canonical references:
+  - [ARCHITECTURE.md](../ARCHITECTURE.md)
+  - [docs/ENGINEERING_GUARDRAILS.md](ENGINEERING_GUARDRAILS.md)
+  - [ROADMAP.md](../ROADMAP.md)
