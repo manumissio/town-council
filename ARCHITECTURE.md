@@ -218,6 +218,7 @@ Primary owners:
 
 Primary owners:
 - `api/main.py`
+- `api/search_routes.py`
 - `pipeline/semantic_index.py`
 - `pipeline/db_migrate.py`
 - `pipeline/migrate_v8.py`
@@ -233,6 +234,7 @@ Primary owners:
 - `pipeline/lineage_service.py`
 - `pipeline/tasks.py`
 - `api/main.py`
+- `api/search_routes.py`
 - `api/search/query_builder.py`
 
 #### Inference Provider Architecture (Stable baseline + Experimental future)
@@ -277,7 +279,8 @@ Primary owners:
   - `pipeline/tasks.py`
   - `api/main.py` (exposed lineage/trend reads)
 - Update semantic retrieval behavior:
-  - `api/main.py` (`/search` and `/search/semantic` paths)
+  - `api/main.py` (FastAPI app facade and compatibility surface)
+  - `api/search_routes.py` (`/search` and `/search/semantic` paths)
   - `pipeline/semantic_index.py`
   - `pipeline/db_migrate.py` (supported additive migration entrypoint)
   - `pipeline/migrate_v8.py` (pgvector bridge/migration path)
@@ -288,7 +291,7 @@ Primary owners:
 - Canonical extraction/content hashing: `pipeline/extraction_service.py`, `pipeline/content_hash.py`
 - Async orchestration and writes: `pipeline/tasks.py`
 - Inference abstraction and provider telemetry: `pipeline/llm.py`, `pipeline/llm_provider.py`, `pipeline/metrics.py`
-- API surface and auth: `api/main.py`, `api/search/query_builder.py`, `api/metrics.py`
+- API surface and auth: `api/main.py`, `api/app_setup.py`, `api/search_routes.py`, `api/search/query_builder.py`, `api/metrics.py`
 - Semantic retrieval and embeddings: `pipeline/semantic_index.py`, `pipeline/models.py`
 - Frontend query/task UX: `frontend/app/page.js`, `frontend/state/search-state.js`, `frontend/components/ResultCard.js`
 - Data model and persistence: `pipeline/models.py`, `pipeline/db_migrate.py`, `pipeline/migrate_v8.py`, `pipeline/migrate_v9.py`
@@ -372,7 +375,7 @@ Owners:
 
 | Contract | Routes | Auth | Async | Primary owners |
 |---|---|---|---|---|
-| Search/read | `GET /search`, `GET /search/semantic`, `GET /catalog/{id}/lineage`, `GET /lineage/{lineage_id}` | none | no | `api/main.py`, `api/search/query_builder.py` |
+| Search/read | `GET /search`, `GET /search/semantic`, `GET /catalog/{id}/lineage`, `GET /lineage/{lineage_id}` | none | no | `api/main.py`, `api/search_routes.py`, `api/search/query_builder.py` |
 | Protected generation writes | `POST /summarize/{catalog_id}`, `POST /segment/{catalog_id}`, `POST /topics/{catalog_id}`, `POST /extract/{catalog_id}`, `POST /votes/{catalog_id}` | `X-API-Key` | yes (task id returned) | `api/main.py`, `pipeline/tasks.py` |
 | Task lifecycle | `GET /tasks/{task_id}` | none | n/a | `api/main.py`, Celery task backend |
 | Derived status/readability | `GET /catalog/{catalog_id}/derived_status`, `GET /catalog/{catalog_id}/content` | `X-API-Key` | no | `api/main.py` |

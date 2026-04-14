@@ -8,6 +8,28 @@ Use each entry to record:
 - the affected boundary or contract
 - links to the canonical docs that carry the ongoing operational or architecture detail
 
+## 2026-04-13: Start API main cleanup with lifecycle and search route boundaries
+
+- Status: Accepted
+- Decision:
+  - `api/main.py` remains the FastAPI app entrypoint and compatibility facade.
+  - API lifecycle, database dependency setup, API-key verification, and limiter setup move behind `api/app_setup.py`.
+  - Search, semantic proxy, metadata, and trends routes move behind `api/search_routes.py`.
+  - Existing `api.main` import and monkeypatch seams remain intentionally available during this wave.
+- Why:
+  - `api/main.py` had become the next large mixed-responsibility runtime module after the semantic backend extraction.
+  - Search, semantic proxy, metadata, and trends form a coherent read-route family with shared Meilisearch/filter behavior.
+  - Preserving `api.main` as a facade keeps existing tests and callers stable while narrowing implementation ownership.
+- Affected boundaries:
+  - `api/main.py` remains the ASGI app and route-wiring boundary.
+  - `api/app_setup.py` owns lifecycle/session/auth/limiter setup.
+  - `api/search_routes.py` owns search, semantic proxy, metadata, and trends routes.
+  - Task enqueue/status, lineage, people, catalog, and issue-reporting endpoints remain deferred.
+- Canonical references:
+  - [ARCHITECTURE.md](../ARCHITECTURE.md)
+  - [docs/OPERATIONS.md](OPERATIONS.md)
+  - [ROADMAP.md](../ROADMAP.md)
+
 ## 2026-04-06: Use seam creation before the next model-coupled typing wave
 
 - Status: Accepted
