@@ -66,9 +66,12 @@ def _public_semantic_backend_engine(engine_name: str | None) -> str | None:
     return normalized_engine if normalized_engine in SEMANTIC_BACKEND_HEALTH_ENGINES else None
 
 
-def _public_semantic_backend_health() -> dict[str, Any]:
+def _public_semantic_backend_health(backend_health: dict[str, Any]) -> dict[str, Any]:
     # The backend payload may contain exception details; build a fresh public shape instead of echoing it.
-    return {"status": SEMANTIC_BACKEND_HEALTH_OK_STATUS, "engine": _public_semantic_backend_engine(SEMANTIC_BACKEND)}
+    return {
+        "status": SEMANTIC_BACKEND_HEALTH_OK_STATUS,
+        "engine": _public_semantic_backend_engine(backend_health.get("engine")),
+    }
 
 
 def _semantic_backend_engine_for_diagnostics(backend: Any) -> str | None:
@@ -80,7 +83,7 @@ def _semantic_backend_engine_for_diagnostics(backend: Any) -> str | None:
     if backend_health.get("status") != "ok":
         logger.warning("semantic backend health diagnostic returned unhealthy status: %s", backend_health)
         return None
-    return _public_semantic_backend_engine(SEMANTIC_BACKEND)
+    return _public_semantic_backend_engine(backend_health.get("engine"))
 
 
 def validate_date_format(date_str: str):
@@ -384,7 +387,7 @@ def health_check(db: SQLAlchemySession = Depends(get_db)):
             "status": "healthy",
             "database": "connected",
             "semantic_enabled": True,
-            "backend": _public_semantic_backend_health(),
+            "backend": _public_semantic_backend_health(backend_health),
         }
     except HTTPException:
         raise
