@@ -53,12 +53,35 @@ def test_semantic_service_health_hides_backend_error_detail(mocker):
         del app.dependency_overrides[get_db]
 
 
-def test_semantic_service_health_does_not_echo_backend_health_engine(mocker):
+def test_semantic_service_health_reports_allowlisted_runtime_engine(mocker):
     db = MagicMock()
     app.dependency_overrides[get_db] = lambda: db
     db.execute.return_value = 1
     mocker.patch("semantic_service.main.SEMANTIC_ENABLED", True)
     mocker.patch("semantic_service.main.SEMANTIC_BACKEND", "faiss")
+    mocker.patch("semantic_service.main.get_semantic_backend").return_value.health.return_value = {
+        "status": "ok",
+        "engine": "numpy",
+        "detail": "/secret/path/index.faiss",
+    }
+    client = TestClient(app)
+    try:
+        resp = client.get("/health")
+        assert resp.status_code == 200
+        response_text = resp.text
+        payload = resp.json()
+        assert payload["backend"] == {"status": "ok", "engine": "numpy"}
+        assert "/secret/path" not in response_text
+        assert "detail" not in payload["backend"]
+    finally:
+        del app.dependency_overrides[get_db]
+
+
+def test_semantic_service_health_does_not_echo_unknown_backend_engine(mocker):
+    db = MagicMock()
+    app.dependency_overrides[get_db] = lambda: db
+    db.execute.return_value = 1
+    mocker.patch("semantic_service.main.SEMANTIC_ENABLED", True)
     mocker.patch("semantic_service.main.get_semantic_backend").return_value.health.return_value = {
         "status": "ok",
         "engine": "secret-engine",
@@ -69,7 +92,7 @@ def test_semantic_service_health_does_not_echo_backend_health_engine(mocker):
         assert resp.status_code == 200
         response_text = resp.text
         payload = resp.json()
-        assert payload["backend"] == {"status": "ok", "engine": "faiss"}
+        assert payload["backend"] == {"status": "ok", "engine": None}
         assert "secret-engine" not in response_text
     finally:
         del app.dependency_overrides[get_db]
@@ -124,6 +147,43 @@ def test_semantic_search_hides_backend_health_detail_from_diagnostics(mocker):
         response_text = resp.text
         payload = resp.json()
         assert payload["semantic_diagnostics"]["engine"] is None
+        assert "/secret/path" not in response_text
+        assert "detail" not in response_text
+    finally:
+        del app.dependency_overrides[get_db]
+
+
+def test_semantic_search_reports_allowlisted_runtime_engine(mocker):
+    db = MagicMock()
+    app.dependency_overrides[get_db] = lambda: db
+    mocker.patch("semantic_service.main.SEMANTIC_ENABLED", True)
+    mocker.patch("semantic_service.main.SEMANTIC_BACKEND", "faiss")
+    backend = MagicMock()
+    backend.query.return_value = [
+        SemanticCandidate(
+            row_id=1,
+            score=0.9,
+            metadata={"result_type": "meeting", "db_id": 10, "catalog_id": 101},
+        )
+    ]
+    backend.health.return_value = {
+        "status": "ok",
+        "engine": "numpy",
+        "detail": "/secret/path/metadata.json",
+    }
+    mocker.patch("semantic_service.main.get_semantic_backend", return_value=backend)
+    mocker.patch(
+        "semantic_service.main._hydrate_meeting_hits",
+        return_value=[{"id": "doc_10", "db_id": 10, "result_type": "meeting", "event_name": "Meeting"}],
+    )
+    mocker.patch("semantic_service.main._hydrate_agenda_hits", return_value=[])
+    client = TestClient(app)
+    try:
+        resp = client.get("/search/semantic?q=zoning")
+        assert resp.status_code == 200
+        response_text = resp.text
+        payload = resp.json()
+        assert payload["semantic_diagnostics"]["engine"] == "numpy"
         assert "/secret/path" not in response_text
         assert "detail" not in response_text
     finally:
