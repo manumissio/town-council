@@ -40,14 +40,8 @@ app = FastAPI(title="Town Council Semantic Service")
 
 SEMANTIC_BACKEND_UNHEALTHY_DETAIL = "Semantic backend unhealthy"
 SEMANTIC_SERVICE_MISCONFIGURED_DETAIL = "Semantic service is misconfigured"
-SEMANTIC_HEALTH_SAFE_BACKEND_KEYS = (
-    "status",
-    "row_count",
-    "model_name",
-    "built_at",
-    "engine",
-    "artifacts",
-)
+SEMANTIC_BACKEND_HEALTH_OK_STATUS = "ok"
+SEMANTIC_BACKEND_HEALTH_ENGINES = {"faiss", "numpy", "pgvector"}
 SEMANTIC_HEALTH_DIAGNOSTIC_ERRORS = (
     FileNotFoundError,
     OSError,
@@ -65,8 +59,17 @@ def get_db():
         db.close()
 
 
-def _safe_semantic_backend_health(backend_health: dict[str, Any]) -> dict[str, Any]:
-    return {key: backend_health[key] for key in SEMANTIC_HEALTH_SAFE_BACKEND_KEYS if key in backend_health}
+def _semantic_backend_health_engine(backend_health: dict[str, Any]) -> str | None:
+    engine_name = backend_health.get("engine")
+    if not isinstance(engine_name, str):
+        return None
+    normalized_engine = engine_name.lower()
+    return normalized_engine if normalized_engine in SEMANTIC_BACKEND_HEALTH_ENGINES else None
+
+
+def _public_semantic_backend_health(backend_health: dict[str, Any]) -> dict[str, Any]:
+    # The backend payload may contain exception details; build a fresh public shape instead of echoing it.
+    return {"status": SEMANTIC_BACKEND_HEALTH_OK_STATUS, "engine": _semantic_backend_health_engine(backend_health)}
 
 
 def _semantic_backend_engine_for_diagnostics(backend: Any) -> str | None:
@@ -78,8 +81,7 @@ def _semantic_backend_engine_for_diagnostics(backend: Any) -> str | None:
     if backend_health.get("status") != "ok":
         logger.warning("semantic backend health diagnostic returned unhealthy status: %s", backend_health)
         return None
-    engine_name = backend_health.get("engine")
-    return str(engine_name) if engine_name else None
+    return _semantic_backend_health_engine(backend_health)
 
 
 def validate_date_format(date_str: str):
@@ -383,7 +385,7 @@ def health_check(db: SQLAlchemySession = Depends(get_db)):
             "status": "healthy",
             "database": "connected",
             "semantic_enabled": True,
-            "backend": _safe_semantic_backend_health(backend_health),
+            "backend": _public_semantic_backend_health(backend_health),
         }
     except HTTPException:
         raise
