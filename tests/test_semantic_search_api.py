@@ -3,7 +3,9 @@ from unittest.mock import MagicMock
 from fastapi import HTTPException
 from fastapi.testclient import TestClient
 
+import api.search_routes as search_routes
 from api.main import app, get_db
+
 VALID_KEY = "dev_secret_key_change_me"
 
 
@@ -43,3 +45,18 @@ def test_semantic_search_missing_artifacts_returns_503(mocker):
     resp = client.get("/search/semantic?q=zoning", headers={"X-API-Key": VALID_KEY})
     assert resp.status_code == 503
     assert "reindex_semantic.py" in resp.json()["detail"]
+
+
+def test_semantic_service_error_forwards_non_dict_json_detail(mocker):
+    response = MagicMock()
+    response.status_code = 502
+    response.json.return_value = ["semantic", "error"]
+    mocker.patch("api.search_routes.httpx.get", return_value=response)
+
+    try:
+        search_routes._semantic_service_get_json("/search/semantic", {"q": "zoning"})
+    except HTTPException as exc:
+        assert exc.status_code == 502
+        assert exc.detail == ["semantic", "error"]
+    else:
+        raise AssertionError("Expected semantic service HTTPException")
