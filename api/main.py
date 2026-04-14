@@ -31,6 +31,7 @@ from api.search_routes import (
     _semantic_service_get_json as _semantic_service_get_json,
     _semantic_service_healthcheck as _semantic_service_healthcheck,
     client as client,
+    normalize_city_filter as normalize_city_filter,
     router as search_router,
     search_documents as search_documents,
     search_documents_semantic as search_documents_semantic,

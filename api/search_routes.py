@@ -273,7 +273,7 @@ def _semantic_service_get_json(path: str, params: dict[str, Any]) -> dict[str, A
     if response.status_code >= 400:
         try:
             payload = response.json()
-            detail = payload.get("detail", payload)
+            detail = payload.get("detail", payload) if isinstance(payload, dict) else payload
         except ValueError:
             detail = response.text or "Semantic service error"
         raise HTTPException(status_code=response.status_code, detail=detail)
