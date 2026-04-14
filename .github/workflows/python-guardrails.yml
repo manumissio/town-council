@@ -29,6 +29,9 @@ on:
       - "mypy.ini"
       - "ruff.toml"
 
+permissions:
+  contents: read
+
 jobs:
   python-guardrails:
     runs-on: ubuntu-latest
