@@ -38,6 +38,18 @@ SessionLocal = sessionmaker(bind=engine, autoflush=False, autocommit=False)
 
 app = FastAPI(title="Town Council Semantic Service")
 
+SEMANTIC_BACKEND_UNHEALTHY_DETAIL = "Semantic backend unhealthy"
+SEMANTIC_SERVICE_MISCONFIGURED_DETAIL = "Semantic service is misconfigured"
+SEMANTIC_BACKEND_HEALTH_OK_STATUS = "ok"
+SEMANTIC_BACKEND_HEALTH_ENGINES = {"faiss", "numpy", "pgvector"}
+SEMANTIC_HEALTH_DIAGNOSTIC_ERRORS = (
+    FileNotFoundError,
+    OSError,
+    RuntimeError,
+    SemanticConfigError,
+    ValueError,
+)
+
 
 def get_db():
     db = SessionLocal()
@@ -45,6 +57,30 @@ def get_db():
         yield db
     finally:
         db.close()
+
+
+def _public_semantic_backend_engine(engine_name: str | None) -> str | None:
+    if engine_name is None:
+        return None
+    normalized_engine = engine_name.lower()
+    return normalized_engine if normalized_engine in SEMANTIC_BACKEND_HEALTH_ENGINES else None
+
+
+def _public_semantic_backend_health() -> dict[str, Any]:
+    # The backend payload may contain exception details; build a fresh public shape instead of echoing it.
+    return {"status": SEMANTIC_BACKEND_HEALTH_OK_STATUS, "engine": _public_semantic_backend_engine(SEMANTIC_BACKEND)}
+
+
+def _semantic_backend_engine_for_diagnostics(backend: Any) -> str | None:
+    try:
+        backend_health = backend.health()
+    except SEMANTIC_HEALTH_DIAGNOSTIC_ERRORS as exc:
+        logger.warning("semantic backend health diagnostic failed: %s", exc)
+        return None
+    if backend_health.get("status") != "ok":
+        logger.warning("semantic backend health diagnostic returned unhealthy status: %s", backend_health)
+        return None
+    return _public_semantic_backend_engine(SEMANTIC_BACKEND)
 
 
 def validate_date_format(date_str: str):
@@ -168,7 +204,7 @@ def _lexical_hit_to_candidate(hit: dict, order_idx: int):
             if raw_id.startswith("doc_"):
                 try:
                     db_id = int(raw_id.split("_", 1)[1])
-                except Exception:
+                except (IndexError, ValueError):
                     db_id = None
         catalog_id = hit.get("catalog_id")
         if db_id is None or catalog_id is None:
@@ -191,7 +227,7 @@ def _lexical_hit_to_candidate(hit: dict, order_idx: int):
             if raw_id.startswith("item_"):
                 try:
                     db_id = int(raw_id.split("_", 1)[1])
-                except Exception:
+                except (IndexError, ValueError):
                     db_id = None
         if db_id is None:
             return None
@@ -342,8 +378,14 @@ def health_check(db: SQLAlchemySession = Depends(get_db)):
             return {"status": "healthy", "database": "connected", "semantic_enabled": False}
         backend_health = get_semantic_backend().health()
         if backend_health.get("status") != "ok":
-            raise HTTPException(status_code=503, detail=backend_health)
-        return {"status": "healthy", "database": "connected", "semantic_enabled": True, "backend": backend_health}
+            logger.warning("semantic backend health returned unhealthy status: %s", backend_health)
+            raise HTTPException(status_code=503, detail=SEMANTIC_BACKEND_UNHEALTHY_DETAIL)
+        return {
+            "status": "healthy",
+            "database": "connected",
+            "semantic_enabled": True,
+            "backend": _public_semantic_backend_health(),
+        }
     except HTTPException:
         raise
     except Exception as exc:
@@ -481,7 +523,8 @@ def search_documents_semantic(
             ),
         ) from exc
     except SemanticConfigError as exc:
-        raise HTTPException(status_code=503, detail=str(exc)) from exc
+        logger.error("semantic search configuration failed: %s", exc)
+        raise HTTPException(status_code=503, detail=SEMANTIC_SERVICE_MISCONFIGURED_DETAIL) from exc
     except Exception as exc:
         logger.error("semantic search failed: %s", exc)
         raise HTTPException(status_code=500, detail="Internal semantic search error") from exc
@@ -501,8 +544,7 @@ def search_documents_semantic(
         if hit:
             hits.append(hit)
     elapsed_ms = round((time.perf_counter() - t0) * 1000.0, 2)
-    backend_health = backend.health()
-    engine = backend_health.get("engine")
+    engine = _semantic_backend_engine_for_diagnostics(backend)
     return {
         "hits": hits,
         "estimatedTotalHits": len(deduped),
