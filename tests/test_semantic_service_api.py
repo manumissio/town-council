@@ -53,11 +53,12 @@ def test_semantic_service_health_hides_backend_error_detail(mocker):
         del app.dependency_overrides[get_db]
 
 
-def test_semantic_service_health_does_not_echo_unknown_backend_engine(mocker):
+def test_semantic_service_health_does_not_echo_backend_health_engine(mocker):
     db = MagicMock()
     app.dependency_overrides[get_db] = lambda: db
     db.execute.return_value = 1
     mocker.patch("semantic_service.main.SEMANTIC_ENABLED", True)
+    mocker.patch("semantic_service.main.SEMANTIC_BACKEND", "faiss")
     mocker.patch("semantic_service.main.get_semantic_backend").return_value.health.return_value = {
         "status": "ok",
         "engine": "secret-engine",
@@ -68,7 +69,7 @@ def test_semantic_service_health_does_not_echo_unknown_backend_engine(mocker):
         assert resp.status_code == 200
         response_text = resp.text
         payload = resp.json()
-        assert payload["backend"] == {"status": "ok", "engine": None}
+        assert payload["backend"] == {"status": "ok", "engine": "faiss"}
         assert "secret-engine" not in response_text
     finally:
         del app.dependency_overrides[get_db]
