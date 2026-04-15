@@ -82,6 +82,27 @@ def test_async_summarization_returns_503_when_enqueue_fails(mocker):
     del app.dependency_overrides[get_db]
 
 
+def test_async_summarization_returns_503_when_enqueue_times_out(mocker):
+    mock_catalog = MagicMock()
+    mock_catalog.id = 1
+    mock_catalog.content = "City council meeting discussed budget updates and adopted multiple motions after public comment."
+    mock_catalog.summary = None
+
+    mock_db = MagicMock()
+    mock_db.get.return_value = mock_catalog
+    app.dependency_overrides[get_db] = lambda: mock_db
+
+    with patch("api.main.generate_summary_task") as mock_generate_task:
+        mock_generate_task.delay.side_effect = TimeoutError("broker timed out")
+
+        response = client.post("/summarize/1", headers={"X-API-Key": VALID_KEY})
+
+        assert response.status_code == 503
+        assert response.json()["detail"] == "Task queue unavailable"
+
+    del app.dependency_overrides[get_db]
+
+
 def test_async_summarization_returns_503_when_task_id_missing(mocker):
     mock_catalog = MagicMock()
     mock_catalog.id = 1
@@ -103,6 +124,28 @@ def test_async_summarization_returns_503_when_task_id_missing(mocker):
         assert response.json()["detail"] == "Task queue unavailable"
 
     del app.dependency_overrides[get_db]
+
+
+def test_async_summarization_does_not_mask_unexpected_enqueue_error(mocker):
+    mock_catalog = MagicMock()
+    mock_catalog.id = 1
+    mock_catalog.content = "City council meeting discussed budget updates and adopted multiple motions after public comment."
+    mock_catalog.summary = None
+
+    mock_db = MagicMock()
+    mock_db.get.return_value = mock_catalog
+    app.dependency_overrides[get_db] = lambda: mock_db
+
+    with patch("api.main.generate_summary_task") as mock_generate_task:
+        mock_generate_task.delay.side_effect = ValueError("programmer error")
+
+        response = client.post("/summarize/1", headers={"X-API-Key": VALID_KEY})
+
+        assert response.status_code == 500
+        assert response.json()["detail"] == "Internal Server Error. Our team has been notified."
+
+    del app.dependency_overrides[get_db]
+
 
 def test_task_status_polling():
     """

@@ -1,6 +1,5 @@
 import logging
 import os
-import uuid
 from contextlib import asynccontextmanager
 from typing import Any, List, Optional
 
@@ -37,11 +36,21 @@ from api.search_routes import (
     search_documents_semantic as search_documents_semantic,
     validate_date_format as validate_date_format,
 )
+from api.task_routes import (
+    AsyncResult as AsyncResult,
+    _CeleryTaskProxy as _CeleryTaskProxy,
+    _enqueue_task as _enqueue_task,
+    build_task_router,
+    extract_text_task as extract_text_task,
+    extract_votes_task as extract_votes_task,
+    generate_summary_task as generate_summary_task,
+    generate_topics_task as generate_topics_task,
+    segment_agenda_task as segment_agenda_task,
+)
 from pipeline.config import (
     SEMANTIC_ENABLED as SEMANTIC_ENABLED,
     FEATURE_TRENDS_DASHBOARD as FEATURE_TRENDS_DASHBOARD,
 )
-from pipeline.celery_app import app as celery_app
 
 # Metrics are internal-only and are scraped by Prometheus from the Docker network.
 from api.metrics import instrument_app
@@ -62,9 +71,9 @@ agenda_items_look_low_quality = None
 from pipeline.models import Document, Event, Place, Catalog, Person, AgendaItem, DataIssue, IssueType, Membership, Organization
 from pipeline.content_hash import compute_content_hash
 from pipeline.document_kinds import normalize_summary_doc_kind
-from pipeline.summary_freshness import compute_agenda_items_hash, is_summary_fresh, is_summary_stale
+from pipeline.summary_freshness import compute_agenda_items_hash, is_summary_stale
 from pipeline.summary_quality import analyze_source_text, is_source_summarizable, is_source_topicable, build_low_signal_message
-from pipeline.agenda_resolver import agenda_items_look_low_quality
+from pipeline.agenda_resolver import agenda_items_look_low_quality as agenda_items_look_low_quality
 
 
 def _sync_app_setup_from_facade() -> None:
@@ -186,6 +195,12 @@ def read_root():
     return {"status": "ok", "message": "Town Council API is running. Go to /docs for the Swagger UI."}
 
 app.include_router(search_router)
+task_router = build_task_router(
+    limiter=limiter,
+    get_db_dependency=get_db,
+    verify_api_key_dependency=verify_api_key,
+)
+app.include_router(task_router)
 
 
 def _lineage_rows(
@@ -387,198 +402,6 @@ def get_catalogs_batch(
         })
     return results
 
-from celery.result import AsyncResult
-from kombu.exceptions import KombuError
-
-
-class _CeleryTaskProxy:
-    """
-    Keep the API enqueue surface lightweight while preserving test patch points.
-    """
-
-    def __init__(self, task_name: str):
-        self.name = task_name
-
-    def delay(self, *args, **kwargs):
-        return celery_app.send_task(self.name, args=args, kwargs=kwargs)
-
-
-generate_summary_task = _CeleryTaskProxy("pipeline.tasks.generate_summary_task")
-generate_topics_task = _CeleryTaskProxy("pipeline.enrichment_tasks.generate_topics_task")
-segment_agenda_task = _CeleryTaskProxy("pipeline.tasks.segment_agenda_task")
-extract_votes_task = _CeleryTaskProxy("pipeline.tasks.extract_votes_task")
-extract_text_task = _CeleryTaskProxy("pipeline.tasks.extract_text_task")
-
-
-def _enqueue_task(task_name: str, task_callable, *args, **kwargs):
-    """
-    Normalize broker/enqueue failures at the API boundary.
-
-    Why this exists:
-    The API can be healthy enough to answer /health while the Celery broker is
-    degraded. In that case we want an explicit 503 instead of a generic 500 or
-    a response body without task_id.
-    """
-    try:
-        task = task_callable.delay(*args, **kwargs)
-    except (KombuError, OSError, ConnectionError, TimeoutError) as exc:
-        logger.error(
-            "Task enqueue failed",
-            extra={"task_name": task_name, "failure_class": exc.__class__.__name__},
-            exc_info=True,
-        )
-        raise HTTPException(status_code=503, detail="Task queue unavailable") from exc
-    except Exception as exc:
-        logger.error(
-            "Task enqueue failed",
-            extra={"task_name": task_name, "failure_class": exc.__class__.__name__},
-            exc_info=True,
-        )
-        raise HTTPException(status_code=503, detail="Task queue unavailable") from exc
-
-    task_id = str(getattr(task, "id", "") or "").strip()
-    if not task_id:
-        logger.error(
-            "Task enqueue returned missing task id",
-            extra={"task_name": task_name, "failure_class": "missing_task_id"},
-        )
-        raise HTTPException(status_code=503, detail="Task queue unavailable")
-    return task_id
-
-
-@app.post("/summarize/{catalog_id}", dependencies=[Depends(verify_api_key)])
-@limiter.limit("20/minute") # Higher limit since it's non-blocking
-def summarize_document(
-    request: Request,
-    catalog_id: int = Path(..., ge=1),
-    force: bool = Query(
-        False,
-        description=(
-            "Force regeneration even if a cached summary exists. "
-            "Useful after summarization logic changes or when cached data is known-bad."
-        ),
-    ),
-    db: SQLAlchemySession = Depends(get_db)
-):
-    """
-    Async AI: Requests a summary generation.
-    Returns a 'Task ID' immediately. Use GET /tasks/{id} to check progress.
-    """
-    catalog = db.get(Catalog, catalog_id)
-    if not catalog:
-        raise HTTPException(status_code=404, detail="Document not found")
-    if not catalog.content:
-        raise HTTPException(status_code=400, detail="Document has no text to summarize")
-
-    # Block generation when extracted text is too weak to support reliable output.
-    quality = analyze_source_text(catalog.content)
-    if not is_source_summarizable(quality):
-        return {
-            "status": "blocked_low_signal",
-            "reason": build_low_signal_message(quality),
-        }
-
-    doc_kind, content_hash, agenda_items_hash = _summary_doc_kind_and_hashes(db, catalog_id, catalog)
-    is_fresh = is_summary_fresh(
-        doc_kind,
-        summary=catalog.summary,
-        summary_source_hash=catalog.summary_source_hash,
-        content_hash=content_hash,
-        agenda_items_hash=agenda_items_hash,
-    )
-
-    if (not force) and is_fresh:
-        return {"summary": catalog.summary, "status": "cached"}
-    if (not force) and catalog.summary and not is_fresh:
-        return {"summary": catalog.summary, "status": "stale"}
-
-    # THE 'MAILBOX' (Celery):
-    # We don't make the user wait while the AI writes a summary.
-    # Instead, we put a 'task' in the mailbox and tell the user: 
-    # "We're on it! Here is your tracking number."
-    task_id = _enqueue_task("generate_summary_task", generate_summary_task, catalog_id, force=force)
-    
-    return {
-        "status": "processing",
-        "task_id": task_id,
-        "poll_url": f"/tasks/{task_id}"
-    }
-
-@app.post("/segment/{catalog_id}", dependencies=[Depends(verify_api_key)])
-@limiter.limit("20/minute")
-def segment_agenda(
-    request: Request,
-    catalog_id: int = Path(..., ge=1),
-    force: bool = Query(
-        False,
-        description=(
-            "Force regeneration even if cached items exist. "
-            "Useful after segmentation logic changes or when cached data is known-bad."
-        ),
-    ),
-    db: SQLAlchemySession = Depends(get_db)
-):
-    """
-    Async AI: Requests agenda segmentation.
-    Returns a 'Task ID' immediately.
-    """
-    catalog = db.get(Catalog, catalog_id)
-    if not catalog:
-        raise HTTPException(status_code=404, detail="Document not found")
-
-    # Check cache
-    existing_items = db.query(AgendaItem).filter_by(catalog_id=catalog_id).order_by(AgendaItem.order).all()
-    # The resolver may evolve over time. When it does, we sometimes need a way to
-    # refresh previously cached agenda rows. `force=true` is that escape hatch.
-    if not force and existing_items and agenda_items_look_low_quality and not agenda_items_look_low_quality(existing_items):
-        return {"status": "cached", "items": existing_items}
-    if not force and existing_items:
-        logger.info(
-            f"Agenda cache for catalog_id={catalog_id} looks low quality; regenerating asynchronously."
-        )
-    if force:
-        logger.info(f"Force-regenerating agenda cache for catalog_id={catalog_id}.")
-
-    # Dispatch Task
-    task_id = _enqueue_task("segment_agenda_task", segment_agenda_task, catalog_id)
-    
-    return {
-        "status": "processing",
-        "task_id": task_id,
-        "poll_url": f"/tasks/{task_id}"
-    }
-
-
-@app.post("/votes/{catalog_id}", dependencies=[Depends(verify_api_key)])
-@limiter.limit("20/minute")
-def extract_votes(
-    request: Request,
-    catalog_id: int = Path(..., ge=1),
-    force: bool = Query(
-        False,
-        description=(
-            "Force vote extraction even when the feature flag is disabled or items already have "
-            "high-confidence LLM vote data."
-        ),
-    ),
-    db: SQLAlchemySession = Depends(get_db),
-):
-    """
-    Async AI: Requests vote/outcome extraction for segmented agenda items.
-    Returns a Task ID immediately.
-    """
-    catalog = db.get(Catalog, catalog_id)
-    if not catalog:
-        raise HTTPException(status_code=404, detail="Document not found")
-
-    task_id = _enqueue_task("extract_votes_task", extract_votes_task, catalog_id, force=force)
-    return {
-        "status": "processing",
-        "task_id": task_id,
-        "poll_url": f"/tasks/{task_id}",
-    }
-
-
 @app.get("/catalog/{catalog_id}/content", dependencies=[Depends(verify_api_key)])
 def get_catalog_content(
     catalog_id: int = Path(..., ge=1),
@@ -686,130 +509,6 @@ def get_catalog_derived_status(
         "agenda_segmentation_error": agenda_segmentation_error,
     }
 
-
-@app.post("/topics/{catalog_id}", dependencies=[Depends(verify_api_key)])
-@limiter.limit("10/minute")
-def generate_topics_for_catalog(
-    request: Request,
-    catalog_id: int = Path(..., ge=1),
-    force: bool = Query(
-        False,
-        description=(
-            "Force regeneration even if cached topics exist. "
-            "Useful after extraction changes or when cached topics are known-bad."
-        ),
-    ),
-    db: SQLAlchemySession = Depends(get_db),
-):
-    """
-    Async topic tagging: requests topic generation for one catalog.
-
-    We keep regeneration explicit (no automatic re-tagging after extraction),
-    but we also avoid serving "cached" topics when they are stale.
-    """
-    catalog = db.get(Catalog, catalog_id)
-    if not catalog:
-        raise HTTPException(status_code=404, detail="Document not found")
-
-    if not catalog.content:
-        raise HTTPException(status_code=400, detail="Document has no text to tag")
-
-    quality = analyze_source_text(catalog.content)
-    if not is_source_topicable(quality):
-        return {
-            "status": "blocked_low_signal",
-            "reason": build_low_signal_message(quality),
-            "topics": [],
-        }
-
-    content_hash = catalog.content_hash or (compute_content_hash(catalog.content) if catalog.content else None)
-    is_fresh = bool(
-        catalog.topics is not None
-        and content_hash
-        and catalog.topics_source_hash
-        and catalog.topics_source_hash == content_hash
-    )
-    if (not force) and is_fresh:
-        return {"status": "cached", "topics": catalog.topics or []}
-    if (not force) and catalog.topics is not None and not is_fresh:
-        return {"status": "stale", "topics": catalog.topics or []}
-
-    task_id = _enqueue_task("generate_topics_task", generate_topics_task, catalog_id, force=force)
-    return {
-        "status": "processing",
-        "task_id": task_id,
-        "poll_url": f"/tasks/{task_id}",
-    }
-
-
-@app.post("/extract/{catalog_id}", dependencies=[Depends(verify_api_key)])
-@limiter.limit("5/minute")
-def extract_catalog_text(
-    request: Request,
-    catalog_id: int = Path(..., ge=1),
-    force: bool = Query(
-        False,
-        description="Force re-extraction even if cached extracted text exists.",
-    ),
-    ocr_fallback: bool = Query(
-        False,
-        description="Allow OCR fallback when the PDF has little/no selectable text (slower).",
-    ),
-    db: SQLAlchemySession = Depends(get_db),
-):
-    """
-    Async extraction: re-extract one catalog's text from its already-downloaded file.
-
-    We do not download here. If the file isn't present on disk, the task fails fast.
-    """
-    catalog = db.get(Catalog, catalog_id)
-    if not catalog:
-        raise HTTPException(status_code=404, detail="Document not found")
-
-    # Cheap cache: if we already have substantial text, don't re-extract unless forced.
-    if (not force) and catalog.content and len(catalog.content.strip()) >= 800:
-        return {"status": "cached", "catalog_id": catalog_id, "chars": len(catalog.content)}
-
-    task_id = _enqueue_task(
-        "extract_text_task",
-        extract_text_task,
-        catalog_id,
-        force=force,
-        ocr_fallback=ocr_fallback,
-    )
-    return {
-        "status": "processing",
-        "task_id": task_id,
-        "poll_url": f"/tasks/{task_id}",
-    }
-
-@app.get("/tasks/{task_id}")
-def get_task_status(task_id: str):
-    """
-    Check the status of a background AI task.
-    """
-    try:
-        uuid.UUID(task_id)
-    except (ValueError, TypeError):
-        logger.warning("Invalid task status request", extra={"task_id": task_id})
-        raise HTTPException(status_code=400, detail="Invalid task_id format")
-
-    task = AsyncResult(task_id, app=celery_app)
-    
-    if task.ready():
-        result = task.result
-        # Handle errors propagated from the worker
-        if isinstance(result, Exception):
-            return {"status": "failed", "error": str(result)}
-        elif isinstance(result, dict) and "error" in result:
-            return {"status": "failed", "error": result["error"]}
-            
-        return {
-            "status": "complete",
-            "result": result
-        }
-    else:
-        return {"status": "processing"}
 
 @app.get("/stats")
 def get_stats():
