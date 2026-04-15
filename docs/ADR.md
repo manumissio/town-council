@@ -8,6 +8,27 @@ Use each entry to record:
 - the affected boundary or contract
 - links to the canonical docs that carry the ongoing operational or architecture detail
 
+## 2026-04-15: Extract API task dispatch routes behind the main facade
+
+- Status: Accepted
+- Decision:
+  - `api/main.py` remains the FastAPI app entrypoint and compatibility facade.
+  - Protected task-dispatch routes and task-status polling move behind `api/task_routes.py`.
+  - Existing `api.main` task proxy, `AsyncResult`, dependency override, and monkeypatch seams remain intentionally available during this wave.
+  - Catalog content/status reads, lineage, people, stats, and issue-reporting routes remain deferred.
+- Why:
+  - After the lifecycle/search cleanup wave, task dispatch was the largest coherent route family still embedded in `api/main.py`.
+  - The task routes share one boundary: validating cached/precondition state, enqueueing Celery work, and returning task polling details.
+  - Keeping `api.main` as the facade preserves current tests and API consumers while narrowing implementation ownership.
+- Affected boundaries:
+  - `api/main.py` remains the ASGI app and route-wiring boundary.
+  - `api/task_routes.py` owns protected generation/extraction enqueue routes and `/tasks/{task_id}`.
+  - `pipeline/tasks.py` and `pipeline/enrichment_tasks.py` keep owning worker execution, retries, sessions, and persistence.
+- Canonical references:
+  - [ARCHITECTURE.md](../ARCHITECTURE.md)
+  - [docs/OPERATIONS.md](OPERATIONS.md)
+  - [ROADMAP.md](../ROADMAP.md)
+
 ## 2026-04-13: Start API main cleanup with lifecycle and search route boundaries
 
 - Status: Accepted
