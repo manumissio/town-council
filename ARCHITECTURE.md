@@ -271,7 +271,8 @@ Primary owners:
 ### Entry Points by Task
 
 - Add or modify async generation endpoint:
-  - `api/main.py` (route + task dispatch)
+  - `api/main.py` (app facade and compatibility surface)
+  - `api/task_routes.py` (route + task dispatch)
   - `pipeline/tasks.py` (Celery task logic)
   - `frontend/components/ResultCard.js` (polling/status UI)
 - Adjust lineage recompute behavior:
@@ -291,7 +292,7 @@ Primary owners:
 - Canonical extraction/content hashing: `pipeline/extraction_service.py`, `pipeline/content_hash.py`
 - Async orchestration and writes: `pipeline/tasks.py`
 - Inference abstraction and provider telemetry: `pipeline/llm.py`, `pipeline/llm_provider.py`, `pipeline/metrics.py`
-- API surface and auth: `api/main.py`, `api/app_setup.py`, `api/search_routes.py`, `api/search/query_builder.py`, `api/metrics.py`
+- API surface and auth: `api/main.py`, `api/app_setup.py`, `api/search_routes.py`, `api/task_routes.py`, `api/search/query_builder.py`, `api/metrics.py`
 - Semantic retrieval and embeddings: `pipeline/semantic_index.py`, `pipeline/models.py`
 - Frontend query/task UX: `frontend/app/page.js`, `frontend/state/search-state.js`, `frontend/components/ResultCard.js`
 - Data model and persistence: `pipeline/models.py`, `pipeline/db_migrate.py`, `pipeline/migrate_v8.py`, `pipeline/migrate_v9.py`
@@ -326,7 +327,7 @@ Primary owners:
 
 ### Extension Points and Safe Customization Seams
 
-- Add new generation capability: add route in `api/main.py` + task in `pipeline/tasks.py` + UI task-state wiring.
+- Add new generation capability: add route in `api/task_routes.py` + task in `pipeline/tasks.py` + UI task-state wiring.
 - Add provider transport: implement `InferenceProvider` contract in `pipeline/llm_provider.py` with typed errors and metrics.
 - Extend query behavior: modify `api/search/query_builder.py` to avoid search/trend filter drift.
 - Add enrichment stage: append explicit stage in pipeline orchestration with deterministic write contract.
@@ -342,6 +343,7 @@ Primary owners:
 
 Owners:
 - `api/main.py`
+- `api/task_routes.py`
 - `pipeline/tasks.py`
 
 #### Inference policy
@@ -376,8 +378,8 @@ Owners:
 | Contract | Routes | Auth | Async | Primary owners |
 |---|---|---|---|---|
 | Search/read | `GET /search`, `GET /search/semantic`, `GET /catalog/{id}/lineage`, `GET /lineage/{lineage_id}` | none | no | `api/main.py`, `api/search_routes.py`, `api/search/query_builder.py` |
-| Protected generation writes | `POST /summarize/{catalog_id}`, `POST /segment/{catalog_id}`, `POST /topics/{catalog_id}`, `POST /extract/{catalog_id}`, `POST /votes/{catalog_id}` | `X-API-Key` | yes (task id returned) | `api/main.py`, `pipeline/tasks.py` |
-| Task lifecycle | `GET /tasks/{task_id}` | none | n/a | `api/main.py`, Celery task backend |
+| Protected generation writes | `POST /summarize/{catalog_id}`, `POST /segment/{catalog_id}`, `POST /topics/{catalog_id}`, `POST /extract/{catalog_id}`, `POST /votes/{catalog_id}` | `X-API-Key` | yes (task id returned) | `api/main.py`, `api/task_routes.py`, `pipeline/tasks.py` |
+| Task lifecycle | `GET /tasks/{task_id}` | none | n/a | `api/main.py`, `api/task_routes.py`, Celery task backend |
 | Derived status/readability | `GET /catalog/{catalog_id}/derived_status`, `GET /catalog/{catalog_id}/content` | `X-API-Key` | no | `api/main.py` |
 
 ### Data Contract
@@ -387,8 +389,8 @@ Owners:
 | `catalog.content_hash` | Canonical hash for extracted text used to detect staleness | `pipeline/content_hash.py`, `pipeline/extraction_service.py`, `pipeline/tasks.py` |
 | `catalog.entities_source_hash` | Hash of source text used to generate current entities | `pipeline/backfill_entities.py`, `pipeline/nlp_worker.py` |
 | `catalog.agenda_items_hash` | Hash of the normalized structured agenda payload used for agenda-summary freshness | `pipeline/agenda_service.py`, `pipeline/summary_freshness.py`, `pipeline/tasks.py` |
-| `catalog.summary_source_hash` | Hash of the governing summary input; `content_hash` for non-agenda summaries and `agenda_items_hash` for agenda summaries | `pipeline/tasks.py`, `api/main.py`, `pipeline/summary_freshness.py` |
-| `catalog.topics_source_hash` | Hash of source text used to generate current topics | `pipeline/tasks.py`, `pipeline/topic_worker.py`, `api/main.py` |
+| `catalog.summary_source_hash` | Hash of the governing summary input; `content_hash` for non-agenda summaries and `agenda_items_hash` for agenda summaries | `pipeline/tasks.py`, `api/main.py`, `api/task_routes.py`, `pipeline/summary_freshness.py` |
+| `catalog.topics_source_hash` | Hash of source text used to generate current topics | `pipeline/tasks.py`, `pipeline/topic_worker.py`, `api/main.py`, `api/task_routes.py` |
 | `agenda_item.result` | Normalized outcome field for agenda/vote interpretation | `pipeline/models.py`, `pipeline/tasks.py` |
 | `agenda_item.votes` | Structured vote payload with extraction metadata | `pipeline/models.py`, `pipeline/tasks.py` |
 | `catalog.lineage_id`, `catalog.lineage_confidence`, `catalog.lineage_updated_at` | Meeting-level lineage identity and confidence | `pipeline/lineage_service.py`, `api/main.py` |
