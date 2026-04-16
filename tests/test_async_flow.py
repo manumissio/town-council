@@ -3,6 +3,7 @@ from fastapi.testclient import TestClient
 from unittest.mock import MagicMock, patch
 import sys
 import os
+import importlib
 from kombu.exceptions import OperationalError
 
 # Setup mocks for dependencies we don't want to load
@@ -17,6 +18,53 @@ from pipeline import tasks
 
 client = TestClient(app)
 VALID_KEY = "dev_secret_key_change_me"
+
+
+def test_api_task_routes_work_when_app_imported_as_main(monkeypatch):
+    """
+    Docker starts the API from /app/api as `uvicorn main:app`.
+    """
+    repo_root = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
+    api_dir = os.path.join(repo_root, "api")
+    original_cwd = os.getcwd()
+    original_path = list(sys.path)
+    original_main_module = sys.modules.pop("main", None)
+
+    try:
+        monkeypatch.chdir(api_dir)
+        sys.path.insert(0, api_dir)
+        docker_main = importlib.import_module("main")
+        docker_client = TestClient(docker_main.app)
+
+        mock_catalog = MagicMock()
+        mock_catalog.id = 1
+        mock_catalog.content = (
+            "City council meeting discussed budget updates and adopted multiple motions after public comment."
+        )
+        mock_catalog.summary = None
+
+        mock_db = MagicMock()
+        mock_db.get.return_value = mock_catalog
+        docker_main.app.dependency_overrides[docker_main.get_db] = lambda: mock_db
+
+        mock_task = MagicMock()
+        mock_task.id = "docker-task-uuid"
+        docker_main.generate_summary_task.delay = MagicMock(return_value=mock_task)
+
+        response = docker_client.post("/summarize/1", headers={"X-API-Key": VALID_KEY})
+
+        assert response.status_code == 200
+        assert response.json()["status"] == "processing"
+        assert response.json()["task_id"] == "docker-task-uuid"
+        docker_main.generate_summary_task.delay.assert_called_once_with(1, force=False)
+    finally:
+        if "docker_main" in locals():
+            docker_main.app.dependency_overrides.clear()
+        sys.modules.pop("main", None)
+        if original_main_module is not None:
+            sys.modules["main"] = original_main_module
+        sys.path[:] = original_path
+        os.chdir(original_cwd)
 
 def test_async_summarization_flow(mocker):
     """

@@ -1,5 +1,4 @@
 import logging
-import sys
 import uuid
 from typing import Any, Callable
 
@@ -21,7 +20,6 @@ from pipeline.summary_quality import (
 
 logger = logging.getLogger("town-council-api")
 
-API_MAIN_FACADE_MODULE = "api.main"
 TASK_QUEUE_UNAVAILABLE_DETAIL = "Task queue unavailable"
 INVALID_TASK_ID_DETAIL = "Invalid task_id format"
 GENERATE_SUMMARY_TASK_NAME = "pipeline.tasks.generate_summary_task"
@@ -57,13 +55,6 @@ extract_votes_task = _CeleryTaskProxy(EXTRACT_VOTES_TASK_NAME)
 extract_text_task = _CeleryTaskProxy(EXTRACT_TEXT_TASK_NAME)
 
 
-def _api_main_facade() -> Any:
-    facade = sys.modules.get(API_MAIN_FACADE_MODULE)
-    if facade is None:
-        raise RuntimeError("api.main facade is not loaded")
-    return facade
-
-
 def _enqueue_task(task_name: str, task_callable: Any, *task_args: Any, **task_kwargs: Any) -> str:
     """
     Normalize broker/enqueue failures at the API boundary.
@@ -97,6 +88,7 @@ def build_task_router(
     limiter: Any,
     get_db_dependency: Callable[..., Any],
     verify_api_key_dependency: Callable[..., Any],
+    task_facade: Any,
 ) -> APIRouter:
     router = APIRouter()
 
@@ -133,8 +125,7 @@ def build_task_router(
                 "reason": build_low_signal_message(quality),
             }
 
-        facade = _api_main_facade()
-        doc_kind, content_hash, agenda_items_hash = facade._summary_doc_kind_and_hashes(db, catalog_id, catalog)
+        doc_kind, content_hash, agenda_items_hash = task_facade._summary_doc_kind_and_hashes(db, catalog_id, catalog)
         is_fresh = is_summary_fresh(
             doc_kind,
             summary=catalog.summary,
@@ -148,9 +139,9 @@ def build_task_router(
         if (not force) and catalog.summary and not is_fresh:
             return {"summary": catalog.summary, "status": "stale"}
 
-        task_id = facade._enqueue_task(
+        task_id = task_facade._enqueue_task(
             "generate_summary_task",
-            facade.generate_summary_task,
+            task_facade.generate_summary_task,
             catalog_id,
             force=force,
         )
@@ -184,12 +175,11 @@ def build_task_router(
             raise HTTPException(status_code=404, detail="Document not found")
 
         existing_items = db.query(AgendaItem).filter_by(catalog_id=catalog_id).order_by(AgendaItem.order).all()
-        facade = _api_main_facade()
         if (
             not force
             and existing_items
-            and facade.agenda_items_look_low_quality
-            and not facade.agenda_items_look_low_quality(existing_items)
+            and task_facade.agenda_items_look_low_quality
+            and not task_facade.agenda_items_look_low_quality(existing_items)
         ):
             return {"status": "cached", "items": existing_items}
         if not force and existing_items:
@@ -200,7 +190,7 @@ def build_task_router(
         if force:
             logger.info("Force-regenerating agenda cache for catalog_id=%s.", catalog_id)
 
-        task_id = facade._enqueue_task("segment_agenda_task", facade.segment_agenda_task, catalog_id)
+        task_id = task_facade._enqueue_task("segment_agenda_task", task_facade.segment_agenda_task, catalog_id)
         return {
             "status": "processing",
             "task_id": task_id,
@@ -230,8 +220,7 @@ def build_task_router(
         if not catalog:
             raise HTTPException(status_code=404, detail="Document not found")
 
-        facade = _api_main_facade()
-        task_id = facade._enqueue_task("extract_votes_task", facade.extract_votes_task, catalog_id, force=force)
+        task_id = task_facade._enqueue_task("extract_votes_task", task_facade.extract_votes_task, catalog_id, force=force)
         return {
             "status": "processing",
             "task_id": task_id,
@@ -285,10 +274,9 @@ def build_task_router(
         if (not force) and catalog.topics is not None and not is_fresh:
             return {"status": "stale", "topics": catalog.topics or []}
 
-        facade = _api_main_facade()
-        task_id = facade._enqueue_task(
+        task_id = task_facade._enqueue_task(
             "generate_topics_task",
-            facade.generate_topics_task,
+            task_facade.generate_topics_task,
             catalog_id,
             force=force,
         )
@@ -326,10 +314,9 @@ def build_task_router(
         if (not force) and catalog.content and len(catalog.content.strip()) >= EXTRACT_CACHED_CONTENT_MIN_CHARS:
             return {"status": "cached", "catalog_id": catalog_id, "chars": len(catalog.content)}
 
-        facade = _api_main_facade()
-        task_id = facade._enqueue_task(
+        task_id = task_facade._enqueue_task(
             "extract_text_task",
-            facade.extract_text_task,
+            task_facade.extract_text_task,
             catalog_id,
             force=force,
             ocr_fallback=ocr_fallback,
@@ -351,8 +338,7 @@ def build_task_router(
             logger.warning("Invalid task status request", extra={"task_id": task_id})
             raise HTTPException(status_code=400, detail=INVALID_TASK_ID_DETAIL)
 
-        facade = _api_main_facade()
-        task = facade.AsyncResult(task_id, app=celery_app)
+        task = task_facade.AsyncResult(task_id, app=celery_app)
         if not task.ready():
             return {"status": "processing"}
 

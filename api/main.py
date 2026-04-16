@@ -1,5 +1,6 @@
 import logging
 import os
+import sys
 from contextlib import asynccontextmanager
 from typing import Any, List, Optional
 
@@ -199,6 +200,7 @@ task_router = build_task_router(
     limiter=limiter,
     get_db_dependency=get_db,
     verify_api_key_dependency=verify_api_key,
+    task_facade=sys.modules[__name__],
 )
 app.include_router(task_router)
 
