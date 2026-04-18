@@ -8,6 +8,27 @@ Use each entry to record:
 - the affected boundary or contract
 - links to the canonical docs that carry the ongoing operational or architecture detail
 
+## 2026-04-17: Extract catalog read/status routes behind the main API facade
+
+- Status: Accepted
+- Decision:
+  - `api/main.py` remains the FastAPI app entrypoint and compatibility facade.
+  - Catalog batch reads, raw content reads, and derived-status freshness reads move behind `api/catalog_routes.py`.
+  - `api.main._summary_doc_kind_and_hashes` remains intentionally available because task routes use that facade seam for summary freshness checks.
+  - Lineage, people, stats, and issue-reporting routes remain deferred.
+- Why:
+  - After lifecycle, search/trends, and task-route extraction, catalog read/status behavior was the next coherent route family still embedded in `api/main.py`.
+  - The moved routes share read-only catalog state, freshness/hash calculation, and low-signal status reporting.
+  - Keeping `api.main` as the facade preserves current imports, dependency overrides, and Docker `main:app` behavior while narrowing implementation ownership.
+- Affected boundaries:
+  - `api/main.py` remains the ASGI app and route-wiring boundary.
+  - `api/catalog_routes.py` owns `/catalog/batch`, `/catalog/{catalog_id}/content`, and `/catalog/{catalog_id}/derived_status`.
+  - `api/task_routes.py` keeps owning task dispatch while using the `api.main` facade for `_summary_doc_kind_and_hashes`.
+- Canonical references:
+  - [ARCHITECTURE.md](../ARCHITECTURE.md)
+  - [docs/OPERATIONS.md](OPERATIONS.md)
+  - [ROADMAP.md](../ROADMAP.md)
+
 ## 2026-04-15: Extract API task dispatch routes behind the main facade
 
 - Status: Accepted
