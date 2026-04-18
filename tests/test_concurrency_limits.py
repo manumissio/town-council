@@ -11,6 +11,7 @@ sys.modules["llama_cpp"] = MagicMock()
 
 from api.main import app, get_db
 from pipeline.llm import LocalAI
+import pipeline.llm as llm_module
 
 client = TestClient(app)
 VALID_KEY = "dev_secret_key_change_me"
@@ -31,11 +32,43 @@ def test_batch_limit_protection():
     finally:
         app.dependency_overrides.clear()
 
-def test_ai_concurrency_lock():
+
+def test_catalog_batch_returns_meeting_summary_shape():
+    db = MagicMock()
+    catalog = MagicMock(id=7, filename="packet.pdf")
+    event = MagicMock()
+    event.name = "Council Meeting"
+    event.record_date.isoformat.return_value = "2026-04-17"
+    place = MagicMock(display_name="Springfield", name="springfield")
+    query = db.query.return_value
+    query.join.return_value.join.return_value.join.return_value.filter.return_value.all.return_value = [
+        (catalog, MagicMock(), event, place)
+    ]
+    app.dependency_overrides[get_db] = lambda: db
+
+    try:
+        response = client.get("/catalog/batch", params={"ids": [7]}, headers={"X-API-Key": VALID_KEY})
+
+        assert response.status_code == 200
+        assert response.json() == [
+            {
+                "id": 7,
+                "filename": "packet.pdf",
+                "title": "Council Meeting",
+                "date": "2026-04-17",
+                "city": "Springfield",
+            }
+        ]
+    finally:
+        app.dependency_overrides.clear()
+
+
+def test_ai_concurrency_lock(monkeypatch):
     """
     Test: Does the LocalAI summarize method use the internal lock?
     """
     # 1. Reset Singleton
+    monkeypatch.setattr(llm_module, "LOCAL_AI_BACKEND", "inprocess")
     LocalAI._instance = None
     ai = LocalAI()
     

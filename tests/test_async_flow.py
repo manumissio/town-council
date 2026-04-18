@@ -57,6 +57,12 @@ def test_api_task_routes_work_when_app_imported_as_main(monkeypatch):
         assert response.json()["status"] == "processing"
         assert response.json()["task_id"] == "docker-task-uuid"
         docker_main.generate_summary_task.delay.assert_called_once_with(1, force=False)
+
+        content_response = docker_client.get("/catalog/1/content", headers={"X-API-Key": VALID_KEY})
+
+        assert content_response.status_code == 200
+        assert content_response.json()["catalog_id"] == 1
+        assert "budget updates" in content_response.json()["content"]
     finally:
         if "docker_main" in locals():
             docker_main.app.dependency_overrides.clear()

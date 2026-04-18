@@ -380,7 +380,7 @@ Owners:
 | Search/read | `GET /search`, `GET /search/semantic`, `GET /catalog/{id}/lineage`, `GET /lineage/{lineage_id}` | none | no | `api/main.py`, `api/search_routes.py`, `api/search/query_builder.py` |
 | Protected generation writes | `POST /summarize/{catalog_id}`, `POST /segment/{catalog_id}`, `POST /topics/{catalog_id}`, `POST /extract/{catalog_id}`, `POST /votes/{catalog_id}` | `X-API-Key` | yes (task id returned) | `api/main.py`, `api/task_routes.py`, `pipeline/tasks.py` |
 | Task lifecycle | `GET /tasks/{task_id}` | none | n/a | `api/main.py`, `api/task_routes.py`, Celery task backend |
-| Derived status/readability | `GET /catalog/{catalog_id}/derived_status`, `GET /catalog/{catalog_id}/content` | `X-API-Key` | no | `api/main.py` |
+| Derived status/readability | `GET /catalog/{catalog_id}/derived_status`, `GET /catalog/{catalog_id}/content` | `X-API-Key` | no | `api/main.py`, `api/catalog_routes.py` |
 
 ### Data Contract
 
@@ -389,8 +389,8 @@ Owners:
 | `catalog.content_hash` | Canonical hash for extracted text used to detect staleness | `pipeline/content_hash.py`, `pipeline/extraction_service.py`, `pipeline/tasks.py` |
 | `catalog.entities_source_hash` | Hash of source text used to generate current entities | `pipeline/backfill_entities.py`, `pipeline/nlp_worker.py` |
 | `catalog.agenda_items_hash` | Hash of the normalized structured agenda payload used for agenda-summary freshness | `pipeline/agenda_service.py`, `pipeline/summary_freshness.py`, `pipeline/tasks.py` |
-| `catalog.summary_source_hash` | Hash of the governing summary input; `content_hash` for non-agenda summaries and `agenda_items_hash` for agenda summaries | `pipeline/tasks.py`, `api/main.py`, `api/task_routes.py`, `pipeline/summary_freshness.py` |
-| `catalog.topics_source_hash` | Hash of source text used to generate current topics | `pipeline/tasks.py`, `pipeline/topic_worker.py`, `api/main.py`, `api/task_routes.py` |
+| `catalog.summary_source_hash` | Hash of the governing summary input; `content_hash` for non-agenda summaries and `agenda_items_hash` for agenda summaries | `pipeline/tasks.py`, `api/main.py`, `api/task_routes.py`, `api/catalog_routes.py`, `pipeline/summary_freshness.py` |
+| `catalog.topics_source_hash` | Hash of source text used to generate current topics | `pipeline/tasks.py`, `pipeline/topic_worker.py`, `api/main.py`, `api/task_routes.py`, `api/catalog_routes.py` |
 | `agenda_item.result` | Normalized outcome field for agenda/vote interpretation | `pipeline/models.py`, `pipeline/tasks.py` |
 | `agenda_item.votes` | Structured vote payload with extraction metadata | `pipeline/models.py`, `pipeline/tasks.py` |
 | `catalog.lineage_id`, `catalog.lineage_confidence`, `catalog.lineage_updated_at` | Meeting-level lineage identity and confidence | `pipeline/lineage_service.py`, `api/main.py` |
