@@ -107,12 +107,14 @@ flowchart LR
     Spider --> Stage --> Promote --> Core
 
     Core -->|"run_pipeline.py"| Meili
+    Core -->|"NLP/entity enrichment"| People
     Core --> Sem
     Agenda --> Meili
 
     UI -->|"search/read"| API
     API --> Meili
     API --> Semantic
+    People -->|"people reads"| API
     UI -->|"POST summarize/segment/topics/extract/votes"| API
     API <--> Queue --> Worker --> LocalAI
     LocalAI --> InProc
