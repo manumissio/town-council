@@ -1,5 +1,6 @@
 import pytest
 from fastapi.testclient import TestClient
+from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 from sqlalchemy.pool import StaticPool
@@ -141,3 +142,26 @@ def test_report_issue_input_validation(client_with_db):
     
     # Verify: 422 Unprocessable Entity (FastAPI's default for validation errors)
     assert response.status_code == 422
+
+
+def test_report_issue_rolls_back_when_save_fails():
+    db = MagicMock()
+    db.query.return_value.filter.return_value.first.return_value = MagicMock()
+    db.commit.side_effect = SQLAlchemyError("write failed")
+
+    def override_get_db():
+        yield db
+
+    app.dependency_overrides[get_db] = override_get_db
+    try:
+        response = client.post(
+            "/report-issue",
+            json={"event_id": 1, "issue_type": "broken_link"},
+            headers={"X-API-Key": VALID_KEY},
+        )
+
+        assert response.status_code == 500
+        assert response.json()["detail"] == "Internal server error while saving report"
+        db.rollback.assert_called_once()
+    finally:
+        app.dependency_overrides.pop(get_db, None)

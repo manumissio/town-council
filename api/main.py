@@ -2,13 +2,12 @@ import logging
 import os
 import sys
 from contextlib import asynccontextmanager
-from typing import Any, Optional
+from typing import Any
 
-from fastapi import Depends, FastAPI, Header, HTTPException, Path, Query, Request
+from fastapi import Depends, FastAPI, Header, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import ORJSONResponse
-from pydantic import BaseModel, Field
-from sqlalchemy.orm import Session as SQLAlchemySession, joinedload
+from sqlalchemy.orm import Session as SQLAlchemySession
 from slowapi.errors import RateLimitExceeded
 from sqlalchemy import text
 from slowapi import _rate_limit_exceeded_handler
@@ -19,6 +18,11 @@ from api.catalog_routes import (
     _summary_doc_kind_and_hashes as _summary_doc_kind_and_hashes,
     build_catalog_router,
 )
+from api.lineage_routes import _lineage_rows as _lineage_rows
+from api.lineage_routes import build_lineage_router
+from api.people_routes import build_people_router
+from api.reporting_routes import IssueReport as IssueReport
+from api.reporting_routes import build_reporting_router
 from api.search_routes import (
     MEILI_HOST as MEILI_HOST,
     MEILI_MASTER_KEY as MEILI_MASTER_KEY,
@@ -74,7 +78,15 @@ _db_init_error = app_setup._db_init_error
 agenda_items_look_low_quality = None
 
 from pipeline.models import AgendaItem as AgendaItem  # noqa: F401
-from pipeline.models import Catalog, DataIssue, Document, Event, IssueType, Membership, Organization, Person, Place
+from pipeline.models import Catalog as Catalog  # noqa: F401
+from pipeline.models import DataIssue as DataIssue  # noqa: F401
+from pipeline.models import Document as Document  # noqa: F401
+from pipeline.models import Event as Event  # noqa: F401
+from pipeline.models import IssueType as IssueType  # noqa: F401
+from pipeline.models import Membership as Membership  # noqa: F401
+from pipeline.models import Organization as Organization  # noqa: F401
+from pipeline.models import Person as Person  # noqa: F401
+from pipeline.models import Place as Place  # noqa: F401
 from pipeline.agenda_resolver import agenda_items_look_low_quality as agenda_items_look_low_quality
 
 
@@ -187,6 +199,20 @@ catalog_router = build_catalog_router(
     verify_api_key_dependency=verify_api_key,
 )
 app.include_router(catalog_router)
+lineage_router = build_lineage_router(
+    limiter=limiter,
+    get_db_dependency=get_db,
+    lineage_facade=sys.modules[__name__],
+)
+app.include_router(lineage_router)
+people_router = build_people_router(get_db_dependency=get_db)
+app.include_router(people_router)
+reporting_router = build_reporting_router(
+    limiter=limiter,
+    get_db_dependency=get_db,
+    verify_api_key_dependency=verify_api_key,
+)
+app.include_router(reporting_router)
 task_router = build_task_router(
     limiter=limiter,
     get_db_dependency=get_db,
@@ -194,23 +220,6 @@ task_router = build_task_router(
     task_facade=sys.modules[__name__],
 )
 app.include_router(task_router)
-
-
-def _lineage_rows(
-    db: SQLAlchemySession,
-    lineage_id: str,
-    min_confidence: Optional[float] = None,
-):
-    query = (
-        db.query(Catalog, Document, Event, Place)
-        .join(Document, Document.catalog_id == Catalog.id)
-        .join(Event, Event.id == Document.event_id)
-        .join(Place, Place.id == Event.place_id)
-        .filter(Catalog.lineage_id == lineage_id)
-    )
-    if min_confidence is not None:
-        query = query.filter(Catalog.lineage_confidence >= float(min_confidence))
-    return query.order_by(Event.record_date.desc(), Catalog.id.desc()).all()
 
 
 @app.get("/health")
@@ -227,141 +236,6 @@ def health_check(db: SQLAlchemySession = Depends(get_db)):
         logger.error(f"Health check failed: {e}")
         raise HTTPException(status_code=503, detail="Database unreachable")
 
-@app.get("/lineage/{lineage_id}")
-@limiter.limit("60/minute")
-def get_lineage(
-    request: Request,
-    lineage_id: str,
-    min_confidence: Optional[float] = Query(None, ge=0.0, le=1.0),
-    db: SQLAlchemySession = Depends(get_db),
-):
-    _ = request
-    rows = _lineage_rows(db, lineage_id=lineage_id, min_confidence=min_confidence)
-    if not rows:
-        raise HTTPException(status_code=404, detail="Lineage not found")
-    meetings = []
-    for catalog, _doc, event, place in rows:
-        meetings.append(
-            {
-                "catalog_id": catalog.id,
-                "lineage_id": catalog.lineage_id,
-                "lineage_confidence": float(catalog.lineage_confidence or 0.0),
-                "lineage_updated_at": catalog.lineage_updated_at.isoformat() if catalog.lineage_updated_at else None,
-                "event_name": event.name,
-                "date": event.record_date.isoformat() if event.record_date else None,
-                "city": place.display_name or place.name,
-                "summary": catalog.summary,
-            }
-        )
-    return {"lineage_id": lineage_id, "count": len(meetings), "meetings": meetings}
-
-
-@app.get("/catalog/{catalog_id}/lineage")
-@limiter.limit("60/minute")
-def get_catalog_lineage(
-    request: Request,
-    catalog_id: int = Path(..., ge=1),
-    min_confidence: Optional[float] = Query(None, ge=0.0, le=1.0),
-    db: SQLAlchemySession = Depends(get_db),
-):
-    _ = request
-    catalog = db.get(Catalog, catalog_id)
-    if not catalog:
-        raise HTTPException(status_code=404, detail="Catalog not found")
-    if not catalog.lineage_id:
-        return {
-            "catalog_id": catalog_id,
-            "lineage_id": None,
-            "count": 0,
-            "meetings": [],
-        }
-    rows = _lineage_rows(db, lineage_id=catalog.lineage_id, min_confidence=min_confidence)
-    meetings = []
-    for c_row, _doc, event, place in rows:
-        meetings.append(
-            {
-                "catalog_id": c_row.id,
-                "lineage_confidence": float(c_row.lineage_confidence or 0.0),
-                "date": event.record_date.isoformat() if event.record_date else None,
-                "event_name": event.name,
-                "city": place.display_name or place.name,
-            }
-        )
-    return {
-        "catalog_id": catalog_id,
-        "lineage_id": catalog.lineage_id,
-        "lineage_confidence": float(catalog.lineage_confidence or 0.0),
-        "count": len(meetings),
-        "meetings": meetings,
-    }
-
-@app.get("/people")
-def list_people(
-    limit: int = Query(50, ge=1, le=200), # PERFORMANCE: Enforce limits to prevent OOM
-    offset: int = Query(0, ge=0),
-    include_mentions: bool = Query(False, description="Include mention-only names for diagnostics"),
-    db: SQLAlchemySession = Depends(get_db)
-):
-    """
-    Returns a paginated list of identified officials.
-    """
-    try:
-        # By default we return official profiles only.
-        # Mention-only names are available via include_mentions=true for diagnostics.
-        base_query = db.query(Person)
-        if not include_mentions:
-            base_query = base_query.filter(Person.person_type == "official")
-
-        # PERFORMANCE: Return total count for frontend pagination logic
-        total = base_query.count()
-        people = base_query.order_by(Person.name).limit(limit).offset(offset).all()
-        return {
-            "total": total,
-            "limit": limit,
-            "offset": offset,
-            "include_mentions": include_mentions,
-            "results": people
-        }
-    except Exception as e:
-        logger.error(f"Failed to list people: {e}")
-        raise HTTPException(status_code=500, detail="Database error")
-
-@app.get("/person/{person_id}")
-def get_person_history(
-    person_id: int = Path(..., ge=1), 
-    db: SQLAlchemySession = Depends(get_db)
-):
-    """
-    Returns a person's full profile and roles.
-    """
-    # PERFORMANCE: Eager Loading
-    # Instead of asking the database 30 separate questions ("Who is this?", "What city?", "What role?"),
-    # we ask ONE big question ("Give me everything about this person at once").
-    # This makes the profile page load instantly (1 query vs 31 queries).
-    person = db.query(Person).options(
-        joinedload(Person.memberships)
-        .joinedload(Membership.organization)
-        .joinedload(Organization.place)
-    ).filter(Person.id == person_id).first()
-
-    if not person:
-        raise HTTPException(status_code=404, detail="Official not found")
-    
-    history = []
-    for membership in person.memberships:
-        history.append({
-            "body": membership.organization.name,
-            "city": membership.organization.place.name.title(),
-            "role": membership.label or "Member"
-        })
-        
-    return {
-        "name": person.name,
-        "bio": person.biography,
-        "current_role": person.current_role,
-        "roles": history
-    }
-
 @app.get("/stats")
 def get_stats():
     """
@@ -372,53 +246,3 @@ def get_stats():
     except Exception as e:
         logger.error(f"Stats check failed: {e}")
         raise HTTPException(status_code=503, detail="Search engine unreachable")
-
-# --------------------------------------------------------------------------
-# DATA QUALITY REPORTING (FEEDBACK LOOP)
-# --------------------------------------------------------------------------
-
-class IssueReport(BaseModel):
-    """
-    Schema for the data quality report submitted by the user.
-    """
-    event_id: int = Field(..., description="The ID of the meeting being reported")
-    issue_type: str = Field(..., description="The type of problem (e.g., 'broken_link')")
-    description: Optional[str] = Field(None, max_length=500, description="Optional details about the issue")
-
-@app.post("/report-issue", dependencies=[Depends(verify_api_key)])
-@limiter.limit("5/minute")
-def report_data_issue(request: Request, report: IssueReport, db: SQLAlchemySession = Depends(get_db)):
-    """
-    Allows users to report errors in the data (e.g., broken links, OCR errors).
-    
-    Novice Developer Note:
-    This function validates the report, checks if the meeting actually exists,
-    and then saves the report to the 'data_issue' table for an admin to review.
-    """
-    # 1. Validation: Does the meeting actually exist in our database?
-    event = db.query(Event).filter(Event.id == report.event_id).first()
-    if not event:
-        raise HTTPException(status_code=404, detail="Meeting not found")
-
-    # 2. Validation: Is the issue type one we recognize?
-    valid_types = [t.value for t in IssueType]
-    if report.issue_type not in valid_types:
-        raise HTTPException(status_code=400, detail=f"Invalid issue_type. Must be one of: {valid_types}")
-
-    # 3. Save the report
-    try:
-        new_issue = DataIssue(
-            event_id=report.event_id,
-            issue_type=report.issue_type,
-            description=report.description
-        )
-        db.add(new_issue)
-        db.commit()
-        
-        logger.info(f"User reported an issue for event {report.event_id}: {report.issue_type}")
-        return {"status": "success", "message": "Thank you for your report. Our team will review it."}
-        
-    except Exception as e:
-        db.rollback()
-        logger.error(f"Failed to save data issue: {e}")
-        raise HTTPException(status_code=500, detail="Internal server error while saving report")
