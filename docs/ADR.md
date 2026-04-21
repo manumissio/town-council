@@ -8,6 +8,29 @@ Use each entry to record:
 - the affected boundary or contract
 - links to the canonical docs that carry the ongoing operational or architecture detail
 
+## 2026-04-20: Extract lineage, people, and reporting routes behind the main API facade
+
+- Status: Accepted
+- Decision:
+  - `api/main.py` remains the FastAPI app entrypoint, middleware/lifecycle owner, router wiring surface, and compatibility facade.
+  - Lineage read routes move behind `api/lineage_routes.py`.
+  - People/profile read routes move behind `api/people_routes.py`.
+  - Data-quality issue reporting moves behind `api/reporting_routes.py`.
+  - `/stats`, `/health`, root, middleware, lifecycle, and router wiring remain in `api/main.py`.
+- Why:
+  - After lifecycle, search/trends, task, and catalog route extraction, these were the remaining coherent business-route families still embedded in `api/main.py`.
+  - Keeping three focused modules avoids recreating a generic miscellaneous route bucket.
+  - Preserving `api.main` as the facade keeps dependency overrides, legacy imports, and patch seams stable during the cleanup.
+- Affected boundaries:
+  - `api/main.py` remains the ASGI app and compatibility boundary.
+  - `api/lineage_routes.py` owns lineage HTTP reads while `pipeline/lineage_service.py` keeps owning lineage computation.
+  - `api/people_routes.py` owns people/profile HTTP reads.
+  - `api/reporting_routes.py` owns protected issue-report submission.
+- Canonical references:
+  - [ARCHITECTURE.md](../ARCHITECTURE.md)
+  - [docs/OPERATIONS.md](OPERATIONS.md)
+  - [ROADMAP.md](../ROADMAP.md)
+
 ## 2026-04-17: Extract catalog read/status routes behind the main API facade
 
 - Status: Accepted

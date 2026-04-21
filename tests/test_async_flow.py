@@ -63,6 +63,22 @@ def test_api_task_routes_work_when_app_imported_as_main(monkeypatch):
         assert content_response.status_code == 200
         assert content_response.json()["catalog_id"] == 1
         assert "budget updates" in content_response.json()["content"]
+
+        lineage_rows = [
+            (
+                MagicMock(id=1, lineage_id="lin-1", lineage_confidence=0.9, lineage_updated_at=None, summary="Summary"),
+                MagicMock(),
+                MagicMock(name="Meeting A", record_date=MagicMock(isoformat=lambda: "2026-04-01")),
+                MagicMock(display_name="Springfield", name="springfield"),
+            )
+        ]
+        docker_main._lineage_rows = MagicMock(return_value=lineage_rows)
+
+        lineage_response = docker_client.get("/lineage/lin-1")
+
+        assert lineage_response.status_code == 200
+        assert lineage_response.json()["lineage_id"] == "lin-1"
+        docker_main._lineage_rows.assert_called_once()
     finally:
         if "docker_main" in locals():
             docker_main.app.dependency_overrides.clear()

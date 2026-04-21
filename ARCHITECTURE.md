@@ -379,10 +379,11 @@ Owners:
 
 | Contract | Routes | Auth | Async | Primary owners |
 |---|---|---|---|---|
-| Search/read | `GET /search`, `GET /search/semantic`, `GET /catalog/{id}/lineage`, `GET /lineage/{lineage_id}` | none | no | `api/main.py`, `api/search_routes.py`, `api/search/query_builder.py` |
+| Search/read | `GET /search`, `GET /search/semantic`, `GET /catalog/{id}/lineage`, `GET /lineage/{lineage_id}`, `GET /people`, `GET /person/{person_id}` | none | no | `api/main.py`, `api/search_routes.py`, `api/lineage_routes.py`, `api/people_routes.py`, `api/search/query_builder.py` |
 | Protected generation writes | `POST /summarize/{catalog_id}`, `POST /segment/{catalog_id}`, `POST /topics/{catalog_id}`, `POST /extract/{catalog_id}`, `POST /votes/{catalog_id}` | `X-API-Key` | yes (task id returned) | `api/main.py`, `api/task_routes.py`, `pipeline/tasks.py` |
 | Task lifecycle | `GET /tasks/{task_id}` | none | n/a | `api/main.py`, `api/task_routes.py`, Celery task backend |
 | Derived status/readability | `GET /catalog/{catalog_id}/derived_status`, `GET /catalog/{catalog_id}/content` | `X-API-Key` | no | `api/main.py`, `api/catalog_routes.py` |
+| Issue reporting | `POST /report-issue` | `X-API-Key` | no | `api/main.py`, `api/reporting_routes.py` |
 
 ### Data Contract
 
@@ -395,7 +396,7 @@ Owners:
 | `catalog.topics_source_hash` | Hash of source text used to generate current topics | `pipeline/tasks.py`, `pipeline/topic_worker.py`, `api/main.py`, `api/task_routes.py`, `api/catalog_routes.py` |
 | `agenda_item.result` | Normalized outcome field for agenda/vote interpretation | `pipeline/models.py`, `pipeline/tasks.py` |
 | `agenda_item.votes` | Structured vote payload with extraction metadata | `pipeline/models.py`, `pipeline/tasks.py` |
-| `catalog.lineage_id`, `catalog.lineage_confidence`, `catalog.lineage_updated_at` | Meeting-level lineage identity and confidence | `pipeline/lineage_service.py`, `api/main.py` |
+| `catalog.lineage_id`, `catalog.lineage_confidence`, `catalog.lineage_updated_at` | Meeting-level lineage identity and confidence | `pipeline/lineage_service.py`, `api/main.py`, `api/lineage_routes.py` |
 | `semantic_embedding` | pgvector-backed embedding storage for hybrid semantic retrieval | `pipeline/models.py`, `pipeline/semantic_index.py`, `pipeline/tasks.py` |
 
 ### Observability Contract
