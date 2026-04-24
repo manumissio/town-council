@@ -80,6 +80,31 @@ def test_search_endpoint_params(mocker):
     assert "sort" not in search_params
 
 
+def test_search_semantic_flag_delegates_through_main_facade(mocker):
+    semantic_search = mocker.patch(
+        "api.main.search_documents_semantic",
+        return_value={"hits": [], "estimatedTotalHits": 0, "semantic_diagnostics": {"engine": "faiss"}},
+    )
+
+    response = client.get(
+        "/search?q=zoning&semantic=true&city=berkeley&meeting_type=Regular&limit=10&offset=5",
+        headers={"X-API-Key": VALID_KEY},
+    )
+    assert response.status_code == 200
+    assert response.json()["semantic_diagnostics"]["engine"] == "faiss"
+    semantic_search.assert_called_once_with(
+        q="zoning",
+        city="berkeley",
+        include_agenda_items=False,
+        meeting_type="Regular",
+        org=None,
+        date_from=None,
+        date_to=None,
+        limit=10,
+        offset=5,
+    )
+
+
 def test_search_endpoint_normalizes_meeting_type_and_org_whitespace(mocker):
     mock_index = mocker.Mock()
     mock_index.search.return_value = {"hits": [], "estimatedTotalHits": 0}
