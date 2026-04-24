@@ -1,6 +1,6 @@
 # Town Council Architecture (2026)
 
-Last updated: 2026-04-06
+Last updated: 2026-04-22
 
 ## 1) System Overview
 
@@ -221,6 +221,8 @@ Primary owners:
 Primary owners:
 - `api/main.py`
 - `api/search_routes.py`
+- `api/search_read_routes.py`
+- `api/search_semantic_routes.py`
 - `pipeline/semantic_index.py`
 - `pipeline/db_migrate.py`
 - `pipeline/migrate_v8.py`
@@ -237,6 +239,7 @@ Primary owners:
 - `pipeline/tasks.py`
 - `api/main.py`
 - `api/search_routes.py`
+- `api/trends_routes.py`
 - `api/search/query_builder.py`
 
 #### Inference Provider Architecture (Stable baseline + Experimental future)
@@ -379,7 +382,8 @@ Owners:
 
 | Contract | Routes | Auth | Async | Primary owners |
 |---|---|---|---|---|
-| Search/read | `GET /search`, `GET /search/semantic`, `GET /catalog/{id}/lineage`, `GET /lineage/{lineage_id}`, `GET /people`, `GET /person/{person_id}` | none | no | `api/main.py`, `api/search_routes.py`, `api/lineage_routes.py`, `api/people_routes.py`, `api/search/query_builder.py` |
+| Search/read | `GET /search`, `GET /search/semantic`, `GET /metadata`, `GET /catalog/{id}/lineage`, `GET /lineage/{lineage_id}`, `GET /people`, `GET /person/{person_id}` | none | no | `api/main.py`, `api/search_routes.py`, `api/search_read_routes.py`, `api/search_semantic_routes.py`, `api/lineage_routes.py`, `api/people_routes.py`, `api/search/query_builder.py` |
+| Trends reads/export | `GET /trends/topics`, `GET /trends/compare`, `GET /trends/export` | none | no | `api/main.py`, `api/search_routes.py`, `api/trends_routes.py`, `api/search/query_builder.py` |
 | Protected generation writes | `POST /summarize/{catalog_id}`, `POST /segment/{catalog_id}`, `POST /topics/{catalog_id}`, `POST /extract/{catalog_id}`, `POST /votes/{catalog_id}` | `X-API-Key` | yes (task id returned) | `api/main.py`, `api/task_routes.py`, `pipeline/tasks.py` |
 | Task lifecycle | `GET /tasks/{task_id}` | none | n/a | `api/main.py`, `api/task_routes.py`, Celery task backend |
 | Derived status/readability | `GET /catalog/{catalog_id}/derived_status`, `GET /catalog/{catalog_id}/content` | `X-API-Key` | no | `api/main.py`, `api/catalog_routes.py` |
