@@ -8,6 +8,31 @@ Use each entry to record:
 - the affected boundary or contract
 - links to the canonical docs that carry the ongoing operational or architecture detail
 
+## 2026-04-22: Split the search route family behind the search facade
+
+- Status: Accepted
+- Decision:
+  - `api/search_routes.py` remains the search-family compatibility facade and router aggregator.
+  - Search/metadata routes move behind `api/search_read_routes.py`.
+  - Semantic proxy search moves behind `api/search_semantic_routes.py`.
+  - Trends routes move behind `api/trends_routes.py`.
+  - Shared helper logic moves behind `api/search_support.py`.
+  - `api.main` remains the FastAPI app entrypoint and public patch surface.
+- Why:
+  - `api/search_routes.py` had become the largest remaining mixed-responsibility API module after the earlier `api.main` cleanup waves.
+  - Search, semantic proxying, and trends share one compatibility family, but they do not need to live in one implementation file.
+  - Preserving both `api.search_routes` and `api.main` facade seams keeps current tests, direct helper imports, and monkeypatch paths stable while narrowing implementation ownership.
+- Affected boundaries:
+  - `api/search_routes.py` remains the compatibility boundary for search-family imports.
+  - `api/search_read_routes.py` owns `/search` and `/metadata`.
+  - `api/search_semantic_routes.py` owns `/search/semantic`.
+  - `api/trends_routes.py` owns `/trends/topics`, `/trends/compare`, and `/trends/export`.
+  - `api/search_support.py` owns shared Meilisearch, trends, and semantic proxy helpers.
+- Canonical references:
+  - [ARCHITECTURE.md](../ARCHITECTURE.md)
+  - [docs/OPERATIONS.md](OPERATIONS.md)
+  - [ROADMAP.md](../ROADMAP.md)
+
 ## 2026-04-20: Extract lineage, people, and reporting routes behind the main API facade
 
 - Status: Accepted
