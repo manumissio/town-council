@@ -507,3 +507,28 @@ Use each entry to record:
   - [ARCHITECTURE.md](../ARCHITECTURE.md)
   - [docs/ENGINEERING_GUARDRAILS.md](ENGINEERING_GUARDRAILS.md)
   - [ROADMAP.md](../ROADMAP.md)
+
+## 2026-04-26: Start task facade cleanup with extraction and vote support modules
+
+- Status: Accepted
+- Decision:
+  - The first structural cleanup wave for `pipeline/tasks.py` extracts agenda-title parsing into `pipeline/task_agenda_titles.py`.
+  - Text re-extraction task support moves into `pipeline/task_text_extraction.py`.
+  - Vote-extraction task support moves into `pipeline/task_vote_extraction.py`.
+  - Shared task reindex failure categories move into `pipeline/task_side_effects.py`.
+  - `pipeline/tasks.py` remains the public Celery task facade and compatibility patch surface for task names, session/retry ownership, startup signal wiring, and existing tests.
+  - Summary generation, agenda segmentation, lineage wrappers, and summary-backfill compatibility wrappers remain in `pipeline/tasks.py` for later, lower-risk waves.
+- Why:
+  - Celery task names and bound-task retry behavior are public worker contracts, so decorated task objects should remain stable while helper logic is split out.
+  - Existing tests and scripts patch `pipeline.tasks` names directly, so wrappers continue passing patch-sensitive callables into the extracted helpers.
+  - Summary generation and agenda segmentation have denser failure-status and side-effect coupling, so deferring them keeps this cleanup wave behavior-preserving.
+- Affected boundaries:
+  - `pipeline/tasks.py` remains the Celery facade and monkeypatch surface.
+  - `pipeline/task_agenda_titles.py` owns deterministic agenda-title parsing.
+  - `pipeline/task_text_extraction.py` owns text re-extraction helper flow.
+  - `pipeline/task_vote_extraction.py` owns direct vote-extraction helper flow.
+  - `pipeline/task_side_effects.py` owns shared task side-effect error categories.
+- Canonical references:
+  - [ARCHITECTURE.md](../ARCHITECTURE.md)
+  - [docs/ENGINEERING_GUARDRAILS.md](ENGINEERING_GUARDRAILS.md)
+  - [ROADMAP.md](../ROADMAP.md)
