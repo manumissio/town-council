@@ -1,5 +1,4 @@
 from celery.signals import worker_ready
-import re
 from datetime import datetime, timezone
 from sqlalchemy.exc import SQLAlchemyError
 from typing import Any, Callable
@@ -48,11 +47,14 @@ from pipeline.summary_backfill import (
     select_catalog_ids_for_summary_hydration as select_catalog_ids_for_summary_hydration_impl,
 )
 from pipeline.lineage_task_support import run_lineage_recompute
+from pipeline.task_agenda_titles import _extract_agenda_titles_from_text as _extract_agenda_titles_from_text
 from pipeline.task_startup import (
     get_celery_pool_from_argv as get_celery_pool_from_argv_impl,
     run_startup_purge_on_worker_ready as run_startup_purge_on_worker_ready_impl,
 )
+from pipeline.task_text_extraction import run_extract_text_task_family as run_extract_text_task_family_impl
 from pipeline.task_runtime import logger, task_session
+from pipeline.task_vote_extraction import run_extract_votes_task_family as run_extract_votes_task_family_impl
 from pipeline.vote_extractor import run_vote_extraction_for_catalog
 from pipeline.celery_app import app
 from pipeline.semantic_tasks import embed_catalog_task
@@ -61,122 +63,6 @@ from pipeline.semantic_tasks import embed_catalog_task
 # when TC_WORKER_METRICS_PORT is set and the Celery worker is ready).
 from pipeline import metrics as _worker_metrics  # noqa: F401
 
-_TRANSIENT_TEXT_EXTRACTION_ERRORS = frozenset(
-    {
-        "extraction returned empty text",
-    }
-)
-
-
-def _dedupe_titles_preserve_order(values):
-    """
-    Deduplicate extracted title candidates without reordering them.
-    """
-    seen = set()
-    out = []
-    for v in values or []:
-        key = (v or "").strip().lower()
-        if not key or key in seen:
-            continue
-        seen.add(key)
-        out.append(v.strip())
-    return out
-
-
-def _extract_agenda_titles_from_text(text: str, max_titles: int = 3):
-    """
-    Best-effort agenda title extraction from raw/flattened extracted text.
-
-    Why this exists:
-    Some "agenda" PDFs are tiny, header-heavy, or flattened into a single line.
-    In those cases, an LLM summary often degenerates into boilerplate or headings.
-    This heuristic keeps the output deterministic and city-agnostic.
-    """
-    if not text:
-        return []
-
-    # Page markers are useful for deep linking, but they make regex parsing noisier.
-    value = re.sub(r"\[PAGE\s+\d+\]", "\n", text, flags=re.IGNORECASE)
-    # Normalize runs of spaces/tabs without deleting letters.
-    value = re.sub(r"[ \t]+", " ", value)
-
-    titles = []
-
-    def _looks_like_attendance_or_access_info(line: str) -> bool:
-        """
-        Skip "how to attend" boilerplate.
-
-        Why:
-        Many agendas include numbered participation instructions (email/phone/webinar).
-        Those are not agenda *items* and should not drive summaries.
-        """
-        v = (line or "").strip().lower()
-        if not v:
-            return True
-        needles = [
-            "teleconference",
-            "public participation",
-            "email comments",
-            "e-mail comments",
-            "email address",
-            "enter an email",
-            "enter your email",
-            "register",
-            "webinar",
-            "zoom",
-            "webex",
-            "teams",
-            "passcode",
-            "phone",
-            "dial",
-            "raise hand",
-            "unmute",
-            "mute",
-            "last four digits",
-            "time allotted",
-            "limit your remarks",
-            "browser",
-            "microsoft edge",
-            "internet explorer",
-            "safari",
-            "firefox",
-            "chrome",
-            "ada",
-            "accommodation",
-            "accessibility",
-        ]
-        return any(n in v for n in needles)
-
-    # 1) Prefer true line-based numbering when available.
-    for m in re.finditer(r"(?m)^\s*\d+\.\s+(.+?)\s*$", value):
-        title = (m.group(1) or "").strip()
-        if not title or len(title) < 10:
-            continue
-        if _looks_like_attendance_or_access_info(title):
-            continue
-        titles.append(title)
-        if len(titles) >= max_titles:
-            break
-
-    # 2) Fallback: split by inline numbering when extraction collapsed line breaks.
-    if len(titles) < max_titles:
-        parts = re.split(r"\b(\d{1,2})\.\s+", value)
-        # parts: [prefix, num, rest, num, rest, ...]
-        for i in range(1, len(parts), 2):
-            rest = (parts[i + 1] if i + 1 < len(parts) else "").strip()
-            if not rest:
-                continue
-            candidate = rest.split("\n", 1)[0].strip()
-            candidate = candidate[:160].strip()
-            if len(candidate) < 10:
-                continue
-            if _looks_like_attendance_or_access_info(candidate):
-                continue
-            titles.append(candidate)
-            if len(titles) >= max_titles:
-                break
-
-    return _dedupe_titles_preserve_order(titles)[:max_titles]
 
 def SessionLocal():
     return task_session()
@@ -242,13 +128,6 @@ def _run_startup_purge_on_worker_ready(sender=None, **kwargs):
     )
 
 
-def _is_transient_text_extraction_error(error_message: str) -> bool:
-    """
-    Keep retry policy explicit for text extraction without hiding it in a generic wrapper.
-    """
-    return error_message.lower() in _TRANSIENT_TEXT_EXTRACTION_ERRORS
-
-
 def _run_extract_text_task_family(
     db,
     catalog_id: int,
@@ -257,30 +136,17 @@ def _run_extract_text_task_family(
     ocr_fallback: bool,
 ) -> dict[str, Any]:
     """
-    Run the single-catalog text re-extraction flow while leaving retry ownership to the task.
+    Keep the historical pipeline.tasks patch seam around the extracted text helper.
     """
-    catalog = db.get(Catalog, catalog_id)
-    result = reextract_catalog_content(
-        catalog,
+    return run_extract_text_task_family_impl(
+        db,
+        catalog_id,
         force=force,
         ocr_fallback=ocr_fallback,
         min_chars=TIKA_MIN_EXTRACTED_CHARS_FOR_NO_OCR,
+        reextract_catalog_content_callable=reextract_catalog_content,
+        reindex_catalog_callable=reindex_catalog,
     )
-    if "error" in result:
-        error_message = str(result["error"])
-        if _is_transient_text_extraction_error(error_message):
-            raise RuntimeError(error_message)
-        return result
-
-    db.commit()
-
-    # The DB write is already durable here, so targeted reindex stays best-effort.
-    try:
-        reindex_catalog(catalog_id)
-    except Exception as reindex_error:
-        return {**result, "reindex_error": str(reindex_error)}
-
-    return result
 
 
 def _run_extract_votes_task_family(
@@ -291,61 +157,17 @@ def _run_extract_votes_task_family(
     local_ai: LocalAI,
 ) -> dict[str, Any]:
     """
-    Run vote extraction for one catalog while leaving retries and session cleanup to the task.
+    Keep the historical pipeline.tasks patch seam around the extracted vote helper.
     """
-    catalog = db.get(Catalog, catalog_id)
-    if not catalog:
-        return {"error": "Catalog not found"}
-
-    doc = db.query(Document).filter_by(catalog_id=catalog_id).first()
-    if not doc:
-        return {"error": "Document not linked to catalog"}
-
-    if not ENABLE_VOTE_EXTRACTION and not force:
-        return {
-            "status": "disabled",
-            "reason": "Vote extraction is disabled. Set ENABLE_VOTE_EXTRACTION=true or run with force=true.",
-            "processed_items": 0,
-            "updated_items": 0,
-            "skipped_items": 0,
-            "failed_items": 0,
-            "skip_reasons": {},
-        }
-
-    existing_items = (
-        db.query(AgendaItem)
-        .filter_by(catalog_id=catalog_id)
-        .order_by(AgendaItem.order)
-        .all()
-    )
-    if not existing_items:
-        return {
-            "status": "not_generated_yet",
-            "reason": "Vote extraction requires segmented agenda items. Run segmentation first.",
-            "processed_items": 0,
-            "updated_items": 0,
-            "skipped_items": 0,
-            "failed_items": 0,
-            "skip_reasons": {},
-        }
-
-    counters = run_vote_extraction_for_catalog(
+    return run_extract_votes_task_family_impl(
         db,
-        local_ai,
-        catalog,
-        doc,
+        catalog_id,
         force=force,
-        agenda_items=existing_items,
+        local_ai=local_ai,
+        vote_extraction_enabled=ENABLE_VOTE_EXTRACTION,
+        run_vote_extraction_for_catalog_callable=run_vote_extraction_for_catalog,
+        reindex_catalog_callable=reindex_catalog,
     )
-    db.commit()
-
-    try:
-        reindex_catalog(catalog_id)
-    except Exception as reindex_error:
-        # Vote extraction updates are already persisted, so targeted reindex remains best-effort.
-        logger.warning("summary_generation.reindex_failed catalog_id=%s error=%s", catalog_id, reindex_error)
-
-    return {"status": "complete", **counters}
 
 
 def _run_summary_generation_side_effects(catalog_id: int) -> dict[str, int]:
