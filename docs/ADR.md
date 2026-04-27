@@ -532,3 +532,24 @@ Use each entry to record:
   - [ARCHITECTURE.md](../ARCHITECTURE.md)
   - [docs/ENGINEERING_GUARDRAILS.md](ENGINEERING_GUARDRAILS.md)
   - [ROADMAP.md](../ROADMAP.md)
+
+## 2026-04-26: Extract agenda-segmentation task support
+
+- Status: Accepted
+- Decision:
+  - The next structural cleanup wave for `pipeline/tasks.py` extracts the agenda-segmentation task family into `pipeline/task_agenda_segmentation.py`.
+  - The extracted module owns segmentation status recording, post-segmentation vote extraction, failure-status persistence, and the segment-agenda helper flow.
+  - `pipeline/tasks.py` keeps the `segment_agenda_task` Celery wrapper, retry/session ownership, and compatibility wrappers for existing tests and callers.
+  - Summary generation, summary side effects, lineage wrappers, startup signal wiring, and summary-hydration compatibility wrappers remain in `pipeline/tasks.py`.
+- Why:
+  - Agenda segmentation is one coherent task family and is a larger boundary than the earlier title/text/vote support extraction.
+  - Keeping task decorators and runtime dependency wiring in `pipeline.tasks` preserves task names, retry behavior, and monkeypatch seams.
+  - Summary generation remains more coupled to freshness, grounding, agenda-summary payloads, embedding dispatch, and AI fallback behavior, so it stays deferred.
+- Affected boundaries:
+  - `pipeline/tasks.py` remains the Celery facade and monkeypatch surface.
+  - `pipeline/task_agenda_segmentation.py` owns agenda-segmentation task support.
+  - `pipeline/agenda_resolver.py`, `pipeline/agenda_service.py`, and `pipeline/vote_extractor.py` keep their domain responsibilities.
+- Canonical references:
+  - [ARCHITECTURE.md](../ARCHITECTURE.md)
+  - [docs/ENGINEERING_GUARDRAILS.md](ENGINEERING_GUARDRAILS.md)
+  - [ROADMAP.md](../ROADMAP.md)
