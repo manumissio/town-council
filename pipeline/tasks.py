@@ -1,5 +1,4 @@
 from celery.signals import worker_ready
-from datetime import datetime, timezone
 from sqlalchemy.exc import SQLAlchemyError
 from typing import Any, Callable
 
@@ -48,6 +47,13 @@ from pipeline.summary_backfill import (
 )
 from pipeline.lineage_task_support import run_lineage_recompute
 from pipeline.task_agenda_titles import _extract_agenda_titles_from_text as _extract_agenda_titles_from_text
+from pipeline.task_agenda_segmentation import (
+    AgendaSegmentationTaskServices,
+    persist_agenda_segmentation_failure_status as persist_agenda_segmentation_failure_status_impl,
+    record_agenda_segmentation_status as record_agenda_segmentation_status_impl,
+    run_post_segmentation_vote_extraction as run_post_segmentation_vote_extraction_impl,
+    run_segment_agenda_task_family as run_segment_agenda_task_family_impl,
+)
 from pipeline.task_startup import (
     get_celery_pool_from_argv as get_celery_pool_from_argv_impl,
     run_startup_purge_on_worker_ready as run_startup_purge_on_worker_ready_impl,
@@ -170,6 +176,18 @@ def _run_extract_votes_task_family(
     )
 
 
+def _agenda_segmentation_task_services() -> AgendaSegmentationTaskServices:
+    return AgendaSegmentationTaskServices(
+        classify_catalog_bad_content=classify_catalog_bad_content,
+        has_viable_structured_agenda_source=has_viable_structured_agenda_source,
+        resolve_agenda_items=resolve_agenda_items,
+        persist_agenda_items=persist_agenda_items,
+        run_vote_extraction_for_catalog=run_vote_extraction_for_catalog,
+        reindex_catalog=reindex_catalog,
+        vote_extraction_enabled=ENABLE_VOTE_EXTRACTION,
+    )
+
+
 def _run_summary_generation_side_effects(catalog_id: int) -> dict[str, int]:
     """
     Summary persistence is the source of truth; search and embedding side effects stay best-effort.
@@ -208,12 +226,14 @@ def _record_agenda_segmentation_status(
     error_message: str | None,
 ) -> None:
     """
-    Keep segmentation status writes explicit without introducing a generic task-state helper.
+    Keep the historical pipeline.tasks patch seam around segmentation status writes.
     """
-    catalog.agenda_segmentation_status = status
-    catalog.agenda_segmentation_item_count = item_count
-    catalog.agenda_segmentation_attempted_at = datetime.now(timezone.utc)
-    catalog.agenda_segmentation_error = error_message
+    record_agenda_segmentation_status_impl(
+        catalog,
+        status=status,
+        item_count=item_count,
+        error_message=error_message,
+    )
 
 
 def _run_post_segmentation_vote_extraction(
@@ -225,43 +245,16 @@ def _run_post_segmentation_vote_extraction(
     created_items: list[AgendaItem],
 ) -> dict[str, Any]:
     """
-    Vote extraction remains a non-gating post-segmentation stage in this task family.
+    Keep the historical pipeline.tasks patch seam around post-segmentation votes.
     """
-    if not ENABLE_VOTE_EXTRACTION:
-        return {
-            "status": "disabled",
-            "processed_items": 0,
-            "updated_items": 0,
-            "skipped_items": 0,
-            "failed_items": 0,
-            "skip_reasons": {},
-        }
-
-    try:
-        vote_counters = run_vote_extraction_for_catalog(
-            db,
-            local_ai,
-            catalog,
-            doc,
-            force=False,
-            agenda_items=created_items,
-        )
-        return {"status": "complete", **vote_counters}
-    except Exception as vote_exc:
-        logger.warning(
-            "vote_extraction.post_segment_failed catalog_id=%s error=%s",
-            catalog.id,
-            vote_exc.__class__.__name__,
-        )
-        return {
-            "status": "failed",
-            "error": vote_exc.__class__.__name__,
-            "processed_items": 0,
-            "updated_items": 0,
-            "skipped_items": 0,
-            "failed_items": 0,
-            "skip_reasons": {},
-        }
+    return run_post_segmentation_vote_extraction_impl(
+        db,
+        local_ai=local_ai,
+        catalog=catalog,
+        doc=doc,
+        created_items=created_items,
+        services=_agenda_segmentation_task_services(),
+    )
 
 
 def _persist_agenda_segmentation_failure_status(
@@ -270,18 +263,9 @@ def _persist_agenda_segmentation_failure_status(
     error_message: str,
 ) -> None:
     """
-    Failure persistence is best-effort and stays under task-wrapper ownership.
+    Keep the historical pipeline.tasks patch seam around failure persistence.
     """
-    catalog = db.get(Catalog, catalog_id)
-    if not catalog:
-        return
-    _record_agenda_segmentation_status(
-        catalog,
-        status="failed",
-        item_count=0,
-        error_message=error_message[:500],
-    )
-    db.commit()
+    persist_agenda_segmentation_failure_status_impl(db, catalog_id, error_message)
 
 
 def _run_segment_agenda_task_family(
@@ -291,98 +275,14 @@ def _run_segment_agenda_task_family(
     local_ai: LocalAI,
 ) -> dict[str, Any]:
     """
-    Run agenda segmentation for one catalog while leaving retries and failure persistence to the task.
+    Keep the historical pipeline.tasks patch seam around the extracted segmentation helper.
     """
-    catalog = db.get(Catalog, catalog_id)
-
-    if not catalog or not catalog.content:
-        return {"error": "No content"}
-
-    doc = db.query(Document).filter_by(catalog_id=catalog_id).first()
-    if not doc:
-        return {"error": "Document not linked to event"}
-
-    classification = classify_catalog_bad_content(
-        catalog,
-        document_category=getattr(doc, "category", None),
-        include_document_shape=True,
-        has_viable_structured_source=has_viable_structured_agenda_source(db, catalog, doc),
+    return run_segment_agenda_task_family_impl(
+        db,
+        catalog_id,
+        local_ai=local_ai,
+        services=_agenda_segmentation_task_services(),
     )
-    if classification:
-        _record_agenda_segmentation_status(
-            catalog,
-            status="failed",
-            item_count=0,
-            error_message=classification.reason,
-        )
-        db.commit()
-        return {"status": "error", "error": classification.reason}
-
-    resolved = resolve_agenda_items(db, catalog, doc, local_ai)
-    items_data = resolved["items"]
-
-    count = 0
-    items_to_return = []
-    if items_data:
-        created_items = persist_agenda_items(db, catalog_id, doc.event_id, items_data)
-        items_to_return = [
-            {
-                "title": item.title,
-                "description": item.description,
-                "order": item.order,
-                "classification": item.classification,
-                "result": item.result,
-                "page_number": item.page_number,
-                "source": resolved["source_used"],
-            }
-            for item in created_items
-        ]
-        count = len(items_to_return)
-        vote_extraction = _run_post_segmentation_vote_extraction(
-            db,
-            local_ai=local_ai,
-            catalog=catalog,
-            doc=doc,
-            created_items=created_items,
-        )
-        _record_agenda_segmentation_status(
-            catalog,
-            status="complete",
-            item_count=count,
-            error_message=None,
-        )
-        db.commit()
-        try:
-            reindex_catalog(catalog_id)
-        except Exception as reindex_error:
-            # Agenda items are already persisted, so targeted reindex remains best-effort.
-            logger.warning("agenda_segmentation.reindex_failed catalog_id=%s error=%s", catalog_id, reindex_error)
-    else:
-        _record_agenda_segmentation_status(
-            catalog,
-            status="empty",
-            item_count=0,
-            error_message=None,
-        )
-        db.commit()
-        vote_extraction = {
-            "status": "skipped_no_items",
-            "processed_items": 0,
-            "updated_items": 0,
-            "skipped_items": 0,
-            "failed_items": 0,
-            "skip_reasons": {},
-        }
-
-    logger.info(f"Segmentation complete: {count} items found (source={resolved['source_used']})")
-    return {
-        "status": "complete",
-        "item_count": count,
-        "items": items_to_return,
-        "source_used": resolved["source_used"],
-        "quality_score": resolved["quality_score"],
-        "vote_extraction": vote_extraction,
-    }
 
 
 def _run_generate_summary_task_family(
