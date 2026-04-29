@@ -553,3 +553,27 @@ Use each entry to record:
   - [ARCHITECTURE.md](../ARCHITECTURE.md)
   - [docs/ENGINEERING_GUARDRAILS.md](ENGINEERING_GUARDRAILS.md)
   - [ROADMAP.md](../ROADMAP.md)
+
+## 2026-04-28: Finish task-family extraction with summary generation support
+
+- Status: Accepted
+- Decision:
+  - The final task-family implementation cluster in `pipeline/tasks.py` moves into `pipeline/task_summary_generation.py`.
+  - The extracted module owns summary generation, agenda-summary routing, low-signal and grounding gates, summary persistence assembly, and post-commit summary side effects.
+  - `pipeline/tasks.py` remains the Celery facade for task decorators, task names, session/retry ownership, worker signal registration, and compatibility wrappers.
+  - Summary hydration wrappers remain in `pipeline/tasks.py` because scripts and tests still import and patch those names through the facade.
+- Why:
+  - Summary generation was the last large inline task-family implementation after text extraction, vote extraction, and agenda segmentation were extracted.
+  - Keeping task decorators and runtime dependency wiring in `pipeline.tasks` preserves Celery task identity and existing monkeypatch seams.
+  - Moving the summary implementation makes `pipeline/tasks.py` an entrypoint and compatibility surface instead of a mixed implementation module.
+- Affected boundaries:
+  - `pipeline/tasks.py` remains the Celery facade and retry/session boundary.
+  - `pipeline/task_summary_generation.py` owns summary-generation task support.
+  - `pipeline/summary_backfill.py` continues to own summary hydration and backfill orchestration.
+  - `pipeline/agenda_summary_maintenance.py` continues to own deterministic agenda-summary bundle and persistence helpers.
+- Supersedes:
+  - Earlier task-cleanup ADR language that described `pipeline/tasks.py` as already finished is now clarified by this final summary-generation extraction.
+- Canonical references:
+  - [ARCHITECTURE.md](../ARCHITECTURE.md)
+  - [docs/ENGINEERING_GUARDRAILS.md](ENGINEERING_GUARDRAILS.md)
+  - [ROADMAP.md](../ROADMAP.md)
