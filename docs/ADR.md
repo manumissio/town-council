@@ -577,3 +577,26 @@ Use each entry to record:
   - [ARCHITECTURE.md](../ARCHITECTURE.md)
   - [docs/ENGINEERING_GUARDRAILS.md](ENGINEERING_GUARDRAILS.md)
   - [ROADMAP.md](../ROADMAP.md)
+
+## 2026-04-29: Extract shared topic-generation support
+
+- Status: Accepted
+- Decision:
+  - Topic-generation implementation moves into `pipeline/topic_generation.py`.
+  - `pipeline/enrichment_tasks.py` remains the Celery facade for `enrichment.generate_topics`, retry/session ownership, and single-catalog patch seams.
+  - `pipeline/topic_worker.py` remains the CLI/backfill facade for topic hydration selection, progress logging, and compatibility exports.
+  - Single-catalog task generation and batch topic tagging now share sanitation, stop-word handling, small-corpus fallback, TF-IDF extraction, persistence semantics, and post-commit reindex behavior.
+- Why:
+  - `pipeline/enrichment_tasks.py` had become a mixed task wrapper plus implementation module.
+  - `pipeline/topic_worker.py` carried overlapping topic sanitation and TF-IDF behavior for batch runs.
+  - Keeping both existing facades stable preserves Celery task identity, API enqueue behavior, CLI invocation, and existing test monkeypatch seams while removing duplicated implementation logic.
+- Affected boundaries:
+  - `pipeline/topic_generation.py` owns topic-generation domain behavior.
+  - `pipeline/enrichment_tasks.py` owns the Celery task boundary and runtime service wiring.
+  - `pipeline/topic_worker.py` owns CLI/backfill entrypoints.
+  - `api/task_routes.py` and `pipeline/run_batch_enrichment.py` keep existing caller-facing contracts.
+- Canonical references:
+  - [ARCHITECTURE.md](../ARCHITECTURE.md)
+  - [docs/PIPELINE.md](PIPELINE.md)
+  - [docs/ENGINEERING_GUARDRAILS.md](ENGINEERING_GUARDRAILS.md)
+  - [ROADMAP.md](../ROADMAP.md)
