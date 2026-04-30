@@ -73,7 +73,7 @@ def test_generate_topics_task_handles_single_doc_corpus(mocker):
 
     mocker.patch.object(enrichment_tasks, "SessionLocal", return_value=_FakeSession())
     # Avoid touching the search index in a unit test.
-    mocker.patch.object(enrichment_tasks, "reindex_catalog", side_effect=Exception("skip"))
+    mocker.patch.object(enrichment_tasks, "reindex_catalog", side_effect=RuntimeError("skip"))
 
     result = enrichment_tasks.generate_topics_task.run(catalog_id, force=True)
     assert result["status"] in ("complete", "blocked_low_signal")

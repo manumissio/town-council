@@ -54,7 +54,6 @@ APPROVED_BROAD_EXCEPTION_PATHS = {
     "pipeline/db_session.py",
     "pipeline/diagnose_search_sort.py",
     "pipeline/diagnose_semantic_search.py",
-    "pipeline/enrichment_tasks.py",
     "pipeline/indexer.py",
     "pipeline/lineage_service.py",
     "pipeline/llm.py",
