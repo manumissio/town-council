@@ -184,3 +184,22 @@ def test_http_provider_request_exception_maps_to_unavailable(monkeypatch):
     provider.max_retries = 0
     with pytest.raises(ProviderUnavailableError):
         provider.summarize_text("hello", temperature=0.1, max_tokens=16)
+
+
+def test_http_provider_uses_llm_provider_facade_request_patch(monkeypatch):
+    monkeypatch.setattr(
+        "pipeline.llm_provider.requests.post",
+        lambda *args, **kwargs: _FakeResponse({"response": "ok from facade"}),
+    )
+
+    provider = HttpInferenceProvider()
+    assert provider.summarize_text("hello", temperature=0.1, max_tokens=16) == "ok from facade"
+
+
+def test_http_provider_health_check_handles_request_failure(monkeypatch):
+    monkeypatch.setattr(
+        "pipeline.llm_provider.requests.get",
+        lambda *args, **kwargs: (_ for _ in ()).throw(requests.exceptions.ConnectionError("down")),
+    )
+
+    assert HttpInferenceProvider().health_check() is False
