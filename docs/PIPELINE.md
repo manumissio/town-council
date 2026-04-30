@@ -214,7 +214,10 @@ Why this exists:
 
 ### Core modules
 - `pipeline/llm.py`: orchestration policy (prompting, grounding/fallback orchestration)
-- `pipeline/llm_provider.py`: backend transport abstraction (`inprocess` / `http`)
+- `pipeline/llm_provider.py`: provider compatibility facade for imports, patch seams, and config overrides
+- `pipeline/http_inference_provider.py`: HTTP/Ollama transport abstraction
+- `pipeline/inprocess_inference_provider.py`: in-process llama transport abstraction
+- `pipeline/inference_provider_contract.py`: provider protocol and typed error contract
 
 ### Typed provider errors
 - `ProviderTimeoutError`
@@ -315,7 +318,8 @@ Use these files as primary references:
 - Async orchestration: `pipeline/tasks.py`
 - API task entrypoints: `api/main.py`
 - Inference policy: `pipeline/llm.py`
-- Provider transport + typed errors: `pipeline/llm_provider.py`
+- Provider facade: `pipeline/llm_provider.py`
+- Provider transport + typed errors: `pipeline/http_inference_provider.py`, `pipeline/inprocess_inference_provider.py`, `pipeline/inference_provider_contract.py`
 - Extraction freshness/hash: `pipeline/extraction_service.py`, `pipeline/content_hash.py`
 - Metrics: `pipeline/metrics.py`
 - Runbook and troubleshooting: `docs/OPERATIONS.md`
