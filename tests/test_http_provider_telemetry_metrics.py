@@ -186,6 +186,47 @@ def test_http_provider_request_exception_maps_to_unavailable(monkeypatch):
         provider.summarize_text("hello", temperature=0.1, max_tokens=16)
 
 
+def test_http_provider_unexpected_transport_failure_maps_to_unavailable_with_error_outcome(monkeypatch):
+    outcomes = []
+
+    monkeypatch.setattr(
+        "pipeline.llm_provider.record_provider_request",
+        lambda provider, operation, model, outcome, duration_ms: outcomes.append(outcome),
+    )
+    monkeypatch.setattr(
+        "pipeline.llm_provider.requests.post",
+        lambda *args, **kwargs: (_ for _ in ()).throw(RuntimeError("patched transport blew up")),
+    )
+
+    provider = HttpInferenceProvider()
+    provider.max_retries = 0
+    with pytest.raises(ProviderUnavailableError):
+        provider.summarize_text("hello", temperature=0.1, max_tokens=16)
+
+    assert outcomes == ["error"]
+
+
+def test_http_provider_metric_parse_failure_maps_to_unavailable_with_error_outcome(monkeypatch):
+    outcomes = []
+
+    monkeypatch.setattr(
+        "pipeline.llm_provider.record_provider_request",
+        lambda provider, operation, model, outcome, duration_ms: outcomes.append(outcome),
+    )
+    monkeypatch.setattr(
+        "pipeline.llm_provider.requests.post",
+        lambda *args, **kwargs: _FakeResponse({"response": "ok"}),
+    )
+
+    provider = HttpInferenceProvider()
+    provider.max_retries = 0
+    monkeypatch.setattr(provider, "_parse_token_metrics", lambda _payload: (_ for _ in ()).throw(OverflowError("duration too large")))
+    with pytest.raises(ProviderUnavailableError):
+        provider.summarize_text("hello", temperature=0.1, max_tokens=16)
+
+    assert outcomes == ["error"]
+
+
 def test_http_provider_uses_llm_provider_facade_request_patch(monkeypatch):
     monkeypatch.setattr(
         "pipeline.llm_provider.requests.post",

@@ -42,10 +42,12 @@ HEALTH_CHECK_TIMEOUT_SECONDS: Final = 5
 HTTP_CLIENT_ERROR_MIN_STATUS: Final = 400
 HTTP_CLIENT_ERROR_MAX_STATUS: Final = 499
 OUTCOME_OK: Final = "ok"
+OUTCOME_ERROR: Final = "error"
 OUTCOME_RESPONSE_ERROR: Final = "response_error"
 OUTCOME_TIMEOUT: Final = "timeout"
 OUTCOME_UNAVAILABLE: Final = "unavailable"
 CONSERVATIVE_HTTP_PROFILE: Final = "conservative"
+HTTP_PROVIDER_ATTEMPT_FAILURES: Final = (RuntimeError, OSError, OverflowError, TypeError, ValueError, AttributeError, KeyError)
 
 
 class HttpInferenceProvider:
@@ -231,6 +233,9 @@ class HttpInferenceProvider:
             outcome = OUTCOME_RESPONSE_ERROR
             last_error = error
             stop_attempts = True
+        except HTTP_PROVIDER_ATTEMPT_FAILURES as error:
+            outcome = OUTCOME_ERROR
+            last_error = error
         finally:
             duration_ms = (time.perf_counter() - t0) * 1000.0
             self._record_attempt_metrics(
