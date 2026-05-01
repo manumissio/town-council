@@ -57,7 +57,6 @@ APPROVED_BROAD_EXCEPTION_PATHS = {
     "pipeline/indexer.py",
     "pipeline/lineage_service.py",
     "pipeline/llm.py",
-    "pipeline/llm_provider.py",
     "pipeline/metrics.py",
     "pipeline/models.py",
     "pipeline/nlp_worker.py",

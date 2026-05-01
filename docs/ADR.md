@@ -600,3 +600,28 @@ Use each entry to record:
   - [docs/PIPELINE.md](PIPELINE.md)
   - [docs/ENGINEERING_GUARDRAILS.md](ENGINEERING_GUARDRAILS.md)
   - [ROADMAP.md](../ROADMAP.md)
+
+## 2026-04-29: Split inference provider implementation behind the existing facade
+
+- Status: Accepted
+- Decision:
+  - `pipeline/llm_provider.py` becomes the public compatibility facade for provider imports, test monkeypatch seams, config overrides, and metric recorder patch paths.
+  - `pipeline/inference_provider_contract.py` owns the provider protocol, operation labels, Ollama response-field constants, and typed provider errors.
+  - `pipeline/http_inference_provider.py` owns HTTP/Ollama transport, timeout selection, retry-budget policy, response validation, and fail-fast provider error mapping.
+  - `pipeline/inprocess_inference_provider.py` owns the in-process llama adapter and model-call reset behavior.
+  - `pipeline/provider_telemetry.py` owns token metric parsing and provider telemetry recording helpers.
+- Why:
+  - Provider transport code had become a mixed contract, HTTP client, in-process runtime, telemetry, and compatibility module.
+  - Keeping `pipeline.llm_provider` as the facade preserves existing imports and monkeypatch paths used by tests, maintenance scripts, and `pipeline.llm`.
+  - Splitting implementation behind the facade reduces coupling without changing runtime defaults, timeout budgets, retry budgets, telemetry names, or local-first/fail-fast policy.
+- Affected boundaries:
+  - `pipeline/llm_provider.py` remains the public provider facade.
+  - `pipeline/http_inference_provider.py` owns remote/local HTTP inference transport behavior.
+  - `pipeline/inprocess_inference_provider.py` owns in-process llama provider behavior.
+  - `pipeline/provider_telemetry.py` owns provider metric parsing and recording support.
+  - `pipeline/llm.py` continues to own orchestration and interpretation of typed provider failures.
+- Canonical references:
+  - [ARCHITECTURE.md](../ARCHITECTURE.md)
+  - [docs/PIPELINE.md](PIPELINE.md)
+  - [docs/ENGINEERING_GUARDRAILS.md](ENGINEERING_GUARDRAILS.md)
+  - [ROADMAP.md](../ROADMAP.md)

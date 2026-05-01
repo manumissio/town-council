@@ -263,6 +263,9 @@ Future direction (Experimental, non-baseline):
 Primary owners:
 - `pipeline/llm.py`
 - `pipeline/llm_provider.py`
+- `pipeline/http_inference_provider.py`
+- `pipeline/inprocess_inference_provider.py`
+- `pipeline/inference_provider_contract.py`
 - `pipeline/config.py`
 
 ### Stability Zones
@@ -296,7 +299,7 @@ Primary owners:
 - Ingestion and promotion: `council_crawler/`, `crawler/promote_stage.py`
 - Canonical extraction/content hashing: `pipeline/extraction_service.py`, `pipeline/content_hash.py`
 - Async orchestration and writes: `pipeline/tasks.py`
-- Inference abstraction and provider telemetry: `pipeline/llm.py`, `pipeline/llm_provider.py`, `pipeline/metrics.py`
+- Inference abstraction and provider telemetry: `pipeline/llm.py`, `pipeline/llm_provider.py`, `pipeline/http_inference_provider.py`, `pipeline/inprocess_inference_provider.py`, `pipeline/provider_telemetry.py`, `pipeline/metrics.py`
 - API surface and auth: `api/main.py`, `api/app_setup.py`, `api/search_routes.py`, `api/task_routes.py`, `api/search/query_builder.py`, `api/metrics.py`
 - Semantic retrieval and embeddings: `pipeline/semantic_index.py`, `pipeline/models.py`
 - Frontend query/task UX: `frontend/app/page.js`, `frontend/state/search-state.js`, `frontend/components/ResultCard.js`
@@ -333,7 +336,7 @@ Primary owners:
 ### Extension Points and Safe Customization Seams
 
 - Add new generation capability: add route in `api/task_routes.py` + task in `pipeline/tasks.py` + UI task-state wiring.
-- Add provider transport: implement `InferenceProvider` contract in `pipeline/llm_provider.py` with typed errors and metrics.
+- Add provider transport: implement the `InferenceProvider` contract from `pipeline/inference_provider_contract.py`, expose it through `pipeline/llm_provider.py`, and preserve typed errors plus metrics.
 - Extend query behavior: modify `api/search/query_builder.py` to avoid search/trend filter drift.
 - Add enrichment stage: append explicit stage in pipeline orchestration with deterministic write contract.
 
@@ -359,6 +362,9 @@ Owners:
 Owners:
 - `pipeline/llm.py`
 - `pipeline/llm_provider.py`
+- `pipeline/http_inference_provider.py`
+- `pipeline/inprocess_inference_provider.py`
+- `pipeline/inference_provider_contract.py`
 - `pipeline/config.py`
 
 #### Data integrity and authority
@@ -377,6 +383,7 @@ Owners:
 Owners:
 - `pipeline/metrics.py`
 - `pipeline/llm_provider.py`
+- `pipeline/provider_telemetry.py`
 
 ### API Behavior Contract
 
@@ -409,7 +416,7 @@ Owners:
 |---|---|---|
 | API service metrics | `GET /metrics` on API | `api/metrics.py`, `api/main.py` |
 | Worker service metrics | `GET /metrics` on worker exporter | `pipeline/metrics.py` |
-| Provider transport telemetry | `tc_provider_*` (requests, duration, retries, timeouts, TTFT/TPS, token counters) | `pipeline/llm_provider.py`, `pipeline/metrics.py` |
+| Provider transport telemetry | `tc_provider_*` (requests, duration, retries, timeouts, TTFT/TPS, token counters) | `pipeline/provider_telemetry.py`, `pipeline/llm_provider.py`, `pipeline/metrics.py` |
 | Prefork-safe provider visibility | Redis-backed provider metric aggregates | `pipeline/metrics.py` |
 
 ### Security and Reliability Controls
