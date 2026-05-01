@@ -14,7 +14,16 @@ from pipeline.inference_provider_contract import (
 from pipeline.provider_telemetry import record_inprocess_provider_request
 
 
-INPROCESS_PROVIDER_FAILURES: Final = (AssertionError, RuntimeError, ValueError, TypeError, AttributeError, KeyError)
+INPROCESS_PROVIDER_FAILURES: Final = (
+    AssertionError,
+    MemoryError,
+    OSError,
+    RuntimeError,
+    ValueError,
+    TypeError,
+    AttributeError,
+    KeyError,
+)
 INPROCESS_PROVIDER_NAME: Final = "inprocess"
 INPROCESS_MODEL_NAME: Final = "inprocess-llama"
 

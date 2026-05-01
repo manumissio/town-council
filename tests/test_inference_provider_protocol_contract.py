@@ -61,6 +61,30 @@ class _AssertionFailingLlama:
         self.reset_count += 1
 
 
+class _MemoryFailingLlama:
+    def __init__(self):
+        self.reset_count = 0
+
+    def __call__(self, prompt, max_tokens=0, temperature=0.0, response_format=None):
+        _ = (prompt, max_tokens, temperature, response_format)
+        raise MemoryError("model memory failed")
+
+    def reset(self):
+        self.reset_count += 1
+
+
+class _OsFailingLlama:
+    def __init__(self):
+        self.reset_count = 0
+
+    def __call__(self, prompt, max_tokens=0, temperature=0.0, response_format=None):
+        _ = (prompt, max_tokens, temperature, response_format)
+        raise OSError("model os failed")
+
+    def reset(self):
+        self.reset_count += 1
+
+
 def test_inprocess_provider_satisfies_protocol():
     provider = InProcessLlamaProvider(_DummyOwner())
     assert isinstance(provider, InferenceProvider)
@@ -94,6 +118,36 @@ def test_inprocess_provider_maps_backend_failure_and_resets_model():
 def test_inprocess_provider_maps_model_assertion_failure_to_response_error():
     owner = _DummyOwner()
     owner.llm = _AssertionFailingLlama()
+    provider = InProcessLlamaProvider(owner)
+
+    try:
+        provider.summarize_agenda_items("x", temperature=0.0, max_tokens=8)
+    except ProviderResponseError:
+        pass
+    else:  # pragma: no cover - defensive
+        raise AssertionError("expected ProviderResponseError")
+
+    assert owner.llm.reset_count == 1
+
+
+def test_inprocess_provider_maps_model_memory_failure_to_response_error():
+    owner = _DummyOwner()
+    owner.llm = _MemoryFailingLlama()
+    provider = InProcessLlamaProvider(owner)
+
+    try:
+        provider.summarize_agenda_items("x", temperature=0.0, max_tokens=8)
+    except ProviderResponseError:
+        pass
+    else:  # pragma: no cover - defensive
+        raise AssertionError("expected ProviderResponseError")
+
+    assert owner.llm.reset_count == 1
+
+
+def test_inprocess_provider_maps_model_os_failure_to_response_error():
+    owner = _DummyOwner()
+    owner.llm = _OsFailingLlama()
     provider = InProcessLlamaProvider(owner)
 
     try:
