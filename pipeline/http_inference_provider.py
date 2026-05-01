@@ -47,7 +47,16 @@ OUTCOME_RESPONSE_ERROR: Final = "response_error"
 OUTCOME_TIMEOUT: Final = "timeout"
 OUTCOME_UNAVAILABLE: Final = "unavailable"
 CONSERVATIVE_HTTP_PROFILE: Final = "conservative"
-HTTP_PROVIDER_ATTEMPT_FAILURES: Final = (RuntimeError, OSError, OverflowError, TypeError, ValueError, AttributeError, KeyError)
+HTTP_PROVIDER_ATTEMPT_FAILURES: Final = (
+    MemoryError,
+    RuntimeError,
+    OSError,
+    OverflowError,
+    TypeError,
+    ValueError,
+    AttributeError,
+    KeyError,
+)
 
 
 class HttpInferenceProvider:

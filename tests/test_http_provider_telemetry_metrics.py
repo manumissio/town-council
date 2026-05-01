@@ -75,6 +75,14 @@ class _FakeResponse:
         return self._payload
 
 
+class _MemoryErrorResponse:
+    def raise_for_status(self):
+        return None
+
+    def json(self):
+        raise MemoryError("json memory failed")
+
+
 def test_http_provider_missing_stats_skips_token_metrics(monkeypatch):
     events = {"ttft": 0, "tps": 0, "tokens": 0, "request": 0}
 
@@ -224,6 +232,34 @@ def test_http_provider_metric_parse_failure_maps_to_unavailable_with_error_outco
     with pytest.raises(ProviderUnavailableError):
         provider.summarize_text("hello", temperature=0.1, max_tokens=16)
 
+    assert outcomes == ["error"]
+
+
+@pytest.mark.parametrize("failure_source", ["request", "json"])
+def test_http_provider_memory_failure_maps_to_unavailable_with_error_outcome(monkeypatch, failure_source):
+    outcomes = []
+
+    monkeypatch.setattr(
+        "pipeline.llm_provider.record_provider_request",
+        lambda provider, operation, model, outcome, duration_ms: outcomes.append(outcome),
+    )
+    if failure_source == "request":
+        monkeypatch.setattr(
+            "pipeline.llm_provider.requests.post",
+            lambda *args, **kwargs: (_ for _ in ()).throw(MemoryError("request memory failed")),
+        )
+    else:
+        monkeypatch.setattr(
+            "pipeline.llm_provider.requests.post",
+            lambda *args, **kwargs: _MemoryErrorResponse(),
+        )
+
+    provider = HttpInferenceProvider()
+    provider.max_retries = 0
+    with pytest.raises(ProviderUnavailableError) as raised_error:
+        provider.summarize_text("hello", temperature=0.1, max_tokens=16)
+
+    assert isinstance(raised_error.value.__cause__, MemoryError)
     assert outcomes == ["error"]
 
 
