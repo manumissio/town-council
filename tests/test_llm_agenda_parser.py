@@ -1,4 +1,5 @@
-from pipeline.llm import parse_llm_agenda_items
+from pipeline import agenda_extraction
+from pipeline.llm import iter_fallback_paragraphs, parse_llm_agenda_items
 
 
 def test_parse_llm_agenda_items_preserves_multiline_descriptions_and_separator_variants():
@@ -27,3 +28,9 @@ def test_parse_llm_agenda_items_defaults_missing_page_to_one():
     assert len(items) == 1
     assert items[0]["order"] == 7
     assert items[0]["page_number"] == 1
+
+
+def test_agenda_extraction_facade_preserves_llm_helper_exports():
+    assert agenda_extraction.parse_llm_agenda_items is parse_llm_agenda_items
+    assert agenda_extraction.iter_fallback_paragraphs is iter_fallback_paragraphs
+    assert agenda_extraction.build_agenda_extraction_prompt("City agenda")

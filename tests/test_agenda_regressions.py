@@ -77,6 +77,27 @@ def test_regression_legal_boilerplate_not_promoted_to_agenda_items():
     assert all("in witness whereof" not in title for title in titles)
 
 
+def test_regression_numbered_legal_tail_after_end_marker_does_not_replace_agenda_item():
+    """
+    Numbered legal notices after an end marker should not defeat truncation.
+    """
+    text = (
+        "[PAGE 1]\n"
+        "1. Budget Update\n"
+        "Adjournment\n"
+        "ATTEST:\n"
+        "IN WITNESS WHEREOF\n"
+        "Date: January 21, 2021\n"
+        "City Clerk\n"
+        "1. Pursuant to Government Code Section 54954.2 this notice was posted\n"
+        "2. ADA accommodations are available\n"
+    )
+    items = _extract_with_forced_fallback(text)
+    titles = [item["title"] for item in items]
+
+    assert titles == ["Budget Update"]
+
+
 def test_regression_accessibility_and_url_boilerplate_not_promoted_to_agenda_items():
     """
     Agenda PDFs often contain participation/accessibility boilerplate plus URLs.
