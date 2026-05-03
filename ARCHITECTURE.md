@@ -299,7 +299,7 @@ Primary owners:
 - Ingestion and promotion: `council_crawler/`, `crawler/promote_stage.py`
 - Canonical extraction/content hashing: `pipeline/extraction_service.py`, `pipeline/content_hash.py`
 - Async orchestration and writes: `pipeline/tasks.py`
-- Inference abstraction and provider telemetry: `pipeline/llm.py`, `pipeline/llm_provider.py`, `pipeline/http_inference_provider.py`, `pipeline/inprocess_inference_provider.py`, `pipeline/provider_telemetry.py`, `pipeline/metrics.py`
+- Inference abstraction and provider telemetry: `pipeline/llm.py`, `pipeline/llm_provider.py`, `pipeline/http_inference_provider.py`, `pipeline/inprocess_inference_provider.py`, `pipeline/provider_telemetry.py`, `pipeline/metrics.py`, `pipeline/metrics_provider_recorders.py`
 - API surface and auth: `api/main.py`, `api/app_setup.py`, `api/search_routes.py`, `api/task_routes.py`, `api/search/query_builder.py`, `api/metrics.py`
 - Semantic retrieval and embeddings: `pipeline/semantic_index.py`, `pipeline/models.py`
 - Frontend query/task UX: `frontend/app/page.js`, `frontend/state/search-state.js`, `frontend/components/ResultCard.js`
@@ -415,9 +415,9 @@ Owners:
 | Contract | Metric/endpoint | Primary owners |
 |---|---|---|
 | API service metrics | `GET /metrics` on API | `api/metrics.py`, `api/main.py` |
-| Worker service metrics | `GET /metrics` on worker exporter | `pipeline/metrics.py` |
-| Provider transport telemetry | `tc_provider_*` (requests, duration, retries, timeouts, TTFT/TPS, token counters) | `pipeline/provider_telemetry.py`, `pipeline/llm_provider.py`, `pipeline/metrics.py` |
-| Prefork-safe provider visibility | Redis-backed provider metric aggregates | `pipeline/metrics.py` |
+| Worker service metrics | `GET /metrics` on worker exporter | `pipeline/metrics.py`, `pipeline/metrics_celery_signals.py` |
+| Provider transport telemetry | `tc_provider_*` (requests, duration, retries, timeouts, TTFT/TPS, token counters) | `pipeline/provider_telemetry.py`, `pipeline/llm_provider.py`, `pipeline/metrics.py`, `pipeline/metrics_provider_recorders.py` |
+| Prefork-safe provider visibility | Redis-backed provider metric aggregates | `pipeline/metrics.py`, `pipeline/metrics_provider_collector.py` |
 
 ### Security and Reliability Controls
 

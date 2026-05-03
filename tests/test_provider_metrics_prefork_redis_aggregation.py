@@ -1,6 +1,23 @@
 from pipeline import metrics
 
 
+class FakeMetric:
+    def __init__(self):
+        self.labels_seen = []
+        self.incremented = 0
+        self.observed = []
+
+    def labels(self, **labels):
+        self.labels_seen.append(labels)
+        return self
+
+    def inc(self, amount=1):
+        self.incremented += amount
+
+    def observe(self, value):
+        self.observed.append(value)
+
+
 class FakeRedis:
     def __init__(self):
         self.kv = {}
@@ -45,3 +62,27 @@ def test_record_provider_metrics_mirror_to_redis(monkeypatch):
     tps_bucket_key = f"tc:provider:tps:bucket:{label4}"
     assert fake.hashes[ttft_bucket_key]["250.0"] == 1
     assert fake.hashes[tps_bucket_key]["20.0"] == 1
+
+
+def test_provider_label_keys_round_trip_special_characters():
+    labels_key = metrics._provider_labels_key("http", "summarize:text", "gemma/custom", "ok value")
+    assert labels_key == "http:summarize%3Atext:gemma%2Fcustom:ok%20value"
+
+    labels = metrics._provider_base_labels_key("http", "summarize:text", "gemma/custom")
+    assert labels == "http:summarize%3Atext:gemma%2Fcustom"
+
+
+def test_provider_recorder_uses_metrics_facade_patch(monkeypatch):
+    fake_requests = FakeMetric()
+    fake_duration = FakeMetric()
+    monkeypatch.setattr(metrics, "PROVIDER_REQUESTS_TOTAL", fake_requests)
+    monkeypatch.setattr(metrics, "PROVIDER_REQUEST_DURATION_MS", fake_duration)
+    monkeypatch.setattr(metrics, "_redis_incr", lambda *args, **kwargs: None)
+
+    metrics.record_provider_request("http", "summarize_text", "gemma", "ok", 42.0)
+
+    expected_labels = {"provider": "http", "operation": "summarize_text", "model": "gemma", "outcome": "ok"}
+    assert fake_requests.labels_seen == [expected_labels]
+    assert fake_requests.incremented == 1
+    assert fake_duration.labels_seen == [expected_labels]
+    assert fake_duration.observed == [42.0]
