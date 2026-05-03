@@ -382,6 +382,12 @@ Owners:
 
 Owners:
 - `pipeline/metrics.py`
+- `pipeline/metrics_provider_collector.py`
+- `pipeline/metrics_provider_recorders.py`
+- `pipeline/metrics_provider_keys.py`
+- `pipeline/metrics_task_recorders.py`
+- `pipeline/metrics_celery_signals.py`
+- `pipeline/metrics_profile_events.py`
 - `pipeline/llm_provider.py`
 - `pipeline/provider_telemetry.py`
 
@@ -415,9 +421,9 @@ Owners:
 | Contract | Metric/endpoint | Primary owners |
 |---|---|---|
 | API service metrics | `GET /metrics` on API | `api/metrics.py`, `api/main.py` |
-| Worker service metrics | `GET /metrics` on worker exporter | `pipeline/metrics.py`, `pipeline/metrics_celery_signals.py` |
-| Provider transport telemetry | `tc_provider_*` (requests, duration, retries, timeouts, TTFT/TPS, token counters) | `pipeline/provider_telemetry.py`, `pipeline/llm_provider.py`, `pipeline/metrics.py`, `pipeline/metrics_provider_recorders.py` |
-| Prefork-safe provider visibility | Redis-backed provider metric aggregates | `pipeline/metrics.py`, `pipeline/metrics_provider_collector.py` |
+| Worker service metrics | `GET /metrics` on worker exporter | `pipeline/metrics.py`, `pipeline/metrics_definitions.py`, `pipeline/metrics_task_recorders.py`, `pipeline/metrics_celery_signals.py`, `pipeline/metrics_profile_events.py` |
+| Provider transport telemetry | `tc_provider_*` (requests, duration, retries, timeouts, TTFT/TPS, token counters) | `pipeline/provider_telemetry.py`, `pipeline/llm_provider.py`, `pipeline/metrics.py`, `pipeline/metrics_provider_keys.py`, `pipeline/metrics_provider_recorders.py` |
+| Prefork-safe provider visibility | Redis-backed provider metric aggregates | `pipeline/metrics.py`, `pipeline/metrics_provider_keys.py`, `pipeline/metrics_provider_collector.py` |
 
 ### Security and Reliability Controls
 

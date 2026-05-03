@@ -15,6 +15,7 @@ Use each entry to record:
   - `pipeline/metrics.py` remains the public compatibility facade for worker metrics imports, Celery signal registration, and existing test patch seams.
   - Metric schema definitions move behind `pipeline/metrics_definitions.py`.
   - Provider Redis key handling, recorders, and collector behavior move behind focused `pipeline/metrics_provider_*` modules.
+  - Task metric recorders move behind `pipeline/metrics_task_recorders.py`.
   - Celery signal handling and profile-event construction move behind `pipeline/metrics_celery_signals.py` and `pipeline/metrics_profile_events.py`.
 - Why:
   - `pipeline/metrics.py` combined metric definitions, provider Redis mirroring, Prometheus collection, Celery signals, profile events, and Redis failure handling in one large module.
@@ -22,9 +23,12 @@ Use each entry to record:
 - Affected boundaries:
   - `pipeline/metrics.py` remains the import and patch boundary.
   - `pipeline/metrics_definitions.py` owns Prometheus metric object definitions.
+  - `pipeline/metrics_provider_keys.py` owns Redis-safe provider label encoding and decoding.
   - `pipeline/metrics_provider_collector.py` owns Redis-backed provider metric exposition.
   - `pipeline/metrics_provider_recorders.py` owns provider telemetry writes.
+  - `pipeline/metrics_task_recorders.py` owns Celery task, queue-wait, phase-duration, and lineage metric writes.
   - `pipeline/metrics_celery_signals.py` owns Celery task metrics hooks.
+  - `pipeline/metrics_profile_events.py` owns task profile-event construction.
 - Canonical references:
   - [ARCHITECTURE.md](../ARCHITECTURE.md)
   - [docs/PIPELINE.md](PIPELINE.md)
