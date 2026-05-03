@@ -149,6 +149,14 @@ AGENDA_TEXT_HEURISTICS_CLEANUP_MODULES = (
     "pipeline/agenda_item_dedupe.py",
     "pipeline/agenda_end_markers.py",
 )
+AGENDA_SUMMARY_MAINTENANCE_CLEANUP_MODULES = (
+    "pipeline/agenda_summary_maintenance.py",
+    "pipeline/agenda_summary_contracts.py",
+    "pipeline/agenda_summary_inputs.py",
+    "pipeline/agenda_summary_callbacks.py",
+    "pipeline/agenda_summary_batch.py",
+    "pipeline/agenda_summary_fallback.py",
+)
 
 
 def _tracked_files() -> list[Path]:
@@ -162,6 +170,7 @@ def _broad_exception_scan_files() -> list[Path]:
         *METRICS_CLEANUP_MODULES,
         *AGENDA_EXTRACTION_CLEANUP_MODULES,
         *AGENDA_TEXT_HEURISTICS_CLEANUP_MODULES,
+        *AGENDA_SUMMARY_MAINTENANCE_CLEANUP_MODULES,
     ):
         tracked_files.add((ROOT / module_path).resolve())
     return sorted(tracked_files)
@@ -380,6 +389,16 @@ def test_agenda_text_heuristics_cleanup_modules_stay_under_size_target():
     oversized_modules = [
         module_path
         for module_path in AGENDA_TEXT_HEURISTICS_CLEANUP_MODULES
+        if len((ROOT / module_path).read_text(encoding="utf-8").splitlines()) > 300
+    ]
+
+    assert oversized_modules == []
+
+
+def test_agenda_summary_maintenance_cleanup_modules_stay_under_size_target():
+    oversized_modules = [
+        module_path
+        for module_path in AGENDA_SUMMARY_MAINTENANCE_CLEANUP_MODULES
         if len((ROOT / module_path).read_text(encoding="utf-8").splitlines()) > 300
     ]
 
