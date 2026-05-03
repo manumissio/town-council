@@ -435,6 +435,26 @@ Use each entry to record:
   - [docs/ENGINEERING_GUARDRAILS.md](ENGINEERING_GUARDRAILS.md)
   - [ROADMAP.md](../ROADMAP.md)
 
+## 2026-05-03: Split agenda text heuristics behind the facade
+
+- Status: Accepted
+- Decision:
+  - `pipeline/agenda_text_heuristics.py` remains the compatibility facade for shared agenda text helper imports.
+  - Shared agenda text behavior now lives in focused modules for normalization, boilerplate/noise detection, item acceptance, fuzzy dedupe, and end-marker policy.
+  - Existing callers keep importing through the facade in this wave to avoid broad import-path churn.
+- Why:
+  - `pipeline/agenda_text_heuristics.py` became the largest shared agenda helper after agenda extraction cleanup.
+  - Splitting behind the facade narrows ownership without changing segmentation, summary, or text-generation behavior.
+  - Keeping callers on the facade preserves `pipeline.llm` compatibility aliases and reduces monkeypatch/import risk.
+- Affected boundaries:
+  - `pipeline/agenda_text_heuristics.py` owns facade compatibility only.
+  - `pipeline/agenda_text_normalization.py`, `pipeline/agenda_text_noise.py`, `pipeline/agenda_text_noise_patterns.py`, `pipeline/agenda_item_acceptance.py`, `pipeline/agenda_item_dedupe.py`, and `pipeline/agenda_end_markers.py` own focused helper implementation.
+  - `pipeline/llm.py` remains the local AI product-policy boundary.
+- Canonical references:
+  - [ARCHITECTURE.md](../ARCHITECTURE.md)
+  - [docs/ENGINEERING_GUARDRAILS.md](ENGINEERING_GUARDRAILS.md)
+  - [ROADMAP.md](../ROADMAP.md)
+
 ## 2026-04-09: Finish `pipeline/llm.py` by extracting heuristics, generic generation, and runtime bootstrap
 
 - Status: Accepted
