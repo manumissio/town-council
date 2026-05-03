@@ -16,6 +16,7 @@ from pipeline.agenda_extraction import (
     run_agenda_extraction_pipeline,
 )
 from pipeline.agenda_text_heuristics import (
+    is_tabular_fragment as _is_tabular_fragment_impl,
     looks_like_agenda_segmentation_boilerplate as _looks_like_agenda_segmentation_boilerplate_impl,
 )
 from pipeline.agenda_summary import (
@@ -79,6 +80,7 @@ _normalize_summary_output_to_bluf = _normalize_summary_output_to_bluf_impl
 _looks_like_agenda_segmentation_boilerplate = (
     _looks_like_agenda_segmentation_boilerplate_impl
 )
+_is_tabular_fragment = _is_tabular_fragment_impl
 _should_drop_from_agenda_summary = _should_drop_from_agenda_summary_impl
 
 

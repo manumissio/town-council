@@ -129,6 +129,17 @@ METRICS_CLEANUP_MODULES = (
     "pipeline/metrics_provider_recorders.py",
     "pipeline/metrics_task_recorders.py",
 )
+AGENDA_EXTRACTION_CLEANUP_MODULES = (
+    "pipeline/agenda_extraction.py",
+    "pipeline/agenda_extraction_acceptance.py",
+    "pipeline/agenda_extraction_diagnostics.py",
+    "pipeline/agenda_extraction_fallback.py",
+    "pipeline/agenda_extraction_noise.py",
+    "pipeline/agenda_extraction_numbered.py",
+    "pipeline/agenda_extraction_pages.py",
+    "pipeline/agenda_extraction_paragraphs.py",
+    "pipeline/agenda_extraction_parser.py",
+)
 
 
 def _tracked_files() -> list[Path]:
@@ -138,7 +149,7 @@ def _tracked_files() -> list[Path]:
 
 def _broad_exception_scan_files() -> list[Path]:
     tracked_files = {path.resolve() for path in _tracked_files()}
-    for module_path in METRICS_CLEANUP_MODULES:
+    for module_path in (*METRICS_CLEANUP_MODULES, *AGENDA_EXTRACTION_CLEANUP_MODULES):
         tracked_files.add((ROOT / module_path).resolve())
     return sorted(tracked_files)
 
@@ -336,6 +347,16 @@ def test_metrics_cleanup_modules_stay_under_size_target():
     oversized_modules = [
         module_path
         for module_path in METRICS_CLEANUP_MODULES
+        if len((ROOT / module_path).read_text(encoding="utf-8").splitlines()) > 300
+    ]
+
+    assert oversized_modules == []
+
+
+def test_agenda_extraction_cleanup_modules_stay_under_size_target():
+    oversized_modules = [
+        module_path
+        for module_path in AGENDA_EXTRACTION_CLEANUP_MODULES
         if len((ROOT / module_path).read_text(encoding="utf-8").splitlines()) > 300
     ]
 
