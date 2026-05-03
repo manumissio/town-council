@@ -411,6 +411,26 @@ Use each entry to record:
   - [docs/ENGINEERING_GUARDRAILS.md](ENGINEERING_GUARDRAILS.md)
   - [ROADMAP.md](../ROADMAP.md)
 
+## 2026-05-03: Split agenda-extraction implementation behind the facade
+
+- Status: Accepted
+- Decision:
+  - `pipeline/agenda_extraction.py` remains the public compatibility facade for `LocalAI.extract_agenda(...)`, direct helper imports, and existing `pipeline.llm` aliases.
+  - Agenda-extraction implementation now lives in focused modules for prompt/parser behavior, fallback parsing, acceptance gates, page handling, numbered-item handling, paragraph fallback, noise filtering, and diagnostics.
+  - `pipeline/llm.py` continues to own provider acquisition plus interpretation of typed provider failures into heuristic fallback behavior.
+- Why:
+  - The previous extraction moved agenda segmentation out of `pipeline/llm.py`, but `pipeline/agenda_extraction.py` became a mixed-responsibility module.
+  - Splitting behind the facade preserves public behavior while making the fallback parser and diagnostics easier to audit.
+  - Keeping `agenda_text_heuristics.py` separate avoids mixing shared lexical rules with the agenda-extraction orchestration flow.
+- Affected boundaries:
+  - `pipeline/agenda_extraction.py` owns facade compatibility only.
+  - `pipeline/agenda_extraction_parser.py`, `pipeline/agenda_extraction_fallback.py`, `pipeline/agenda_extraction_acceptance.py`, `pipeline/agenda_extraction_pages.py`, `pipeline/agenda_extraction_noise.py`, `pipeline/agenda_extraction_numbered.py`, `pipeline/agenda_extraction_paragraphs.py`, and `pipeline/agenda_extraction_diagnostics.py` own focused implementation details.
+  - `pipeline/llm.py` remains the local AI product-policy boundary.
+- Canonical references:
+  - [ARCHITECTURE.md](../ARCHITECTURE.md)
+  - [docs/ENGINEERING_GUARDRAILS.md](ENGINEERING_GUARDRAILS.md)
+  - [ROADMAP.md](../ROADMAP.md)
+
 ## 2026-04-09: Finish `pipeline/llm.py` by extracting heuristics, generic generation, and runtime bootstrap
 
 - Status: Accepted

@@ -186,6 +186,11 @@ Key safeguards:
 
 Primary owners:
 - `pipeline/llm.py`
+- `pipeline/agenda_extraction.py` facade plus focused extraction modules:
+  `pipeline/agenda_extraction_parser.py`, `pipeline/agenda_extraction_fallback.py`,
+  `pipeline/agenda_extraction_acceptance.py`, `pipeline/agenda_extraction_pages.py`,
+  `pipeline/agenda_extraction_noise.py`, `pipeline/agenda_extraction_numbered.py`,
+  `pipeline/agenda_extraction_paragraphs.py`, and `pipeline/agenda_extraction_diagnostics.py`
 - `pipeline/agenda_resolver.py`
 
 #### Vote Extraction (Stable)
@@ -262,6 +267,7 @@ Future direction (Experimental, non-baseline):
 
 Primary owners:
 - `pipeline/llm.py`
+- `pipeline/agenda_extraction.py`
 - `pipeline/llm_provider.py`
 - `pipeline/http_inference_provider.py`
 - `pipeline/inprocess_inference_provider.py`
@@ -299,7 +305,7 @@ Primary owners:
 - Ingestion and promotion: `council_crawler/`, `crawler/promote_stage.py`
 - Canonical extraction/content hashing: `pipeline/extraction_service.py`, `pipeline/content_hash.py`
 - Async orchestration and writes: `pipeline/tasks.py`
-- Inference abstraction and provider telemetry: `pipeline/llm.py`, `pipeline/llm_provider.py`, `pipeline/http_inference_provider.py`, `pipeline/inprocess_inference_provider.py`, `pipeline/provider_telemetry.py`, `pipeline/metrics.py`, `pipeline/metrics_provider_recorders.py`
+- Inference abstraction and provider telemetry: `pipeline/llm.py`, `pipeline/agenda_extraction.py`, `pipeline/llm_provider.py`, `pipeline/http_inference_provider.py`, `pipeline/inprocess_inference_provider.py`, `pipeline/provider_telemetry.py`, `pipeline/metrics.py`, `pipeline/metrics_provider_recorders.py`
 - API surface and auth: `api/main.py`, `api/app_setup.py`, `api/search_routes.py`, `api/task_routes.py`, `api/search/query_builder.py`, `api/metrics.py`
 - Semantic retrieval and embeddings: `pipeline/semantic_index.py`, `pipeline/models.py`
 - Frontend query/task UX: `frontend/app/page.js`, `frontend/state/search-state.js`, `frontend/components/ResultCard.js`
@@ -361,6 +367,7 @@ Owners:
 
 Owners:
 - `pipeline/llm.py`
+- `pipeline/agenda_extraction.py`
 - `pipeline/llm_provider.py`
 - `pipeline/http_inference_provider.py`
 - `pipeline/inprocess_inference_provider.py`

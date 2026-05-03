@@ -214,6 +214,8 @@ Why this exists:
 
 ### Core modules
 - `pipeline/llm.py`: orchestration policy (prompting, grounding/fallback orchestration)
+- `pipeline/agenda_extraction.py`: agenda-extraction facade for prompt/parser/fallback compatibility
+- `pipeline/agenda_extraction_parser.py`, `pipeline/agenda_extraction_fallback.py`, `pipeline/agenda_extraction_acceptance.py`, `pipeline/agenda_extraction_pages.py`, `pipeline/agenda_extraction_noise.py`, `pipeline/agenda_extraction_numbered.py`, `pipeline/agenda_extraction_paragraphs.py`, `pipeline/agenda_extraction_diagnostics.py`: focused agenda-extraction implementation modules
 - `pipeline/llm_provider.py`: provider compatibility facade for imports, patch seams, and config overrides
 - `pipeline/http_inference_provider.py`: HTTP/Ollama transport abstraction
 - `pipeline/inprocess_inference_provider.py`: in-process llama transport abstraction
@@ -318,6 +320,7 @@ Use these files as primary references:
 - Async orchestration: `pipeline/tasks.py`
 - API task entrypoints: `api/main.py`
 - Inference policy: `pipeline/llm.py`
+- Agenda extraction: `pipeline/agenda_extraction.py` facade plus `pipeline/agenda_extraction_*` implementation modules
 - Provider facade: `pipeline/llm_provider.py`
 - Provider transport + typed errors: `pipeline/http_inference_provider.py`, `pipeline/inprocess_inference_provider.py`, `pipeline/inference_provider_contract.py`
 - Extraction freshness/hash: `pipeline/extraction_service.py`, `pipeline/content_hash.py`
