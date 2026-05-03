@@ -8,6 +8,27 @@ Use each entry to record:
 - the affected boundary or contract
 - links to the canonical docs that carry the ongoing operational or architecture detail
 
+## 2026-05-03: Split agenda-summary maintenance behind the facade
+
+- Status: Accepted
+- Decision:
+  - `pipeline/agenda_summary_maintenance.py` remains the compatibility facade for agenda-summary maintenance imports.
+  - Agenda-summary constants and exception contracts move behind `pipeline/agenda_summary_contracts.py`.
+  - Input-bundle filtering and payload budgeting move behind `pipeline/agenda_summary_inputs.py`.
+  - Post-commit reindex/embed callback summaries move behind `pipeline/agenda_summary_callbacks.py`.
+  - Deterministic batch persistence moves behind `pipeline/agenda_summary_batch.py`.
+  - Provider fallback and maintenance-mode routing move behind `pipeline/agenda_summary_fallback.py`.
+- Why:
+  - `pipeline/agenda_summary_maintenance.py` mixed contracts, filtering, DB persistence, callbacks, fallback routing, and timing helpers in one large module.
+  - Keeping the facade preserves `pipeline.backlog_maintenance`, `pipeline.tasks`, and maintenance-script patch seams while narrowing implementation ownership.
+- Affected boundaries:
+  - `pipeline/backlog_maintenance.py` remains the maintenance-facing facade.
+  - `pipeline/agenda_summary_maintenance.py` remains the agenda-summary maintenance compatibility boundary.
+  - Post-commit reindex/embed failures remain non-gating and return structured failure summaries.
+- Canonical references:
+  - [ARCHITECTURE.md](../ARCHITECTURE.md)
+  - [docs/PIPELINE.md](PIPELINE.md)
+
 ## 2026-05-02: Split worker metrics behind the metrics facade
 
 - Status: Accepted
