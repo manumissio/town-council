@@ -191,6 +191,10 @@ Primary owners:
   `pipeline/agenda_extraction_acceptance.py`, `pipeline/agenda_extraction_pages.py`,
   `pipeline/agenda_extraction_noise.py`, `pipeline/agenda_extraction_numbered.py`,
   `pipeline/agenda_extraction_paragraphs.py`, and `pipeline/agenda_extraction_diagnostics.py`
+- `pipeline/agenda_text_heuristics.py` facade plus focused text-helper modules:
+  `pipeline/agenda_text_normalization.py`, `pipeline/agenda_text_noise.py`,
+  `pipeline/agenda_text_noise_patterns.py`, `pipeline/agenda_item_acceptance.py`,
+  `pipeline/agenda_item_dedupe.py`, and `pipeline/agenda_end_markers.py`
 - `pipeline/agenda_resolver.py`
 
 #### Vote Extraction (Stable)
