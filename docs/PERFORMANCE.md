@@ -303,7 +303,7 @@ Why:
 
 Current queue signal:
 - `queue_wait_p95` is approximated by `phase_duration_p95_s_capped` when available, otherwise `phase_duration_p95_s`.
-- This is an operational proxy until explicit queue wait metrics are exported.
+- `tc_task_queue_wait_seconds` is exported by workers, but weekly soak promotion still uses the phase-duration proxy until queue-wait histogram aggregation is promoted into evaluator inputs.
 
 Soak confidence signals:
 - `worker_metrics_error` is recorded when worker metrics cannot be scraped.
