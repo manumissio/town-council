@@ -1,162 +1,62 @@
-"""
-Prometheus metrics for background workers (Celery).
-
-Provider metrics are additionally mirrored to Redis so prefork worker processes
-can be aggregated into one metrics endpoint.
-"""
-
 from __future__ import annotations
 
-import math
+import logging
 import os
 import time
-import logging
-from typing import Any, Dict
-from urllib.parse import quote, unquote
+from typing import Final
 
 from celery import signals
-from prometheus_client import Counter, Histogram, REGISTRY, start_http_server
-from prometheus_client.core import Metric
-from pipeline import profiling
+from prometheus_client import REGISTRY, start_http_server
+
+from pipeline import metrics_celery_signals, metrics_provider_recorders, profiling
+from pipeline.metrics_definitions import *  # noqa: F403 - compatibility facade for metric objects
+from pipeline.metrics_profile_events import TaskProfileContext, component_for_queue, write_task_profile_event
+from pipeline.metrics_provider_collector import RedisProviderMetricsCollector as _RedisProviderMetricsCollector
+from pipeline.metrics_provider_keys import provider_base_labels_key, provider_labels_key
+from pipeline.metrics_task_recorders import (
+    record_lineage_recompute as _record_lineage_recompute,
+    record_pipeline_phase_duration,
+    record_task_duration,
+    record_task_failure,
+    record_task_queue_wait,
+    record_task_retry,
+)
 
 
 logger = logging.getLogger(__name__)
-
 try:
-    import redis  # type: ignore
-except Exception:
-    redis = None
+    import redis  # type: ignore[import-untyped]
+except ImportError:
+    redis = None  # type: ignore[assignment]
+    REDIS_OPERATION_ERRORS: Final[tuple[type[BaseException], ...]] = ()
+else:
+    REDIS_OPERATION_ERRORS = (redis.RedisError,)
 
+REDIS_HOST_ENV: Final = "REDIS_HOST"
+REDIS_PORT_ENV: Final = "REDIS_PORT"
+REDIS_PASSWORD_ENV: Final = "REDIS_PASSWORD"
+WORKER_METRICS_PORT_ENV: Final = "TC_WORKER_METRICS_PORT"
+DEFAULT_REDIS_HOST: Final = "redis"
+DEFAULT_REDIS_PORT: Final = "6379"
+REDIS_DB: Final = 0
+REDIS_WRITE_ERRORS: Final = REDIS_OPERATION_ERRORS + (OSError, RuntimeError, TimeoutError, TypeError, ValueError)
+METRICS_SERVER_ERRORS: Final = (OSError, ValueError)
 
-CELERY_TASK_DURATION_SECONDS = Histogram(
-    "tc_celery_task_duration_seconds",
-    "Celery task runtime in seconds.",
-    labelnames=("task_name", "status"),
-    buckets=(0.05, 0.1, 0.25, 0.5, 1, 2.5, 5, 10, 30, 60, 120),
-)
-
-CELERY_TASK_FAILURES_TOTAL = Counter(
-    "tc_celery_task_failures_total",
-    "Total number of Celery task failures.",
-    labelnames=("task_name", "exception_type"),
-)
-
-CELERY_TASK_RETRIES_TOTAL = Counter(
-    "tc_celery_task_retries_total",
-    "Total number of Celery task retries.",
-    labelnames=("task_name",),
-)
-
-TASK_QUEUE_WAIT_SECONDS = Histogram(
-    "tc_task_queue_wait_seconds",
-    "Celery task queue wait time in seconds from publish to worker start.",
-    labelnames=("task_name", "queue"),
-    buckets=(0.01, 0.05, 0.1, 0.25, 0.5, 1, 2.5, 5, 10, 30, 60, 120),
-)
-
-PIPELINE_PHASE_DURATION_SECONDS = Histogram(
-    "tc_pipeline_phase_duration_seconds",
-    "Pipeline phase duration in seconds.",
-    labelnames=("phase", "component", "mode", "status"),
-    buckets=(0.01, 0.05, 0.1, 0.25, 0.5, 1, 2.5, 5, 10, 30, 60, 120, 300, 900),
-)
-
-LINEAGE_RECOMPUTE_RUNS_TOTAL = Counter(
-    "tc_lineage_recompute_runs_total",
-    "Total lineage recompute runs executed by Celery.",
-)
-
-LINEAGE_CATALOG_UPDATES_TOTAL = Counter(
-    "tc_lineage_catalog_updates_total",
-    "Total catalog lineage rows updated by lineage recompute.",
-)
-
-LINEAGE_COMPONENT_MERGES_TOTAL = Counter(
-    "tc_lineage_component_merges_total",
-    "Total connected-component lineage merges observed during recompute.",
-)
-
-PROVIDER_REQUESTS_TOTAL = Counter(
-    "tc_provider_requests_total",
-    "Total inference provider requests.",
-    labelnames=("provider", "operation", "model", "outcome"),
-)
-
-PROVIDER_REQUEST_DURATION_MS = Histogram(
-    "tc_provider_request_duration_ms",
-    "Inference provider request duration in milliseconds.",
-    labelnames=("provider", "operation", "model", "outcome"),
-    buckets=(50, 100, 250, 500, 1000, 2500, 5000, 10000, 20000, 45000, 90000),
-)
-
-PROVIDER_TTFT_MS = Histogram(
-    "tc_provider_ttft_ms",
-    "Inference provider time-to-first-token (prompt evaluation) in milliseconds.",
-    labelnames=("provider", "operation", "model", "outcome"),
-    buckets=(10, 25, 50, 100, 250, 500, 1000, 2500, 5000, 10000, 20000),
-)
-
-PROVIDER_TOKENS_PER_SEC = Histogram(
-    "tc_provider_tokens_per_sec",
-    "Inference provider completion throughput in tokens per second.",
-    labelnames=("provider", "operation", "model", "outcome"),
-    buckets=(1, 2, 5, 10, 20, 30, 40, 60, 80, 120, 200),
-)
-
-PROVIDER_PROMPT_TOKENS_TOTAL = Counter(
-    "tc_provider_prompt_tokens_total",
-    "Total prompt tokens processed by inference provider.",
-    labelnames=("provider", "operation", "model", "outcome"),
-)
-
-PROVIDER_COMPLETION_TOKENS_TOTAL = Counter(
-    "tc_provider_completion_tokens_total",
-    "Total completion tokens generated by inference provider.",
-    labelnames=("provider", "operation", "model", "outcome"),
-)
-
-PROVIDER_TIMEOUTS_TOTAL = Counter(
-    "tc_provider_timeouts_total",
-    "Total inference provider timeouts.",
-    labelnames=("provider", "operation", "model"),
-)
-
-PROVIDER_RETRIES_TOTAL = Counter(
-    "tc_provider_retries_total",
-    "Total inference provider retries.",
-    labelnames=("provider", "operation", "model"),
-)
-
-TTFT_BUCKETS = (10.0, 25.0, 50.0, 100.0, 250.0, 500.0, 1000.0, 2500.0, 5000.0, 10000.0, 20000.0, math.inf)
-TPS_BUCKETS = (1.0, 2.0, 5.0, 10.0, 20.0, 30.0, 40.0, 60.0, 80.0, 120.0, 200.0, math.inf)
-
-
-_TASK_START: Dict[str, float] = {}
-_TASK_CONTEXT: Dict[str, dict[str, Any]] = {}
+_TASK_START: dict[str, float] = {}
+_TASK_CONTEXT: dict[str, TaskProfileContext] = {}
 _REDIS_CLIENT = None
 _REDIS_INIT = False
 _REDIS_WARNED = False
 _REDIS_BACKEND_UP = 0.0
 
-
-def _encode(value: str) -> str:
-    return quote(str(value), safe="")
-
-
-def _decode(value: str) -> str:
-    return unquote(value)
-
-
 def _provider_labels_key(provider: str, operation: str, model: str, outcome: str) -> str:
-    return ":".join((_encode(provider), _encode(operation), _encode(model), _encode(outcome)))
-
+    return provider_labels_key(provider, operation, model, outcome)
 
 def _provider_base_labels_key(provider: str, operation: str, model: str) -> str:
-    return ":".join((_encode(provider), _encode(operation), _encode(model)))
+    return provider_base_labels_key(provider, operation, model)
 
-
-def _redis_client():
-    global _REDIS_CLIENT, _REDIS_INIT, _REDIS_WARNED, _REDIS_BACKEND_UP
+def _redis_client() -> object | None:
+    global _REDIS_BACKEND_UP, _REDIS_CLIENT, _REDIS_INIT, _REDIS_WARNED
     if _REDIS_INIT:
         return _REDIS_CLIENT
     _REDIS_INIT = True
@@ -168,25 +68,27 @@ def _redis_client():
         _REDIS_BACKEND_UP = 0.0
         return None
 
-    host = os.getenv("REDIS_HOST", "redis")
-    port = int(os.getenv("REDIS_PORT", "6379"))
-    password = os.getenv("REDIS_PASSWORD", "") or None
     try:
-        _REDIS_CLIENT = redis.Redis(host=host, port=port, password=password, db=0, decode_responses=True)
+        _REDIS_CLIENT = redis.Redis(
+            host=os.getenv(REDIS_HOST_ENV, DEFAULT_REDIS_HOST),
+            port=int(os.getenv(REDIS_PORT_ENV, DEFAULT_REDIS_PORT)),
+            password=os.getenv(REDIS_PASSWORD_ENV, "") or None,
+            db=REDIS_DB,
+            decode_responses=True,
+        )
         _REDIS_CLIENT.ping()
         _REDIS_BACKEND_UP = 1.0
         return _REDIS_CLIENT
-    except Exception as exc:
+    except REDIS_WRITE_ERRORS as error:
         if not _REDIS_WARNED:
             logger.warning(
                 "metrics.redis_backend_unavailable falling back to local metrics only error=%s",
-                exc,
+                error,
             )
             _REDIS_WARNED = True
         _REDIS_BACKEND_UP = 0.0
         _REDIS_CLIENT = None
         return None
-
 
 def _redis_incr(key: str, amount: int = 1) -> None:
     global _REDIS_BACKEND_UP
@@ -195,9 +97,8 @@ def _redis_incr(key: str, amount: int = 1) -> None:
         return
     try:
         client.incrby(key, int(amount))
-    except Exception:
+    except REDIS_WRITE_ERRORS:
         _REDIS_BACKEND_UP = 0.0
-
 
 def _redis_hincrby(key: str, field: str, amount: int = 1) -> None:
     global _REDIS_BACKEND_UP
@@ -206,7 +107,7 @@ def _redis_hincrby(key: str, field: str, amount: int = 1) -> None:
         return
     try:
         client.hincrby(key, field, int(amount))
-    except Exception:
+    except REDIS_WRITE_ERRORS:
         _REDIS_BACKEND_UP = 0.0
 
 
@@ -217,277 +118,69 @@ def _redis_hincrbyfloat(key: str, field: str, amount: float) -> None:
         return
     try:
         client.hincrbyfloat(key, field, float(amount))
-    except Exception:
+    except REDIS_WRITE_ERRORS:
         _REDIS_BACKEND_UP = 0.0
 
 
-def _hist_bucket(value: float, buckets: tuple[float, ...]) -> str:
-    for upper in buckets:
-        if value <= upper:
-            if math.isinf(upper):
-                return "+Inf"
-            return str(float(upper))
-    return "+Inf"
+class RedisProviderMetricsCollector(_RedisProviderMetricsCollector):
+    def __init__(self) -> None:
+        super().__init__(_redis_client, _get_redis_backend_up, _set_redis_backend_up, read_errors=REDIS_WRITE_ERRORS)
 
 
-def _mirror_histogram(metric_prefix: str, labels_key: str, value: float, buckets: tuple[float, ...]) -> None:
-    bucket_key = f"{metric_prefix}:bucket:{labels_key}"
-    meta_key = f"{metric_prefix}:meta:{labels_key}"
-    _redis_hincrby(bucket_key, _hist_bucket(value, buckets), 1)
-    _redis_hincrby(meta_key, "count", 1)
-    _redis_hincrbyfloat(meta_key, "sum", float(value))
+def _get_redis_backend_up() -> float:
+    return float(_REDIS_BACKEND_UP)
 
-
-def _split_labels_key(labels_key: str, expected_parts: int):
-    parts = labels_key.split(":")
-    if len(parts) != expected_parts:
-        return None
-    return tuple(_decode(p) for p in parts)
-
-
-class RedisProviderMetricsCollector:
-    """
-    Export prefork-safe provider telemetry from Redis into Prometheus exposition.
-    """
-
-    def collect(self):
-        global _REDIS_BACKEND_UP
-        client = _redis_client()
-        backend_metric = Metric(
-            "tc_provider_metrics_backend_up",
-            "Whether Redis-backed provider telemetry backend is available (1=yes, 0=no).",
-            "gauge",
-        )
-        backend_metric.add_sample("tc_provider_metrics_backend_up", labels={}, value=float(_REDIS_BACKEND_UP))
-        yield backend_metric
-        if client is None:
-            return
-
-        def _safe_scan(match: str):
-            global _REDIS_BACKEND_UP
-            try:
-                return list(client.scan_iter(match=match))
-            except Exception:
-                _REDIS_BACKEND_UP = 0.0
-                return []
-
-        def _safe_get_float(key: str) -> float:
-            global _REDIS_BACKEND_UP
-            try:
-                return float(client.get(key) or 0.0)
-            except Exception:
-                _REDIS_BACKEND_UP = 0.0
-                return 0.0
-
-        def _safe_hgetall(key: str) -> dict:
-            global _REDIS_BACKEND_UP
-            try:
-                return client.hgetall(key) or {}
-            except Exception:
-                _REDIS_BACKEND_UP = 0.0
-                return {}
-
-        req_metric = Metric("tc_provider_requests_total", "Total inference provider requests.", "counter")
-        timeout_metric = Metric("tc_provider_timeouts_total", "Total inference provider timeouts.", "counter")
-        retry_metric = Metric("tc_provider_retries_total", "Total inference provider retries.", "counter")
-        prompt_metric = Metric("tc_provider_prompt_tokens_total", "Total prompt tokens processed by inference provider.", "counter")
-        completion_metric = Metric("tc_provider_completion_tokens_total", "Total completion tokens generated by inference provider.", "counter")
-        ttft_metric = Metric("tc_provider_ttft_ms", "Inference provider time-to-first-token (prompt evaluation) in milliseconds.", "histogram")
-        tps_metric = Metric("tc_provider_tokens_per_sec", "Inference provider completion throughput in tokens per second.", "histogram")
-
-        for key in _safe_scan("tc:provider:req_total:*"):
-            labels_key = key.split("tc:provider:req_total:", 1)[1]
-            labels = _split_labels_key(labels_key, 4)
-            if not labels:
-                continue
-            provider, operation, model, outcome = labels
-            value = _safe_get_float(key)
-            req_metric.add_sample(
-                "tc_provider_requests_total",
-                labels={"provider": provider, "operation": operation, "model": model, "outcome": outcome},
-                value=value,
-            )
-
-        for key in _safe_scan("tc:provider:timeouts_total:*"):
-            labels_key = key.split("tc:provider:timeouts_total:", 1)[1]
-            labels = _split_labels_key(labels_key, 3)
-            if not labels:
-                continue
-            provider, operation, model = labels
-            value = _safe_get_float(key)
-            timeout_metric.add_sample(
-                "tc_provider_timeouts_total",
-                labels={"provider": provider, "operation": operation, "model": model},
-                value=value,
-            )
-
-        for key in _safe_scan("tc:provider:retries_total:*"):
-            labels_key = key.split("tc:provider:retries_total:", 1)[1]
-            labels = _split_labels_key(labels_key, 3)
-            if not labels:
-                continue
-            provider, operation, model = labels
-            value = _safe_get_float(key)
-            retry_metric.add_sample(
-                "tc_provider_retries_total",
-                labels={"provider": provider, "operation": operation, "model": model},
-                value=value,
-            )
-
-        for key in _safe_scan("tc:provider:prompt_tokens_total:*"):
-            labels_key = key.split("tc:provider:prompt_tokens_total:", 1)[1]
-            labels = _split_labels_key(labels_key, 4)
-            if not labels:
-                continue
-            provider, operation, model, outcome = labels
-            value = _safe_get_float(key)
-            prompt_metric.add_sample(
-                "tc_provider_prompt_tokens_total",
-                labels={"provider": provider, "operation": operation, "model": model, "outcome": outcome},
-                value=value,
-            )
-
-        for key in _safe_scan("tc:provider:completion_tokens_total:*"):
-            labels_key = key.split("tc:provider:completion_tokens_total:", 1)[1]
-            labels = _split_labels_key(labels_key, 4)
-            if not labels:
-                continue
-            provider, operation, model, outcome = labels
-            value = _safe_get_float(key)
-            completion_metric.add_sample(
-                "tc_provider_completion_tokens_total",
-                labels={"provider": provider, "operation": operation, "model": model, "outcome": outcome},
-                value=value,
-            )
-
-        for prefix, metric, buckets in (
-            ("tc:provider:ttft_ms", ttft_metric, TTFT_BUCKETS),
-            ("tc:provider:tps", tps_metric, TPS_BUCKETS),
-        ):
-            for bucket_key in _safe_scan(f"{prefix}:bucket:*"):
-                labels_key = bucket_key.split(f"{prefix}:bucket:", 1)[1]
-                labels = _split_labels_key(labels_key, 4)
-                if not labels:
-                    continue
-                provider, operation, model, outcome = labels
-                hash_values = _safe_hgetall(bucket_key)
-                per_bucket = {}
-                for k, v in hash_values.items():
-                    try:
-                        per_bucket[str(k)] = float(v)
-                    except Exception:
-                        _REDIS_BACKEND_UP = 0.0
-                cumulative = 0.0
-                for upper in buckets:
-                    le = "+Inf" if math.isinf(upper) else str(float(upper))
-                    cumulative += per_bucket.get(le, 0.0)
-                    metric.add_sample(
-                        f"{metric.name}_bucket",
-                        labels={
-                            "provider": provider,
-                            "operation": operation,
-                            "model": model,
-                            "outcome": outcome,
-                            "le": le,
-                        },
-                        value=cumulative,
-                    )
-                meta = _safe_hgetall(f"{prefix}:meta:{labels_key}")
-                try:
-                    count_value = float(meta.get("count", 0.0))
-                except Exception:
-                    _REDIS_BACKEND_UP = 0.0
-                    count_value = 0.0
-                try:
-                    sum_value = float(meta.get("sum", 0.0))
-                except Exception:
-                    _REDIS_BACKEND_UP = 0.0
-                    sum_value = 0.0
-                metric.add_sample(
-                    f"{metric.name}_count",
-                    labels={"provider": provider, "operation": operation, "model": model, "outcome": outcome},
-                    value=count_value,
-                )
-                metric.add_sample(
-                    f"{metric.name}_sum",
-                    labels={"provider": provider, "operation": operation, "model": model, "outcome": outcome},
-                    value=sum_value,
-                )
-
-        yield req_metric
-        yield timeout_metric
-        yield retry_metric
-        yield prompt_metric
-        yield completion_metric
-        yield ttft_metric
-        yield tps_metric
+def _set_redis_backend_up(value: float) -> None:
+    global _REDIS_BACKEND_UP
+    _REDIS_BACKEND_UP = float(value)
 
 
 try:
     REGISTRY.register(RedisProviderMetricsCollector())
 except ValueError:
-    # Safe during repeated imports in tests.
+    # Repeated imports in tests should reuse the existing collector registration.
     pass
 
 
-def record_task_duration(task_name: str, status: str, duration_s: float) -> None:
-    CELERY_TASK_DURATION_SECONDS.labels(task_name=task_name, status=status).observe(max(0.0, duration_s))
-
-
-def record_task_failure(task_name: str, exception_type: str) -> None:
-    CELERY_TASK_FAILURES_TOTAL.labels(task_name=task_name, exception_type=exception_type).inc()
-
-
-def record_task_retry(task_name: str) -> None:
-    CELERY_TASK_RETRIES_TOTAL.labels(task_name=task_name).inc()
-
-
-def record_task_queue_wait(task_name: str, queue: str, duration_s: float) -> None:
-    TASK_QUEUE_WAIT_SECONDS.labels(task_name=task_name, queue=queue).observe(max(0.0, duration_s))
-
-
-def record_pipeline_phase_duration(phase: str, component: str, mode: str, status: str, duration_s: float) -> None:
-    PIPELINE_PHASE_DURATION_SECONDS.labels(
-        phase=phase,
-        component=component,
-        mode=mode,
-        status=status,
-    ).observe(max(0.0, duration_s))
-
-
-def record_lineage_recompute(updated_count: int, merge_count: int) -> None:
-    LINEAGE_RECOMPUTE_RUNS_TOTAL.inc()
-    if updated_count > 0:
-        LINEAGE_CATALOG_UPDATES_TOTAL.inc(updated_count)
-    if merge_count > 0:
-        LINEAGE_COMPONENT_MERGES_TOTAL.inc(merge_count)
-
-
 def record_provider_request(provider: str, operation: str, model: str, outcome: str, duration_ms: float) -> None:
-    PROVIDER_REQUESTS_TOTAL.labels(
-        provider=provider, operation=operation, model=model, outcome=outcome
-    ).inc()
-    PROVIDER_REQUEST_DURATION_MS.labels(
-        provider=provider, operation=operation, model=model, outcome=outcome
-    ).observe(max(0.0, duration_ms))
-    labels_key = _provider_labels_key(provider, operation, model, outcome)
-    _redis_incr(f"tc:provider:req_total:{labels_key}", 1)
+    metrics_provider_recorders.record_provider_request(
+        provider,
+        operation,
+        model,
+        outcome,
+        duration_ms,
+        redis_incr=_redis_incr,
+    )
 
 
 def record_provider_ttft(provider: str, operation: str, model: str, outcome: str, ttft_ms: float) -> None:
-    PROVIDER_TTFT_MS.labels(provider=provider, operation=operation, model=model, outcome=outcome).observe(
-        max(0.0, ttft_ms)
+    metrics_provider_recorders.record_provider_ttft(
+        provider,
+        operation,
+        model,
+        outcome,
+        ttft_ms,
+        redis_hincrby=_redis_hincrby,
+        redis_hincrbyfloat=_redis_hincrbyfloat,
     )
-    labels_key = _provider_labels_key(provider, operation, model, outcome)
-    _mirror_histogram("tc:provider:ttft_ms", labels_key, float(max(0.0, ttft_ms)), TTFT_BUCKETS)
 
 
-def record_provider_tokens_per_sec(provider: str, operation: str, model: str, outcome: str, tokens_per_sec: float) -> None:
-    PROVIDER_TOKENS_PER_SEC.labels(
-        provider=provider, operation=operation, model=model, outcome=outcome
-    ).observe(max(0.0, tokens_per_sec))
-    labels_key = _provider_labels_key(provider, operation, model, outcome)
-    _mirror_histogram("tc:provider:tps", labels_key, float(max(0.0, tokens_per_sec)), TPS_BUCKETS)
+def record_provider_tokens_per_sec(
+    provider: str,
+    operation: str,
+    model: str,
+    outcome: str,
+    tokens_per_sec: float,
+) -> None:
+    metrics_provider_recorders.record_provider_tokens_per_sec(
+        provider,
+        operation,
+        model,
+        outcome,
+        tokens_per_sec,
+        redis_hincrby=_redis_hincrby,
+        redis_hincrbyfloat=_redis_hincrbyfloat,
+    )
 
 
 def record_provider_token_counts(
@@ -498,207 +191,110 @@ def record_provider_token_counts(
     prompt_tokens: int,
     completion_tokens: int,
 ) -> None:
-    PROVIDER_PROMPT_TOKENS_TOTAL.labels(
-        provider=provider, operation=operation, model=model, outcome=outcome
-    ).inc(max(0, int(prompt_tokens)))
-    PROVIDER_COMPLETION_TOKENS_TOTAL.labels(
-        provider=provider, operation=operation, model=model, outcome=outcome
-    ).inc(max(0, int(completion_tokens)))
-    labels_key = _provider_labels_key(provider, operation, model, outcome)
-    _redis_incr(f"tc:provider:prompt_tokens_total:{labels_key}", max(0, int(prompt_tokens)))
-    _redis_incr(f"tc:provider:completion_tokens_total:{labels_key}", max(0, int(completion_tokens)))
+    metrics_provider_recorders.record_provider_token_counts(
+        provider,
+        operation,
+        model,
+        outcome,
+        prompt_tokens,
+        completion_tokens,
+        redis_incr=_redis_incr,
+    )
 
 
 def record_provider_timeout(provider: str, operation: str, model: str) -> None:
-    PROVIDER_TIMEOUTS_TOTAL.labels(provider=provider, operation=operation, model=model).inc()
-    base_key = _provider_base_labels_key(provider, operation, model)
-    _redis_incr(f"tc:provider:timeouts_total:{base_key}", 1)
+    metrics_provider_recorders.record_provider_timeout(provider, operation, model, redis_incr=_redis_incr)
 
 
 def record_provider_retry(provider: str, operation: str, model: str) -> None:
-    PROVIDER_RETRIES_TOTAL.labels(provider=provider, operation=operation, model=model).inc()
-    base_key = _provider_base_labels_key(provider, operation, model)
-    _redis_incr(f"tc:provider:retries_total:{base_key}", 1)
+    metrics_provider_recorders.record_provider_retry(provider, operation, model, redis_incr=_redis_incr)
+
+
+def record_lineage_recompute(updated_count: int, merge_count: int) -> None:
+    _record_lineage_recompute(updated_count, merge_count)
 
 
 @signals.worker_ready.connect
-def _start_metrics_server(**_kwargs):
-    port = os.getenv("TC_WORKER_METRICS_PORT")
+def _start_metrics_server(**_kwargs: object) -> None:
+    port = os.getenv(WORKER_METRICS_PORT_ENV)
     if not port:
         return
     try:
         start_http_server(int(port))
-    except Exception:
-        # If the port is already in use or invalid, we fail soft; observability
-        # shouldn't crash the worker.
-        return
+    except METRICS_SERVER_ERRORS as error:
+        logger.warning("metrics.worker_exporter_unavailable port=%s error_class=%s", port, type(error).__name__)
 
 
 @signals.before_task_publish.connect
-def _before_task_publish(headers=None, **_kwargs):
-    if headers is None:
-        return
-    if headers.get("tc_queued_at") is None:
-        headers["tc_queued_at"] = time.time()
-    run_id = profiling.current_run_id()
-    if not run_id:
-        return
-    headers.setdefault("tc_profile_run_id", run_id)
-    headers.setdefault("tc_profile_mode", profiling.current_mode())
-    artifact_dir = os.getenv(profiling.PROFILE_ARTIFACT_DIR_ENV, "")
-    if artifact_dir:
-        headers.setdefault("tc_profile_artifact_dir", artifact_dir)
-    headers.setdefault("tc_profile_baseline_valid", "1" if profiling.baseline_valid() else "0")
+def _before_task_publish(headers: dict[str, object] | None = None, **_kwargs: object) -> None:
+    metrics_celery_signals.before_task_publish(headers, profiling_module=profiling, time_module=time)
 
 
 @signals.task_prerun.connect
-def _task_prerun(task_id=None, task=None, **_kwargs):
-    if not task_id or task is None:
-        return
-    task_id_value = str(task_id)
-    _TASK_START[task_id_value] = time.perf_counter()
-    request = getattr(task, "request", None)
-    headers = getattr(request, "headers", None) or {}
-    delivery = getattr(request, "delivery_info", None) or {}
-    task_name = str(getattr(task, "name", "unknown"))
-    queue = str(delivery.get("routing_key") or delivery.get("queue") or "celery")
-    queue_wait_s = None
-    try:
-        queue_wait_s = max(0.0, time.time() - float(headers.get("tc_queued_at")))
-        record_task_queue_wait(task_name, queue, queue_wait_s)
-    except Exception:
-        queue_wait_s = None
-    _TASK_CONTEXT[task_id_value] = {
-        "task_name": task_name,
-        "queue": queue,
-        "queue_wait_s": queue_wait_s,
-        "queued_at": headers.get("tc_queued_at"),
-        "run_id": headers.get("tc_profile_run_id"),
-        "mode": headers.get("tc_profile_mode"),
-        "artifact_dir": headers.get("tc_profile_artifact_dir"),
-        "baseline_valid": headers.get("tc_profile_baseline_valid"),
-        "catalog_id": _catalog_id_from_request(request),
-    }
+def _task_prerun(task_id: object = None, task: object = None, **_kwargs: object) -> None:
+    metrics_celery_signals.task_prerun(
+        task_id=task_id,
+        task=task,
+        task_start=_TASK_START,
+        task_context=_TASK_CONTEXT,
+        time_module=time,
+        record_queue_wait=record_task_queue_wait,
+    )
 
 
 @signals.task_postrun.connect
-def _task_postrun(task_id=None, task=None, state=None, **_kwargs):
-    if not task_id or task is None:
-        return
-    task_id_value = str(task_id)
-    start = _TASK_START.pop(task_id_value, None)
-    ctx = _TASK_CONTEXT.pop(task_id_value, None) or {}
-    if start is None:
-        return
-    status = "success" if (state or "").lower() in ("success", "succeeded") else "unknown"
-    task_name = str(getattr(task, "name", "unknown"))
-    duration_s = time.perf_counter() - start
-    record_task_duration(task_name, status, duration_s)
-    record_pipeline_phase_duration(
-        profiling.phase_from_task_name(task_name),
-        _component_for_queue(ctx.get("queue")),
-        str(ctx.get("mode") or "triage"),
-        status,
-        duration_s,
+def _task_postrun(task_id: object = None, task: object = None, state: object = None, **_kwargs: object) -> None:
+    metrics_celery_signals.task_postrun(
+        task_id=task_id,
+        task=task,
+        state=state,
+        task_start=_TASK_START,
+        task_context=_TASK_CONTEXT,
+        time_module=time,
+        profiling_module=profiling,
+        record_task_duration=record_task_duration,
+        record_phase_duration=record_pipeline_phase_duration,
+        write_profile_event=_write_task_profile_event,
     )
-    _write_task_profile_event(ctx, task_name=task_name, status=status, duration_s=duration_s)
 
 
 @signals.task_failure.connect
-def _task_failure(task_id=None, exception=None, sender=None, **_kwargs):
-    task_name = getattr(sender, "name", "unknown")
-    exc_type = type(exception).__name__ if exception is not None else "Exception"
-    record_task_failure(task_name, exc_type)
-
-    if task_id:
-        task_id_value = str(task_id)
-        start = _TASK_START.pop(task_id_value, None)
-        ctx = _TASK_CONTEXT.pop(task_id_value, None) or {}
-        if start is not None:
-            duration_s = time.perf_counter() - start
-            record_task_duration(task_name, "failure", duration_s)
-            record_pipeline_phase_duration(
-                profiling.phase_from_task_name(str(task_name)),
-                _component_for_queue(ctx.get("queue")),
-                str(ctx.get("mode") or "triage"),
-                "failure",
-                duration_s,
-            )
-            _write_task_profile_event(
-                ctx,
-                task_name=str(task_name),
-                status="failure",
-                duration_s=duration_s,
-                exception_type=exc_type,
-            )
+def _task_failure(task_id: object = None, exception: BaseException | None = None, sender: object = None, **_kwargs: object) -> None:
+    metrics_celery_signals.task_failure(
+        task_id=task_id,
+        exception=exception,
+        sender=sender,
+        task_start=_TASK_START,
+        task_context=_TASK_CONTEXT,
+        time_module=time,
+        profiling_module=profiling,
+        record_task_failure=record_task_failure,
+        record_task_duration=record_task_duration,
+        record_phase_duration=record_pipeline_phase_duration,
+        write_profile_event=_write_task_profile_event,
+    )
 
 
 @signals.task_retry.connect
-def _task_retry(request=None, **_kwargs):
-    task_name = getattr(getattr(request, "task", None), "name", None) or getattr(request, "task_name", None) or "unknown"
-    record_task_retry(str(task_name))
-
-
-def _catalog_id_from_request(request) -> int | None:
-    args = getattr(request, "args", None) or ()
-    if not args:
-        return None
-    try:
-        return int(args[0])
-    except Exception:
-        return None
-
-
-def _component_for_queue(queue: Any) -> str:
-    value = str(queue or "")
-    if value == "enrichment":
-        return "enrichment-worker"
-    if value == "semantic":
-        return "semantic-worker"
-    return "worker"
+def _task_retry(request: object = None, **_kwargs: object) -> None:
+    metrics_celery_signals.task_retry(request, record_task_retry=record_task_retry)
 
 
 def _write_task_profile_event(
-    ctx: dict[str, Any],
-    *,
+    context: TaskProfileContext,
     task_name: str,
     status: str,
     duration_s: float,
     exception_type: str | None = None,
 ) -> None:
-    run_id = str(ctx.get("run_id") or "").strip()
-    artifact_dir = str(ctx.get("artifact_dir") or "").strip()
-    if not run_id or not artifact_dir:
-        return
-    previous = {
-        profiling.PROFILE_RUN_ID_ENV: os.getenv(profiling.PROFILE_RUN_ID_ENV),
-        profiling.PROFILE_MODE_ENV: os.getenv(profiling.PROFILE_MODE_ENV),
-        profiling.PROFILE_ARTIFACT_DIR_ENV: os.getenv(profiling.PROFILE_ARTIFACT_DIR_ENV),
-        profiling.PROFILE_BASELINE_VALID_ENV: os.getenv(profiling.PROFILE_BASELINE_VALID_ENV),
-    }
-    try:
-        os.environ[profiling.PROFILE_RUN_ID_ENV] = run_id
-        os.environ[profiling.PROFILE_MODE_ENV] = str(ctx.get("mode") or "triage")
-        os.environ[profiling.PROFILE_ARTIFACT_DIR_ENV] = artifact_dir
-        os.environ[profiling.PROFILE_BASELINE_VALID_ENV] = str(ctx.get("baseline_valid") or "0")
-        profiling.append_profile_event(
-            {
-                "event_type": "task_span",
-                "phase": profiling.phase_from_task_name(task_name),
-                "component": _component_for_queue(ctx.get("queue")),
-                "catalog_id": ctx.get("catalog_id"),
-                "task_name": task_name,
-                "queue": ctx.get("queue"),
-                "queued_at": ctx.get("queued_at"),
-                "queue_wait_s": ctx.get("queue_wait_s"),
-                "duration_s": round(float(duration_s), 6),
-                "outcome": status,
-                "metadata": {"exception_type": exception_type} if exception_type else None,
-            }
-        )
-    finally:
-        for key, value in previous.items():
-            if value is None:
-                os.environ.pop(key, None)
-            else:
-                os.environ[key] = value
+    write_task_profile_event(
+        context,
+        task_name=task_name,
+        status=status,
+        duration_s=duration_s,
+        profiling_module=profiling,
+        exception_type=exception_type,
+    )
+
+
+_component_for_queue = component_for_queue
