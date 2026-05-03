@@ -9,6 +9,9 @@ from sqlalchemy.orm import sessionmaker
 sys.modules["llama_cpp"] = MagicMock()
 
 from pipeline import agenda_segmentation_maintenance as segmentation_mod
+from pipeline import agenda_summary_maintenance as summary_mod
+from pipeline import agenda_summary_batch
+from pipeline import agenda_summary_inputs
 from pipeline import backlog_maintenance as mod
 from pipeline.models import AgendaItem, Base, Catalog, Document, Event, Place
 
@@ -28,6 +31,67 @@ def _session_fixture(mocker):
 
     mocker.patch.object(mod, "db_session", fake_db_session)
     return Session
+
+
+def test_agenda_summary_maintenance_facade_preserves_public_exports():
+    public_names = (
+        "AGENDA_SUMMARY_READY_STATUS",
+        "AGENDA_SUMMARY_SEGMENTATION_REQUIRED_REASON",
+        "AGENDA_SUMMARY_BLOCKED_LOW_SIGNAL_REASON",
+        "AGENDA_SUMMARY_CATALOG_NOT_FOUND_ERROR",
+        "AGENDA_SUMMARY_DOCUMENT_NOT_FOUND_ERROR",
+        "AGENDA_SUMMARY_TIMING_KEYS",
+        "build_agenda_summary_input_bundle",
+        "build_deterministic_agenda_summary_payload",
+        "build_deterministic_agenda_summary_payloads",
+        "persist_agenda_summary",
+        "summarize_catalog_with_optional_fallback",
+        "summarize_catalog_with_maintenance_mode",
+    )
+
+    assert all(hasattr(summary_mod, public_name) for public_name in public_names)
+    assert summary_mod.build_agenda_summary_input_bundle is agenda_summary_inputs.build_agenda_summary_input_bundle
+    assert summary_mod.build_deterministic_agenda_summary_payloads is (
+        agenda_summary_batch.build_deterministic_agenda_summary_payloads
+    )
+
+
+def test_agenda_summary_maintenance_single_payload_uses_facade_batch_builder(mocker):
+    batch_spy = mocker.patch.object(
+        summary_mod,
+        "build_deterministic_agenda_summary_payloads",
+        return_value={
+            "results": {101: {"status": "complete", "summary": "facade summary"}},
+            "changed_catalog_ids": [101],
+        },
+    )
+
+    payload = summary_mod.build_deterministic_agenda_summary_payload(101)
+
+    assert payload == {"status": "complete", "summary": "facade summary"}
+    batch_spy.assert_called_once()
+
+
+def test_agenda_summary_maintenance_mode_uses_facade_optional_fallback(mocker):
+    mock_session = MagicMock()
+    mock_session.__enter__.return_value = mock_session
+    mock_session.__exit__.return_value = False
+    mock_session.query.return_value.filter_by.return_value.first.return_value = MagicMock(category="minutes")
+    fallback_spy = mocker.patch.object(
+        summary_mod,
+        "summarize_catalog_with_optional_fallback",
+        return_value={"status": "complete", "completion_mode": "llm"},
+    )
+
+    result = summary_mod.summarize_catalog_with_maintenance_mode(
+        202,
+        generate_summary_callable=MagicMock(),
+        deterministic_summary_callable=MagicMock(),
+        session_factory=lambda: mock_session,
+    )
+
+    assert result["completion_mode"] == "llm"
+    fallback_spy.assert_called_once()
 
 
 def test_segment_catalog_with_mode_marks_laserfiche_error_content_failed(mocker):
