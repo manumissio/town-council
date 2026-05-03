@@ -1,6 +1,6 @@
 # Town Council Architecture (2026)
 
-Last updated: 2026-04-22
+Last updated: 2026-05-02
 
 ## 1) System Overview
 
