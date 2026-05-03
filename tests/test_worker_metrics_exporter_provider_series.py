@@ -1,5 +1,7 @@
 import importlib
 
+import pytest
+
 
 def _sample_value(metric, sample_name: str, expected_labels: dict[str, str]) -> float | None:
     for sample in metric.samples:
@@ -104,4 +106,57 @@ def test_redis_collector_handles_scan_errors_without_raising(monkeypatch):
     metrics = list(collector.collect())
     names = [m.name for m in metrics]
     assert "tc_provider_metrics_backend_up" in names
+    assert mod._REDIS_BACKEND_UP == 0.0
+
+
+def test_redis_collector_handles_redis_read_errors_without_raising(monkeypatch):
+    mod = importlib.import_module("pipeline.metrics")
+    if not mod.REDIS_OPERATION_ERRORS:
+        pytest.skip("redis package is optional in local test environments")
+
+    redis_error = mod.REDIS_OPERATION_ERRORS[0]
+
+    class _FailingRedis:
+        def scan_iter(self, match=None):
+            _ = match
+            raise redis_error("scan failed")
+
+    monkeypatch.setattr(mod, "_REDIS_INIT", True)
+    monkeypatch.setattr(mod, "_REDIS_BACKEND_UP", 1.0)
+    monkeypatch.setattr(mod, "_REDIS_CLIENT", _FailingRedis())
+
+    collector = mod.RedisProviderMetricsCollector()
+    metrics = list(collector.collect())
+
+    names = [m.name for m in metrics]
+    assert "tc_provider_metrics_backend_up" in names
+    assert mod._REDIS_BACKEND_UP == 0.0
+
+
+def test_redis_collector_skips_malformed_keys_and_degrades_bad_values(monkeypatch):
+    mod = importlib.import_module("pipeline.metrics")
+
+    class _MalformedRedis:
+        def scan_iter(self, match=None):
+            _ = match
+            yield "tc:provider:req_total:missing_parts"
+            yield "tc:provider:ttft_ms:bucket:http:summarize_text:gemma:ok"
+
+        def get(self, key):
+            _ = key
+            return "not-a-number"
+
+        def hgetall(self, key):
+            if ":bucket:" in key:
+                return {"100.0": "bad-value"}
+            return {"count": "bad-count", "sum": "bad-sum"}
+
+    monkeypatch.setattr(mod, "_REDIS_INIT", True)
+    monkeypatch.setattr(mod, "_REDIS_BACKEND_UP", 1.0)
+    monkeypatch.setattr(mod, "_REDIS_CLIENT", _MalformedRedis())
+
+    collector = mod.RedisProviderMetricsCollector()
+    metrics = {m.name: m for m in collector.collect()}
+
+    assert "tc_provider_requests_total" in metrics
     assert mod._REDIS_BACKEND_UP == 0.0

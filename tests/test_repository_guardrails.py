@@ -57,7 +57,6 @@ APPROVED_BROAD_EXCEPTION_PATHS = {
     "pipeline/indexer.py",
     "pipeline/lineage_service.py",
     "pipeline/llm.py",
-    "pipeline/metrics.py",
     "pipeline/models.py",
     "pipeline/nlp_worker.py",
     "pipeline/profiling.py",
@@ -120,11 +119,28 @@ FORMATTER_WAVE_COMMAND = (
     "./.venv/bin/ruff format --check "
     + " ".join(CANDIDATE_FORMATTER_WAVE_PATHS)
 )
+METRICS_CLEANUP_MODULES = (
+    "pipeline/metrics.py",
+    "pipeline/metrics_celery_signals.py",
+    "pipeline/metrics_definitions.py",
+    "pipeline/metrics_profile_events.py",
+    "pipeline/metrics_provider_collector.py",
+    "pipeline/metrics_provider_keys.py",
+    "pipeline/metrics_provider_recorders.py",
+    "pipeline/metrics_task_recorders.py",
+)
 
 
 def _tracked_files() -> list[Path]:
     output = subprocess.check_output(["git", "ls-files"], cwd=ROOT, text=True)
     return [ROOT / line for line in output.splitlines() if line]
+
+
+def _broad_exception_scan_files() -> list[Path]:
+    tracked_files = {path.resolve() for path in _tracked_files()}
+    for module_path in METRICS_CLEANUP_MODULES:
+        tracked_files.add((ROOT / module_path).resolve())
+    return sorted(tracked_files)
 
 
 def _python_module_paths(prefix: str) -> list[Path]:
@@ -179,7 +195,7 @@ def _mypy_enrolled_paths() -> tuple[str, ...]:
 
 def test_tracked_text_files_do_not_contain_personal_absolute_paths():
     offending_files: list[str] = []
-    for tracked_path in _tracked_files():
+    for tracked_path in _broad_exception_scan_files():
         relative_path = tracked_path.relative_to(ROOT)
         if relative_path.parts[0] not in GUARDRAIL_SCAN_PREFIXES:
             continue
@@ -279,7 +295,7 @@ def test_broad_exception_handlers_stay_on_approved_boundaries_and_take_action():
     unauthorized_handlers: list[str] = []
     silent_handlers: list[str] = []
 
-    for tracked_path in _tracked_files():
+    for tracked_path in _broad_exception_scan_files():
         if tracked_path.suffix != ".py":
             continue
         relative_path = str(tracked_path.relative_to(ROOT))
@@ -314,3 +330,13 @@ def test_broad_exception_handlers_stay_on_approved_boundaries_and_take_action():
 
     assert unauthorized_handlers == []
     assert silent_handlers == []
+
+
+def test_metrics_cleanup_modules_stay_under_size_target():
+    oversized_modules = [
+        module_path
+        for module_path in METRICS_CLEANUP_MODULES
+        if len((ROOT / module_path).read_text(encoding="utf-8").splitlines()) > 300
+    ]
+
+    assert oversized_modules == []
