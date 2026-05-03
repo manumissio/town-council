@@ -8,6 +8,28 @@ Use each entry to record:
 - the affected boundary or contract
 - links to the canonical docs that carry the ongoing operational or architecture detail
 
+## 2026-05-02: Split worker metrics behind the metrics facade
+
+- Status: Accepted
+- Decision:
+  - `pipeline/metrics.py` remains the public compatibility facade for worker metrics imports, Celery signal registration, and existing test patch seams.
+  - Metric schema definitions move behind `pipeline/metrics_definitions.py`.
+  - Provider Redis key handling, recorders, and collector behavior move behind focused `pipeline/metrics_provider_*` modules.
+  - Celery signal handling and profile-event construction move behind `pipeline/metrics_celery_signals.py` and `pipeline/metrics_profile_events.py`.
+- Why:
+  - `pipeline/metrics.py` combined metric definitions, provider Redis mirroring, Prometheus collection, Celery signals, profile events, and Redis failure handling in one large module.
+  - Preserving the facade keeps scripts, provider telemetry hooks, and tests stable while narrowing implementation ownership.
+- Affected boundaries:
+  - `pipeline/metrics.py` remains the import and patch boundary.
+  - `pipeline/metrics_definitions.py` owns Prometheus metric object definitions.
+  - `pipeline/metrics_provider_collector.py` owns Redis-backed provider metric exposition.
+  - `pipeline/metrics_provider_recorders.py` owns provider telemetry writes.
+  - `pipeline/metrics_celery_signals.py` owns Celery task metrics hooks.
+- Canonical references:
+  - [ARCHITECTURE.md](../ARCHITECTURE.md)
+  - [docs/PIPELINE.md](PIPELINE.md)
+  - [docs/PERFORMANCE.md](PERFORMANCE.md)
+
 ## 2026-04-22: Split the search route family behind the search facade
 
 - Status: Accepted
