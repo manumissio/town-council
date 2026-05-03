@@ -9,6 +9,7 @@ from pipeline.agenda_text_heuristics import (
     is_procedural_noise_title,
     looks_like_agenda_segmentation_boilerplate,
     looks_like_end_marker_line,
+    normalize_spaces,
     should_stop_after_marker,
 )
 
@@ -53,9 +54,7 @@ def truncate_page_after_end_marker(
         stats.stop_marker_candidates += 1
         lookahead_window = "".join(lines[line_index : line_index + 25]) + "\n" + trailing_text[:2500]
         following_page_text = "".join(lines[line_index + 1 :])
-        if should_stop_after_marker(candidate_line, lookahead_window) and not _has_agenda_item_after_end_marker(
-            following_page_text
-        ):
+        if _should_truncate_at_marker(candidate_line, lookahead_window, following_page_text):
             truncated_page_content = page_content[:cursor]
             stats.stopped_after_end_marker += 1
             stop_after_page = True
@@ -73,6 +72,15 @@ def page_has_speaker_context(page_content: str) -> bool:
         or "item #1" in page_lower
         or "item #2" in page_lower
     )
+
+
+def _should_truncate_at_marker(current_line: str, lookahead_window: str, following_page_text: str) -> bool:
+    if not should_stop_after_marker(current_line, lookahead_window):
+        return False
+    # Adjournment plus legal-tail markers is terminal; later numbered legal tail must not revive parsing.
+    if "adjournment" in normalize_spaces(current_line).lower():
+        return True
+    return not _has_agenda_item_after_end_marker(following_page_text)
 
 
 def _has_agenda_item_after_end_marker(following_page_text: str) -> bool:

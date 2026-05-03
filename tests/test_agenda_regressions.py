@@ -98,6 +98,26 @@ def test_regression_numbered_legal_tail_after_end_marker_does_not_replace_agenda
     assert titles == ["Budget Update"]
 
 
+def test_regression_agenda_like_numbered_tail_after_end_marker_does_not_bypass_truncation():
+    """
+    Legal tails sometimes use agenda-like numbered labels after the real agenda ends.
+    """
+    text = (
+        "[PAGE 1]\n"
+        "1. Budget Update\n"
+        "Adjournment\n"
+        "ATTEST:\n"
+        "IN WITNESS WHEREOF\n"
+        "Date: January 21, 2021\n"
+        "City Clerk\n"
+        "1. Update Hearing\n"
+    )
+    items = _extract_with_forced_fallback(text)
+    titles = [item["title"] for item in items]
+
+    assert titles == ["Budget Update"]
+
+
 def test_regression_accessibility_and_url_boilerplate_not_promoted_to_agenda_items():
     """
     Agenda PDFs often contain participation/accessibility boilerplate plus URLs.
