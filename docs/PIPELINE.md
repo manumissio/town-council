@@ -90,7 +90,7 @@ Why this exists:
 ### Maintenance hydration paths
 The broad batch pipeline is no longer the only supported way to move recovered catalogs through extract -> segment -> summarize:
 
-- `pipeline/run_pipeline.py` remains the canonical broad hydrator for corpus-wide backlog work.
+- `pipeline/run_pipeline.py` remains the canonical broad hydrator facade for corpus-wide backlog work; focused `pipeline/run_pipeline_*` modules own step execution, onboarding scope, catalog selection, extraction chunks, and parallel scheduling.
 - `scripts/staged_hydrate_cities.py` is the city-wide backlog path when one or more cities need bounded, checkpointable segmentation and summary progress.
 - `scripts/hydrate_repaired_city_catalogs.py` is the repaired-catalog path for city-scoped `agenda` catalogs that already exist in Postgres/local storage but still need missing derived state.
 
@@ -316,7 +316,7 @@ Most regressions come from partial stage additions (route without durable write 
 ## 11) Source-of-Truth File Map
 
 Use these files as primary references:
-- Batch orchestration: `pipeline/run_pipeline.py`
+- Batch orchestration: `pipeline/run_pipeline.py` facade plus `pipeline/run_pipeline_steps.py`, `pipeline/run_pipeline_onboarding.py`, `pipeline/run_pipeline_selectors.py`, `pipeline/run_pipeline_extraction.py`, and `pipeline/run_pipeline_parallel.py`
 - Async orchestration: `pipeline/tasks.py`
 - API task entrypoints: `api/main.py`
 - Inference policy: `pipeline/llm.py`

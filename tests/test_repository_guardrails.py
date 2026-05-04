@@ -34,7 +34,7 @@ APPROVED_PIPELINE_PRINT_PATHS = {
     "pipeline/person_linker.py",
     "pipeline/reindex_semantic.py",
     "pipeline/run_agenda_qa.py",
-    "pipeline/run_pipeline.py",
+    "pipeline/run_pipeline_extraction.py",
 }
 REUSABLE_PIPELINE_MODULES = (
     "pipeline.downloader",
@@ -62,7 +62,7 @@ APPROVED_BROAD_EXCEPTION_PATHS = {
     "pipeline/profiling.py",
     "pipeline/run_agenda_qa.py",
     "pipeline/run_batch_enrichment.py",
-    "pipeline/run_pipeline.py",
+    "pipeline/run_pipeline_steps.py",
     "pipeline/runtime_guardrails.py",
     "pipeline/summary_backfill.py",
     "pipeline/semantic_index.py",
@@ -156,6 +156,14 @@ AGENDA_SUMMARY_MAINTENANCE_CLEANUP_MODULES = (
     "pipeline/agenda_summary_callbacks.py",
     "pipeline/agenda_summary_batch.py",
     "pipeline/agenda_summary_fallback.py",
+)
+RUN_PIPELINE_CLEANUP_MODULES = (
+    "pipeline/run_pipeline.py",
+    "pipeline/run_pipeline_steps.py",
+    "pipeline/run_pipeline_onboarding.py",
+    "pipeline/run_pipeline_selectors.py",
+    "pipeline/run_pipeline_extraction.py",
+    "pipeline/run_pipeline_parallel.py",
 )
 
 
@@ -399,6 +407,16 @@ def test_agenda_summary_maintenance_cleanup_modules_stay_under_size_target():
     oversized_modules = [
         module_path
         for module_path in AGENDA_SUMMARY_MAINTENANCE_CLEANUP_MODULES
+        if len((ROOT / module_path).read_text(encoding="utf-8").splitlines()) > 300
+    ]
+
+    assert oversized_modules == []
+
+
+def test_run_pipeline_cleanup_modules_stay_under_size_target():
+    oversized_modules = [
+        module_path
+        for module_path in RUN_PIPELINE_CLEANUP_MODULES
         if len((ROOT / module_path).read_text(encoding="utf-8").splitlines()) > 300
     ]
 

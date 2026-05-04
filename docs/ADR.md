@@ -712,3 +712,27 @@ Use each entry to record:
   - [docs/PIPELINE.md](PIPELINE.md)
   - [docs/ENGINEERING_GUARDRAILS.md](ENGINEERING_GUARDRAILS.md)
   - [ROADMAP.md](../ROADMAP.md)
+
+## 2026-05-03: Split batch pipeline orchestration behind patch-safe facade
+
+- Status: Accepted
+- Decision:
+  - `pipeline/run_pipeline.py` remains the CLI entrypoint, public compatibility facade, and test monkeypatch surface.
+  - `pipeline/run_pipeline_steps.py` owns subprocess/callable step profiling and failure mapping.
+  - `pipeline/run_pipeline_onboarding.py` owns onboarding run-window scope helpers.
+  - `pipeline/run_pipeline_selectors.py` owns extraction and entity-backfill catalog selection.
+  - `pipeline/run_pipeline_extraction.py` owns extraction chunk DB retry, per-catalog commit, and extraction-state repair.
+  - `pipeline/run_pipeline_parallel.py` owns chunking, worker-count selection, and process-pool scheduling.
+- Why:
+  - The batch pipeline module had become a mixed CLI, selector, worker, metrics, onboarding, and process-pool implementation file.
+  - Existing tests, scripts, and batch enrichment code import or patch names through `pipeline.run_pipeline`, so the facade must continue to resolve runtime dependencies from that module.
+  - Splitting implementation behind the facade reduces review risk without changing CLI commands, env vars, batch policy, extraction behavior, or telemetry names.
+- Affected boundaries:
+  - `pipeline/run_pipeline.py` owns compatibility wrappers and high-level stage order.
+  - `pipeline/run_batch_enrichment.py`, `pipeline/backfill_entities.py`, `pipeline/profile_manifest.py`, and `scripts/profile_pipeline.py` keep their existing imports.
+  - Guardrails track the new batch pipeline module family under the 300-line cleanup target.
+- Canonical references:
+  - [ARCHITECTURE.md](../ARCHITECTURE.md)
+  - [docs/PIPELINE.md](PIPELINE.md)
+  - [docs/ENGINEERING_GUARDRAILS.md](ENGINEERING_GUARDRAILS.md)
+  - [ROADMAP.md](../ROADMAP.md)
