@@ -106,7 +106,7 @@ flowchart LR
     Legi --> Spider
     Spider --> Stage --> Promote --> Core
 
-    Core -->|"run_pipeline.py"| Meili
+    Core -->|"run_pipeline.py facade"| Meili
     Core -->|"NLP/entity enrichment"| People
     Core --> Sem
     Agenda --> Meili
@@ -145,7 +145,7 @@ flowchart LR
 4. Search freshness is maintained through both broad batch hydration and task-driven targeted reindex of changed catalogs.
 5. Semantic embedding hydration populates `semantic_embedding`.
 6. Maintenance hydration has three supported paths with different scopes:
-   - `pipeline/run_pipeline.py` for broad corpus hydration
+   - `pipeline/run_pipeline.py` facade plus `pipeline/run_pipeline_*` modules for broad corpus hydration
    - staged city hydration for large unresolved city backlogs
    - repaired-city hydration for city-scoped recovered agenda catalogs that still need extract/segment/summary work
 
