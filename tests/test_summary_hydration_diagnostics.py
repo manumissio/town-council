@@ -5,6 +5,26 @@ from pipeline.summary_hydration_diagnostics import (
 )
 
 
+def test_summary_hydration_diagnostics_facade_preserves_operator_exports():
+    import pipeline.summary_hydration_diagnostics as diagnostics
+
+    expected_names = (
+        "SummaryHydrationSnapshot",
+        "build_summary_hydration_snapshot",
+        "predict_summary_path",
+        "infer_primary_root_cause",
+        "MISSING_CONTENT_PATH",
+        "NEEDS_SEGMENTATION_PATH",
+        "ELIGIBLE_AGENDA_SUMMARY_PATH",
+        "ELIGIBLE_NON_AGENDA_SUMMARY_PATH",
+        "BLOCKED_LOW_SIGNAL_PATH",
+    )
+
+    missing_names = [name for name in expected_names if not hasattr(diagnostics, name)]
+
+    assert missing_names == []
+
+
 def test_predict_summary_path_marks_agenda_without_items_as_needing_segmentation():
     result = predict_summary_path(
         "agenda",
