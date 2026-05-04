@@ -32,3 +32,19 @@ def test_agenda_summary_uses_configured_temperature(monkeypatch):
     )
     assert summary.startswith("BLUF:")
     assert captured["temperature"] == 0.37
+
+
+def test_agenda_summary_facade_preserves_runtime_exports():
+    import pipeline.agenda_summary as agenda_summary_mod
+
+    expected_names = (
+        "AGENDA_SUMMARY_TEMPERATURE",
+        "_should_drop_from_agenda_summary",
+        "deterministic_agenda_items_summary",
+        "prepare_agenda_items_summary_prompt",
+        "run_agenda_summary_pipeline",
+    )
+
+    missing_names = [name for name in expected_names if not hasattr(agenda_summary_mod, name)]
+
+    assert missing_names == []
