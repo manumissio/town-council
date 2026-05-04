@@ -12,6 +12,28 @@ from pipeline import run_batch_enrichment
 from pipeline.models import Base, Catalog, Document, Event, Place, UrlStage, UrlStageHist
 
 
+def test_run_pipeline_facade_exports_patch_sensitive_public_names():
+    expected_names = (
+        "main",
+        "run_step",
+        "run_callable_step",
+        "run_parallel_processing",
+        "process_document_chunk",
+        "select_catalog_ids_for_processing",
+        "select_catalog_ids_for_entity_backfill",
+        "_catalog_entities_need_nlp",
+        "_resolve_parallel_processing_settings",
+        "ProcessPoolExecutor",
+        "as_completed",
+        "datetime",
+        "PIPELINE_ONBOARDING_CITY",
+    )
+
+    missing_names = [name for name in expected_names if not hasattr(run_pipeline, name)]
+
+    assert missing_names == []
+
+
 def test_run_step_exits_on_subprocess_failure(mocker):
     mocker.patch("subprocess.run", side_effect=run_pipeline.subprocess.CalledProcessError(1, ["cmd"]))
     with pytest.raises(SystemExit):
@@ -37,6 +59,49 @@ def test_run_parallel_processing_returns_when_no_unprocessed_docs(mocker):
 
     selector.assert_called_once()
     executor_spy.assert_not_called()
+
+
+def test_run_parallel_processing_uses_facade_patched_executor_and_worker(mocker):
+    calls = []
+
+    class ImmediateFuture:
+        def result(self):
+            return 2
+
+    class FakeExecutor:
+        def __init__(self, *, max_workers):
+            calls.append(("workers", max_workers))
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, exc_type, exc, traceback):
+            return False
+
+        def submit(self, func, chunk, ocr_fallback_enabled):
+            calls.append(("submit", func, chunk, ocr_fallback_enabled))
+            return ImmediateFuture()
+
+    mock_session = MagicMock()
+    mock_session.__enter__.return_value = mock_session
+    mock_session.__exit__.return_value = False
+    mocker.patch("pipeline.db_session.db_session", return_value=mock_session)
+    selector = mocker.patch("pipeline.run_pipeline.select_catalog_ids_for_processing", return_value=[1, 2])
+    worker = mocker.patch("pipeline.run_pipeline.process_document_chunk", return_value=2)
+    mocker.patch("pipeline.run_pipeline.ProcessPoolExecutor", FakeExecutor)
+    mocker.patch("pipeline.run_pipeline.as_completed", side_effect=lambda futures: list(futures))
+    mocker.patch("pipeline.run_pipeline.cpu_count", return_value=2)
+    mocker.patch.object(run_pipeline, "DOCUMENT_CHUNK_SIZE", 2)
+    mocker.patch.object(run_pipeline, "MAX_WORKERS", 4)
+    mocker.patch.object(run_pipeline, "PIPELINE_CPU_FRACTION", 1.0)
+
+    run_pipeline.run_parallel_processing()
+
+    selector.assert_called_once_with(mock_session)
+    assert calls == [
+        ("workers", 2),
+        ("submit", worker, [1, 2], run_pipeline.TIKA_OCR_FALLBACK_ENABLED),
+    ]
 
 
 def test_main_runs_steps_in_expected_order(mocker):
