@@ -321,6 +321,7 @@ Use these files as primary references:
 - API task entrypoints: `api/main.py`
 - Inference policy: `pipeline/llm.py`
 - Agenda extraction: `pipeline/agenda_extraction.py` facade plus `pipeline/agenda_extraction_*` implementation modules
+- Runtime agenda summaries: `pipeline/agenda_summary.py` facade plus `pipeline/agenda_summary_items.py`, `pipeline/agenda_summary_scaffold.py`, `pipeline/agenda_summary_prompting.py`, `pipeline/agenda_summary_rendering.py`, `pipeline/agenda_summary_counters.py`, and `pipeline/agenda_summary_pipeline.py`
 - Agenda-summary maintenance: `pipeline/agenda_summary_maintenance.py` facade plus `pipeline/agenda_summary_contracts.py`, `pipeline/agenda_summary_inputs.py`, `pipeline/agenda_summary_callbacks.py`, `pipeline/agenda_summary_batch.py`, and `pipeline/agenda_summary_fallback.py`
 - Provider facade: `pipeline/llm_provider.py`
 - Provider transport + typed errors: `pipeline/http_inference_provider.py`, `pipeline/inprocess_inference_provider.py`, `pipeline/inference_provider_contract.py`

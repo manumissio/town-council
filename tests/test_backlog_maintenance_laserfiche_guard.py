@@ -56,6 +56,28 @@ def test_agenda_summary_maintenance_facade_preserves_public_exports():
     )
 
 
+def test_agenda_summary_inputs_use_runtime_drop_policy_directly(monkeypatch):
+    drop_calls = []
+
+    def fake_should_drop(item_text, *, min_substantive_desc_chars):
+        drop_calls.append((item_text, min_substantive_desc_chars))
+        return True
+
+    monkeypatch.setattr(agenda_summary_inputs, "should_drop_from_agenda_summary", fake_should_drop)
+    agenda_item = MagicMock(
+        title="Consent Calendar",
+        description="Routine notice",
+        classification="Agenda Item",
+        result="",
+        page_number=1,
+    )
+
+    summary_item = agenda_summary_inputs._agenda_summary_item_payload(agenda_item)
+
+    assert summary_item is None
+    assert drop_calls == [("Consent Calendar - Routine notice", agenda_summary_inputs.AGENDA_MIN_SUBSTANTIVE_DESC_CHARS)]
+
+
 def test_agenda_summary_maintenance_single_payload_uses_facade_batch_builder(mocker):
     batch_spy = mocker.patch.object(
         summary_mod,

@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-from pipeline import llm as llm_mod
 from pipeline.agenda_summary_contracts import (
     AGENDA_SUMMARY_BLOCKED_LOW_SIGNAL_REASON,
     AGENDA_SUMMARY_CATALOG_NOT_FOUND_ERROR,
@@ -9,6 +8,9 @@ from pipeline.agenda_summary_contracts import (
     AGENDA_SUMMARY_SEGMENTATION_REQUIRED_REASON,
     AgendaSummaryPayload,
 )
+from pipeline.agenda_summary_items import should_drop_from_agenda_summary
+from pipeline.agenda_text_heuristics import looks_like_agenda_segmentation_boilerplate
+from pipeline.config import AGENDA_MIN_SUBSTANTIVE_DESC_CHARS
 from pipeline.config import AGENDA_SUMMARY_MAX_INPUT_CHARS, AGENDA_SUMMARY_MIN_RESERVED_OUTPUT_CHARS
 from pipeline.content_hash import compute_content_hash
 from pipeline.models import AgendaItem, Catalog, Document
@@ -87,12 +89,15 @@ def _summary_items_within_budget(
 
 def _agenda_summary_item_payload(item: AgendaItem) -> AgendaSummaryPayload | None:
     title = (item.title or "").strip()
-    if not title or llm_mod._looks_like_agenda_segmentation_boilerplate(title):
+    if not title or looks_like_agenda_segmentation_boilerplate(title):
         return None
 
     description = (item.description or "").strip()
     serialized = title if not description else f"{title} - {description}"
-    if llm_mod._should_drop_from_agenda_summary(serialized):
+    if should_drop_from_agenda_summary(
+        serialized,
+        min_substantive_desc_chars=AGENDA_MIN_SUBSTANTIVE_DESC_CHARS,
+    ):
         return None
 
     return {

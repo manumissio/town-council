@@ -415,6 +415,31 @@ Use each entry to record:
   - [docs/ENGINEERING_GUARDRAILS.md](ENGINEERING_GUARDRAILS.md)
   - [ROADMAP.md](../ROADMAP.md)
 
+## 2026-05-03: Split runtime agenda-summary implementation behind the facade
+
+- Status: Accepted
+- Decision:
+  - `pipeline/agenda_summary.py` remains the runtime agenda-summary compatibility facade for `pipeline.llm` imports and config monkeypatch seams.
+  - `pipeline/agenda_summary_items.py` owns item coercion, source text, and drop/noise policy.
+  - `pipeline/agenda_summary_scaffold.py` owns scaffold seeds, money references, impacts, unknowns, and single-item mode inputs.
+  - `pipeline/agenda_summary_prompting.py` owns structured agenda-summary prompt assembly.
+  - `pipeline/agenda_summary_rendering.py` owns deterministic rendering and model-output normalization.
+  - `pipeline/agenda_summary_counters.py` owns existing agenda-summary counter log payloads.
+  - `pipeline/agenda_summary_pipeline.py` owns provider orchestration, grounding/pruning, and deterministic fallback choice.
+- Why:
+  - Runtime agenda-summary generation had become a mixed transformation, prompt, rendering, counter, and provider orchestration module.
+  - Keeping config-aware wrappers in the facade preserves existing `pipeline.agenda_summary` monkeypatch behavior.
+  - Moving the drop policy out of the `pipeline.llm` dependency path lets maintenance input building reuse runtime filtering without importing the full LLM facade.
+- Affected boundaries:
+  - `pipeline.llm` continues importing runtime agenda-summary names from `pipeline.agenda_summary`.
+  - `pipeline/agenda_summary_inputs.py` uses the shared item/drop-policy owner directly.
+  - Agenda-summary maintenance modules continue to own persistence, routing, and post-commit side effects.
+- Canonical references:
+  - [ARCHITECTURE.md](../ARCHITECTURE.md)
+  - [docs/PIPELINE.md](PIPELINE.md)
+  - [docs/ENGINEERING_GUARDRAILS.md](ENGINEERING_GUARDRAILS.md)
+  - [ROADMAP.md](../ROADMAP.md)
+
 ## 2026-04-09: Extract the agenda-extraction subsystem before finishing broader `pipeline/llm.py` cleanup
 
 - Status: Accepted

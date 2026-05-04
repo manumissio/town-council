@@ -191,6 +191,10 @@ Primary owners:
   `pipeline/agenda_extraction_acceptance.py`, `pipeline/agenda_extraction_pages.py`,
   `pipeline/agenda_extraction_noise.py`, `pipeline/agenda_extraction_numbered.py`,
   `pipeline/agenda_extraction_paragraphs.py`, and `pipeline/agenda_extraction_diagnostics.py`
+- `pipeline/agenda_summary.py` facade plus focused runtime modules:
+  `pipeline/agenda_summary_items.py`, `pipeline/agenda_summary_scaffold.py`,
+  `pipeline/agenda_summary_prompting.py`, `pipeline/agenda_summary_rendering.py`,
+  `pipeline/agenda_summary_counters.py`, and `pipeline/agenda_summary_pipeline.py`
 - `pipeline/agenda_text_heuristics.py` facade plus focused text-helper modules:
   `pipeline/agenda_text_normalization.py`, `pipeline/agenda_text_noise.py`,
   `pipeline/agenda_text_noise_patterns.py`, `pipeline/agenda_item_acceptance.py`,
