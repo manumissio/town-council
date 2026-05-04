@@ -415,6 +415,26 @@ Use each entry to record:
   - [docs/ENGINEERING_GUARDRAILS.md](ENGINEERING_GUARDRAILS.md)
   - [ROADMAP.md](../ROADMAP.md)
 
+## 2026-05-04: Split summary hydration diagnostics behind the facade
+
+- Status: Accepted
+- Decision:
+  - `pipeline/summary_hydration_diagnostics.py` remains the operator-facing facade for diagnostic scripts and tests.
+  - `pipeline/summary_hydration_diagnostic_contracts.py` owns snapshot contracts, path/root-cause constants, sample bucket names, and model protocols.
+  - `pipeline/summary_hydration_diagnostic_policy.py` owns summary-path prediction and primary root-cause selection.
+  - `pipeline/summary_hydration_diagnostic_queries.py` owns runtime model loading and SQLAlchemy query helpers.
+  - `pipeline/summary_hydration_diagnostic_builder.py` owns backlog classification and snapshot assembly.
+- Why:
+  - The diagnostic module had become a mixed contract, policy, query, and snapshot-building boundary.
+  - Keeping the facade preserves `scripts/diagnose_summary_hydration.py` and `scripts/staged_hydrate_cities.py` imports.
+  - Keeping runtime ORM model loading localized preserves the strict typed subtree boundary.
+- Affected boundaries:
+  - Operator CLI usage and JSON/text output stay unchanged.
+  - New diagnostic modules join strict mypy and scoped formatter guardrails.
+- Canonical references:
+  - [docs/ENGINEERING_GUARDRAILS.md](ENGINEERING_GUARDRAILS.md)
+  - [docs/OPERATIONS.md](OPERATIONS.md)
+
 ## 2026-05-03: Split runtime agenda-summary implementation behind the facade
 
 - Status: Accepted
