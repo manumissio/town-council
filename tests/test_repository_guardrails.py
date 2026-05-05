@@ -107,6 +107,10 @@ TYPED_SUBTREE_PATHS = (
     "pipeline/rollout_registry.py",
     "pipeline/runtime_guardrails.py",
     "pipeline/summary_hydration_diagnostics.py",
+    "pipeline/summary_hydration_diagnostic_contracts.py",
+    "pipeline/summary_hydration_diagnostic_policy.py",
+    "pipeline/summary_hydration_diagnostic_queries.py",
+    "pipeline/summary_hydration_diagnostic_builder.py",
     "pipeline/summary_quality.py",
     "pipeline/summary_freshness.py",
     "pipeline/utils.py",
@@ -173,6 +177,13 @@ RUN_PIPELINE_CLEANUP_MODULES = (
     "pipeline/run_pipeline_selectors.py",
     "pipeline/run_pipeline_extraction.py",
     "pipeline/run_pipeline_parallel.py",
+)
+SUMMARY_HYDRATION_DIAGNOSTIC_CLEANUP_MODULES = (
+    "pipeline/summary_hydration_diagnostics.py",
+    "pipeline/summary_hydration_diagnostic_contracts.py",
+    "pipeline/summary_hydration_diagnostic_policy.py",
+    "pipeline/summary_hydration_diagnostic_queries.py",
+    "pipeline/summary_hydration_diagnostic_builder.py",
 )
 
 
@@ -437,6 +448,16 @@ def test_run_pipeline_cleanup_modules_stay_under_size_target():
     oversized_modules = [
         module_path
         for module_path in RUN_PIPELINE_CLEANUP_MODULES
+        if len((ROOT / module_path).read_text(encoding="utf-8").splitlines()) > 300
+    ]
+
+    assert oversized_modules == []
+
+
+def test_summary_hydration_diagnostic_cleanup_modules_stay_under_size_target():
+    oversized_modules = [
+        module_path
+        for module_path in SUMMARY_HYDRATION_DIAGNOSTIC_CLEANUP_MODULES
         if len((ROOT / module_path).read_text(encoding="utf-8").splitlines()) > 300
     ]
 
