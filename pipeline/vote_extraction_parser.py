@@ -6,6 +6,9 @@ import re
 from pipeline.vote_extraction_contracts import OUTCOME_SYNONYMS, VALID_OUTCOME_LABELS, VoteExtractionResult
 
 
+CONFIDENCE_COERCION_ERRORS = (TypeError, ValueError)
+
+
 def normalize_outcome_label(value: object) -> str:
     raw = str(value or "").strip().lower()
     if not raw:
@@ -95,7 +98,7 @@ def _coerced_confidence(confidence: object) -> float:
         return 0.0
     try:
         confidence_value = float(confidence)
-    except TypeError, ValueError:
+    except CONFIDENCE_COERCION_ERRORS:
         confidence_value = 0.0
     return max(0.0, min(1.0, confidence_value))
 

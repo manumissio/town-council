@@ -124,3 +124,15 @@ def test_parse_vote_extraction_rejects_impossible_tally():
     """
     with pytest.raises(ValueError):
         parse_vote_extraction_response(raw, council_size=4)
+
+
+def test_parse_vote_extraction_invalid_confidence_defaults_to_zero():
+    raw = """
+    {"outcome_label":"passed","motion_text":null,"vote_tally_raw":null,
+    "yes_count":null,"no_count":null,"abstain_count":null,"absent_count":null,
+    "confidence":"not-a-number","evidence_snippet":null}
+    """
+
+    parsed = parse_vote_extraction_response(raw)
+
+    assert parsed.confidence == 0.0

@@ -14,6 +14,9 @@ from pipeline.vote_extraction_contracts import (
 )
 
 
+CONFIDENCE_COERCION_ERRORS = (TypeError, ValueError)
+
+
 def result_text_from_label(outcome_label: str) -> str:
     mapping = {
         "passed": "Passed",
@@ -35,7 +38,7 @@ def is_high_confidence_existing_llm_vote(votes: object, *, confidence_threshold:
     confidence = votes.get("confidence", 0.0)
     try:
         confidence_value = float(confidence)
-    except TypeError, ValueError:
+    except CONFIDENCE_COERCION_ERRORS:
         confidence_value = 0.0
     return source == LLM_EXTRACTED_VOTE_SOURCE and confidence_value >= confidence_threshold
 
