@@ -1,4 +1,5 @@
 from contextlib import contextmanager
+import ast
 import importlib.util
 import json
 from pathlib import Path
@@ -8,6 +9,66 @@ from sqlalchemy.orm import sessionmaker
 
 from pipeline.models import AgendaItem, Base, Catalog, Document, Event, Membership, Person, Place
 from pipeline import profile_manifest
+
+
+def test_profile_manifest_facade_exports_current_contract():
+    expected_names = [
+        "MANIFEST_PACKAGE_SCHEMA_VERSION",
+        "DEFAULT_PHASE_QUOTAS",
+        "utc_now_iso",
+        "sidecar_path_for_manifest",
+        "load_manifest_package",
+        "validate_manifest_package",
+        "build_manifest_package",
+        "preconditioning_report",
+        "apply_preconditioning",
+        "_is_safe_people_reset_name",
+        "_extract_candidates",
+        "_segment_reset_candidates",
+        "_summary_reset_candidates",
+        "_entity_reset_candidates",
+        "_org_reset_candidates",
+        "_people_reset_candidates",
+        "db_session",
+        "AgendaItem",
+        "Catalog",
+        "Document",
+        "Event",
+        "Membership",
+        "Person",
+        "has_official_title_context",
+        "normalize_person_name",
+        "select_catalog_ids_for_entity_backfill",
+        "select_catalog_ids_for_processing",
+        "is_likely_human_name",
+    ]
+
+    missing_names = [name for name in expected_names if not hasattr(profile_manifest, name)]
+
+    assert missing_names == []
+
+
+def test_profile_manifest_implementation_modules_do_not_import_facade():
+    module_paths = [
+        Path("pipeline/profile_manifest_contracts.py"),
+        Path("pipeline/profile_manifest_io.py"),
+        Path("pipeline/profile_manifest_candidates.py"),
+        Path("pipeline/profile_manifest_people.py"),
+        Path("pipeline/profile_manifest_builder.py"),
+        Path("pipeline/profile_manifest_preconditioning.py"),
+    ]
+    offenders: list[str] = []
+
+    for module_path in module_paths:
+        tree = ast.parse(module_path.read_text(encoding="utf-8"))
+        for node in ast.walk(tree):
+            if isinstance(node, ast.ImportFrom) and node.module == "pipeline.profile_manifest":
+                offenders.append(str(module_path))
+            if isinstance(node, ast.Import):
+                if any(alias.name == "pipeline.profile_manifest" for alias in node.names):
+                    offenders.append(str(module_path))
+
+    assert offenders == []
 
 
 def test_build_manifest_package_honors_phase_quotas(monkeypatch):
