@@ -73,7 +73,7 @@ APPROVED_BROAD_EXCEPTION_PATHS = {
     "pipeline/tasks.py",
     "pipeline/text_cleaning.py",
     "pipeline/topic_worker.py",
-    "pipeline/vote_extractor.py",
+    "pipeline/vote_extraction_runner.py",
     "scripts/backfill_summaries.py",
     "scripts/collect_soak_metrics.py",
     "scripts/enrichment_worker_healthcheck.py",
@@ -123,13 +123,16 @@ TYPED_SUBTREE_PATHS = (
     "pipeline/utils.py",
     "pipeline/verification_service.py",
     "pipeline/vote_extractor.py",
+    "pipeline/vote_extraction_contracts.py",
+    "pipeline/vote_extraction_prompting.py",
+    "pipeline/vote_extraction_parser.py",
+    "pipeline/vote_extraction_context.py",
+    "pipeline/vote_extraction_policy.py",
+    "pipeline/vote_extraction_runner.py",
     "scripts/analyze_pipeline_profile.py",
 )
 CANDIDATE_FORMATTER_WAVE_PATHS = TYPED_SUBTREE_PATHS
-FORMATTER_WAVE_COMMAND = (
-    "./.venv/bin/ruff format --check "
-    + " ".join(CANDIDATE_FORMATTER_WAVE_PATHS)
-)
+FORMATTER_WAVE_COMMAND = "./.venv/bin/ruff format --check " + " ".join(CANDIDATE_FORMATTER_WAVE_PATHS)
 METRICS_CLEANUP_MODULES = (
     "pipeline/metrics.py",
     "pipeline/metrics_celery_signals.py",
@@ -201,6 +204,15 @@ PROFILE_MANIFEST_CLEANUP_MODULES = (
     "pipeline/profile_manifest_builder.py",
     "pipeline/profile_manifest_preconditioning.py",
 )
+VOTE_EXTRACTION_CLEANUP_MODULES = (
+    "pipeline/vote_extractor.py",
+    "pipeline/vote_extraction_contracts.py",
+    "pipeline/vote_extraction_prompting.py",
+    "pipeline/vote_extraction_parser.py",
+    "pipeline/vote_extraction_context.py",
+    "pipeline/vote_extraction_policy.py",
+    "pipeline/vote_extraction_runner.py",
+)
 
 
 def _tracked_files() -> list[Path]:
@@ -217,6 +229,7 @@ def _broad_exception_scan_files() -> list[Path]:
         *AGENDA_SUMMARY_MAINTENANCE_CLEANUP_MODULES,
         *AGENDA_SUMMARY_RUNTIME_CLEANUP_MODULES,
         *PROFILE_MANIFEST_CLEANUP_MODULES,
+        *VOTE_EXTRACTION_CLEANUP_MODULES,
     ):
         tracked_files.add((ROOT / module_path).resolve())
     return sorted(tracked_files)
@@ -247,9 +260,7 @@ def _ruff_per_file_ignore_entries() -> dict[str, set[str]]:
         if not match:
             continue
         entries[match.group("path")] = {
-            token.strip().strip('"')
-            for token in match.group("rules").split(",")
-            if token.strip()
+            token.strip().strip('"') for token in match.group("rules").split(",") if token.strip()
         }
     return entries
 
@@ -327,7 +338,7 @@ def test_ruff_guardrail_config_keeps_scope_and_exceptions_narrow():
     config_text = (ROOT / "ruff.toml").read_text(encoding="utf-8")
 
     assert 'src = ["api", "pipeline", "scripts", "tests"]' in config_text
-    assert "select = [\"E722\", \"F401\", \"F841\", \"B006\", \"B007\", \"B023\", \"BLE001\"]" in config_text
+    assert 'select = ["E722", "F401", "F841", "B006", "B007", "B023", "BLE001"]' in config_text
     assert "pipeline/*.py" not in config_text
     assert "api/*.py" not in config_text
 
@@ -360,11 +371,7 @@ def test_first_formatter_wave_stays_path_scoped_and_enforced():
 
 def test_broad_exception_allowlist_stays_explicit():
     ignore_entries = _ruff_per_file_ignore_entries()
-    broad_exception_paths = {
-        path
-        for path, rules in ignore_entries.items()
-        if "BLE001" in rules
-    }
+    broad_exception_paths = {path for path, rules in ignore_entries.items() if "BLE001" in rules}
 
     assert broad_exception_paths == APPROVED_BROAD_EXCEPTION_PATHS
     assert broad_exception_paths.isdisjoint(BLE001_WILDCARD_PATHS)
@@ -398,10 +405,7 @@ def test_broad_exception_handlers_stay_on_approved_boundaries_and_take_action():
                 body_nodes = handler.body
                 is_silent = all(
                     isinstance(body_node, ast.Pass)
-                    or (
-                        isinstance(body_node, ast.Expr)
-                        and isinstance(body_node.value, ast.Constant)
-                    )
+                    or (isinstance(body_node, ast.Expr) and isinstance(body_node.value, ast.Constant))
                     for body_node in body_nodes
                 )
                 if is_silent:
@@ -485,6 +489,16 @@ def test_profile_manifest_cleanup_modules_stay_under_size_target():
     oversized_modules = [
         module_path
         for module_path in PROFILE_MANIFEST_CLEANUP_MODULES
+        if len((ROOT / module_path).read_text(encoding="utf-8").splitlines()) > 300
+    ]
+
+    assert oversized_modules == []
+
+
+def test_vote_extraction_cleanup_modules_stay_under_size_target():
+    oversized_modules = [
+        module_path
+        for module_path in VOTE_EXTRACTION_CLEANUP_MODULES
         if len((ROOT / module_path).read_text(encoding="utf-8").splitlines()) > 300
     ]
 

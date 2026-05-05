@@ -31,6 +31,29 @@ Use each entry to record:
   - [docs/OPERATIONS.md](OPERATIONS.md)
   - [docs/ENGINEERING_GUARDRAILS.md](ENGINEERING_GUARDRAILS.md)
 
+## 2026-05-05: Split vote extraction behind the facade
+
+- Status: Accepted
+- Decision:
+  - `pipeline/vote_extractor.py` remains the compatibility facade for task imports, tests, and vote-extraction patch seams.
+  - Vote extraction constants, protocols, and typed result contracts move behind `pipeline/vote_extraction_contracts.py`.
+  - Prompt construction moves behind `pipeline/vote_extraction_prompting.py`.
+  - Model-output JSON parsing and payload normalization move behind `pipeline/vote_extraction_parser.py`.
+  - Catalog and meeting context construction move behind `pipeline/vote_extraction_context.py`.
+  - Existing-vote skip policy, outcome text policy, and ambiguity penalties move behind `pipeline/vote_extraction_policy.py`.
+  - Per-catalog item orchestration and update counters move behind `pipeline/vote_extraction_runner.py`.
+- Why:
+  - `pipeline/vote_extractor.py` mixed prompt scaffolding, parser contracts, context slicing, existing-vote policy, ambiguity handling, logging, counters, and item update orchestration in one typed module.
+  - `pipeline.tasks` and focused tests import through `pipeline.vote_extractor`, so the facade must keep resolving patched config constants and prompt helpers.
+- Affected boundaries:
+  - `pipeline.tasks` keeps importing `run_vote_extraction_for_catalog` from `pipeline.vote_extractor`.
+  - Vote extraction prompt shape, parsed result contract, skip reasons, update payloads, log events, and configuration defaults stay unchanged.
+  - Guardrails track the vote extraction module family under the 300-line cleanup target and strict typed/formatter scope.
+- Canonical references:
+  - [ARCHITECTURE.md](../ARCHITECTURE.md)
+  - [docs/PIPELINE.md](PIPELINE.md)
+  - [docs/ENGINEERING_GUARDRAILS.md](ENGINEERING_GUARDRAILS.md)
+
 ## 2026-05-03: Split agenda-summary maintenance behind the facade
 
 - Status: Accepted
