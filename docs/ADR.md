@@ -8,6 +8,29 @@ Use each entry to record:
 - the affected boundary or contract
 - links to the canonical docs that carry the ongoing operational or architecture detail
 
+## 2026-05-05: Split profile manifest packaging behind patch-safe facade
+
+- Status: Accepted
+- Decision:
+  - `pipeline/profile_manifest.py` remains the compatibility facade for profiling manifest imports and tests.
+  - Manifest constants and typed payload aliases move behind `pipeline/profile_manifest_contracts.py`.
+  - Manifest sidecar I/O and validation move behind `pipeline/profile_manifest_io.py`.
+  - Extract, segmentation, summary, entity, and organization candidate queries move behind `pipeline/profile_manifest_candidates.py`.
+  - People reset safety and people candidate loading move behind `pipeline/profile_manifest_people.py`.
+  - Quota normalization, ordered dedupe, shortage validation, and package assembly move behind `pipeline/profile_manifest_builder.py`.
+  - Dry-run reporting and selected workload preconditioning move behind `pipeline/profile_manifest_preconditioning.py`.
+- Why:
+  - `pipeline/profile_manifest.py` mixed JSON sidecar handling, quota selection, SQLAlchemy candidate queries, controlled reset mutation, and safety policy in one large operator module.
+  - Existing scripts and tests import or patch `pipeline.profile_manifest`, so the facade must keep resolving patched `db_session` and candidate helpers.
+- Affected boundaries:
+  - `scripts/build_profile_manifest.py` and `scripts/profile_pipeline.py` keep their imports from `pipeline.profile_manifest`.
+  - Manifest JSON shape, baseline profiling CLI behavior, preconditioning safety scope, and selected-workload mutation semantics stay unchanged.
+  - Guardrails track the profile manifest module family under the 300-line cleanup target and strict typed/formatter scope.
+- Canonical references:
+  - [docs/PERFORMANCE.md](PERFORMANCE.md)
+  - [docs/OPERATIONS.md](OPERATIONS.md)
+  - [docs/ENGINEERING_GUARDRAILS.md](ENGINEERING_GUARDRAILS.md)
+
 ## 2026-05-03: Split agenda-summary maintenance behind the facade
 
 - Status: Accepted

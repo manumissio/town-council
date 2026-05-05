@@ -111,6 +111,13 @@ TYPED_SUBTREE_PATHS = (
     "pipeline/summary_hydration_diagnostic_policy.py",
     "pipeline/summary_hydration_diagnostic_queries.py",
     "pipeline/summary_hydration_diagnostic_builder.py",
+    "pipeline/profile_manifest.py",
+    "pipeline/profile_manifest_contracts.py",
+    "pipeline/profile_manifest_io.py",
+    "pipeline/profile_manifest_candidates.py",
+    "pipeline/profile_manifest_people.py",
+    "pipeline/profile_manifest_builder.py",
+    "pipeline/profile_manifest_preconditioning.py",
     "pipeline/summary_quality.py",
     "pipeline/summary_freshness.py",
     "pipeline/utils.py",
@@ -185,6 +192,15 @@ SUMMARY_HYDRATION_DIAGNOSTIC_CLEANUP_MODULES = (
     "pipeline/summary_hydration_diagnostic_queries.py",
     "pipeline/summary_hydration_diagnostic_builder.py",
 )
+PROFILE_MANIFEST_CLEANUP_MODULES = (
+    "pipeline/profile_manifest.py",
+    "pipeline/profile_manifest_contracts.py",
+    "pipeline/profile_manifest_io.py",
+    "pipeline/profile_manifest_candidates.py",
+    "pipeline/profile_manifest_people.py",
+    "pipeline/profile_manifest_builder.py",
+    "pipeline/profile_manifest_preconditioning.py",
+)
 
 
 def _tracked_files() -> list[Path]:
@@ -200,6 +216,7 @@ def _broad_exception_scan_files() -> list[Path]:
         *AGENDA_TEXT_HEURISTICS_CLEANUP_MODULES,
         *AGENDA_SUMMARY_MAINTENANCE_CLEANUP_MODULES,
         *AGENDA_SUMMARY_RUNTIME_CLEANUP_MODULES,
+        *PROFILE_MANIFEST_CLEANUP_MODULES,
     ):
         tracked_files.add((ROOT / module_path).resolve())
     return sorted(tracked_files)
@@ -458,6 +475,16 @@ def test_summary_hydration_diagnostic_cleanup_modules_stay_under_size_target():
     oversized_modules = [
         module_path
         for module_path in SUMMARY_HYDRATION_DIAGNOSTIC_CLEANUP_MODULES
+        if len((ROOT / module_path).read_text(encoding="utf-8").splitlines()) > 300
+    ]
+
+    assert oversized_modules == []
+
+
+def test_profile_manifest_cleanup_modules_stay_under_size_target():
+    oversized_modules = [
+        module_path
+        for module_path in PROFILE_MANIFEST_CLEANUP_MODULES
         if len((ROOT / module_path).read_text(encoding="utf-8").splitlines()) > 300
     ]
 
