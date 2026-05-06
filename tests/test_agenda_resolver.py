@@ -1,9 +1,64 @@
+import ast
 from datetime import date
+from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
 
 from pipeline import agenda_resolver
+
+
+def test_agenda_resolver_facade_exports_current_contract():
+    expected_names = [
+        "AgendaItemRecord",
+        "ResolvedAgendaPayload",
+        "AgendaExtractor",
+        "CatalogLike",
+        "PlaceLike",
+        "EventLike",
+        "DocumentLike",
+        "AgendaDocumentQuery",
+        "AgendaResolverSession",
+        "_LEGISTAR_NOTICE_PATTERNS",
+        "_LEGISTAR_PROCEDURAL_PATTERNS",
+        "_LEGISTAR_SECTION_WRAPPER_TITLES",
+        "agenda_quality_score",
+        "agenda_items_look_low_quality",
+        "_filter_legistar_items",
+        "_legistar_items_are_acceptable",
+        "_best_html_items_for_event",
+        "_apply_page_numbers_from_reference",
+        "has_viable_structured_agenda_source",
+        "resolve_agenda_items",
+        "fetch_legistar_agenda_items",
+        "logger",
+    ]
+
+    missing_names = [name for name in expected_names if not hasattr(agenda_resolver, name)]
+
+    assert missing_names == []
+
+
+def test_agenda_resolver_modules_do_not_import_facade():
+    module_paths = [
+        Path("pipeline/agenda_resolver_contracts.py"),
+        Path("pipeline/agenda_resolver_quality.py"),
+        Path("pipeline/agenda_resolver_legistar_policy.py"),
+        Path("pipeline/agenda_resolver_html.py"),
+        Path("pipeline/agenda_resolver_enrichment.py"),
+        Path("pipeline/agenda_resolver_runner.py"),
+    ]
+    offenders: list[str] = []
+
+    for module_path in module_paths:
+        tree = ast.parse(module_path.read_text(encoding="utf-8"))
+        for node in ast.walk(tree):
+            if isinstance(node, ast.ImportFrom) and node.module == "pipeline.agenda_resolver":
+                offenders.append(str(module_path))
+            if isinstance(node, ast.Import):
+                offenders.extend(str(module_path) for alias in node.names if alias.name == "pipeline.agenda_resolver")
+
+    assert offenders == []
 
 
 def _doc_with_place(legistar_client="berkeley"):
@@ -94,6 +149,58 @@ def test_resolver_prefers_legistar_when_available(mocker):
     local_ai.extract_agenda.assert_not_called()
     assert resolved["llm_fallback_invoked"] is False
     assert resolved["legistar_accepted"] is True
+
+
+def test_facade_legistar_patch_controls_structured_source_check(mocker):
+    mock_session = mocker.MagicMock()
+    catalog = SimpleNamespace(content="text", location="/tmp/doc.pdf")
+    doc = _doc_with_place()
+
+    mocker.patch.object(agenda_resolver, "_best_html_items_for_event", return_value=[])
+    mocker.patch.object(
+        agenda_resolver,
+        "fetch_legistar_agenda_items",
+        return_value=[
+            {"title": "Budget Amendment", "page_number": None},
+            {"title": "Public Employee Appointment", "page_number": None},
+            {"title": "Zoning Amendment Hearing", "page_number": None},
+        ],
+    )
+
+    assert agenda_resolver.has_viable_structured_agenda_source(mock_session, catalog, doc) is True
+
+
+def test_facade_resolver_helper_patches_control_legistar_path(mocker):
+    mock_session = mocker.MagicMock()
+    catalog = SimpleNamespace(content="text", location="/tmp/doc.pdf")
+    doc = _doc_with_place()
+    local_ai = mocker.MagicMock()
+
+    filtered_items = [{"title": "Budget Amendment", "page_number": None}]
+    enriched_items = [{"title": "Budget Amendment", "page_number": 9}]
+    mocker.patch.object(agenda_resolver, "_best_html_items_for_event", return_value=[])
+    mocker.patch.object(agenda_resolver, "fetch_legistar_agenda_items", return_value=[{"title": "Raw Wrapper"}])
+    mocker.patch.object(agenda_resolver, "_filter_legistar_items", return_value=filtered_items)
+    mocker.patch.object(agenda_resolver, "_legistar_items_are_acceptable", return_value=True)
+    mocker.patch.object(agenda_resolver, "_apply_page_numbers_from_reference", return_value=enriched_items)
+    mocker.patch.object(agenda_resolver, "agenda_quality_score", return_value=66)
+
+    resolved = agenda_resolver.resolve_agenda_items(mock_session, catalog, doc, local_ai)
+
+    assert resolved["source_used"] == "legistar"
+    assert resolved["items"] == enriched_items
+    assert resolved["quality_score"] == 66
+    assert resolved["filtered_legistar_count"] == 1
+    local_ai.extract_agenda.assert_not_called()
+
+
+def test_apply_page_numbers_from_reference_uses_fuzzy_title_match():
+    primary_items = [{"title": "Budget Amendment", "page_number": None}]
+    reference_items = [{"title": "Amendment Budget", "page_number": 12}]
+
+    enriched_items = agenda_resolver._apply_page_numbers_from_reference(primary_items, reference_items)
+
+    assert enriched_items[0]["page_number"] == 12
 
 
 def test_resolver_falls_back_to_html_then_llm(mocker):

@@ -203,7 +203,10 @@ Primary owners:
   `pipeline/agenda_summary_contracts.py`, `pipeline/agenda_summary_inputs.py`,
   `pipeline/agenda_summary_callbacks.py`, `pipeline/agenda_summary_batch.py`,
   and `pipeline/agenda_summary_fallback.py`
-- `pipeline/agenda_resolver.py`
+- `pipeline/agenda_resolver.py` facade plus focused resolver modules:
+  `pipeline/agenda_resolver_contracts.py`, `pipeline/agenda_resolver_quality.py`,
+  `pipeline/agenda_resolver_legistar_policy.py`, `pipeline/agenda_resolver_html.py`,
+  `pipeline/agenda_resolver_enrichment.py`, and `pipeline/agenda_resolver_runner.py`
 
 #### Vote Extraction (Stable)
 
