@@ -318,7 +318,7 @@ For complete troubleshooting (auth, stale/blocked/not-generated states, startup 
 ## Contributing
 - Use [`AGENTS.md`](AGENTS.md) for repo workflow, policy, verification, and collaboration constraints.
 - Use [`docs/CONTRIBUTING_CITIES.md`](docs/CONTRIBUTING_CITIES.md) when adding or updating city crawlers.
-- Use the PR checklist in [`.github/pull_request_template.md`](.github/pull_request_template.md) before opening a pull request.
+- Include changed behavior, risk, compatibility impact, and validation results in pull request summaries.
 - Keep contributor workflows local-first and avoid silent remote inference fallback.
 
 ## Support / Issues
