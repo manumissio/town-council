@@ -293,7 +293,7 @@ Telemetry can be missing/degraded even when some tasks complete; promotion decis
 | `missing_task_id` | API enqueue/write endpoint response issue | `api/main.py`, endpoint response payload, task queue health | Fastest way to confirm enqueue contract break |
 | `task_poll_timeout` | worker backlog/inference stall/timeout budget mismatch | `pipeline/tasks.py`, worker logs, runtime profile timeouts, queue metrics | Distinguishes queue pressure from task logic bugs |
 | low-signal summary block | source text quality below summary gate | `pipeline/summary_quality.py`, extracted text quality, segmentation state | Avoids chasing LLM prompts when source is insufficient |
-| segmentation noisy/empty/failed | extraction artifacts or segmentation heuristics mismatch | `pipeline/agenda_resolver.py`, `pipeline/llm.py` segmentation paths, extraction output | Segmentation quality is upstream of summary quality |
+| segmentation noisy/empty/failed | extraction artifacts or segmentation heuristics mismatch | `pipeline/agenda_resolver.py` facade plus focused `pipeline/agenda_resolver_*` modules, `pipeline/llm.py` segmentation paths, extraction output | Segmentation quality is upstream of summary quality |
 | provider telemetry absent | worker scrape failure or missing provider series | `pipeline/metrics.py`, `pipeline/metrics_provider_collector.py`, soak metrics collector, worker exporter | Prevents false performance conclusions |
 
 Why this exists:

@@ -31,6 +31,29 @@ Use each entry to record:
   - [docs/OPERATIONS.md](OPERATIONS.md)
   - [docs/ENGINEERING_GUARDRAILS.md](ENGINEERING_GUARDRAILS.md)
 
+## 2026-05-05: Split agenda resolver behind the facade
+
+- Status: Accepted
+- Decision:
+  - `pipeline/agenda_resolver.py` remains the compatibility facade for segmentation callers and tests.
+  - Resolver contracts move behind `pipeline/agenda_resolver_contracts.py`.
+  - Agenda quality scoring moves behind `pipeline/agenda_resolver_quality.py`.
+  - Legistar filtering and acceptance policy move behind `pipeline/agenda_resolver_legistar_policy.py`.
+  - HTML agenda candidate loading moves behind `pipeline/agenda_resolver_html.py`.
+  - Page-number enrichment moves behind `pipeline/agenda_resolver_enrichment.py`.
+  - Structured-source checks and source-priority orchestration move behind `pipeline/agenda_resolver_runner.py`.
+- Why:
+  - `pipeline/agenda_resolver.py` mixed contracts, quality scoring, Legistar filtering, HTML candidate loading, page-number enrichment, and resolver orchestration in one typed module.
+  - Existing task, worker, API, script, and test imports rely on `pipeline.agenda_resolver`, so facade patch seams must stay active.
+- Affected boundaries:
+  - Source priority remains `Legistar -> HTML -> LLM`.
+  - Segmentation payload shape, resolver log events, and structured-source viability behavior stay unchanged.
+  - Guardrails track the agenda resolver module family under the 300-line cleanup target and strict typed/formatter scope.
+- Canonical references:
+  - [ARCHITECTURE.md](../ARCHITECTURE.md)
+  - [docs/PIPELINE.md](PIPELINE.md)
+  - [docs/ENGINEERING_GUARDRAILS.md](ENGINEERING_GUARDRAILS.md)
+
 ## 2026-05-05: Split vote extraction behind the facade
 
 - Status: Accepted
