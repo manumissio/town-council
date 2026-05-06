@@ -9,6 +9,19 @@ This project ingests agendas/minutes, extracts text, indexes search content, and
 - Topic tagging
 - Official profile browsing
 
+## Contents
+- [Quickstart](#quickstart)
+- [Access URLs](#access-urls)
+- [Search Behavior](#search-behavior-meetings-vs-agenda-items)
+- [Feature Flags](#feature-flags-quick-reference)
+- [Runtime Modes](#runtime-modes)
+- [GitHub Pages Demo](#github-pages-demo)
+- [Troubleshooting](#common-troubleshooting-quick)
+- [Documentation Map](#documentation-map)
+- [Contributing](#contributing)
+- [Support / Issues](#support--issues)
+- [License](#license)
+
 ## Quickstart
 
 ### 1) Prerequisites
@@ -301,6 +314,17 @@ For complete troubleshooting (auth, stale/blocked/not-generated states, startup 
 - Use reproducibility and performance notes: [`docs/PERFORMANCE.md`](docs/PERFORMANCE.md)
 - Use contributor guidance for new crawlers: [`docs/CONTRIBUTING_CITIES.md`](docs/CONTRIBUTING_CITIES.md)
 - Use repo policy and collaboration constraints: [`AGENTS.md`](AGENTS.md)
+
+## Contributing
+- Use [`AGENTS.md`](AGENTS.md) for repo workflow, policy, verification, and collaboration constraints.
+- Use [`docs/CONTRIBUTING_CITIES.md`](docs/CONTRIBUTING_CITIES.md) when adding or updating city crawlers.
+- Include changed behavior, risk, compatibility impact, and validation results in pull request summaries.
+- Keep contributor workflows local-first and avoid silent remote inference fallback.
+
+## Support / Issues
+- Open bugs, feature requests, and documentation issues in [GitHub Issues](https://github.com/manumissio/town-council/issues).
+- For operator troubleshooting, start with [`docs/OPERATIONS.md`](docs/OPERATIONS.md).
+- For architecture or roadmap questions, use [`ARCHITECTURE.md`](ARCHITECTURE.md) and [`ROADMAP.md`](ROADMAP.md).
 
 ## Documentation Maintenance Checklist
 Update docs when you change:
