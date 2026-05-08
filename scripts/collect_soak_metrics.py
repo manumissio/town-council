@@ -3,15 +3,16 @@ from __future__ import annotations
 
 import argparse
 import json
-import re
 import subprocess
 import time
 from pathlib import Path
 from typing import Any
 from urllib import request
 
+from scripts.operator_prometheus import PROM_LINE as PROM_LINE
+from scripts.operator_prometheus import parse_metrics as _parse_metrics
+from scripts.operator_prometheus import sum_metric as _sum_metric
 
-PROM_LINE = re.compile(r'^(?P<name>[a-zA-Z_:][a-zA-Z0-9_:]*)(?:\{(?P<labels>[^}]*)\})?\s+(?P<value>-?[0-9]+(?:\.[0-9]+)?)$')
 WORKER_METRICS_SCRAPE_ATTEMPTS = 2
 WORKER_METRICS_BACKOFF_SECONDS = 0.5
 
@@ -92,55 +93,6 @@ def _fetch_worker_metrics_via_docker() -> tuple[str, str | None]:
         return "", joined or "worker metrics scrape failed"
     except Exception:
         return "", "worker metrics scrape failed"
-
-
-def _parse_labels(text: str | None) -> dict[str, str]:
-    if not text:
-        return {}
-    out: dict[str, str] = {}
-    for part in text.split(","):
-        part = part.strip()
-        if not part or "=" not in part:
-            continue
-        key, value = part.split("=", 1)
-        out[key.strip()] = value.strip().strip('"')
-    return out
-
-
-def _parse_metrics(raw: str) -> list[dict[str, Any]]:
-    rows: list[dict[str, Any]] = []
-    for line in raw.splitlines():
-        line = line.strip()
-        if not line or line.startswith("#"):
-            continue
-        m = PROM_LINE.match(line)
-        if not m:
-            continue
-        rows.append(
-            {
-                "name": m.group("name"),
-                "labels": _parse_labels(m.group("labels")),
-                "value": float(m.group("value")),
-            }
-        )
-    return rows
-
-
-def _sum_metric(rows: list[dict[str, Any]], name: str, labels: dict[str, str] | None = None) -> float:
-    total = 0.0
-    for row in rows:
-        if row["name"] != name:
-            continue
-        if labels:
-            ok = True
-            for key, expected in labels.items():
-                if row["labels"].get(key) != expected:
-                    ok = False
-                    break
-            if not ok:
-                continue
-        total += float(row["value"])
-    return total
 
 
 def _hist_quantile(rows: list[dict[str, Any]], base_name: str, labels: dict[str, str], quantile: float) -> float | None:

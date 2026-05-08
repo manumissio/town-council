@@ -20,6 +20,8 @@ from pipeline.config import DOWNLOAD_TIMEOUT_SECONDS
 from pipeline.db_session import db_session
 from pipeline.indexer import reindex_catalog
 from pipeline.models import AgendaItem, Catalog, Document, Event, SemanticEmbedding
+from scripts.operator_cli import nonnegative_int as _nonnegative_int
+from scripts.operator_cli import positive_int as _positive_int
 
 
 DOCVIEW_RE = re.compile(r"/DocView\.aspx\?id=(?P<entry_id>\d+)&repo=(?P<repo>[^&]+)", re.IGNORECASE)
@@ -71,20 +73,6 @@ class RepairNonRetryableError(RuntimeError):
     def __init__(self, reason: str, message: str):
         super().__init__(message)
         self.reason = reason
-
-
-def _positive_int(value: str) -> int:
-    parsed = int(value)
-    if parsed <= 0:
-        raise argparse.ArgumentTypeError("value must be a positive integer")
-    return parsed
-
-
-def _nonnegative_int(value: str) -> int:
-    parsed = int(value)
-    if parsed < 0:
-        raise argparse.ArgumentTypeError("value must be a non-negative integer")
-    return parsed
 
 
 def _parse_docview_url(url: str) -> tuple[int, str]:
