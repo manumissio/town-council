@@ -287,7 +287,7 @@ Primary owners:
 - `pipeline/http_inference_provider.py`
 - `pipeline/inprocess_inference_provider.py`
 - `pipeline/inference_provider_contract.py`
-- `pipeline/config.py`
+- `pipeline/config.py` facade plus focused `pipeline/config_*` loaders
 
 ### Stability Zones
 
@@ -387,7 +387,7 @@ Owners:
 - `pipeline/http_inference_provider.py`
 - `pipeline/inprocess_inference_provider.py`
 - `pipeline/inference_provider_contract.py`
-- `pipeline/config.py`
+- `pipeline/config.py` facade plus focused `pipeline/config_*` loaders
 
 #### Data integrity and authority
 - `manual` and `legistar` vote/source writes are authoritative and not overwritten by LLM extraction.

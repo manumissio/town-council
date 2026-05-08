@@ -190,7 +190,7 @@ Why this exists:
 | Async API (`POST /extract/{catalog_id}` in `api/main.py`) | User-triggered re-extraction, optional `ocr_fallback=true` | Passes `ocr_fallback` query flag into task | API short-circuits to `cached` when `force=false` and content length is already substantial |
 | Async task (`extract_text_task` in `pipeline/tasks.py`) | Celery worker execution for one catalog | Calls `reextract_catalog_content(..., ocr_fallback=...)`, which passes per-call OCR setting into extractor | Returns `cached` unless `force=true` when existing text meets minimum chars; updates content/hash only on successful extraction |
 
-### OCR/Tika config defaults (`pipeline/config.py`)
+### OCR/Tika config defaults (`pipeline/config.py` facade)
 
 | Variable | Default | Meaning |
 |---|---|---|
