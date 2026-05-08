@@ -2,20 +2,16 @@ from __future__ import annotations
 
 import hashlib
 import json
-import logging
-import os
 import threading
 from datetime import UTC, datetime
-from pathlib import Path
 from typing import Any
 
 import numpy as np
 
-from pipeline.models import AgendaItem, Catalog, Document, Event, Organization, Place
 from pipeline.semantic_backend_types import BuildResult, SemanticBackend, SemanticCandidate, SemanticConfigError
-from pipeline.semantic_text import _build_chunks_from_content, _safe_text, catalog_semantic_text
-
-logger = logging.getLogger("semantic-index")
+from pipeline.semantic_faiss_artifacts import _artifact_paths, _load_artifacts, _write_artifacts
+from pipeline.semantic_faiss_rows import _collect_rows
+from pipeline.semantic_text import _safe_text
 
 
 def _semantic_index_facade():
@@ -42,23 +38,17 @@ class FaissSemanticBackend(SemanticBackend):
 
     def _guard_runtime(self) -> None:
         semantic_index = _semantic_index_facade()
-        if semantic_index.SEMANTIC_ALLOW_MULTIPROCESS:
-            pass
-        elif semantic_index.SEMANTIC_REQUIRE_SINGLE_PROCESS and semantic_index._looks_like_multiprocess_worker():
-            raise SemanticConfigError(
-                "Unsafe semantic backend configuration detected (multiprocess runtime). "
-                "Use a single worker/process for FAISS mode or set SEMANTIC_ALLOW_MULTIPROCESS=true explicitly."
-            )
-        # Operators can force strict FAISS mode when they want predictable performance.
-        # Default remains resilient fallback so semantic search still works if FAISS wheels are unavailable.
+        if not semantic_index.SEMANTIC_ALLOW_MULTIPROCESS:
+            if semantic_index.SEMANTIC_REQUIRE_SINGLE_PROCESS and semantic_index._looks_like_multiprocess_worker():
+                raise SemanticConfigError(
+                    "Unsafe semantic backend configuration detected (multiprocess runtime). "
+                    "Use a single worker/process for FAISS mode or set SEMANTIC_ALLOW_MULTIPROCESS=true explicitly."
+                )
         if semantic_index.SEMANTIC_REQUIRE_FAISS and semantic_index.faiss is None:
             raise SemanticConfigError(
                 "SEMANTIC_REQUIRE_FAISS=true but faiss-cpu is unavailable in this runtime. "
                 "Install/repair faiss-cpu or set SEMANTIC_REQUIRE_FAISS=false to allow numpy fallback."
             )
-
-    def _index_path(self) -> Path:
-        return Path(_semantic_index_facade().SEMANTIC_INDEX_DIR)
 
     def _ensure_model(self):
         self._guard_runtime()
@@ -83,192 +73,10 @@ class FaissSemanticBackend(SemanticBackend):
             faiss_backend.normalize_L2(arr)
         return arr
 
-    def _artifact_paths(self) -> dict[str, Path]:
-        base = self._index_path()
-        return {
-            "dir": base,
-            "faiss": base / "semantic_index.faiss",
-            "npy": base / "semantic_index.npy",
-            "ids": base / "semantic_ids.json",
-            "meta": base / "semantic_meta.json",
-        }
-
-    def _load_artifacts(self) -> None:
-        self._guard_runtime()
-        if self._index is not None and self._metadata:
-            return
-        paths = self._artifact_paths()
-        if not paths["ids"].exists() or not paths["meta"].exists():
-            raise FileNotFoundError("Semantic artifacts are missing. Run `python reindex_semantic.py`.")
-        with self._lock:
-            if self._index is None:
-                faiss_backend = _semantic_index_facade().faiss
-                self._metadata = json.loads(paths["ids"].read_text(encoding="utf-8"))
-                self._meta = json.loads(paths["meta"].read_text(encoding="utf-8"))
-                if faiss_backend is not None and paths["faiss"].exists():
-                    self._index = faiss_backend.read_index(str(paths["faiss"]))
-                    self._matrix = None
-                elif paths["npy"].exists():
-                    # Fallback path for environments where faiss-cpu wheels are unavailable.
-                    # We still support semantic retrieval via normalized cosine-dot search.
-                    self._matrix = np.load(paths["npy"], allow_pickle=False)
-                    self._index = self._matrix
-                else:
-                    raise FileNotFoundError(
-                        "Semantic index vectors are missing. Run `python reindex_semantic.py`."
-                    )
-
-    def _write_artifacts(self, vectors: np.ndarray, metadata_rows: list[dict[str, Any]], build_meta: dict[str, Any]) -> None:
-        paths = self._artifact_paths()
-        paths["dir"].mkdir(parents=True, exist_ok=True)
-
-        temp_faiss = paths["faiss"].with_suffix(".faiss.tmp")
-        temp_npy = paths["npy"].with_suffix(".npy.tmp")
-        temp_ids = paths["ids"].with_suffix(".json.tmp")
-        temp_meta = paths["meta"].with_suffix(".json.tmp")
-
-        faiss_backend = _semantic_index_facade().faiss
-        if faiss_backend is not None:
-            dim = vectors.shape[1]
-            index = faiss_backend.IndexFlatIP(dim)
-            index.add(vectors)
-            faiss_backend.write_index(index, str(temp_faiss))
-            build_meta["engine"] = "faiss"
-        else:
-            logger.warning("faiss-cpu is unavailable; using numpy semantic index fallback.")
-            with open(temp_npy, "wb") as fh:
-                np.save(fh, vectors)
-            build_meta["engine"] = "numpy"
-
-        temp_ids.write_text(json.dumps(metadata_rows, ensure_ascii=False), encoding="utf-8")
-        temp_meta.write_text(json.dumps(build_meta, ensure_ascii=False), encoding="utf-8")
-
-        # Atomic rename avoids serving partially-written artifacts while a rebuild is in-flight.
-        if faiss_backend is not None:
-            os.replace(temp_faiss, paths["faiss"])
-            if paths["npy"].exists():
-                os.remove(paths["npy"])
-        else:
-            os.replace(temp_npy, paths["npy"])
-            if paths["faiss"].exists():
-                os.remove(paths["faiss"])
-        os.replace(temp_ids, paths["ids"])
-        os.replace(temp_meta, paths["meta"])
-
-    def _collect_rows(self, db) -> tuple[list[str], list[dict[str, Any]], dict[str, int]]:
-        semantic_index = _semantic_index_facade()
-        texts: list[str] = []
-        rows: list[dict[str, Any]] = []
-        source_counts = {"summary": 0, "agenda_item": 0, "content_chunk": 0, "agenda_item_result": 0}
-        agenda_items_by_catalog: dict[int, list[AgendaItem]] = {}
-
-        for agenda_item in (
-            db.query(AgendaItem)
-            .filter(AgendaItem.catalog_id.isnot(None))
-            .order_by(AgendaItem.catalog_id, AgendaItem.order)
-            .all()
-        ):
-            agenda_items_by_catalog.setdefault(int(agenda_item.catalog_id), []).append(agenda_item)
-
-        query = (
-            db.query(Document, Catalog, Event, Place, Organization)
-            .join(Catalog, Document.catalog_id == Catalog.id)
-            .join(Event, Document.event_id == Event.id)
-            .join(Place, Document.place_id == Place.id)
-            .outerjoin(Organization, Event.organization_id == Organization.id)
-            .yield_per(50)
-        )
-        for doc, catalog, event, place, org in query:
-            base_meta = {
-                "catalog_id": catalog.id,
-                "event_id": event.id,
-                "date": event.record_date.isoformat() if event.record_date else None,
-                "city": (place.display_name or place.name or "").lower(),
-                "meeting_category": (event.meeting_type or "Other"),
-                "organization": org.name if org else "City Council",
-            }
-
-            summary = catalog_semantic_text(catalog.summary)
-            extractive = _safe_text(catalog.summary_extractive)
-            agenda_items_for_catalog = agenda_items_by_catalog.get(int(catalog.id), [])
-            if summary:
-                texts.append(summary)
-                rows.append(
-                    {
-                        "result_type": "meeting",
-                        "db_id": doc.id,
-                        "event_id": event.id,
-                        "source_type": "summary",
-                        **base_meta,
-                    }
-                )
-                source_counts["summary"] += 1
-            elif extractive:
-                texts.append(extractive[: semantic_index.SEMANTIC_CONTENT_MAX_CHARS])
-                rows.append(
-                    {
-                        "result_type": "meeting",
-                        "db_id": doc.id,
-                        "event_id": event.id,
-                        "source_type": "summary_extractive",
-                        **base_meta,
-                    }
-                )
-                source_counts["summary"] += 1
-            elif agenda_items_for_catalog:
-                for agenda_item in agenda_items_for_catalog:
-                    chunk = _safe_text(f"{agenda_item.title or ''}. {agenda_item.description or ''}")
-                    if len(chunk) < 20:
-                        continue
-                    texts.append(chunk[: semantic_index.SEMANTIC_CONTENT_MAX_CHARS])
-                    rows.append(
-                        {
-                            "result_type": "meeting",
-                            "db_id": doc.id,
-                            "event_id": event.id,
-                            "source_type": "agenda_item",
-                            "agenda_item_id": agenda_item.id,
-                            **base_meta,
-                        }
-                    )
-                    source_counts["agenda_item"] += 1
-            else:
-                for chunk in _build_chunks_from_content(catalog.content or "", semantic_index.SEMANTIC_CONTENT_MAX_CHARS):
-                    if len(chunk) < 20:
-                        continue
-                    texts.append(chunk)
-                    rows.append(
-                        {
-                            "result_type": "meeting",
-                            "db_id": doc.id,
-                            "event_id": event.id,
-                            "source_type": "content_chunk",
-                            **base_meta,
-                        }
-                    )
-                    source_counts["content_chunk"] += 1
-
-            # Agenda-item vectors are stored separately so semantic mode can optionally
-            # return agenda hits instead of only meeting-level parent docs.
-            for agenda_item in agenda_items_for_catalog:
-                item_text = _safe_text(f"{agenda_item.title or ''}. {agenda_item.description or ''}")
-                if len(item_text) < 20:
-                    continue
-                texts.append(item_text[: semantic_index.SEMANTIC_CONTENT_MAX_CHARS])
-                rows.append(
-                    {
-                        "result_type": "agenda_item",
-                        "db_id": agenda_item.id,
-                        "event_id": event.id,
-                        "source_type": "agenda_item_result",
-                        **base_meta,
-                    }
-                )
-                source_counts["agenda_item_result"] += 1
-
-        for row_id, row in enumerate(rows):
-            row["row_id"] = row_id
-        return texts, rows, source_counts
+    _artifact_paths = _artifact_paths
+    _load_artifacts = _load_artifacts
+    _write_artifacts = _write_artifacts
+    _collect_rows = _collect_rows
 
     def build_index(self, db) -> BuildResult:
         semantic_index = _semantic_index_facade()
@@ -291,7 +99,6 @@ class FaissSemanticBackend(SemanticBackend):
         }
         self._write_artifacts(vectors, rows, build_meta)
 
-        # Reload fresh artifacts so the active process serves the latest index immediately.
         with self._lock:
             self._index = None
             self._matrix = None
@@ -313,42 +120,39 @@ class FaissSemanticBackend(SemanticBackend):
         if not self._metadata or self._index is None:
             return []
 
-        q = _safe_text(query_text)
-        if not q:
+        query = _safe_text(query_text)
+        if not query:
             return []
-        query_vec = self._encode([q])
+        query_vec = self._encode([query])
         k = max(1, min(int(top_k), len(self._metadata)))
+        scores, indices = self._search_vectors(query_vec, k)
+        return self._semantic_candidates(scores, indices)
+
+    def _search_vectors(self, query_vec: np.ndarray, k: int) -> tuple[np.ndarray, np.ndarray]:
         faiss_backend = _semantic_index_facade().faiss
         if faiss_backend is not None and hasattr(self._index, "search"):
-            scores, indices = self._index.search(query_vec, k)
+            return self._index.search(query_vec, k)
+        matrix = self._matrix if self._matrix is not None else np.asarray(self._index, dtype=np.float32)
+        sims = np.dot(matrix, query_vec[0])
+        if k >= sims.shape[0]:
+            top_idx = np.argsort(-sims)
         else:
-            matrix = self._matrix if self._matrix is not None else np.asarray(self._index, dtype=np.float32)
-            sims = np.dot(matrix, query_vec[0])
-            # NumPy fallback: select top-k without fully sorting the whole array.
-            # This reduces work from O(N log N) to near O(N), then sorts only k items.
-            if k >= sims.shape[0]:
-                top_idx = np.argsort(-sims)
-            else:
-                top_idx = np.argpartition(-sims, k - 1)[:k]
-                top_idx = top_idx[np.argsort(-sims[top_idx])]
-            scores = np.array([sims[top_idx]], dtype=np.float32)
-            indices = np.array([top_idx], dtype=np.int64)
+            top_idx = np.argpartition(-sims, k - 1)[:k]
+            top_idx = top_idx[np.argsort(-sims[top_idx])]
+        return np.array([sims[top_idx]], dtype=np.float32), np.array([top_idx], dtype=np.int64)
+
+    def _semantic_candidates(self, scores: np.ndarray, indices: np.ndarray) -> list[SemanticCandidate]:
         semantic_candidates: list[SemanticCandidate] = []
         for score, idx in zip(scores[0], indices[0]):
             if idx < 0:
                 continue
             row = self._metadata[idx]
             semantic_candidates.append(
-                SemanticCandidate(
-                    row_id=int(row.get("row_id", idx)),
-                    score=float(score),
-                    metadata=row,
-                )
+                SemanticCandidate(row_id=int(row.get("row_id", idx)), score=float(score), metadata=row)
             )
         return semantic_candidates
 
     def health(self) -> dict[str, Any]:
-        # Guardrail errors are configuration bugs; surface them immediately.
         self._guard_runtime()
         try:
             self._load_artifacts()
