@@ -1,250 +1,118 @@
-import os
-import meilisearch
-from meilisearch.errors import MeilisearchError
-import re
 import logging
+import os
 from collections.abc import Iterable
 
-from pipeline.models import Document, Catalog, Event, Place, Organization, AgendaItem, Membership
-from pipeline.db_session import db_session
-from pipeline.config import MAX_CONTENT_LENGTH, MEILISEARCH_BATCH_SIZE
-from pipeline.summary_freshness import is_summary_stale
+import meilisearch
+from meilisearch.errors import MeilisearchError
 from sqlalchemy.orm import selectinload
 
-# Configuration for connecting to the Meilisearch search engine.
-MEILI_HOST = os.getenv('MEILI_HOST', 'http://meilisearch:7700')
-MEILI_MASTER_KEY = os.getenv('MEILI_MASTER_KEY', 'masterKey')
+from pipeline.config import MEILISEARCH_BATCH_SIZE
+from pipeline.db_session import db_session
+from pipeline.indexer_documents import (
+    _build_agenda_item_search_doc as _build_agenda_item_search_doc_impl,
+    _build_meeting_search_doc as _build_meeting_search_doc_impl,
+    _meeting_category as _meeting_category,
+    _select_official_memberships_for_event as _select_official_memberships_for_event,
+    _strip_any_html as _strip_any_html,
+    _truncate_content_for_index,
+)
+from pipeline.indexer_meilisearch import (
+    _apply_index_settings,
+    _delete_documents_by_filter,
+    _flush_batch,
+    _task_uid,
+)
+from pipeline.models import AgendaItem, Catalog, Document, Event, Membership, Organization, Place
 
-_TAG_RE = re.compile(r"<[^>]+>")
+# Configuration for connecting to the Meilisearch search engine.
+MEILI_HOST = os.getenv("MEILI_HOST", "http://meilisearch:7700")
+MEILI_MASTER_KEY = os.getenv("MEILI_MASTER_KEY", "masterKey")
+
 logger = logging.getLogger("indexer")
 
 
-def _strip_any_html(value: str | None) -> str | None:
-    """
-    Defense-in-depth: Meilisearch highlights should be the only markup the UI sees.
-    Agenda items may originate from Legistar APIs that sometimes include HTML.
-    """
-    if value is None:
-        return None
-    if "<" not in value and ">" not in value:
-        return value
-    cleaned = _TAG_RE.sub(" ", value)
-    cleaned = re.sub(r"\\s+", " ", cleaned).strip()
-    return cleaned
-
-def _select_official_memberships_for_event(organization, record_date):
-    """
-    Choose which officials to show for a meeting.
-
-    Rule:
-    - If membership term dates are present, prefer the roster active on record_date.
-    - If term dates are missing, fall back to all official memberships so the UI
-      doesn't show an empty list.
-    """
-    if not organization:
-        return []
-
-    eligible = []
-    undated_fallback = []
-    for m in (getattr(organization, "memberships", None) or []):
-        person = getattr(m, "person", None)
-        if not person:
-            continue
-        if getattr(person, "person_type", None) != "official":
-            continue
-
-        has_term_dates = bool(getattr(m, "start_date", None) or getattr(m, "end_date", None))
-        if record_date and has_term_dates:
-            if (m.start_date is None or m.start_date <= record_date) and (m.end_date is None or record_date <= m.end_date):
-                eligible.append(m)
-        else:
-            undated_fallback.append(m)
-
-    return eligible or undated_fallback
+def _build_meeting_search_doc(doc, catalog, event, place, organization) -> dict:
+    # Resolve helpers through this facade so existing monkeypatch seams stay live.
+    return _build_meeting_search_doc_impl(
+        doc,
+        catalog,
+        event,
+        place,
+        organization,
+        content_truncator=_truncate_content_for_index,
+        membership_selector=_select_official_memberships_for_event,
+        meeting_category_resolver=_meeting_category,
+    )
 
 
-def _flush_batch(index, documents_batch, count, label):
-    """Send one batch to Meilisearch and update the indexed count."""
-    if not documents_batch:
-        return count
+def _build_agenda_item_search_doc(item, event, place, organization) -> dict:
+    # Resolve helpers through this facade so existing monkeypatch seams stay live.
+    return _build_agenda_item_search_doc_impl(
+        item,
+        event,
+        place,
+        organization,
+        html_stripper=_strip_any_html,
+        meeting_category_resolver=_meeting_category,
+    )
+
+
+def _ensure_documents_index(client, *, apply_settings: bool):
     try:
-        index.add_documents(documents_batch)
-        return count + len(documents_batch)
-    except MeilisearchError as e:
-        print(f"Error indexing {label} batch: {e}")
-        return count
-
-
-def _task_uid(task_result) -> int | None:
-    if isinstance(task_result, dict):
-        return task_result.get("taskUid") or task_result.get("uid")
-    return None
-
-
-def _delete_documents_by_filter(index, filter_expr: str):
-    """
-    Meilisearch SDK compatibility wrapper for filtered deletes.
-
-    Why this exists:
-    The repo pins meilisearch==0.31.0, whose Python client supports
-    `delete_documents(filter=...)` but does not expose
-    `delete_documents_by_filter(...)`. Centralizing the compatibility branch keeps
-    targeted reindexing durable across minor SDK surface differences.
-    """
-    if hasattr(index, "delete_documents"):
-        return index.delete_documents(filter=filter_expr)
-    if hasattr(index, "delete_documents_by_filter"):
-        return index.delete_documents_by_filter([filter_expr])
-    raise RuntimeError("Meilisearch client does not support filtered document deletion")
-
-
-def _truncate_content_for_index(content: str | None) -> tuple[str | None, bool, int, int]:
-    """
-    Truncate content for search indexing and return observability metadata.
-    """
-    if not content:
-        return None, False, 0, 0
-
-    original_chars = len(content)
-    indexed_content = content[:MAX_CONTENT_LENGTH]
-    indexed_chars = len(indexed_content)
-    return indexed_content, original_chars > indexed_chars, original_chars, indexed_chars
-
-
-def _apply_index_settings(client, index) -> None:
-    """
-    Apply Meilisearch index settings and wait for completion.
-
-    Why:
-    Settings updates are asynchronous in Meilisearch. If we don't wait, users can
-    observe confusing behavior (for example, sort being rejected immediately after reindex).
-    """
-    task_ids = []
-
-    task_ids.append(_task_uid(index.update_filterable_attributes([
-        'city', 'meeting_type', 'meeting_category', 'organization',
-        'people', 'date', 'organizations', 'result_type', 'topics', 'lineage_id', 'catalog_id'
-    ])))
-
-    task_ids.append(_task_uid(index.update_sortable_attributes(['date'])))
-
-    task_ids.append(_task_uid(index.update_searchable_attributes([
-        'content', 'event_name', 'title', 'description', 'filename',
-        'summary', 'organizations', 'locations', 'meeting_category',
-        'organization', 'people'
-    ])))
-
-    # Ranking rules control how Meilisearch orders results. We put "sort" first so
-    # /search?sort=newest|oldest behaves like a real date sort (not just a tie-breaker).
-    task_ids.append(_task_uid(index.update_ranking_rules([
-        "sort",
-        "words",
-        "typo",
-        "proximity",
-        "attribute",
-        "exactness",
-    ])))
-
-    for uid in [t for t in task_ids if isinstance(t, int)]:
-        try:
-            client.wait_for_task(uid)
-        except Exception as settings_wait_error:
-            # Settings still apply asynchronously in Meilisearch; this wait only improves
-            # determinism for tests and maintenance paths when the server cooperates.
-            logger.warning("search_index.settings_wait_failed task_id=%s error=%s", uid, settings_wait_error)
-
-
-def _ensure_documents_index(client, *, apply_settings: bool) -> any:
-    try:
-        client.create_index('documents', {'primaryKey': 'id'})
+        client.create_index("documents", {"primaryKey": "id"})
     except MeilisearchError:
         pass
-    index = client.index('documents')
+    index = client.index("documents")
     if apply_settings:
         _apply_index_settings(client, index)
     return index
 
 
-def _meeting_category(event) -> str:
-    raw_type = (event.meeting_type or "").lower()
-    if "regular" in raw_type:
-        return "Regular"
-    if "special" in raw_type:
-        return "Special"
-    if "closed" in raw_type:
-        return "Closed"
-    return "Other"
+def _document_rows(session):
+    return (
+        session.query(Document, Catalog, Event, Place, Organization)
+        .join(Catalog, Document.catalog_id == Catalog.id)
+        .join(Event, Document.event_id == Event.id)
+        .join(Place, Document.place_id == Place.id)
+        .outerjoin(Organization, Event.organization_id == Organization.id)
+        .filter(Catalog.content.isnot(None), Catalog.content != "")
+        .options(selectinload(Organization.memberships).selectinload(Membership.person))
+        .yield_per(20)
+    )
 
 
-def _build_meeting_search_doc(doc, catalog, event, place, organization) -> dict:
-    indexed_content, is_content_truncated, original_chars, indexed_chars = _truncate_content_for_index(catalog.content)
-    people_list = []
-    if organization:
-        chosen = _select_official_memberships_for_event(organization, event.record_date)
-        people_list = [
-            {"id": m.person.id, "ocd_id": m.person.ocd_id, "name": m.person.name}
-            for m in chosen
-        ]
-
-    return {
-        'id': f"doc_{doc.id}",
-        'db_id': doc.id,
-        'ocd_id': event.ocd_id,
-        'result_type': 'meeting',
-        'catalog_id': catalog.id,
-        'filename': catalog.filename,
-        'url': catalog.url,
-        'content': indexed_content,
-        'content_truncated': is_content_truncated,
-        'original_content_chars': original_chars,
-        'indexed_content_chars': indexed_chars,
-        'summary': catalog.summary,
-        'summary_extractive': catalog.summary_extractive,
-        'topics': catalog.topics,
-        'summary_is_stale': is_summary_stale(
-            doc.category,
-            summary=catalog.summary,
-            summary_source_hash=catalog.summary_source_hash,
-            content_hash=catalog.content_hash,
-            agenda_items_hash=catalog.agenda_items_hash,
-        ),
-        'topics_is_stale': bool(
-            catalog.topics is not None
-            and (not catalog.content_hash or catalog.topics_source_hash != catalog.content_hash)
-        ),
-        'related_ids': catalog.related_ids,
-        'lineage_id': catalog.lineage_id,
-        'lineage_confidence': catalog.lineage_confidence,
-        'people_metadata': people_list,
-        'people': [p['name'] for p in people_list],
-        'event_name': event.name,
-        'meeting_category': _meeting_category(event),
-        'organization': organization.name if organization else "City Council",
-        'date': event.record_date.isoformat() if event.record_date else None,
-        'city': place.display_name or place.name,
-        'state': place.state
-    }
+def _agenda_item_rows(session):
+    return (
+        session.query(AgendaItem, Event, Place, Organization)
+        .join(Event, AgendaItem.event_id == Event.id)
+        .join(Place, Event.place_id == Place.id)
+        .outerjoin(Organization, Event.organization_id == Organization.id)
+        .yield_per(100)
+    )
 
 
-def _build_agenda_item_search_doc(item, event, place, organization) -> dict:
-    return {
-        'id': f"item_{item.id}",
-        'db_id': item.id,
-        'ocd_id': item.ocd_id,
-        'result_type': 'agenda_item',
-        'title': _strip_any_html(item.title),
-        'description': _strip_any_html(item.description),
-        'classification': item.classification,
-        'result': item.result,
-        'page_number': item.page_number,
-        'event_name': event.name,
-        'date': event.record_date.isoformat() if event.record_date else None,
-        'city': place.display_name or place.name,
-        'organization': organization.name if organization else "City Council",
-        'meeting_category': _meeting_category(event),
-        'catalog_id': item.catalog_id,
-        'url': item.catalog.url if item.catalog else None
-    }
+def _catalog_document_rows(session, catalog_id: int):
+    return (
+        session.query(Document, Catalog, Event, Place, Organization)
+        .join(Catalog, Document.catalog_id == Catalog.id)
+        .join(Event, Document.event_id == Event.id)
+        .join(Place, Document.place_id == Place.id)
+        .outerjoin(Organization, Event.organization_id == Organization.id)
+        .filter(Catalog.id == catalog_id)
+        .options(selectinload(Organization.memberships).selectinload(Membership.person))
+        .all()
+    )
+
+
+def _catalog_agenda_item_rows(session, catalog_id: int):
+    return (
+        session.query(AgendaItem, Event, Place, Organization)
+        .join(Event, AgendaItem.event_id == Event.id)
+        .join(Place, Event.place_id == Place.id)
+        .outerjoin(Organization, Event.organization_id == Organization.id)
+        .filter(AgendaItem.catalog_id == catalog_id)
+        .all()
+    )
 
 
 def index_documents():
@@ -262,24 +130,8 @@ def index_documents():
         truncated_meeting_docs = 0
 
         print("Step 1: Indexing Full Meeting Documents...")
-        doc_query = session.query(Document, Catalog, Event, Place, Organization).join(
-            Catalog, Document.catalog_id == Catalog.id
-        ).join(
-            Event, Document.event_id == Event.id
-        ).join(
-            Place, Document.place_id == Place.id
-        ).outerjoin(
-            Organization, Event.organization_id == Organization.id
-        ).filter(
-            Catalog.content.isnot(None),
-            Catalog.content != ""
-        ).options(
-            # Avoid N+1 queries when building people_metadata for each document.
-            selectinload(Organization.memberships).selectinload(Membership.person)
-        ).yield_per(20)
-
-        for doc, catalog, event, place, organization in doc_query:
-            indexed_content, is_content_truncated, _original_chars, _indexed_chars = _truncate_content_for_index(catalog.content)
+        for doc, catalog, event, place, organization in _document_rows(session):
+            _, is_content_truncated, _, _ = _truncate_content_for_index(catalog.content)
             indexed_meeting_docs += 1
             if is_content_truncated:
                 truncated_meeting_docs += 1
@@ -297,16 +149,7 @@ def index_documents():
             )
 
         print("Step 2: Indexing Individual Agenda Items...")
-
-        item_query = session.query(AgendaItem, Event, Place, Organization).join(
-            Event, AgendaItem.event_id == Event.id
-        ).join(
-            Place, Event.place_id == Place.id
-        ).outerjoin(
-            Organization, Event.organization_id == Organization.id
-        ).yield_per(100)
-
-        for item, event, place, organization in item_query:
+        for item, event, place, organization in _agenda_item_rows(session):
             documents_batch.append(_build_agenda_item_search_doc(item, event, place, organization))
             if len(documents_batch) >= MEILISEARCH_BATCH_SIZE:
                 count = _flush_batch(index, documents_batch, count, "agenda item")
@@ -329,39 +172,19 @@ def reindex_catalog(catalog_id: int) -> dict:
     index = _ensure_documents_index(client, apply_settings=False)
 
     with db_session() as session:
-        docs = session.query(Document, Catalog, Event, Place, Organization).join(
-            Catalog, Document.catalog_id == Catalog.id
-        ).join(
-            Event, Document.event_id == Event.id
-        ).join(
-            Place, Document.place_id == Place.id
-        ).outerjoin(
-            Organization, Event.organization_id == Organization.id
-        ).filter(Catalog.id == catalog_id).options(
-            selectinload(Organization.memberships).selectinload(Membership.person)
-        ).all()
-
+        docs = _catalog_document_rows(session, catalog_id)
         if not docs:
             return {"status": "skipped", "reason": "No documents linked to catalog", "catalog_id": catalog_id}
 
-        payload = []
-        for doc, catalog, event, place, organization in docs:
-            payload.append(_build_meeting_search_doc(doc, catalog, event, place, organization))
-
-        item_docs = (
-            session.query(AgendaItem, Event, Place, Organization)
-            .join(Event, AgendaItem.event_id == Event.id)
-            .join(Place, Event.place_id == Place.id)
-            .outerjoin(Organization, Event.organization_id == Organization.id)
-            .filter(AgendaItem.catalog_id == catalog_id)
-            .all()
-        )
+        payload = [
+            _build_meeting_search_doc(doc, catalog, event, place, org) for doc, catalog, event, place, org in docs
+        ]
+        item_docs = _catalog_agenda_item_rows(session, catalog_id)
         for item, event, place, organization in item_docs:
             payload.append(_build_agenda_item_search_doc(item, event, place, organization))
 
         delete_task = _delete_documents_by_filter(
-            index,
-            f'catalog_id = {int(catalog_id)} AND result_type = "agenda_item"',
+            index, f'catalog_id = {int(catalog_id)} AND result_type = "agenda_item"'
         )
         delete_uid = _task_uid(delete_task)
         if isinstance(delete_uid, int):
@@ -412,6 +235,7 @@ def reindex_catalogs(catalog_ids: Iterable[int] | int | None) -> dict[str, objec
         "catalogs_failed": len(failed_catalog_ids),
         "failed_catalog_ids": failed_catalog_ids,
     }
+
 
 if __name__ == "__main__":
     index_documents()
