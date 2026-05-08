@@ -1,482 +1,142 @@
-"""
-Pipeline Configuration Constants
-
-What are "magic numbers"?
---------------------------
-A "magic number" is a number in code that has no clear meaning. For example:
-
-    BAD:  if len(text) > 50000:
-          What is 50000? Why that number? Can I change it?
-
-    GOOD: if len(text) > MAX_CONTENT_LENGTH:
-          Clear meaning! I know what it's for and where to change it.
-
-Why use constants?
-------------------
-1. **Readability**: Code is self-documenting
-2. **Maintainability**: Change in one place, applies everywhere
-3. **Consistency**: Same value used across all files
-4. **Type Safety**: Can't accidentally type 5000 instead of 50000
-
-How to use these constants:
-----------------------------
-    from pipeline.config import MAX_CONTENT_LENGTH
-
-    if len(text) > MAX_CONTENT_LENGTH:
-        text = text[:MAX_CONTENT_LENGTH]
-
-All values in this file were extracted from the codebase where they appeared
-as hardcoded numbers. Each constant includes a comment explaining its purpose.
-"""
-
-import os
-
-
-# =============================================================================
-# STARTUP PURGE CONFIGURATION
-# =============================================================================
-# These control whether derived data is automatically cleared when services boot.
-
-# Enable derived-data purge during service startup.
-# Disabled by default so non-dev environments stay safe unless explicitly enabled.
-STARTUP_PURGE_DERIVED = os.getenv("STARTUP_PURGE_DERIVED", "false").strip().lower() in {"1", "true", "yes"}
-
-# Runtime environment label used by startup safety guardrails.
-APP_ENV = os.getenv("APP_ENV", "dev").strip().lower()
-
-# Optional non-dev override.
-STARTUP_PURGE_ALLOW_NON_DEV = os.getenv("STARTUP_PURGE_ALLOW_NON_DEV", "false").strip().lower() in {"1", "true", "yes"}
-
-# =============================================================================
-# CONTENT LENGTH LIMITS
-# =============================================================================
-# These control how much text we process to prevent memory issues
-
-# Maximum length of content stored in Meilisearch search index (50KB of text)
-# Why 50,000? Meilisearch performance degrades with very large documents
-# Truncating here keeps search fast while preserving enough context
-MAX_CONTENT_LENGTH = 50000
-
-# Maximum text length for extractive summarization (50KB of text)
-# The TextRank algorithm processes word relationships - too much text = slow
-MAX_SUMMARY_TEXT_LENGTH = 50000
-
-# Maximum text length for NLP entity extraction (100KB of text)
-# SpaCy's NLP model can handle this much before memory becomes an issue
-NLP_MAX_TEXT_LENGTH = 100000
-
-# Prefer smaller, entity-rich slices before sending text into spaCy.
-NLP_ENTITY_AGENDA_MAX_TEXT = int(os.getenv("NLP_ENTITY_AGENDA_MAX_TEXT", "24000"))
-NLP_ENTITY_NONAGENDA_MAX_TEXT = int(os.getenv("NLP_ENTITY_NONAGENDA_MAX_TEXT", "16000"))
-NLP_ENTITY_PREFIX_FALLBACK_TEXT = int(os.getenv("NLP_ENTITY_PREFIX_FALLBACK_TEXT", "12000"))
-NLP_ENTITY_MIN_CAPITALIZED_NAME_CUES = int(os.getenv("NLP_ENTITY_MIN_CAPITALIZED_NAME_CUES", "2"))
-
-
-# =============================================================================
-# AI/LLM CONFIGURATION
-# =============================================================================
-# These control the local AI model behavior (Gemma 3 270M)
-
-# =============================================================================
-# LOCAL AI PROCESS MODEL GUARDRAILS
-# =============================================================================
-# LocalAI loads a llama.cpp GGUF model into the current *process*.
-# Celery prefork/multiprocessing can spawn multiple worker processes, each loading its own model copy.
-# These flags prevent accidental OOM by failing fast when LocalAI is used in a multiprocess worker.
-
-LOCAL_AI_ALLOW_MULTIPROCESS = os.getenv("LOCAL_AI_ALLOW_MULTIPROCESS", "false").strip().lower() in {"1", "true", "yes"}
-LOCAL_AI_REQUIRE_SOLO_POOL = os.getenv("LOCAL_AI_REQUIRE_SOLO_POOL", "true").strip().lower() in {"1", "true", "yes"}
-# Keep the code-level default aligned with the checked-in HTTP rollout baseline
-# so non-Compose runs don't silently drift to the legacy in-process path.
-LOCAL_AI_BACKEND = (os.getenv("LOCAL_AI_BACKEND", "http").strip().lower() or "http")
-if LOCAL_AI_BACKEND not in {"inprocess", "http"}:
-    LOCAL_AI_BACKEND = "http"
-LOCAL_AI_HTTP_BASE_URL = (os.getenv("LOCAL_AI_HTTP_BASE_URL", "http://inference:11434").strip() or "http://inference:11434").rstrip("/")
-LOCAL_AI_HTTP_PROFILE = (os.getenv("LOCAL_AI_HTTP_PROFILE", "conservative").strip().lower() or "conservative")
-if LOCAL_AI_HTTP_PROFILE not in {"conservative", "balanced"}:
-    LOCAL_AI_HTTP_PROFILE = "conservative"
-# Profile defaults keep runtime behavior predictable during staged rollout.
-_HTTP_TIMEOUT_DEFAULT = "60" if LOCAL_AI_HTTP_PROFILE == "conservative" else "45"
-_HTTP_RETRIES_DEFAULT = "0" if LOCAL_AI_HTTP_PROFILE == "conservative" else "1"
-LOCAL_AI_HTTP_TIMEOUT_SECONDS = int(os.getenv("LOCAL_AI_HTTP_TIMEOUT_SECONDS", _HTTP_TIMEOUT_DEFAULT))
-# Operation-specific timeout overrides keep heavy read tasks patient while allowing
-# write tasks to fail faster when stalled. Missing values fall back to global timeout.
-LOCAL_AI_HTTP_TIMEOUT_SEGMENT_SECONDS = int(
-    os.getenv("LOCAL_AI_HTTP_TIMEOUT_SEGMENT_SECONDS", str(LOCAL_AI_HTTP_TIMEOUT_SECONDS))
-)
-LOCAL_AI_HTTP_TIMEOUT_SUMMARY_SECONDS = int(
-    os.getenv("LOCAL_AI_HTTP_TIMEOUT_SUMMARY_SECONDS", str(LOCAL_AI_HTTP_TIMEOUT_SECONDS))
-)
-LOCAL_AI_HTTP_TIMEOUT_TOPICS_SECONDS = int(
-    os.getenv("LOCAL_AI_HTTP_TIMEOUT_TOPICS_SECONDS", str(LOCAL_AI_HTTP_TIMEOUT_SECONDS))
-)
-# Maintenance backfills reuse the same provider stack but should fail faster than
-# interactive paths so a handful of bad documents do not dominate a whole run.
-AGENDA_SEGMENT_MAINTENANCE_TIMEOUT_SECONDS = int(
-    os.getenv("AGENDA_SEGMENT_MAINTENANCE_TIMEOUT_SECONDS", "30")
-)
-SUMMARY_HYDRATION_MAINTENANCE_TIMEOUT_SECONDS = int(
-    os.getenv("SUMMARY_HYDRATION_MAINTENANCE_TIMEOUT_SECONDS", "25")
-)
-LOCAL_AI_HTTP_MAX_RETRIES = int(os.getenv("LOCAL_AI_HTTP_MAX_RETRIES", _HTTP_RETRIES_DEFAULT))
-# Keep 270M as the only default HTTP model to avoid slow 1B timeout loops in shared envs.
-LOCAL_AI_HTTP_MODEL = (os.getenv("LOCAL_AI_HTTP_MODEL", "gemma-3-270m-custom").strip() or "gemma-3-270m-custom")
-
-# City maintenance helpers can safely use a little parent-side orchestration
-# when HTTP inference is decoupled, but should stay single-worker for guarded
-# in-process LocalAI setups.
-CITY_SEGMENTATION_WORKERS = int(
-    os.getenv(
-        "CITY_SEGMENTATION_WORKERS",
-        "2" if LOCAL_AI_BACKEND == "http" else "1",
-    )
-)
-
-# Small entity backfill snapshots should stay in-process so we do not pay
-# process-spawn and spaCy warmup overhead that outweighs the actual work.
-ENTITY_BACKFILL_IN_PROCESS_THRESHOLD = int(
-    os.getenv("ENTITY_BACKFILL_IN_PROCESS_THRESHOLD", "16")
-)
-
-# Semantic search (Milestone B) feature flags and retrieval tuning.
-# During B2 rollout we support dual backends:
-# - faiss: temporary fallback bridge
-# - pgvector: target backend
-SEMANTIC_ENABLED = os.getenv("SEMANTIC_ENABLED", "false").strip().lower() in {"1", "true", "yes"}
-SEMANTIC_BACKEND = os.getenv("SEMANTIC_BACKEND", "faiss").strip().lower() or "faiss"
-SEMANTIC_MODEL_NAME = os.getenv("SEMANTIC_MODEL_NAME", "all-MiniLM-L6-v2")
-SEMANTIC_INDEX_DIR = os.getenv("SEMANTIC_INDEX_DIR", "/data/semantic")
-SEMANTIC_CONTENT_MAX_CHARS = int(os.getenv("SEMANTIC_CONTENT_MAX_CHARS", "4000"))
-SEMANTIC_BASE_TOP_K = int(os.getenv("SEMANTIC_BASE_TOP_K", "200"))
-SEMANTIC_MAX_TOP_K = int(os.getenv("SEMANTIC_MAX_TOP_K", "10000"))
-SEMANTIC_FILTER_EXPANSION_FACTOR = int(os.getenv("SEMANTIC_FILTER_EXPANSION_FACTOR", "8"))
-SEMANTIC_RERANK_CANDIDATE_LIMIT = int(os.getenv("SEMANTIC_RERANK_CANDIDATE_LIMIT", "200"))
-
-# Milestone C feature flag and lineage controls.
-FEATURE_TRENDS_DASHBOARD = os.getenv("FEATURE_TRENDS_DASHBOARD", "false").strip().lower() in {"1", "true", "yes"}
-LINEAGE_MIN_EDGE_CONFIDENCE = float(os.getenv("LINEAGE_MIN_EDGE_CONFIDENCE", "0.5"))
-LINEAGE_REQUIRE_MUTUAL_EDGES = os.getenv("LINEAGE_REQUIRE_MUTUAL_EDGES", "false").strip().lower() in {"1", "true", "yes"}
-
-# FAISS + sentence-transformers loads significant RAM in-process. Keep single-process by default.
-SEMANTIC_REQUIRE_SINGLE_PROCESS = os.getenv("SEMANTIC_REQUIRE_SINGLE_PROCESS", "true").strip().lower() in {"1", "true", "yes"}
-SEMANTIC_ALLOW_MULTIPROCESS = os.getenv("SEMANTIC_ALLOW_MULTIPROCESS", "false").strip().lower() in {"1", "true", "yes"}
-# Optional strict mode: require FAISS at runtime instead of falling back to NumPy.
-SEMANTIC_REQUIRE_FAISS = os.getenv("SEMANTIC_REQUIRE_FAISS", "false").strip().lower() in {"1", "true", "yes"}
-
-# Context window size - how much text the model can "see" at once
-# Default is conservative for Docker stability/perf. Gemma 3 270M supports up to 32K.
-# Override via env when you want higher quality and can afford the extra KV cache.
-LLM_CONTEXT_WINDOW = int(os.getenv("LLM_CONTEXT_WINDOW", "16384"))
-
-# Maximum input text for summarization (chars).
-# Char-based truncation is an approximation; we keep a buffer for prompt/response tokens.
-LLM_SUMMARY_MAX_TEXT = int(os.getenv("LLM_SUMMARY_MAX_TEXT", "30000"))
-
-# Maximum tokens in summary response.
-# Slightly larger default helps avoid clipped narrative summaries.
-LLM_SUMMARY_MAX_TOKENS = int(os.getenv("LLM_SUMMARY_MAX_TOKENS", "512"))
-
-# Maximum input text for agenda extraction (chars).
-# Larger than summary because we need enough context to see multiple items and headers,
-# but not so large that conservative HTTP extraction spends most of its time in queue wait.
-LLM_AGENDA_MAX_TEXT = int(os.getenv("LLM_AGENDA_MAX_TEXT", "40000"))
-
-# Maximum tokens in agenda response (1500 tokens ≈ 1125 words)
-# Needs to be large enough to return 10-15 agenda items with descriptions
-LLM_AGENDA_MAX_TOKENS = 1500
-
-# Enable vote/outcome extraction stage after agenda segmentation.
-# Off by default for staged rollout and quality validation.
-ENABLE_VOTE_EXTRACTION = os.getenv("ENABLE_VOTE_EXTRACTION", "false").strip().lower() in {"1", "true", "yes"}
-
-# Vote extraction output budget (JSON + short evidence snippet).
-VOTE_EXTRACTION_MAX_TOKENS = int(os.getenv("VOTE_EXTRACTION_MAX_TOKENS", "256"))
-
-# Minimum text length required before we attempt vote extraction on an item.
-VOTE_EXTRACTION_MIN_TEXT_CHARS = int(os.getenv("VOTE_EXTRACTION_MIN_TEXT_CHARS", "200"))
-
-# Minimum confidence required before we persist LLM-extracted vote/outcome data.
-VOTE_EXTRACTION_CONFIDENCE_THRESHOLD = float(os.getenv("VOTE_EXTRACTION_CONFIDENCE_THRESHOLD", "0.70"))
-
-# Context window around title match in catalog.content for vote/outcome extraction.
-# We keep fixed asymmetric bounds for throughput on local inference.
-VOTE_EXTRACTION_CONTEXT_BEFORE_CHARS = int(os.getenv("VOTE_EXTRACTION_CONTEXT_BEFORE_CHARS", "500"))
-VOTE_EXTRACTION_CONTEXT_AFTER_CHARS = int(os.getenv("VOTE_EXTRACTION_CONTEXT_AFTER_CHARS", "1000"))
-
-# Quality gates for AI-derived fields.
-# These block generation when extracted text is too short/noisy to trust.
-SUMMARY_MIN_CHARS = int(os.getenv("SUMMARY_MIN_CHARS", "80"))
-SUMMARY_MIN_DISTINCT_TOKENS = int(os.getenv("SUMMARY_MIN_DISTINCT_TOKENS", "8"))
-SUMMARY_MAX_BOILERPLATE_RATIO = float(os.getenv("SUMMARY_MAX_BOILERPLATE_RATIO", "0.85"))
-TOPICS_MIN_CHARS = int(os.getenv("TOPICS_MIN_CHARS", "100"))
-TOPICS_MIN_DISTINCT_TOKENS = int(os.getenv("TOPICS_MIN_DISTINCT_TOKENS", "10"))
-
-# Minimum per-claim lexical support ratio used by the summary grounding check.
-# 0.45 means nearly half of meaningful claim tokens must exist in source text.
-SUMMARY_GROUNDING_MIN_COVERAGE = float(os.getenv("SUMMARY_GROUNDING_MIN_COVERAGE", "0.45"))
-
-# Agenda-summary generation controls (decision brief synthesis from segmented items).
-AGENDA_SUMMARY_PROFILE = (os.getenv("AGENDA_SUMMARY_PROFILE", "decision_brief").strip().lower() or "decision_brief")
-if AGENDA_SUMMARY_PROFILE not in {"decision_brief", "item_digest", "risk_first"}:
-    AGENDA_SUMMARY_PROFILE = "decision_brief"
-
-# Description floor used when deciding whether a row has enough context for brief synthesis.
-AGENDA_SUMMARY_MIN_ITEM_DESC_CHARS = int(os.getenv("AGENDA_SUMMARY_MIN_ITEM_DESC_CHARS", "24"))
-
-# Max bullets we ask the model to produce in agenda decision-brief mode.
-AGENDA_SUMMARY_MAX_BULLETS = int(os.getenv("AGENDA_SUMMARY_MAX_BULLETS", "10"))
-
-# Single-item agenda summaries should usually become a deep brief, not forced themes.
-AGENDA_SUMMARY_SINGLE_ITEM_MODE = (os.getenv("AGENDA_SUMMARY_SINGLE_ITEM_MODE", "deep_brief").strip().lower() or "deep_brief")
-if AGENDA_SUMMARY_SINGLE_ITEM_MODE not in {"deep_brief", "minimal"}:
-    AGENDA_SUMMARY_SINGLE_ITEM_MODE = "deep_brief"
-
-# Slightly higher than extraction tasks to allow synthesis while still grounded/pruned.
-AGENDA_SUMMARY_TEMPERATURE = float(os.getenv("AGENDA_SUMMARY_TEMPERATURE", "0.3"))
-
-# Hard input budget for agenda summary prompt assembly (runtime safety guardrail).
-AGENDA_SUMMARY_MAX_INPUT_CHARS = int(os.getenv("AGENDA_SUMMARY_MAX_INPUT_CHARS", "12000"))
-
-# Reserve output headroom so prompt+response stays safely within context budget.
-AGENDA_SUMMARY_MIN_RESERVED_OUTPUT_CHARS = int(os.getenv("AGENDA_SUMMARY_MIN_RESERVED_OUTPUT_CHARS", "2000"))
-
-
-# =============================================================================
-# FILE DOWNLOAD CONFIGURATION
-# =============================================================================
-# These control how PDFs are downloaded from city websites
-
-# Maximum file size to download: 100MB
-# Why? Most meeting packets are 5-20MB. 100MB catches outliers while
-# preventing someone from uploading a 10GB file that crashes our system
-MAX_FILE_SIZE_BYTES = 104857600  # 100 * 1024 * 1024
-
-# Chunk size when writing downloaded files to disk: 8KB
-# Files are written in small chunks to avoid loading entire PDF into memory
-FILE_WRITE_CHUNK_SIZE = 8192
-
-# Download timeout in seconds
-# If a city's server doesn't respond in 30 seconds, give up and try later
-DOWNLOAD_TIMEOUT_SECONDS = 30
-
-# Number of parallel download workers
-# How many PDFs we download simultaneously. 5 is polite to city servers.
-DOWNLOAD_WORKERS = 5
-
-
-# =============================================================================
-# BATCH PROCESSING CONFIGURATION
-# =============================================================================
-# These control how many items we process at once
-
-# Number of documents to send to Meilisearch in one batch
-# Smaller batches = more network overhead, Larger batches = risk of timeout
-# 20 is a sweet spot for fast indexing without overloading Meilisearch
-MEILISEARCH_BATCH_SIZE = 20
-
-# Number of documents to process in parallel during pipeline run
-# Documents are split into chunks of this size for batch processing
-# Each worker processes one chunk at a time with a single DB connection
-DOCUMENT_CHUNK_SIZE = 20
-
-# Maximum worker processes for parallel processing
-# Prevents creating 100s of processes on high-core machines
-# Capped at 5 to ensure Tika server stability with large PDF packets
-MAX_WORKERS = 5
-
-# CPU utilization fraction for parallel pipeline processing (0.75 = 75%)
-# On a 4-core machine: 75% = 3 workers (but capped by MAX_WORKERS)
-# Lower = more resources for other services, Higher = faster processing
-PIPELINE_CPU_FRACTION = 0.75
-
-# Retry delay range for database connection attempts (min, max seconds)
-# Random delay prevents thundering herd when multiple workers retry simultaneously
-DB_RETRY_DELAY_MIN = 1
-DB_RETRY_DELAY_MAX = 3
-EXTRACTION_TERMINAL_FAILURE_MAX_ATTEMPTS = int(
-    os.getenv("EXTRACTION_TERMINAL_FAILURE_MAX_ATTEMPTS", "3")
-)
-
-# Batch size for agenda item extraction
-# How many documents to process for agenda extraction in one batch
-# Lower = faster feedback, Higher = more efficient database usage
-AGENDA_BATCH_SIZE = 10
-
-# Heuristic agenda-extraction safety limits (used when LLM extraction fails).
-# These used to be hardcoded (3 items/page and 30 items/doc) which caused silent data loss.
-# We keep them configurable and conservative to avoid runaway extraction on bad OCR.
-AGENDA_FALLBACK_MAX_ITEMS_PER_DOC = int(os.getenv("AGENDA_FALLBACK_MAX_ITEMS_PER_DOC", "200"))
-AGENDA_FALLBACK_MAX_ITEMS_PER_PAGE_PARAGRAPH = int(
-    os.getenv("AGENDA_FALLBACK_MAX_ITEMS_PER_PAGE_PARAGRAPH", "25")
-)
-AGENDA_FALLBACK_MAX_CONSECUTIVE_REJECTS_PER_PAGE = int(
-    os.getenv("AGENDA_FALLBACK_MAX_CONSECUTIVE_REJECTS_PER_PAGE", "15")
-)
-
-# Agenda segmentation strictness controls.
-# - balanced: default precision/recall tradeoff
-# - aggressive: stricter filtering to reduce false positives
-# - recall: looser filtering to keep more candidates
-AGENDA_SEGMENTATION_MODE = (os.getenv("AGENDA_SEGMENTATION_MODE", "balanced").strip().lower() or "balanced")
-if AGENDA_SEGMENTATION_MODE not in {"balanced", "aggressive", "recall"}:
-    AGENDA_SEGMENTATION_MODE = "balanced"
-
-# Minimum useful title length for agenda candidates.
-AGENDA_MIN_TITLE_CHARS = int(os.getenv("AGENDA_MIN_TITLE_CHARS", "10"))
-
-# Minimum meaningful LLM description length; applies only to LLM-parsed descriptions.
-AGENDA_MIN_SUBSTANTIVE_DESC_CHARS = int(os.getenv("AGENDA_MIN_SUBSTANTIVE_DESC_CHARS", "24"))
-
-# Similar-title threshold for TOC/body duplicate collapsing within one document.
-AGENDA_TOC_DEDUP_FUZZ = int(os.getenv("AGENDA_TOC_DEDUP_FUZZ", "92"))
-
-# Enable procedural placeholder rejection during segmentation.
-AGENDA_PROCEDURAL_REJECT_ENABLED = os.getenv("AGENDA_PROCEDURAL_REJECT_ENABLED", "true").strip().lower() in {"1", "true", "yes"}
-
-# Batch size for text extraction commits
-# How many documents to extract before committing to database
-# Smaller batches = more frequent saves, Larger batches = better performance
-EXTRACTION_BATCH_SIZE = 10
-LEGISTAR_EVENT_ITEMS_CAPABILITY_TTL_SECONDS = int(
-    os.getenv("LEGISTAR_EVENT_ITEMS_CAPABILITY_TTL_SECONDS", "3600")
-)
-
-
-# Onboarding extraction mode narrows pipeline work to a city's fresh crawl window so
-# decision-grade city checks do not trigger full-backlog extraction pressure.
-PIPELINE_ONBOARDING_CITY = os.getenv("PIPELINE_ONBOARDING_CITY", "").strip()
-PIPELINE_ONBOARDING_STARTED_AT_UTC = os.getenv("PIPELINE_ONBOARDING_STARTED_AT_UTC", "").strip()
-PIPELINE_ONBOARDING_DOCUMENT_CHUNK_SIZE = int(os.getenv("PIPELINE_ONBOARDING_DOCUMENT_CHUNK_SIZE", "0"))
-PIPELINE_ONBOARDING_MAX_WORKERS = int(os.getenv("PIPELINE_ONBOARDING_MAX_WORKERS", "0"))
-PIPELINE_RUNTIME_PROFILE = (os.getenv("PIPELINE_RUNTIME_PROFILE", "").strip().lower() or "")
-if PIPELINE_RUNTIME_PROFILE not in {"", "onboarding_fast"}:
-    PIPELINE_RUNTIME_PROFILE = ""
-
-
-# =============================================================================
-# TIKA TEXT EXTRACTION CONFIGURATION
-# =============================================================================
-# These control how we extract text from PDFs and HTML files using Apache Tika
-
-# Timeout for Tika server requests (in seconds)
-# Tika can take time with large PDFs (OCR, complex layouts)
-# 60 seconds handles most documents without hanging indefinitely
-TIKA_TIMEOUT_SECONDS = 60
-
-# Optional OCR fallback:
-# - First attempt extracts the "digital text layer" only (fast).
-# - If that result is empty/too small and OCR fallback is enabled, we retry with OCR.
-#
-# Why not OCR everything?
-# OCR is much slower and CPU-heavy. Many PDFs already contain selectable text.
-TIKA_OCR_FALLBACK_ENABLED = os.getenv("TIKA_OCR_FALLBACK_ENABLED", "false").strip().lower() in {"1", "true", "yes"}
-
-# Minimum extracted characters to consider the digital text layer "good enough".
-# If we extract fewer characters than this and OCR fallback is enabled, we retry with OCR.
-TIKA_MIN_EXTRACTED_CHARS_FOR_NO_OCR = int(os.getenv("TIKA_MIN_EXTRACTED_CHARS_FOR_NO_OCR", "800"))
-
-# Optional PDFBox spacing tuning knobs passed through Tika headers.
-# Keep unset by default to avoid changing extraction behavior unexpectedly.
-TIKA_PDF_SPACING_TOLERANCE = os.getenv("TIKA_PDF_SPACING_TOLERANCE", "").strip()
-TIKA_PDF_AVG_CHAR_TOLERANCE = os.getenv("TIKA_PDF_AVG_CHAR_TOLERANCE", "").strip()
-
-# Retry backoff multiplier for Tika requests
-# When Tika fails, we wait (attempt × multiplier) seconds before retrying
-# Attempt 1: wait 2s, Attempt 2: wait 4s
-TIKA_RETRY_BACKOFF_MULTIPLIER = 2
-
-
-# =============================================================================
-# EXTRACTION TEXT-REPAIR CONFIGURATION
-# =============================================================================
-# Deterministic fragmented-heading repair is always on; these settings gate optional LLM escalation.
-TEXT_REPAIR_ENABLE_LLM_ESCALATION = os.getenv("TEXT_REPAIR_ENABLE_LLM_ESCALATION", "false").strip().lower() in {"1", "true", "yes"}
-TEXT_REPAIR_LLM_MAX_LINES_PER_DOC = int(os.getenv("TEXT_REPAIR_LLM_MAX_LINES_PER_DOC", "10"))
-TEXT_REPAIR_MIN_IMPLAUSIBILITY_SCORE = float(os.getenv("TEXT_REPAIR_MIN_IMPLAUSIBILITY_SCORE", "0.65"))
-
-
-# =============================================================================
-# NLP & TOPIC MODELING CONFIGURATION
-# =============================================================================
-# These control how we extract topics and keywords from documents
-
-# TF-IDF max document frequency (0.8 = 80%)
-# Ignore words that appear in more than 80% of documents (like "meeting", "city")
-# These common words don't help distinguish what makes each document unique
-TFIDF_MAX_DF = 0.8
-
-# TF-IDF min document frequency
-# Allow words that appear in at least 1 document (captures unique topics)
-# Higher values filter out rare words, but we want to catch even unique topics
-TFIDF_MIN_DF = 1
-
-# TF-IDF n-gram range (min, max)
-# (1, 2) means we capture both single words ("Housing") and two-word phrases ("Rent Control")
-# Single words alone miss important phrases, longer phrases are too rare
-TFIDF_NGRAM_RANGE = (1, 2)
-
-# Maximum features for TF-IDF vectorizer
-# We keep the 5,000 most important words/phrases for topic analysis
-# More = slower processing, Less = might miss important topics
-TFIDF_MAX_FEATURES = 5000
-
-# Number of top keywords to extract per document
-# We identify the 5 most important keywords for each meeting
-TOP_KEYWORDS_PER_DOC = 5
-
-# Progress logging interval for batch operations
-# Log progress every N documents to track processing without spamming logs
-PROGRESS_LOG_INTERVAL = 50
-
-
-# =============================================================================
-# SIMILARITY & SEARCH CONFIGURATION
-# =============================================================================
-# These control how we find related documents
-
-# Maximum content length for similarity analysis (5000 chars ≈ 1000 words)
-# We use summaries when available, otherwise truncate content
-# Shorter text = faster embedding generation without losing meaning
-SIMILARITY_CONTENT_LENGTH = 5000
-
-# Batch size for encoding embeddings (how many docs to process at once)
-# 32 is optimal for sentence-transformers on CPU without GPU acceleration
-# Larger batches = faster but more memory, smaller = slower but less memory
-EMBEDDING_BATCH_SIZE = 32
-
-# Similarity threshold for FAISS nearest neighbor search (0-1 scale)
-# 0.35 = 35% similar. Documents must be at least this similar to be "related"
-# Lower = more results but less relevant, Higher = fewer but more relevant
-SIMILARITY_THRESHOLD = 0.35
-
-# Number of nearest neighbors to fetch from FAISS index
-# We get the top 4 most similar documents, then filter by threshold
-FAISS_TOP_NEIGHBORS = 4
-
-# Maximum related documents to display to users
-# After filtering by threshold, show at most 3 related meetings
-MAX_RELATED_DOCS = 3
-
-
-# =============================================================================
-# TABLE EXTRACTION CONFIGURATION
-# =============================================================================
-# These control PDF table extraction (Camelot library)
-
-# Minimum accuracy threshold for table detection (0-100 scale)
-# Only keep tables that Camelot is at least 70% confident about
-# Lower = more false positives, Higher = might miss some real tables
-TABLE_ACCURACY_MIN = 70
-
-# Maximum pages to scan for tables in a single PDF
-# Scanning full 500-page packets is slow, most tables are in first 5 pages
-TABLE_SCAN_MAX_PAGES = 5
-
-# CPU core fraction for table extraction workers (0.5 = 50% of cores)
-# Table extraction is CPU-intensive. Using 50% keeps system responsive
-# On a 4-core machine: 50% = 2 worker processes
-TABLE_WORKER_CPU_FRACTION = 0.5
-
-# Progress logging interval for table extraction
-# Log progress every N documents processed
-TABLE_PROGRESS_LOG_INTERVAL = 10
+from __future__ import annotations
+
+from pipeline.config_inference import load_inference_config
+from pipeline.config_processing import load_processing_config
+from pipeline.config_semantic import load_semantic_config
+from pipeline.config_startup import load_startup_config
+from pipeline.config_table import load_table_config
+from pipeline.config_topic_similarity import load_topic_similarity_config
+
+
+startup_config = load_startup_config()
+processing_config = load_processing_config()
+inference_config = load_inference_config()
+semantic_config = load_semantic_config()
+topic_similarity_config = load_topic_similarity_config()
+table_config = load_table_config()
+
+STARTUP_PURGE_DERIVED = startup_config.startup_purge_derived
+APP_ENV = startup_config.app_env
+STARTUP_PURGE_ALLOW_NON_DEV = startup_config.startup_purge_allow_non_dev
+
+MAX_CONTENT_LENGTH = processing_config.max_content_length
+MAX_SUMMARY_TEXT_LENGTH = processing_config.max_summary_text_length
+NLP_MAX_TEXT_LENGTH = processing_config.nlp_max_text_length
+NLP_ENTITY_AGENDA_MAX_TEXT = processing_config.nlp_entity_agenda_max_text
+NLP_ENTITY_NONAGENDA_MAX_TEXT = processing_config.nlp_entity_nonagenda_max_text
+NLP_ENTITY_PREFIX_FALLBACK_TEXT = processing_config.nlp_entity_prefix_fallback_text
+NLP_ENTITY_MIN_CAPITALIZED_NAME_CUES = processing_config.nlp_entity_min_capitalized_name_cues
+ENTITY_BACKFILL_IN_PROCESS_THRESHOLD = processing_config.entity_backfill_in_process_threshold
+MAX_FILE_SIZE_BYTES = processing_config.max_file_size_bytes
+FILE_WRITE_CHUNK_SIZE = processing_config.file_write_chunk_size
+DOWNLOAD_TIMEOUT_SECONDS = processing_config.download_timeout_seconds
+DOWNLOAD_WORKERS = processing_config.download_workers
+MEILISEARCH_BATCH_SIZE = processing_config.meilisearch_batch_size
+DOCUMENT_CHUNK_SIZE = processing_config.document_chunk_size
+MAX_WORKERS = processing_config.max_workers
+PIPELINE_CPU_FRACTION = processing_config.pipeline_cpu_fraction
+DB_RETRY_DELAY_MIN = processing_config.db_retry_delay_min
+DB_RETRY_DELAY_MAX = processing_config.db_retry_delay_max
+EXTRACTION_TERMINAL_FAILURE_MAX_ATTEMPTS = processing_config.extraction_terminal_failure_max_attempts
+AGENDA_BATCH_SIZE = processing_config.agenda_batch_size
+AGENDA_FALLBACK_MAX_ITEMS_PER_DOC = processing_config.agenda_fallback_max_items_per_doc
+AGENDA_FALLBACK_MAX_ITEMS_PER_PAGE_PARAGRAPH = processing_config.agenda_fallback_max_items_per_page_paragraph
+AGENDA_FALLBACK_MAX_CONSECUTIVE_REJECTS_PER_PAGE = processing_config.agenda_fallback_max_consecutive_rejects_per_page
+AGENDA_SEGMENTATION_MODE = processing_config.agenda_segmentation_mode
+AGENDA_MIN_TITLE_CHARS = processing_config.agenda_min_title_chars
+AGENDA_MIN_SUBSTANTIVE_DESC_CHARS = processing_config.agenda_min_substantive_desc_chars
+AGENDA_TOC_DEDUP_FUZZ = processing_config.agenda_toc_dedup_fuzz
+AGENDA_PROCEDURAL_REJECT_ENABLED = processing_config.agenda_procedural_reject_enabled
+EXTRACTION_BATCH_SIZE = processing_config.extraction_batch_size
+LEGISTAR_EVENT_ITEMS_CAPABILITY_TTL_SECONDS = processing_config.legistar_event_items_capability_ttl_seconds
+PIPELINE_ONBOARDING_CITY = processing_config.pipeline_onboarding_city
+PIPELINE_ONBOARDING_STARTED_AT_UTC = processing_config.pipeline_onboarding_started_at_utc
+PIPELINE_ONBOARDING_DOCUMENT_CHUNK_SIZE = processing_config.pipeline_onboarding_document_chunk_size
+PIPELINE_ONBOARDING_MAX_WORKERS = processing_config.pipeline_onboarding_max_workers
+PIPELINE_RUNTIME_PROFILE = processing_config.pipeline_runtime_profile
+TIKA_TIMEOUT_SECONDS = processing_config.tika_timeout_seconds
+TIKA_OCR_FALLBACK_ENABLED = processing_config.tika_ocr_fallback_enabled
+TIKA_MIN_EXTRACTED_CHARS_FOR_NO_OCR = processing_config.tika_min_extracted_chars_for_no_ocr
+TIKA_PDF_SPACING_TOLERANCE = processing_config.tika_pdf_spacing_tolerance
+TIKA_PDF_AVG_CHAR_TOLERANCE = processing_config.tika_pdf_avg_char_tolerance
+TIKA_RETRY_BACKOFF_MULTIPLIER = processing_config.tika_retry_backoff_multiplier
+TEXT_REPAIR_ENABLE_LLM_ESCALATION = processing_config.text_repair_enable_llm_escalation
+TEXT_REPAIR_LLM_MAX_LINES_PER_DOC = processing_config.text_repair_llm_max_lines_per_doc
+TEXT_REPAIR_MIN_IMPLAUSIBILITY_SCORE = processing_config.text_repair_min_implausibility_score
+
+LOCAL_AI_ALLOW_MULTIPROCESS = inference_config.local_ai_allow_multiprocess
+LOCAL_AI_REQUIRE_SOLO_POOL = inference_config.local_ai_require_solo_pool
+LOCAL_AI_BACKEND = inference_config.local_ai_backend
+LOCAL_AI_HTTP_BASE_URL = inference_config.local_ai_http_base_url
+LOCAL_AI_HTTP_PROFILE = inference_config.local_ai_http_profile
+LOCAL_AI_HTTP_TIMEOUT_SECONDS = inference_config.local_ai_http_timeout_seconds
+LOCAL_AI_HTTP_TIMEOUT_SEGMENT_SECONDS = inference_config.local_ai_http_timeout_segment_seconds
+LOCAL_AI_HTTP_TIMEOUT_SUMMARY_SECONDS = inference_config.local_ai_http_timeout_summary_seconds
+LOCAL_AI_HTTP_TIMEOUT_TOPICS_SECONDS = inference_config.local_ai_http_timeout_topics_seconds
+AGENDA_SEGMENT_MAINTENANCE_TIMEOUT_SECONDS = inference_config.agenda_segment_maintenance_timeout_seconds
+SUMMARY_HYDRATION_MAINTENANCE_TIMEOUT_SECONDS = inference_config.summary_hydration_maintenance_timeout_seconds
+LOCAL_AI_HTTP_MAX_RETRIES = inference_config.local_ai_http_max_retries
+LOCAL_AI_HTTP_MODEL = inference_config.local_ai_http_model
+CITY_SEGMENTATION_WORKERS = inference_config.city_segmentation_workers
+LLM_CONTEXT_WINDOW = inference_config.llm_context_window
+LLM_SUMMARY_MAX_TEXT = inference_config.llm_summary_max_text
+LLM_SUMMARY_MAX_TOKENS = inference_config.llm_summary_max_tokens
+LLM_AGENDA_MAX_TEXT = inference_config.llm_agenda_max_text
+LLM_AGENDA_MAX_TOKENS = inference_config.llm_agenda_max_tokens
+ENABLE_VOTE_EXTRACTION = inference_config.enable_vote_extraction
+VOTE_EXTRACTION_MAX_TOKENS = inference_config.vote_extraction_max_tokens
+VOTE_EXTRACTION_MIN_TEXT_CHARS = inference_config.vote_extraction_min_text_chars
+VOTE_EXTRACTION_CONFIDENCE_THRESHOLD = inference_config.vote_extraction_confidence_threshold
+VOTE_EXTRACTION_CONTEXT_BEFORE_CHARS = inference_config.vote_extraction_context_before_chars
+VOTE_EXTRACTION_CONTEXT_AFTER_CHARS = inference_config.vote_extraction_context_after_chars
+SUMMARY_MIN_CHARS = inference_config.summary_min_chars
+SUMMARY_MIN_DISTINCT_TOKENS = inference_config.summary_min_distinct_tokens
+SUMMARY_MAX_BOILERPLATE_RATIO = inference_config.summary_max_boilerplate_ratio
+TOPICS_MIN_CHARS = inference_config.topics_min_chars
+TOPICS_MIN_DISTINCT_TOKENS = inference_config.topics_min_distinct_tokens
+SUMMARY_GROUNDING_MIN_COVERAGE = inference_config.summary_grounding_min_coverage
+AGENDA_SUMMARY_PROFILE = inference_config.agenda_summary_profile
+AGENDA_SUMMARY_MIN_ITEM_DESC_CHARS = inference_config.agenda_summary_min_item_desc_chars
+AGENDA_SUMMARY_MAX_BULLETS = inference_config.agenda_summary_max_bullets
+AGENDA_SUMMARY_SINGLE_ITEM_MODE = inference_config.agenda_summary_single_item_mode
+AGENDA_SUMMARY_TEMPERATURE = inference_config.agenda_summary_temperature
+AGENDA_SUMMARY_MAX_INPUT_CHARS = inference_config.agenda_summary_max_input_chars
+AGENDA_SUMMARY_MIN_RESERVED_OUTPUT_CHARS = inference_config.agenda_summary_min_reserved_output_chars
+
+SEMANTIC_ENABLED = semantic_config.semantic_enabled
+SEMANTIC_BACKEND = semantic_config.semantic_backend
+SEMANTIC_MODEL_NAME = semantic_config.semantic_model_name
+SEMANTIC_INDEX_DIR = semantic_config.semantic_index_dir
+SEMANTIC_CONTENT_MAX_CHARS = semantic_config.semantic_content_max_chars
+SEMANTIC_BASE_TOP_K = semantic_config.semantic_base_top_k
+SEMANTIC_MAX_TOP_K = semantic_config.semantic_max_top_k
+SEMANTIC_FILTER_EXPANSION_FACTOR = semantic_config.semantic_filter_expansion_factor
+SEMANTIC_RERANK_CANDIDATE_LIMIT = semantic_config.semantic_rerank_candidate_limit
+FEATURE_TRENDS_DASHBOARD = semantic_config.feature_trends_dashboard
+LINEAGE_MIN_EDGE_CONFIDENCE = semantic_config.lineage_min_edge_confidence
+LINEAGE_REQUIRE_MUTUAL_EDGES = semantic_config.lineage_require_mutual_edges
+SEMANTIC_REQUIRE_SINGLE_PROCESS = semantic_config.semantic_require_single_process
+SEMANTIC_ALLOW_MULTIPROCESS = semantic_config.semantic_allow_multiprocess
+SEMANTIC_REQUIRE_FAISS = semantic_config.semantic_require_faiss
+
+TFIDF_MAX_DF = topic_similarity_config.tfidf_max_df
+TFIDF_MIN_DF = topic_similarity_config.tfidf_min_df
+TFIDF_NGRAM_RANGE = topic_similarity_config.tfidf_ngram_range
+TFIDF_MAX_FEATURES = topic_similarity_config.tfidf_max_features
+TOP_KEYWORDS_PER_DOC = topic_similarity_config.top_keywords_per_doc
+PROGRESS_LOG_INTERVAL = topic_similarity_config.progress_log_interval
+SIMILARITY_CONTENT_LENGTH = topic_similarity_config.similarity_content_length
+EMBEDDING_BATCH_SIZE = topic_similarity_config.embedding_batch_size
+SIMILARITY_THRESHOLD = topic_similarity_config.similarity_threshold
+FAISS_TOP_NEIGHBORS = topic_similarity_config.faiss_top_neighbors
+MAX_RELATED_DOCS = topic_similarity_config.max_related_docs
+
+TABLE_ACCURACY_MIN = table_config.table_accuracy_min
+TABLE_SCAN_MAX_PAGES = table_config.table_scan_max_pages
+TABLE_WORKER_CPU_FRACTION = table_config.table_worker_cpu_fraction
+TABLE_PROGRESS_LOG_INTERVAL = table_config.table_progress_log_interval
+
+
+__all__ = [
+    name for name, value in globals().items() if name.isupper() and not name.startswith("_") and not callable(value)
+]

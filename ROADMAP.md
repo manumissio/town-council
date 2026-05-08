@@ -269,7 +269,7 @@ Tradeoff note:
 - Why chosen now: repo policy and roadmap both prioritize runtime-profile stabilization first to avoid policy drift during soak.
 
 Evidence note:
-- Implementation is already landed in `pipeline/llm.py`, `pipeline/llm_provider.py`, `pipeline/config.py`, and `docker-compose.yml`.
+- Implementation is already landed in `pipeline/llm.py`, `pipeline/llm_provider.py`, the `pipeline/config.py` facade, and `docker-compose.yml`.
 - Verification coverage already exists for provider protocol, retry/error mapping, backend parity, and runtime-profile defaults.
 - Earlier short-window timeout failures were invalidated by the soak provider delta-accounting bug: stale cumulative Redis counters were being treated as fresh run-local failures.
 - The corrected conservative validation window `soak_20260323_deltafix_day1` + `soak_20260323_deltafix_day2` is the first trustworthy post-fix evidence and passes with zero run-local provider timeouts.

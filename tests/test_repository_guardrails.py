@@ -91,6 +91,14 @@ BLE001_WILDCARD_PATHS = {"scripts/*.py", "tests/*.py"}
 TYPED_SUBTREE_PATHS = (
     "api/metrics.py",
     "api/search/query_builder.py",
+    "pipeline/config.py",
+    "pipeline/config_env.py",
+    "pipeline/config_startup.py",
+    "pipeline/config_inference.py",
+    "pipeline/config_semantic.py",
+    "pipeline/config_processing.py",
+    "pipeline/config_topic_similarity.py",
+    "pipeline/config_table.py",
     "pipeline/agenda_crosscheck.py",
     "pipeline/agenda_legistar.py",
     "pipeline/agenda_resolver.py",
@@ -145,6 +153,16 @@ TYPED_SUBTREE_PATHS = (
 )
 CANDIDATE_FORMATTER_WAVE_PATHS = TYPED_SUBTREE_PATHS
 FORMATTER_WAVE_COMMAND = "./.venv/bin/ruff format --check " + " ".join(CANDIDATE_FORMATTER_WAVE_PATHS)
+CONFIG_CLEANUP_MODULES = (
+    "pipeline/config.py",
+    "pipeline/config_env.py",
+    "pipeline/config_startup.py",
+    "pipeline/config_inference.py",
+    "pipeline/config_semantic.py",
+    "pipeline/config_processing.py",
+    "pipeline/config_topic_similarity.py",
+    "pipeline/config_table.py",
+)
 METRICS_CLEANUP_MODULES = (
     "pipeline/metrics.py",
     "pipeline/metrics_celery_signals.py",
@@ -252,6 +270,7 @@ def _tracked_files() -> list[Path]:
 def _broad_exception_scan_files() -> list[Path]:
     tracked_files = {path.resolve() for path in _tracked_files()}
     for module_path in (
+        *CONFIG_CLEANUP_MODULES,
         *METRICS_CLEANUP_MODULES,
         *AGENDA_EXTRACTION_CLEANUP_MODULES,
         *AGENDA_TEXT_HEURISTICS_CLEANUP_MODULES,
@@ -450,6 +469,16 @@ def test_metrics_cleanup_modules_stay_under_size_target():
     oversized_modules = [
         module_path
         for module_path in METRICS_CLEANUP_MODULES
+        if len((ROOT / module_path).read_text(encoding="utf-8").splitlines()) > 300
+    ]
+
+    assert oversized_modules == []
+
+
+def test_config_cleanup_modules_stay_under_size_target():
+    oversized_modules = [
+        module_path
+        for module_path in CONFIG_CLEANUP_MODULES
         if len((ROOT / module_path).read_text(encoding="utf-8").splitlines()) > 300
     ]
 
