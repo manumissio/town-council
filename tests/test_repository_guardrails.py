@@ -55,6 +55,7 @@ APPROVED_BROAD_EXCEPTION_PATHS = {
     "pipeline/diagnose_search_sort.py",
     "pipeline/diagnose_semantic_search.py",
     "pipeline/indexer.py",
+    "pipeline/indexer_meilisearch.py",
     "pipeline/lineage_service.py",
     "pipeline/llm.py",
     "pipeline/models.py",
@@ -65,6 +66,7 @@ APPROVED_BROAD_EXCEPTION_PATHS = {
     "pipeline/run_pipeline_steps.py",
     "pipeline/runtime_guardrails.py",
     "pipeline/summary_backfill.py",
+    "pipeline/summary_backfill_dispatch.py",
     "pipeline/semantic_index.py",
     "pipeline/semantic_tasks.py",
     "pipeline/startup_purge.py",
@@ -233,6 +235,32 @@ TOPIC_GENERATION_CLEANUP_MODULES = (
     "pipeline/topic_generation_task.py",
     "pipeline/topic_generation_batch.py",
 )
+INDEXER_CLEANUP_MODULES = (
+    "pipeline/indexer.py",
+    "pipeline/indexer_documents.py",
+    "pipeline/indexer_meilisearch.py",
+)
+SEMANTIC_BACKEND_CLEANUP_MODULES = (
+    "pipeline/semantic_faiss_backend.py",
+    "pipeline/semantic_faiss_artifacts.py",
+    "pipeline/semantic_faiss_rows.py",
+    "pipeline/semantic_pgvector_backend.py",
+    "pipeline/semantic_pgvector_rows.py",
+    "pipeline/semantic_pgvector_rerank.py",
+)
+SUMMARY_TEXT_CLEANUP_MODULES = (
+    "pipeline/text_generation.py",
+    "pipeline/summary_text_formatting.py",
+    "pipeline/summary_text_prompting.py",
+    "pipeline/summary_quality.py",
+    "pipeline/summary_source_quality.py",
+    "pipeline/summary_grounding.py",
+    "pipeline/summary_backfill.py",
+    "pipeline/summary_backfill_queries.py",
+    "pipeline/summary_backfill_dispatch.py",
+    "pipeline/summary_backfill_runner.py",
+    "pipeline/summary_backfill_logging.py",
+)
 VOTE_EXTRACTION_CLEANUP_MODULES = (
     "pipeline/vote_extractor.py",
     "pipeline/vote_extraction_contracts.py",
@@ -260,6 +288,9 @@ def _broad_exception_scan_files() -> list[Path]:
         *AGENDA_SUMMARY_RUNTIME_CLEANUP_MODULES,
         *PROFILE_MANIFEST_CLEANUP_MODULES,
         *TOPIC_GENERATION_CLEANUP_MODULES,
+        *INDEXER_CLEANUP_MODULES,
+        *SEMANTIC_BACKEND_CLEANUP_MODULES,
+        *SUMMARY_TEXT_CLEANUP_MODULES,
         *VOTE_EXTRACTION_CLEANUP_MODULES,
     ):
         tracked_files.add((ROOT / module_path).resolve())
@@ -540,6 +571,36 @@ def test_topic_generation_cleanup_modules_stay_under_size_target():
     oversized_modules = [
         module_path
         for module_path in TOPIC_GENERATION_CLEANUP_MODULES
+        if len((ROOT / module_path).read_text(encoding="utf-8").splitlines()) > 300
+    ]
+
+    assert oversized_modules == []
+
+
+def test_indexer_cleanup_modules_stay_under_size_target():
+    oversized_modules = [
+        module_path
+        for module_path in INDEXER_CLEANUP_MODULES
+        if len((ROOT / module_path).read_text(encoding="utf-8").splitlines()) > 300
+    ]
+
+    assert oversized_modules == []
+
+
+def test_semantic_backend_cleanup_modules_stay_under_size_target():
+    oversized_modules = [
+        module_path
+        for module_path in SEMANTIC_BACKEND_CLEANUP_MODULES
+        if len((ROOT / module_path).read_text(encoding="utf-8").splitlines()) > 300
+    ]
+
+    assert oversized_modules == []
+
+
+def test_summary_text_cleanup_modules_stay_under_size_target():
+    oversized_modules = [
+        module_path
+        for module_path in SUMMARY_TEXT_CLEANUP_MODULES
         if len((ROOT / module_path).read_text(encoding="utf-8").splitlines()) > 300
     ]
 

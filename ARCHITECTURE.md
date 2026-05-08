@@ -322,7 +322,7 @@ Primary owners:
 - Async orchestration and writes: `pipeline/tasks.py`
 - Inference abstraction and provider telemetry: `pipeline/llm.py`, `pipeline/agenda_extraction.py`, `pipeline/llm_provider.py`, `pipeline/http_inference_provider.py`, `pipeline/inprocess_inference_provider.py`, `pipeline/provider_telemetry.py`, `pipeline/metrics.py`, `pipeline/metrics_provider_recorders.py`
 - API surface and auth: `api/main.py`, `api/app_setup.py`, `api/search_routes.py`, `api/task_routes.py`, `api/search/query_builder.py`, `api/metrics.py`
-- Semantic retrieval and embeddings: `pipeline/semantic_index.py`, `pipeline/models.py`
+- Semantic retrieval and embeddings: `pipeline/semantic_index.py`, `pipeline/semantic_faiss_backend.py`, `pipeline/semantic_pgvector_backend.py`, focused semantic backend helpers, `pipeline/models.py`
 - Frontend query/task UX: `frontend/app/page.js`, `frontend/state/search-state.js`, `frontend/components/ResultCard.js`
 - Data model and persistence: `pipeline/models.py`, `pipeline/db_migrate.py`, `pipeline/migrate_v8.py`, `pipeline/migrate_v9.py`
 - Onboarding orchestration and evaluation: `scripts/onboard_city_wave.sh`, `scripts/check_city_crawl_evidence.py`, `scripts/evaluate_city_onboarding.py`
@@ -436,7 +436,7 @@ Owners:
 | `agenda_item.result` | Normalized outcome field for agenda/vote interpretation | `pipeline/models.py`, `pipeline/tasks.py` |
 | `agenda_item.votes` | Structured vote payload with extraction metadata | `pipeline/models.py`, `pipeline/tasks.py` |
 | `catalog.lineage_id`, `catalog.lineage_confidence`, `catalog.lineage_updated_at` | Meeting-level lineage identity and confidence | `pipeline/lineage_service.py`, `api/main.py`, `api/lineage_routes.py` |
-| `semantic_embedding` | pgvector-backed embedding storage for hybrid semantic retrieval | `pipeline/models.py`, `pipeline/semantic_index.py`, `pipeline/tasks.py` |
+| `semantic_embedding` | pgvector-backed embedding storage for hybrid semantic retrieval | `pipeline/models.py`, `pipeline/semantic_index.py`, `pipeline/semantic_pgvector_backend.py`, focused semantic backend helpers, `pipeline/tasks.py` |
 
 ### Observability Contract
 

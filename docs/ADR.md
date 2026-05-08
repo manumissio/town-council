@@ -8,6 +8,45 @@ Use each entry to record:
 - the affected boundary or contract
 - links to the canonical docs that carry the ongoing operational or architecture detail
 
+## 2026-05-08: Split indexing, semantic backend helpers, and summary text runtime behind facades
+
+- Status: Accepted
+- Decision:
+  - `pipeline/indexer.py` remains the compatibility facade for full and targeted Meilisearch indexing.
+  - Search document payload assembly moves behind `pipeline/indexer_documents.py`.
+  - Meilisearch settings, batch flush, task id, and filtered-delete compatibility helpers move behind `pipeline/indexer_meilisearch.py`.
+  - FAISS artifact and row collection helpers move behind `pipeline/semantic_faiss_artifacts.py` and `pipeline/semantic_faiss_rows.py`.
+  - Pgvector source-row collection and hybrid rerank diagnostics move behind `pipeline/semantic_pgvector_rows.py` and `pipeline/semantic_pgvector_rerank.py`.
+  - `pipeline/text_generation.py`, `pipeline/summary_quality.py`, and `pipeline/summary_backfill.py` remain compatibility facades for summary runtime, quality, and hydration imports.
+  - Summary formatting, prompting, source-quality checks, grounding, and hydration runner/query helpers move behind focused `pipeline/summary_*` modules.
+- Why:
+  - Indexing, semantic backend, and summary runtime modules still mixed payload construction, backend compatibility, source quality, grounding, and orchestration after earlier cleanup waves.
+  - Existing task, API, script, and test imports patch through the facade modules, so the public import surfaces remain stable.
+- Affected boundaries:
+  - Meilisearch document shape, semantic diagnostics, BLUF output, low-signal messages, summary hydration counters, task retry/session ownership, and CLI/API contracts stay unchanged.
+  - Guardrails track the new module families under the 300-line cleanup target.
+- Canonical references:
+  - [ARCHITECTURE.md](../ARCHITECTURE.md)
+  - [docs/PIPELINE.md](PIPELINE.md)
+  - [docs/ENGINEERING_GUARDRAILS.md](ENGINEERING_GUARDRAILS.md)
+
+## 2026-05-08: Extract shared operator CLI and Prometheus helpers
+
+- Status: Accepted
+- Decision:
+  - Shared argparse validators and run-id validation move behind `scripts/operator_cli.py`.
+  - Shared Prometheus text parsing and metric summing move behind `scripts/operator_prometheus.py`.
+  - Operator scripts remain CLI entrypoints and keep existing output contracts.
+- Why:
+  - Maintenance scripts duplicated integer validators, run-id wrappers, and Prometheus parser helpers.
+  - Extracting the shared helpers removes duplication without changing command behavior or operator-visible output.
+- Affected boundaries:
+  - `--json` output, progress lines, generated artifact names, and existing test patch seams stay unchanged.
+  - Larger script orchestration splits remain deferred to later waves.
+- Canonical references:
+  - [docs/OPERATIONS.md](OPERATIONS.md)
+  - [docs/ENGINEERING_GUARDRAILS.md](ENGINEERING_GUARDRAILS.md)
+
 ## 2026-05-08: Split topic generation behind the facade
 
 - Status: Accepted

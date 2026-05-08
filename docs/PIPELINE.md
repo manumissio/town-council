@@ -110,7 +110,7 @@ Operational commands and troubleshooting stay in [`docs/OPERATIONS.md`](OPERATIO
 - `run_batch_enrichment.py`
 - `topic_worker.py` (CLI/backfill facade) and `topic_generation.py` facade plus focused `topic_generation_*` modules
 - `person_linker.py`
-- `indexer.py`
+- `indexer.py` facade plus `indexer_documents.py` and `indexer_meilisearch.py`
 
 Why this exists:
 - These depend on extracted/normalized content from earlier stages.
@@ -327,6 +327,7 @@ Use these files as primary references:
 - Provider transport + typed errors: `pipeline/http_inference_provider.py`, `pipeline/inprocess_inference_provider.py`, `pipeline/inference_provider_contract.py`
 - Extraction freshness/hash: `pipeline/extraction_service.py`, `pipeline/content_hash.py`
 - Metrics: `pipeline/metrics.py` (facade), `pipeline/metrics_definitions.py`, `pipeline/metrics_provider_keys.py`, `pipeline/metrics_provider_recorders.py`, `pipeline/metrics_provider_collector.py`, `pipeline/metrics_task_recorders.py`, `pipeline/metrics_celery_signals.py`, `pipeline/metrics_profile_events.py`
+- Summary text runtime: `pipeline/text_generation.py` facade plus `pipeline/summary_text_formatting.py`, `pipeline/summary_text_prompting.py`, `pipeline/summary_source_quality.py`, `pipeline/summary_grounding.py`, and `pipeline/summary_backfill_*` helpers
 - Runbook and troubleshooting: `docs/OPERATIONS.md`
 
 ## 12) Related Docs

@@ -29,6 +29,7 @@ The first pass is intentionally moderate. It is meant to block lazy hygiene regr
 - no raw `print(...)` in non-CLI pipeline modules
 - no silent broad exception handlers or broad exception allowlist drift
 - existing Town Council policy tests for fail-fast runtime behavior, freshness contracts, and profile comparability
+- cleanup module families for indexing, semantic backends, summary text, and prior facade splits stay under the 300-line target
 
 ## How to request an exception
 
@@ -46,6 +47,7 @@ Boundary handlers are limited to runtime, provider, exporter, maintenance, and o
 - If the handler can preserve the caller contract, log with context and return a typed failure payload.
 - If the handler cannot preserve the contract safely, log with context and re-raise.
 - Log-only handlers are allowed only when a nearby comment states why the invariant remains true.
+- Summary hydration embed dispatch is an approved best-effort boundary because summary writes are already durable before enqueue attempts.
 
 ## Typed subtree
 
