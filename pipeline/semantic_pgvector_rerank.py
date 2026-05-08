@@ -41,7 +41,7 @@ def _meeting_db_id(hit: dict) -> int | None:
         return None
     try:
         return int(raw_id.split("_", 1)[1])
-    except IndexError, ValueError:
+    except (IndexError, ValueError):
         return None
 
 
