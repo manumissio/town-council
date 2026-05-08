@@ -20,7 +20,7 @@ from pipeline.topic_generation_text import _normal_topic_title, _sanitize_text_f
 
 
 def _tfidf_vectorizer(*, max_df: float, min_df: int, stop_words: list[str]) -> Any:
-    from sklearn.feature_extraction.text import TfidfVectorizer  # type: ignore[import-untyped]
+    from sklearn.feature_extraction.text import TfidfVectorizer  # type: ignore[import-not-found, import-untyped]
 
     return TfidfVectorizer(
         max_df=max_df,

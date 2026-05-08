@@ -103,7 +103,7 @@ def _sanitize_text_for_topics(text: str) -> str:
 
 
 def _english_stop_words() -> frozenset[str]:
-    from sklearn.feature_extraction.text import ENGLISH_STOP_WORDS  # type: ignore[import-untyped]
+    from sklearn.feature_extraction.text import ENGLISH_STOP_WORDS  # type: ignore[import-not-found, import-untyped]
 
     return cast(frozenset[str], ENGLISH_STOP_WORDS)
 
