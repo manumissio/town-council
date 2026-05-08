@@ -124,6 +124,12 @@ TYPED_SUBTREE_PATHS = (
     "pipeline/profile_manifest_people.py",
     "pipeline/profile_manifest_builder.py",
     "pipeline/profile_manifest_preconditioning.py",
+    "pipeline/topic_generation.py",
+    "pipeline/topic_generation_contracts.py",
+    "pipeline/topic_generation_text.py",
+    "pipeline/topic_generation_keywords.py",
+    "pipeline/topic_generation_task.py",
+    "pipeline/topic_generation_batch.py",
     "pipeline/summary_quality.py",
     "pipeline/summary_freshness.py",
     "pipeline/utils.py",
@@ -219,6 +225,14 @@ PROFILE_MANIFEST_CLEANUP_MODULES = (
     "pipeline/profile_manifest_builder.py",
     "pipeline/profile_manifest_preconditioning.py",
 )
+TOPIC_GENERATION_CLEANUP_MODULES = (
+    "pipeline/topic_generation.py",
+    "pipeline/topic_generation_contracts.py",
+    "pipeline/topic_generation_text.py",
+    "pipeline/topic_generation_keywords.py",
+    "pipeline/topic_generation_task.py",
+    "pipeline/topic_generation_batch.py",
+)
 VOTE_EXTRACTION_CLEANUP_MODULES = (
     "pipeline/vote_extractor.py",
     "pipeline/vote_extraction_contracts.py",
@@ -245,6 +259,7 @@ def _broad_exception_scan_files() -> list[Path]:
         *AGENDA_SUMMARY_MAINTENANCE_CLEANUP_MODULES,
         *AGENDA_SUMMARY_RUNTIME_CLEANUP_MODULES,
         *PROFILE_MANIFEST_CLEANUP_MODULES,
+        *TOPIC_GENERATION_CLEANUP_MODULES,
         *VOTE_EXTRACTION_CLEANUP_MODULES,
     ):
         tracked_files.add((ROOT / module_path).resolve())
@@ -515,6 +530,16 @@ def test_profile_manifest_cleanup_modules_stay_under_size_target():
     oversized_modules = [
         module_path
         for module_path in PROFILE_MANIFEST_CLEANUP_MODULES
+        if len((ROOT / module_path).read_text(encoding="utf-8").splitlines()) > 300
+    ]
+
+    assert oversized_modules == []
+
+
+def test_topic_generation_cleanup_modules_stay_under_size_target():
+    oversized_modules = [
+        module_path
+        for module_path in TOPIC_GENERATION_CLEANUP_MODULES
         if len((ROOT / module_path).read_text(encoding="utf-8").splitlines()) > 300
     ]
 

@@ -108,7 +108,7 @@ Operational commands and troubleshooting stay in [`docs/OPERATIONS.md`](OPERATIO
 ### Stage D: Post-processing and indexing
 - `table_worker.py`
 - `run_batch_enrichment.py`
-- `topic_worker.py` (CLI/backfill facade) and `topic_generation.py` (shared topic-generation implementation)
+- `topic_worker.py` (CLI/backfill facade) and `topic_generation.py` facade plus focused `topic_generation_*` modules
 - `person_linker.py`
 - `indexer.py`
 

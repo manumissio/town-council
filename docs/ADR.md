@@ -8,6 +8,27 @@ Use each entry to record:
 - the affected boundary or contract
 - links to the canonical docs that carry the ongoing operational or architecture detail
 
+## 2026-05-08: Split topic generation behind the facade
+
+- Status: Accepted
+- Decision:
+  - `pipeline/topic_generation.py` remains the compatibility facade for shared topic-generation imports.
+  - Topic-generation contracts and constants move behind `pipeline/topic_generation_contracts.py`.
+  - Text sanitation, stop words, and place-token policy move behind `pipeline/topic_generation_text.py`.
+  - Small-corpus keyword fallback and TF-IDF helpers move behind `pipeline/topic_generation_keywords.py`.
+  - Single-catalog task implementation and post-commit reindex move behind `pipeline/topic_generation_task.py`.
+  - Batch topic tagging moves behind `pipeline/topic_generation_batch.py`.
+- Why:
+  - `pipeline/topic_generation.py` mixed contracts, text cleanup, keyword extraction, DB persistence, reindex side effects, and batch tagging in one module.
+  - Existing `pipeline.enrichment_tasks` and `pipeline.topic_worker` imports must stay stable.
+- Affected boundaries:
+  - Celery task identity, retry/session ownership, topic payloads, source-hash semantics, and TF-IDF thresholds stay unchanged.
+  - Guardrails track the topic-generation module family under the 300-line cleanup target and strict typed/formatter scope.
+- Canonical references:
+  - [ARCHITECTURE.md](../ARCHITECTURE.md)
+  - [docs/PIPELINE.md](PIPELINE.md)
+  - [docs/ENGINEERING_GUARDRAILS.md](ENGINEERING_GUARDRAILS.md)
+
 ## 2026-05-05: Split profile manifest packaging behind patch-safe facade
 
 - Status: Accepted
@@ -792,7 +813,7 @@ Use each entry to record:
   - `pipeline/topic_worker.py` carried overlapping topic sanitation and TF-IDF behavior for batch runs.
   - Keeping both existing facades stable preserves Celery task identity, API enqueue behavior, CLI invocation, and existing test monkeypatch seams while removing duplicated implementation logic.
 - Affected boundaries:
-  - `pipeline/topic_generation.py` owns topic-generation domain behavior.
+  - `pipeline/topic_generation.py` remains the topic-generation compatibility boundary.
   - `pipeline/enrichment_tasks.py` owns the Celery task boundary and runtime service wiring.
   - `pipeline/topic_worker.py` owns CLI/backfill entrypoints.
   - `api/task_routes.py` and `pipeline/run_batch_enrichment.py` keep existing caller-facing contracts.
