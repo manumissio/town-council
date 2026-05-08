@@ -30,6 +30,25 @@ Use each entry to record:
   - [docs/PIPELINE.md](PIPELINE.md)
   - [docs/ENGINEERING_GUARDRAILS.md](ENGINEERING_GUARDRAILS.md)
 
+## 2026-05-08: Split config behind reload-safe facade
+
+- Status: Accepted
+- Decision:
+  - `pipeline/config.py` remains the compatibility facade for all config constant imports.
+  - Env parsing helpers move behind `pipeline/config_env.py`.
+  - Startup, inference, semantic, processing, topic/similarity, and table config move behind focused `pipeline/config_*` loader modules.
+  - Focused modules expose typed dataclass payloads and loader functions; they do not assign env-derived constants at import time.
+- Why:
+  - `pipeline/config.py` mixed runtime policy, provider defaults, batch settings, extraction knobs, and indexing thresholds in one large module.
+  - Existing tests use `importlib.reload(pipeline.config)` after env changes, so the facade must recompute constants on each reload instead of thinly re-exporting submodule constants.
+- Affected boundaries:
+  - Env var names, defaults, invalid-value normalization, and direct constant imports stay unchanged.
+  - Guardrails track the config module family under the 300-line cleanup target and strict typed/formatter scope.
+- Canonical references:
+  - [ARCHITECTURE.md](../ARCHITECTURE.md)
+  - [docs/PIPELINE.md](PIPELINE.md)
+  - [docs/ENGINEERING_GUARDRAILS.md](ENGINEERING_GUARDRAILS.md)
+
 ## 2026-05-08: Extract shared operator CLI and Prometheus helpers
 
 - Status: Accepted
