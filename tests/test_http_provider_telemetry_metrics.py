@@ -160,6 +160,24 @@ def test_http_provider_invalid_json_is_response_error_without_retry(monkeypatch)
     assert events["retry"] == 0
 
 
+@pytest.mark.parametrize("payload", [[], {}, {"response": 123}])
+def test_http_provider_malformed_response_payload_is_response_error_without_retry(monkeypatch, payload):
+    events = {"retry": 0}
+
+    monkeypatch.setattr(
+        "pipeline.llm_provider.record_provider_retry",
+        lambda *args, **kwargs: events.__setitem__("retry", events["retry"] + 1),
+    )
+    monkeypatch.setattr(requests, "post", lambda *args, **kwargs: _FakeResponse(payload))
+
+    provider = HttpInferenceProvider()
+    provider.max_retries = 2
+    with pytest.raises(ProviderResponseError):
+        provider.summarize_text("hello", temperature=0.1, max_tokens=16)
+
+    assert events["retry"] == 0
+
+
 def test_http_provider_client_http_error_is_response_error_without_retry(monkeypatch):
     events = {"retry": 0}
 

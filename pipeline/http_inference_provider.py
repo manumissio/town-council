@@ -1,62 +1,38 @@
 from __future__ import annotations
 
 import logging
-import time
-from dataclasses import dataclass
 from types import ModuleType
-from typing import Final
 
 import requests
 
+from pipeline.http_inference_attempts import HttpOperationContext, ProviderAttemptResult, run_attempt, run_operation
+from pipeline.http_inference_errors import raise_provider_error_from_last_error
+from pipeline.http_inference_payloads import build_request_payload, parse_response_payload
+from pipeline.http_inference_policy import (
+    HEALTH_CHECK_TIMEOUT_SECONDS,
+    HTTP_PROVIDER_NAME,
+    MINIMUM_HTTP_TIMEOUT_SECONDS,
+    max_retries_for_operation,
+    timeout_for_operation,
+)
+from pipeline.http_inference_telemetry import log_provider_policy, record_attempt, record_retry, record_timeout
 from pipeline.inference_provider_contract import (
     OPERATION_EXTRACT_AGENDA,
     OPERATION_GENERATE_JSON,
     OPERATION_GENERATE_TOPICS,
-    OPERATION_SEGMENT_AGENDA,
     OPERATION_SUMMARIZE_AGENDA_ITEMS,
     OPERATION_SUMMARIZE_TEXT,
-    RESPONSE_FIELD_NAME,
-    ProviderError,
-    ProviderResponseError,
-    ProviderTimeoutError,
-    ProviderUnavailableError,
 )
 from pipeline.provider_telemetry import (
     ProviderAttemptTelemetry,
     ProviderRetryTelemetry,
     ProviderTelemetryIdentity,
     TokenMetrics,
-    empty_token_metrics,
     parse_token_metrics,
-    record_provider_attempt_event,
-    record_provider_retry_event,
-    record_provider_timeout_event,
 )
 
 
 logger = logging.getLogger("local-ai")
-
-HTTP_PROVIDER_NAME: Final = "http"
-MINIMUM_HTTP_TIMEOUT_SECONDS: Final = 5
-HEALTH_CHECK_TIMEOUT_SECONDS: Final = 5
-HTTP_CLIENT_ERROR_MIN_STATUS: Final = 400
-HTTP_CLIENT_ERROR_MAX_STATUS: Final = 499
-OUTCOME_OK: Final = "ok"
-OUTCOME_ERROR: Final = "error"
-OUTCOME_RESPONSE_ERROR: Final = "response_error"
-OUTCOME_TIMEOUT: Final = "timeout"
-OUTCOME_UNAVAILABLE: Final = "unavailable"
-CONSERVATIVE_HTTP_PROFILE: Final = "conservative"
-HTTP_PROVIDER_ATTEMPT_FAILURES: Final = (
-    MemoryError,
-    RuntimeError,
-    OSError,
-    OverflowError,
-    TypeError,
-    ValueError,
-    AttributeError,
-    KeyError,
-)
 
 
 class HttpInferenceProvider:
@@ -83,38 +59,23 @@ class HttpInferenceProvider:
             return False
 
     def _timeout_for_operation(self, operation: str) -> int:
-        # Workload classes pick timeout budgets; infra profiles own concurrency.
-        if operation in {OPERATION_EXTRACT_AGENDA, OPERATION_SEGMENT_AGENDA, OPERATION_GENERATE_JSON}:
-            return self.timeout_segment_seconds
-        if operation in {OPERATION_SUMMARIZE_AGENDA_ITEMS, OPERATION_SUMMARIZE_TEXT}:
-            return self.timeout_summary_seconds
-        if operation == OPERATION_GENERATE_TOPICS:
-            return self.timeout_topics_seconds
-        return self.timeout_seconds
+        return timeout_for_operation(
+            operation,
+            default_timeout_seconds=self.timeout_seconds,
+            segment_timeout_seconds=self.timeout_segment_seconds,
+            summary_timeout_seconds=self.timeout_summary_seconds,
+            topics_timeout_seconds=self.timeout_topics_seconds,
+        )
 
     def _max_retries_for_operation(self, operation: str) -> int:
-        if operation == OPERATION_EXTRACT_AGENDA:
-            return 0
-        if self.max_retries <= 0:
-            return 0
-        if _provider_facade().LOCAL_AI_HTTP_PROFILE == CONSERVATIVE_HTTP_PROFILE and operation in {
-            OPERATION_SUMMARIZE_AGENDA_ITEMS,
-            OPERATION_SUMMARIZE_TEXT,
-            OPERATION_GENERATE_TOPICS,
-        }:
-            return 0
-        return self.max_retries
+        return max_retries_for_operation(
+            operation,
+            max_retries=self.max_retries,
+            profile_name=_provider_facade().LOCAL_AI_HTTP_PROFILE,
+        )
 
     def _build_request_payload(self, prompt: str, *, max_tokens: int, temperature: float) -> dict[str, object]:
-        return {
-            "model": self.model_name,
-            "prompt": prompt,
-            "stream": False,
-            "options": {
-                "num_predict": int(max_tokens),
-                "temperature": float(temperature),
-            },
-        }
+        return build_request_payload(prompt, model_name=self.model_name, max_tokens=max_tokens, temperature=temperature)
 
     def _post_generate_request(self, payload: dict[str, object], *, timeout_seconds: int) -> requests.Response:
         return _provider_facade().requests.post(
@@ -127,29 +88,16 @@ class HttpInferenceProvider:
         return parse_token_metrics(payload)
 
     def _parse_response_payload(self, response: requests.Response) -> tuple[str, TokenMetrics]:
-        try:
-            payload = response.json()
-        except ValueError as error:
-            raise ProviderResponseError(f"Invalid JSON response payload: {error}") from error
-        if not isinstance(payload, dict):
-            raise ProviderResponseError("Invalid response payload type")
-
-        token_metrics = self._parse_token_metrics(payload)
-        raw_response = payload.get(RESPONSE_FIELD_NAME)
-        if raw_response is None:
-            raise ProviderResponseError("Missing response field in payload")
-        if not isinstance(raw_response, str):
-            raise ProviderResponseError("Invalid response field type in payload")
-        text = raw_response.strip()
-        if not text:
-            raise ProviderResponseError("Empty response payload")
-        return text, token_metrics
+        return parse_response_payload(response, token_metrics_parser=self._parse_token_metrics)
 
     def _record_retry(self, retry_telemetry: ProviderRetryTelemetry) -> None:
-        record_provider_retry_event(logger, self._telemetry_identity(), retry_telemetry)
+        record_retry(logger, self._telemetry_identity(), retry_telemetry)
 
     def _record_attempt_metrics(self, attempt_telemetry: ProviderAttemptTelemetry) -> None:
-        record_provider_attempt_event(logger, self._telemetry_identity(), attempt_telemetry)
+        record_attempt(logger, self._telemetry_identity(), attempt_telemetry)
+
+    def _record_timeout(self, operation: str) -> None:
+        record_timeout(self.name, operation, self.model_name)
 
     def _telemetry_identity(self) -> ProviderTelemetryIdentity:
         return ProviderTelemetryIdentity(
@@ -167,33 +115,35 @@ class HttpInferenceProvider:
         temperature: float,
     ) -> str | None:
         payload = self._build_request_payload(prompt, max_tokens=max_tokens, temperature=temperature)
-        last_error: Exception | None = None
         max_retries = self._max_retries_for_operation(operation)
         timeout_seconds = self._timeout_for_operation(operation)
-        logger.info(
-            "provider_policy provider=%s model=%s profile=%s operation=%s timeout_s=%s retry_budget=%s",
-            self.name,
-            self.model_name,
-            _provider_facade().LOCAL_AI_HTTP_PROFILE,
-            operation,
-            timeout_seconds,
-            max_retries,
+        log_provider_policy(
+            logger,
+            self._telemetry_identity(),
+            operation=operation,
+            timeout_seconds=timeout_seconds,
+            max_retries=max_retries,
         )
-        for attempt in range(max_retries + 1):
-            attempt_result = self._run_attempt(
+        text, last_error = run_operation(
+            HttpOperationContext(
                 operation,
                 payload,
-                attempt=attempt,
                 max_retries=max_retries,
                 timeout_seconds=timeout_seconds,
+                post_generate_request=lambda request_payload, request_timeout: self._post_generate_request(
+                    request_payload,
+                    timeout_seconds=request_timeout,
+                ),
+                parse_response_payload=self._parse_response_payload,
+                record_attempt_metrics=self._record_attempt_metrics,
+                record_retry=self._record_retry,
+                record_timeout=self._record_timeout,
             )
-            if attempt_result.text is not None:
-                return attempt_result.text
-            last_error = attempt_result.last_error
-            if attempt_result.stop_attempts:
-                break
+        )
+        if text is not None:
+            return text
 
-        _raise_provider_error_from_last_error(last_error)
+        raise_provider_error_from_last_error(last_error)
 
     def _run_attempt(
         self,
@@ -203,108 +153,24 @@ class HttpInferenceProvider:
         attempt: int,
         max_retries: int,
         timeout_seconds: int,
-    ) -> "_ProviderAttemptResult":
-        t0 = time.perf_counter()
-        outcome = OUTCOME_OK
-        token_metrics = empty_token_metrics()
-        last_error: Exception | None = None
-        text = None
-        stop_attempts = False
-        try:
-            response = self._post_generate_request(payload, timeout_seconds=timeout_seconds)
-            response.raise_for_status()
-            text, token_metrics = self._parse_response_payload(response)
-        except requests.exceptions.HTTPError as error:
-            outcome, last_error, stop_attempts = self._handle_http_error(
+    ) -> ProviderAttemptResult:
+        return run_attempt(
+            HttpOperationContext(
                 operation,
-                error,
-                attempt=attempt,
+                payload,
                 max_retries=max_retries,
                 timeout_seconds=timeout_seconds,
-            )
-        except requests.exceptions.Timeout as error:
-            outcome, last_error = self._handle_timeout(
-                operation,
-                error,
-                attempt=attempt,
-                max_retries=max_retries,
-                timeout_seconds=timeout_seconds,
-            )
-        except requests.exceptions.RequestException as error:
-            outcome, last_error = self._handle_request_exception(
-                operation,
-                error,
-                attempt=attempt,
-                max_retries=max_retries,
-                timeout_seconds=timeout_seconds,
-            )
-        except ProviderError as error:
-            outcome = OUTCOME_RESPONSE_ERROR
-            last_error = error
-            stop_attempts = True
-        except HTTP_PROVIDER_ATTEMPT_FAILURES as error:
-            outcome = OUTCOME_ERROR
-            last_error = error
-        finally:
-            duration_ms = (time.perf_counter() - t0) * 1000.0
-            self._record_attempt_metrics(
-                ProviderAttemptTelemetry(
-                    operation=operation,
-                    attempt=attempt,
-                    max_retries=max_retries,
-                    timeout_seconds=timeout_seconds,
-                    outcome=outcome,
-                    last_error=last_error,
-                    duration_ms=duration_ms,
-                    token_metrics=token_metrics,
-                )
-            )
-        return _ProviderAttemptResult(text=text, last_error=last_error, stop_attempts=stop_attempts)
-
-    def _handle_http_error(
-        self,
-        operation: str,
-        error: requests.exceptions.HTTPError,
-        *,
-        attempt: int,
-        max_retries: int,
-        timeout_seconds: int,
-    ) -> tuple[str, Exception, bool]:
-        status_code = getattr(getattr(error, "response", None), "status_code", None)
-        if isinstance(status_code, int) and HTTP_CLIENT_ERROR_MIN_STATUS <= status_code <= HTTP_CLIENT_ERROR_MAX_STATUS:
-            return OUTCOME_RESPONSE_ERROR, ProviderResponseError(f"HTTP inference client error: status={status_code}"), True
-        if attempt < max_retries:
-            self._record_retry(
-                ProviderRetryTelemetry(operation, attempt, max_retries, timeout_seconds, error)
-            )
-        return OUTCOME_UNAVAILABLE, error, False
-
-    def _handle_timeout(
-        self,
-        operation: str,
-        error: requests.exceptions.Timeout,
-        *,
-        attempt: int,
-        max_retries: int,
-        timeout_seconds: int,
-    ) -> tuple[str, Exception]:
-        record_provider_timeout_event(self.name, operation, self.model_name)
-        if attempt < max_retries:
-            self._record_retry(ProviderRetryTelemetry(operation, attempt, max_retries, timeout_seconds, error))
-        return OUTCOME_TIMEOUT, error
-
-    def _handle_request_exception(
-        self,
-        operation: str,
-        error: requests.exceptions.RequestException,
-        *,
-        attempt: int,
-        max_retries: int,
-        timeout_seconds: int,
-    ) -> tuple[str, Exception]:
-        if attempt < max_retries:
-            self._record_retry(ProviderRetryTelemetry(operation, attempt, max_retries, timeout_seconds, error))
-        return OUTCOME_UNAVAILABLE, error
+                post_generate_request=lambda request_payload, request_timeout: self._post_generate_request(
+                    request_payload,
+                    timeout_seconds=request_timeout,
+                ),
+                parse_response_payload=self._parse_response_payload,
+                record_attempt_metrics=self._record_attempt_metrics,
+                record_retry=self._record_retry,
+                record_timeout=self._record_timeout,
+            ),
+            attempt=attempt,
+        )
 
     def extract_agenda(self, prompt: str, *, temperature: float, max_tokens: int) -> str | None:
         return self._run_operation(
@@ -340,25 +206,6 @@ class HttpInferenceProvider:
 
     def generate_json(self, prompt: str, *, max_tokens: int) -> str | None:
         return self._run_operation(OPERATION_GENERATE_JSON, prompt, max_tokens=max_tokens, temperature=0.0)
-
-
-@dataclass(frozen=True)
-class _ProviderAttemptResult:
-    text: str | None
-    last_error: Exception | None
-    stop_attempts: bool
-
-
-def _raise_provider_error_from_last_error(last_error: Exception | None) -> None:
-    if isinstance(last_error, ProviderResponseError):
-        raise last_error
-    if isinstance(last_error, ProviderUnavailableError):
-        raise last_error
-    if isinstance(last_error, requests.exceptions.Timeout):
-        raise ProviderTimeoutError(f"HTTP inference timed out: {last_error}") from last_error
-    if last_error is not None:
-        raise ProviderUnavailableError(f"HTTP inference unavailable: {last_error}") from last_error
-    raise ProviderUnavailableError("HTTP inference unavailable")
 
 
 def _provider_facade() -> ModuleType:
