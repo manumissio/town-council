@@ -9,6 +9,7 @@ from pathlib import Path
 from scripts.operator_profile_soak_eval import GATE_FAIL
 from scripts.operator_profile_soak_eval import GATE_INCONCLUSIVE
 from scripts.operator_profile_soak_eval import GATE_PASS
+from scripts.operator_profile_soak_eval import counter_delta as _counter_delta
 from scripts.operator_profile_soak_eval import has_adverse_drift as _has_adverse_drift
 from scripts.operator_profile_soak_eval import load_days as _load_days
 from scripts.operator_profile_soak_eval import overall_status as _overall_status
