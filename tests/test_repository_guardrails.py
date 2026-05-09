@@ -254,6 +254,43 @@ TOPIC_GENERATION_CLEANUP_MODULES = (
     "pipeline/topic_generation_task.py",
     "pipeline/topic_generation_batch.py",
 )
+HTTP_PROVIDER_CLEANUP_MODULES = (
+    "pipeline/http_inference_provider.py",
+    "pipeline/http_inference_attempts.py",
+    "pipeline/http_inference_errors.py",
+    "pipeline/http_inference_payloads.py",
+    "pipeline/http_inference_policy.py",
+    "pipeline/http_inference_telemetry.py",
+)
+PERSON_UTILS_CLEANUP_MODULES = (
+    "pipeline/person_linker.py",
+    "pipeline/person_cache.py",
+    "pipeline/person_mutations.py",
+    "pipeline/person_names.py",
+    "pipeline/person_selectors.py",
+    "pipeline/utils.py",
+    "pipeline/utils_matching.py",
+    "pipeline/utils_names.py",
+    "pipeline/utils_ocd.py",
+    "pipeline/utils_pdf.py",
+)
+REPORTING_SCRIPTS_CLEANUP_MODULES = (
+    "scripts/analyze_pipeline_profile.py",
+    "scripts/collect_soak_metrics.py",
+    "scripts/evaluate_soak_week.py",
+    "scripts/operator_profile_ab.py",
+    "scripts/operator_profile_artifacts.py",
+    "scripts/operator_profile_metric_deltas.py",
+    "scripts/operator_profile_metrics.py",
+    "scripts/operator_profile_reports.py",
+    "scripts/operator_profile_soak_eval.py",
+    "scripts/pipeline_profile_analysis.py",
+    "scripts/pipeline_profile_compare.py",
+    "scripts/profile_pipeline.py",
+    "scripts/profile_pipeline_runner.py",
+    "scripts/profile_pipeline_selection.py",
+    "scripts/score_ab_results.py",
+)
 INDEXER_CLEANUP_MODULES = (
     "pipeline/indexer.py",
     "pipeline/indexer_documents.py",
@@ -312,6 +349,9 @@ def _broad_exception_scan_files() -> list[Path]:
         *SEMANTIC_BACKEND_CLEANUP_MODULES,
         *SUMMARY_TEXT_CLEANUP_MODULES,
         *VOTE_EXTRACTION_CLEANUP_MODULES,
+        *HTTP_PROVIDER_CLEANUP_MODULES,
+        *PERSON_UTILS_CLEANUP_MODULES,
+        *REPORTING_SCRIPTS_CLEANUP_MODULES,
     ):
         tracked_files.add((ROOT / module_path).resolve())
     return sorted(tracked_files)
@@ -601,6 +641,36 @@ def test_topic_generation_cleanup_modules_stay_under_size_target():
     oversized_modules = [
         module_path
         for module_path in TOPIC_GENERATION_CLEANUP_MODULES
+        if len((ROOT / module_path).read_text(encoding="utf-8").splitlines()) > 300
+    ]
+
+    assert oversized_modules == []
+
+
+def test_http_provider_cleanup_modules_stay_under_size_target():
+    oversized_modules = [
+        module_path
+        for module_path in HTTP_PROVIDER_CLEANUP_MODULES
+        if len((ROOT / module_path).read_text(encoding="utf-8").splitlines()) > 300
+    ]
+
+    assert oversized_modules == []
+
+
+def test_person_utils_cleanup_modules_stay_under_size_target():
+    oversized_modules = [
+        module_path
+        for module_path in PERSON_UTILS_CLEANUP_MODULES
+        if len((ROOT / module_path).read_text(encoding="utf-8").splitlines()) > 300
+    ]
+
+    assert oversized_modules == []
+
+
+def test_reporting_scripts_cleanup_modules_stay_under_size_target():
+    oversized_modules = [
+        module_path
+        for module_path in REPORTING_SCRIPTS_CLEANUP_MODULES
         if len((ROOT / module_path).read_text(encoding="utf-8").splitlines()) > 300
     ]
 

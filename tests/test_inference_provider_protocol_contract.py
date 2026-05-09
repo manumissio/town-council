@@ -1,6 +1,8 @@
 import threading
 
 from pipeline import llm as llm_mod
+from pipeline import llm_provider
+from pipeline.http_inference_provider import HttpInferenceProvider as DirectHttpInferenceProvider
 from pipeline.llm_provider import InferenceProvider, InProcessLlamaProvider, HttpInferenceProvider
 from pipeline.llm_provider import ProviderResponseError
 
@@ -168,6 +170,11 @@ def test_http_provider_has_protocol_methods():
     assert hasattr(provider, "summarize_text")
     assert hasattr(provider, "generate_topics")
     assert hasattr(provider, "generate_json")
+
+
+def test_http_provider_import_contract_preserves_llm_provider_facade():
+    assert llm_provider.HttpInferenceProvider is DirectHttpInferenceProvider
+    assert HttpInferenceProvider is DirectHttpInferenceProvider
 
 
 def test_local_ai_defaults_to_http_provider_when_backend_unset(monkeypatch):

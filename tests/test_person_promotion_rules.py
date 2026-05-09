@@ -1,6 +1,7 @@
 from contextlib import contextmanager
 from unittest.mock import MagicMock
 
+from pipeline import person_cache
 from pipeline import person_linker
 from pipeline.models import Place, Organization, Event, Catalog, Document, Person, Membership
 
@@ -82,7 +83,7 @@ def test_link_people_scopes_to_selected_catalog_ids_and_prefers_exact_match(db_s
     reindex_spy = MagicMock(return_value={"catalogs_considered": 1, "catalogs_reindexed": 1, "catalogs_failed": 0})
     monkeypatch.setattr(person_linker, "reindex_catalogs", reindex_spy)
     fuzzy_spy = MagicMock(side_effect=AssertionError("fuzzy matching should not run for exact matches"))
-    monkeypatch.setattr(person_linker.process, "extractOne", fuzzy_spy)
+    monkeypatch.setattr(person_cache.process, "extractOne", fuzzy_spy)
 
     place = Place(name="Berkeley", state="CA", ocd_division_id="ocd-division/country:us/state:ca/place:berkeley")
     db_session.add(place)

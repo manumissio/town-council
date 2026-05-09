@@ -1,6 +1,6 @@
 # Town Council Architecture (2026)
 
-Last updated: 2026-05-02
+Last updated: 2026-05-09
 
 ## 1) System Overview
 
@@ -284,7 +284,7 @@ Primary owners:
 - `pipeline/llm.py`
 - `pipeline/agenda_extraction.py`
 - `pipeline/llm_provider.py`
-- `pipeline/http_inference_provider.py`
+- `pipeline/http_inference_provider.py` facade plus focused `pipeline/http_inference_*` helpers
 - `pipeline/inprocess_inference_provider.py`
 - `pipeline/inference_provider_contract.py`
 - `pipeline/config.py` facade plus focused `pipeline/config_*` loaders
@@ -320,7 +320,7 @@ Primary owners:
 - Ingestion and promotion: `council_crawler/`, `crawler/promote_stage.py`
 - Canonical extraction/content hashing: `pipeline/extraction_service.py`, `pipeline/content_hash.py`
 - Async orchestration and writes: `pipeline/tasks.py`
-- Inference abstraction and provider telemetry: `pipeline/llm.py`, `pipeline/agenda_extraction.py`, `pipeline/llm_provider.py`, `pipeline/http_inference_provider.py`, `pipeline/inprocess_inference_provider.py`, `pipeline/provider_telemetry.py`, `pipeline/metrics.py`, `pipeline/metrics_provider_recorders.py`
+- Inference abstraction and provider telemetry: `pipeline/llm.py`, `pipeline/agenda_extraction.py`, `pipeline/llm_provider.py`, `pipeline/http_inference_provider.py` facade plus focused `pipeline/http_inference_*` helpers, `pipeline/inprocess_inference_provider.py`, `pipeline/provider_telemetry.py`, `pipeline/metrics.py`, `pipeline/metrics_provider_recorders.py`
 - API surface and auth: `api/main.py`, `api/app_setup.py`, `api/search_routes.py`, `api/task_routes.py`, `api/search/query_builder.py`, `api/metrics.py`
 - Semantic retrieval and embeddings: `pipeline/semantic_index.py`, `pipeline/semantic_faiss_backend.py`, `pipeline/semantic_pgvector_backend.py`, focused semantic backend helpers, `pipeline/models.py`
 - Frontend query/task UX: `frontend/app/page.js`, `frontend/state/search-state.js`, `frontend/components/ResultCard.js`
@@ -384,7 +384,7 @@ Owners:
 - `pipeline/llm.py`
 - `pipeline/agenda_extraction.py`
 - `pipeline/llm_provider.py`
-- `pipeline/http_inference_provider.py`
+- `pipeline/http_inference_provider.py` facade plus focused `pipeline/http_inference_*` helpers
 - `pipeline/inprocess_inference_provider.py`
 - `pipeline/inference_provider_contract.py`
 - `pipeline/config.py` facade plus focused `pipeline/config_*` loaders

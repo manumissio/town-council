@@ -8,6 +8,24 @@ Use each entry to record:
 - the affected boundary or contract
 - links to the canonical docs that carry the ongoing operational or architecture detail
 
+## 2026-05-09: Split parallel Wave 1 legacy cleanup seams behind stable entrypoints
+
+- Status: Accepted
+- Decision:
+  - Profiling and soak-reporting scripts remain CLI entrypoints while shared artifact loading, metric deltas, baseline comparison, and report rendering move behind focused `scripts/operator_profile_*` and `scripts/pipeline_profile_*` helpers.
+  - `pipeline/http_inference_provider.py` remains the HTTP provider compatibility surface while retry attempts, payload parsing, provider policy, typed errors, and telemetry helpers move behind focused `pipeline/http_inference_*` modules.
+  - `pipeline/utils.py` and `pipeline/person_linker.py` remain public import surfaces while OCD ID helpers, name policy, fuzzy matching, PDF coordinates, person selection, mutation, and cache helpers move behind focused `pipeline/utils_*` and `pipeline/person_*` modules.
+- Why:
+  - The largest remaining cleanup targets were independent enough to split in parallel without touching `pipeline/tasks.py`, hydration/repair scripts, or `pipeline/models.py`.
+  - Existing operator output, provider import seams, and person-linking side effects must stay stable while reducing module size and review risk.
+- Affected boundaries:
+  - CLI JSON/stdout contracts, provider timeout/retry/error mapping, telemetry labels, person matching thresholds, reindex behavior, and DB session ownership stay unchanged.
+  - Guardrails track the new helper families under the 300-line cleanup target.
+- Canonical references:
+  - [ARCHITECTURE.md](../ARCHITECTURE.md)
+  - [docs/PIPELINE.md](PIPELINE.md)
+  - [docs/ENGINEERING_GUARDRAILS.md](ENGINEERING_GUARDRAILS.md)
+
 ## 2026-05-08: Split indexing, semantic backend helpers, and summary text runtime behind facades
 
 - Status: Accepted
