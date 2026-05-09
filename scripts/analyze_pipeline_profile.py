@@ -7,10 +7,11 @@ import re
 from pathlib import Path
 from typing import Any, Mapping, cast
 
+from scripts.operator_prometheus import PROM_LINE as PROM_LINE
+from scripts.operator_prometheus import parse_metrics as _parse_metrics
+from scripts.operator_prometheus import sum_metric as _sum_metric
 
-PROM_LINE = re.compile(
-    r"^(?P<name>[a-zA-Z_:][a-zA-Z0-9_:]*)(?:\{(?P<labels>[^}]*)\})?\s+(?P<value>-?[0-9]+(?:\.[0-9]+)?)$"
-)
+
 SUMMARY_HYDRATION_LINE = re.compile(
     r"summary_hydration_backfill .*agenda_deterministic_complete=(?P<agenda>\d+)"
     r".*llm_complete=(?P<llm>\d+)"
@@ -75,48 +76,6 @@ def _load_jsonl(path: Path) -> list[dict[str, Any]]:
         if isinstance(payload, dict):
             rows.append(payload)
     return rows
-
-
-def _parse_labels(text: str | None) -> dict[str, str]:
-    if not text:
-        return {}
-    out = {}
-    for part in text.split(","):
-        if "=" not in part:
-            continue
-        key, value = part.split("=", 1)
-        out[key.strip()] = value.strip().strip('"')
-    return out
-
-
-def _parse_metrics(raw: str) -> list[dict[str, Any]]:
-    rows = []
-    for line in raw.splitlines():
-        item = line.strip()
-        if not item or item.startswith("#"):
-            continue
-        match = PROM_LINE.match(item)
-        if not match:
-            continue
-        rows.append(
-            {
-                "name": match.group("name"),
-                "labels": _parse_labels(match.group("labels")),
-                "value": float(match.group("value")),
-            }
-        )
-    return rows
-
-
-def _sum_metric(rows: list[dict[str, Any]], name: str, labels: dict[str, str] | None = None) -> float:
-    total = 0.0
-    for row in rows:
-        if row["name"] != name:
-            continue
-        if labels and any(row["labels"].get(key) != expected for key, expected in labels.items()):
-            continue
-        total += float(row["value"])
-    return total
 
 
 def _classify_bottleneck(phase: str, contribution_pct: float, queue_wait_s: float, execution_s: float) -> str:

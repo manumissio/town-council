@@ -28,11 +28,14 @@ from pipeline.config import (
 from pipeline.db_session import db_session
 from pipeline.extraction_service import reextract_catalog_content
 from pipeline.indexer import reindex_catalog
-from pipeline.maintenance_run_status import MaintenanceRunStatus, validate_run_id
+from pipeline.maintenance_run_status import MaintenanceRunStatus
 from pipeline import llm as llm_mod
 from pipeline import llm_provider as llm_provider_mod
 from pipeline.models import AgendaItem, Catalog, Document, Event
 from pipeline.tasks import embed_catalog_task, generate_summary_task
+from scripts.operator_cli import nonnegative_int as _nonnegative_int
+from scripts.operator_cli import positive_int as _positive_int
+from scripts.operator_cli import safe_run_id as _safe_run_id
 
 
 ProgressCallback = Callable[[dict[str, Any]], None]
@@ -41,27 +44,6 @@ ProgressCallback = Callable[[dict[str, Any]], None]
 def _emit_progress(enabled: bool, message: str) -> None:
     if enabled:
         print(message, flush=True)
-
-
-def _positive_int(value: str) -> int:
-    parsed = int(value)
-    if parsed <= 0:
-        raise argparse.ArgumentTypeError("value must be a positive integer")
-    return parsed
-
-
-def _nonnegative_int(value: str) -> int:
-    parsed = int(value)
-    if parsed < 0:
-        raise argparse.ArgumentTypeError("value must be a non-negative integer")
-    return parsed
-
-
-def _safe_run_id(value: str) -> str:
-    try:
-        return validate_run_id(value)
-    except ValueError as exc:
-        raise argparse.ArgumentTypeError(str(exc)) from exc
 
 
 def _empty_summary_counts() -> dict[str, int]:

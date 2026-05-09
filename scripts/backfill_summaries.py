@@ -5,22 +5,10 @@ import argparse
 import json
 import time
 
-from pipeline.maintenance_run_status import MaintenanceRunStatus, validate_run_id
+from pipeline.maintenance_run_status import MaintenanceRunStatus
 from pipeline.tasks import run_summary_hydration_backfill
-
-
-def _safe_run_id(value: str) -> str:
-    try:
-        return validate_run_id(value)
-    except ValueError as exc:
-        raise argparse.ArgumentTypeError(str(exc)) from exc
-
-
-def _positive_int(value: str) -> int:
-    parsed = int(value)
-    if parsed <= 0:
-        raise argparse.ArgumentTypeError("value must be a positive integer")
-    return parsed
+from scripts.operator_cli import positive_int as _positive_int
+from scripts.operator_cli import safe_run_id as _safe_run_id
 
 
 def main() -> int:

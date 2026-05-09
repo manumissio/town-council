@@ -12,16 +12,10 @@ from pipeline.db_session import db_session
 from pipeline.indexer import reindex_catalog
 from pipeline.laserfiche_error_pages import DOCUMENT_SHAPE_FAMILY, classify_catalog_bad_content
 from pipeline.models import AgendaItem, Catalog, Document, Event, SemanticEmbedding
+from scripts.operator_cli import positive_int as _positive_int
 
 
 logger = logging.getLogger(__name__)
-
-
-def _positive_int(value: str) -> int:
-    parsed = int(value)
-    if parsed <= 0:
-        raise argparse.ArgumentTypeError("value must be a positive integer")
-    return parsed
 
 
 def _matching_catalog_classifications(

@@ -10,25 +10,13 @@ from pipeline.city_scope import ordered_hydration_cities
 from pipeline.db_session import db_session
 from pipeline.summary_hydration_diagnostics import build_summary_hydration_snapshot
 from pipeline.tasks import run_summary_hydration_backfill
+from scripts.operator_cli import nonnegative_int as _nonnegative_int
+from scripts.operator_cli import positive_int as _positive_int
 
 
 def _emit_progress(enabled: bool, message: str) -> None:
     if enabled:
         print(message, flush=True)
-
-
-def _positive_int(value: str) -> int:
-    parsed = int(value)
-    if parsed <= 0:
-        raise argparse.ArgumentTypeError("value must be a positive integer")
-    return parsed
-
-
-def _nonnegative_int(value: str) -> int:
-    parsed = int(value)
-    if parsed < 0:
-        raise argparse.ArgumentTypeError("value must be a non-negative integer")
-    return parsed
 
 
 def _empty_summary_counts() -> dict[str, int]:

@@ -3,7 +3,6 @@ from __future__ import annotations
 
 import argparse
 from datetime import datetime, timezone
-import importlib.util
 import json
 import os
 from pathlib import Path
@@ -14,11 +13,14 @@ import time
 from sqlalchemy.orm import sessionmaker
 
 from pipeline.agenda_worker import select_catalog_ids_for_agenda_segmentation
-from pipeline.maintenance_run_status import validate_run_id
 from pipeline.models import Catalog, Document, Event, db_connect
 from pipeline.profile_manifest import load_manifest_package, sidecar_path_for_manifest, validate_manifest_package
 from pipeline.run_pipeline import select_catalog_ids_for_processing
 from pipeline.tasks import select_catalog_ids_for_summary_hydration
+from scripts.collect_soak_metrics import _fetch_worker_metrics_via_docker
+from scripts.operator_cli import safe_run_id as _safe_run_id
+from scripts.operator_prometheus import parse_metrics as _parse_metrics
+from scripts.operator_prometheus import sum_metric as _sum_metric
 
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
@@ -29,24 +31,8 @@ CORE_PROFILE_SERVICE = "worker"
 BATCH_PROFILE_SERVICE = "enrichment-worker"
 
 
-def _safe_run_id(value: str) -> str:
-    try:
-        return validate_run_id(value)
-    except ValueError as exc:
-        raise argparse.ArgumentTypeError(str(exc)) from exc
-
-
 def _utc_now_iso() -> str:
     return datetime.now(timezone.utc).replace(microsecond=0).isoformat()
-
-
-def _load_soak_metrics_module():
-    path = REPO_ROOT / "scripts" / "collect_soak_metrics.py"
-    spec = importlib.util.spec_from_file_location("collect_soak_metrics", path)
-    module = importlib.util.module_from_spec(spec)
-    assert spec.loader is not None
-    spec.loader.exec_module(module)
-    return module
 
 
 def _json_dump(payload: dict) -> str:
@@ -152,15 +138,14 @@ def _path_for_profile_env(path: Path) -> str:
 
 
 def _provider_counters_before_run() -> dict[str, float] | None:
-    mod = _load_soak_metrics_module()
-    raw, err = mod._fetch_worker_metrics_via_docker()
+    raw, err = _fetch_worker_metrics_via_docker()
     if err or not raw.strip():
         return None
-    rows = mod._parse_metrics(raw)
+    rows = _parse_metrics(raw)
     return {
-        "provider_requests_total": float(mod._sum_metric(rows, "tc_provider_requests_total")),
-        "provider_timeouts_total": float(mod._sum_metric(rows, "tc_provider_timeouts_total")),
-        "provider_retries_total": float(mod._sum_metric(rows, "tc_provider_retries_total")),
+        "provider_requests_total": float(_sum_metric(rows, "tc_provider_requests_total")),
+        "provider_timeouts_total": float(_sum_metric(rows, "tc_provider_timeouts_total")),
+        "provider_retries_total": float(_sum_metric(rows, "tc_provider_retries_total")),
     }
 
 
