@@ -14,6 +14,23 @@ from pipeline.extractor import is_safe_path
 from pipeline.utils import find_text_coordinates, generate_ocd_id
 import re
 
+
+def test_pipeline_utils_facade_exports_public_contract():
+    import pipeline.utils as utils
+
+    expected_exports = {
+        "find_best_person_match",
+        "find_text_coordinates",
+        "generate_ocd_id",
+        "is_likely_human_name",
+        "validate_ocd_id",
+    }
+
+    assert expected_exports.issubset(set(utils.__all__))
+    for export_name in expected_exports:
+        assert hasattr(utils, export_name)
+
+
 def test_ocd_id_format():
     """
     Test: Ensure generated OCD-IDs follow the standard format.

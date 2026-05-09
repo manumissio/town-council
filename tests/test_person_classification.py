@@ -5,6 +5,22 @@ from pipeline.person_linker import (
 )
 
 
+def test_person_linker_facade_exports_public_contract():
+    import pipeline.person_linker as person_linker
+
+    expected_exports = {
+        "has_official_title_context",
+        "infer_person_type",
+        "link_people",
+        "normalize_person_name",
+        "run_people_linking",
+    }
+
+    assert expected_exports.issubset(set(person_linker.__all__))
+    for export_name in expected_exports:
+        assert hasattr(person_linker, export_name)
+
+
 def test_official_title_context_detection():
     assert has_official_title_context("Mayor Jesse Arreguin") is True
     assert has_official_title_context("Councilmember Sophie Hahn") is True
