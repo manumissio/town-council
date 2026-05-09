@@ -1,6 +1,6 @@
 # Town Council Pipeline Guide
 
-Last updated: 2026-04-03
+Last updated: 2026-05-09
 
 ## 1) Purpose and Boundaries
 
@@ -109,7 +109,7 @@ Operational commands and troubleshooting stay in [`docs/OPERATIONS.md`](OPERATIO
 - `table_worker.py`
 - `run_batch_enrichment.py`
 - `topic_worker.py` (CLI/backfill facade) and `topic_generation.py` facade plus focused `topic_generation_*` modules
-- `person_linker.py`
+- `person_linker.py` facade plus focused `person_*` helpers
 - `indexer.py` facade plus `indexer_documents.py` and `indexer_meilisearch.py`
 
 Why this exists:
@@ -217,7 +217,7 @@ Why this exists:
 - `pipeline/agenda_extraction.py`: agenda-extraction facade for prompt/parser/fallback compatibility
 - `pipeline/agenda_extraction_parser.py`, `pipeline/agenda_extraction_fallback.py`, `pipeline/agenda_extraction_acceptance.py`, `pipeline/agenda_extraction_pages.py`, `pipeline/agenda_extraction_noise.py`, `pipeline/agenda_extraction_numbered.py`, `pipeline/agenda_extraction_paragraphs.py`, `pipeline/agenda_extraction_diagnostics.py`: focused agenda-extraction implementation modules
 - `pipeline/llm_provider.py`: provider compatibility facade for imports, patch seams, and config overrides
-- `pipeline/http_inference_provider.py`: HTTP/Ollama transport abstraction
+- `pipeline/http_inference_provider.py`: HTTP/Ollama transport facade backed by focused `pipeline/http_inference_*` helpers
 - `pipeline/inprocess_inference_provider.py`: in-process llama transport abstraction
 - `pipeline/inference_provider_contract.py`: provider protocol and typed error contract
 
@@ -324,7 +324,7 @@ Use these files as primary references:
 - Runtime agenda summaries: `pipeline/agenda_summary.py` facade plus `pipeline/agenda_summary_items.py`, `pipeline/agenda_summary_scaffold.py`, `pipeline/agenda_summary_prompting.py`, `pipeline/agenda_summary_rendering.py`, `pipeline/agenda_summary_counters.py`, and `pipeline/agenda_summary_pipeline.py`
 - Agenda-summary maintenance: `pipeline/agenda_summary_maintenance.py` facade plus `pipeline/agenda_summary_contracts.py`, `pipeline/agenda_summary_inputs.py`, `pipeline/agenda_summary_callbacks.py`, `pipeline/agenda_summary_batch.py`, and `pipeline/agenda_summary_fallback.py`
 - Provider facade: `pipeline/llm_provider.py`
-- Provider transport + typed errors: `pipeline/http_inference_provider.py`, `pipeline/inprocess_inference_provider.py`, `pipeline/inference_provider_contract.py`
+- Provider transport + typed errors: `pipeline/http_inference_provider.py` facade plus focused `pipeline/http_inference_*` helpers, `pipeline/inprocess_inference_provider.py`, `pipeline/inference_provider_contract.py`
 - Extraction freshness/hash: `pipeline/extraction_service.py`, `pipeline/content_hash.py`
 - Metrics: `pipeline/metrics.py` (facade), `pipeline/metrics_definitions.py`, `pipeline/metrics_provider_keys.py`, `pipeline/metrics_provider_recorders.py`, `pipeline/metrics_provider_collector.py`, `pipeline/metrics_task_recorders.py`, `pipeline/metrics_celery_signals.py`, `pipeline/metrics_profile_events.py`
 - Summary text runtime: `pipeline/text_generation.py` facade plus `pipeline/summary_text_formatting.py`, `pipeline/summary_text_prompting.py`, `pipeline/summary_source_quality.py`, `pipeline/summary_grounding.py`, and `pipeline/summary_backfill_*` helpers
