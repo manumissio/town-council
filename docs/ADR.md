@@ -26,6 +26,23 @@ Use each entry to record:
   - [docs/PIPELINE.md](PIPELINE.md)
   - [docs/ENGINEERING_GUARDRAILS.md](ENGINEERING_GUARDRAILS.md)
 
+## 2026-05-10: Split API task route helpers behind the task route facade
+
+- Status: Accepted
+- Decision:
+  - `api/task_routes.py` remains the protected task-route facade and `build_task_router` entrypoint.
+  - Summary, segmentation, and generation/extraction endpoint decisions move behind focused `api/task_route_*` helpers.
+- Why:
+  - The task route facade had reached the cleanup size target while still mixing route wiring, cache checks, freshness checks, and enqueue decisions.
+  - Passing the task facade, DB session, route parameters, models, and helper dependencies explicitly keeps `api.main` monkeypatch seams intact without helper imports from `api.main`.
+- Affected boundaries:
+  - Routes, auth dependencies, rate limits, response payloads, task names, enqueue behavior, and task polling remain unchanged.
+  - Guardrails track the task API helper family under the 300-line cleanup target.
+- Canonical references:
+  - [ARCHITECTURE.md](../ARCHITECTURE.md)
+  - [docs/PIPELINE.md](PIPELINE.md)
+  - [docs/ENGINEERING_GUARDRAILS.md](ENGINEERING_GUARDRAILS.md)
+
 ## 2026-05-10: Split model and migration cleanup seams
 
 - Status: Accepted
@@ -311,6 +328,23 @@ Use each entry to record:
   - [ARCHITECTURE.md](../ARCHITECTURE.md)
   - [docs/PIPELINE.md](PIPELINE.md)
   - [docs/PERFORMANCE.md](PERFORMANCE.md)
+
+## 2026-05-10: Split metrics Redis backend helpers behind the metrics facade
+
+- Status: Accepted
+- Decision:
+  - `pipeline/metrics.py` remains the public metrics facade and Celery signal registration boundary.
+  - Redis client availability, degraded-backend state, and Redis write helpers move to `pipeline/metrics_redis_backend.py`.
+  - Prometheus metric names, Redis key labels, collector registration behavior, and signal side effects remain unchanged.
+- Why:
+  - The metrics facade was at the file-size cap and still owned Redis backend failure handling directly.
+  - Moving Redis backend helpers narrows the side-effect boundary without changing provider telemetry or worker metrics contracts.
+- Affected boundaries:
+  - `pipeline/metrics.py` owns public imports and task signal wiring.
+  - `pipeline/metrics_redis_backend.py` owns Redis backend availability and write behavior.
+- Canonical references:
+  - [ARCHITECTURE.md](../ARCHITECTURE.md)
+  - [docs/PIPELINE.md](PIPELINE.md)
 
 ## 2026-04-22: Split the search route family behind the search facade
 
@@ -679,7 +713,8 @@ Use each entry to record:
   - `pipeline/summary_hydration_diagnostics.py` remains the operator-facing facade for diagnostic scripts and tests.
   - `pipeline/summary_hydration_diagnostic_contracts.py` owns snapshot contracts, path/root-cause constants, sample bucket names, and model protocols.
   - `pipeline/summary_hydration_diagnostic_policy.py` owns summary-path prediction and primary root-cause selection.
-  - `pipeline/summary_hydration_diagnostic_queries.py` owns runtime model loading and SQLAlchemy query helpers.
+  - `pipeline/summary_hydration_diagnostic_queries.py` owns runtime model loading and the typed SQLAlchemy query facade.
+  - `pipeline/summary_hydration_diagnostic_samples.py` owns sample-ID SQLAlchemy query helpers.
   - `pipeline/summary_hydration_diagnostic_builder.py` owns backlog classification and snapshot assembly.
 - Why:
   - The diagnostic module had become a mixed contract, policy, query, and snapshot-building boundary.

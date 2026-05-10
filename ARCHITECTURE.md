@@ -320,7 +320,7 @@ Primary owners:
 - Ingestion and promotion: `council_crawler/`, `crawler/promote_stage.py`
 - Canonical extraction/content hashing: `pipeline/extraction_service.py`, `pipeline/content_hash.py`
 - Async orchestration and writes: `pipeline/tasks.py` facade plus focused `pipeline/task_*` helpers
-- Inference abstraction and provider telemetry: `pipeline/llm.py` facade plus focused `pipeline/local_ai_*` helpers, `pipeline/agenda_extraction.py`, `pipeline/llm_provider.py`, `pipeline/http_inference_provider.py` facade plus focused `pipeline/http_inference_*` helpers, `pipeline/inprocess_inference_provider.py`, `pipeline/provider_telemetry.py`, `pipeline/metrics.py`, `pipeline/metrics_provider_recorders.py`
+- Inference abstraction and provider telemetry: `pipeline/llm.py` facade plus focused `pipeline/local_ai_*` helpers, `pipeline/agenda_extraction.py`, `pipeline/llm_provider.py`, `pipeline/http_inference_provider.py` facade plus focused `pipeline/http_inference_*` helpers, `pipeline/inprocess_inference_provider.py`, `pipeline/provider_telemetry.py`, `pipeline/metrics.py`, `pipeline/metrics_provider_recorders.py`, `pipeline/metrics_redis_backend.py`
 - API surface and auth: `api/main.py`, `api/app_setup.py`, `api/search_routes.py`, `api/task_routes.py` facade plus focused `api/task_*` helpers, `api/search_support.py` facade plus focused `api/search/*_support.py` helpers, `api/search/query_builder.py`, `api/metrics.py`
 - Semantic retrieval and embeddings: `pipeline/semantic_index.py`, `pipeline/semantic_faiss_backend.py`, `pipeline/semantic_pgvector_backend.py`, focused semantic backend helpers, `pipeline/models.py` facade plus focused `pipeline/model_*` modules
 - Frontend query/task UX: `frontend/app/page.js`, `frontend/state/search-state.js`, `frontend/components/ResultCard.js`
@@ -407,6 +407,7 @@ Owners:
 - `pipeline/metrics_provider_collector.py`
 - `pipeline/metrics_provider_recorders.py`
 - `pipeline/metrics_provider_keys.py`
+- `pipeline/metrics_redis_backend.py`
 - `pipeline/metrics_task_recorders.py`
 - `pipeline/metrics_celery_signals.py`
 - `pipeline/metrics_profile_events.py`
@@ -444,8 +445,8 @@ Owners:
 |---|---|---|
 | API service metrics | `GET /metrics` on API | `api/metrics.py`, `api/main.py` |
 | Worker service metrics | `GET /metrics` on worker exporter | `pipeline/metrics.py`, `pipeline/metrics_definitions.py`, `pipeline/metrics_task_recorders.py`, `pipeline/metrics_celery_signals.py`, `pipeline/metrics_profile_events.py` |
-| Provider transport telemetry | `tc_provider_*` (requests, duration, retries, timeouts, TTFT/TPS, token counters) | `pipeline/provider_telemetry.py`, `pipeline/llm_provider.py`, `pipeline/metrics.py`, `pipeline/metrics_provider_keys.py`, `pipeline/metrics_provider_recorders.py` |
-| Prefork-safe provider visibility | Redis-backed provider metric aggregates | `pipeline/metrics.py`, `pipeline/metrics_provider_keys.py`, `pipeline/metrics_provider_collector.py` |
+| Provider transport telemetry | `tc_provider_*` (requests, duration, retries, timeouts, TTFT/TPS, token counters) | `pipeline/provider_telemetry.py`, `pipeline/llm_provider.py`, `pipeline/metrics.py`, `pipeline/metrics_provider_keys.py`, `pipeline/metrics_provider_recorders.py`, `pipeline/metrics_redis_backend.py` |
+| Prefork-safe provider visibility | Redis-backed provider metric aggregates | `pipeline/metrics.py`, `pipeline/metrics_provider_keys.py`, `pipeline/metrics_provider_collector.py`, `pipeline/metrics_redis_backend.py` |
 
 ### Security and Reliability Controls
 

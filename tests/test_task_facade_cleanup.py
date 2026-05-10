@@ -1,4 +1,5 @@
 import sys
+from pathlib import Path
 from unittest.mock import MagicMock
 
 sys.modules["llama_cpp"] = MagicMock()
@@ -18,6 +19,55 @@ def test_api_task_routes_reexports_dispatch_facade():
     assert task_routes._enqueue_task is task_dispatch._enqueue_task
     assert task_routes.generate_summary_task is task_dispatch.generate_summary_task
     assert task_routes.extract_text_task is task_dispatch.extract_text_task
+
+
+def test_api_task_route_helpers_do_not_import_main():
+    helper_modules = (
+        "api.task_route_summary",
+        "api.task_route_segmentation",
+        "api.task_route_generation",
+        "api.task_route_support",
+    )
+
+    for module_name in helper_modules:
+        module = __import__(module_name, fromlist=["__name__"])
+        module_path = Path(module.__file__)
+        assert "api.main" not in module_path.read_text(encoding="utf-8")
+
+
+def test_summary_helper_uses_injected_task_facade_patch_seam():
+    from api.task_route_summary import summarize_document_request
+
+    db = MagicMock()
+    catalog = MagicMock(
+        content="City council meeting discussed budget updates and adopted multiple motions after public comment.",
+        summary=None,
+        summary_source_hash=None,
+    )
+    db.get.return_value = catalog
+    facade = MagicMock()
+    facade._summary_doc_kind_and_hashes.return_value = ("minutes", "content-hash", None)
+    facade._enqueue_task.return_value = "summary-task"
+
+    payload = summarize_document_request(
+        task_facade=facade,
+        db=db,
+        catalog_id=123,
+        force=False,
+        catalog_model=MagicMock,
+        analyze_source_text=lambda text: {"text": text},
+        build_low_signal_message=lambda _quality: "low signal",
+        is_summary_fresh=lambda *_args, **_kwargs: False,
+        is_source_summarizable=lambda _quality: True,
+    )
+
+    assert payload == {"status": "processing", "task_id": "summary-task", "poll_url": "/tasks/summary-task"}
+    facade._enqueue_task.assert_called_once_with(
+        "generate_summary_task",
+        facade.generate_summary_task,
+        123,
+        force=False,
+    )
 
 
 def test_pipeline_tasks_summary_services_use_pipeline_tasks_patch_seams(monkeypatch):

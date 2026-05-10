@@ -2,7 +2,7 @@ import logging
 from typing import Any, Callable
 
 from celery.result import AsyncResult as AsyncResult
-from fastapi import APIRouter, Depends, HTTPException, Path, Query, Request
+from fastapi import APIRouter, Depends, Path, Query, Request
 from sqlalchemy.orm import Session as SQLAlchemySession
 
 from pipeline.celery_app import app as celery_app
@@ -32,6 +32,13 @@ from api.task_dispatch import (  # noqa: F401
     generate_topics_task,
     segment_agenda_task,
 )
+from api.task_route_generation import (
+    extract_catalog_text_request,
+    extract_votes_request,
+    generate_topics_request,
+)
+from api.task_route_segmentation import segment_agenda_request
+from api.task_route_summary import summarize_document_request
 from api.task_route_support import get_task_status_payload
 
 logger = logging.getLogger("town-council-api")
@@ -71,45 +78,17 @@ def build_task_router(
         Returns a 'Task ID' immediately. Use GET /tasks/{id} to check progress.
         """
         _ = request
-        catalog = db.get(Catalog, catalog_id)
-        if not catalog:
-            raise HTTPException(status_code=404, detail="Document not found")
-        if not catalog.content:
-            raise HTTPException(status_code=400, detail="Document has no text to summarize")
-
-        # Block generation when extracted text is too weak to support reliable output.
-        quality = analyze_source_text(catalog.content)
-        if not is_source_summarizable(quality):
-            return {
-                "status": "blocked_low_signal",
-                "reason": build_low_signal_message(quality),
-            }
-
-        doc_kind, content_hash, agenda_items_hash = task_facade._summary_doc_kind_and_hashes(db, catalog_id, catalog)
-        is_fresh = is_summary_fresh(
-            doc_kind,
-            summary=catalog.summary,
-            summary_source_hash=catalog.summary_source_hash,
-            content_hash=content_hash,
-            agenda_items_hash=agenda_items_hash,
-        )
-
-        if (not force) and is_fresh:
-            return {"summary": catalog.summary, "status": "cached"}
-        if (not force) and catalog.summary and not is_fresh:
-            return {"summary": catalog.summary, "status": "stale"}
-
-        task_id = task_facade._enqueue_task(
-            "generate_summary_task",
-            task_facade.generate_summary_task,
-            catalog_id,
+        return summarize_document_request(
+            task_facade=task_facade,
+            db=db,
+            catalog_id=catalog_id,
             force=force,
+            catalog_model=Catalog,
+            analyze_source_text=analyze_source_text,
+            build_low_signal_message=build_low_signal_message,
+            is_summary_fresh=is_summary_fresh,
+            is_source_summarizable=is_source_summarizable,
         )
-        return {
-            "status": "processing",
-            "task_id": task_id,
-            "poll_url": f"/tasks/{task_id}",
-        }
 
     @router.post("/segment/{catalog_id}", dependencies=[Depends(verify_api_key_dependency)])
     @limiter.limit(SEGMENT_RATE_LIMIT)
@@ -130,32 +109,15 @@ def build_task_router(
         Returns a 'Task ID' immediately.
         """
         _ = request
-        catalog = db.get(Catalog, catalog_id)
-        if not catalog:
-            raise HTTPException(status_code=404, detail="Document not found")
-
-        existing_items = db.query(AgendaItem).filter_by(catalog_id=catalog_id).order_by(AgendaItem.order).all()
-        if (
-            not force
-            and existing_items
-            and task_facade.agenda_items_look_low_quality
-            and not task_facade.agenda_items_look_low_quality(existing_items)
-        ):
-            return {"status": "cached", "items": existing_items}
-        if not force and existing_items:
-            logger.info(
-                "Agenda cache for catalog_id=%s looks low quality; regenerating asynchronously.",
-                catalog_id,
-            )
-        if force:
-            logger.info("Force-regenerating agenda cache for catalog_id=%s.", catalog_id)
-
-        task_id = task_facade._enqueue_task("segment_agenda_task", task_facade.segment_agenda_task, catalog_id)
-        return {
-            "status": "processing",
-            "task_id": task_id,
-            "poll_url": f"/tasks/{task_id}",
-        }
+        return segment_agenda_request(
+            task_facade=task_facade,
+            db=db,
+            catalog_id=catalog_id,
+            force=force,
+            catalog_model=Catalog,
+            agenda_item_model=AgendaItem,
+            logger=logger,
+        )
 
     @router.post("/votes/{catalog_id}", dependencies=[Depends(verify_api_key_dependency)])
     @limiter.limit(VOTES_RATE_LIMIT)
@@ -176,16 +138,13 @@ def build_task_router(
         Returns a Task ID immediately.
         """
         _ = request
-        catalog = db.get(Catalog, catalog_id)
-        if not catalog:
-            raise HTTPException(status_code=404, detail="Document not found")
-
-        task_id = task_facade._enqueue_task("extract_votes_task", task_facade.extract_votes_task, catalog_id, force=force)
-        return {
-            "status": "processing",
-            "task_id": task_id,
-            "poll_url": f"/tasks/{task_id}",
-        }
+        return extract_votes_request(
+            task_facade=task_facade,
+            db=db,
+            catalog_id=catalog_id,
+            force=force,
+            catalog_model=Catalog,
+        )
 
     @router.post("/topics/{catalog_id}", dependencies=[Depends(verify_api_key_dependency)])
     @limiter.limit(TOPICS_RATE_LIMIT)
@@ -208,43 +167,17 @@ def build_task_router(
         but we also avoid serving "cached" topics when they are stale.
         """
         _ = request
-        catalog = db.get(Catalog, catalog_id)
-        if not catalog:
-            raise HTTPException(status_code=404, detail="Document not found")
-        if not catalog.content:
-            raise HTTPException(status_code=400, detail="Document has no text to tag")
-
-        quality = analyze_source_text(catalog.content)
-        if not is_source_topicable(quality):
-            return {
-                "status": "blocked_low_signal",
-                "reason": build_low_signal_message(quality),
-                "topics": [],
-            }
-
-        content_hash = catalog.content_hash or (compute_content_hash(catalog.content) if catalog.content else None)
-        is_fresh = bool(
-            catalog.topics is not None
-            and content_hash
-            and catalog.topics_source_hash
-            and catalog.topics_source_hash == content_hash
-        )
-        if (not force) and is_fresh:
-            return {"status": "cached", "topics": catalog.topics or []}
-        if (not force) and catalog.topics is not None and not is_fresh:
-            return {"status": "stale", "topics": catalog.topics or []}
-
-        task_id = task_facade._enqueue_task(
-            "generate_topics_task",
-            task_facade.generate_topics_task,
-            catalog_id,
+        return generate_topics_request(
+            task_facade=task_facade,
+            db=db,
+            catalog_id=catalog_id,
             force=force,
+            catalog_model=Catalog,
+            analyze_source_text=analyze_source_text,
+            build_low_signal_message=build_low_signal_message,
+            compute_content_hash=compute_content_hash,
+            is_source_topicable=is_source_topicable,
         )
-        return {
-            "status": "processing",
-            "task_id": task_id,
-            "poll_url": f"/tasks/{task_id}",
-        }
 
     @router.post("/extract/{catalog_id}", dependencies=[Depends(verify_api_key_dependency)])
     @limiter.limit(EXTRACT_RATE_LIMIT)
@@ -267,25 +200,15 @@ def build_task_router(
         We do not download here. If the file isn't present on disk, the task fails fast.
         """
         _ = request
-        catalog = db.get(Catalog, catalog_id)
-        if not catalog:
-            raise HTTPException(status_code=404, detail="Document not found")
-
-        if (not force) and catalog.content and len(catalog.content.strip()) >= EXTRACT_CACHED_CONTENT_MIN_CHARS:
-            return {"status": "cached", "catalog_id": catalog_id, "chars": len(catalog.content)}
-
-        task_id = task_facade._enqueue_task(
-            "extract_text_task",
-            task_facade.extract_text_task,
-            catalog_id,
+        return extract_catalog_text_request(
+            task_facade=task_facade,
+            db=db,
+            catalog_id=catalog_id,
             force=force,
             ocr_fallback=ocr_fallback,
+            catalog_model=Catalog,
+            cached_content_min_chars=EXTRACT_CACHED_CONTENT_MIN_CHARS,
         )
-        return {
-            "status": "processing",
-            "task_id": task_id,
-            "poll_url": f"/tasks/{task_id}",
-        }
 
     @router.get("/tasks/{task_id}")
     def get_task_status(task_id: str) -> dict[str, Any]:

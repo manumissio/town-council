@@ -134,6 +134,7 @@ TYPED_SUBTREE_PATHS = (
     "pipeline/summary_hydration_diagnostic_contracts.py",
     "pipeline/summary_hydration_diagnostic_policy.py",
     "pipeline/summary_hydration_diagnostic_queries.py",
+    "pipeline/summary_hydration_diagnostic_samples.py",
     "pipeline/summary_hydration_diagnostic_builder.py",
     "pipeline/profile_manifest.py",
     "pipeline/profile_manifest_contracts.py",
@@ -181,6 +182,7 @@ METRICS_CLEANUP_MODULES = (
     "pipeline/metrics_provider_collector.py",
     "pipeline/metrics_provider_keys.py",
     "pipeline/metrics_provider_recorders.py",
+    "pipeline/metrics_redis_backend.py",
     "pipeline/metrics_task_recorders.py",
 )
 DOWNLOADER_CLEANUP_MODULES = (
@@ -249,6 +251,7 @@ SUMMARY_HYDRATION_DIAGNOSTIC_CLEANUP_MODULES = (
     "pipeline/summary_hydration_diagnostic_contracts.py",
     "pipeline/summary_hydration_diagnostic_policy.py",
     "pipeline/summary_hydration_diagnostic_queries.py",
+    "pipeline/summary_hydration_diagnostic_samples.py",
     "pipeline/summary_hydration_diagnostic_builder.py",
 )
 PROFILE_MANIFEST_CLEANUP_MODULES = (
@@ -317,6 +320,9 @@ TASK_API_FACADE_CLEANUP_MODULES = (
     "pipeline/task_summary_side_effects.py",
     "api/task_routes.py",
     "api/task_dispatch.py",
+    "api/task_route_generation.py",
+    "api/task_route_segmentation.py",
+    "api/task_route_summary.py",
     "api/task_route_support.py",
 )
 SEARCH_SUPPORT_CLEANUP_MODULES = (
@@ -739,6 +745,28 @@ def test_summary_hydration_diagnostic_cleanup_modules_stay_under_size_target():
     ]
 
     assert oversized_modules == []
+
+
+def test_summary_hydration_sample_helpers_do_not_import_facade():
+    module_path = ROOT / "pipeline" / "summary_hydration_diagnostic_samples.py"
+    tree = ast.parse(module_path.read_text(encoding="utf-8"), filename=str(module_path.relative_to(ROOT)))
+    forbidden_modules = {
+        "pipeline.summary_hydration_diagnostics",
+        "pipeline.summary_hydration_diagnostic_queries",
+    }
+    forbidden_imports: list[str] = []
+
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Import):
+            forbidden_imports.extend(alias.name for alias in node.names if alias.name in forbidden_modules)
+        elif isinstance(node, ast.ImportFrom) and node.module in forbidden_modules:
+            forbidden_imports.append(node.module)
+        elif isinstance(node, ast.ImportFrom) and node.module == "pipeline":
+            forbidden_imports.extend(
+                f"pipeline.{alias.name}" for alias in node.names if f"pipeline.{alias.name}" in forbidden_modules
+            )
+
+    assert forbidden_imports == []
 
 
 def test_profile_manifest_cleanup_modules_stay_under_size_target():
