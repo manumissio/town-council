@@ -40,7 +40,7 @@ Town Council uses two complementary pipelines:
 - `db_migrate.py`
 - `seed_places.py`
 - `promote_stage.py`
-- `downloader.py`
+- `downloader.py` facade plus focused `downloader_*` helpers
 
 Why this exists:
 - Later stages assume canonical rows, valid schema, and local files already present.
@@ -68,6 +68,7 @@ Per-record behavior in `process_document_chunk()`:
   - `content` absent => `pending`
 - NLP-only work stays independent from extraction state:
   - rows with `content` present and missing `entities` remain batch-eligible even when extraction is already `complete`
+  - `pipeline/nlp_worker.py` remains the import facade; focused `pipeline/nlp_entity_*` modules own candidate text, model loading, and extraction policy.
 
 Why this exists:
 - Prevents permanent extraction failures from hiding the true backlog.
@@ -91,7 +92,7 @@ Why this exists:
 The broad batch pipeline is no longer the only supported way to move recovered catalogs through extract -> segment -> summarize:
 
 - `pipeline/run_pipeline.py` remains the canonical broad hydrator facade for corpus-wide backlog work; focused `pipeline/run_pipeline_*` modules own step execution, onboarding scope, catalog selection, extraction chunks, and parallel scheduling.
-- `scripts/staged_hydrate_cities.py` is the city-wide backlog path when one or more cities need bounded, checkpointable segmentation and summary progress.
+- `scripts/staged_hydrate_cities.py` is the city-wide backlog path when one or more cities need bounded, checkpointable segmentation and summary progress; city segmentation runs through `scripts/segment_city_corpus.py` plus focused `scripts/segment_city_*` helpers.
 - `scripts/hydrate_repaired_city_catalogs.py` is the repaired-catalog path for city-scoped `agenda` catalogs that already exist in Postgres/local storage but still need missing derived state.
 
 Key repaired-city selector contract:

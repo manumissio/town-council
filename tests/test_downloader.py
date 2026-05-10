@@ -9,7 +9,25 @@ sys.path.append(root_dir)
 sys.path.append(os.path.join(root_dir, 'pipeline'))
 
 from pipeline.models import Catalog, UrlStage, Event, Place
+import pipeline.downloader as downloader
 from pipeline.downloader import Media, process_single_url, process_staged_urls, _select_staged_url_ids
+
+
+def test_downloader_facade_preserves_public_patch_seams():
+    expected_exports = {
+        "Media",
+        "db_session",
+        "ThreadPoolExecutor",
+        "db_connect",
+        "archive_url_stage",
+        "_select_staged_url_ids",
+        "process_single_url",
+        "process_staged_urls",
+    }
+
+    assert set(downloader.__all__) == expected_exports
+    for export_name in expected_exports:
+        assert hasattr(downloader, export_name)
 
 def test_downloader_absolute_path(db_session, mocker, monkeypatch):
     """

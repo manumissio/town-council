@@ -126,6 +126,30 @@ def test_segment_city_corpus_reuses_shared_city_aliases():
     assert mod.source_aliases_for_city("san_mateo") == {"san_mateo", "san mateo"}
 
 
+def test_segment_city_corpus_facade_exports_private_helpers():
+    expected_helpers = [
+        "_catalog_ids_for_city",
+        "_prioritized_catalog_ids",
+        "_catalog_timeout_seconds",
+        "_catalog_worker_count",
+        "_segment_catalog_inline",
+        "_segment_catalog_batch",
+    ]
+
+    assert all(hasattr(mod, helper_name) for helper_name in expected_helpers)
+
+
+def test_segment_city_corpus_implementation_modules_do_not_import_facade():
+    module_paths = [
+        Path("scripts/segment_city_contracts.py"),
+        Path("scripts/segment_city_selection.py"),
+        Path("scripts/segment_city_runner.py"),
+    ]
+
+    for module_path in module_paths:
+        assert "scripts.segment_city_corpus" not in module_path.read_text(encoding="utf-8")
+
+
 def test_catalog_ids_for_city_respects_priority_limit_and_resume(city_db):
     session = city_db()
     place = Place(
