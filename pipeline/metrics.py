@@ -11,6 +11,7 @@ from prometheus_client import REGISTRY, start_http_server
 from pipeline import metrics_celery_signals, metrics_provider_recorders, profiling
 from pipeline.metrics_definitions import *  # noqa: F403 - compatibility facade for metric objects
 from pipeline.metrics_profile_events import TaskProfileContext, component_for_queue, write_task_profile_event
+from pipeline.metrics_provider_collector import RedisProviderMetricsCollector as _RedisProviderMetricsCollector
 from pipeline.metrics_provider_keys import provider_base_labels_key, provider_labels_key
 from pipeline import metrics_redis_backend as _metrics_redis_backend
 from pipeline.metrics_redis_backend import (
@@ -123,13 +124,9 @@ def _redis_hincrbyfloat(key: str, field: str, amount: float) -> None:
         _metrics_redis_backend._set_redis_backend_up(0.0)
 
 
-class RedisProviderMetricsCollector(_metrics_redis_backend.RedisProviderMetricsCollector):
-    def collect(self):  # noqa: ANN201 - prometheus_client collector protocol is dynamic.
-        _sync_redis_backend_from_facade()
-        try:
-            yield from super().collect()
-        finally:
-            _sync_redis_facade_from_backend()
+class RedisProviderMetricsCollector(_RedisProviderMetricsCollector):
+    def __init__(self) -> None:
+        super().__init__(_redis_client, _get_redis_backend_up, _set_redis_backend_up, read_errors=REDIS_WRITE_ERRORS)
 
 
 try:
