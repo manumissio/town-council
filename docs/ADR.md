@@ -27,6 +27,24 @@ Use each entry to record:
   - [docs/PIPELINE.md](PIPELINE.md)
   - [docs/ENGINEERING_GUARDRAILS.md](ENGINEERING_GUARDRAILS.md)
 
+## 2026-05-10: Split downloader, NLP, and segment-city cleanup seams
+
+- Status: Accepted
+- Decision:
+  - `pipeline/downloader.py` remains the downloader import facade while archive, media fetch, processing, and staged selection logic move behind focused `pipeline/downloader_*` modules.
+  - `pipeline/nlp_worker.py` remains the NLP/entity facade while candidate text, extraction, and model-loading policy move behind focused `pipeline/nlp_entity_*` modules.
+  - `scripts/segment_city_corpus.py` remains the CLI and subprocess import facade while selection, worker, runner, and contract logic move behind focused `scripts/segment_city_*` modules.
+- Why:
+  - These were the lowest-conflict targets left after PR #65 and can be cleaned in parallel without touching repaired hydration, models, or DB migration.
+  - Downloader patch seams, NLP model compatibility, and segment subprocess imports must remain stable.
+- Affected boundaries:
+  - Downloader DB/archive behavior, entity payload shape, city segmentation CLI output, and subprocess `_segment_catalog_inline` import stay unchanged.
+  - Guardrails track the new module families under the 300-line cleanup target.
+- Canonical references:
+  - [ARCHITECTURE.md](../ARCHITECTURE.md)
+  - [docs/PIPELINE.md](PIPELINE.md)
+  - [docs/ENGINEERING_GUARDRAILS.md](ENGINEERING_GUARDRAILS.md)
+
 ## 2026-05-09: Split parallel Wave 1 legacy cleanup seams behind stable entrypoints
 
 - Status: Accepted

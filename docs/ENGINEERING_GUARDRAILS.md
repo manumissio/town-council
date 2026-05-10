@@ -29,7 +29,7 @@ The first pass is intentionally moderate. It is meant to block lazy hygiene regr
 - no raw `print(...)` in non-CLI pipeline modules
 - no silent broad exception handlers or broad exception allowlist drift
 - existing Town Council policy tests for fail-fast runtime behavior, freshness contracts, and profile comparability
-- cleanup module families for indexing, semantic backends, summary text, provider/person utilities, reporting scripts, task/API/search helpers, onboarding/repair scripts, and prior facade splits stay under the 300-line target
+- cleanup module families for downloader, NLP entities, segment-city CLI, indexing, semantic backends, summary text, provider/person utilities, reporting scripts, task/API/search helpers, onboarding/repair scripts, and prior facade splits stay under the 300-line target
 
 ## How to request an exception
 

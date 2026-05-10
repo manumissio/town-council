@@ -133,7 +133,7 @@ flowchart LR
 #### Ingestion and normalization
 1. Crawler writes meeting metadata and document URLs into staging tables.
 2. Promotion creates canonical `event` and `document` rows.
-3. Downloader stores files and links them to `catalog`.
+3. Downloader stores files and links them to `catalog` through the `pipeline/downloader.py` facade and focused `pipeline/downloader_*` helpers.
 4. Some crawler source families apply shared recovery behavior before rows ever reach promotion:
    - Legistar CMS spiders can widen the visible historical window before parsing.
    - city-scoped recovery can opt into no-delta crawling when an operator needs a bounded historical backfill instead of the normal stored anchor.
@@ -153,7 +153,7 @@ flowchart LR
 1. `scripts/onboard_city_wave.sh` runs wave-scoped crawl attempts and records per-run artifacts.
 2. Crawl success requires city-attributable staging evidence, not just a zero spider exit code.
 3. Onboarding-scoped extraction processes only the run's touched catalogs that still need work, instead of waking the full backlog.
-4. City-scoped agenda segmentation is attempted before gate evaluation.
+4. City-scoped agenda segmentation is attempted before gate evaluation through the `scripts/segment_city_corpus.py` facade and focused `scripts/segment_city_*` helpers.
 5. `scripts/evaluate_city_onboarding.py` grades extraction and segmentation against the run-window touched corpus for that city, while keeping historical totals as diagnostic context.
 6. Previously passing delta-crawl cities may confirm through an explicit stable-no-op path when the crawler succeeds but the live portal has no newer rows than the stored crawl anchor; this path is auditable and does not weaken first-time onboarding requirements.
 7. Rollout wave membership and enabled-city state live in `city_metadata/city_rollout_registry.csv`, separate from static city source metadata in `city_metadata/list_of_cities.csv`.
@@ -429,7 +429,7 @@ Owners:
 | Entity/field | Contract | Primary owners |
 |---|---|---|
 | `catalog.content_hash` | Canonical hash for extracted text used to detect staleness | `pipeline/content_hash.py`, `pipeline/extraction_service.py`, `pipeline/tasks.py` |
-| `catalog.entities_source_hash` | Hash of source text used to generate current entities | `pipeline/backfill_entities.py`, `pipeline/nlp_worker.py` |
+| `catalog.entities_source_hash` | Hash of source text used to generate current entities | `pipeline/backfill_entities.py`, `pipeline/nlp_worker.py` facade plus focused `pipeline/nlp_entity_*` modules |
 | `catalog.agenda_items_hash` | Hash of the normalized structured agenda payload used for agenda-summary freshness | `pipeline/agenda_service.py`, `pipeline/summary_freshness.py`, `pipeline/tasks.py` |
 | `catalog.summary_source_hash` | Hash of the governing summary input; `content_hash` for non-agenda summaries and `agenda_items_hash` for agenda summaries | `pipeline/tasks.py`, `api/main.py`, `api/task_routes.py`, `api/catalog_routes.py`, `pipeline/summary_freshness.py` |
 | `catalog.topics_source_hash` | Hash of source text used to generate current topics | `pipeline/topic_generation.py` facade plus focused `pipeline/topic_generation_*` modules, `pipeline/enrichment_tasks.py`, `pipeline/topic_worker.py`, `api/task_routes.py`, `api/catalog_routes.py` |
