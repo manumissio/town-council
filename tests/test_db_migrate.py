@@ -1,4 +1,5 @@
 from pipeline import db_migrate
+from pathlib import Path
 
 
 class _ScalarResult:
@@ -133,3 +134,43 @@ def test_db_migrate_skips_sqlite_and_runtime_submigrations(mocker):
     assert conn.calls == []
     migrate_v8_spy.assert_not_called()
     migrate_v9_spy.assert_not_called()
+
+
+def test_db_migrate_facade_exports_compatibility_seams():
+    expected_names = [
+        "migrate",
+        "_postgres_column_exists",
+        "_add_column_if_missing",
+        "migrate_v8",
+        "migrate_v9",
+    ]
+
+    assert all(hasattr(db_migrate, name) for name in expected_names)
+
+
+def test_db_migration_implementation_modules_do_not_import_facade():
+    module_paths = [
+        "pipeline/db_migration_columns.py",
+        "pipeline/db_migration_backfills.py",
+        "pipeline/db_migration_runner.py",
+        "pipeline/migration_pgvector_semantic_embeddings.py",
+        "pipeline/migration_catalog_lineage_columns.py",
+    ]
+
+    for module_path in module_paths:
+        assert "pipeline.db_migrate" not in Path(module_path).read_text(encoding="utf-8")
+
+
+def test_db_migrate_warns_and_keeps_core_migration_when_submigration_fails(mocker, caplog):
+    conn = _FakeConn()
+    engine = _FakeEngine(conn)
+    mocker.patch.object(db_migrate, "db_connect", return_value=engine)
+    mocker.patch.object(db_migrate.migrate_v8, "migrate", side_effect=RuntimeError("pgvector unavailable"))
+    migrate_v9_spy = mocker.patch.object(db_migrate.migrate_v9, "migrate")
+
+    db_migrate.migrate()
+
+    calls = _sql_calls(conn)
+    assert any("alter table event add column organization_id" in c for c in calls)
+    assert "migrate_v8 skipped: pgvector unavailable" in caplog.text
+    migrate_v9_spy.assert_called_once_with()
