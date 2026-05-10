@@ -8,6 +8,25 @@ Use each entry to record:
 - the affected boundary or contract
 - links to the canonical docs that carry the ongoing operational or architecture detail
 
+## 2026-05-09: Split Wave 2 task, search, onboarding, and repair cleanup seams
+
+- Status: Accepted
+- Decision:
+  - `pipeline/tasks.py`, `api/task_routes.py`, and `pipeline/task_summary_generation.py` remain task/API facades while dispatch, route-status, task-helper, and summary-side-effect logic move behind focused support modules.
+  - `api/search_support.py` remains the compatibility surface while shared filter, trends, semantic, and client helper logic moves behind focused `api/search/*_support.py` modules.
+  - `scripts/evaluate_city_onboarding.py` remains the CLI facade while city metric collection and gate/report rendering move behind focused `pipeline/city_onboarding_*` modules.
+  - `scripts/repair_san_mateo_laserfiche_backlog.py` remains the CLI facade while Laserfiche parsing/contracts, PDF I/O, download/classification, and backlog mutation move behind focused `scripts/laserfiche_repair_*` modules.
+- Why:
+  - These files were the lowest-conflict cleanup targets left after the provider/person/reporting split.
+  - Existing task names, API routes, operator commands, JSON/stdout contracts, and patch seams must remain stable.
+- Affected boundaries:
+  - Celery retry/session ownership, API task dispatch, search response helpers, onboarding artifacts, Laserfiche repair mutation/reindex behavior, and operator exit codes stay unchanged.
+  - Guardrails track the new module families under the 300-line cleanup target.
+- Canonical references:
+  - [ARCHITECTURE.md](../ARCHITECTURE.md)
+  - [docs/PIPELINE.md](PIPELINE.md)
+  - [docs/ENGINEERING_GUARDRAILS.md](ENGINEERING_GUARDRAILS.md)
+
 ## 2026-05-09: Split parallel Wave 1 legacy cleanup seams behind stable entrypoints
 
 - Status: Accepted

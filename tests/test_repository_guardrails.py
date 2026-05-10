@@ -291,6 +291,35 @@ REPORTING_SCRIPTS_CLEANUP_MODULES = (
     "scripts/profile_pipeline_selection.py",
     "scripts/score_ab_results.py",
 )
+TASK_API_FACADE_CLEANUP_MODULES = (
+    "pipeline/tasks.py",
+    "pipeline/task_facade_helpers.py",
+    "pipeline/task_summary_generation.py",
+    "pipeline/task_summary_side_effects.py",
+    "api/task_routes.py",
+    "api/task_dispatch.py",
+    "api/task_route_support.py",
+)
+SEARCH_SUPPORT_CLEANUP_MODULES = (
+    "api/search_support.py",
+    "api/search/support_core.py",
+    "api/search/filter_support.py",
+    "api/search/trends_support.py",
+    "api/search/semantic_support.py",
+)
+CITY_ONBOARDING_EVALUATOR_CLEANUP_MODULES = (
+    "scripts/evaluate_city_onboarding.py",
+    "pipeline/city_onboarding_metrics.py",
+    "pipeline/city_onboarding_gate.py",
+)
+LASERFICHE_REPAIR_CLEANUP_MODULES = (
+    "scripts/repair_san_mateo_laserfiche_backlog.py",
+    "scripts/laserfiche_repair_contracts.py",
+    "scripts/laserfiche_repair_pdf_io.py",
+    "scripts/laserfiche_repair_downloads.py",
+    "scripts/laserfiche_repair_backlog.py",
+    "scripts/laserfiche_repair_reporting.py",
+)
 INDEXER_CLEANUP_MODULES = (
     "pipeline/indexer.py",
     "pipeline/indexer_documents.py",
@@ -352,6 +381,10 @@ def _broad_exception_scan_files() -> list[Path]:
         *HTTP_PROVIDER_CLEANUP_MODULES,
         *PERSON_UTILS_CLEANUP_MODULES,
         *REPORTING_SCRIPTS_CLEANUP_MODULES,
+        *TASK_API_FACADE_CLEANUP_MODULES,
+        *SEARCH_SUPPORT_CLEANUP_MODULES,
+        *CITY_ONBOARDING_EVALUATOR_CLEANUP_MODULES,
+        *LASERFICHE_REPAIR_CLEANUP_MODULES,
     ):
         tracked_files.add((ROOT / module_path).resolve())
     return sorted(tracked_files)
@@ -671,6 +704,46 @@ def test_reporting_scripts_cleanup_modules_stay_under_size_target():
     oversized_modules = [
         module_path
         for module_path in REPORTING_SCRIPTS_CLEANUP_MODULES
+        if len((ROOT / module_path).read_text(encoding="utf-8").splitlines()) > 300
+    ]
+
+    assert oversized_modules == []
+
+
+def test_task_api_facade_cleanup_modules_stay_under_size_target():
+    oversized_modules = [
+        module_path
+        for module_path in TASK_API_FACADE_CLEANUP_MODULES
+        if len((ROOT / module_path).read_text(encoding="utf-8").splitlines()) > 300
+    ]
+
+    assert oversized_modules == []
+
+
+def test_search_support_cleanup_modules_stay_under_size_target():
+    oversized_modules = [
+        module_path
+        for module_path in SEARCH_SUPPORT_CLEANUP_MODULES
+        if len((ROOT / module_path).read_text(encoding="utf-8").splitlines()) > 300
+    ]
+
+    assert oversized_modules == []
+
+
+def test_city_onboarding_evaluator_cleanup_modules_stay_under_size_target():
+    oversized_modules = [
+        module_path
+        for module_path in CITY_ONBOARDING_EVALUATOR_CLEANUP_MODULES
+        if len((ROOT / module_path).read_text(encoding="utf-8").splitlines()) > 300
+    ]
+
+    assert oversized_modules == []
+
+
+def test_laserfiche_repair_cleanup_modules_stay_under_size_target():
+    oversized_modules = [
+        module_path
+        for module_path in LASERFICHE_REPAIR_CLEANUP_MODULES
         if len((ROOT / module_path).read_text(encoding="utf-8").splitlines()) > 300
     ]
 

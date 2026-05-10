@@ -317,7 +317,8 @@ Most regressions come from partial stage additions (route without durable write 
 
 Use these files as primary references:
 - Batch orchestration: `pipeline/run_pipeline.py` facade plus `pipeline/run_pipeline_steps.py`, `pipeline/run_pipeline_onboarding.py`, `pipeline/run_pipeline_selectors.py`, `pipeline/run_pipeline_extraction.py`, and `pipeline/run_pipeline_parallel.py`
-- Async orchestration: `pipeline/tasks.py`
+- Async orchestration: `pipeline/tasks.py` facade plus focused `pipeline/task_*` helpers
+- API task dispatch: `api/task_routes.py` facade plus focused `api/task_*` helpers
 - API task entrypoints: `api/main.py`
 - Inference policy: `pipeline/llm.py`
 - Agenda extraction: `pipeline/agenda_extraction.py` facade plus `pipeline/agenda_extraction_*` implementation modules

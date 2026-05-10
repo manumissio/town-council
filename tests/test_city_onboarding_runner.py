@@ -336,11 +336,11 @@ def test_onboarding_runner_resets_anchor_aware_first_time_city_between_attempts(
 
     with Session() as session:
         place = Place(
-            name="San Leandro",
+            name="Mountain View",
             state="CA",
             country="us",
-            display_name="San Leandro, CA",
-            ocd_division_id="ocd-division/country:us/state:ca/place:san_leandro",
+            display_name="Mountain View, CA",
+            ocd_division_id="ocd-division/country:us/state:ca/place:mtn_view",
         )
         session.add(place)
         session.flush()
@@ -351,7 +351,7 @@ def test_onboarding_runner_resets_anchor_aware_first_time_city_between_attempts(
                 place_id=place.id,
                 scraped_datetime=datetime(2026, 3, 1, 12, 0, 0),
                 record_date=date(2026, 3, 1),
-                source="san_leandro",
+                source="mtn_view",
                 source_url="https://example.com/baseline",
                 name="Baseline meeting",
             )
@@ -376,34 +376,34 @@ if [[ "$1" == "image" && "$2" == "inspect" && "$3" == "town-council-crawler" ]];
   exit 0
 fi
 if [[ "$*" == *"scripts/reset_city_verification_state.py"* && "$*" == *"--print-baseline"* ]]; then
-  printf '%s\\n' '{"city": "san_leandro", "baseline_event_count": 1, "baseline_max_record_date": "2026-03-01", "baseline_max_scraped_datetime": "2026-03-01T12:00:00Z"}'
+  printf '%s\\n' '{"city": "mtn_view", "baseline_event_count": 1, "baseline_max_record_date": "2026-03-01", "baseline_max_scraped_datetime": "2026-03-01T12:00:00Z"}'
   exit 0
 fi
 if [[ "$*" == *"scripts/flush_city_pipeline_state.py"* ]]; then
-  printf '%s\\n' '{"city": "san_leandro", "dry_run": false, "deleted_event_stage_count": 0, "deleted_url_stage_count": 0, "deleted_url_stage_hist_count": 0, "deleted_event_count": 0, "deleted_document_count": 0, "deleted_catalog_count": 0, "catalog_reference_count": 0, "deleted_data_issue_count": 0, "remaining_event_stage_count": 0, "remaining_url_stage_count": 0, "remaining_url_stage_hist_count": 0, "remaining_event_count": 1, "remaining_document_count": 0, "remaining_catalog_count": 0}'
+  printf '%s\\n' '{"city": "mtn_view", "dry_run": false, "deleted_event_stage_count": 0, "deleted_url_stage_count": 0, "deleted_url_stage_hist_count": 0, "deleted_event_count": 0, "deleted_document_count": 0, "deleted_catalog_count": 0, "catalog_reference_count": 0, "deleted_data_issue_count": 0, "remaining_event_stage_count": 0, "remaining_url_stage_count": 0, "remaining_url_stage_hist_count": 0, "remaining_event_count": 1, "remaining_document_count": 0, "remaining_catalog_count": 0}'
   exit 0
 fi
 if [[ "$*" == *"scripts/reset_city_verification_state.py"* ]]; then
-  printf '%s\\n' '{"city": "san_leandro", "deleted_document_count": 1, "deleted_event_count": 1, "deleted_catalog_count": 1, "catalog_reference_count": 1, "deleted_data_issue_count": 0, "remaining_event_count": 1, "remaining_max_record_date": "2026-03-01", "remaining_max_scraped_datetime": "2026-03-01T12:00:00Z"}'
+  printf '%s\\n' '{"city": "mtn_view", "deleted_document_count": 1, "deleted_event_count": 1, "deleted_catalog_count": 1, "catalog_reference_count": 1, "deleted_data_issue_count": 0, "remaining_event_count": 1, "remaining_max_record_date": "2026-03-01", "remaining_max_scraped_datetime": "2026-03-01T12:00:00Z"}'
   exit 0
 fi
-if [[ "$*" == *"scrapy crawl san_leandro"* ]]; then
+if [[ "$*" == *"scrapy crawl mtn_view"* ]]; then
   printf '%s\\n' "crawl" >> "$CRAWL_LOG"
   touch "$CRAWL_STATE"
   exit 0
 fi
 if [[ "$*" == *"scripts/check_city_crawl_evidence.py"* ]]; then
   if [[ -f "$CRAWL_STATE" ]]; then
-    printf '%s\\n' '{"city": "san_leandro", "event_stage_count": 3, "has_evidence": true, "url_stage_count": 2}'
+    printf '%s\\n' '{"city": "mtn_view", "event_stage_count": 3, "has_evidence": true, "url_stage_count": 2}'
   else
-    printf '%s\\n' '{"city": "san_leandro", "event_stage_count": 0, "has_evidence": false, "url_stage_count": 0}'
+    printf '%s\\n' '{"city": "mtn_view", "event_stage_count": 0, "has_evidence": false, "url_stage_count": 0}'
   fi
   exit 0
 fi
 if [[ "$*" == *"run_pipeline.py"* ]]; then
   exit 0
 fi
-if [[ "$*" == *"scripts/segment_city_corpus.py --city san_leandro"* ]]; then
+if [[ "$*" == *"scripts/segment_city_corpus.py --city mtn_view"* ]]; then
   exit 0
 fi
 echo "unexpected docker invocation: $*" >&2
@@ -436,7 +436,7 @@ exit 0
         "scripts/onboard_city_wave.sh",
         "wave1",
         "--cities",
-        "san_leandro",
+        "mtn_view",
         "--runs",
         "3",
         "--run-id",
@@ -458,9 +458,9 @@ exit 0
     assert docker_commands.count("scripts/flush_city_pipeline_state.py") == 1
     assert docker_commands.count("--print-baseline") == 1
     assert docker_commands.count("--baseline-record-date 2026-03-01") == 2
-    assert "restoring first-time verification state for san_leandro before run 2" in result.stdout
-    assert "restoring first-time verification state for san_leandro before run 3" in result.stdout
-    preflight_payload = json.loads((output_dir / run_id / "preflight" / "san_leandro_flush.json").read_text(encoding="utf-8"))
+    assert "restoring first-time verification state for mtn_view before run 2" in result.stdout
+    assert "restoring first-time verification state for mtn_view before run 3" in result.stdout
+    preflight_payload = json.loads((output_dir / run_id / "preflight" / "mtn_view_flush.json").read_text(encoding="utf-8"))
     assert preflight_payload["mode"] == "clean_noop"
     assert preflight_payload["auto_flush_applied"] is False
 
