@@ -81,7 +81,8 @@ APPROVED_BROAD_EXCEPTION_PATHS = {
     "scripts/collect_soak_metrics.py",
     "scripts/enrichment_worker_healthcheck.py",
     "scripts/evaluate_soak_week.py",
-    "scripts/hydrate_repaired_city_catalogs.py",
+    "scripts/hydration_repaired_runner.py",
+    "scripts/hydration_repaired_summary.py",
     "scripts/parse_task_launch.py",
     "scripts/probe_local_model_candidate.py",
     "scripts/repair_san_mateo_laserfiche_backlog.py",
@@ -334,6 +335,20 @@ SEGMENT_CITY_CORPUS_CLEANUP_MODULES = (
     "scripts/segment_city_worker.py",
     "scripts/segment_city_runner.py",
 )
+HYDRATION_CLI_CLEANUP_MODULES = (
+    "scripts/staged_hydrate_cities.py",
+    "scripts/staged_hydration_segment.py",
+    "scripts/staged_hydration_runner.py",
+    "scripts/staged_hydration_output.py",
+    "scripts/hydrate_repaired_city_catalogs.py",
+    "scripts/hydration_counts.py",
+    "scripts/hydration_output.py",
+    "scripts/hydration_repaired_selectors.py",
+    "scripts/hydration_repaired_extract.py",
+    "scripts/hydration_repaired_segment.py",
+    "scripts/hydration_repaired_summary.py",
+    "scripts/hydration_repaired_runner.py",
+)
 INDEXER_CLEANUP_MODULES = (
     "pipeline/indexer.py",
     "pipeline/indexer_documents.py",
@@ -408,6 +423,7 @@ def _broad_exception_scan_files() -> list[Path]:
         *CITY_ONBOARDING_EVALUATOR_CLEANUP_MODULES,
         *LASERFICHE_REPAIR_CLEANUP_MODULES,
         *SEGMENT_CITY_CORPUS_CLEANUP_MODULES,
+        *HYDRATION_CLI_CLEANUP_MODULES,
     ):
         tracked_files.add((ROOT / module_path).resolve())
     return sorted(tracked_files)
@@ -787,6 +803,16 @@ def test_segment_city_corpus_cleanup_modules_stay_under_size_target():
     oversized_modules = [
         module_path
         for module_path in SEGMENT_CITY_CORPUS_CLEANUP_MODULES
+        if len((ROOT / module_path).read_text(encoding="utf-8").splitlines()) > 300
+    ]
+
+    assert oversized_modules == []
+
+
+def test_hydration_cli_cleanup_modules_stay_under_size_target():
+    oversized_modules = [
+        module_path
+        for module_path in HYDRATION_CLI_CLEANUP_MODULES
         if len((ROOT / module_path).read_text(encoding="utf-8").splitlines()) > 300
     ]
 

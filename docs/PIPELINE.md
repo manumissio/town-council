@@ -92,8 +92,8 @@ Why this exists:
 The broad batch pipeline is no longer the only supported way to move recovered catalogs through extract -> segment -> summarize:
 
 - `pipeline/run_pipeline.py` remains the canonical broad hydrator facade for corpus-wide backlog work; focused `pipeline/run_pipeline_*` modules own step execution, onboarding scope, catalog selection, extraction chunks, and parallel scheduling.
-- `scripts/staged_hydrate_cities.py` is the city-wide backlog path when one or more cities need bounded, checkpointable segmentation and summary progress; city segmentation runs through `scripts/segment_city_corpus.py` plus focused `scripts/segment_city_*` helpers.
-- `scripts/hydrate_repaired_city_catalogs.py` is the repaired-catalog path for city-scoped `agenda` catalogs that already exist in Postgres/local storage but still need missing derived state.
+- `scripts/staged_hydrate_cities.py` is the city-wide backlog facade when one or more cities need bounded, checkpointable segmentation and summary progress; focused hydration helpers own chunking, snapshots, output rendering, and segment-city dispatch through `scripts/segment_city_corpus.py`.
+- `scripts/hydrate_repaired_city_catalogs.py` is the repaired-catalog facade for city-scoped `agenda` catalogs that already exist in Postgres/local storage but still need missing derived state; focused hydration helpers own selectors, extract, segment, summary, and run-status lifecycle.
 
 Key repaired-city selector contract:
 - default selection is state-based and city-scoped, not URL-family-based

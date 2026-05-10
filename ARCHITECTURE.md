@@ -146,8 +146,8 @@ flowchart LR
 5. Semantic embedding hydration populates `semantic_embedding`.
 6. Maintenance hydration has three supported paths with different scopes:
    - `pipeline/run_pipeline.py` facade plus `pipeline/run_pipeline_*` modules for broad corpus hydration
-   - staged city hydration for large unresolved city backlogs
-   - repaired-city hydration for city-scoped recovered agenda catalogs that still need extract/segment/summary work
+   - staged city hydration for large unresolved city backlogs through `scripts/staged_hydrate_cities.py` plus focused hydration helpers
+   - repaired-city hydration for recovered agenda catalogs through `scripts/hydrate_repaired_city_catalogs.py` plus focused hydration helpers
 
 #### City onboarding and rollout evaluation
 1. `scripts/onboard_city_wave.sh` runs wave-scoped crawl attempts and records per-run artifacts.

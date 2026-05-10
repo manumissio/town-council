@@ -45,6 +45,23 @@ Use each entry to record:
   - [docs/PIPELINE.md](PIPELINE.md)
   - [docs/ENGINEERING_GUARDRAILS.md](ENGINEERING_GUARDRAILS.md)
 
+## 2026-05-10: Split hydration CLI cleanup seams
+
+- Status: Accepted
+- Decision:
+  - `scripts/staged_hydrate_cities.py` remains the city-wide hydration CLI facade while segment wrapping, chunk-loop orchestration, snapshots, output rendering, and shared counts move behind focused hydration helper modules.
+  - `scripts/hydrate_repaired_city_catalogs.py` remains the repaired-catalog CLI facade while selectors, extract, segment, summary, run-status lifecycle, and shared count/output logic move behind focused hydration helper modules.
+- Why:
+  - These operator scripts were the largest remaining non-model cleanup targets after the segment-city split.
+  - Existing CLI arguments, JSON/stdout contracts, run-status artifacts, and private patch seams must remain stable.
+- Affected boundaries:
+  - DB session ownership, extracted catalog ID flow, segment/summary timeout scoping, `MaintenanceRunStatus` artifact writes, and segment-city facade usage stay unchanged.
+  - Guardrails track the new hydration helper family under the 300-line cleanup target.
+- Canonical references:
+  - [ARCHITECTURE.md](../ARCHITECTURE.md)
+  - [docs/PIPELINE.md](PIPELINE.md)
+  - [docs/ENGINEERING_GUARDRAILS.md](ENGINEERING_GUARDRAILS.md)
+
 ## 2026-05-09: Split parallel Wave 1 legacy cleanup seams behind stable entrypoints
 
 - Status: Accepted
