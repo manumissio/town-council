@@ -185,7 +185,7 @@ Key safeguards:
 - deterministic rejection for low-substance candidates
 
 Primary owners:
-- `pipeline/llm.py`
+- `pipeline/llm.py` facade plus focused `pipeline/local_ai_*` helpers
 - `pipeline/agenda_extraction.py` facade plus focused extraction modules:
   `pipeline/agenda_extraction_parser.py`, `pipeline/agenda_extraction_fallback.py`,
   `pipeline/agenda_extraction_acceptance.py`, `pipeline/agenda_extraction_pages.py`,
@@ -281,7 +281,7 @@ Future direction (Experimental, non-baseline):
 - Baseline defaults remain 270M-first and local-first unless roadmap/runbook policy explicitly changes.
 
 Primary owners:
-- `pipeline/llm.py`
+- `pipeline/llm.py` facade plus focused `pipeline/local_ai_*` helpers
 - `pipeline/agenda_extraction.py`
 - `pipeline/llm_provider.py`
 - `pipeline/http_inference_provider.py` facade plus focused `pipeline/http_inference_*` helpers
@@ -320,7 +320,7 @@ Primary owners:
 - Ingestion and promotion: `council_crawler/`, `crawler/promote_stage.py`
 - Canonical extraction/content hashing: `pipeline/extraction_service.py`, `pipeline/content_hash.py`
 - Async orchestration and writes: `pipeline/tasks.py` facade plus focused `pipeline/task_*` helpers
-- Inference abstraction and provider telemetry: `pipeline/llm.py`, `pipeline/agenda_extraction.py`, `pipeline/llm_provider.py`, `pipeline/http_inference_provider.py` facade plus focused `pipeline/http_inference_*` helpers, `pipeline/inprocess_inference_provider.py`, `pipeline/provider_telemetry.py`, `pipeline/metrics.py`, `pipeline/metrics_provider_recorders.py`
+- Inference abstraction and provider telemetry: `pipeline/llm.py` facade plus focused `pipeline/local_ai_*` helpers, `pipeline/agenda_extraction.py`, `pipeline/llm_provider.py`, `pipeline/http_inference_provider.py` facade plus focused `pipeline/http_inference_*` helpers, `pipeline/inprocess_inference_provider.py`, `pipeline/provider_telemetry.py`, `pipeline/metrics.py`, `pipeline/metrics_provider_recorders.py`
 - API surface and auth: `api/main.py`, `api/app_setup.py`, `api/search_routes.py`, `api/task_routes.py` facade plus focused `api/task_*` helpers, `api/search_support.py` facade plus focused `api/search/*_support.py` helpers, `api/search/query_builder.py`, `api/metrics.py`
 - Semantic retrieval and embeddings: `pipeline/semantic_index.py`, `pipeline/semantic_faiss_backend.py`, `pipeline/semantic_pgvector_backend.py`, focused semantic backend helpers, `pipeline/models.py` facade plus focused `pipeline/model_*` modules
 - Frontend query/task UX: `frontend/app/page.js`, `frontend/state/search-state.js`, `frontend/components/ResultCard.js`

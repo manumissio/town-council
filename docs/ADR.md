@@ -8,6 +8,24 @@ Use each entry to record:
 - the affected boundary or contract
 - links to the canonical docs that carry the ongoing operational or architecture detail
 
+## 2026-05-10: Split LocalAI compatibility helpers behind the facade
+
+- Status: Accepted
+- Decision:
+  - `pipeline/llm.py` remains the public `LocalAI` product-policy boundary and keeps singleton state, runtime config aliases, provider aliases, and helper compatibility exports.
+  - Legacy agenda-summary helper behavior moves behind `pipeline/local_ai_agenda_compat.py`.
+  - Provider-call failure wrapping moves behind `pipeline/local_ai_provider_calls.py` while `LocalAI` keeps the method seam.
+- Why:
+  - `pipeline/llm.py` was the only remaining Python module over the 300-line cleanup target after model/migration cleanup.
+  - Moving helper logic narrows the facade without changing backend selection, fallback policy, provider failure semantics, or monkeypatch paths.
+- Affected boundaries:
+  - `pipeline.llm.LocalAI` continues to own provider acquisition and interpretation of typed provider failures.
+  - Runtime defaults, remote/local fail-fast policy, and deterministic fallback behavior stay unchanged.
+- Canonical references:
+  - [ARCHITECTURE.md](../ARCHITECTURE.md)
+  - [docs/PIPELINE.md](PIPELINE.md)
+  - [docs/ENGINEERING_GUARDRAILS.md](ENGINEERING_GUARDRAILS.md)
+
 ## 2026-05-10: Split model and migration cleanup seams
 
 - Status: Accepted
