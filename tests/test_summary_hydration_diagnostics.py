@@ -153,3 +153,57 @@ def test_snapshot_to_dict_exposes_cumulative_and_unresolved_aliases():
     assert payload["agenda_unresolved_segmentation_status_counts"]["<null>"] == 55
     assert payload["metric_semantics"]["catalogs_with_summary"] == "cumulative_total"
     assert payload["metric_semantics"]["agenda_segmentation_status_counts"] == "unresolved_backlog_only"
+
+
+def test_load_sample_catalog_ids_preserves_scope_order_limits_and_distinct(db_session):
+    from sqlalchemy import case
+
+    from pipeline.models import AgendaItem, Catalog, Event, Place
+    from pipeline.summary_hydration_diagnostic_samples import load_sample_catalog_ids
+
+    place = Place(
+        id=1,
+        name="San Mateo",
+        state="CA",
+        ocd_division_id="ocd-division/country:us/state:ca/place:san_mateo",
+    )
+    event = Event(id=1, place_id=1, name="Council Meeting")
+    catalogs = [
+        Catalog(id=1, url_hash="non-agenda-earliest", content="minutes text", summary=None),
+        Catalog(id=2, url_hash="agenda-with-items-earliest", content="agenda text", summary=None),
+        Catalog(id=3, url_hash="agenda-without-items-earliest", content="agenda text", summary=None),
+        Catalog(id=4, url_hash="agenda-with-items-out-of-scope", content="agenda text", summary=None),
+        Catalog(id=5, url_hash="non-agenda-later", content="minutes text", summary=None),
+        Catalog(id=6, url_hash="agenda-without-items-later", content="agenda text", summary=None),
+    ]
+    agenda_items = [
+        AgendaItem(id=1, event_id=1, catalog_id=2, order=1, title="Budget"),
+        AgendaItem(id=2, event_id=1, catalog_id=2, order=2, title="Housing"),
+        AgendaItem(id=3, event_id=1, catalog_id=4, order=1, title="Outside scope"),
+    ]
+    db_session.add(place)
+    db_session.add(event)
+    db_session.add_all(catalogs)
+    db_session.add_all(agenda_items)
+    db_session.commit()
+
+    scoped_catalog_ids = db_session.query(Catalog.id.label("id")).filter(Catalog.id.in_([1, 2, 3, 5, 6])).subquery()
+    doc_kind_subquery = db_session.query(
+        Catalog.id.label("catalog_id"),
+        case((Catalog.id.in_([2, 3, 4, 6]), "agenda"), else_="minutes").label("doc_kind"),
+    ).subquery()
+
+    sample_catalog_ids = load_sample_catalog_ids(
+        db_session,
+        catalog_model=Catalog,
+        agenda_item_model=AgendaItem,
+        doc_kind_subquery=doc_kind_subquery,
+        scoped_catalog_ids=scoped_catalog_ids,
+        sample_limit=1,
+    )
+
+    assert sample_catalog_ids == {
+        "non_agenda_missing_summary": [1],
+        "agenda_missing_summary_with_items": [2],
+        "agenda_missing_summary_without_items": [3],
+    }

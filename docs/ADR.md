@@ -661,7 +661,8 @@ Use each entry to record:
   - `pipeline/summary_hydration_diagnostics.py` remains the operator-facing facade for diagnostic scripts and tests.
   - `pipeline/summary_hydration_diagnostic_contracts.py` owns snapshot contracts, path/root-cause constants, sample bucket names, and model protocols.
   - `pipeline/summary_hydration_diagnostic_policy.py` owns summary-path prediction and primary root-cause selection.
-  - `pipeline/summary_hydration_diagnostic_queries.py` owns runtime model loading and SQLAlchemy query helpers.
+  - `pipeline/summary_hydration_diagnostic_queries.py` owns runtime model loading and the typed SQLAlchemy query facade.
+  - `pipeline/summary_hydration_diagnostic_samples.py` owns sample-ID SQLAlchemy query helpers.
   - `pipeline/summary_hydration_diagnostic_builder.py` owns backlog classification and snapshot assembly.
 - Why:
   - The diagnostic module had become a mixed contract, policy, query, and snapshot-building boundary.
