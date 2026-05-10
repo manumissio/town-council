@@ -51,7 +51,7 @@ APPROVED_BROAD_EXCEPTION_PATHS = {
     "pipeline/agenda_worker.py",
     "pipeline/backlog_maintenance.py",
     "pipeline/check_faiss_runtime.py",
-    "pipeline/db_migrate.py",
+    "pipeline/db_migration_runner.py",
     "pipeline/db_session.py",
     "pipeline/diagnose_search_sort.py",
     "pipeline/diagnose_semantic_search.py",
@@ -59,7 +59,7 @@ APPROVED_BROAD_EXCEPTION_PATHS = {
     "pipeline/indexer_meilisearch.py",
     "pipeline/lineage_service.py",
     "pipeline/llm.py",
-    "pipeline/models.py",
+    "pipeline/model_base.py",
     "pipeline/nlp_entity_model.py",
     "pipeline/profiling.py",
     "pipeline/run_agenda_qa.py",
@@ -121,6 +121,11 @@ TYPED_SUBTREE_PATHS = (
     "pipeline/extraction_state.py",
     "pipeline/maintenance_run_status.py",
     "pipeline/models.py",
+    "pipeline/model_base.py",
+    "pipeline/model_runtime.py",
+    "pipeline/model_civic.py",
+    "pipeline/model_events.py",
+    "pipeline/model_records.py",
     "pipeline/profiling.py",
     "pipeline/rollout_registry.py",
     "pipeline/runtime_guardrails.py",
@@ -349,6 +354,24 @@ HYDRATION_CLI_CLEANUP_MODULES = (
     "scripts/hydration_repaired_summary.py",
     "scripts/hydration_repaired_runner.py",
 )
+MODEL_CLEANUP_MODULES = (
+    "pipeline/models.py",
+    "pipeline/model_base.py",
+    "pipeline/model_runtime.py",
+    "pipeline/model_civic.py",
+    "pipeline/model_events.py",
+    "pipeline/model_records.py",
+)
+DB_MIGRATION_CLEANUP_MODULES = (
+    "pipeline/db_migrate.py",
+    "pipeline/db_migration_columns.py",
+    "pipeline/db_migration_backfills.py",
+    "pipeline/db_migration_runner.py",
+    "pipeline/migrate_v8.py",
+    "pipeline/migrate_v9.py",
+    "pipeline/migration_pgvector_semantic_embeddings.py",
+    "pipeline/migration_catalog_lineage_columns.py",
+)
 INDEXER_CLEANUP_MODULES = (
     "pipeline/indexer.py",
     "pipeline/indexer_documents.py",
@@ -424,6 +447,8 @@ def _broad_exception_scan_files() -> list[Path]:
         *LASERFICHE_REPAIR_CLEANUP_MODULES,
         *SEGMENT_CITY_CORPUS_CLEANUP_MODULES,
         *HYDRATION_CLI_CLEANUP_MODULES,
+        *MODEL_CLEANUP_MODULES,
+        *DB_MIGRATION_CLEANUP_MODULES,
     ):
         tracked_files.add((ROOT / module_path).resolve())
     return sorted(tracked_files)
@@ -813,6 +838,26 @@ def test_hydration_cli_cleanup_modules_stay_under_size_target():
     oversized_modules = [
         module_path
         for module_path in HYDRATION_CLI_CLEANUP_MODULES
+        if len((ROOT / module_path).read_text(encoding="utf-8").splitlines()) > 300
+    ]
+
+    assert oversized_modules == []
+
+
+def test_model_cleanup_modules_stay_under_size_target():
+    oversized_modules = [
+        module_path
+        for module_path in MODEL_CLEANUP_MODULES
+        if len((ROOT / module_path).read_text(encoding="utf-8").splitlines()) > 300
+    ]
+
+    assert oversized_modules == []
+
+
+def test_db_migration_cleanup_modules_stay_under_size_target():
+    oversized_modules = [
+        module_path
+        for module_path in DB_MIGRATION_CLEANUP_MODULES
         if len((ROOT / module_path).read_text(encoding="utf-8").splitlines()) > 300
     ]
 
