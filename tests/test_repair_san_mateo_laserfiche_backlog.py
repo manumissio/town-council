@@ -29,6 +29,15 @@ def test_parse_docview_url_extracts_entry_id_and_repo():
     assert repo == "r-98a383e2"
 
 
+def test_repair_facade_reexports_legacy_constants_and_dependencies():
+    assert mod.requests is not None
+    assert isinstance(mod.DOWNLOAD_TIMEOUT_SECONDS, int)
+    assert mod.GENERATED_PDF_FETCH_RETRIES == 3
+    assert mod.GENERATED_PDF_FETCH_RETRY_DELAY_SECONDS == 1
+    assert mod._THREAD_STATE is not None
+    assert mod._coerce_bool("yes") is True
+
+
 def test_electronic_file_url_uses_docid_query_parameter():
     assert mod._electronic_file_url(2040856, "r-98a383e2") == (
         "https://portal.laserfiche.com/Portal/ElectronicFile.aspx?docid=2040856&repo=r-98a383e2"
