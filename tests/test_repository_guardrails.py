@@ -60,7 +60,7 @@ APPROVED_BROAD_EXCEPTION_PATHS = {
     "pipeline/lineage_service.py",
     "pipeline/llm.py",
     "pipeline/models.py",
-    "pipeline/nlp_worker.py",
+    "pipeline/nlp_entity_model.py",
     "pipeline/profiling.py",
     "pipeline/run_agenda_qa.py",
     "pipeline/run_batch_enrichment.py",
@@ -175,6 +175,13 @@ METRICS_CLEANUP_MODULES = (
     "pipeline/metrics_provider_keys.py",
     "pipeline/metrics_provider_recorders.py",
     "pipeline/metrics_task_recorders.py",
+)
+DOWNLOADER_CLEANUP_MODULES = (
+    "pipeline/downloader.py",
+    "pipeline/downloader_archive.py",
+    "pipeline/downloader_media.py",
+    "pipeline/downloader_processing.py",
+    "pipeline/downloader_selection.py",
 )
 AGENDA_EXTRACTION_CLEANUP_MODULES = (
     "pipeline/agenda_extraction.py",
@@ -320,6 +327,13 @@ LASERFICHE_REPAIR_CLEANUP_MODULES = (
     "scripts/laserfiche_repair_backlog.py",
     "scripts/laserfiche_repair_reporting.py",
 )
+SEGMENT_CITY_CORPUS_CLEANUP_MODULES = (
+    "scripts/segment_city_corpus.py",
+    "scripts/segment_city_contracts.py",
+    "scripts/segment_city_selection.py",
+    "scripts/segment_city_worker.py",
+    "scripts/segment_city_runner.py",
+)
 INDEXER_CLEANUP_MODULES = (
     "pipeline/indexer.py",
     "pipeline/indexer_documents.py",
@@ -355,6 +369,12 @@ VOTE_EXTRACTION_CLEANUP_MODULES = (
     "pipeline/vote_extraction_policy.py",
     "pipeline/vote_extraction_runner.py",
 )
+NLP_ENTITY_CLEANUP_MODULES = (
+    "pipeline/nlp_worker.py",
+    "pipeline/nlp_entity_candidates.py",
+    "pipeline/nlp_entity_extraction.py",
+    "pipeline/nlp_entity_model.py",
+)
 
 
 def _tracked_files() -> list[Path]:
@@ -367,6 +387,7 @@ def _broad_exception_scan_files() -> list[Path]:
     for module_path in (
         *CONFIG_CLEANUP_MODULES,
         *METRICS_CLEANUP_MODULES,
+        *DOWNLOADER_CLEANUP_MODULES,
         *AGENDA_EXTRACTION_CLEANUP_MODULES,
         *AGENDA_TEXT_HEURISTICS_CLEANUP_MODULES,
         *AGENDA_RESOLVER_CLEANUP_MODULES,
@@ -378,6 +399,7 @@ def _broad_exception_scan_files() -> list[Path]:
         *SEMANTIC_BACKEND_CLEANUP_MODULES,
         *SUMMARY_TEXT_CLEANUP_MODULES,
         *VOTE_EXTRACTION_CLEANUP_MODULES,
+        *NLP_ENTITY_CLEANUP_MODULES,
         *HTTP_PROVIDER_CLEANUP_MODULES,
         *PERSON_UTILS_CLEANUP_MODULES,
         *REPORTING_SCRIPTS_CLEANUP_MODULES,
@@ -385,6 +407,7 @@ def _broad_exception_scan_files() -> list[Path]:
         *SEARCH_SUPPORT_CLEANUP_MODULES,
         *CITY_ONBOARDING_EVALUATOR_CLEANUP_MODULES,
         *LASERFICHE_REPAIR_CLEANUP_MODULES,
+        *SEGMENT_CITY_CORPUS_CLEANUP_MODULES,
     ):
         tracked_files.add((ROOT / module_path).resolve())
     return sorted(tracked_files)
@@ -580,6 +603,16 @@ def test_metrics_cleanup_modules_stay_under_size_target():
     assert oversized_modules == []
 
 
+def test_downloader_cleanup_modules_stay_under_size_target():
+    oversized_modules = [
+        module_path
+        for module_path in DOWNLOADER_CLEANUP_MODULES
+        if len((ROOT / module_path).read_text(encoding="utf-8").splitlines()) > 300
+    ]
+
+    assert oversized_modules == []
+
+
 def test_config_cleanup_modules_stay_under_size_target():
     oversized_modules = [
         module_path
@@ -750,6 +783,16 @@ def test_laserfiche_repair_cleanup_modules_stay_under_size_target():
     assert oversized_modules == []
 
 
+def test_segment_city_corpus_cleanup_modules_stay_under_size_target():
+    oversized_modules = [
+        module_path
+        for module_path in SEGMENT_CITY_CORPUS_CLEANUP_MODULES
+        if len((ROOT / module_path).read_text(encoding="utf-8").splitlines()) > 300
+    ]
+
+    assert oversized_modules == []
+
+
 def test_indexer_cleanup_modules_stay_under_size_target():
     oversized_modules = [
         module_path
@@ -784,6 +827,16 @@ def test_vote_extraction_cleanup_modules_stay_under_size_target():
     oversized_modules = [
         module_path
         for module_path in VOTE_EXTRACTION_CLEANUP_MODULES
+        if len((ROOT / module_path).read_text(encoding="utf-8").splitlines()) > 300
+    ]
+
+    assert oversized_modules == []
+
+
+def test_nlp_entity_cleanup_modules_stay_under_size_target():
+    oversized_modules = [
+        module_path
+        for module_path in NLP_ENTITY_CLEANUP_MODULES
         if len((ROOT / module_path).read_text(encoding="utf-8").splitlines()) > 300
     ]
 
