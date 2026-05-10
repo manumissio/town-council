@@ -65,6 +65,7 @@ def test_vote_extraction_modules_do_not_import_facade():
         Path("pipeline/vote_extraction_parser.py"),
         Path("pipeline/vote_extraction_context.py"),
         Path("pipeline/vote_extraction_policy.py"),
+        Path("pipeline/vote_extraction_item.py"),
         Path("pipeline/vote_extraction_runner.py"),
     ]
     offenders: list[str] = []
