@@ -178,6 +178,29 @@ def test_run_segment_city_emits_catalog_progress_when_enabled(mocker, capsys):
     assert "outcome=failed duration_seconds=2.50" in captured.out
 
 
+def test_run_segment_city_preserves_emit_progress_patch_seam(mocker):
+    fake_segment_module = mocker.Mock()
+    fake_segment_module._catalog_ids_for_city.return_value = [101]
+    fake_segment_module._prioritized_catalog_ids.return_value = [101]
+    fake_segment_module._catalog_timeout_seconds.return_value = 7
+    fake_segment_module._catalog_worker_count.return_value = 1
+
+    def _segment_catalog_batch(city, catalog_ids, *, progress_callback, **_kwargs):
+        progress_callback(city, 1, 1, catalog_ids[0], "complete", 1.0)
+        return {"city": city, "catalog_count": 1, "complete": 1}
+
+    fake_segment_module._segment_catalog_batch.side_effect = _segment_catalog_batch
+    mocker.patch.dict(sys.modules, {"scripts.segment_city_corpus": fake_segment_module})
+    emit_spy = mocker.patch.object(mod, "_emit_progress")
+
+    mod._run_segment_city("berkeley", emit_progress=True)
+
+    emitted_messages = [call.args[1] for call in emit_spy.call_args_list]
+    assert any("segmentation_start" in message for message in emitted_messages)
+    assert any("segmentation_catalog_start" in message for message in emitted_messages)
+    assert any("segmentation_catalog_finish" in message for message in emitted_messages)
+
+
 def test_staged_hydrate_cities_runs_multiple_chunks_and_bounds_summary(mocker, capsys):
     mocker.patch.object(
         mod,
@@ -332,6 +355,35 @@ def test_staged_hydrate_cities_repeat_until_idle_json_includes_runs(mocker, caps
     assert payload["cities"][0]["segmentation"]["catalog_count"] == 0
 
 
+def test_main_repeat_until_idle_preserves_emit_progress_patch_seam(mocker):
+    snapshot_payload = _snapshot(
+        missing_summary_total=0,
+        catalogs_with_summary=1,
+        agenda_missing_summary_total=0,
+        agenda_missing_summary_with_items=0,
+        agenda_missing_summary_without_items=0,
+        non_agenda_missing_summary_total=0,
+    )
+    mocker.patch.object(
+        mod,
+        "_run_once",
+        side_effect=[
+            {"cities": [{"city": "berkeley", "before": snapshot_payload, "chunks": [], "segmentation": {"catalog_count": 1}, "summary": {"selected": 0}, "after": snapshot_payload, "delta": {}}], "any_work_done": True},
+            {"cities": [{"city": "berkeley", "before": snapshot_payload, "chunks": [], "segmentation": {"catalog_count": 0}, "summary": {"selected": 0}, "after": snapshot_payload, "delta": {}}], "any_work_done": False},
+        ],
+    )
+    mocker.patch.object(mod.time, "sleep")
+    mocker.patch.object(sys, "argv", ["staged_hydrate_cities.py", "--city", "berkeley", "--repeat-until-idle", "--sleep-seconds", "0"])
+    emit_spy = mocker.patch.object(mod, "_emit_progress")
+
+    exit_code = mod.main()
+
+    emitted_messages = [call.args[1] for call in emit_spy.call_args_list]
+    assert exit_code == 0
+    assert "[loop] run_start run=1 max_chunks=None sleep_seconds=0" in emitted_messages
+    assert "[loop] idle_stop run=2" in emitted_messages
+
+
 def test_delta_includes_unresolved_segmentation_status_counts():
     delta = mod._delta(
         _snapshot(
@@ -356,3 +408,85 @@ def test_delta_includes_unresolved_segmentation_status_counts():
 
     assert delta["catalogs_with_summary"] == 2
     assert delta["agenda_unresolved_segmentation_status_counts"] == {"<null>": -2, "complete": 1, "empty": 1}
+
+
+def test_run_once_preserves_facade_patch_seams(mocker):
+    before_snapshot = _snapshot(
+        missing_summary_total=0,
+        catalogs_with_summary=1,
+        agenda_missing_summary_total=0,
+        agenda_missing_summary_with_items=0,
+        agenda_missing_summary_without_items=0,
+        non_agenda_missing_summary_total=0,
+    )
+    after_snapshot = _snapshot(
+        missing_summary_total=0,
+        catalogs_with_summary=1,
+        agenda_missing_summary_total=0,
+        agenda_missing_summary_with_items=0,
+        agenda_missing_summary_without_items=0,
+        non_agenda_missing_summary_total=0,
+    )
+    mocker.patch.object(mod, "ordered_hydration_cities", return_value=["berkeley"])
+    mocker.patch.object(mod, "_snapshot_dict", side_effect=[before_snapshot, after_snapshot])
+    mocker.patch.object(
+        mod,
+        "_run_segment_city",
+        return_value={
+            "city": "berkeley",
+            "catalog_count": 0,
+            "complete": 0,
+            "empty": 0,
+            "failed": 0,
+            "timed_out": 0,
+            "other": 0,
+            "timeout_fallbacks": 0,
+            "empty_response_fallbacks": 0,
+            "llm_attempted": 0,
+            "llm_skipped_heuristic_first": 0,
+            "heuristic_complete": 0,
+            "llm_timeout_then_fallback": 0,
+            "resume_after_id": None,
+            "last_catalog_id": None,
+        },
+    )
+    emit_spy = mocker.patch.object(mod, "_emit_progress")
+    mocker.patch.object(mod, "_empty_summary_counts", return_value={"selected": 0, "custom_empty": 1})
+    mocker.patch.object(mod, "_merge_counts", return_value={"selected": 0, "merged_by_facade": 1})
+    mocker.patch.object(mod, "_delta", return_value={"patched_delta": 1})
+
+    payload = mod._run_once(mod._build_parser().parse_args(["--city", "berkeley", "--json"]))
+
+    assert payload["cities"][0]["summary"] == {"selected": 0, "merged_by_facade": 1}
+    assert payload["cities"][0]["delta"] == {"patched_delta": 1}
+    emit_spy.assert_any_call(False, "[berkeley] city_start")
+
+
+def test_staged_hydrate_cities_facade_exports_patch_seams():
+    expected_names = [
+        "_emit_progress",
+        "_empty_summary_counts",
+        "_merge_counts",
+        "_run_segment_city",
+        "_snapshot_dict",
+        "_delta",
+        "_build_parser",
+        "_run_once",
+        "run_summary_hydration_backfill",
+        "time",
+    ]
+
+    assert all(hasattr(mod, name) for name in expected_names)
+
+
+def test_staged_hydration_implementation_modules_do_not_import_facade():
+    module_paths = [
+        Path("scripts/hydration_counts.py"),
+        Path("scripts/hydration_output.py"),
+        Path("scripts/staged_hydration_output.py"),
+        Path("scripts/staged_hydration_runner.py"),
+        Path("scripts/staged_hydration_segment.py"),
+    ]
+
+    for module_path in module_paths:
+        assert "scripts.staged_hydrate_cities" not in module_path.read_text(encoding="utf-8")

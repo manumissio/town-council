@@ -320,6 +320,7 @@ def test_run_segment_city_counts_fallback_events(mocker, capsys):
     assert counts["llm_skipped_heuristic_first"] == 2
     assert counts["heuristic_complete"] == 1
     assert counts["llm_timeout_then_fallback"] == 2
+    assert "timed_out" not in counts
     assert "[san_mateo] segment_progress done=2/3" in captured.out
     assert "selector='city_agenda_repair'" in captured.out
 
@@ -524,3 +525,40 @@ def test_select_extract_catalog_ids_can_narrow_by_url_substring(mocker):
     assert selected_ids == [101]
     assert counts == {"missing_file": 0, "zero_byte": 0}
     assert any("catalog.url" in rendered for rendered in rendered_filters)
+
+
+def test_hydrate_repaired_city_catalogs_facade_exports_patch_seams():
+    expected_names = [
+        "MaintenanceRunStatus",
+        "_run_extract_city",
+        "_run_segment_city",
+        "_run_summary_city",
+        "_select_extract_catalog_ids",
+        "_select_segment_catalog_ids",
+        "_select_summary_catalog_ids",
+        "_summarize_one_catalog",
+        "_segment_timeout_override",
+        "_summary_timeout_override",
+        "_capture_agenda_fallback_events",
+        "_looks_structured_enough_for_heuristic_segmentation",
+        "llm_mod",
+        "llm_provider_mod",
+        "time",
+    ]
+
+    assert all(hasattr(mod, name) for name in expected_names)
+
+
+def test_hydrate_repaired_implementation_modules_do_not_import_facade():
+    module_paths = [
+        Path("scripts/hydration_counts.py"),
+        Path("scripts/hydration_output.py"),
+        Path("scripts/hydration_repaired_extract.py"),
+        Path("scripts/hydration_repaired_runner.py"),
+        Path("scripts/hydration_repaired_segment.py"),
+        Path("scripts/hydration_repaired_selectors.py"),
+        Path("scripts/hydration_repaired_summary.py"),
+    ]
+
+    for module_path in module_paths:
+        assert "scripts.hydrate_repaired_city_catalogs" not in module_path.read_text(encoding="utf-8")
