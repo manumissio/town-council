@@ -1,10 +1,8 @@
 import logging
-import uuid
 from typing import Any, Callable
 
 from celery.result import AsyncResult as AsyncResult
 from fastapi import APIRouter, Depends, HTTPException, Path, Query, Request
-from kombu.exceptions import KombuError
 from sqlalchemy.orm import Session as SQLAlchemySession
 
 from pipeline.celery_app import app as celery_app
@@ -17,71 +15,33 @@ from pipeline.summary_quality import (
     is_source_summarizable,
     is_source_topicable,
 )
+from api.task_dispatch import (  # noqa: F401
+    EXTRACT_TEXT_TASK_NAME,
+    EXTRACT_VOTES_TASK_NAME,
+    GENERATE_SUMMARY_TASK_NAME,
+    GENERATE_TOPICS_TASK_NAME,
+    INVALID_TASK_ID_DETAIL,
+    SEGMENT_AGENDA_TASK_NAME,
+    TASK_DISPATCH_ERRORS,
+    TASK_QUEUE_UNAVAILABLE_DETAIL,
+    _CeleryTaskProxy,
+    _enqueue_task,
+    extract_text_task,
+    extract_votes_task,
+    generate_summary_task,
+    generate_topics_task,
+    segment_agenda_task,
+)
+from api.task_route_support import get_task_status_payload
 
 logger = logging.getLogger("town-council-api")
 
-TASK_QUEUE_UNAVAILABLE_DETAIL = "Task queue unavailable"
-INVALID_TASK_ID_DETAIL = "Invalid task_id format"
-GENERATE_SUMMARY_TASK_NAME = "pipeline.tasks.generate_summary_task"
-GENERATE_TOPICS_TASK_NAME = "pipeline.enrichment_tasks.generate_topics_task"
-SEGMENT_AGENDA_TASK_NAME = "pipeline.tasks.segment_agenda_task"
-EXTRACT_VOTES_TASK_NAME = "pipeline.tasks.extract_votes_task"
-EXTRACT_TEXT_TASK_NAME = "pipeline.tasks.extract_text_task"
 SUMMARIZE_RATE_LIMIT = "20/minute"
 SEGMENT_RATE_LIMIT = "20/minute"
 VOTES_RATE_LIMIT = "20/minute"
 TOPICS_RATE_LIMIT = "10/minute"
 EXTRACT_RATE_LIMIT = "5/minute"
 EXTRACT_CACHED_CONTENT_MIN_CHARS = 800
-TASK_DISPATCH_ERRORS = (KombuError, OSError, ConnectionError, TimeoutError)
-
-
-class _CeleryTaskProxy:
-    """
-    Keep the API enqueue surface lightweight while preserving test patch points.
-    """
-
-    def __init__(self, task_name: str):
-        self.name = task_name
-
-    def delay(self, *args: Any, **kwargs: Any) -> Any:
-        return celery_app.send_task(self.name, args=args, kwargs=kwargs)
-
-
-generate_summary_task = _CeleryTaskProxy(GENERATE_SUMMARY_TASK_NAME)
-generate_topics_task = _CeleryTaskProxy(GENERATE_TOPICS_TASK_NAME)
-segment_agenda_task = _CeleryTaskProxy(SEGMENT_AGENDA_TASK_NAME)
-extract_votes_task = _CeleryTaskProxy(EXTRACT_VOTES_TASK_NAME)
-extract_text_task = _CeleryTaskProxy(EXTRACT_TEXT_TASK_NAME)
-
-
-def _enqueue_task(task_name: str, task_callable: Any, *task_args: Any, **task_kwargs: Any) -> str:
-    """
-    Normalize broker/enqueue failures at the API boundary.
-
-    Why this exists:
-    The API can be healthy enough to answer /health while the Celery broker is
-    degraded. In that case we want an explicit 503 instead of a generic 500 or
-    a response body without task_id.
-    """
-    try:
-        task = task_callable.delay(*task_args, **task_kwargs)
-    except TASK_DISPATCH_ERRORS as exc:
-        logger.error(
-            "Task enqueue failed",
-            extra={"task_name": task_name, "failure_class": exc.__class__.__name__},
-            exc_info=True,
-        )
-        raise HTTPException(status_code=503, detail=TASK_QUEUE_UNAVAILABLE_DETAIL) from exc
-
-    task_id = str(getattr(task, "id", "") or "").strip()
-    if not task_id:
-        logger.error(
-            "Task enqueue returned missing task id",
-            extra={"task_name": task_name, "failure_class": "missing_task_id"},
-        )
-        raise HTTPException(status_code=503, detail=TASK_QUEUE_UNAVAILABLE_DETAIL)
-    return task_id
 
 
 def build_task_router(
@@ -332,25 +292,6 @@ def build_task_router(
         """
         Check the status of a background AI task.
         """
-        try:
-            uuid.UUID(task_id)
-        except (ValueError, TypeError):
-            logger.warning("Invalid task status request", extra={"task_id": task_id})
-            raise HTTPException(status_code=400, detail=INVALID_TASK_ID_DETAIL)
-
-        task = task_facade.AsyncResult(task_id, app=celery_app)
-        if not task.ready():
-            return {"status": "processing"}
-
-        task_payload = task.result
-        if isinstance(task_payload, Exception):
-            return {"status": "failed", "error": str(task_payload)}
-        if isinstance(task_payload, dict) and "error" in task_payload:
-            return {"status": "failed", "error": task_payload["error"]}
-
-        return {
-            "status": "complete",
-            "result": task_payload,
-        }
+        return get_task_status_payload(task_facade, task_id, celery_app=celery_app, logger=logger)
 
     return router
