@@ -224,7 +224,7 @@ Write hierarchy:
 
 Primary owners:
 - `pipeline/tasks.py`
-- `pipeline/models.py`
+- `pipeline/models.py` facade plus focused `pipeline/model_*` modules
 
 #### Semantic Search (Transitional, meeting-level Phase 2)
 
@@ -244,8 +244,8 @@ Primary owners:
 - `api/search_read_routes.py`
 - `api/search_semantic_routes.py`
 - `pipeline/semantic_index.py`
-- `pipeline/db_migrate.py`
-- `pipeline/migrate_v8.py`
+- `pipeline/db_migrate.py` facade plus focused `pipeline/db_migration_*` helpers
+- `pipeline/migrate_v8.py` compatibility wrapper and `pipeline/migration_pgvector_semantic_embeddings.py`
 
 #### Lineage + Trends (Stable)
 
@@ -312,8 +312,8 @@ Primary owners:
   - `api/main.py` (FastAPI app facade and compatibility surface)
   - `api/search_routes.py` (`/search` and `/search/semantic` paths)
   - `pipeline/semantic_index.py`
-  - `pipeline/db_migrate.py` (supported additive migration entrypoint)
-  - `pipeline/migrate_v8.py` (pgvector bridge/migration path)
+  - `pipeline/db_migrate.py` facade plus focused `pipeline/db_migration_*` helpers
+  - `pipeline/migrate_v8.py` compatibility wrapper and `pipeline/migration_pgvector_semantic_embeddings.py`
 
 ### Code Map by Concern
 
@@ -322,9 +322,9 @@ Primary owners:
 - Async orchestration and writes: `pipeline/tasks.py` facade plus focused `pipeline/task_*` helpers
 - Inference abstraction and provider telemetry: `pipeline/llm.py`, `pipeline/agenda_extraction.py`, `pipeline/llm_provider.py`, `pipeline/http_inference_provider.py` facade plus focused `pipeline/http_inference_*` helpers, `pipeline/inprocess_inference_provider.py`, `pipeline/provider_telemetry.py`, `pipeline/metrics.py`, `pipeline/metrics_provider_recorders.py`
 - API surface and auth: `api/main.py`, `api/app_setup.py`, `api/search_routes.py`, `api/task_routes.py` facade plus focused `api/task_*` helpers, `api/search_support.py` facade plus focused `api/search/*_support.py` helpers, `api/search/query_builder.py`, `api/metrics.py`
-- Semantic retrieval and embeddings: `pipeline/semantic_index.py`, `pipeline/semantic_faiss_backend.py`, `pipeline/semantic_pgvector_backend.py`, focused semantic backend helpers, `pipeline/models.py`
+- Semantic retrieval and embeddings: `pipeline/semantic_index.py`, `pipeline/semantic_faiss_backend.py`, `pipeline/semantic_pgvector_backend.py`, focused semantic backend helpers, `pipeline/models.py` facade plus focused `pipeline/model_*` modules
 - Frontend query/task UX: `frontend/app/page.js`, `frontend/state/search-state.js`, `frontend/components/ResultCard.js`
-- Data model and persistence: `pipeline/models.py`, `pipeline/db_migrate.py`, `pipeline/migrate_v8.py`, `pipeline/migrate_v9.py`
+- Data model and persistence: `pipeline/models.py` facade plus focused `pipeline/model_*` modules, `pipeline/db_migrate.py` facade plus focused `pipeline/db_migration_*` helpers, `pipeline/migrate_v8.py` and `pipeline/migrate_v9.py` compatibility wrappers, descriptive `pipeline/migration_*` modules
 - Onboarding orchestration and evaluation: `scripts/onboard_city_wave.sh`, `scripts/check_city_crawl_evidence.py`, `scripts/evaluate_city_onboarding.py` facade plus focused `pipeline/city_onboarding_*` helpers
 
 ### Runtime Lifecycles
@@ -395,7 +395,7 @@ Owners:
 
 Owners:
 - `pipeline/tasks.py`
-- `pipeline/models.py`
+- `pipeline/models.py` facade plus focused `pipeline/model_*` modules
 - `pipeline/content_hash.py`
 
 #### Observability visibility
@@ -433,10 +433,10 @@ Owners:
 | `catalog.agenda_items_hash` | Hash of the normalized structured agenda payload used for agenda-summary freshness | `pipeline/agenda_service.py`, `pipeline/summary_freshness.py`, `pipeline/tasks.py` |
 | `catalog.summary_source_hash` | Hash of the governing summary input; `content_hash` for non-agenda summaries and `agenda_items_hash` for agenda summaries | `pipeline/tasks.py`, `api/main.py`, `api/task_routes.py`, `api/catalog_routes.py`, `pipeline/summary_freshness.py` |
 | `catalog.topics_source_hash` | Hash of source text used to generate current topics | `pipeline/topic_generation.py` facade plus focused `pipeline/topic_generation_*` modules, `pipeline/enrichment_tasks.py`, `pipeline/topic_worker.py`, `api/task_routes.py`, `api/catalog_routes.py` |
-| `agenda_item.result` | Normalized outcome field for agenda/vote interpretation | `pipeline/models.py`, `pipeline/tasks.py` |
-| `agenda_item.votes` | Structured vote payload with extraction metadata | `pipeline/models.py`, `pipeline/tasks.py` |
+| `agenda_item.result` | Normalized outcome field for agenda/vote interpretation | `pipeline/models.py` facade plus focused `pipeline/model_*` modules, `pipeline/tasks.py` |
+| `agenda_item.votes` | Structured vote payload with extraction metadata | `pipeline/models.py` facade plus focused `pipeline/model_*` modules, `pipeline/tasks.py` |
 | `catalog.lineage_id`, `catalog.lineage_confidence`, `catalog.lineage_updated_at` | Meeting-level lineage identity and confidence | `pipeline/lineage_service.py`, `api/main.py`, `api/lineage_routes.py` |
-| `semantic_embedding` | pgvector-backed embedding storage for hybrid semantic retrieval | `pipeline/models.py`, `pipeline/semantic_index.py`, `pipeline/semantic_pgvector_backend.py`, focused semantic backend helpers, `pipeline/tasks.py` |
+| `semantic_embedding` | pgvector-backed embedding storage for hybrid semantic retrieval | `pipeline/models.py` facade plus focused `pipeline/model_*` modules, `pipeline/semantic_index.py`, `pipeline/semantic_pgvector_backend.py`, focused semantic backend helpers, `pipeline/tasks.py` |
 
 ### Observability Contract
 

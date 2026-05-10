@@ -1,6 +1,7 @@
 import importlib
 import sys
 import os
+from pathlib import Path
 import pytest
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
@@ -144,3 +145,63 @@ def test_db_connect_allows_explicit_sqlite_url_without_fallback_pooling(monkeypa
     models.db_connect()
 
     create_engine_mock.assert_called_once_with(database_url)
+
+
+def test_models_facade_exports_public_orm_surface():
+    import pipeline.models as models
+
+    expected_names = [
+        "Base",
+        "db_connect",
+        "create_tables",
+        "VECTOR_COLUMN_TYPE",
+        "IssueType",
+        "DataIssue",
+        "Place",
+        "Organization",
+        "Person",
+        "Membership",
+        "UrlStage",
+        "EventStage",
+        "Event",
+        "AgendaItem",
+        "SemanticEmbedding",
+        "UrlStageHist",
+        "Catalog",
+        "Document",
+    ]
+
+    assert all(hasattr(models, name) for name in expected_names)
+
+
+def test_models_facade_registers_all_tables_in_single_metadata():
+    import pipeline.models as models
+
+    assert set(models.Base.metadata.tables) == {
+        "agenda_item",
+        "catalog",
+        "data_issue",
+        "document",
+        "event",
+        "event_stage",
+        "membership",
+        "organization",
+        "person",
+        "place",
+        "semantic_embedding",
+        "url_stage",
+        "url_stage_hist",
+    }
+
+
+def test_model_implementation_modules_do_not_import_facade():
+    module_paths = [
+        "pipeline/model_base.py",
+        "pipeline/model_runtime.py",
+        "pipeline/model_civic.py",
+        "pipeline/model_events.py",
+        "pipeline/model_records.py",
+    ]
+
+    for module_path in module_paths:
+        assert "pipeline.models" not in (Path(root_dir) / module_path).read_text(encoding="utf-8")

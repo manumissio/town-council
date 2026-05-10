@@ -8,6 +8,25 @@ Use each entry to record:
 - the affected boundary or contract
 - links to the canonical docs that carry the ongoing operational or architecture detail
 
+## 2026-05-10: Split model and migration cleanup seams
+
+- Status: Accepted
+- Decision:
+  - `pipeline/models.py` remains the public ORM import facade while `Base`, runtime engine setup, civic entities, event/stage entities, and catalog/document/embedding records move behind focused `pipeline/model_*` modules.
+  - `pipeline/db_migrate.py` remains the supported additive migration entrypoint while column checks, additive column plans, backfills, and runner/submigration orchestration move behind focused `pipeline/db_migration_*` modules.
+  - `pipeline/migrate_v8.py` and `pipeline/migrate_v9.py` remain compatibility wrappers while descriptive implementation modules own pgvector semantic embeddings and catalog lineage columns.
+- Why:
+  - Models and additive migrations were the largest remaining cleanup targets after hydration CLI cleanup.
+  - Existing ORM imports, metadata registration, migration patch seams, SQLite skip behavior, and PostgreSQL migration order must remain stable.
+- Affected boundaries:
+  - `pipeline.models` keeps exporting `Base`, `db_connect`, `create_tables`, `VECTOR_COLUMN_TYPE`, `IssueType`, and all ORM classes.
+  - `pipeline.db_migrate` keeps running core additive migrations before pgvector and lineage submigrations.
+  - Guardrails track the model and migration helper families under the 300-line cleanup target.
+- Canonical references:
+  - [ARCHITECTURE.md](../ARCHITECTURE.md)
+  - [docs/PIPELINE.md](PIPELINE.md)
+  - [docs/ENGINEERING_GUARDRAILS.md](ENGINEERING_GUARDRAILS.md)
+
 ## 2026-05-09: Split Wave 2 task, search, onboarding, and repair cleanup seams
 
 - Status: Accepted

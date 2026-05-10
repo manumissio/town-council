@@ -77,3 +77,15 @@ def test_migrate_v9_is_idempotent_when_columns_exist(mocker):
 
     calls = _sql_calls(conn)
     assert not any("alter table" in c and "lineage_" in c for c in calls)
+
+
+def test_migrate_v9_preserves_column_exists_patch_seam(mocker):
+    conn = _FakeConn()
+    engine = _FakeEngine(conn)
+    mocker.patch.object(migrate_v9, "db_connect", return_value=engine)
+    mocker.patch.object(migrate_v9, "_column_exists", return_value=True)
+
+    migrate_v9.migrate()
+
+    calls = _sql_calls(conn)
+    assert not any("alter table" in c and "lineage_" in c for c in calls)
