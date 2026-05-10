@@ -46,7 +46,6 @@ class _FakeRedis:
 
 def test_redis_collector_exports_provider_series(monkeypatch):
     mod = importlib.import_module("pipeline.metrics")
-
     monkeypatch.setattr(mod, "_REDIS_INIT", True)
     monkeypatch.setattr(mod, "_REDIS_BACKEND_UP", 1.0)
     monkeypatch.setattr(mod, "_REDIS_CLIENT", _FakeRedis())
@@ -63,30 +62,38 @@ def test_redis_collector_exports_provider_series(monkeypatch):
     assert "tc_provider_requests_total" in metrics
     assert _sample_value(metrics["tc_provider_requests_total"], "tc_provider_requests_total", labels) == 5.0
     assert _sample_value(metrics["tc_provider_prompt_tokens_total"], "tc_provider_prompt_tokens_total", labels) == 120.0
-    assert _sample_value(metrics["tc_provider_completion_tokens_total"], "tc_provider_completion_tokens_total", labels) == 80.0
-    assert _sample_value(
-        metrics["tc_provider_ttft_ms"],
-        "tc_provider_ttft_ms_count",
-        labels,
-    ) == 3.0
-    assert _sample_value(
-        metrics["tc_provider_tokens_per_sec"],
-        "tc_provider_tokens_per_sec_count",
-        labels,
-    ) == 3.0
+    assert (
+        _sample_value(metrics["tc_provider_completion_tokens_total"], "tc_provider_completion_tokens_total", labels)
+        == 80.0
+    )
+    assert (
+        _sample_value(
+            metrics["tc_provider_ttft_ms"],
+            "tc_provider_ttft_ms_count",
+            labels,
+        )
+        == 3.0
+    )
+    assert (
+        _sample_value(
+            metrics["tc_provider_tokens_per_sec"],
+            "tc_provider_tokens_per_sec_count",
+            labels,
+        )
+        == 3.0
+    )
 
 
 def test_redis_collector_backend_gauge_reflects_degraded_state(monkeypatch):
     mod = importlib.import_module("pipeline.metrics")
-
     monkeypatch.setattr(mod, "_REDIS_INIT", True)
     monkeypatch.setattr(mod, "_REDIS_BACKEND_UP", 0.0)
     monkeypatch.setattr(mod, "_REDIS_CLIENT", _FakeRedis())
 
     collector = mod.RedisProviderMetricsCollector()
     metrics = {m.name: m for m in collector.collect()}
-    backend = metrics["tc_provider_metrics_backend_up"]
-    value = _sample_value(backend, "tc_provider_metrics_backend_up", {})
+    backend_metric = metrics["tc_provider_metrics_backend_up"]
+    value = _sample_value(backend_metric, "tc_provider_metrics_backend_up", {})
     assert value == 0.0
 
 

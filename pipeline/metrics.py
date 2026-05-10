@@ -11,8 +11,18 @@ from prometheus_client import REGISTRY, start_http_server
 from pipeline import metrics_celery_signals, metrics_provider_recorders, profiling
 from pipeline.metrics_definitions import *  # noqa: F403 - compatibility facade for metric objects
 from pipeline.metrics_profile_events import TaskProfileContext, component_for_queue, write_task_profile_event
-from pipeline.metrics_provider_collector import RedisProviderMetricsCollector as _RedisProviderMetricsCollector
 from pipeline.metrics_provider_keys import provider_base_labels_key, provider_labels_key
+from pipeline import metrics_redis_backend as _metrics_redis_backend
+from pipeline.metrics_redis_backend import (
+    DEFAULT_REDIS_HOST as DEFAULT_REDIS_HOST,
+    DEFAULT_REDIS_PORT as DEFAULT_REDIS_PORT,
+    REDIS_DB as REDIS_DB,
+    REDIS_HOST_ENV as REDIS_HOST_ENV,
+    REDIS_OPERATION_ERRORS as REDIS_OPERATION_ERRORS,
+    REDIS_PASSWORD_ENV as REDIS_PASSWORD_ENV,
+    REDIS_PORT_ENV as REDIS_PORT_ENV,
+    REDIS_WRITE_ERRORS as REDIS_WRITE_ERRORS,
+)
 from pipeline.metrics_task_recorders import (
     record_lineage_recompute as _record_lineage_recompute,
     record_pipeline_phase_duration,
@@ -24,115 +34,102 @@ from pipeline.metrics_task_recorders import (
 
 
 logger = logging.getLogger(__name__)
-try:
-    import redis  # type: ignore[import-untyped]
-except ImportError:
-    redis = None  # type: ignore[assignment]
-    REDIS_OPERATION_ERRORS: Final[tuple[type[BaseException], ...]] = ()
-else:
-    REDIS_OPERATION_ERRORS = (redis.RedisError,)
 
-REDIS_HOST_ENV: Final = "REDIS_HOST"
-REDIS_PORT_ENV: Final = "REDIS_PORT"
-REDIS_PASSWORD_ENV: Final = "REDIS_PASSWORD"
 WORKER_METRICS_PORT_ENV: Final = "TC_WORKER_METRICS_PORT"
-DEFAULT_REDIS_HOST: Final = "redis"
-DEFAULT_REDIS_PORT: Final = "6379"
-REDIS_DB: Final = 0
-REDIS_WRITE_ERRORS: Final = REDIS_OPERATION_ERRORS + (OSError, RuntimeError, TimeoutError, TypeError, ValueError)
 METRICS_SERVER_ERRORS: Final = (OSError, ValueError)
 
 _TASK_START: dict[str, float] = {}
 _TASK_CONTEXT: dict[str, TaskProfileContext] = {}
-_REDIS_CLIENT = None
-_REDIS_INIT = False
-_REDIS_WARNED = False
-_REDIS_BACKEND_UP = 0.0
+_REDIS_CLIENT = _metrics_redis_backend._REDIS_CLIENT
+_REDIS_INIT = _metrics_redis_backend._REDIS_INIT
+_REDIS_WARNED = _metrics_redis_backend._REDIS_WARNED
+_REDIS_BACKEND_UP = _metrics_redis_backend._REDIS_BACKEND_UP
+
 
 def _provider_labels_key(provider: str, operation: str, model: str, outcome: str) -> str:
     return provider_labels_key(provider, operation, model, outcome)
 
+
 def _provider_base_labels_key(provider: str, operation: str, model: str) -> str:
     return provider_base_labels_key(provider, operation, model)
 
-def _redis_client() -> object | None:
+
+def _sync_redis_backend_from_facade() -> None:
+    _metrics_redis_backend._REDIS_CLIENT = _REDIS_CLIENT
+    _metrics_redis_backend._REDIS_INIT = _REDIS_INIT
+    _metrics_redis_backend._REDIS_WARNED = _REDIS_WARNED
+    _metrics_redis_backend._REDIS_BACKEND_UP = _REDIS_BACKEND_UP
+
+
+def _sync_redis_facade_from_backend() -> None:
     global _REDIS_BACKEND_UP, _REDIS_CLIENT, _REDIS_INIT, _REDIS_WARNED
-    if _REDIS_INIT:
-        return _REDIS_CLIENT
-    _REDIS_INIT = True
-
-    if redis is None:
-        if not _REDIS_WARNED:
-            logger.warning("metrics.redis_unavailable redis module unavailable; provider metrics backend degraded")
-            _REDIS_WARNED = True
-        _REDIS_BACKEND_UP = 0.0
-        return None
-
-    try:
-        _REDIS_CLIENT = redis.Redis(
-            host=os.getenv(REDIS_HOST_ENV, DEFAULT_REDIS_HOST),
-            port=int(os.getenv(REDIS_PORT_ENV, DEFAULT_REDIS_PORT)),
-            password=os.getenv(REDIS_PASSWORD_ENV, "") or None,
-            db=REDIS_DB,
-            decode_responses=True,
-        )
-        _REDIS_CLIENT.ping()
-        _REDIS_BACKEND_UP = 1.0
-        return _REDIS_CLIENT
-    except REDIS_WRITE_ERRORS as error:
-        if not _REDIS_WARNED:
-            logger.warning(
-                "metrics.redis_backend_unavailable falling back to local metrics only error=%s",
-                error,
-            )
-            _REDIS_WARNED = True
-        _REDIS_BACKEND_UP = 0.0
-        _REDIS_CLIENT = None
-        return None
-
-def _redis_incr(key: str, amount: int = 1) -> None:
-    global _REDIS_BACKEND_UP
-    client = _redis_client()
-    if client is None:
-        return
-    try:
-        client.incrby(key, int(amount))
-    except REDIS_WRITE_ERRORS:
-        _REDIS_BACKEND_UP = 0.0
-
-def _redis_hincrby(key: str, field: str, amount: int = 1) -> None:
-    global _REDIS_BACKEND_UP
-    client = _redis_client()
-    if client is None:
-        return
-    try:
-        client.hincrby(key, field, int(amount))
-    except REDIS_WRITE_ERRORS:
-        _REDIS_BACKEND_UP = 0.0
+    _REDIS_CLIENT = _metrics_redis_backend._REDIS_CLIENT
+    _REDIS_INIT = _metrics_redis_backend._REDIS_INIT
+    _REDIS_WARNED = _metrics_redis_backend._REDIS_WARNED
+    _REDIS_BACKEND_UP = _metrics_redis_backend._REDIS_BACKEND_UP
 
 
-def _redis_hincrbyfloat(key: str, field: str, amount: float) -> None:
-    global _REDIS_BACKEND_UP
-    client = _redis_client()
-    if client is None:
-        return
-    try:
-        client.hincrbyfloat(key, field, float(amount))
-    except REDIS_WRITE_ERRORS:
-        _REDIS_BACKEND_UP = 0.0
-
-
-class RedisProviderMetricsCollector(_RedisProviderMetricsCollector):
-    def __init__(self) -> None:
-        super().__init__(_redis_client, _get_redis_backend_up, _set_redis_backend_up, read_errors=REDIS_WRITE_ERRORS)
+def _redis_client() -> object | None:
+    _sync_redis_backend_from_facade()
+    redis_client = _metrics_redis_backend._redis_client()
+    _sync_redis_facade_from_backend()
+    return redis_client
 
 
 def _get_redis_backend_up() -> float:
+    _sync_redis_facade_from_backend()
     return float(_REDIS_BACKEND_UP)
+
 
 def _set_redis_backend_up(value: float) -> None:
     global _REDIS_BACKEND_UP
     _REDIS_BACKEND_UP = float(value)
+    _metrics_redis_backend._set_redis_backend_up(value)
+
+
+def _redis_incr(key: str, amount: int = 1) -> None:
+    global _REDIS_BACKEND_UP
+    redis_client = _redis_client()
+    if redis_client is None:
+        return
+    try:
+        redis_client.incrby(key, int(amount))
+    except REDIS_WRITE_ERRORS:
+        _REDIS_BACKEND_UP = 0.0
+        _metrics_redis_backend._set_redis_backend_up(0.0)
+
+
+def _redis_hincrby(key: str, field: str, amount: int = 1) -> None:
+    global _REDIS_BACKEND_UP
+    redis_client = _redis_client()
+    if redis_client is None:
+        return
+    try:
+        redis_client.hincrby(key, field, int(amount))
+    except REDIS_WRITE_ERRORS:
+        _REDIS_BACKEND_UP = 0.0
+        _metrics_redis_backend._set_redis_backend_up(0.0)
+
+
+def _redis_hincrbyfloat(key: str, field: str, amount: float) -> None:
+    global _REDIS_BACKEND_UP
+    redis_client = _redis_client()
+    if redis_client is None:
+        return
+    try:
+        redis_client.hincrbyfloat(key, field, float(amount))
+    except REDIS_WRITE_ERRORS:
+        _REDIS_BACKEND_UP = 0.0
+        _metrics_redis_backend._set_redis_backend_up(0.0)
+
+
+class RedisProviderMetricsCollector(_metrics_redis_backend.RedisProviderMetricsCollector):
+    def collect(self):  # noqa: ANN201 - prometheus_client collector protocol is dynamic.
+        _sync_redis_backend_from_facade()
+        try:
+            yield from super().collect()
+        finally:
+            _sync_redis_facade_from_backend()
 
 
 try:
@@ -259,7 +256,9 @@ def _task_postrun(task_id: object = None, task: object = None, state: object = N
 
 
 @signals.task_failure.connect
-def _task_failure(task_id: object = None, exception: BaseException | None = None, sender: object = None, **_kwargs: object) -> None:
+def _task_failure(
+    task_id: object = None, exception: BaseException | None = None, sender: object = None, **_kwargs: object
+) -> None:
     metrics_celery_signals.task_failure(
         task_id=task_id,
         exception=exception,

@@ -295,7 +295,7 @@ Telemetry can be missing/degraded even when some tasks complete; promotion decis
 | `task_poll_timeout` | worker backlog/inference stall/timeout budget mismatch | `pipeline/tasks.py`, worker logs, runtime profile timeouts, queue metrics | Distinguishes queue pressure from task logic bugs |
 | low-signal summary block | source text quality below summary gate | `pipeline/summary_quality.py`, extracted text quality, segmentation state | Avoids chasing LLM prompts when source is insufficient |
 | segmentation noisy/empty/failed | extraction artifacts or segmentation heuristics mismatch | `pipeline/agenda_resolver.py` facade plus focused `pipeline/agenda_resolver_*` modules, `pipeline/llm.py` segmentation paths, extraction output | Segmentation quality is upstream of summary quality |
-| provider telemetry absent | worker scrape failure or missing provider series | `pipeline/metrics.py`, `pipeline/metrics_provider_collector.py`, soak metrics collector, worker exporter | Prevents false performance conclusions |
+| provider telemetry absent | worker scrape failure, Redis aggregate issue, or missing provider series | `pipeline/metrics.py`, `pipeline/metrics_provider_collector.py`, `pipeline/metrics_redis_backend.py`, soak metrics collector, worker exporter | Prevents false performance conclusions |
 
 Why this exists:
 - Ordered triage reduces mean-time-to-isolation by checking contract boundaries first.
@@ -328,7 +328,7 @@ Use these files as primary references:
 - Provider facade: `pipeline/llm_provider.py`
 - Provider transport + typed errors: `pipeline/http_inference_provider.py` facade plus focused `pipeline/http_inference_*` helpers, `pipeline/inprocess_inference_provider.py`, `pipeline/inference_provider_contract.py`
 - Extraction freshness/hash: `pipeline/extraction_service.py`, `pipeline/content_hash.py`
-- Metrics: `pipeline/metrics.py` (facade), `pipeline/metrics_definitions.py`, `pipeline/metrics_provider_keys.py`, `pipeline/metrics_provider_recorders.py`, `pipeline/metrics_provider_collector.py`, `pipeline/metrics_task_recorders.py`, `pipeline/metrics_celery_signals.py`, `pipeline/metrics_profile_events.py`
+- Metrics: `pipeline/metrics.py` (facade), `pipeline/metrics_definitions.py`, `pipeline/metrics_provider_keys.py`, `pipeline/metrics_redis_backend.py`, `pipeline/metrics_provider_recorders.py`, `pipeline/metrics_provider_collector.py`, `pipeline/metrics_task_recorders.py`, `pipeline/metrics_celery_signals.py`, `pipeline/metrics_profile_events.py`
 - Summary text runtime: `pipeline/text_generation.py` facade plus `pipeline/summary_text_formatting.py`, `pipeline/summary_text_prompting.py`, `pipeline/summary_source_quality.py`, `pipeline/summary_grounding.py`, and `pipeline/summary_backfill_*` helpers
 - Runbook and troubleshooting: `docs/OPERATIONS.md`
 

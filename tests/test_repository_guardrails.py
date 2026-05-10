@@ -180,6 +180,7 @@ METRICS_CLEANUP_MODULES = (
     "pipeline/metrics_provider_collector.py",
     "pipeline/metrics_provider_keys.py",
     "pipeline/metrics_provider_recorders.py",
+    "pipeline/metrics_redis_backend.py",
     "pipeline/metrics_task_recorders.py",
 )
 DOWNLOADER_CLEANUP_MODULES = (
