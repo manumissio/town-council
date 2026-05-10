@@ -1,21 +1,15 @@
 from __future__ import annotations
 
 import json
-import subprocess
-import time
 from pathlib import Path
 from typing import Any
 from urllib import request
 
 
-WORKER_METRICS_SCRAPE_ATTEMPTS = 2
-WORKER_METRICS_BACKOFF_SECONDS = 0.5
-
-
 def safe_float(value: Any) -> float | None:
     try:
         return float(value)
-    except (TypeError, ValueError):
+    except TypeError, ValueError:
         return None
 
 
@@ -42,66 +36,15 @@ def fetch_text(url: str, timeout: int = 10) -> str:
 
 
 def docker_exec_python(script: str) -> str:
-    cmd = [
-        "docker",
-        "compose",
-        "exec",
-        "-T",
-        "worker",
-        "python",
-        "-c",
-        script,
-    ]
-    return subprocess.check_output(cmd, text=True, stderr=subprocess.STDOUT, timeout=30)
+    from scripts.operator_profile_worker_metrics import docker_exec_python as _docker_exec_python
+
+    return _docker_exec_python(script)
 
 
 def fetch_worker_metrics_via_docker() -> tuple[str, str | None]:
-    # Strategy order is intentional: prefer the worker metrics HTTP endpoint first,
-    # then fall back to direct process-registry exposition when the endpoint is unavailable.
-    strategies = [
-        (
-            "worker_http",
-            (
-                "import urllib.request; "
-                "print(urllib.request.urlopen('http://localhost:8001/metrics', timeout=10)"
-                ".read().decode('utf-8', errors='replace'))"
-            ),
-        ),
-        (
-            "worker_registry",
-            (
-                "from prometheus_client import CollectorRegistry, generate_latest; "
-                "from pipeline.metrics import RedisProviderMetricsCollector; "
-                "registry = CollectorRegistry(); "
-                "registry.register(RedisProviderMetricsCollector()); "
-                "print(generate_latest(registry).decode('utf-8', errors='replace'))"
-            ),
-        ),
-    ]
-    errors: list[str] = []
-    for strategy_name, script in strategies:
-        for attempt in range(1, WORKER_METRICS_SCRAPE_ATTEMPTS + 1):
-            try:
-                raw = docker_exec_python(script)
-                if raw.strip():
-                    # HTTP scrape can return generic process metrics without provider
-                    # series; in that case continue to the collector fallback path.
-                    if strategy_name == "worker_http":
-                        provider_sample_present = any(
-                            line.startswith("tc_provider_") and not line.startswith("#")
-                            for line in raw.splitlines()
-                        )
-                        if not provider_sample_present:
-                            errors.append(f"{strategy_name}[attempt={attempt}] missing_provider_series")
-                            continue
-                    return raw, None
-                errors.append(f"{strategy_name}[attempt={attempt}] empty_output")
-            except (subprocess.SubprocessError, OSError, TimeoutError) as exc:
-                errors.append(f"{strategy_name}[attempt={attempt}] {exc}")
-            if attempt < WORKER_METRICS_SCRAPE_ATTEMPTS:
-                time.sleep(WORKER_METRICS_BACKOFF_SECONDS)
-    joined = "; ".join(errors).strip()
-    return "", joined or "worker metrics scrape failed"
+    from scripts.operator_profile_worker_metrics import fetch_worker_metrics_via_docker as _fetch_worker_metrics
+
+    return _fetch_worker_metrics(exec_python=docker_exec_python)
 
 
 def hist_quantile(rows: list[dict[str, Any]], base_name: str, labels: dict[str, str], quantile: float) -> float | None:
@@ -125,7 +68,7 @@ def hist_quantile(rows: list[dict[str, Any]], base_name: str, labels: dict[str, 
         else:
             try:
                 upper = float(le)
-            except (TypeError, ValueError):
+            except TypeError, ValueError:
                 continue
         buckets[upper] = float(row["value"])
 
@@ -163,7 +106,7 @@ def provider_metrics_state(rows: list[dict[str, Any]], worker_metrics_error: str
 def load_json_file(path: Path) -> dict[str, Any]:
     try:
         data = json.loads(path.read_text(encoding="utf-8"))
-    except (json.JSONDecodeError, OSError):
+    except json.JSONDecodeError, OSError:
         return {}
     return data if isinstance(data, dict) else {}
 
@@ -197,12 +140,12 @@ def task_duration(rows: list[dict[str, Any]], phase: str) -> list[tuple[int | No
             continue
         try:
             duration = float(row.get("duration_s") or 0.0)
-        except (TypeError, ValueError):
+        except TypeError, ValueError:
             duration = 0.0
         catalog_id = row.get("catalog_id")
         try:
             catalog_value = int(catalog_id)
-        except (TypeError, ValueError):
+        except TypeError, ValueError:
             catalog_value = None
         out.append((catalog_value, duration))
     return out
@@ -218,13 +161,13 @@ def slowest_task(rows: list[dict[str, Any]]) -> dict[str, Any]:
     for row in rows:
         try:
             duration = float(row.get("duration_s") or 0.0)
-        except (TypeError, ValueError):
+        except TypeError, ValueError:
             duration = 0.0
         phase = str(row.get("phase") or "")
         catalog_id = row.get("catalog_id")
         try:
             catalog_value = int(catalog_id)
-        except (TypeError, ValueError):
+        except TypeError, ValueError:
             catalog_value = None
 
         if duration >= slowest_duration_s:
