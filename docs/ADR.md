@@ -294,6 +294,23 @@ Use each entry to record:
   - [docs/PIPELINE.md](PIPELINE.md)
   - [docs/PERFORMANCE.md](PERFORMANCE.md)
 
+## 2026-05-10: Split metrics Redis backend helpers behind the metrics facade
+
+- Status: Accepted
+- Decision:
+  - `pipeline/metrics.py` remains the public metrics facade and Celery signal registration boundary.
+  - Redis client availability, degraded-backend state, and Redis write helpers move to `pipeline/metrics_redis_backend.py`.
+  - Prometheus metric names, Redis key labels, collector registration behavior, and signal side effects remain unchanged.
+- Why:
+  - The metrics facade was at the file-size cap and still owned Redis backend failure handling directly.
+  - Moving Redis backend helpers narrows the side-effect boundary without changing provider telemetry or worker metrics contracts.
+- Affected boundaries:
+  - `pipeline/metrics.py` owns public imports and task signal wiring.
+  - `pipeline/metrics_redis_backend.py` owns Redis backend availability and write behavior.
+- Canonical references:
+  - [ARCHITECTURE.md](../ARCHITECTURE.md)
+  - [docs/PIPELINE.md](PIPELINE.md)
+
 ## 2026-04-22: Split the search route family behind the search facade
 
 - Status: Accepted
