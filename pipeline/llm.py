@@ -42,6 +42,11 @@ from pipeline.llm_provider import (
     ProviderTimeoutError,
     ProviderUnavailableError,
 )
+from pipeline.local_ai_agenda_compat import (
+    agenda_items_summary_is_too_short as _agenda_items_summary_is_too_short_impl,
+    deterministic_agenda_items_summary as _legacy_deterministic_agenda_items_summary_impl,
+)
+from pipeline.local_ai_provider_calls import call_provider_text_or_none, log_provider_failure
 from pipeline.local_ai_runtime import (
     LocalAIConfigError as _LocalAIConfigError,
     get_provider as get_runtime_provider,
@@ -77,30 +82,13 @@ _strip_summary_output_boilerplate = _strip_summary_output_boilerplate_impl
 _strip_summary_boilerplate = _strip_summary_boilerplate_impl
 _strip_llm_acknowledgements = _strip_llm_acknowledgements_impl
 _normalize_summary_output_to_bluf = _normalize_summary_output_to_bluf_impl
-_looks_like_agenda_segmentation_boilerplate = (
-    _looks_like_agenda_segmentation_boilerplate_impl
-)
+_looks_like_agenda_segmentation_boilerplate = _looks_like_agenda_segmentation_boilerplate_impl
 _is_tabular_fragment = _is_tabular_fragment_impl
 _should_drop_from_agenda_summary = _should_drop_from_agenda_summary_impl
 
 
 def _agenda_items_summary_is_too_short(text: str) -> bool:
-    """
-    Preserve the legacy helper contract for direct callers/tests.
-
-    Internal agenda-summary fallback policy lives in `pipeline.agenda_summary`.
-    This wrapper keeps the older, looser threshold that some compatibility
-    callers still exercise from `pipeline.llm`.
-    """
-    if not text:
-        return True
-    value = text.strip()
-    if len(value) < 80:
-        return True
-    if value.lower().startswith("bluf: hi."):
-        return True
-    bullet_lines = [line for line in value.splitlines() if line.strip().startswith("- ")]
-    return len(bullet_lines) < 3
+    return _agenda_items_summary_is_too_short_impl(text)
 
 
 def _deterministic_agenda_items_summary(
@@ -108,56 +96,7 @@ def _deterministic_agenda_items_summary(
     max_bullets: int = 25,
     truncation_meta: dict | None = None,
 ) -> str:
-    """
-    Preserve the legacy deterministic helper contract for direct callers/tests.
-
-    LocalAI's agenda-summary runtime uses the extracted implementation directly.
-    This wrapper keeps the old "show up to cap, then disclose overflow" shape
-    that maintenance code and compatibility tests still expect from `pipeline.llm`.
-    """
-    total_items = len(items or [])
-    action_lines = []
-    for item in (items or [])[:max_bullets]:
-        if isinstance(item, dict):
-            title = (item.get("title") or "").strip()
-            description = (item.get("description") or "").strip()
-            page_number = int(item.get("page_number") or 0)
-        else:
-            title = str(item or "").strip()
-            description = ""
-            page_number = 0
-        if not title:
-            continue
-        page_suffix = f" (p.{page_number})" if page_number else ""
-        action_lines.append(f"{title}{page_suffix}" if not description else f"{title}{page_suffix}: {description}")
-
-    output_lines = [f"BLUF: Agenda includes {total_items} substantive item{'s' if total_items != 1 else ''}."]
-    output_lines.append("Why this matters:")
-    output_lines.append(
-        "- The agenda indicates upcoming decisions with potential fiscal, policy, or procedural effects."
-    )
-    output_lines.append("Top actions:")
-    if action_lines:
-        output_lines.extend(f"- {action}" for action in action_lines)
-    else:
-        output_lines.append("- No substantive actions were retained after filtering.")
-    overflow_count = max(total_items - len(action_lines), 0)
-    if overflow_count:
-        output_lines.append(f"- (+{overflow_count} more)")
-    output_lines.append("Potential impacts:")
-    output_lines.append("- Budget: Potential fiscal impact is not clearly stated in the agenda text.")
-    output_lines.append("- Policy: Potential policy or regulatory implications are not fully specified in the agenda text.")
-    output_lines.append("- Process: The agenda indicates scheduled consideration; final outcomes are not yet available.")
-    output_lines.append("Unknowns:")
-    if truncation_meta and (truncation_meta.get("items_truncated") or 0) > 0:
-        output_lines.append(
-            f"- Summary generated from first {truncation_meta.get('items_included', 0)} of "
-            f"{truncation_meta.get('items_total', 0)} agenda items due to context limits."
-        )
-    else:
-        output_lines.append("- Specific dollar amounts are not clearly disclosed across the listed items.")
-    output_lines.append("- Vote outcomes are not provided in agenda-stage records.")
-    return "\n".join(output_lines).strip()
+    return _legacy_deterministic_agenda_items_summary_impl(items, max_bullets, truncation_meta)
 
 
 class LocalAI:
@@ -186,7 +125,7 @@ class LocalAI:
         return get_runtime_provider(self, backend=LOCAL_AI_BACKEND)
 
     def _log_provider_failure(self, operation_label: str, error: Exception) -> None:
-        logger.error("%s failed: %s", operation_label, error)
+        log_provider_failure(logger, operation_label, error)
 
     def _call_provider_text_or_none(
         self,
@@ -194,14 +133,7 @@ class LocalAI:
         *,
         operation_label: str,
     ) -> str | None:
-        try:
-            return provider_call()
-        except (ProviderTimeoutError, ProviderUnavailableError, ProviderResponseError) as error:
-            self._log_provider_failure(operation_label, error)
-            return None
-        except Exception as error:
-            self._log_provider_failure(operation_label, error)
-            return None
+        return call_provider_text_or_none(provider_call, operation_label=operation_label, logger=logger)
 
     def _load_model(self):
         """

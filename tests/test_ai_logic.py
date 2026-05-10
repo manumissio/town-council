@@ -1,7 +1,10 @@
-import pytest
-from unittest.mock import MagicMock
 import os
+from pathlib import Path
 import sys
+import ast
+from unittest.mock import MagicMock
+
+import pytest
 
 # Keep tests lightweight: do not require compiled llama_cpp during unit tests.
 sys.modules["llama_cpp"] = MagicMock()
@@ -22,6 +25,7 @@ def _patch_extract_agenda_provider(monkeypatch, response_text: str):
     monkeypatch.setattr(llm_mod, "LOCAL_AI_BACKEND", "http")
     monkeypatch.setattr(llm_mod.HttpInferenceProvider, "extract_agenda", _fake_extract)
 
+
 def test_local_ai_singleton():
     """
     Test: Does the singleton pattern correctly reuse the same instance?
@@ -29,6 +33,40 @@ def test_local_ai_singleton():
     ai1 = LocalAI()
     ai2 = LocalAI()
     assert ai1 is ai2
+
+
+def test_llm_facade_exports_local_ai_compatibility_surface():
+    from pipeline import llm as llm_mod
+
+    expected_names = [
+        "LocalAI",
+        "HttpInferenceProvider",
+        "InProcessLlamaProvider",
+        "LocalAIConfigError",
+        "LOCAL_AI_BACKEND",
+        "_agenda_items_summary_is_too_short",
+        "_deterministic_agenda_items_summary",
+        "_normalize_summary_output_to_bluf",
+        "parse_llm_agenda_items",
+        "iter_fallback_paragraphs",
+    ]
+
+    assert all(hasattr(llm_mod, name) for name in expected_names)
+
+
+def test_local_ai_helper_modules_do_not_import_facade():
+    module_paths = [
+        "pipeline/local_ai_agenda_compat.py",
+        "pipeline/local_ai_provider_calls.py",
+    ]
+
+    for module_path in module_paths:
+        tree = ast.parse(Path(module_path).read_text(encoding="utf-8"))
+        imports = [
+            node.module for node in ast.walk(tree) if isinstance(node, ast.ImportFrom) and node.module is not None
+        ]
+        assert "pipeline.llm" not in imports
+
 
 def test_local_ai_agenda_extraction(monkeypatch):
     """
@@ -38,31 +76,35 @@ def test_local_ai_agenda_extraction(monkeypatch):
     ai = LocalAI()
 
     # Mock returning the current expected format: ITEM X: Title (Page Y) - Description
-    mock_text_response = " Budget Review (Page 3) - Discussion of fiscal year\nITEM 2: Zoning Change (Page 5) - Main Street rezoning"
+    mock_text_response = (
+        " Budget Review (Page 3) - Discussion of fiscal year\nITEM 2: Zoning Change (Page 5) - Main Street rezoning"
+    )
     _patch_extract_agenda_provider(monkeypatch, mock_text_response)
 
     items = ai.extract_agenda("Text content here")
 
     assert len(items) == 2
-    assert items[0]['title'] == "Budget Review"
-    assert items[0]['description'] == "Discussion of fiscal year"
-    assert items[0]['page_number'] == 3
-    assert items[1]['title'] == "Zoning Change"
-    assert items[1]['page_number'] == 5
+    assert items[0]["title"] == "Budget Review"
+    assert items[0]["description"] == "Discussion of fiscal year"
+    assert items[0]["page_number"] == 3
+    assert items[1]["title"] == "Zoning Change"
+    assert items[1]["page_number"] == 5
+
 
 def test_degraded_mode_missing_model(mocker):
     """
     Test: Does the system fail gracefully if the model file is missing?
     """
     LocalAI._instance = None
-    mocker.patch('os.path.exists', return_value=False)
-    
+    mocker.patch("os.path.exists", return_value=False)
+
     ai = LocalAI()
     # We call summarize, which triggers _load_model()
     result = ai.summarize("Some text")
-    
+
     assert result is None
     assert ai.llm is None
+
 
 def test_local_ai_fallback_logic(monkeypatch):
     """
@@ -85,8 +127,9 @@ def test_local_ai_fallback_logic(monkeypatch):
 
     # Fallback should extract items from page markers
     assert len(items) == 2
-    assert "Budget Review" in items[0]['title']
-    assert "Zoning Changes" in items[1]['title']
+    assert "Budget Review" in items[0]["title"]
+    assert "Zoning Changes" in items[1]["title"]
+
 
 def test_local_ai_error_handling(monkeypatch):
     """
@@ -100,7 +143,7 @@ def test_local_ai_error_handling(monkeypatch):
     text = "[PAGE 1]\n\nAnnual Budget Proposal\nDiscussion of revenue and expenses for the upcoming fiscal year"
     items = ai.extract_agenda(text)
     assert len(items) >= 1
-    assert "Budget" in items[0]['title'] or "Annual" in items[0]['title']
+    assert "Budget" in items[0]["title"] or "Annual" in items[0]["title"]
 
 
 def test_local_ai_fallback_filters_header_noise(monkeypatch):
@@ -165,12 +208,7 @@ def test_local_ai_fallback_extracts_vote_result_from_item_block(monkeypatch):
     ai = LocalAI()
     _patch_extract_agenda_provider(monkeypatch, "No parseable agenda output")
 
-    text = (
-        "[PAGE 1]\n\n"
-        "1. Budget Hearing\n"
-        "Action: M/S/C to approve recommendation.\n"
-        "Vote: All Ayes.\n"
-    )
+    text = "[PAGE 1]\n\n1. Budget Hearing\nAction: M/S/C to approve recommendation.\nVote: All Ayes.\n"
     items = ai.extract_agenda(text)
 
     assert len(items) == 1

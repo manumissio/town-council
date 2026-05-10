@@ -59,6 +59,7 @@ APPROVED_BROAD_EXCEPTION_PATHS = {
     "pipeline/indexer_meilisearch.py",
     "pipeline/lineage_service.py",
     "pipeline/llm.py",
+    "pipeline/local_ai_provider_calls.py",
     "pipeline/model_base.py",
     "pipeline/nlp_entity_model.py",
     "pipeline/profiling.py",
@@ -270,6 +271,11 @@ TOPIC_GENERATION_CLEANUP_MODULES = (
     "pipeline/topic_generation_task.py",
     "pipeline/topic_generation_batch.py",
 )
+LOCAL_AI_CLEANUP_MODULES = (
+    "pipeline/llm.py",
+    "pipeline/local_ai_agenda_compat.py",
+    "pipeline/local_ai_provider_calls.py",
+)
 HTTP_PROVIDER_CLEANUP_MODULES = (
     "pipeline/http_inference_provider.py",
     "pipeline/http_inference_attempts.py",
@@ -439,6 +445,7 @@ def _broad_exception_scan_files() -> list[Path]:
         *AGENDA_SUMMARY_RUNTIME_CLEANUP_MODULES,
         *PROFILE_MANIFEST_CLEANUP_MODULES,
         *TOPIC_GENERATION_CLEANUP_MODULES,
+        *LOCAL_AI_CLEANUP_MODULES,
         *INDEXER_CLEANUP_MODULES,
         *SEMANTIC_BACKEND_CLEANUP_MODULES,
         *SUMMARY_TEXT_CLEANUP_MODULES,
@@ -776,6 +783,16 @@ def test_topic_generation_cleanup_modules_stay_under_size_target():
     oversized_modules = [
         module_path
         for module_path in TOPIC_GENERATION_CLEANUP_MODULES
+        if len((ROOT / module_path).read_text(encoding="utf-8").splitlines()) > 300
+    ]
+
+    assert oversized_modules == []
+
+
+def test_local_ai_cleanup_modules_stay_under_size_target():
+    oversized_modules = [
+        module_path
+        for module_path in LOCAL_AI_CLEANUP_MODULES
         if len((ROOT / module_path).read_text(encoding="utf-8").splitlines()) > 300
     ]
 
