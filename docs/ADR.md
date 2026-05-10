@@ -8,6 +8,23 @@ Use each entry to record:
 - the affected boundary or contract
 - links to the canonical docs that carry the ongoing operational or architecture detail
 
+## 2026-05-10: Split API task route helpers behind the task route facade
+
+- Status: Accepted
+- Decision:
+  - `api/task_routes.py` remains the protected task-route facade and `build_task_router` entrypoint.
+  - Summary, segmentation, and generation/extraction endpoint decisions move behind focused `api/task_route_*` helpers.
+- Why:
+  - The task route facade had reached the cleanup size target while still mixing route wiring, cache checks, freshness checks, and enqueue decisions.
+  - Passing the task facade, DB session, route parameters, models, and helper dependencies explicitly keeps `api.main` monkeypatch seams intact without helper imports from `api.main`.
+- Affected boundaries:
+  - Routes, auth dependencies, rate limits, response payloads, task names, enqueue behavior, and task polling remain unchanged.
+  - Guardrails track the task API helper family under the 300-line cleanup target.
+- Canonical references:
+  - [ARCHITECTURE.md](../ARCHITECTURE.md)
+  - [docs/PIPELINE.md](PIPELINE.md)
+  - [docs/ENGINEERING_GUARDRAILS.md](ENGINEERING_GUARDRAILS.md)
+
 ## 2026-05-10: Split model and migration cleanup seams
 
 - Status: Accepted

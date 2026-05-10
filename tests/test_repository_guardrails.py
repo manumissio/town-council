@@ -314,6 +314,9 @@ TASK_API_FACADE_CLEANUP_MODULES = (
     "pipeline/task_summary_side_effects.py",
     "api/task_routes.py",
     "api/task_dispatch.py",
+    "api/task_route_generation.py",
+    "api/task_route_segmentation.py",
+    "api/task_route_summary.py",
     "api/task_route_support.py",
 )
 SEARCH_SUPPORT_CLEANUP_MODULES = (
