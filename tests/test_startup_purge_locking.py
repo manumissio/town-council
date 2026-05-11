@@ -18,7 +18,7 @@ def test_run_startup_purge_skips_when_lock_not_acquired(monkeypatch):
     fake_session.execute.return_value.scalar.return_value = False
 
     monkeypatch.setattr(startup_purge, "db_connect", lambda: fake_engine)
-    monkeypatch.setattr(startup_purge, "sessionmaker", lambda _bind: lambda: fake_session)
+    monkeypatch.setattr(startup_purge, "sessionmaker", lambda bind: lambda: fake_session)
 
     result = startup_purge.run_startup_purge_if_enabled()
     assert result["status"] == "skipped"
@@ -45,7 +45,7 @@ def test_run_startup_purge_runs_when_lock_acquired(monkeypatch):
     fake_session.query.return_value = fake_query
 
     monkeypatch.setattr(startup_purge, "db_connect", lambda: fake_engine)
-    monkeypatch.setattr(startup_purge, "sessionmaker", lambda _bind: lambda: fake_session)
+    monkeypatch.setattr(startup_purge, "sessionmaker", lambda bind: lambda: fake_session)
 
     result = startup_purge.run_startup_purge_if_enabled()
     assert result["status"] == "completed"
