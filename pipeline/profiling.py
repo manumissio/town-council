@@ -27,7 +27,7 @@ class CatalogIdPredicate(Protocol):
 
 class CatalogScopedQuery(Protocol):
     # Keep the typing local to profiling so callers do not need SQLAlchemy-specific imports.
-    def filter(self: QueryT, criterion: object) -> QueryT: ...
+    def filter(self: QueryT, _criterion: object) -> QueryT: ...
 
 
 def utc_now_iso() -> str:

@@ -140,7 +140,7 @@ def test_process_staged_urls_archives_only_successes(mocker):
             pass
         def __enter__(self):
             return self
-        def __exit__(self, exc_type, exc, tb):
+        def __exit__(self, _exc_type, exc, _tb):
             return False
         def map(self, fn, ids):
             return [fn(i) for i in ids]
@@ -148,7 +148,7 @@ def test_process_staged_urls_archives_only_successes(mocker):
     class _SessionCtx:
         def __enter__(self):
             return fake_session
-        def __exit__(self, exc_type, exc, tb):
+        def __exit__(self, _exc_type, exc, _tb):
             return False
 
     mocker.patch("pipeline.downloader.db_session", return_value=_SessionCtx())

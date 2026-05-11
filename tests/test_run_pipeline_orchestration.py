@@ -75,7 +75,7 @@ def test_run_parallel_processing_uses_facade_patched_executor_and_worker(mocker)
         def __enter__(self):
             return self
 
-        def __exit__(self, exc_type, exc, traceback):
+        def __exit__(self, _exc_type, exc, _traceback):
             return False
 
         def submit(self, func, chunk, ocr_fallback_enabled):
