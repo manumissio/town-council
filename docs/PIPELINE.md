@@ -1,6 +1,6 @@
 # Town Council Pipeline Guide
 
-Last updated: 2026-05-09
+Last updated: 2026-05-10
 
 ## 1) Purpose and Boundaries
 
@@ -331,6 +331,9 @@ Use these files as primary references:
 - Extraction freshness/hash: `pipeline/extraction_service.py`, `pipeline/content_hash.py`
 - Metrics: `pipeline/metrics.py` (facade), `pipeline/metrics_definitions.py`, `pipeline/metrics_provider_keys.py`, `pipeline/metrics_redis_backend.py`, `pipeline/metrics_provider_recorders.py`, `pipeline/metrics_provider_collector.py`, `pipeline/metrics_task_recorders.py`, `pipeline/metrics_celery_signals.py`, `pipeline/metrics_profile_events.py`
 - Summary text runtime: `pipeline/text_generation.py` facade plus `pipeline/summary_text_formatting.py`, `pipeline/summary_text_prompting.py`, `pipeline/summary_source_quality.py`, `pipeline/summary_grounding.py`, and `pipeline/summary_backfill_*` helpers
+- Vote extraction: `pipeline/vote_extractor.py` facade plus focused `pipeline/vote_extraction_*` helpers
+- Laserfiche repair: `scripts/repair_san_mateo_laserfiche_backlog.py` facade plus focused `scripts/laserfiche_repair_*` helpers
+- Operator profiling: `scripts/profile_pipeline.py` facade plus `scripts/profile_pipeline_*` and `scripts/operator_profile_*` helpers
 - Runbook and troubleshooting: `docs/OPERATIONS.md`
 
 ## 12) Related Docs
