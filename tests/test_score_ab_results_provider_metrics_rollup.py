@@ -49,6 +49,94 @@ def test_aggregate_arm_rolls_up_provider_metrics():
     assert agg["total_tokens_total"] == 270
 
 
+def test_aggregate_arm_empty_payload_preserves_zero_contract():
+    assert mod.aggregate_arm([]) == {
+        "n": 0,
+        "section_compliance_rate": 0.0,
+        "fallback_rate": 0.0,
+        "grounding_rate": 0.0,
+        "failure_rate": 0.0,
+        "summary_p95_s": 0.0,
+        "segment_p95_s": 0.0,
+        "partial_disclosure_rate": 0.0,
+        "ttft_median_ms": 0.0,
+        "ttft_p95_ms": 0.0,
+        "ttft_n": 0,
+        "tokens_per_sec_median": 0.0,
+        "tokens_per_sec_n": 0,
+        "prompt_tokens_total": 0,
+        "completion_tokens_total": 0,
+        "total_tokens_total": 0,
+    }
+
+
+def test_aggregate_arm_tolerates_malformed_numeric_values():
+    rows = [
+        {
+            "section_compliance_pass": "yes",
+            "fallback_used": "no",
+            "grounding_pass": "true",
+            "task_failed": "",
+            "partial_coverage_disclosed": "1",
+            "summary_duration_s": "not-a-number",
+            "segment_duration_s": None,
+            "ttft_ms": "bad",
+            "tokens_per_sec": "-1",
+            "prompt_tokens": "bad",
+            "completion_tokens": None,
+            "total_tokens": "12.9",
+        }
+    ]
+
+    agg = mod.aggregate_arm(rows)
+
+    assert agg["section_compliance_rate"] == 1.0
+    assert agg["fallback_rate"] == 0.0
+    assert agg["grounding_rate"] == 1.0
+    assert agg["failure_rate"] == 0.0
+    assert agg["partial_disclosure_rate"] == 1.0
+    assert agg["summary_p95_s"] == 0.0
+    assert agg["segment_p95_s"] == 0.0
+    assert agg["ttft_n"] == 0
+    assert agg["tokens_per_sec_n"] == 0
+    assert agg["prompt_tokens_total"] == 0
+    assert agg["completion_tokens_total"] == 0
+    assert agg["total_tokens_total"] == 12
+
+
+def test_aggregate_arm_p95_uses_nearest_rank_contract():
+    rows = [
+        {"summary_duration_s": 1, "segment_duration_s": 10},
+        {"summary_duration_s": 2, "segment_duration_s": 20},
+        {"summary_duration_s": 3, "segment_duration_s": 30},
+    ]
+
+    agg = mod.aggregate_arm(rows)
+
+    assert agg["summary_p95_s"] == 3.0
+    assert agg["segment_p95_s"] == 30.0
+
+
+def test_render_report_keeps_markdown_sections_and_metric_rows():
+    control = mod.aggregate_arm([{"summary_duration_s": 1, "segment_duration_s": 2}])
+    treatment = mod.aggregate_arm([{"summary_duration_s": 1, "segment_duration_s": 2}])
+    comparison = mod.compare_arms(control, treatment)
+    markdown = mod._render_report(
+        control,
+        treatment,
+        comparison,
+        ["run-a", "run-b"],
+        {"A": {"run_id": "run-a", "model": "model-a"}, "B": {"run_id": "run-b", "model": "model-b"}},
+    )
+
+    assert "# A/B Report v1" in markdown
+    assert "## Arm Identity" in markdown
+    assert "## Arm Metrics" in markdown
+    assert "## Gate Evaluation" in markdown
+    assert "| Prompt tokens total | 0 | 0 |" in markdown
+    assert "- overall: FAIL" in markdown
+
+
 def test_compare_arms_includes_provider_metric_deltas_without_new_checks():
     control = {
         "n": 10,

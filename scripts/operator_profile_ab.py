@@ -1,7 +1,6 @@
 from __future__ import annotations
 
-import math
-from statistics import median
+from scripts.operator_profile_ab_aggregate import aggregate_arm
 
 
 DEFAULT_GATES = {
@@ -24,86 +23,6 @@ PROFILE_KEYS = (
     "WORKER_POOL",
     "OLLAMA_NUM_PARALLEL",
 )
-
-
-def to_bool(value):
-    if isinstance(value, bool):
-        return value
-    if isinstance(value, (int, float)):
-        return bool(value)
-    text = str(value).strip().lower()
-    return text in {"1", "true", "yes", "y"}
-
-
-def to_float(value, default=0.0):
-    try:
-        return float(value)
-    except (TypeError, ValueError):
-        return float(default)
-
-
-def p95(values):
-    if not values:
-        return 0.0
-    ordered = sorted(values)
-    idx = max(0, int(math.ceil(0.95 * len(ordered))) - 1)
-    return float(ordered[idx])
-
-
-def aggregate_arm(rows):
-    total = len(rows)
-    if total == 0:
-        return {
-            "n": 0,
-            "section_compliance_rate": 0.0,
-            "fallback_rate": 0.0,
-            "grounding_rate": 0.0,
-            "failure_rate": 0.0,
-            "summary_p95_s": 0.0,
-            "segment_p95_s": 0.0,
-            "partial_disclosure_rate": 0.0,
-            "ttft_median_ms": 0.0,
-            "ttft_p95_ms": 0.0,
-            "ttft_n": 0,
-            "tokens_per_sec_median": 0.0,
-            "tokens_per_sec_n": 0,
-            "prompt_tokens_total": 0,
-            "completion_tokens_total": 0,
-            "total_tokens_total": 0,
-        }
-
-    section = sum(1 for r in rows if to_bool(r.get("section_compliance_pass"))) / total
-    fallback = sum(1 for r in rows if to_bool(r.get("fallback_used"))) / total
-    grounding = sum(1 for r in rows if to_bool(r.get("grounding_pass"))) / total
-    failed = sum(1 for r in rows if to_bool(r.get("task_failed"))) / total
-    partial = sum(1 for r in rows if to_bool(r.get("partial_coverage_disclosed"))) / total
-
-    summary_p95 = p95([to_float(r.get("summary_duration_s")) for r in rows])
-    segment_p95 = p95([to_float(r.get("segment_duration_s")) for r in rows])
-    ttft_values = [to_float(r.get("ttft_ms")) for r in rows if to_float(r.get("ttft_ms")) > 0]
-    tps_values = [to_float(r.get("tokens_per_sec")) for r in rows if to_float(r.get("tokens_per_sec")) > 0]
-    prompt_tokens_total = sum(int(to_float(r.get("prompt_tokens"), 0.0)) for r in rows)
-    completion_tokens_total = sum(int(to_float(r.get("completion_tokens"), 0.0)) for r in rows)
-    total_tokens_total = sum(int(to_float(r.get("total_tokens"), 0.0)) for r in rows)
-
-    return {
-        "n": total,
-        "section_compliance_rate": section,
-        "fallback_rate": fallback,
-        "grounding_rate": grounding,
-        "failure_rate": failed,
-        "summary_p95_s": summary_p95,
-        "segment_p95_s": segment_p95,
-        "partial_disclosure_rate": partial,
-        "ttft_median_ms": float(median(ttft_values)) if ttft_values else 0.0,
-        "ttft_p95_ms": p95(ttft_values) if ttft_values else 0.0,
-        "ttft_n": len(ttft_values),
-        "tokens_per_sec_median": float(median(tps_values)) if tps_values else 0.0,
-        "tokens_per_sec_n": len(tps_values),
-        "prompt_tokens_total": prompt_tokens_total,
-        "completion_tokens_total": completion_tokens_total,
-        "total_tokens_total": total_tokens_total,
-    }
 
 
 def compare_arms(control, treatment, gates=None):
