@@ -8,6 +8,26 @@ Use each entry to record:
 - the affected boundary or contract
 - links to the canonical docs that carry the ongoing operational or architecture detail
 
+## 2026-05-11: Track Batch E cleanup helpers and audit tools
+
+- Status: Accepted
+- Decision:
+  - `scripts/evaluate_soak_week.py` and `scripts/collect_ab_results.py` remain operator CLI facades while gate evaluation and A/B row normalization live behind focused helper modules.
+  - `pipeline/cli_logging.py` and `scripts/operator_numeric.py` own shared helper behavior extracted during Batch E.
+  - `pipeline/agenda_qa.py`, `pipeline/agenda_resolver_quality.py`, and `pipeline/utils_names.py` remain tracked agenda/person scoring surfaces.
+  - `vulture==2.16` and `radon==6.0.1` are pinned as development-only local audit tools, not CI gates.
+- Why:
+  - Batch E reduced dead code, duplicate helper drift, and high-complexity reporting/quality code without changing runtime behavior.
+  - Keeping docs and guardrail enrollment in one follow-up PR avoids source-map conflicts across parallel code PRs.
+- Affected boundaries:
+  - Operator commands, JSON/stdout contracts, API behavior, runtime defaults, and CI policy scope stay unchanged.
+  - Guardrails track the new helper families under the 300-line cleanup target and keep helper modules from importing their facades.
+- Canonical references:
+  - [ARCHITECTURE.md](../ARCHITECTURE.md)
+  - [docs/OPERATIONS.md](OPERATIONS.md)
+  - [docs/PERFORMANCE.md](PERFORMANCE.md)
+  - [docs/ENGINEERING_GUARDRAILS.md](ENGINEERING_GUARDRAILS.md)
+
 ## 2026-05-10: Split LocalAI compatibility helpers behind the facade
 
 - Status: Accepted

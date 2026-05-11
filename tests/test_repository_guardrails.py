@@ -222,6 +222,9 @@ AGENDA_RESOLVER_CLEANUP_MODULES = (
     "pipeline/agenda_resolver_enrichment.py",
     "pipeline/agenda_resolver_runner.py",
 )
+AGENDA_QA_CLEANUP_MODULES = (
+    "pipeline/agenda_qa.py",
+)
 AGENDA_SUMMARY_MAINTENANCE_CLEANUP_MODULES = (
     "pipeline/agenda_summary_maintenance.py",
     "pipeline/agenda_summary_contracts.py",
@@ -299,8 +302,11 @@ PERSON_UTILS_CLEANUP_MODULES = (
 )
 REPORTING_SCRIPTS_CLEANUP_MODULES = (
     "scripts/analyze_pipeline_profile.py",
+    "scripts/collect_ab_results.py",
+    "scripts/collect_ab_results_rows.py",
     "scripts/collect_soak_metrics.py",
     "scripts/evaluate_soak_week.py",
+    "scripts/evaluate_soak_week_gates.py",
     "scripts/operator_profile_ab.py",
     "scripts/operator_profile_artifacts.py",
     "scripts/operator_profile_metric_deltas.py",
@@ -316,6 +322,10 @@ REPORTING_SCRIPTS_CLEANUP_MODULES = (
     "scripts/profile_pipeline_results.py",
     "scripts/profile_pipeline_selection.py",
     "scripts/score_ab_results.py",
+)
+SHARED_HELPER_CLEANUP_MODULES = (
+    "pipeline/cli_logging.py",
+    "scripts/operator_numeric.py",
 )
 TASK_API_FACADE_CLEANUP_MODULES = (
     "pipeline/tasks.py",
@@ -448,6 +458,7 @@ def _broad_exception_scan_files() -> list[Path]:
         *AGENDA_EXTRACTION_CLEANUP_MODULES,
         *AGENDA_TEXT_HEURISTICS_CLEANUP_MODULES,
         *AGENDA_RESOLVER_CLEANUP_MODULES,
+        *AGENDA_QA_CLEANUP_MODULES,
         *AGENDA_SUMMARY_MAINTENANCE_CLEANUP_MODULES,
         *AGENDA_SUMMARY_RUNTIME_CLEANUP_MODULES,
         *PROFILE_MANIFEST_CLEANUP_MODULES,
@@ -461,6 +472,7 @@ def _broad_exception_scan_files() -> list[Path]:
         *HTTP_PROVIDER_CLEANUP_MODULES,
         *PERSON_UTILS_CLEANUP_MODULES,
         *REPORTING_SCRIPTS_CLEANUP_MODULES,
+        *SHARED_HELPER_CLEANUP_MODULES,
         *TASK_API_FACADE_CLEANUP_MODULES,
         *SEARCH_SUPPORT_CLEANUP_MODULES,
         *CITY_ONBOARDING_EVALUATOR_CLEANUP_MODULES,
@@ -796,6 +808,16 @@ def test_agenda_resolver_cleanup_modules_stay_under_size_target():
     assert oversized_modules == []
 
 
+def test_agenda_qa_cleanup_modules_stay_under_size_target():
+    oversized_modules = [
+        module_path
+        for module_path in AGENDA_QA_CLEANUP_MODULES
+        if len((ROOT / module_path).read_text(encoding="utf-8").splitlines()) > 300
+    ]
+
+    assert oversized_modules == []
+
+
 def test_agenda_summary_maintenance_cleanup_modules_stay_under_size_target():
     oversized_modules = [
         module_path
@@ -912,6 +934,32 @@ def test_reporting_scripts_cleanup_modules_stay_under_size_target():
     oversized_modules = [
         module_path
         for module_path in REPORTING_SCRIPTS_CLEANUP_MODULES
+        if len((ROOT / module_path).read_text(encoding="utf-8").splitlines()) > 300
+    ]
+
+    assert oversized_modules == []
+
+
+def test_batch_e_reporting_helpers_do_not_import_facades():
+    forbidden_imports: list[str] = []
+    for module_path in (
+        ROOT / "scripts" / "collect_ab_results_rows.py",
+        ROOT / "scripts" / "evaluate_soak_week_gates.py",
+    ):
+        forbidden_imports.extend(
+            _forbidden_imports(
+                module_path,
+                {"scripts.collect_ab_results", "scripts.evaluate_soak_week"},
+            )
+        )
+
+    assert forbidden_imports == []
+
+
+def test_shared_helper_cleanup_modules_stay_under_size_target():
+    oversized_modules = [
+        module_path
+        for module_path in SHARED_HELPER_CLEANUP_MODULES
         if len((ROOT / module_path).read_text(encoding="utf-8").splitlines()) > 300
     ]
 

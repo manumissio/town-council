@@ -297,6 +297,7 @@ Weekly evaluation (`scripts/evaluate_soak_week.py`) uses:
 - run-local provider deltas captured from `run_manifest.json` baseline counters plus the post-run worker scrape
 - cumulative provider totals remain observational only
 - a successful pre-run worker scrape with no provider series yet counts as a zero baseline, not missing evidence
+- gate and evidence evaluation from `scripts/evaluate_soak_week_gates.py` behind the same CLI/output contract
 
 Why:
 - Prometheus counters are cumulative across runs; promotion gates need per-run evidence so the first day of a window is not contaminated by pre-window history.
