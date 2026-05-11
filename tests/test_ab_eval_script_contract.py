@@ -20,7 +20,7 @@ def test_run_ab_eval_script_contract():
 
 
 def test_collect_script_emits_required_fields():
-    path = Path("scripts/collect_ab_results.py")
+    path = Path("scripts/collect_ab_results_rows.py")
     text = path.read_text(encoding="utf-8")
 
     for field in [
@@ -43,7 +43,7 @@ def test_collect_script_emits_required_fields():
 
 
 def test_collect_script_avoids_db_summary_for_failed_rows():
-    path = Path("scripts/collect_ab_results.py")
+    path = Path("scripts/collect_ab_results_rows.py")
     text = path.read_text(encoding="utf-8")
 
     assert "_summary_text_from_sources" in text

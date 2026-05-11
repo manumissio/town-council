@@ -1,61 +1,25 @@
 #!/usr/bin/env python3
+from __future__ import annotations
+
 import argparse
-import csv
 import json
-import re
 from pathlib import Path
+from typing import Any
 
-from pipeline.db_session import db_session
-from pipeline.models import Catalog, Document, AgendaItem
-from pipeline.summary_quality import is_summary_grounded
-
-REQUIRED_SECTIONS = [
-    "bluf:",
-    "why this matters:",
-    "top actions:",
-    "potential impacts:",
-    "unknowns:",
-]
-
-
-def _section_compliance(summary: str) -> bool:
-    text = (summary or "").lower()
-    return all(marker in text for marker in REQUIRED_SECTIONS)
+from scripts.collect_ab_results_rows import REQUIRED_SECTIONS
+from scripts.collect_ab_results_rows import _detect_fallback
+from scripts.collect_ab_results_rows import _detect_partial_coverage
+from scripts.collect_ab_results_rows import _provider_metric_from_phase_row
+from scripts.collect_ab_results_rows import _section_compliance
+from scripts.collect_ab_results_rows import _summary_text_from_sources
+from scripts.collect_ab_results_rows import _to_float
+from scripts.collect_ab_results_rows import _to_int
+from scripts.collect_ab_results_rows import collect_ab_rows
+from scripts.collect_ab_results_rows import load_task_phase_rows
+from scripts.collect_ab_results_rows import write_ab_outputs
 
 
-def _detect_fallback(summary: str) -> bool:
-    text = (summary or "").lower()
-    return (
-        "no substantive actions were retained after filtering" in text
-        or "agenda summary unavailable" in text
-    )
-
-
-def _detect_partial_coverage(summary: str) -> bool:
-    text = (summary or "").lower()
-    patterns = [
-        r"partial coverage",
-        r"included\s+\d+\s+of\s+\d+\s+items",
-        r"first\s+\d+\s+of\s+\d+",
-    ]
-    return any(re.search(p, text) for p in patterns)
-
-
-def _to_float(value):
-    try:
-        return float(value)
-    except (TypeError, ValueError):
-        return None
-
-
-def _to_int(value):
-    try:
-        return int(value)
-    except (TypeError, ValueError):
-        return None
-
-
-def _load_run_config(run_dir: Path) -> dict:
+def _load_run_config(run_dir: Path) -> dict[str, Any]:
     path = run_dir / "run_config.json"
     if not path.exists():
         return {}
@@ -70,178 +34,28 @@ def _emit_output_summary(*, row_count: int, csv_path: Path, json_path: Path) -> 
     print(f"wrote {row_count} rows to {csv_path} and {json_path}")
 
 
-def _provider_metric_from_phase_row(row: dict, metric_name: str):
-    # Prefer flattened fields from run_ab_eval; fall back to task_result payload.
-    direct = row.get(metric_name)
-    if direct not in (None, ""):
-        return direct
-
-    task_result = row.get("task_result")
-    candidates = []
-    if isinstance(task_result, dict):
-        candidates.append(task_result)
-        for key in ("telemetry", "provider_metrics", "metrics"):
-            nested = task_result.get(key)
-            if isinstance(nested, dict):
-                candidates.append(nested)
-    for cand in candidates:
-        value = cand.get(metric_name)
-        if value not in (None, ""):
-            return value
-    return None
-
-
-def _summary_text_from_sources(*, catalog: Catalog, summarize_row: dict) -> str:
-    task_result = summarize_row.get("task_result")
-    if isinstance(task_result, dict):
-        summary = task_result.get("summary")
-        if isinstance(summary, str):
-            return summary.strip()
-    if summarize_row.get("task_failed"):
-        return ""
-    return (catalog.summary or "").strip()
-
-
-def main() -> int:
+def _parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description="Collect A/B run results into CSV/JSON artifacts")
     parser.add_argument("--run-id", required=True)
     parser.add_argument("--results-root", default="experiments/results")
-    args = parser.parse_args()
+    return parser
 
+
+def main() -> int:
+    args = _parser().parse_args()
     run_dir = Path(args.results_root) / args.run_id
     tasks_path = run_dir / "tasks.jsonl"
     if not tasks_path.exists():
         raise SystemExit(f"missing tasks file: {tasks_path}")
-    run_config = _load_run_config(run_dir)
-
-    by_cid_phase = {}
-    arm = None
-    with tasks_path.open("r", encoding="utf-8") as f:
-        for line in f:
-            line = line.strip()
-            if not line:
-                continue
-            row = json.loads(line)
-            cid = int(row["catalog_id"])
-            phase = str(row.get("phase") or "")
-            by_cid_phase[(cid, phase)] = row
-            arm = arm or row.get("arm")
-
-    cids = sorted({cid for cid, _ in by_cid_phase.keys()})
-
-    out_rows = []
-    with db_session() as db:
-        for cid in cids:
-            catalog = db.get(Catalog, cid)
-            if catalog is None:
-                continue
-            doc = db.query(Document).filter(Document.catalog_id == cid).first()
-            doc_kind = (doc.category or "unknown") if doc else "unknown"
-            items = (
-                db.query(AgendaItem)
-                .filter(AgendaItem.catalog_id == cid)
-                .order_by(AgendaItem.order)
-                .all()
-            )
-            agenda_items_count = len(items)
-
-            seg = by_cid_phase.get((cid, "segment"), {})
-            summ = by_cid_phase.get((cid, "summarize"), {})
-            summary_text = _summary_text_from_sources(catalog=catalog, summarize_row=summ)
-            if doc_kind == "agenda":
-                source = "\n".join(
-                    " | ".join(
-                        [
-                            (it.title or "").strip(),
-                            (it.description or "").strip(),
-                            (it.classification or "").strip(),
-                            (it.result or "").strip(),
-                        ]
-                    ).strip(" | ")
-                    for it in items
-                )
-            else:
-                source = (catalog.content or "")
-
-            grounding = is_summary_grounded(summary_text, source or "")
-            telemetry_source = summ if summ else seg
-
-            prompt_tokens = _to_int(_provider_metric_from_phase_row(telemetry_source, "prompt_tokens"))
-            completion_tokens = _to_int(_provider_metric_from_phase_row(telemetry_source, "completion_tokens"))
-            total_tokens = _to_int(_provider_metric_from_phase_row(telemetry_source, "total_tokens"))
-            if total_tokens is None and (prompt_tokens is not None or completion_tokens is not None):
-                total_tokens = (prompt_tokens or 0) + (completion_tokens or 0)
-
-            any_failed = bool(seg.get("task_failed")) or bool(summ.get("task_failed"))
-            status = "failed" if any_failed else "complete"
-
-            out_rows.append(
-                {
-                    "run_id": args.run_id,
-                    "arm": arm or "",
-                    "model": str(summ.get("model") or seg.get("model") or run_config.get("model") or ""),
-                    "catalog_id": cid,
-                    "doc_kind": doc_kind,
-                    "status": status,
-                    "segment_duration_s": float(seg.get("duration_s") or 0.0),
-                    "summary_duration_s": float(summ.get("duration_s") or 0.0),
-                    "task_failed": any_failed,
-                    "agenda_items_count": agenda_items_count,
-                    "summary_chars": len(summary_text),
-                    "summary_text": summary_text,
-                    "section_compliance_pass": _section_compliance(summary_text),
-                    "grounding_pass": bool(grounding.is_grounded),
-                    "fallback_used": _detect_fallback(summary_text),
-                    "partial_coverage_disclosed": _detect_partial_coverage(summary_text),
-                    "ttft_ms": _to_float(_provider_metric_from_phase_row(telemetry_source, "ttft_ms")),
-                    "tokens_per_sec": _to_float(_provider_metric_from_phase_row(telemetry_source, "tokens_per_sec")),
-                    "prompt_tokens": prompt_tokens,
-                    "completion_tokens": completion_tokens,
-                    "total_tokens": total_tokens,
-                    "prompt_eval_duration_ms": _to_float(
-                        _provider_metric_from_phase_row(telemetry_source, "prompt_eval_duration_ms")
-                    ),
-                    "eval_duration_ms": _to_float(_provider_metric_from_phase_row(telemetry_source, "eval_duration_ms")),
-                }
-            )
-
-    csv_path = run_dir / "ab_rows.csv"
-    json_path = run_dir / "ab_rows.json"
-    fieldnames = [
-        "run_id",
-        "arm",
-        "model",
-        "catalog_id",
-        "doc_kind",
-        "status",
-        "segment_duration_s",
-        "summary_duration_s",
-        "task_failed",
-        "agenda_items_count",
-        "summary_chars",
-        "summary_text",
-        "section_compliance_pass",
-        "grounding_pass",
-        "fallback_used",
-        "partial_coverage_disclosed",
-        "ttft_ms",
-        "tokens_per_sec",
-        "prompt_tokens",
-        "completion_tokens",
-        "total_tokens",
-        "prompt_eval_duration_ms",
-        "eval_duration_ms",
-    ]
-
-    with csv_path.open("w", encoding="utf-8", newline="") as f:
-        writer = csv.DictWriter(f, fieldnames=fieldnames)
-        writer.writeheader()
-        writer.writerows(out_rows)
-
-    with json_path.open("w", encoding="utf-8") as f:
-        json.dump(out_rows, f, indent=2)
-
-    _emit_output_summary(row_count=len(out_rows), csv_path=csv_path, json_path=json_path)
+    by_catalog_phase, arm = load_task_phase_rows(tasks_path)
+    rows = collect_ab_rows(
+        run_id=args.run_id,
+        arm=arm,
+        by_catalog_phase=by_catalog_phase,
+        run_config=_load_run_config(run_dir),
+    )
+    csv_path, json_path = write_ab_outputs(run_dir, rows)
+    _emit_output_summary(row_count=len(rows), csv_path=csv_path, json_path=json_path)
     return 0
 
 
