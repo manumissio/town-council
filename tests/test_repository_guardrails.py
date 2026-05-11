@@ -522,25 +522,63 @@ def _mypy_enrolled_paths() -> tuple[str, ...]:
     return tuple(enrolled_paths)
 
 
+def _module_name_for_path(module_path: Path) -> str:
+    module_parts = module_path.with_suffix("").parts
+    for package_name in ("api", "pipeline", "scripts", "tests"):
+        if package_name in module_parts:
+            package_index = module_parts.index(package_name)
+            return ".".join(module_parts[package_index:])
+    return module_path.stem
+
+
+def _absolute_import_from_name(*, importing_module: str, module_name: str | None, level: int, alias_name: str) -> str:
+    if level == 0:
+        return module_name or alias_name
+
+    package_parts = importing_module.split(".")[:-1]
+    base_parts = package_parts[: max(0, len(package_parts) - level + 1)]
+    import_parts = [part for part in (module_name or "").split(".") if part]
+    if import_parts:
+        return ".".join([*base_parts, *import_parts])
+    return ".".join([*base_parts, alias_name])
+
+
 def _forbidden_imports(module_path: Path, forbidden_modules: set[str]) -> list[str]:
-    tree = ast.parse(module_path.read_text(encoding="utf-8"), filename=str(module_path.relative_to(ROOT)))
+    importing_module = _module_name_for_path(module_path)
+    try:
+        filename = str(module_path.relative_to(ROOT))
+    except ValueError:
+        filename = str(module_path)
+    tree = ast.parse(module_path.read_text(encoding="utf-8"), filename=filename)
     found_imports: list[str] = []
 
     for node in ast.walk(tree):
         if isinstance(node, ast.Import):
             found_imports.extend(alias.name for alias in node.names if alias.name in forbidden_modules)
         elif isinstance(node, ast.ImportFrom):
-            if node.module in forbidden_modules:
+            resolved_imports = [
+                _absolute_import_from_name(
+                    importing_module=importing_module,
+                    module_name=node.module,
+                    level=node.level,
+                    alias_name=alias.name,
+                )
+                for alias in node.names
+            ]
+            found_imports.extend(
+                resolved_import for resolved_import in resolved_imports if resolved_import in forbidden_modules
+            )
+            if node.level == 0 and node.module in forbidden_modules:
                 found_imports.append(node.module)
-            if node.module == "pipeline":
+            if node.level == 0 and node.module == "pipeline":
                 found_imports.extend(
                     f"pipeline.{alias.name}" for alias in node.names if f"pipeline.{alias.name}" in forbidden_modules
                 )
-            if node.module == "scripts":
+            if node.level == 0 and node.module == "scripts":
                 found_imports.extend(
                     f"scripts.{alias.name}" for alias in node.names if f"scripts.{alias.name}" in forbidden_modules
                 )
-            if node.module:
+            if node.level == 0 and node.module:
                 for forbidden_module in forbidden_modules:
                     if node.module.startswith(f"{forbidden_module}."):
                         found_imports.append(node.module)
@@ -632,6 +670,24 @@ def test_first_formatter_wave_stays_path_scoped_and_enforced():
     assert "ruff format --check" not in agents_text
     assert "python -m ruff format --check " + " ".join(CANDIDATE_FORMATTER_WAVE_PATHS) in workflow_text
     assert "python -m ruff format --check api pipeline scripts tests" not in workflow_text
+
+
+def test_facade_import_guardrail_detects_relative_imports(tmp_path: Path):
+    pipeline_helper = tmp_path / "pipeline" / "helper.py"
+    pipeline_helper.parent.mkdir(parents=True)
+    pipeline_helper.write_text(
+        "from . import vote_extractor\nfrom .vote_extraction_runner import run_vote_extraction_for_catalog\n",
+        encoding="utf-8",
+    )
+    script_helper = tmp_path / "scripts" / "helper.py"
+    script_helper.parent.mkdir(parents=True)
+    script_helper.write_text("from .profile_pipeline import main\n", encoding="utf-8")
+
+    assert _forbidden_imports(
+        pipeline_helper,
+        {"pipeline.vote_extractor", "pipeline.vote_extraction_runner"},
+    ) == ["pipeline.vote_extractor", "pipeline.vote_extraction_runner"]
+    assert _forbidden_imports(script_helper, {"scripts.profile_pipeline"}) == ["scripts.profile_pipeline"]
 
 
 def test_broad_exception_allowlist_stays_explicit():
