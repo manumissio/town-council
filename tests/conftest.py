@@ -14,6 +14,10 @@ OPTIONAL_NLP_IMPORT_ERRORS = (ImportError, ModuleNotFoundError, OSError, Runtime
 # agnostic behavior rather than the PostgreSQL runtime contract.
 TEST_DB_URL = f"sqlite:///file:tc_testdb_{os.getpid()}?mode=memory&cache=shared&uri=true"
 
+# Test collection can import app modules that initialize DB engines immediately.
+# Pytest owns this value so collection never touches a developer's real DB.
+os.environ["DATABASE_URL"] = TEST_DB_URL
+
 @pytest.fixture(scope="session", autouse=True)
 def shared_engine():
     """
@@ -36,11 +40,14 @@ def shared_engine():
 @pytest.fixture(autouse=True)
 def mock_db_connect(monkeypatch, shared_engine):
     """
-    Monkeypatch ALL workers to use the shared test database.
+    Keep test DB ownership centralized without weakening runtime DB contracts.
     """
     monkeypatch.setenv("DATABASE_URL", TEST_DB_URL)
+    import pipeline.db_session as db_session_module
+
+    db_session_module._SessionLocal = None
     
-    # We patch db_connect in multiple modules where it might be imported
+    # Patch DB factory seams proven by tests; direct db_session imports use this module.
     targets = [
         "pipeline.models.db_connect",
         "pipeline.agenda_worker.db_connect",
@@ -48,6 +55,7 @@ def mock_db_connect(monkeypatch, shared_engine):
         "pipeline.nlp_worker.db_connect",
         "pipeline.promote_stage.db_connect",
         "pipeline.downloader.db_connect",
+        "api.app_setup.db_connect",
         "api.main.db_connect"
     ]
     for target in targets:
@@ -57,7 +65,41 @@ def mock_db_connect(monkeypatch, shared_engine):
             # Some optional modules (for example spaCy stack on Py3.14) can fail
             # during import; skip patching those modules so other tests still run.
             pass
+    try:
+        import api.app_setup as app_setup
+
+        app_setup.SessionLocal = None
+        app_setup._db_init_error = None
+    except OPTIONAL_NLP_IMPORT_ERRORS:
+        pass
     yield
+    db_session_module._SessionLocal = None
+
+
+@pytest.fixture(autouse=True)
+def reset_api_test_state():
+    """
+    Prevent API dependency overrides and rate-limit counters from leaking.
+    """
+    def _reset_state() -> None:
+        api_main = sys.modules.get("api.main")
+        if api_main is None:
+            return
+        app = getattr(api_main, "app", None)
+        if app is not None:
+            app.dependency_overrides.clear()
+            limiter = getattr(getattr(app, "state", None), "limiter", None)
+            reset = getattr(limiter, "reset", None)
+            if callable(reset):
+                reset()
+            storage = getattr(getattr(limiter, "limiter", None), "storage", None)
+            storage_reset = getattr(storage, "reset", None)
+            if callable(storage_reset):
+                storage_reset()
+
+    _reset_state()
+    yield
+    _reset_state()
 
 @pytest.fixture(autouse=True)
 def reset_nlp_cache():
