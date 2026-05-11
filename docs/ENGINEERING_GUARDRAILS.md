@@ -46,6 +46,12 @@ cd <REPO_ROOT>
 - existing Town Council policy tests for fail-fast runtime behavior, freshness contracts, and profile comparability
 - cleanup module families for downloader, NLP entities, segment-city CLI, hydration CLIs, models, DB migrations, LocalAI, indexing, semantic backends, summary text and backfill, vote extraction, provider/person utilities, reporting/profile scripts, shared helper utilities, agenda QA, task/API/search helpers, onboarding/repair scripts, and prior facade splits stay under the 300-line target
 
+Batch F cleanup coverage includes:
+- search-read facade and helpers: `api/search_read_routes.py`, `api/search_read_meilisearch.py`, `api/search_read_params.py`, `api/search_read_results.py`
+- city coverage facade and helpers: `pipeline/city_coverage_audit.py`, `pipeline/city_coverage_assembly.py`, `pipeline/city_coverage_buckets.py`, `pipeline/city_coverage_contracts.py`, `pipeline/city_coverage_queries.py`, `pipeline/city_coverage_windows.py`
+- lineage facade and helpers: `pipeline/lineage_service.py`, `pipeline/lineage_assignment.py`, `pipeline/lineage_graph.py`
+- operator A/B facade and aggregation helper: `scripts/operator_profile_ab.py`, `scripts/operator_profile_ab_aggregate.py`
+
 Batch E cleanup coverage includes:
 - reporting facades and helpers: `scripts/evaluate_soak_week.py`, `scripts/evaluate_soak_week_gates.py`, `scripts/collect_ab_results.py`, `scripts/collect_ab_results_rows.py`
 - shared helper utilities: `pipeline/cli_logging.py`, `scripts/operator_numeric.py`

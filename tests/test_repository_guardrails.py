@@ -57,7 +57,6 @@ APPROVED_BROAD_EXCEPTION_PATHS = {
     "pipeline/diagnose_semantic_search.py",
     "pipeline/indexer.py",
     "pipeline/indexer_meilisearch.py",
-    "pipeline/lineage_service.py",
     "pipeline/llm.py",
     "pipeline/local_ai_provider_calls.py",
     "pipeline/model_base.py",
@@ -308,6 +307,7 @@ REPORTING_SCRIPTS_CLEANUP_MODULES = (
     "scripts/evaluate_soak_week.py",
     "scripts/evaluate_soak_week_gates.py",
     "scripts/operator_profile_ab.py",
+    "scripts/operator_profile_ab_aggregate.py",
     "scripts/operator_profile_artifacts.py",
     "scripts/operator_profile_metric_deltas.py",
     "scripts/operator_profile_metrics.py",
@@ -341,10 +341,27 @@ TASK_API_FACADE_CLEANUP_MODULES = (
 )
 SEARCH_SUPPORT_CLEANUP_MODULES = (
     "api/search_support.py",
+    "api/search_read_routes.py",
+    "api/search_read_meilisearch.py",
+    "api/search_read_params.py",
+    "api/search_read_results.py",
     "api/search/support_core.py",
     "api/search/filter_support.py",
     "api/search/trends_support.py",
     "api/search/semantic_support.py",
+)
+CITY_COVERAGE_CLEANUP_MODULES = (
+    "pipeline/city_coverage_audit.py",
+    "pipeline/city_coverage_assembly.py",
+    "pipeline/city_coverage_buckets.py",
+    "pipeline/city_coverage_contracts.py",
+    "pipeline/city_coverage_queries.py",
+    "pipeline/city_coverage_windows.py",
+)
+LINEAGE_CLEANUP_MODULES = (
+    "pipeline/lineage_service.py",
+    "pipeline/lineage_assignment.py",
+    "pipeline/lineage_graph.py",
 )
 CITY_ONBOARDING_EVALUATOR_CLEANUP_MODULES = (
     "scripts/evaluate_city_onboarding.py",
@@ -475,6 +492,8 @@ def _broad_exception_scan_files() -> list[Path]:
         *SHARED_HELPER_CLEANUP_MODULES,
         *TASK_API_FACADE_CLEANUP_MODULES,
         *SEARCH_SUPPORT_CLEANUP_MODULES,
+        *CITY_COVERAGE_CLEANUP_MODULES,
+        *LINEAGE_CLEANUP_MODULES,
         *CITY_ONBOARDING_EVALUATOR_CLEANUP_MODULES,
         *LASERFICHE_REPAIR_CLEANUP_MODULES,
         *SEGMENT_CITY_CORPUS_CLEANUP_MODULES,
@@ -940,6 +959,15 @@ def test_reporting_scripts_cleanup_modules_stay_under_size_target():
     assert oversized_modules == []
 
 
+def test_batch_f_operator_ab_helper_does_not_import_facade():
+    forbidden_imports = _forbidden_imports(
+        ROOT / "scripts" / "operator_profile_ab_aggregate.py",
+        {"scripts.operator_profile_ab"},
+    )
+
+    assert forbidden_imports == []
+
+
 def test_batch_e_reporting_helpers_do_not_import_facades():
     forbidden_imports: list[str] = []
     for module_path in (
@@ -1001,6 +1029,63 @@ def test_search_support_cleanup_modules_stay_under_size_target():
     ]
 
     assert oversized_modules == []
+
+
+def test_batch_f_search_read_helpers_do_not_import_facade():
+    forbidden_imports: list[str] = []
+    for module_path in (
+        ROOT / "api" / "search_read_meilisearch.py",
+        ROOT / "api" / "search_read_params.py",
+        ROOT / "api" / "search_read_results.py",
+    ):
+        forbidden_imports.extend(_forbidden_imports(module_path, {"api.search_read_routes"}))
+
+    assert forbidden_imports == []
+
+
+def test_city_coverage_cleanup_modules_stay_under_size_target():
+    oversized_modules = [
+        module_path
+        for module_path in CITY_COVERAGE_CLEANUP_MODULES
+        if len((ROOT / module_path).read_text(encoding="utf-8").splitlines()) > 300
+    ]
+
+    assert oversized_modules == []
+
+
+def test_batch_f_city_coverage_helpers_do_not_import_facade():
+    forbidden_imports: list[str] = []
+    for module_path in (
+        ROOT / "pipeline" / "city_coverage_assembly.py",
+        ROOT / "pipeline" / "city_coverage_buckets.py",
+        ROOT / "pipeline" / "city_coverage_contracts.py",
+        ROOT / "pipeline" / "city_coverage_queries.py",
+        ROOT / "pipeline" / "city_coverage_windows.py",
+    ):
+        forbidden_imports.extend(_forbidden_imports(module_path, {"pipeline.city_coverage_audit"}))
+
+    assert forbidden_imports == []
+
+
+def test_lineage_cleanup_modules_stay_under_size_target():
+    oversized_modules = [
+        module_path
+        for module_path in LINEAGE_CLEANUP_MODULES
+        if len((ROOT / module_path).read_text(encoding="utf-8").splitlines()) > 300
+    ]
+
+    assert oversized_modules == []
+
+
+def test_batch_f_lineage_helpers_do_not_import_facade():
+    forbidden_imports: list[str] = []
+    for module_path in (
+        ROOT / "pipeline" / "lineage_assignment.py",
+        ROOT / "pipeline" / "lineage_graph.py",
+    ):
+        forbidden_imports.extend(_forbidden_imports(module_path, {"pipeline.lineage_service"}))
+
+    assert forbidden_imports == []
 
 
 def test_city_onboarding_evaluator_cleanup_modules_stay_under_size_target():

@@ -8,6 +8,26 @@ Use each entry to record:
 - the affected boundary or contract
 - links to the canonical docs that carry the ongoing operational or architecture detail
 
+## 2026-05-11: Track Batch F complexity cleanup helpers
+
+- Status: Accepted
+- Decision:
+  - Batch F keeps complexity cleanup behind stable facades and enrolls the merged helper modules in repository guardrails.
+  - `api/search_read_routes.py` remains the `/search` and `/metadata` route facade while `api/search_read_*` helpers own lexical parameter building, Meilisearch error mapping, and people metadata truncation.
+  - `pipeline/city_coverage_audit.py` remains the city coverage audit contract while `pipeline/city_coverage_*` helpers own contracts, month windows, bucket ingestion, SQL row loading, and summary assembly.
+  - `pipeline/lineage_service.py` remains the lineage assignment entrypoint while `pipeline/lineage_*` helpers own graph construction, confidence calculation, and catalog row mutation.
+  - `scripts/operator_profile_ab.py` remains the operator A/B report facade while `scripts/operator_profile_ab_aggregate.py` owns arm aggregation.
+- Why:
+  - Batch F reduced remaining Radon D/E hotspots without changing public API, CLI, data, metrics, runtime defaults, or CI policy.
+  - Keeping docs and guardrails in one follow-up PR avoids source-map conflicts across parallel code PRs.
+- Affected boundaries:
+  - Public facades stay import-compatible.
+  - Helper modules do not import their facades.
+  - Radon and Vulture remain advisory local audits, not CI gates.
+- Canonical references:
+  - [ARCHITECTURE.md](../ARCHITECTURE.md)
+  - [docs/ENGINEERING_GUARDRAILS.md](ENGINEERING_GUARDRAILS.md)
+
 ## 2026-05-11: Track Batch E cleanup helpers and audit tools
 
 - Status: Accepted

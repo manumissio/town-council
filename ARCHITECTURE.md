@@ -1,6 +1,6 @@
 # Town Council Architecture (2026)
 
-Last updated: 2026-05-10
+Last updated: 2026-05-11
 
 ## 1) System Overview
 
@@ -243,7 +243,7 @@ Primary owners:
 Primary owners:
 - `api/main.py`
 - `api/search_routes.py`
-- `api/search_read_routes.py`
+- `api/search_read_routes.py` facade plus focused `api/search_read_*` helpers
 - `api/search_semantic_routes.py`
 - `pipeline/semantic_index.py`
 - `pipeline/db_migrate.py` facade plus focused `pipeline/db_migration_*` helpers
@@ -257,7 +257,7 @@ Primary owners:
 - QueryBuilder contract is shared to avoid filter drift between search and trends.
 
 Primary owners:
-- `pipeline/lineage_service.py`
+- `pipeline/lineage_service.py` facade plus focused `pipeline/lineage_*` helpers
 - `pipeline/tasks.py`
 - `api/main.py`
 - `api/search_routes.py`
@@ -307,7 +307,7 @@ Primary owners:
   - `pipeline/tasks.py` facade plus focused `pipeline/task_*` helpers
   - `frontend/components/ResultCard.js` (polling/status UI)
 - Adjust lineage recompute behavior:
-  - `pipeline/lineage_service.py`
+  - `pipeline/lineage_service.py` facade plus focused `pipeline/lineage_*` helpers
   - `pipeline/tasks.py`
   - `api/main.py` (exposed lineage/trend reads)
 - Update semantic retrieval behavior:
@@ -323,12 +323,13 @@ Primary owners:
 - Canonical extraction/content hashing: `pipeline/extraction_service.py`, `pipeline/content_hash.py`
 - Async orchestration and writes: `pipeline/tasks.py` facade plus focused `pipeline/task_*` helpers, vote extraction through `pipeline/vote_extractor.py` plus focused `pipeline/vote_extraction_*` helpers
 - Inference abstraction and provider telemetry: `pipeline/llm.py` facade plus focused `pipeline/local_ai_*` helpers, `pipeline/agenda_extraction.py`, `pipeline/llm_provider.py`, `pipeline/http_inference_provider.py` facade plus focused `pipeline/http_inference_*` helpers, `pipeline/inprocess_inference_provider.py`, `pipeline/provider_telemetry.py`, `pipeline/metrics.py`, `pipeline/metrics_provider_recorders.py`, `pipeline/metrics_redis_backend.py`
-- API surface and auth: `api/main.py`, `api/app_setup.py`, `api/search_routes.py`, `api/task_routes.py` facade plus focused `api/task_*` helpers, `api/search_support.py` facade plus focused `api/search/*_support.py` helpers, `api/search/query_builder.py`, `api/metrics.py`
+- API surface and auth: `api/main.py`, `api/app_setup.py`, `api/search_routes.py`, `api/search_read_routes.py` facade plus focused `api/search_read_*` helpers, `api/task_routes.py` facade plus focused `api/task_*` helpers, `api/search_support.py` facade plus focused `api/search/*_support.py` helpers, `api/search/query_builder.py`, `api/metrics.py`
 - Semantic retrieval and embeddings: `pipeline/semantic_index.py`, `pipeline/semantic_faiss_backend.py`, `pipeline/semantic_pgvector_backend.py`, focused semantic backend helpers, `pipeline/models.py` facade plus focused `pipeline/model_*` modules
 - Frontend query/task UX: `frontend/app/page.js`, `frontend/state/search-state.js`, `frontend/components/ResultCard.js`
 - Data model and persistence: `pipeline/models.py` facade plus focused `pipeline/model_*` modules, `pipeline/db_migrate.py` facade plus focused `pipeline/db_migration_*` helpers, `pipeline/migrate_v8.py` and `pipeline/migrate_v9.py` compatibility wrappers, descriptive `pipeline/migration_*` modules
 - Onboarding orchestration and evaluation: `scripts/onboard_city_wave.sh`, `scripts/check_city_crawl_evidence.py`, `scripts/evaluate_city_onboarding.py` facade plus focused `pipeline/city_onboarding_*` helpers
-- Operator profiling and soak reports: `scripts/profile_pipeline.py` facade, `scripts/profile_pipeline_runner.py`, focused `scripts/profile_pipeline_*` helpers, focused `scripts/operator_profile_*` helpers, `scripts/evaluate_soak_week.py` plus `scripts/evaluate_soak_week_gates.py`, and `scripts/collect_ab_results.py` plus `scripts/collect_ab_results_rows.py`
+- Operator profiling and soak reports: `scripts/profile_pipeline.py` facade, `scripts/profile_pipeline_runner.py`, focused `scripts/profile_pipeline_*` helpers, `scripts/operator_profile_ab.py` facade plus focused `scripts/operator_profile_ab_*` helpers, focused `scripts/operator_profile_*` helpers, `scripts/evaluate_soak_week.py` plus `scripts/evaluate_soak_week_gates.py`, and `scripts/collect_ab_results.py` plus `scripts/collect_ab_results_rows.py`
+- City coverage diagnostics: `scripts/audit_city_coverage.py` command plus `pipeline/city_coverage_audit.py` facade and focused `pipeline/city_coverage_*` helpers
 - Laserfiche repair: `scripts/repair_san_mateo_laserfiche_backlog.py` facade plus focused `scripts/laserfiche_repair_*` helpers
 
 ### Runtime Lifecycles
@@ -422,7 +423,7 @@ Owners:
 
 | Contract | Routes | Auth | Async | Primary owners |
 |---|---|---|---|---|
-| Search/read | `GET /search`, `GET /search/semantic`, `GET /metadata`, `GET /catalog/{id}/lineage`, `GET /lineage/{lineage_id}`, `GET /people`, `GET /person/{person_id}` | none | no | `api/main.py`, `api/search_routes.py`, `api/search_read_routes.py`, `api/search_semantic_routes.py`, `api/lineage_routes.py`, `api/people_routes.py`, `api/search/query_builder.py` |
+| Search/read | `GET /search`, `GET /search/semantic`, `GET /metadata`, `GET /catalog/{id}/lineage`, `GET /lineage/{lineage_id}`, `GET /people`, `GET /person/{person_id}` | none | no | `api/main.py`, `api/search_routes.py`, `api/search_read_routes.py` facade plus focused `api/search_read_*` helpers, `api/search_semantic_routes.py`, `api/lineage_routes.py`, `api/people_routes.py`, `api/search/query_builder.py` |
 | Trends reads/export | `GET /trends/topics`, `GET /trends/compare`, `GET /trends/export` | none | no | `api/main.py`, `api/search_routes.py`, `api/trends_routes.py`, `api/search/query_builder.py` |
 | Protected generation writes | `POST /summarize/{catalog_id}`, `POST /segment/{catalog_id}`, `POST /topics/{catalog_id}`, `POST /extract/{catalog_id}`, `POST /votes/{catalog_id}` | `X-API-Key` | yes (task id returned) | `api/main.py`, `api/task_routes.py`, `pipeline/tasks.py` |
 | Task lifecycle | `GET /tasks/{task_id}` | none | n/a | `api/main.py`, `api/task_routes.py`, Celery task backend |
@@ -440,7 +441,7 @@ Owners:
 | `catalog.topics_source_hash` | Hash of source text used to generate current topics | `pipeline/topic_generation.py` facade plus focused `pipeline/topic_generation_*` modules, `pipeline/enrichment_tasks.py`, `pipeline/topic_worker.py`, `api/task_routes.py`, `api/catalog_routes.py` |
 | `agenda_item.result` | Normalized outcome field for agenda/vote interpretation | `pipeline/models.py` facade plus focused `pipeline/model_*` modules, `pipeline/tasks.py` |
 | `agenda_item.votes` | Structured vote payload with extraction metadata | `pipeline/models.py` facade plus focused `pipeline/model_*` modules, `pipeline/tasks.py` |
-| `catalog.lineage_id`, `catalog.lineage_confidence`, `catalog.lineage_updated_at` | Meeting-level lineage identity and confidence | `pipeline/lineage_service.py`, `api/main.py`, `api/lineage_routes.py` |
+| `catalog.lineage_id`, `catalog.lineage_confidence`, `catalog.lineage_updated_at` | Meeting-level lineage identity and confidence | `pipeline/lineage_service.py` facade plus focused `pipeline/lineage_*` helpers, `api/main.py`, `api/lineage_routes.py` |
 | `semantic_embedding` | pgvector-backed embedding storage for hybrid semantic retrieval | `pipeline/models.py` facade plus focused `pipeline/model_*` modules, `pipeline/semantic_index.py`, `pipeline/semantic_pgvector_backend.py`, focused semantic backend helpers, `pipeline/tasks.py` |
 
 ### Observability Contract
