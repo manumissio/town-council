@@ -10,7 +10,6 @@ from scripts.operator_prometheus import PROM_LINE as PROM_LINE
 from scripts.operator_prometheus import parse_metrics as _parse_metrics
 from scripts.operator_prometheus import sum_metric as _sum_metric
 from scripts.operator_profile_metrics import fetch_text as _fetch_text
-from scripts.operator_profile_metrics import fetch_worker_metrics_via_docker as _fetch_worker_metrics_via_docker
 from scripts.operator_profile_metrics import hist_quantile as _hist_quantile
 from scripts.operator_profile_metrics import load_run_manifest as _load_run_manifest
 from scripts.operator_profile_metrics import load_tasks_rows as _load_tasks_rows
@@ -18,6 +17,15 @@ from scripts.operator_profile_metrics import provider_metrics_state as _provider
 from scripts.operator_profile_metrics import slowest_task as _slowest_task
 from scripts.operator_profile_metrics import submission_failure_breakdown as _submission_failure_breakdown
 from scripts.operator_profile_metric_deltas import provider_run_deltas_from_manifest as _provider_run_deltas_from_manifest
+from scripts.operator_profile_worker_metrics import docker_exec_python as _profile_docker_exec_python
+from scripts.operator_profile_worker_metrics import fetch_worker_metrics_via_docker as _fetch_worker_metrics_with_exec
+
+
+_docker_exec_python = _profile_docker_exec_python
+
+
+def _fetch_worker_metrics_via_docker() -> tuple[str, str | None]:
+    return _fetch_worker_metrics_with_exec(exec_python=_docker_exec_python)
 
 
 def _search_p95_ms(api_url: str) -> float | None:

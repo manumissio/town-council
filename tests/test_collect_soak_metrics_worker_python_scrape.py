@@ -29,7 +29,7 @@ def test_worker_scrape_falls_back_to_registry_strategy(monkeypatch):
     def _fake_exec(script: str):
         calls["n"] += 1
         if "localhost:8001/metrics" in script:
-            raise RuntimeError("http probe failed")
+            raise subprocess.SubprocessError("http probe failed")
         assert "RedisProviderMetricsCollector" in script
         return "tc_provider_requests_total 1\n"
 
