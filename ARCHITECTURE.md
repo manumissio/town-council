@@ -207,6 +207,8 @@ Primary owners:
   `pipeline/agenda_resolver_contracts.py`, `pipeline/agenda_resolver_quality.py`,
   `pipeline/agenda_resolver_legistar_policy.py`, `pipeline/agenda_resolver_html.py`,
   `pipeline/agenda_resolver_enrichment.py`, and `pipeline/agenda_resolver_runner.py`
+- `pipeline/agenda_qa.py` owns report/regeneration scoring for stored agenda items,
+  while `pipeline/agenda_resolver_quality.py` owns source-selection quality scoring.
 
 #### Vote Extraction (Stable)
 
@@ -326,7 +328,7 @@ Primary owners:
 - Frontend query/task UX: `frontend/app/page.js`, `frontend/state/search-state.js`, `frontend/components/ResultCard.js`
 - Data model and persistence: `pipeline/models.py` facade plus focused `pipeline/model_*` modules, `pipeline/db_migrate.py` facade plus focused `pipeline/db_migration_*` helpers, `pipeline/migrate_v8.py` and `pipeline/migrate_v9.py` compatibility wrappers, descriptive `pipeline/migration_*` modules
 - Onboarding orchestration and evaluation: `scripts/onboard_city_wave.sh`, `scripts/check_city_crawl_evidence.py`, `scripts/evaluate_city_onboarding.py` facade plus focused `pipeline/city_onboarding_*` helpers
-- Operator profiling and soak reports: `scripts/profile_pipeline.py` facade, `scripts/profile_pipeline_runner.py`, focused `scripts/profile_pipeline_*` helpers, and focused `scripts/operator_profile_*` helpers
+- Operator profiling and soak reports: `scripts/profile_pipeline.py` facade, `scripts/profile_pipeline_runner.py`, focused `scripts/profile_pipeline_*` helpers, focused `scripts/operator_profile_*` helpers, `scripts/evaluate_soak_week.py` plus `scripts/evaluate_soak_week_gates.py`, and `scripts/collect_ab_results.py` plus `scripts/collect_ab_results_rows.py`
 - Laserfiche repair: `scripts/repair_san_mateo_laserfiche_backlog.py` facade plus focused `scripts/laserfiche_repair_*` helpers
 
 ### Runtime Lifecycles

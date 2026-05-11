@@ -22,6 +22,21 @@ PYTHONPATH=. .venv/bin/pytest -q tests/test_repository_guardrails.py
 
 The first pass is intentionally moderate. It is meant to block lazy hygiene regressions without forcing a repo-wide style migration.
 
+## Optional local dead-code and complexity audit
+
+`pipeline/requirements-dev.txt` pins the local audit tools used during Batch E:
+
+- `vulture==2.16`
+- `radon==6.0.1`
+
+These commands are advisory local audits, not CI gates:
+
+```bash
+cd <REPO_ROOT>
+./.venv/bin/python -m vulture api pipeline scripts tests --min-confidence 80
+./.venv/bin/python -m radon cc api pipeline scripts -s -n C
+```
+
 ## What the smell tests protect
 
 - no personal absolute paths in tracked repo files
@@ -29,7 +44,12 @@ The first pass is intentionally moderate. It is meant to block lazy hygiene regr
 - no raw `print(...)` in non-CLI pipeline modules
 - no silent broad exception handlers or broad exception allowlist drift
 - existing Town Council policy tests for fail-fast runtime behavior, freshness contracts, and profile comparability
-- cleanup module families for downloader, NLP entities, segment-city CLI, hydration CLIs, models, DB migrations, LocalAI, indexing, semantic backends, summary text and backfill, vote extraction, provider/person utilities, reporting/profile scripts, task/API/search helpers, onboarding/repair scripts, and prior facade splits stay under the 300-line target
+- cleanup module families for downloader, NLP entities, segment-city CLI, hydration CLIs, models, DB migrations, LocalAI, indexing, semantic backends, summary text and backfill, vote extraction, provider/person utilities, reporting/profile scripts, shared helper utilities, agenda QA, task/API/search helpers, onboarding/repair scripts, and prior facade splits stay under the 300-line target
+
+Batch E cleanup coverage includes:
+- reporting facades and helpers: `scripts/evaluate_soak_week.py`, `scripts/evaluate_soak_week_gates.py`, `scripts/collect_ab_results.py`, `scripts/collect_ab_results_rows.py`
+- shared helper utilities: `pipeline/cli_logging.py`, `scripts/operator_numeric.py`
+- agenda QA/scoring surfaces: `pipeline/agenda_qa.py`, `pipeline/agenda_resolver_quality.py`, `pipeline/utils_names.py`
 
 ## How to request an exception
 

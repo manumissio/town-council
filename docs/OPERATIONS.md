@@ -1,6 +1,6 @@
 # Operations Runbook
 
-Last updated: 2026-04-05
+Last updated: 2026-05-11
 
 ## Core workflow
 
@@ -625,6 +625,7 @@ Provider token/latency telemetry (HTTP backend):
 A/B artifact integration (v1):
 - `scripts/run_ab_eval.sh` captures best-effort provider telemetry from final task payloads.
 - `scripts/collect_ab_results.py` carries telemetry into `ab_rows.csv` / `ab_rows.json`.
+  The CLI remains stable; row loading and field normalization live behind `scripts/collect_ab_results_rows.py`.
 - `scripts/score_ab_results.py` reports TTFT/TPS/token rollups and deltas.
 - These telemetry metrics are reporting-only in this phase and are not part of pass/fail gates.
 
@@ -841,6 +842,7 @@ Scripts:
   - reads an arbitrary window via `--window-days` and emits:
     - `experiments/results/soak/soak_eval_<N>d.json`
     - `experiments/results/soak/soak_eval_<N>d.md`
+  - keeps gate/evidence evaluation behind `scripts/evaluate_soak_week_gates.py`; command and output contracts stay unchanged
   - treats run-local provider deltas as the only trustworthy timeout evidence for either tier
   - treats legacy cumulative-only summaries as diagnostic and marks timeout-rate gate `INCONCLUSIVE`
   - emits `overall_status` (`PASS|FAIL|INCONCLUSIVE`) while keeping `overall_pass` for compatibility
@@ -971,6 +973,10 @@ docker compose run --rm pipeline python run_agenda_qa.py --regenerate --max 50
 Outputs:
 - `data/reports/agenda_qa_<timestamp>.json`
 - `data/reports/agenda_qa_<timestamp>.csv`
+
+Implementation owners:
+- `pipeline/agenda_qa.py` owns stored-item report/regeneration scoring.
+- `pipeline/agenda_resolver_quality.py` owns resolver source-selection quality scoring.
 
 ## Agenda Segmentation Precision Tuning
 
