@@ -81,7 +81,7 @@ def classify_target(target: RepairTarget) -> RepairTarget:
     info: dict[str, object] = {}
     try:
         info = fetch_basic_document_info(worker_session(), entry_id=entry_id, repo=repo)
-    except requests.RequestException, ValueError, TypeError, KeyError:
+    except (requests.RequestException, ValueError, TypeError, KeyError):
         info = {}
 
     page_count = int(info.get("pageCount") or 0) if info else 0
