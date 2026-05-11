@@ -1,6 +1,6 @@
 from types import SimpleNamespace
 
-from pipeline.vote_extraction_contracts import VoteExtractionResult
+from pipeline.vote_extraction_contracts import LLM_EXTRACTED_VOTE_SOURCE, VoteExtractionResult
 from pipeline.vote_extractor import run_vote_extraction_for_catalog
 
 
@@ -271,3 +271,86 @@ def test_facade_result_text_patch_controls_runner(monkeypatch):
 
     assert counters["updated_items"] == 1
     assert item.result == "Patched Result"
+
+
+def test_updated_vote_payload_preserves_shape_and_count_fields():
+    item = SimpleNamespace(
+        id=10,
+        title="Budget Motion",
+        description=" ".join(["Motion was seconded and passed."] * 30),
+        result="",
+        votes=None,
+    )
+    catalog = SimpleNamespace(id=1, content="")
+    doc = SimpleNamespace(category="minutes", event=None)
+    local_ai = _StubLocalAI(
+        '{"outcome_label":"passed","motion_text":"Budget motion","vote_tally_raw":"Ayes: 4; Noes: 1",'
+        '"yes_count":4,"no_count":1,"abstain_count":2,"absent_count":3,'
+        '"confidence":0.95,"evidence_snippet":"motion passed 4-1"}'
+    )
+
+    counters = run_vote_extraction_for_catalog(
+        db=None,
+        local_ai=local_ai,
+        catalog=catalog,
+        doc=doc,
+        force=False,
+        agenda_items=[item],
+    )
+
+    assert counters["processed_items"] == 1
+    assert counters["updated_items"] == 1
+    assert item.votes.keys() == {
+        "outcome_label",
+        "motion_text",
+        "vote_tally_raw",
+        "yes_count",
+        "no_count",
+        "abstain_count",
+        "absent_count",
+        "confidence",
+        "evidence_snippet",
+        "source",
+        "extracted_at",
+    }
+    assert item.votes["yes_count"] == 4
+    assert item.votes["no_count"] == 1
+    assert item.votes["abstain_count"] == 2
+    assert item.votes["absent_count"] == 3
+    assert item.votes["source"] == LLM_EXTRACTED_VOTE_SOURCE
+    assert isinstance(item.votes["extracted_at"], str)
+
+
+def test_extraction_exception_counts_failed_item_and_logs_warning(monkeypatch, caplog):
+    item = SimpleNamespace(
+        id=10,
+        title="Budget Motion",
+        description=" ".join(["Motion was seconded and passed."] * 30),
+        result="",
+        votes=None,
+    )
+    catalog = SimpleNamespace(id=1, content="")
+    doc = SimpleNamespace(category="minutes", event=None)
+    local_ai = _StubLocalAI("{}")
+
+    def patched_extract_vote_outcome(local_ai, item_title, item_text, meeting_context=""):
+        raise RuntimeError("boom")
+
+    monkeypatch.setattr("pipeline.vote_extractor.extract_vote_outcome", patched_extract_vote_outcome)
+
+    with caplog.at_level("WARNING", logger="vote-extractor"):
+        counters = run_vote_extraction_for_catalog(
+            db=None,
+            local_ai=local_ai,
+            catalog=catalog,
+            doc=doc,
+            force=False,
+            agenda_items=[item],
+        )
+
+    assert counters["processed_items"] == 1
+    assert counters["updated_items"] == 0
+    assert counters["failed_items"] == 1
+    assert item.result == ""
+    assert item.votes is None
+    assert "vote_extraction.failed catalog_id=1 agenda_item_id=10 error=RuntimeError" in caplog.text
