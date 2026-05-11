@@ -5,7 +5,7 @@ import sys
 import os
 from unittest.mock import MagicMock
 from kombu.exceptions import OperationalError
-from meilisearch.errors import MeilisearchError
+from meilisearch.errors import MeilisearchCommunicationError, MeilisearchError, MeilisearchTimeoutError
 
 # Add the project root to the path so we can import from api/main.py
 sys.path.append(os.path.join(os.path.dirname(__file__), '..'))
@@ -180,6 +180,61 @@ def test_search_sort_rejected_by_meilisearch_returns_actionable_400(mocker):
     response = client.get("/search?q=zoning&sort=newest", headers={"X-API-Key": VALID_KEY})
     assert response.status_code == 400
     assert "reindex_only.py" in response.json()["detail"]
+
+
+def test_search_truncates_people_metadata_in_hits_and_formatted_hits(mocker):
+    people_metadata = [{"name": f"Person {idx}"} for idx in range(12)]
+    mock_index = mocker.Mock()
+    mock_index.search.return_value = {
+        "hits": [
+            {
+                "people_metadata": list(people_metadata),
+                "_formatted": {"people_metadata": list(people_metadata)},
+            }
+        ],
+        "estimatedTotalHits": 1,
+    }
+    mocker.patch("api.main.client.index", return_value=mock_index)
+
+    response = client.get("/search?q=zoning", headers={"X-API-Key": VALID_KEY})
+
+    assert response.status_code == 200
+    hit = response.json()["hits"][0]
+    assert len(hit["people_metadata"]) == 10
+    assert len(hit["_formatted"]["people_metadata"]) == 10
+
+
+def test_search_timeout_returns_503(mocker):
+    mock_index = mocker.Mock()
+    mock_index.search.side_effect = MeilisearchTimeoutError("timeout")
+    mocker.patch("api.main.client.index", return_value=mock_index)
+
+    response = client.get("/search?q=zoning", headers={"X-API-Key": VALID_KEY})
+
+    assert response.status_code == 503
+    assert response.json()["detail"] == "Search engine timed out"
+
+
+def test_search_unavailable_returns_503(mocker):
+    mock_index = mocker.Mock()
+    mock_index.search.side_effect = MeilisearchCommunicationError("unavailable")
+    mocker.patch("api.main.client.index", return_value=mock_index)
+
+    response = client.get("/search?q=zoning", headers={"X-API-Key": VALID_KEY})
+
+    assert response.status_code == 503
+    assert response.json()["detail"] == "Search engine unavailable"
+
+
+def test_search_generic_meilisearch_error_returns_500(mocker):
+    mock_index = mocker.Mock()
+    mock_index.search.side_effect = MeilisearchError("unexpected")
+    mocker.patch("api.main.client.index", return_value=mock_index)
+
+    response = client.get("/search?q=zoning", headers={"X-API-Key": VALID_KEY})
+
+    assert response.status_code == 500
+    assert response.json()["detail"] == "Internal search engine error"
 
 def test_search_injection_protection(mocker):
     """
