@@ -29,10 +29,10 @@ def test_document_chunk_worker(mocker):
     mock_catalog.location = "/tmp/test.pdf"
     mock_catalog.content = None
     mock_catalog.entities = None
-    
+
     mock_db = MagicMock()
     mock_db.get.return_value = mock_catalog
-    
+
     # Mock DB Connection context
     mock_session = MagicMock()
     mock_session.return_value = mock_db
@@ -84,7 +84,10 @@ def test_run_entity_backfill_uses_in_process_fast_path_for_small_snapshots(mocke
     mock_session.__exit__.return_value = False
     mocker.patch("pipeline.backfill_entities.db_session", return_value=mock_session)
     mocker.patch("pipeline.backfill_entities.select_catalog_ids_for_entity_backfill", return_value=[1, 2, 3])
-    mocker.patch("pipeline.backfill_entities._resolve_parallel_processing_settings", return_value={"mode": "global", "chunk_size": 10, "workers_override": None})
+    mocker.patch(
+        "pipeline.backfill_entities._resolve_parallel_processing_settings",
+        return_value={"mode": "global", "chunk_size": 10, "workers_override": None},
+    )
     process_chunk_spy = mocker.patch(
         "pipeline.backfill_entities.process_entity_chunk",
         return_value={"complete": 3, "updated_catalog_ids": [1, 2, 3]},
@@ -367,8 +370,26 @@ def test_select_catalog_ids_for_summary_hydration_includes_stale_agenda_but_skip
         summary="stale agenda summary",
         segmentation_status="complete",
     )
-    fresh_items = [{"order": 1, "title": "Item 1", "description": "Desc", "classification": "Agenda", "result": "", "page_number": 1}]
-    stale_items = [{"order": 1, "title": "Item 2", "description": "Desc", "classification": "Agenda", "result": "", "page_number": 1}]
+    fresh_items = [
+        {
+            "order": 1,
+            "title": "Item 1",
+            "description": "Desc",
+            "classification": "Agenda",
+            "result": "",
+            "page_number": 1,
+        }
+    ]
+    stale_items = [
+        {
+            "order": 1,
+            "title": "Item 2",
+            "description": "Desc",
+            "classification": "Agenda",
+            "result": "",
+            "page_number": 1,
+        }
+    ]
     fresh_hash = compute_agenda_items_hash(fresh_items)
     stale_hash = compute_agenda_items_hash(stale_items)
     fresh_agenda.agenda_items_hash = fresh_hash
@@ -396,7 +417,14 @@ def test_persist_agenda_items_updates_catalog_agenda_items_hash(batching_db):
         segmentation_status="complete",
     )
     items = [
-        {"order": 1, "title": "Item 1", "description": "Desc", "classification": "Agenda", "result": "", "page_number": 1}
+        {
+            "order": 1,
+            "title": "Item 1",
+            "description": "Desc",
+            "classification": "Agenda",
+            "result": "",
+            "page_number": 1,
+        }
     ]
 
     persist_agenda_items(db, agenda_catalog.id, event.id, items)
@@ -417,7 +445,14 @@ def test_persist_agenda_items_skips_rows_without_titles(batching_db):
         segmentation_status="complete",
     )
     items = [
-        {"order": 1, "title": "Kept Item", "description": "Desc", "classification": "Agenda", "result": "", "page_number": 1},
+        {
+            "order": 1,
+            "title": "Kept Item",
+            "description": "Desc",
+            "classification": "Agenda",
+            "result": "",
+            "page_number": 1,
+        },
         {"order": 2, "title": "", "description": "Skipped", "classification": "Agenda", "result": "", "page_number": 2},
     ]
 
@@ -432,9 +467,15 @@ def test_persist_agenda_items_skips_rows_without_titles(batching_db):
 def test_select_catalog_ids_for_agenda_segmentation_excludes_empty_terminal_state(batching_db):
     db, event, place = batching_db
     pending_catalog = _add_catalog(db, event, place, category="agenda", content="agenda text", segmentation_status=None)
-    failed_catalog = _add_catalog(db, event, place, category="agenda", content="agenda text", segmentation_status="failed")
-    empty_catalog = _add_catalog(db, event, place, category="agenda", content="agenda text", segmentation_status="empty")
-    complete_catalog = _add_catalog(db, event, place, category="agenda", content="agenda text", segmentation_status="complete")
+    failed_catalog = _add_catalog(
+        db, event, place, category="agenda", content="agenda text", segmentation_status="failed"
+    )
+    empty_catalog = _add_catalog(
+        db, event, place, category="agenda", content="agenda text", segmentation_status="empty"
+    )
+    complete_catalog = _add_catalog(
+        db, event, place, category="agenda", content="agenda text", segmentation_status="complete"
+    )
     db.add(AgendaItem(catalog_id=complete_catalog.id, event_id=event.id, order=1, title="Item 1", page_number=None))
     db.commit()
 
@@ -460,8 +501,18 @@ def test_run_summary_hydration_backfill_counts_outcomes(mocker):
                 2: {"status": "blocked_low_signal", "changed": False},
             },
             "changed_catalog_ids": [1],
-            "reindex_summary": {"catalogs_considered": 1, "catalogs_reindexed": 1, "catalogs_failed": 0, "failed_catalog_ids": []},
-            "embed_summary": {"catalogs_considered": 1, "embed_enqueued": 1, "embed_dispatch_failed": 0, "failed_catalog_ids": []},
+            "reindex_summary": {
+                "catalogs_considered": 1,
+                "catalogs_reindexed": 1,
+                "catalogs_failed": 0,
+                "failed_catalog_ids": [],
+            },
+            "embed_summary": {
+                "catalogs_considered": 1,
+                "embed_enqueued": 1,
+                "embed_dispatch_failed": 0,
+                "failed_catalog_ids": [],
+            },
             "agenda_summary_timings": {
                 "agenda_summary_bundle_build_ms": 11,
                 "agenda_summary_render_ms": 22,
@@ -473,7 +524,13 @@ def test_run_summary_hydration_backfill_counts_outcomes(mocker):
     )
     summarize_spy = mocker.patch(
         "pipeline.tasks.summarize_catalog_with_maintenance_mode",
-        return_value={"status": "complete", "completion_mode": "llm", "changed": True, "reindexed": 1, "embed_enqueued": 1},
+        return_value={
+            "status": "complete",
+            "completion_mode": "llm",
+            "changed": True,
+            "reindexed": 1,
+            "embed_enqueued": 1,
+        },
     )
 
     counts = run_summary_hydration_backfill()
@@ -498,6 +555,104 @@ def test_run_summary_hydration_backfill_counts_outcomes(mocker):
     summarize_spy.assert_called_once()
 
 
+def test_summary_backfill_progress_helpers_preserve_counts_and_empty_payload():
+    from pipeline.backlog_maintenance import (
+        AGENDA_SUMMARY_BUNDLE_BUILD_MS,
+        AGENDA_SUMMARY_EMBED_DISPATCH_MS,
+        AGENDA_SUMMARY_PERSIST_MS,
+        AGENDA_SUMMARY_REINDEX_MS,
+        AGENDA_SUMMARY_RENDER_MS,
+    )
+    from pipeline.summary_backfill_progress import (
+        add_agenda_batch_counts,
+        finish_empty_summary_backfill,
+        initial_summary_backfill_counts,
+        record_summary_result_counts,
+    )
+
+    empty_events = []
+    empty_counts = initial_summary_backfill_counts(selected=0)
+    finish_empty_summary_backfill(empty_counts, empty_events.append)
+
+    assert empty_events == [
+        {
+            "event_type": "stage_finish",
+            "stage": "summary",
+            "counts": empty_counts,
+            "detail": {"selected": 0},
+        }
+    ]
+
+    counts = initial_summary_backfill_counts(selected=2)
+    add_agenda_batch_counts(
+        counts,
+        {
+            "reindex_summary": {"catalogs_reindexed": "3", "catalogs_failed": 1.9},
+            "embed_summary": {"embed_enqueued": "5", "embed_dispatch_failed": 2.1},
+            "agenda_summary_timings": {
+                AGENDA_SUMMARY_BUNDLE_BUILD_MS: 11,
+                AGENDA_SUMMARY_RENDER_MS: 22,
+                AGENDA_SUMMARY_PERSIST_MS: 33,
+                AGENDA_SUMMARY_REINDEX_MS: 44,
+                AGENDA_SUMMARY_EMBED_DISPATCH_MS: 55,
+            },
+        },
+    )
+    record_summary_result_counts(
+        counts,
+        {"status": "complete", "changed": True, "completion_mode": "llm", "reindexed": 1, "embed_enqueued": 1},
+    )
+    record_summary_result_counts(
+        counts,
+        {
+            "status": "unknown_status",
+            "changed": False,
+            "completion_mode": "deterministic_fallback",
+            "reindex_failed": 1,
+            "embed_dispatch_failed": 1,
+        },
+    )
+
+    assert counts["complete"] == 1
+    assert counts["other"] == 1
+    assert counts["changed_catalogs"] == 1
+    assert counts["llm_complete"] == 1
+    assert counts["deterministic_fallback_complete"] == 1
+    assert counts["reindexed"] == 4
+    assert counts["reindex_failed"] == 2
+    assert counts["embed_enqueued"] == 6
+    assert counts["embed_dispatch_failed"] == 3
+    assert counts[AGENDA_SUMMARY_BUNDLE_BUILD_MS] == 11
+    assert counts[AGENDA_SUMMARY_RENDER_MS] == 22
+    assert counts[AGENDA_SUMMARY_PERSIST_MS] == 33
+    assert counts[AGENDA_SUMMARY_REINDEX_MS] == 44
+    assert counts[AGENDA_SUMMARY_EMBED_DISPATCH_MS] == 55
+
+
+def test_summary_backfill_progress_cadence_preserves_first_interval_and_final_events():
+    from pipeline.summary_backfill_progress import emit_summary_progress, initial_summary_backfill_counts
+
+    counts = initial_summary_backfill_counts(selected=5)
+    progress_events = []
+    catalog_ids = [10, 11, 12, 13, 14]
+
+    for index, catalog_id in enumerate(catalog_ids, start=1):
+        emit_summary_progress(
+            catalog_ids=catalog_ids,
+            index=index,
+            catalog_id=catalog_id,
+            counts=counts,
+            summary_result={"status": "complete", "completion_mode": "llm"},
+            progress_callback=progress_events.append,
+            progress_every=2,
+        )
+
+    assert [event["detail"]["done"] for event in progress_events] == [1, 2, 4, 5]
+    assert [event["last_catalog_id"] for event in progress_events] == [10, 11, 13, 14]
+    assert {event["detail"]["last_status"] for event in progress_events} == {"complete"}
+    assert {event["detail"]["completion_mode"] for event in progress_events} == {"llm"}
+
+
 def test_select_catalog_ids_for_summary_hydration_can_filter_by_city(batching_db):
     db, event, place = batching_db
     event.source = "san mateo"
@@ -519,7 +674,9 @@ def test_select_catalog_ids_for_summary_hydration_can_filter_by_city(batching_db
     )
     db.add(other_event)
     db.flush()
-    hayward_catalog = _add_catalog(db, other_event, other_place, category="minutes", content="minutes text", summary=None)
+    hayward_catalog = _add_catalog(
+        db, other_event, other_place, category="minutes", content="minutes text", summary=None
+    )
     db.commit()
 
     selected = select_catalog_ids_for_summary_hydration(db, city="san_mateo")
