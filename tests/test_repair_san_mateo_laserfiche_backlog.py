@@ -1,7 +1,9 @@
 import importlib.util
-from requests.exceptions import ConnectionError as RequestsConnectionError
 from pathlib import Path
 import sys
+
+from requests.exceptions import ConnectionError as RequestsConnectionError
+from requests.exceptions import ReadTimeout as RequestsReadTimeout
 
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
@@ -64,7 +66,15 @@ def test_target_path_reuses_existing_catalog_directory():
 
 
 class _FakeResponse:
-    def __init__(self, *, content_type: str | None, chunks: list[bytes], status_code: int = 200, text: str | None = None, json_data=None):
+    def __init__(
+        self,
+        *,
+        content_type: str | None,
+        chunks: list[bytes],
+        status_code: int = 200,
+        text: str | None = None,
+        json_data=None,
+    ):
         self.headers = {}
         if content_type is not None:
             self.headers["Content-Type"] = content_type
@@ -95,11 +105,17 @@ class _FakeSession:
 
     def get(self, url, stream=True, timeout=None):
         self.get_calls.append((url, stream, timeout))
-        return self.responses.pop(0)
+        response = self.responses.pop(0)
+        if isinstance(response, Exception):
+            raise response
+        return response
 
     def post(self, url, headers=None, json=None, data=None, timeout=None):
         self.post_calls.append((url, json, data, timeout))
-        return self.responses.pop(0)
+        response = self.responses.pop(0)
+        if isinstance(response, Exception):
+            raise response
+        return response
 
 
 def test_download_repaired_pdf_writes_validated_pdf_to_final_path(tmp_path, monkeypatch):
@@ -143,7 +159,8 @@ def test_download_repaired_pdf_rejects_html_and_leaves_no_artifact(tmp_path, mon
 
     try:
         mod._download_repaired_pdf(target)
-    except ValueError as exc:
+    except mod.RepairNonRetryableError as exc:
+        assert exc.reason == "invalid_page_count"
         assert "no pages to export" in str(exc)
     else:  # pragma: no cover
         raise AssertionError("expected html response to fail")
@@ -214,7 +231,8 @@ def test_download_repaired_pdf_rejects_zero_byte_pdf(tmp_path, monkeypatch):
 
     try:
         mod._download_repaired_pdf(target)
-    except ValueError as exc:
+    except mod.RepairNonRetryableError as exc:
+        assert exc.reason == "invalid_page_count"
         assert "no pages to export" in str(exc)
     else:  # pragma: no cover
         raise AssertionError("expected zero-byte response to fail")
@@ -338,10 +356,126 @@ def test_download_repaired_pdf_salvage_surfaces_generated_pdf_failure(tmp_path, 
 
     try:
         mod._download_repaired_pdf(target)
-    except ValueError as exc:
+    except mod.RepairNonRetryableError as exc:
+        assert exc.reason == "generated_pdf_failed"
         assert "Laserfiche PDF generation failed" in str(exc)
     else:  # pragma: no cover
         raise AssertionError("expected generated PDF failure to surface")
+
+
+def test_download_generated_pdf_retries_read_timeout_then_writes_pdf(tmp_path):
+    fake_session = _FakeSession(
+        [
+            _FakeResponse(
+                content_type="text/plain",
+                chunks=[b"token-123\r\n<html></html>"],
+                text="token-123\r\n<html></html>",
+            ),
+            _FakeResponse(
+                content_type="application/json",
+                chunks=[b'{"data":{"finished":true,"success":true,"completion":100}}'],
+                json_data={"data": {"finished": True, "success": True, "completion": 100}},
+            ),
+            RequestsReadTimeout("slow generated PDF read"),
+            _FakeResponse(content_type="application/pdf", chunks=[b"%PDF-1.7\nretry\n%%EOF"]),
+        ]
+    )
+
+    size = mod._download_generated_pdf(
+        fake_session,
+        entry_id=2038682,
+        repo="r-98a383e2",
+        page_count=7,
+        temp_path=str(tmp_path / "retry.pdf.tmp"),
+        final_path=str(tmp_path / "retry.pdf"),
+        catalog_id=17,
+        pdf_transition_poll_interval_seconds=0,
+        generated_pdf_fetch_retry_delay_seconds=0,
+    )
+
+    assert size == len(b"%PDF-1.7\nretry\n%%EOF")
+    assert (tmp_path / "retry.pdf").read_bytes() == b"%PDF-1.7\nretry\n%%EOF"
+    assert len(fake_session.get_calls) == 2
+    assert mod._THREAD_STATE.last_generated_pdf_fetch_retries == 1
+
+
+def test_download_generated_pdf_retries_connection_error_then_writes_pdf(tmp_path):
+    fake_session = _FakeSession(
+        [
+            _FakeResponse(
+                content_type="text/plain",
+                chunks=[b"token-456\r\n<html></html>"],
+                text="token-456\r\n<html></html>",
+            ),
+            _FakeResponse(
+                content_type="application/json",
+                chunks=[b'{"data":{"finished":true,"success":true,"completion":100}}'],
+                json_data={"data": {"finished": True, "success": True, "completion": 100}},
+            ),
+            RequestsConnectionError("socket reset"),
+            _FakeResponse(content_type="application/pdf", chunks=[b"%PDF-1.7\nconnected\n%%EOF"]),
+        ]
+    )
+
+    size = mod._download_generated_pdf(
+        fake_session,
+        entry_id=2038683,
+        repo="r-98a383e2",
+        page_count=4,
+        temp_path=str(tmp_path / "connection.pdf.tmp"),
+        final_path=str(tmp_path / "connection.pdf"),
+        catalog_id=18,
+        pdf_transition_poll_interval_seconds=0,
+        generated_pdf_fetch_retry_delay_seconds=0,
+    )
+
+    assert size == len(b"%PDF-1.7\nconnected\n%%EOF")
+    assert (tmp_path / "connection.pdf").read_bytes() == b"%PDF-1.7\nconnected\n%%EOF"
+    assert len(fake_session.get_calls) == 2
+    assert mod._THREAD_STATE.last_generated_pdf_fetch_retries == 1
+
+
+def test_download_generated_pdf_wrapper_preserves_monkeypatched_poll_and_retry_constants(tmp_path, monkeypatch):
+    from scripts import laserfiche_repair_generated_pdf
+
+    sleep_calls = []
+    monkeypatch.setattr(mod, "PDF_TRANSITION_POLL_INTERVAL_SECONDS", 9)
+    monkeypatch.setattr(mod, "GENERATED_PDF_FETCH_RETRY_DELAY_SECONDS", 7)
+    monkeypatch.setattr(laserfiche_repair_generated_pdf.time, "sleep", sleep_calls.append)
+    fake_session = _FakeSession(
+        [
+            _FakeResponse(
+                content_type="text/plain",
+                chunks=[b"token-789\r\n<html></html>"],
+                text="token-789\r\n<html></html>",
+            ),
+            _FakeResponse(
+                content_type="application/json",
+                chunks=[b'{"data":{"finished":false,"success":false,"completion":10}}'],
+                json_data={"data": {"finished": False, "success": False, "completion": 10}},
+            ),
+            _FakeResponse(
+                content_type="application/json",
+                chunks=[b'{"data":{"finished":true,"success":true,"completion":100}}'],
+                json_data={"data": {"finished": True, "success": True, "completion": 100}},
+            ),
+            RequestsReadTimeout("slow generated PDF read"),
+            _FakeResponse(content_type="application/pdf", chunks=[b"%PDF-1.7\npatched\n%%EOF"]),
+        ]
+    )
+
+    size = mod._download_generated_pdf(
+        fake_session,
+        entry_id=2038684,
+        repo="r-98a383e2",
+        page_count=4,
+        temp_path=str(tmp_path / "patched.pdf.tmp"),
+        final_path=str(tmp_path / "patched.pdf"),
+        catalog_id=19,
+    )
+
+    assert size == len(b"%PDF-1.7\npatched\n%%EOF")
+    assert sleep_calls == [9, 7]
 
 
 def test_classify_target_prefers_generated_pdf_when_no_edoc_signal(monkeypatch, tmp_path):
@@ -361,7 +495,9 @@ def test_classify_target_prefers_generated_pdf_when_no_edoc_signal(monkeypatch, 
 
     assert classified.preferred_method == "generated_pdf"
     assert classified.page_count == 8
-    assert classified.new_url == "https://portal.laserfiche.com/Portal/ElectronicFile.aspx?docid=2040900&repo=r-98a383e2"
+    assert (
+        classified.new_url == "https://portal.laserfiche.com/Portal/ElectronicFile.aspx?docid=2040900&repo=r-98a383e2"
+    )
 
 
 def test_download_repaired_pdf_skips_direct_fetch_for_generated_pdf_targets(tmp_path, monkeypatch):
@@ -397,7 +533,9 @@ def test_download_repaired_pdf_skips_direct_fetch_for_generated_pdf_targets(tmp_
     repair = mod._download_repaired_pdf(target)
 
     assert repair["retrieval_type"] == "generated_pdf"
-    assert fake_session.get_calls[0][0] == "https://portal.laserfiche.com/Portal/DocView.aspx?id=2038682&repo=r-98a383e2"
+    assert (
+        fake_session.get_calls[0][0] == "https://portal.laserfiche.com/Portal/DocView.aspx?id=2038682&repo=r-98a383e2"
+    )
 
 
 def test_main_retries_timeout_and_token_missing_failures(mocker, capsys):
@@ -413,8 +551,26 @@ def test_main_retries_timeout_and_token_missing_failures(mocker, capsys):
         side_effect=[
             ValueError("Laserfiche PDF generation timed out for catalog 31"),
             ValueError("Laserfiche PDF generation token missing for catalog 32"),
-            {"catalog_id": 31, "new_url": "u1", "new_hash": "h1", "path": "p1", "filename": "f1", "size": 1, "method": "generated_pdf", "retrieval_type": "generated_pdf"},
-            {"catalog_id": 32, "new_url": "u2", "new_hash": "h2", "path": "p2", "filename": "f2", "size": 1, "method": "generated_pdf", "retrieval_type": "generated_pdf"},
+            {
+                "catalog_id": 31,
+                "new_url": "u1",
+                "new_hash": "h1",
+                "path": "p1",
+                "filename": "f1",
+                "size": 1,
+                "method": "generated_pdf",
+                "retrieval_type": "generated_pdf",
+            },
+            {
+                "catalog_id": 32,
+                "new_url": "u2",
+                "new_hash": "h2",
+                "path": "p2",
+                "filename": "f2",
+                "size": 1,
+                "method": "generated_pdf",
+                "retrieval_type": "generated_pdf",
+            },
         ],
     )
     apply_repairs = mocker.patch.object(mod, "_apply_repairs", return_value={"updated": 2, "skipped_duplicate_hash": 0})
