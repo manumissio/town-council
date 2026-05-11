@@ -9,7 +9,7 @@ from urllib import request
 def safe_float(value: Any) -> float | None:
     try:
         return float(value)
-    except TypeError, ValueError:
+    except (TypeError, ValueError):
         return None
 
 
@@ -68,7 +68,7 @@ def hist_quantile(rows: list[dict[str, Any]], base_name: str, labels: dict[str, 
         else:
             try:
                 upper = float(le)
-            except TypeError, ValueError:
+            except (TypeError, ValueError):
                 continue
         buckets[upper] = float(row["value"])
 
@@ -106,7 +106,7 @@ def provider_metrics_state(rows: list[dict[str, Any]], worker_metrics_error: str
 def load_json_file(path: Path) -> dict[str, Any]:
     try:
         data = json.loads(path.read_text(encoding="utf-8"))
-    except json.JSONDecodeError, OSError:
+    except (json.JSONDecodeError, OSError):
         return {}
     return data if isinstance(data, dict) else {}
 
@@ -140,12 +140,12 @@ def task_duration(rows: list[dict[str, Any]], phase: str) -> list[tuple[int | No
             continue
         try:
             duration = float(row.get("duration_s") or 0.0)
-        except TypeError, ValueError:
+        except (TypeError, ValueError):
             duration = 0.0
         catalog_id = row.get("catalog_id")
         try:
             catalog_value = int(catalog_id)
-        except TypeError, ValueError:
+        except (TypeError, ValueError):
             catalog_value = None
         out.append((catalog_value, duration))
     return out
@@ -161,13 +161,13 @@ def slowest_task(rows: list[dict[str, Any]]) -> dict[str, Any]:
     for row in rows:
         try:
             duration = float(row.get("duration_s") or 0.0)
-        except TypeError, ValueError:
+        except (TypeError, ValueError):
             duration = 0.0
         phase = str(row.get("phase") or "")
         catalog_id = row.get("catalog_id")
         try:
             catalog_value = int(catalog_id)
-        except TypeError, ValueError:
+        except (TypeError, ValueError):
             catalog_value = None
 
         if duration >= slowest_duration_s:
