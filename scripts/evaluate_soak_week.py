@@ -3,256 +3,42 @@ from __future__ import annotations
 
 import argparse
 import json
-from datetime import datetime
 from pathlib import Path
 
+from scripts.evaluate_soak_week_gates import evaluate_soak_window
 from scripts.operator_profile_soak_eval import GATE_FAIL
 from scripts.operator_profile_soak_eval import GATE_INCONCLUSIVE
 from scripts.operator_profile_soak_eval import GATE_PASS
 from scripts.operator_profile_soak_eval import counter_delta as _counter_delta
 from scripts.operator_profile_soak_eval import has_adverse_drift as _has_adverse_drift
-from scripts.operator_profile_soak_eval import load_days as _load_days
 from scripts.operator_profile_soak_eval import overall_status as _overall_status
 from scripts.operator_profile_soak_eval import render_markdown as _render_markdown
 from scripts.operator_profile_soak_eval import run_float as _run_float
-from scripts.operator_profile_soak_eval import safe_float as _safe_float
 from scripts.operator_profile_soak_eval import safe_int as _safe_int
 from scripts.operator_profile_soak_eval import status_from_bool as _status_from_bool
 
 
-def main() -> int:
+def _parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description="Evaluate 7-day soak promotion gates")
     parser.add_argument("--input-dir", default="experiments/results/soak")
     parser.add_argument("--window-days", type=int, default=7)
     parser.add_argument("--search-baseline-ms", type=float, default=None)
-    args = parser.parse_args()
+    return parser
 
+
+def main() -> int:
+    args = _parser().parse_args()
     root = Path(args.input_dir)
-    days = _load_days(root)
-    if len(days) < args.window_days:
-        raise SystemExit(f"need at least {args.window_days} day summaries, found {len(days)}")
-    window = days[-args.window_days:]
+    output = evaluate_soak_window(root, window_days=args.window_days, search_baseline_ms=args.search_baseline_ms)
+    json_path = root / f"soak_eval_{args.window_days}d.json"
+    markdown_path = root / f"soak_eval_{args.window_days}d.md"
+    json_path.write_text(json.dumps(output, indent=2), encoding="utf-8")
+    markdown_path.write_text(_render_markdown(output), encoding="utf-8")
 
-    per_day = []
-    timeout_rate_days = []
-    ttft_days = []
-    tps_days = []
-    segment_p95_days = []
-    summary_p95_days = []
-    queue_proxy_days = []
-    search_days = []
-    failed_day_count = 0
-    timeout_storms = 0
-    extract_warning_days = 0
-    degraded_telemetry_days = 0
-    queue_proxy_capped_used_days = 0
-    baseline_artifact_days = 0
-    evidence_quality_reasons: list[str] = []
-
-    for row in window:
-        d = row["data"]
-        requests_total = _safe_float(d.get("provider_requests_total"))
-        timeouts_total = _safe_float(d.get("provider_timeouts_total"))
-        retries_total = _safe_float(d.get("provider_retries_total"))
-        run_requests_delta = _run_float(d, "provider_requests_delta_run")
-        run_timeouts_delta = _run_float(d, "provider_timeouts_delta_run")
-        run_retries_delta = _run_float(d, "provider_retries_delta_run")
-
-        run_delta_present = (
-            run_requests_delta is not None
-            and run_timeouts_delta is not None
-            and run_retries_delta is not None
-        )
-        if run_delta_present:
-            baseline_artifact_days += 1
-            req_delta = run_requests_delta
-            timeout_delta = run_timeouts_delta
-            retry_delta = run_retries_delta
-        else:
-            req_delta = None
-            timeout_delta = None
-            retry_delta = None
-
-        timeout_rate_delta = None
-        if req_delta is not None and req_delta > 0 and timeout_delta is not None:
-            timeout_rate_delta = timeout_delta / req_delta
-            timeout_rate_days.append(timeout_rate_delta)
-
-        gating_failures = _safe_int(d.get("gating_failures"))
-        if gating_failures > 0:
-            failed_day_count += 1
-
-        extract_failures = _safe_int(d.get("extract_failures"))
-        if extract_failures > 0:
-            extract_warning_days += 1
-
-        worker_metrics_available = bool((d.get("metrics_sources") or {}).get("worker_metrics_available", False))
-        phases_total = _safe_int(d.get("phases_total"))
-        requests_total_value = _safe_float(d.get("provider_requests_total")) or 0.0
-        telemetry_confidence = "high"
-        if (not worker_metrics_available) or (phases_total > 0 and requests_total_value <= 0.0):
-            telemetry_confidence = "degraded"
-            degraded_telemetry_days += 1
-
-        if (timeout_delta or 0) > 0 and (retry_delta or 0) > 0:
-            ratio = (retry_delta or 0) / max(1.0, timeout_delta or 0)
-            if ratio >= 3.0:
-                timeout_storms += 1
-
-        ttft = _safe_float(d.get("ttft_p95_ms"))
-        tps = _safe_float(d.get("tokens_per_sec_median"))
-        seg = _safe_float(d.get("segment_p95_s"))
-        summ = _safe_float(d.get("summary_p95_s"))
-        queue_proxy = _safe_float(d.get("phase_duration_p95_s_capped"))
-        queue_proxy_source = "phase_duration_p95_s_capped"
-        if queue_proxy is None:
-            queue_proxy = _safe_float(d.get("phase_duration_p95_s"))
-            queue_proxy_source = "phase_duration_p95_s"
-        else:
-            queue_proxy_capped_used_days += 1
-        search = _safe_float(d.get("search_p95_ms"))
-
-        if ttft is not None:
-            ttft_days.append(ttft)
-        if tps is not None:
-            tps_days.append(tps)
-        if seg is not None:
-            segment_p95_days.append(seg)
-        if summ is not None:
-            summary_p95_days.append(summ)
-        if queue_proxy is not None:
-            queue_proxy_days.append(queue_proxy)
-        if search is not None:
-            search_days.append(search)
-
-        per_day.append(
-            {
-                "run_id": row["run_id"],
-                "date": datetime.fromtimestamp(row["ts"]).strftime("%Y-%m-%d"),
-                "status": d.get("status"),
-                "extract_failures": extract_failures,
-                "segment_failures": _safe_int(d.get("segment_failures")),
-                "summarize_failures": _safe_int(d.get("summarize_failures")),
-                "gating_failures": gating_failures,
-                "provider_requests_delta": req_delta,
-                "provider_timeouts_delta": timeout_delta,
-                "provider_retries_delta": retry_delta,
-                "provider_timeout_rate_delta": timeout_rate_delta,
-                "segment_p95_s": seg,
-                "summary_p95_s": summ,
-                "phase_duration_p95_s": queue_proxy,
-                "queue_proxy_source": queue_proxy_source,
-                "ttft_p95_ms": ttft,
-                "tokens_per_sec_median": tps,
-                "search_p95_ms": search,
-                "worker_metrics_available": worker_metrics_available,
-                "worker_metrics_error": d.get("worker_metrics_error"),
-                "telemetry_confidence": telemetry_confidence,
-                "promotion_evidence_source": "run_delta" if run_delta_present else "legacy_cumulative_only",
-            }
-        )
-    # Run-local deltas make each soak day decision-grade on its own. Legacy summaries
-    # only have cumulative counters, which are diagnostic but not promotion-safe.
-    if timeout_rate_days and baseline_artifact_days == len(window):
-        gate_provider_timeout = all(x < 0.01 for x in timeout_rate_days)
-        gate_provider_timeout_status = _status_from_bool(gate_provider_timeout)
-        gate_provider_timeout_reason = "ok" if gate_provider_timeout else "timeout_rate_threshold_exceeded"
-    else:
-        gate_provider_timeout = False
-        gate_provider_timeout_status = GATE_INCONCLUSIVE
-        gate_provider_timeout_reason = "missing_run_local_provider_deltas"
-        evidence_quality_reasons.append("baseline_contaminated")
-    gate_timeout_storms = timeout_storms == 0
-    gate_day_failures = failed_day_count == 0
-
-    gate_queue_trend = not _has_adverse_drift(queue_proxy_days, higher_is_worse=True, tolerance=0.20)
-
-    gate_segment_stable = not _has_adverse_drift(segment_p95_days, higher_is_worse=True, tolerance=0.20)
-    gate_summary_stable = not _has_adverse_drift(summary_p95_days, higher_is_worse=True, tolerance=0.20)
-
-    gate_search = True
-    if args.search_baseline_ms is not None and search_days:
-        gate_search = all(((v - args.search_baseline_ms) / args.search_baseline_ms) <= 0.15 for v in search_days)
-
-    gate_telemetry_drift = (
-        (not _has_adverse_drift(ttft_days, higher_is_worse=True, tolerance=0.20))
-        and (not _has_adverse_drift(tps_days, higher_is_worse=False, tolerance=0.20))
-    )
-
-    gates = {
-        "provider_timeout_rate_lt_1pct": gate_provider_timeout,
-        "timeout_storms_zero": gate_timeout_storms,
-        "no_failed_days": gate_day_failures,
-        "queue_wait_proxy_no_upward_trend": gate_queue_trend,
-        "segment_p95_stable": gate_segment_stable,
-        "summary_p95_stable": gate_summary_stable,
-        "search_p95_regression_le_15pct": gate_search,
-        "ttft_tps_no_persistent_adverse_drift": gate_telemetry_drift,
-    }
-
-    gate_statuses = {
-        "provider_timeout_rate_lt_1pct": gate_provider_timeout_status,
-        "timeout_storms_zero": _status_from_bool(gate_timeout_storms),
-        "no_failed_days": _status_from_bool(gate_day_failures),
-        "queue_wait_proxy_no_upward_trend": _status_from_bool(gate_queue_trend),
-        "segment_p95_stable": _status_from_bool(gate_segment_stable),
-        "summary_p95_stable": _status_from_bool(gate_summary_stable),
-        "search_p95_regression_le_15pct": _status_from_bool(gate_search),
-        "ttft_tps_no_persistent_adverse_drift": _status_from_bool(gate_telemetry_drift),
-    }
-    gate_reasons = {
-        "provider_timeout_rate_lt_1pct": gate_provider_timeout_reason,
-        "timeout_storms_zero": "ok" if gate_timeout_storms else "retry_timeout_storm_detected",
-        "no_failed_days": "ok" if gate_day_failures else "gating_failures_detected",
-        "queue_wait_proxy_no_upward_trend": (
-            "ok_using_capped_proxy" if gate_queue_trend and queue_proxy_capped_used_days > 0
-            else ("ok" if gate_queue_trend else "queue_proxy_upward_drift")
-        ),
-        "segment_p95_stable": "ok" if gate_segment_stable else "segment_p95_upward_drift",
-        "summary_p95_stable": "ok" if gate_summary_stable else "summary_p95_upward_drift",
-        "search_p95_regression_le_15pct": "ok" if gate_search else "search_p95_regression_exceeded",
-        "ttft_tps_no_persistent_adverse_drift": "ok" if gate_telemetry_drift else "ttft_tps_adverse_drift",
-    }
-
-    overall_status = _overall_status(gate_statuses)
-    overall_pass = overall_status == GATE_PASS
-    if not gates["queue_wait_proxy_no_upward_trend"] or not gates["segment_p95_stable"] or not gates["summary_p95_stable"]:
-        evidence_quality_reasons.append("runtime_variability_detected")
-    evidence_quality_reasons = sorted(set(evidence_quality_reasons))
-    out = {
-        "window_days": args.window_days,
-        "evaluated_runs": [r["run_id"] for r in window],
-        "per_day": per_day,
-        "gates": gates,
-        "gate_statuses": gate_statuses,
-        "gate_reasons": gate_reasons,
-        "overall_status": overall_status,
-        "overall_pass": overall_pass,
-        "extract_warning_days": extract_warning_days,
-        "telemetry_confidence": "degraded" if degraded_telemetry_days > 0 else "high",
-        "degraded_telemetry_days": degraded_telemetry_days,
-        "queue_proxy_capped_used_days": queue_proxy_capped_used_days,
-        "baseline_artifact_days": baseline_artifact_days,
-        "baseline_valid": baseline_artifact_days == len(window),
-        "evidence_quality_reasons": evidence_quality_reasons,
-        "notes": [
-            "Run-local provider deltas are required for promotion-grade timeout evaluation.",
-            "Legacy summaries with cumulative-only provider counters are diagnostic and produce INCONCLUSIVE timeout gates.",
-            "queue_wait gate uses phase_duration_p95_s_capped when present, else phase_duration_p95_s proxy.",
-            "extract failures are non-gating warnings in this soak phase.",
-        ],
-    }
-
-    out_json = root / f"soak_eval_{args.window_days}d.json"
-    out_md = root / f"soak_eval_{args.window_days}d.md"
-    out_json.write_text(json.dumps(out, indent=2), encoding="utf-8")
-
-    out_md.write_text(_render_markdown(out), encoding="utf-8")
-
-    print(f"wrote: {out_json}")
-    print(f"wrote: {out_md}")
-    print(f"overall_status={overall_status}")
-    print(f"overall_pass={overall_pass}")
+    print(f"wrote: {json_path}")
+    print(f"wrote: {markdown_path}")
+    print(f"overall_status={output['overall_status']}")
+    print(f"overall_pass={output['overall_pass']}")
     return 0
 
 

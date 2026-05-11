@@ -4,24 +4,13 @@ import json
 from pathlib import Path
 from statistics import median
 
+from scripts.operator_numeric import safe_float
+from scripts.operator_numeric import safe_int
+
 
 GATE_PASS = "PASS"
 GATE_FAIL = "FAIL"
 GATE_INCONCLUSIVE = "INCONCLUSIVE"
-
-
-def safe_float(value):
-    try:
-        return float(value)
-    except (TypeError, ValueError):
-        return None
-
-
-def safe_int(value):
-    try:
-        return int(value)
-    except (TypeError, ValueError):
-        return 0
 
 
 def load_days(root: Path) -> list[dict]:

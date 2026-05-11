@@ -75,8 +75,6 @@ db_connect = app_setup.db_connect
 SessionLocal = app_setup.SessionLocal
 _db_init_error = app_setup._db_init_error
 
-agenda_items_look_low_quality = None
-
 from pipeline.models import AgendaItem as AgendaItem  # noqa: F401
 from pipeline.models import Catalog as Catalog  # noqa: F401
 from pipeline.models import DataIssue as DataIssue  # noqa: F401

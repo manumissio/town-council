@@ -17,9 +17,9 @@ class DbSessionContext(Protocol):
 
     def __exit__(
         self,
-        exc_type: type[BaseException] | None,
+        _exc_type: type[BaseException] | None,
         exc: BaseException | None,
-        traceback: object,
+        _traceback: object,
     ) -> bool | None: ...
 
 
@@ -28,9 +28,9 @@ class ExecutorContext(Protocol):
 
     def __exit__(
         self,
-        exc_type: type[BaseException] | None,
+        _exc_type: type[BaseException] | None,
         exc: BaseException | None,
-        traceback: object,
+        _traceback: object,
     ) -> bool | None: ...
 
     def submit(

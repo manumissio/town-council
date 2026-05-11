@@ -16,7 +16,7 @@ from __future__ import annotations
 
 from dataclasses import asdict, dataclass, field
 import re
-from typing import Any, Dict, Iterable, List, Optional
+from typing import Any, Callable, Dict, Iterable, List, Optional
 
 from pipeline.lexicon import is_agenda_boilerplate_title, is_name_like_title
 
@@ -119,13 +119,22 @@ def score_agenda_items(
     city: Optional[str] = None,
     meeting_date: Optional[str] = None,
 ) -> QAResult:
-    """
-    Score a set of agenda items and return generic QA signals.
-
-    `items` can be ORM objects or dicts. We look for: title, page_number, result.
-    """
+    """Score agenda items with generic QA signals."""
     th = thresholds or QAThresholds()
+    normalized_items = _normalized_agenda_items(items)
+    metrics = _qa_metrics(normalized_items, catalog_text)
+    flags, severity = _qa_flags_and_severity(metrics, th)
+    return QAResult(
+        catalog_id=catalog_id,
+        city=city,
+        meeting_date=meeting_date,
+        severity=severity,
+        flags=flags,
+        metrics=_qa_metrics_payload(metrics),
+    )
 
+
+def _normalized_agenda_items(items: Iterable[Any]) -> List[Dict[str, Any]]:
     normalized_items: List[Dict[str, Any]] = []
     for item in items or []:
         if isinstance(item, dict):
@@ -138,85 +147,141 @@ def score_agenda_items(
                     "result": getattr(item, "result", None),
                 }
             )
+    return normalized_items
 
-    item_count = len(normalized_items)
-    titles = [_norm(i.get("title")) for i in normalized_items]
-    non_empty_titles = [t for t in titles if t]
 
-    boilerplate_count = sum(1 for t in non_empty_titles if _title_looks_like_boilerplate(t))
-    name_like_count = sum(1 for t in non_empty_titles if _title_looks_like_person_name(t))
+def _qa_metrics(normalized_items: List[Dict[str, Any]], catalog_text: str) -> Dict[str, Any]:
+    non_empty_titles = _non_empty_titles(normalized_items)
+    pages = _page_values(normalized_items)
+    boilerplate_count, boilerplate_rate = _title_signal_count_and_rate(non_empty_titles, _title_looks_like_boilerplate)
+    name_like_count, name_like_rate = _title_signal_count_and_rate(non_empty_titles, _title_looks_like_person_name)
+    return {
+        "item_count": len(normalized_items),
+        "non_empty_title_count": len(non_empty_titles),
+        "boilerplate_count": boilerplate_count,
+        "boilerplate_rate": boilerplate_rate,
+        "name_like_count": name_like_count,
+        "name_like_rate": name_like_rate,
+        "page_count": len(pages),
+        "page_one_count": sum(1 for page in pages if page == 1),
+        "missing_page_count": _missing_page_count(normalized_items),
+        "raw_vote_lines": _count_vote_lines(catalog_text or ""),
+        "extracted_vote_count": _extracted_vote_count(normalized_items),
+        "max_page_in_raw": _max_page_in_text(catalog_text or ""),
+    }
 
-    boilerplate_rate = (boilerplate_count / len(non_empty_titles)) if non_empty_titles else 0.0
-    name_rate = (name_like_count / len(non_empty_titles)) if non_empty_titles else 0.0
 
-    pages = [
-        i.get("page_number")
-        for i in normalized_items
-        if i.get("page_number") not in (None, 0)
-    ]
-    page_one_count = sum(1 for p in pages if p == 1)
-    page_one_rate = (page_one_count / len(pages)) if pages else 0.0
-    missing_page_count = sum(1 for i in normalized_items if i.get("page_number") in (None, 0))
+def _title_signal_count_and_rate(titles: List[str], predicate: Callable[[str], bool]) -> tuple[int, float]:
+    signal_count = sum(1 for title in titles if predicate(title))
+    return signal_count, (signal_count / len(titles)) if titles else 0.0
 
-    extracted_vote_count = sum(1 for i in normalized_items if _norm(i.get("result")))
-    raw_vote_lines = _count_vote_lines(catalog_text or "")
-    max_page_in_raw = _max_page_in_text(catalog_text or "")
 
+def _non_empty_titles(normalized_items: List[Dict[str, Any]]) -> List[str]:
+    return [title for title in (_norm(item.get("title")) for item in normalized_items) if title]
+
+
+def _page_values(normalized_items: List[Dict[str, Any]]) -> List[Any]:
+    return [item.get("page_number") for item in normalized_items if item.get("page_number") not in (None, 0)]
+
+
+def _missing_page_count(normalized_items: List[Dict[str, Any]]) -> int:
+    return sum(1 for item in normalized_items if item.get("page_number") in (None, 0))
+
+
+def _extracted_vote_count(normalized_items: List[Dict[str, Any]]) -> int:
+    return sum(1 for item in normalized_items if _norm(item.get("result")))
+
+
+def _qa_flags_and_severity(metrics: Dict[str, Any], thresholds: QAThresholds) -> tuple[List[str], int]:
     flags: List[str] = []
-    severity = 0
+    item_count = int(metrics["item_count"])
+    severity = _item_count_severity(flags, item_count, thresholds)
+    severity += _rate_severity(
+        flags,
+        "high_boilerplate_rate",
+        float(metrics["boilerplate_rate"]),
+        thresholds.suspect_boilerplate_rate,
+        item_count,
+        severe_penalty=30,
+        proportional_penalty=25,
+    )
+    severity += _rate_severity(
+        flags,
+        "high_name_like_rate",
+        float(metrics["name_like_rate"]),
+        thresholds.suspect_name_rate,
+        item_count,
+        severe_penalty=20,
+        proportional_penalty=15,
+    )
+    severity += _page_number_severity(flags, metrics, thresholds)
+    severity += _vote_severity(flags, metrics)
+    return flags, max(0, min(100, severity))
 
+
+def _item_count_severity(flags: List[str], item_count: int, thresholds: QAThresholds) -> int:
+    severity = 0
     if item_count == 0:
         flags.append("no_items")
-        # Not always wrong, but worth surfacing.
         severity += 10
-
-    if item_count >= th.suspect_item_count_high:
+    if item_count >= thresholds.suspect_item_count_high:
         flags.append("high_item_count")
         severity += 20
-        severity += min(20, item_count - th.suspect_item_count_high)
+        severity += min(20, item_count - thresholds.suspect_item_count_high)
+    return severity
 
-    if boilerplate_rate >= th.suspect_boilerplate_rate and item_count >= 3:
-        flags.append("high_boilerplate_rate")
-        severity += 30
-    else:
-        severity += int(boilerplate_rate * 25)
 
-    if name_rate >= th.suspect_name_rate and item_count >= 3:
-        flags.append("high_name_like_rate")
-        severity += 20
-    else:
-        severity += int(name_rate * 15)
+def _rate_severity(
+    flags: List[str],
+    flag_name: str,
+    rate: float,
+    threshold: float,
+    item_count: int,
+    *,
+    severe_penalty: int,
+    proportional_penalty: int,
+) -> int:
+    if rate >= threshold and item_count >= 3:
+        flags.append(flag_name)
+        return severe_penalty
+    return int(rate * proportional_penalty)
 
-    if pages and page_one_rate >= th.suspect_page_one_rate and max_page_in_raw >= 2:
+
+def _page_number_severity(flags: List[str], metrics: Dict[str, Any], thresholds: QAThresholds) -> int:
+    page_one_rate = _page_one_rate(metrics)
+    if int(metrics["page_count"]) > 0 and page_one_rate >= thresholds.suspect_page_one_rate and metrics["max_page_in_raw"] >= 2:
         flags.append("page_numbers_suspect")
-        severity += 15
+        return 15
+    return 0
 
-    if raw_vote_lines >= 1 and extracted_vote_count == 0:
+
+def _vote_severity(flags: List[str], metrics: Dict[str, Any]) -> int:
+    if metrics["raw_vote_lines"] >= 1 and metrics["extracted_vote_count"] == 0:
         flags.append("votes_missed")
-        severity += 20
+        return 20
+    return 0
 
-    # Clamp to a friendly range.
-    severity = max(0, min(100, severity))
 
-    return QAResult(
-        catalog_id=catalog_id,
-        city=city,
-        meeting_date=meeting_date,
-        severity=severity,
-        flags=flags,
-        metrics={
-            "item_count": item_count,
-            "boilerplate_count": boilerplate_count,
-            "boilerplate_rate": round(boilerplate_rate, 4),
-            "name_like_count": name_like_count,
-            "name_like_rate": round(name_rate, 4),
-            "missing_page_count": missing_page_count,
-            "page_one_rate": round(page_one_rate, 4),
-            "raw_vote_lines": raw_vote_lines,
-            "extracted_vote_count": extracted_vote_count,
-            "max_page_in_raw": max_page_in_raw,
-        },
-    )
+def _page_one_rate(metrics: Dict[str, Any]) -> float:
+    page_count = int(metrics["page_count"])
+    if page_count == 0:
+        return 0.0
+    return int(metrics["page_one_count"]) / page_count
+
+
+def _qa_metrics_payload(metrics: Dict[str, Any]) -> Dict[str, Any]:
+    return {
+        "item_count": metrics["item_count"],
+        "boilerplate_count": metrics["boilerplate_count"],
+        "boilerplate_rate": round(float(metrics["boilerplate_rate"]), 4),
+        "name_like_count": metrics["name_like_count"],
+        "name_like_rate": round(float(metrics["name_like_rate"]), 4),
+        "missing_page_count": metrics["missing_page_count"],
+        "page_one_rate": round(_page_one_rate(metrics), 4),
+        "raw_vote_lines": metrics["raw_vote_lines"],
+        "extracted_vote_count": metrics["extracted_vote_count"],
+        "max_page_in_raw": metrics["max_page_in_raw"],
+    }
 
 
 def needs_regeneration(result: QAResult, *, thresholds: Optional[QAThresholds] = None) -> bool:

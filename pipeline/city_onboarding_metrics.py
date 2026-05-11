@@ -10,6 +10,7 @@ from typing import Any
 
 from sqlalchemy import and_, or_, union_all
 
+from pipeline.city_scope import source_aliases_for_city
 from pipeline.models import Catalog, Document, Event, UrlStage, UrlStageHist
 
 
@@ -50,17 +51,6 @@ def load_city_metadata_slugs(path: Path = Path("city_metadata/list_of_cities.csv
                 continue
             slugs.add(division.split("/place:", 1)[1])
     return slugs
-
-
-def source_aliases_for_city(city: str) -> set[str]:
-    aliases = {city}
-    legacy_aliases = {
-        "san_mateo": {"san mateo"},
-        "san_leandro": {"san leandro"},
-        "mtn_view": {"mountain view"},
-    }
-    aliases.update(legacy_aliases.get(city, set()))
-    return aliases
 
 
 def ocd_division_id_for_city(city: str) -> str:

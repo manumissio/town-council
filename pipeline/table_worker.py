@@ -11,6 +11,7 @@ except Exception:  # pragma: no cover - host test env may not install pypdf
         pass
 
 from pipeline.models import Catalog
+from pipeline.cli_logging import configure_cli_logging
 from pipeline.db_session import db_session
 from pipeline.config import (
     TABLE_ACCURACY_MIN,
@@ -28,7 +29,7 @@ logger = logging.getLogger(LOGGER_NAME)
 
 def _configure_cli_logging() -> None:
     """Keep logging setup at the CLI edge so imports stay side-effect free."""
-    logging.basicConfig(level=logging.INFO, format=LOGGER_FORMAT)
+    configure_cli_logging(LOGGER_FORMAT)
 
 
 def _catalog_id_from_row(row) -> int:
