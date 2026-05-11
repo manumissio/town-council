@@ -2,6 +2,7 @@ from concurrent.futures import ProcessPoolExecutor, as_completed
 from multiprocessing import cpu_count, get_context
 import logging
 
+from pipeline.cli_logging import configure_cli_logging
 from pipeline.config import ENTITY_BACKFILL_IN_PROCESS_THRESHOLD, MAX_WORKERS, PIPELINE_CPU_FRACTION
 from pipeline.content_hash import compute_content_hash
 from pipeline.db_session import db_session
@@ -20,7 +21,7 @@ logger = logging.getLogger(LOGGER_NAME)
 
 def _configure_cli_logging() -> None:
     """Keep logging setup in the CLI path so imports remain side-effect free."""
-    logging.basicConfig(level=logging.INFO, format=LOGGER_FORMAT)
+    configure_cli_logging(LOGGER_FORMAT)
 
 
 def _empty_counts():

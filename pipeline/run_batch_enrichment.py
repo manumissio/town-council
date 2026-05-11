@@ -3,6 +3,7 @@ import logging
 import sys
 import time
 
+from pipeline.cli_logging import configure_cli_logging
 from pipeline.db_session import db_session
 from pipeline.metrics import record_pipeline_phase_duration
 from pipeline.profiling import current_mode, profile_span
@@ -22,7 +23,7 @@ logger = logging.getLogger(LOGGER_NAME)
 
 def _configure_cli_logging() -> None:
     """Keep logging setup at the CLI edge so imports stay side-effect free."""
-    logging.basicConfig(level=logging.INFO, format=LOGGER_FORMAT)
+    configure_cli_logging(LOGGER_FORMAT)
 
 
 def parse_args(argv=None):

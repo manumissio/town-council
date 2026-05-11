@@ -6,6 +6,7 @@ from urllib.parse import urlparse
 from sqlalchemy.orm import sessionmaker
 from sqlalchemy.exc import SQLAlchemyError
 
+from pipeline.cli_logging import configure_cli_logging
 from pipeline.models import Place, db_connect, create_tables
 
 LOGGER_NAME = "seed-places"
@@ -17,7 +18,7 @@ logger = logging.getLogger(LOGGER_NAME)
 
 def _configure_cli_logging() -> None:
     """Keep logging setup at the entrypoint so imports stay side-effect free."""
-    logging.basicConfig(level=logging.INFO, format=LOGGER_FORMAT)
+    configure_cli_logging(LOGGER_FORMAT)
 
 
 def _derive_legistar_client(seed_url: str, hosting_services: str) -> Optional[str]:

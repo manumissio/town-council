@@ -5,12 +5,7 @@ from pathlib import Path
 from typing import Any
 from urllib import request
 
-
-def safe_float(value: Any) -> float | None:
-    try:
-        return float(value)
-    except (TypeError, ValueError):
-        return None
+from scripts.operator_numeric import safe_float
 
 
 def provider_run_deltas_from_manifest(

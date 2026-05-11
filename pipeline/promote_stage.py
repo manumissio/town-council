@@ -2,6 +2,7 @@ import logging
 from sqlalchemy.orm import sessionmaker
 from sqlalchemy.exc import SQLAlchemyError
 
+from pipeline.cli_logging import configure_cli_logging
 from pipeline.models import Event, EventStage, Place, db_connect, create_tables
 from pipeline.utils import generate_ocd_id
 
@@ -13,7 +14,7 @@ logger = logging.getLogger(LOGGER_NAME)
 
 def _configure_cli_logging() -> None:
     """Keep logging setup at the entrypoint so imports stay side-effect free."""
-    logging.basicConfig(level=logging.INFO, format=LOGGER_FORMAT)
+    configure_cli_logging(LOGGER_FORMAT)
 
 
 def promote_stage():
