@@ -160,6 +160,7 @@ TYPED_SUBTREE_PATHS = (
     "pipeline/vote_extraction_context.py",
     "pipeline/vote_extraction_policy.py",
     "pipeline/vote_extraction_runner.py",
+    "pipeline/vote_extraction_item.py",
     "scripts/analyze_pipeline_profile.py",
 )
 CANDIDATE_FORMATTER_WAVE_PATHS = TYPED_SUBTREE_PATHS
@@ -304,12 +305,15 @@ REPORTING_SCRIPTS_CLEANUP_MODULES = (
     "scripts/operator_profile_artifacts.py",
     "scripts/operator_profile_metric_deltas.py",
     "scripts/operator_profile_metrics.py",
+    "scripts/operator_profile_worker_metrics.py",
     "scripts/operator_profile_reports.py",
     "scripts/operator_profile_soak_eval.py",
     "scripts/pipeline_profile_analysis.py",
     "scripts/pipeline_profile_compare.py",
     "scripts/profile_pipeline.py",
+    "scripts/profile_pipeline_commands.py",
     "scripts/profile_pipeline_runner.py",
+    "scripts/profile_pipeline_results.py",
     "scripts/profile_pipeline_selection.py",
     "scripts/score_ab_results.py",
 )
@@ -342,6 +346,7 @@ LASERFICHE_REPAIR_CLEANUP_MODULES = (
     "scripts/laserfiche_repair_contracts.py",
     "scripts/laserfiche_repair_pdf_io.py",
     "scripts/laserfiche_repair_downloads.py",
+    "scripts/laserfiche_repair_generated_pdf.py",
     "scripts/laserfiche_repair_backlog.py",
     "scripts/laserfiche_repair_reporting.py",
 )
@@ -408,6 +413,7 @@ SUMMARY_TEXT_CLEANUP_MODULES = (
     "pipeline/summary_backfill_queries.py",
     "pipeline/summary_backfill_dispatch.py",
     "pipeline/summary_backfill_runner.py",
+    "pipeline/summary_backfill_progress.py",
     "pipeline/summary_backfill_logging.py",
 )
 VOTE_EXTRACTION_CLEANUP_MODULES = (
@@ -418,6 +424,7 @@ VOTE_EXTRACTION_CLEANUP_MODULES = (
     "pipeline/vote_extraction_context.py",
     "pipeline/vote_extraction_policy.py",
     "pipeline/vote_extraction_runner.py",
+    "pipeline/vote_extraction_item.py",
 )
 NLP_ENTITY_CLEANUP_MODULES = (
     "pipeline/nlp_worker.py",
@@ -515,6 +522,70 @@ def _mypy_enrolled_paths() -> tuple[str, ...]:
     return tuple(enrolled_paths)
 
 
+def _module_name_for_path(module_path: Path) -> str:
+    module_parts = module_path.with_suffix("").parts
+    for package_name in ("api", "pipeline", "scripts", "tests"):
+        if package_name in module_parts:
+            package_index = module_parts.index(package_name)
+            return ".".join(module_parts[package_index:])
+    return module_path.stem
+
+
+def _absolute_import_from_name(*, importing_module: str, module_name: str | None, level: int, alias_name: str) -> str:
+    if level == 0:
+        return module_name or alias_name
+
+    package_parts = importing_module.split(".")[:-1]
+    base_parts = package_parts[: max(0, len(package_parts) - level + 1)]
+    import_parts = [part for part in (module_name or "").split(".") if part]
+    if import_parts:
+        return ".".join([*base_parts, *import_parts])
+    return ".".join([*base_parts, alias_name])
+
+
+def _forbidden_imports(module_path: Path, forbidden_modules: set[str]) -> list[str]:
+    importing_module = _module_name_for_path(module_path)
+    try:
+        filename = str(module_path.relative_to(ROOT))
+    except ValueError:
+        filename = str(module_path)
+    tree = ast.parse(module_path.read_text(encoding="utf-8"), filename=filename)
+    found_imports: list[str] = []
+
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Import):
+            found_imports.extend(alias.name for alias in node.names if alias.name in forbidden_modules)
+        elif isinstance(node, ast.ImportFrom):
+            resolved_imports = [
+                _absolute_import_from_name(
+                    importing_module=importing_module,
+                    module_name=node.module,
+                    level=node.level,
+                    alias_name=alias.name,
+                )
+                for alias in node.names
+            ]
+            found_imports.extend(
+                resolved_import for resolved_import in resolved_imports if resolved_import in forbidden_modules
+            )
+            if node.level == 0 and node.module in forbidden_modules:
+                found_imports.append(node.module)
+            if node.level == 0 and node.module == "pipeline":
+                found_imports.extend(
+                    f"pipeline.{alias.name}" for alias in node.names if f"pipeline.{alias.name}" in forbidden_modules
+                )
+            if node.level == 0 and node.module == "scripts":
+                found_imports.extend(
+                    f"scripts.{alias.name}" for alias in node.names if f"scripts.{alias.name}" in forbidden_modules
+                )
+            if node.level == 0 and node.module:
+                for forbidden_module in forbidden_modules:
+                    if node.module.startswith(f"{forbidden_module}."):
+                        found_imports.append(node.module)
+
+    return found_imports
+
+
 def test_tracked_text_files_do_not_contain_personal_absolute_paths():
     offending_files: list[str] = []
     for tracked_path in _broad_exception_scan_files():
@@ -599,6 +670,24 @@ def test_first_formatter_wave_stays_path_scoped_and_enforced():
     assert "ruff format --check" not in agents_text
     assert "python -m ruff format --check " + " ".join(CANDIDATE_FORMATTER_WAVE_PATHS) in workflow_text
     assert "python -m ruff format --check api pipeline scripts tests" not in workflow_text
+
+
+def test_facade_import_guardrail_detects_relative_imports(tmp_path: Path):
+    pipeline_helper = tmp_path / "pipeline" / "helper.py"
+    pipeline_helper.parent.mkdir(parents=True)
+    pipeline_helper.write_text(
+        "from . import vote_extractor\nfrom .vote_extraction_runner import run_vote_extraction_for_catalog\n",
+        encoding="utf-8",
+    )
+    script_helper = tmp_path / "scripts" / "helper.py"
+    script_helper.parent.mkdir(parents=True)
+    script_helper.write_text("from .profile_pipeline import main\n", encoding="utf-8")
+
+    assert _forbidden_imports(
+        pipeline_helper,
+        {"pipeline.vote_extractor", "pipeline.vote_extraction_runner"},
+    ) == ["pipeline.vote_extractor", "pipeline.vote_extraction_runner"]
+    assert _forbidden_imports(script_helper, {"scripts.profile_pipeline"}) == ["scripts.profile_pipeline"]
 
 
 def test_broad_exception_allowlist_stays_explicit():
@@ -829,6 +918,23 @@ def test_reporting_scripts_cleanup_modules_stay_under_size_target():
     assert oversized_modules == []
 
 
+def test_batch_d_profile_helpers_do_not_import_facades():
+    forbidden_imports: list[str] = []
+    for module_path in (
+        ROOT / "scripts" / "operator_profile_worker_metrics.py",
+        ROOT / "scripts" / "profile_pipeline_commands.py",
+        ROOT / "scripts" / "profile_pipeline_results.py",
+    ):
+        forbidden_imports.extend(
+            _forbidden_imports(
+                module_path,
+                {"scripts.operator_profile_metrics", "scripts.profile_pipeline", "scripts.profile_pipeline_runner"},
+            )
+        )
+
+    assert forbidden_imports == []
+
+
 def test_task_api_facade_cleanup_modules_stay_under_size_target():
     oversized_modules = [
         module_path
@@ -867,6 +973,15 @@ def test_laserfiche_repair_cleanup_modules_stay_under_size_target():
     ]
 
     assert oversized_modules == []
+
+
+def test_laserfiche_generated_pdf_helper_does_not_import_facades():
+    forbidden_imports = _forbidden_imports(
+        ROOT / "scripts" / "laserfiche_repair_generated_pdf.py",
+        {"scripts.repair_san_mateo_laserfiche_backlog", "scripts.laserfiche_repair_downloads"},
+    )
+
+    assert forbidden_imports == []
 
 
 def test_segment_city_corpus_cleanup_modules_stay_under_size_target():
@@ -939,6 +1054,15 @@ def test_summary_text_cleanup_modules_stay_under_size_target():
     assert oversized_modules == []
 
 
+def test_summary_backfill_progress_helper_does_not_import_facades():
+    forbidden_imports = _forbidden_imports(
+        ROOT / "pipeline" / "summary_backfill_progress.py",
+        {"pipeline.summary_backfill", "pipeline.summary_backfill_runner"},
+    )
+
+    assert forbidden_imports == []
+
+
 def test_vote_extraction_cleanup_modules_stay_under_size_target():
     oversized_modules = [
         module_path
@@ -947,6 +1071,15 @@ def test_vote_extraction_cleanup_modules_stay_under_size_target():
     ]
 
     assert oversized_modules == []
+
+
+def test_vote_extraction_item_helper_does_not_import_facades():
+    forbidden_imports = _forbidden_imports(
+        ROOT / "pipeline" / "vote_extraction_item.py",
+        {"pipeline.vote_extractor", "pipeline.vote_extraction_runner"},
+    )
+
+    assert forbidden_imports == []
 
 
 def test_nlp_entity_cleanup_modules_stay_under_size_target():

@@ -752,6 +752,30 @@ Use each entry to record:
   - [docs/ENGINEERING_GUARDRAILS.md](ENGINEERING_GUARDRAILS.md)
   - [ROADMAP.md](../ROADMAP.md)
 
+## 2026-05-10: Track Batch D near-cap helper splits in guardrails
+
+- Status: Accepted
+- Decision:
+  - Batch D keeps near-cap cleanup as facade-preserving module extraction rather than behavior change.
+  - `pipeline/summary_backfill_runner.py` remains the summary backfill runner facade while `pipeline/summary_backfill_progress.py` owns progress payloads and count aggregation.
+  - `scripts/laserfiche_repair_downloads.py` remains the repair-download facade while `scripts/laserfiche_repair_generated_pdf.py` owns generated-PDF transition polling and fetch retries.
+  - `pipeline/vote_extraction_runner.py` remains the vote extraction runner facade while `pipeline/vote_extraction_item.py` owns item skip, update, logging, and counter helpers.
+  - `scripts/profile_pipeline_runner.py` and `scripts/operator_profile_metrics.py` remain operator entrypoints/facades while `scripts/profile_pipeline_commands.py`, `scripts/profile_pipeline_results.py`, and `scripts/operator_profile_worker_metrics.py` own focused helper behavior.
+  - Code PRs deliberately avoided source-map and guardrail edits; this follow-up records the merged helper modules in docs and repository guardrails.
+- Why:
+  - Batch D reduced files close to the 300-line cap without changing CLI output, JSON artifact keys, task/session ownership, vote payloads, Laserfiche retry classification, or profiling scrape semantics.
+  - Keeping docs and guardrails in one follow-up PR avoids source-map conflicts across parallel code PRs while still preventing new helper modules from escaping cleanup guardrails.
+- Affected boundaries:
+  - Public facades stay import-compatible.
+  - New helper modules do not import their facades.
+  - Vote extraction helper scope joins strict typed and formatter guardrails because the existing vote extraction family is already enrolled.
+  - Summary backfill, Laserfiche repair, and profile/operator helpers join cleanup-size guardrails without expanding typed or formatter scope.
+- Canonical references:
+  - [ARCHITECTURE.md](../ARCHITECTURE.md)
+  - [docs/PIPELINE.md](PIPELINE.md)
+  - [docs/ENGINEERING_GUARDRAILS.md](ENGINEERING_GUARDRAILS.md)
+  - [ROADMAP.md](../ROADMAP.md)
+
 ## 2026-04-09: Extract the agenda-extraction subsystem before finishing broader `pipeline/llm.py` cleanup
 
 - Status: Accepted
