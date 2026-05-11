@@ -67,7 +67,7 @@ def test_worker_runtime_requirements_exclude_dev_benchmark_tooling():
     runtime = Path("pipeline/requirements.txt").read_text(encoding="utf-8")
     dev = Path("pipeline/requirements-dev.txt").read_text(encoding="utf-8")
 
-    for package in ("pytest==8.3.4", "pytest-mock==3.12.0", "pytest-benchmark==5.1.0", "locust==2.33.0"):
+    for package in ("pytest==9.0.3", "pytest-mock==3.12.0", "pytest-benchmark==5.1.0", "locust==2.33.0"):
         assert package not in runtime
         assert package in dev
 
@@ -89,7 +89,7 @@ def test_worker_live_and_batch_requirements_split_table_stack_only():
         assert package not in core
         assert package in batch
 
-    for package in ("spacy==3.7.4", "pytextrank==3.3.0", "scikit-learn==1.5.0", "pypdf==6.10.0"):
+    for package in ("spacy==3.7.4", "pytextrank==3.3.0", "scikit-learn==1.5.0", "pypdf==6.10.2"):
         assert package not in core
         assert package in batch
 

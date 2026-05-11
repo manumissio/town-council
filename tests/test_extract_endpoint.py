@@ -3,7 +3,11 @@ import os
 from unittest.mock import MagicMock
 from kombu.exceptions import OperationalError
 
+from fastapi import FastAPI
 from fastapi.testclient import TestClient
+from slowapi import Limiter, _rate_limit_exceeded_handler
+from slowapi.errors import RateLimitExceeded
+from slowapi.util import get_remote_address
 
 # Add the project root to the path so we can import from api/main.py
 sys.path.append(os.path.join(os.path.dirname(__file__), ".."))
@@ -39,6 +43,37 @@ def test_extract_404_when_catalog_missing(mocker):
         assert resp.status_code == 404
     finally:
         del app.dependency_overrides[get_db]
+
+
+def test_extract_rate_limit_still_enforced():
+    from api.task_routes import build_task_router
+
+    db = MagicMock()
+    db.get.return_value = None
+
+    def _mock_get_db():
+        yield db
+
+    async def _verify_api_key():
+        return None
+
+    rate_limiter = Limiter(key_func=get_remote_address)
+    rate_limit_app = FastAPI()
+    rate_limit_app.state.limiter = rate_limiter
+    rate_limit_app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
+    rate_limit_app.include_router(
+        build_task_router(
+            limiter=rate_limiter,
+            get_db_dependency=_mock_get_db,
+            verify_api_key_dependency=_verify_api_key,
+            task_facade=MagicMock(),
+        )
+    )
+
+    rate_limit_client = TestClient(rate_limit_app, client=("extract-rate-limit-test", 50000))
+    responses = [rate_limit_client.post("/extract/123") for _ in range(6)]
+    assert [response.status_code for response in responses[:5]] == [404, 404, 404, 404, 404]
+    assert responses[5].status_code == 429
 
 
 def test_extract_cached_when_content_exists_and_not_forced(mocker):

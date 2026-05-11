@@ -30,7 +30,7 @@ def test_verify_item_sets_coords_and_result_on_direct_match(mocker):
         result=None,
     )
     db.get.return_value = SimpleNamespace(location="/tmp/agenda.pdf")
-    mocker.patch("pipeline.verification_service._find_verification_locations", return_value=[{"page": 1, "x": 1.0, "y": 2.0}])
+    mocker.patch.object(verification_module, "_find_verification_locations", return_value=[{"page": 1, "x": 1.0, "y": 2.0}])
 
     service.verify_item(item, db=db)
 
@@ -52,8 +52,9 @@ def test_verify_item_uses_vote_tally_fallback(mocker):
         result=None,
     )
     db.get.return_value = SimpleNamespace(location="/tmp/agenda.pdf")
-    mocker.patch(
-        "pipeline.verification_service._find_verification_locations",
+    mocker.patch.object(
+        verification_module,
+        "_find_verification_locations",
         side_effect=[[], [{"page": 3, "x": 5.0, "y": 9.0}]],
     )
 
@@ -77,7 +78,7 @@ def test_verify_item_rolls_back_when_commit_fails(mocker):
     )
     db.get.return_value = SimpleNamespace(location="/tmp/agenda.pdf")
     db.commit.side_effect = SQLAlchemyError("commit failed")
-    mocker.patch("pipeline.verification_service._find_verification_locations", return_value=[{"page": 2}])
+    mocker.patch.object(verification_module, "_find_verification_locations", return_value=[{"page": 2}])
 
     service.verify_item(item, db=db)
 
