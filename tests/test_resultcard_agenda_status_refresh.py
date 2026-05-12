@@ -26,3 +26,11 @@ def test_result_card_surfaces_topic_action_errors_without_existing_topics():
 
     assert "(topics && topics.length > 0) || effectiveTopicsBlockReason || topicsActionError || topicsNotGeneratedYet" in source
     assert "{topicsActionError}" in source
+
+
+def test_result_card_keeps_task_agenda_source_after_segmentation():
+    source = Path("frontend/components/ResultCard.js").read_text(encoding="utf-8")
+
+    assert "setAgendaItems(result);" in source
+    assert "if (result.length === 0) fetchAgendaItems();" in source
+    assert "if (data.items.length === 0) fetchAgendaItems();" in source

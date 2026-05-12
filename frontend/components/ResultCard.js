@@ -467,14 +467,14 @@ export default function ResultCard({ hit, onPersonClick, onTopicClick }) {
         setIsSegmenting(false);
         // Refresh derived status so "Not generated yet" clears immediately after segmentation.
         fetchDerivedStatus();
-        fetchAgendaItems();
+        if (data.items.length === 0) fetchAgendaItems();
       } else if (data.task_id) {
         addPollStop(pollTaskStatus(data.task_id, (result) => {
           setAgendaItems(result);
           setIsSegmenting(false);
           // Segmentation creates AgendaItem rows; update derived status so badges stay in sync.
           fetchDerivedStatus();
-          fetchAgendaItems();
+          if (result.length === 0) fetchAgendaItems();
         }, (error) => {
           setAgendaActionError(error ? `Agenda segmentation failed: ${error}` : "Agenda segmentation failed.");
           setIsSegmenting(false);
