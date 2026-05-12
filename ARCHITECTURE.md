@@ -1,6 +1,6 @@
 # Town Council Architecture (2026)
 
-Last updated: 2026-05-11
+Last updated: 2026-05-12
 
 ## 1) System Overview
 
@@ -313,6 +313,7 @@ Primary owners:
 - Update semantic retrieval behavior:
   - `api/main.py` (FastAPI app facade and compatibility surface)
   - `api/search_routes.py` (`/search` and `/search/semantic` paths)
+  - `semantic_service/main.py` route facade plus focused `semantic_service/candidates.py`, `semantic_service/filters.py`, `semantic_service/retrieval.py`, and `semantic_service/hydration.py` helpers
   - `pipeline/semantic_index.py`
   - `pipeline/db_migrate.py` facade plus focused `pipeline/db_migration_*` helpers
   - `pipeline/migrate_v8.py` compatibility wrapper and `pipeline/migration_pgvector_semantic_embeddings.py`
@@ -324,7 +325,7 @@ Primary owners:
 - Async orchestration and writes: `pipeline/tasks.py` facade plus focused `pipeline/task_*` helpers, vote extraction through `pipeline/vote_extractor.py` plus focused `pipeline/vote_extraction_*` helpers
 - Inference abstraction and provider telemetry: `pipeline/llm.py` facade plus focused `pipeline/local_ai_*` helpers, `pipeline/agenda_extraction.py`, `pipeline/llm_provider.py`, `pipeline/http_inference_provider.py` facade plus focused `pipeline/http_inference_*` helpers, `pipeline/inprocess_inference_provider.py`, `pipeline/provider_telemetry.py`, `pipeline/metrics.py`, `pipeline/metrics_provider_recorders.py`, `pipeline/metrics_redis_backend.py`
 - API surface and auth: `api/main.py`, `api/app_setup.py`, `api/search_routes.py`, `api/search_read_routes.py` facade plus focused `api/search_read_*` helpers, `api/task_routes.py` facade plus focused `api/task_*` helpers, `api/search_support.py` facade plus focused `api/search/*_support.py` helpers, `api/search/query_builder.py`, `api/metrics.py`
-- Semantic retrieval and embeddings: `pipeline/semantic_index.py`, `pipeline/semantic_faiss_backend.py`, `pipeline/semantic_pgvector_backend.py`, focused semantic backend helpers, `pipeline/models.py` facade plus focused `pipeline/model_*` modules
+- Semantic retrieval and embeddings: `semantic_service/main.py` route facade plus focused `semantic_service/*` helpers, `pipeline/semantic_index.py`, `pipeline/semantic_faiss_backend.py`, `pipeline/semantic_pgvector_backend.py`, focused semantic backend helpers, `pipeline/models.py` facade plus focused `pipeline/model_*` modules
 - Frontend query/task UX: `frontend/app/page.js`, `frontend/state/search-state.js`, `frontend/components/ResultCard.js`
 - Data model and persistence: `pipeline/models.py` facade plus focused `pipeline/model_*` modules, `pipeline/db_migrate.py` facade plus focused `pipeline/db_migration_*` helpers, `pipeline/migrate_v8.py` and `pipeline/migrate_v9.py` compatibility wrappers, descriptive `pipeline/migration_*` modules
 - Onboarding orchestration and evaluation: `scripts/onboard_city_wave.sh`, `scripts/check_city_crawl_evidence.py`, `scripts/evaluate_city_onboarding.py` facade plus focused `pipeline/city_onboarding_*` helpers

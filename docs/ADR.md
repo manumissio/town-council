@@ -8,6 +8,26 @@ Use each entry to record:
 - the affected boundary or contract
 - links to the canonical docs that carry the ongoing operational or architecture detail
 
+## 2026-05-12: Track Batch G semantic service cleanup helpers
+
+- Status: Accepted
+- Decision:
+  - Batch G keeps semantic service complexity cleanup behind the stable `semantic_service/main.py` route facade.
+  - `semantic_service/candidates.py` owns candidate parsing, metadata filter matching, and dedupe helpers.
+  - `semantic_service/filters.py` owns semantic filter validation and Meilisearch filter wrapping.
+  - `semantic_service/retrieval.py` owns semantic retrieval orchestration, lexical recall, fallback diagnostics, and vector expansion.
+  - `semantic_service/hydration.py` owns DB hydration and final semantic response assembly.
+- Why:
+  - Batch G reduced the last semantic service god-module and Radon hotspot without changing `/search/semantic`, `/health`, diagnostics, backend selection, DB session ownership, or monkeypatch seams.
+  - Keeping docs and guardrails in one follow-up PR avoids source-map conflicts across the staged semantic service code PRs.
+- Affected boundaries:
+  - `semantic_service/main.py` remains the ASGI app, route facade, runtime env owner, DB dependency owner, and compatibility patch surface.
+  - Helper modules receive dependencies explicitly and do not import `semantic_service.main`.
+  - Radon and Vulture remain advisory local audits, not CI gates.
+- Canonical references:
+  - [ARCHITECTURE.md](../ARCHITECTURE.md)
+  - [docs/ENGINEERING_GUARDRAILS.md](ENGINEERING_GUARDRAILS.md)
+
 ## 2026-05-11: Track Batch F complexity cleanup helpers
 
 - Status: Accepted

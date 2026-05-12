@@ -44,7 +44,11 @@ cd <REPO_ROOT>
 - no raw `print(...)` in non-CLI pipeline modules
 - no silent broad exception handlers or broad exception allowlist drift
 - existing Town Council policy tests for fail-fast runtime behavior, freshness contracts, and profile comparability
-- cleanup module families for downloader, NLP entities, segment-city CLI, hydration CLIs, models, DB migrations, LocalAI, indexing, semantic backends, summary text and backfill, vote extraction, provider/person utilities, reporting/profile scripts, shared helper utilities, agenda QA, task/API/search helpers, onboarding/repair scripts, and prior facade splits stay under the 300-line target
+- cleanup module families for downloader, NLP entities, segment-city CLI, hydration CLIs, models, DB migrations, LocalAI, indexing, semantic backends and service helpers, summary text and backfill, vote extraction, provider/person utilities, reporting/profile scripts, shared helper utilities, agenda QA, task/API/search helpers, onboarding/repair scripts, and prior facade splits stay under the 300-line target
+
+Batch G cleanup coverage includes:
+- semantic service facade and helpers: `semantic_service/main.py`, `semantic_service/candidates.py`, `semantic_service/filters.py`, `semantic_service/retrieval.py`, `semantic_service/hydration.py`
+- semantic service helpers must not import `semantic_service.main`; dependencies flow from the route facade into helpers
 
 Batch F cleanup coverage includes:
 - search-read facade and helpers: `api/search_read_routes.py`, `api/search_read_meilisearch.py`, `api/search_read_params.py`, `api/search_read_results.py`
