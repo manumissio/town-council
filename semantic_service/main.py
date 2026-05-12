@@ -1,8 +1,6 @@
 import logging
 import os
-import re
 import time
-from dataclasses import dataclass
 from typing import Optional, Any
 
 import meilisearch
@@ -10,7 +8,6 @@ from fastapi import FastAPI, HTTPException, Query, Depends
 from sqlalchemy import text
 from sqlalchemy.orm import Session as SQLAlchemySession, sessionmaker
 
-from api.search.query_builder import normalize_filters, build_meili_filter_clauses
 from pipeline.config import (
     SEMANTIC_ENABLED,
     SEMANTIC_BACKEND,
@@ -24,6 +21,17 @@ from pipeline.semantic_index import (
     get_semantic_backend,
     SemanticConfigError,
     PgvectorSemanticBackend,
+)
+from semantic_service.candidates import (
+    dedupe_semantic_candidates as _dedupe_semantic_candidates,
+    lexical_hit_to_candidate as _lexical_hit_to_candidate,
+    semantic_candidate_key as _semantic_candidate_key,
+    semantic_candidate_matches_filters as _semantic_candidate_matches_filters,
+)
+from semantic_service.filters import (
+    build_filter_values as _build_filter_values,
+    build_meilisearch_filter_clauses as _build_meilisearch_filter_clauses,
+    validate_date_format,
 )
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(name)s - %(levelname)s - %(message)s")
@@ -84,175 +92,6 @@ def _semantic_backend_engine_for_diagnostics(backend: Any) -> str | None:
         logger.warning("semantic backend health diagnostic returned unhealthy status: %s", backend_health)
         return None
     return _public_semantic_backend_engine(backend_health.get("engine"))
-
-
-def validate_date_format(date_str: str):
-    if not re.match(r"^\d{4}-\d{2}-\d{2}$", date_str):
-        raise HTTPException(status_code=400, detail="Invalid date format. Use YYYY-MM-DD.")
-
-
-def _build_filter_values(
-    city: Optional[str],
-    meeting_type: Optional[str],
-    org: Optional[str],
-    date_from: Optional[str],
-    date_to: Optional[str],
-    include_agenda_items: bool,
-) -> dict[str, Any]:
-    try:
-        filters = normalize_filters(
-            city=city,
-            meeting_type=meeting_type,
-            org=org,
-            date_from=date_from,
-            date_to=date_to,
-            include_agenda_items=include_agenda_items,
-        )
-    except ValueError as exc:
-        raise HTTPException(status_code=400, detail=str(exc)) from exc
-    return {
-        "city": filters.city,
-        "meeting_type": filters.meeting_type,
-        "org": filters.org,
-        "date_from": filters.date_from,
-        "date_to": filters.date_to,
-        "include_agenda_items": filters.include_agenda_items,
-    }
-
-
-def _build_meilisearch_filter_clauses(
-    city: Optional[str],
-    meeting_type: Optional[str],
-    org: Optional[str],
-    date_from: Optional[str],
-    date_to: Optional[str],
-    include_agenda_items: bool,
-) -> list[str]:
-    try:
-        return build_meili_filter_clauses(
-            normalize_filters(
-                city=city,
-                meeting_type=meeting_type,
-                org=org,
-                date_from=date_from,
-                date_to=date_to,
-                include_agenda_items=include_agenda_items,
-            )
-        )
-    except ValueError as exc:
-        raise HTTPException(status_code=400, detail=str(exc)) from exc
-
-
-@dataclass
-class _FallbackCandidate:
-    row_id: int
-    score: float
-    metadata: dict[str, Any]
-
-
-def _semantic_candidate_matches_filters(meta: dict, filters: dict) -> bool:
-    result_type = str(meta.get("result_type") or "")
-    if not filters.get("include_agenda_items") and result_type != "meeting":
-        return False
-    city = filters.get("city")
-    if city and str(meta.get("city") or "").lower() != str(city).lower():
-        return False
-    meeting_type = filters.get("meeting_type")
-    if meeting_type and str(meta.get("meeting_category") or "").lower() != str(meeting_type).lower():
-        return False
-    org = filters.get("org")
-    if org and str(meta.get("organization") or "").lower() != str(org).lower():
-        return False
-    date_val = str(meta.get("date") or "")
-    date_from = filters.get("date_from")
-    date_to = filters.get("date_to")
-    if date_from and (not date_val or date_val < date_from):
-        return False
-    if date_to and (not date_val or date_val > date_to):
-        return False
-    return True
-
-
-def _dedupe_semantic_candidates(candidates):
-    best_by_key = {}
-    for cand in candidates:
-        meta = cand.metadata
-        result_type = str(meta.get("result_type") or "meeting")
-        if result_type == "meeting":
-            key = ("meeting", int(meta.get("catalog_id") or 0))
-        else:
-            key = ("agenda_item", int(meta.get("db_id") or 0))
-        existing = best_by_key.get(key)
-        if existing is None or cand.score > existing.score:
-            best_by_key[key] = cand
-    deduped = list(best_by_key.values())
-    deduped.sort(key=lambda c: c.score, reverse=True)
-    return deduped
-
-
-def _semantic_candidate_key(candidate) -> tuple[str, int]:
-    meta = candidate.metadata
-    result_type = str(meta.get("result_type") or "meeting")
-    if result_type == "meeting":
-        return ("meeting", int(meta.get("catalog_id") or 0))
-    return ("agenda_item", int(meta.get("db_id") or 0))
-
-
-def _lexical_hit_to_candidate(hit: dict, order_idx: int):
-    result_type = str(hit.get("result_type") or "meeting")
-    if result_type == "meeting":
-        db_id = hit.get("db_id")
-        if db_id is None:
-            raw_id = str(hit.get("id") or "")
-            if raw_id.startswith("doc_"):
-                try:
-                    db_id = int(raw_id.split("_", 1)[1])
-                except (IndexError, ValueError):
-                    db_id = None
-        catalog_id = hit.get("catalog_id")
-        if db_id is None or catalog_id is None:
-            return None
-        metadata = {
-            "result_type": "meeting",
-            "catalog_id": int(catalog_id),
-            "db_id": int(db_id),
-            "event_id": hit.get("event_id"),
-            "city": str(hit.get("city") or "").lower(),
-            "meeting_category": hit.get("meeting_category") or "Other",
-            "organization": hit.get("organization") or "City Council",
-            "date": hit.get("date"),
-            "source_type": "lexical_fallback",
-        }
-    elif result_type == "agenda_item":
-        db_id = hit.get("db_id")
-        if db_id is None:
-            raw_id = str(hit.get("id") or "")
-            if raw_id.startswith("item_"):
-                try:
-                    db_id = int(raw_id.split("_", 1)[1])
-                except (IndexError, ValueError):
-                    db_id = None
-        if db_id is None:
-            return None
-        metadata = {
-            "result_type": "agenda_item",
-            "catalog_id": hit.get("catalog_id"),
-            "db_id": int(db_id),
-            "event_id": hit.get("event_id"),
-            "city": str(hit.get("city") or "").lower(),
-            "meeting_category": hit.get("meeting_category") or "Other",
-            "organization": hit.get("organization") or "City Council",
-            "date": hit.get("date"),
-            "source_type": "lexical_fallback",
-        }
-    else:
-        return None
-
-    return _FallbackCandidate(
-        row_id=order_idx,
-        score=-float(order_idx + 1),
-        metadata=metadata,
-    )
 
 
 def _merge_semantic_with_lexical_fallback(semantic_candidates, lexical_hits: list[dict], filters: dict):
