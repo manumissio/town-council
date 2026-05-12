@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import time
 from dataclasses import dataclass
 from typing import Any, Callable, Protocol
 
@@ -19,8 +20,9 @@ HydrateCandidates = Callable[[SQLAlchemySession, list[SemanticCandidateLike]], l
 
 @dataclass(frozen=True)
 class SemanticResponseTiming:
-    elapsed_ms: float
+    started_at: float
     engine: str | None
+    clock: Callable[[], float] = time.perf_counter
 
 
 def hydrate_meeting_hits(db: SQLAlchemySession, candidates: list[SemanticCandidateLike]) -> list[dict[str, Any]]:
@@ -56,6 +58,7 @@ def build_semantic_search_response(
     meeting_hits = hydrate_meetings(db, meeting_candidates)
     agenda_hits = hydrate_agenda_items(db, agenda_candidates)
     hits = _ordered_hydrated_hits(page_candidates, meeting_hits, agenda_hits)
+    elapsed_ms = round((timing.clock() - timing.started_at) * 1000.0, 2)
     return {
         "hits": hits,
         "estimatedTotalHits": len(deduped),
@@ -67,7 +70,7 @@ def build_semantic_search_response(
             "dedup_candidates": len(deduped),
             "k_used": retrieval_result.k_used,
             "expansion_steps": retrieval_result.expansion_steps,
-            "latency_ms": timing.elapsed_ms,
+            "latency_ms": elapsed_ms,
             "engine": timing.engine,
             **retrieval_result.diagnostics_extra,
         },

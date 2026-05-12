@@ -11,6 +11,7 @@ from semantic_service.retrieval import SemanticRetrievalResult
 
 
 def test_semantic_response_preserves_mixed_candidate_order_and_drops_missing_hits():
+    current_time = {"now": 1.0125}
     retrieval_result = SemanticRetrievalResult(
         deduped=[
             _candidate("meeting", 10, 100, 0.91),
@@ -29,7 +30,7 @@ def test_semantic_response_preserves_mixed_candidate_order_and_drops_missing_hit
         retrieval_result=retrieval_result,
         limit=3,
         offset=0,
-        timing=SemanticResponseTiming(elapsed_ms=12.5, engine="faiss"),
+        timing=SemanticResponseTiming(started_at=1.0, engine="faiss", clock=lambda: current_time["now"]),
         hydrate_meetings=lambda _db, _candidates: [
             {"db_id": 10, "id": "doc_10", "result_type": "meeting"},
             {"db_id": 30, "id": "doc_30", "result_type": "meeting"},
@@ -42,6 +43,34 @@ def test_semantic_response_preserves_mixed_candidate_order_and_drops_missing_hit
     assert response["semantic_diagnostics"]["dedup_candidates"] == 3
     assert response["semantic_diagnostics"]["latency_ms"] == 12.5
     assert response["semantic_diagnostics"]["engine"] == "faiss"
+
+
+def test_semantic_response_latency_includes_hydration_work():
+    current_time = {"now": 1.0}
+    retrieval_result = SemanticRetrievalResult(
+        deduped=[_candidate("meeting", 10, 100, 0.91)],
+        raw_count=1,
+        filtered_count=1,
+        k_used=200,
+        expansion_steps=0,
+        diagnostics_extra={},
+    )
+
+    def hydrate_after_db_work(_db, _candidates):
+        current_time["now"] = 1.025
+        return [{"db_id": 10, "id": "doc_10", "result_type": "meeting"}]
+
+    response = build_semantic_search_response(
+        db=MagicMock(),
+        retrieval_result=retrieval_result,
+        limit=1,
+        offset=0,
+        timing=SemanticResponseTiming(started_at=1.0, engine="faiss", clock=lambda: current_time["now"]),
+        hydrate_meetings=hydrate_after_db_work,
+        hydrate_agenda_items=lambda _db, _candidates: [],
+    )
+
+    assert response["semantic_diagnostics"]["latency_ms"] == 25.0
 
 
 def test_semantic_response_applies_offset_after_dedupe_before_hydration():
@@ -62,7 +91,7 @@ def test_semantic_response_applies_offset_after_dedupe_before_hydration():
         retrieval_result=retrieval_result,
         limit=1,
         offset=1,
-        timing=SemanticResponseTiming(elapsed_ms=1.0, engine=None),
+        timing=SemanticResponseTiming(started_at=1.0, engine=None, clock=lambda: 1.001),
         hydrate_meetings=lambda _db, candidates: [
             {"db_id": candidates[0].metadata["db_id"], "id": f"doc_{candidates[0].metadata['db_id']}"}
         ],

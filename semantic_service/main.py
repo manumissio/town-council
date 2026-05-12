@@ -234,14 +234,13 @@ def search_documents_semantic(
         logger.error("semantic search failed: %s", exc)
         raise HTTPException(status_code=500, detail="Internal semantic search error") from exc
 
-    elapsed_ms = round((time.perf_counter() - t0) * 1000.0, 2)
     engine = _semantic_backend_engine_for_diagnostics(backend)
     return build_semantic_search_response(
         db=db,
         retrieval_result=retrieval_result,
         limit=limit,
         offset=offset,
-        timing=SemanticResponseTiming(elapsed_ms=elapsed_ms, engine=engine),
+        timing=SemanticResponseTiming(started_at=t0, engine=engine),
         hydrate_meetings=_hydrate_meeting_hits,
         hydrate_agenda_items=_hydrate_agenda_hits,
     )
