@@ -18,6 +18,7 @@ TEXT_FILE_SUFFIXES = {
     ".yml",
 }
 GUARDRAIL_SCAN_PREFIXES = {"api", "pipeline", "scripts", "tests", "docs", "ops", "experiments"}
+FACADE_IMPORT_PACKAGE_ROOTS = ("api", "pipeline", "scripts", "semantic_service", "tests")
 PERSONAL_PATH_PATTERNS = (
     re.compile(r"/Users/[^/\s]+/"),
     re.compile(r"/home/[^/\s]+/"),
@@ -562,7 +563,7 @@ def _mypy_enrolled_paths() -> tuple[str, ...]:
 
 def _module_name_for_path(module_path: Path) -> str:
     module_parts = module_path.with_suffix("").parts
-    for package_name in ("api", "pipeline", "scripts", "tests"):
+    for package_name in FACADE_IMPORT_PACKAGE_ROOTS:
         if package_name in module_parts:
             package_index = module_parts.index(package_name)
             return ".".join(module_parts[package_index:])
@@ -608,13 +609,11 @@ def _forbidden_imports(module_path: Path, forbidden_modules: set[str]) -> list[s
             )
             if node.level == 0 and node.module in forbidden_modules:
                 found_imports.append(node.module)
-            if node.level == 0 and node.module == "pipeline":
+            if node.level == 0 and node.module:
                 found_imports.extend(
-                    f"pipeline.{alias.name}" for alias in node.names if f"pipeline.{alias.name}" in forbidden_modules
-                )
-            if node.level == 0 and node.module == "scripts":
-                found_imports.extend(
-                    f"scripts.{alias.name}" for alias in node.names if f"scripts.{alias.name}" in forbidden_modules
+                    f"{node.module}.{alias.name}"
+                    for alias in node.names
+                    if f"{node.module}.{alias.name}" in forbidden_modules
                 )
             if node.level == 0 and node.module:
                 for forbidden_module in forbidden_modules:
@@ -720,12 +719,23 @@ def test_facade_import_guardrail_detects_relative_imports(tmp_path: Path):
     script_helper = tmp_path / "scripts" / "helper.py"
     script_helper.parent.mkdir(parents=True)
     script_helper.write_text("from .profile_pipeline import main\n", encoding="utf-8")
+    semantic_helper = tmp_path / "semantic_service" / "helper.py"
+    semantic_helper.parent.mkdir(parents=True)
+    semantic_helper.write_text(
+        "from . import main\nfrom .main import app\nfrom semantic_service import main as semantic_main\n",
+        encoding="utf-8",
+    )
 
     assert _forbidden_imports(
         pipeline_helper,
         {"pipeline.vote_extractor", "pipeline.vote_extraction_runner"},
     ) == ["pipeline.vote_extractor", "pipeline.vote_extraction_runner"]
     assert _forbidden_imports(script_helper, {"scripts.profile_pipeline"}) == ["scripts.profile_pipeline"]
+    assert _forbidden_imports(semantic_helper, {"semantic_service.main"}) == [
+        "semantic_service.main",
+        "semantic_service.main",
+        "semantic_service.main",
+    ]
 
 
 def test_broad_exception_allowlist_stays_explicit():
