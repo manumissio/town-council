@@ -16,7 +16,7 @@ from pipeline.config import (
     SEMANTIC_MAX_TOP_K,
     SEMANTIC_RERANK_CANDIDATE_LIMIT,
 )
-from pipeline.models import db_connect, Document, Event, Place, Catalog, AgendaItem, Organization
+from pipeline.models import db_connect
 from pipeline.semantic_index import (
     get_semantic_backend,
     SemanticConfigError,
@@ -32,6 +32,12 @@ from semantic_service.filters import (
     build_filter_values as _build_filter_values,
     build_meilisearch_filter_clauses as _build_meilisearch_filter_clauses,
     validate_date_format,
+)
+from semantic_service.hydration import (
+    SemanticResponseTiming,
+    build_semantic_search_response,
+    hydrate_agenda_hits,
+    hydrate_meeting_hits,
 )
 from semantic_service.retrieval import (
     SemanticRetrievalSettings,
@@ -119,102 +125,11 @@ def _merge_semantic_with_lexical_fallback(semantic_candidates, lexical_hits: lis
 
 
 def _hydrate_meeting_hits(db: SQLAlchemySession, candidates: list) -> list[dict]:
-    doc_ids = [int(c.metadata.get("db_id") or 0) for c in candidates if int(c.metadata.get("db_id") or 0) > 0]
-    if not doc_ids:
-        return []
-    rows = (
-        db.query(Document, Catalog, Event, Place, Organization)
-        .join(Catalog, Document.catalog_id == Catalog.id)
-        .join(Event, Document.event_id == Event.id)
-        .join(Place, Document.place_id == Place.id)
-        .outerjoin(Organization, Event.organization_id == Organization.id)
-        .filter(Document.id.in_(doc_ids))
-        .all()
-    )
-    by_doc_id = {}
-    for doc, catalog, event, place, organization in rows:
-        by_doc_id[doc.id] = {
-            "id": f"doc_{doc.id}",
-            "db_id": doc.id,
-            "ocd_id": event.ocd_id,
-            "result_type": "meeting",
-            "catalog_id": catalog.id,
-            "filename": catalog.filename,
-            "url": catalog.url,
-            "content": (catalog.content or "")[:5000] if catalog.content else None,
-            "summary": catalog.summary,
-            "summary_extractive": catalog.summary_extractive,
-            "topics": catalog.topics,
-            "related_ids": catalog.related_ids,
-            "summary_is_stale": bool(
-                catalog.summary and (not catalog.content_hash or catalog.summary_source_hash != catalog.content_hash)
-            ),
-            "topics_is_stale": bool(
-                catalog.topics is not None and (not catalog.content_hash or catalog.topics_source_hash != catalog.content_hash)
-            ),
-            "people_metadata": [],
-            "event_name": event.name,
-            "meeting_category": event.meeting_type or "Other",
-            "organization": organization.name if organization else "City Council",
-            "date": event.record_date.isoformat() if event.record_date else None,
-            "city": place.display_name or place.name,
-            "state": place.state,
-        }
-
-    hydrated = []
-    for cand in candidates:
-        doc_id = int(cand.metadata.get("db_id") or 0)
-        hit = by_doc_id.get(doc_id)
-        if not hit:
-            continue
-        enriched = dict(hit)
-        enriched["semantic_score"] = round(float(cand.score), 6)
-        hydrated.append(enriched)
-    return hydrated
+    return hydrate_meeting_hits(db, candidates)
 
 
 def _hydrate_agenda_hits(db: SQLAlchemySession, candidates: list) -> list[dict]:
-    item_ids = [int(c.metadata.get("db_id") or 0) for c in candidates if int(c.metadata.get("db_id") or 0) > 0]
-    if not item_ids:
-        return []
-    rows = (
-        db.query(AgendaItem, Event, Place, Organization)
-        .join(Event, AgendaItem.event_id == Event.id)
-        .join(Place, Event.place_id == Place.id)
-        .outerjoin(Organization, Event.organization_id == Organization.id)
-        .filter(AgendaItem.id.in_(item_ids))
-        .all()
-    )
-    by_item_id = {}
-    for item, event, place, org in rows:
-        by_item_id[item.id] = {
-            "id": f"item_{item.id}",
-            "db_id": item.id,
-            "ocd_id": item.ocd_id,
-            "result_type": "agenda_item",
-            "title": item.title,
-            "description": item.description,
-            "classification": item.classification,
-            "result": item.result,
-            "page_number": item.page_number,
-            "event_name": event.name,
-            "date": event.record_date.isoformat() if event.record_date else None,
-            "city": place.display_name or place.name,
-            "organization": org.name if org else "City Council",
-            "meeting_category": event.meeting_type or "Other",
-            "catalog_id": item.catalog_id,
-            "url": item.catalog.url if item.catalog else None,
-        }
-    hydrated = []
-    for cand in candidates:
-        item_id = int(cand.metadata.get("db_id") or 0)
-        hit = by_item_id.get(item_id)
-        if not hit:
-            continue
-        enriched = dict(hit)
-        enriched["semantic_score"] = round(float(cand.score), 6)
-        hydrated.append(enriched)
-    return hydrated
+    return hydrate_agenda_hits(db, candidates)
 
 
 @app.get("/health")
@@ -319,36 +234,13 @@ def search_documents_semantic(
         logger.error("semantic search failed: %s", exc)
         raise HTTPException(status_code=500, detail="Internal semantic search error") from exc
 
-    deduped = retrieval_result.deduped
-    page_candidates = deduped[offset : offset + limit]
-    meeting_candidates = [c for c in page_candidates if str(c.metadata.get("result_type") or "meeting") == "meeting"]
-    agenda_candidates = [c for c in page_candidates if str(c.metadata.get("result_type")) == "agenda_item"]
-    meeting_hits = _hydrate_meeting_hits(db, meeting_candidates)
-    agenda_hits = _hydrate_agenda_hits(db, agenda_candidates)
-    meeting_by_db = {hit["db_id"]: hit for hit in meeting_hits}
-    agenda_by_db = {hit["db_id"]: hit for hit in agenda_hits}
-    hits = []
-    for cand in page_candidates:
-        result_type = str(cand.metadata.get("result_type") or "meeting")
-        db_id = int(cand.metadata.get("db_id") or 0)
-        hit = meeting_by_db.get(db_id) if result_type == "meeting" else agenda_by_db.get(db_id)
-        if hit:
-            hits.append(hit)
-    elapsed_ms = round((time.perf_counter() - t0) * 1000.0, 2)
     engine = _semantic_backend_engine_for_diagnostics(backend)
-    return {
-        "hits": hits,
-        "estimatedTotalHits": len(deduped),
-        "limit": limit,
-        "offset": offset,
-        "semantic_diagnostics": {
-            "raw_candidates": retrieval_result.raw_count,
-            "filtered_candidates": retrieval_result.filtered_count,
-            "dedup_candidates": len(deduped),
-            "k_used": retrieval_result.k_used,
-            "expansion_steps": retrieval_result.expansion_steps,
-            "latency_ms": elapsed_ms,
-            "engine": engine,
-            **retrieval_result.diagnostics_extra,
-        },
-    }
+    return build_semantic_search_response(
+        db=db,
+        retrieval_result=retrieval_result,
+        limit=limit,
+        offset=offset,
+        timing=SemanticResponseTiming(started_at=t0, engine=engine),
+        hydrate_meetings=_hydrate_meeting_hits,
+        hydrate_agenda_items=_hydrate_agenda_hits,
+    )
