@@ -77,7 +77,7 @@ Note on Full Text after restart:
 If `STARTUP_PURGE_DERIVED=true`, extracted text is cleared from the DB on startup.
 The checked-in base `docker-compose.yml` defaults this to `false`; `docker-compose.dev.yml` turns it on for dev convenience.
 (`pipeline/config.py` also defaults to `false` unless env is explicitly set.)
-The UI Full Text tab pulls canonical text from Postgres (`/catalog/{id}/content`), so it may show **Not extracted yet** until you click **Re-extract text** for that record.
+The UI Full Text tab pulls canonical text from Postgres through the same-origin frontend proxy for `GET /catalog/{id}/content`, so it may show **Not extracted yet** until you click **Re-extract text** for that record.
 
 ### 2.5) Verify containers are using the latest image
 This catches “stale image” problems early (for example, missing Python deps).

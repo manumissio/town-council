@@ -1,6 +1,6 @@
 # Operations Runbook
 
-Last updated: 2026-05-11
+Last updated: 2026-05-12
 
 ## Core workflow
 
@@ -467,7 +467,7 @@ docker compose start api worker frontend monitor
   - `STARTUP_PURGE_DERIVED=false` by default for `api`, `worker`, and `pipeline`
   - the base API service no longer runs `uvicorn --reload`
   - dev-only convenience now lives in `docker-compose.dev.yml`
-- Frontend privileged actions now flow through same-origin Next route handlers instead of embedding `NEXT_PUBLIC_API_AUTH_KEY` in the browser bundle.
+- Frontend protected catalog reads and privileged actions now flow through same-origin Next route handlers instead of embedding `NEXT_PUBLIC_API_AUTH_KEY` in the browser bundle.
   - required frontend server-side env:
     - `INTERNAL_API_BASE_URL` for backend-to-backend calls, default `http://api:8000`
     - `API_AUTH_KEY` for forwarding privileged requests
@@ -539,8 +539,11 @@ npx serve out
 - Trigger: push to `master` or manual dispatch
 - Output: static export deployed to GitHub Pages
 
-## Protected write endpoints
+## Protected catalog and write endpoints
 These routes require `X-API-Key`:
+- `GET /catalog/{catalog_id}/content`
+- `GET /catalog/{catalog_id}/derived_status`
+- `GET /catalog/{catalog_id}/agenda_items`
 - `POST /summarize/{catalog_id}`
 - `POST /segment/{catalog_id}`
 - `POST /topics/{catalog_id}`

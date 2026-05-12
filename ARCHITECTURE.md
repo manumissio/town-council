@@ -115,13 +115,12 @@ flowchart LR
     API --> Meili
     API --> Semantic
     People -->|"people reads"| API
-    UI -->|"POST summarize/segment/topics/extract/votes"| API
+    UI -->|"proxied protected catalog reads/writes"| API
     API <--> Queue --> Worker --> LocalAI
     LocalAI --> InProc
     LocalAI --> HttpProv --> HttpSvc
     Worker --> Core
     UI -->|"GET /tasks/{id}"| API
-    UI -->|"GET /catalog/{id}/derived_status"| API
 
     API -. metrics .-> Prom
     Worker -. metrics .-> Prom
@@ -428,7 +427,7 @@ Owners:
 | Trends reads/export | `GET /trends/topics`, `GET /trends/compare`, `GET /trends/export` | none | no | `api/main.py`, `api/search_routes.py`, `api/trends_routes.py`, `api/search/query_builder.py` |
 | Protected generation writes | `POST /summarize/{catalog_id}`, `POST /segment/{catalog_id}`, `POST /topics/{catalog_id}`, `POST /extract/{catalog_id}`, `POST /votes/{catalog_id}` | `X-API-Key` | yes (task id returned) | `api/main.py`, `api/task_routes.py`, `pipeline/tasks.py` |
 | Task lifecycle | `GET /tasks/{task_id}` | none | n/a | `api/main.py`, `api/task_routes.py`, Celery task backend |
-| Derived status/readability | `GET /catalog/{catalog_id}/derived_status`, `GET /catalog/{catalog_id}/content` | `X-API-Key` | no | `api/main.py`, `api/catalog_routes.py` |
+| Derived status/readability | `GET /catalog/{catalog_id}/derived_status`, `GET /catalog/{catalog_id}/content`, `GET /catalog/{catalog_id}/agenda_items` | `X-API-Key` | no | `api/main.py`, `api/catalog_routes.py` |
 | Issue reporting | `POST /report-issue` | `X-API-Key` | no | `api/main.py`, `api/reporting_routes.py` |
 
 ### Data Contract
