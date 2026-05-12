@@ -583,6 +583,112 @@ def test_derived_status_exposes_blocked_reasons_for_low_signal_content():
         del app.dependency_overrides[get_db]
 
 
+def test_catalog_agenda_items_requires_api_key():
+    resp = client.get("/catalog/909/agenda_items")
+    assert resp.status_code == 401
+
+
+def test_catalog_agenda_items_returns_404_for_missing_catalog():
+    from api.main import get_db
+
+    db = MagicMock()
+    db.get.return_value = None
+
+    def _mock_get_db():
+        yield db
+
+    app.dependency_overrides[get_db] = _mock_get_db
+    try:
+        resp = client.get("/catalog/909/agenda_items", headers={"X-API-Key": VALID_KEY})
+        assert resp.status_code == 404
+        assert resp.json()["detail"] == "Document not found"
+    finally:
+        del app.dependency_overrides[get_db]
+
+
+def test_catalog_agenda_items_returns_empty_list_for_catalog_without_items():
+    from api.main import get_db
+
+    db = MagicMock()
+    db.get.return_value = MagicMock(id=909)
+    db.query.return_value.filter.return_value.order_by.return_value.all.return_value = []
+
+    def _mock_get_db():
+        yield db
+
+    app.dependency_overrides[get_db] = _mock_get_db
+    try:
+        resp = client.get("/catalog/909/agenda_items", headers={"X-API-Key": VALID_KEY})
+        assert resp.status_code == 200
+        assert resp.json() == {"catalog_id": 909, "items": []}
+    finally:
+        del app.dependency_overrides[get_db]
+
+
+def test_catalog_agenda_items_returns_ordered_minimal_payload():
+    from api.main import get_db
+
+    first_item = MagicMock(
+        id=12,
+        order=1,
+        title="Approve project contract",
+        description="Authorize amendment.",
+        classification="Action",
+        result="Passed",
+        page_number=3,
+        votes=[{"member": "A", "vote": "yes"}],
+    )
+    second_item = MagicMock(
+        id=13,
+        order=2,
+        title="Receive report",
+        description=None,
+        classification=None,
+        result=None,
+        page_number=None,
+        votes=None,
+    )
+    db = MagicMock()
+    db.get.return_value = MagicMock(id=909)
+    db.query.return_value.filter.return_value.order_by.return_value.all.return_value = [first_item, second_item]
+
+    def _mock_get_db():
+        yield db
+
+    app.dependency_overrides[get_db] = _mock_get_db
+    try:
+        resp = client.get("/catalog/909/agenda_items", headers={"X-API-Key": VALID_KEY})
+        assert resp.status_code == 200
+        payload = resp.json()
+        assert payload["catalog_id"] == 909
+        assert payload["items"] == [
+            {
+                "id": 12,
+                "order": 1,
+                "title": "Approve project contract",
+                "description": "Authorize amendment.",
+                "classification": "Action",
+                "result": "Passed",
+                "page_number": 3,
+                "votes": [{"member": "A", "vote": "yes"}],
+                "source": "catalog_agenda_items",
+            },
+            {
+                "id": 13,
+                "order": 2,
+                "title": "Receive report",
+                "description": None,
+                "classification": None,
+                "result": None,
+                "page_number": None,
+                "votes": None,
+                "source": "catalog_agenda_items",
+            },
+        ]
+    finally:
+        del app.dependency_overrides[get_db]
+
+
 def test_derived_status_exposes_not_generated_flags():
     from api.main import get_db
 

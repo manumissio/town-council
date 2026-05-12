@@ -23,6 +23,8 @@ def test_frontend_uses_proxy_csp_and_same_origin_mutation_routes():
 
     assert "NEXT_PUBLIC_API_AUTH_KEY" not in api_lib
     assert "NEXT_PUBLIC_API_AUTH_KEY" not in result_card
+    assert "buildProtectedCatalogApiUrl" in api_lib
+    assert "return `/api${cleanPath}`;" in api_lib
     assert "x-nonce" in proxy_source
     assert "script-src 'self' 'nonce-${nonce}' 'strict-dynamic'" in proxy_source
     assert "script-src 'self' 'unsafe-inline'" not in proxy_source
@@ -32,6 +34,24 @@ def test_frontend_uses_proxy_csp_and_same_origin_mutation_routes():
     assert 'new URL(`/api/segment/${hit.catalog_id}`' in result_card
     assert 'new URL(`/api/topics/${hit.catalog_id}`' in result_card
     assert 'new URL(`/api/extract/${hit.catalog_id}`' in result_card
+    assert "buildProtectedCatalogApiUrl(`/catalog/${hit.catalog_id}/content`)" in result_card
+    assert "buildProtectedCatalogApiUrl(`/catalog/${hit.catalog_id}/derived_status`)" in result_card
+    assert "buildProtectedCatalogApiUrl(`/catalog/${hit.catalog_id}/agenda_items`)" in result_card
+
+
+def test_catalog_proxy_routes_await_next_dynamic_params():
+    for route_path in (
+        Path("frontend/app/api/catalog/[catalogId]/content/route.js"),
+        Path("frontend/app/api/catalog/[catalogId]/derived_status/route.js"),
+        Path("frontend/app/api/catalog/[catalogId]/agenda_items/route.js"),
+        Path("frontend/app/api/summarize/[catalogId]/route.js"),
+        Path("frontend/app/api/topics/[catalogId]/route.js"),
+        Path("frontend/app/api/segment/[catalogId]/route.js"),
+        Path("frontend/app/api/extract/[catalogId]/route.js"),
+    ):
+        route_source = route_path.read_text(encoding="utf-8")
+        assert "const { catalogId } = await params;" in route_source
+        assert "params.catalogId" not in route_source
 
 
 def test_static_export_build_wrapper_restores_api_routes(tmp_path):
