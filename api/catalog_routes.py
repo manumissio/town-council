@@ -21,6 +21,20 @@ PAGE_MARKER_PREFIX = "[PAGE "
 VALID_AGENDA_SEGMENTATION_STATUSES = {None, "complete", "empty", "failed"}
 
 
+def _agenda_item_payload(item: AgendaItem) -> dict[str, Any]:
+    return {
+        "id": item.id,
+        "order": item.order,
+        "title": item.title,
+        "description": item.description,
+        "classification": item.classification,
+        "result": item.result,
+        "page_number": item.page_number,
+        "votes": item.votes,
+        "source": "catalog_agenda_items",
+    }
+
+
 def _summary_doc_kind_and_hashes(
     db: SQLAlchemySession,
     catalog_id: int,
@@ -103,6 +117,26 @@ def build_catalog_router(
             "chars": len(catalog.content),
             "has_page_markers": PAGE_MARKER_PREFIX in catalog.content,
             "content": catalog.content,
+        }
+
+    @router.get("/catalog/{catalog_id}/agenda_items", dependencies=[Depends(verify_api_key_dependency)])
+    def get_catalog_agenda_items(
+        catalog_id: int = Path(..., ge=1),
+        db: SQLAlchemySession = Depends(get_db_dependency),
+    ) -> dict[str, Any]:
+        catalog = db.get(Catalog, catalog_id)
+        if not catalog:
+            raise HTTPException(status_code=404, detail=DOCUMENT_NOT_FOUND_DETAIL)
+
+        agenda_items = (
+            db.query(AgendaItem)
+            .filter(AgendaItem.catalog_id == catalog_id)
+            .order_by(AgendaItem.order)
+            .all()
+        )
+        return {
+            "catalog_id": catalog_id,
+            "items": [_agenda_item_payload(item) for item in agenda_items],
         }
 
     @router.get("/catalog/{catalog_id}/derived_status", dependencies=[Depends(verify_api_key_dependency)])

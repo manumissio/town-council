@@ -4,6 +4,6 @@ export async function GET(_request, { params }) {
   const { catalogId } = await params;
   return proxyBackendJson({
     method: "GET",
-    path: `/catalog/${catalogId}/content`,
+    path: `/catalog/${catalogId}/agenda_items`,
   });
 }

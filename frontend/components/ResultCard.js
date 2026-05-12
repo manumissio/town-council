@@ -7,7 +7,13 @@ import {
 } from "lucide-react";
 import DataTable from "./DataTable";
 import LineageTimeline from "./LineageTimeline";
-import { buildApiUrl, getApiHeaders, isDemoMode, TRENDS_DASHBOARD_ENABLED } from "../lib/api";
+import {
+  buildApiUrl,
+  buildProtectedCatalogApiUrl,
+  getApiHeaders,
+  isDemoMode,
+  TRENDS_DASHBOARD_ENABLED,
+} from "../lib/api";
 import textFormatter from "../lib/textFormatter";
 
 const { renderFormattedExtractedText } = textFormatter;
@@ -15,6 +21,29 @@ const AI_DISCLAIMER_TEXT = "AI-generated content may be incomplete or inaccurate
 const TASK_POLL_INITIAL_INTERVAL_MS = 1500;
 const TASK_POLL_MAX_INTERVAL_MS = 5000;
 const TASK_POLL_MAX_ATTEMPTS = 45;
+
+function extractErrorDetail(payload, fallback) {
+  if (payload && typeof payload.detail === "string") return payload.detail;
+  if (payload && typeof payload.error === "string") return payload.error;
+  if (payload && typeof payload.reason === "string") return payload.reason;
+  return fallback;
+}
+
+async function readJsonResponse(response, actionLabel) {
+  let payload = null;
+  try {
+    payload = await response.json();
+  } catch {
+    if (response.ok) return {};
+  }
+
+  if (!response.ok) {
+    const detail = extractErrorDetail(payload, response.statusText || "Request failed");
+    throw new Error(`${actionLabel} failed (HTTP ${response.status}): ${detail}`);
+  }
+
+  return payload || {};
+}
 
 // Poll background tasks until complete/failed.
 function pollTaskStatus(taskId, callback, onError, type = "summary") {
@@ -33,7 +62,7 @@ function pollTaskStatus(taskId, callback, onError, type = "summary") {
     if (!active) return true;
     try {
       const res = await fetch(buildApiUrl(`/tasks/${taskId}`));
-      const data = await res.json();
+      const data = await readJsonResponse(res, "Poll task");
 
       if (data.status === "complete") {
         if (type === "summary") callback(data.result || {});
@@ -97,19 +126,27 @@ export default function ResultCard({ hit, onPersonClick, onTopicClick }) {
   const [summaryBlockReason, setSummaryBlockReason] = useState(null);
   const [topicsBlockReason, setTopicsBlockReason] = useState(null);
   const [agendaItems, setAgendaItems] = useState(hit.agenda_items || null);
+  const [isLoadingAgendaItems, setIsLoadingAgendaItems] = useState(false);
+  const [agendaLoadError, setAgendaLoadError] = useState(null);
   const [relatedMeetings, setRelatedMeetings] = useState(null);
   const [isGenerating, setIsGenerating] = useState(false);
   const [isTaggingTopics, setIsTaggingTopics] = useState(false);
   const [isSegmenting, setIsSegmenting] = useState(false);
   const [isExtracting, setIsExtracting] = useState(false);
+  const [summaryActionError, setSummaryActionError] = useState(null);
+  const [topicsActionError, setTopicsActionError] = useState(null);
+  const [agendaActionError, setAgendaActionError] = useState(null);
+  const [extractActionError, setExtractActionError] = useState(null);
   const [extractedTextOverride, setExtractedTextOverride] = useState(null);
   const [isLoadingCanonicalText, setIsLoadingCanonicalText] = useState(false);
   const [canonicalTextLoadError, setCanonicalTextLoadError] = useState(null);
   const [canonicalTextFetchFailed, setCanonicalTextFetchFailed] = useState(false);
   const [derivedStatus, setDerivedStatus] = useState(null);
+  const [derivedStatusLoadError, setDerivedStatusLoadError] = useState(null);
   const [isLoadingRelated, setIsLoadingRelated] = useState(false);
   const [isReporting, setIsReporting] = useState(false);
   const [reportStatus, setReportStatus] = useState(null); // 'loading', 'success', 'error'
+  const [reportActionError, setReportActionError] = useState(null);
   const demoMode = isDemoMode();
   const canMutate = !demoMode;
 
@@ -167,6 +204,7 @@ export default function ResultCard({ hit, onPersonClick, onTopicClick }) {
   const handleReportIssue = async (issueType) => {
     if (!canMutate) return;
     setReportStatus('loading');
+    setReportActionError(null);
     try {
       const res = await fetch(`/api/report-issue`, {
         method: "POST",
@@ -177,6 +215,7 @@ export default function ResultCard({ hit, onPersonClick, onTopicClick }) {
           description: "Reported from web UI"
         })
       });
+      await readJsonResponse(res, "Report issue");
       if (res.ok) {
         setReportStatus('success');
         // Hide the form after 3 seconds of success
@@ -190,6 +229,7 @@ export default function ResultCard({ hit, onPersonClick, onTopicClick }) {
     } catch (err) {
       console.error("Reporting failed", err);
       setReportStatus('error');
+      setReportActionError(err instanceof Error ? err.message : "Report issue failed.");
     }
   };
 
@@ -215,6 +255,11 @@ export default function ResultCard({ hit, onPersonClick, onTopicClick }) {
   }, [isExpanded, hit.catalog_id]);
 
   useEffect(() => {
+    if (!isExpanded || viewMode !== "agenda" || !hit.catalog_id || demoMode || agendaItems !== null) return;
+    fetchAgendaItems();
+  }, [isExpanded, viewMode, hit.catalog_id, demoMode, agendaItems]);
+
+  useEffect(() => {
     return () => {
       for (const stop of activePollStopsRef.current) {
         try {
@@ -229,16 +274,16 @@ export default function ResultCard({ hit, onPersonClick, onTopicClick }) {
 
   const fetchDerivedStatus = async () => {
     if (!hit.catalog_id) return;
+    setDerivedStatusLoadError(null);
     try {
-      const res = await fetch(buildApiUrl(`/catalog/${hit.catalog_id}/derived_status`), {
+      const res = await fetch(buildProtectedCatalogApiUrl(`/catalog/${hit.catalog_id}/derived_status`), {
         headers: getApiHeaders(),
       });
-      if (!res.ok) return;
-      const data = await res.json();
+      const data = await readJsonResponse(res, "Load derived status");
       setDerivedStatus(data);
     } catch (err) {
-      // Best-effort only; staleness badges are helpful but not critical.
       console.error("Failed to fetch derived status", err);
+      setDerivedStatusLoadError(err instanceof Error ? err.message : "Failed to load derived status.");
     }
   };
 
@@ -247,25 +292,36 @@ export default function ResultCard({ hit, onPersonClick, onTopicClick }) {
     setIsLoadingCanonicalText(true);
     setCanonicalTextLoadError(null);
     try {
-      const res = await fetch(buildApiUrl(`/catalog/${hit.catalog_id}/content`), {
+      const res = await fetch(buildProtectedCatalogApiUrl(`/catalog/${hit.catalog_id}/content`), {
         headers: getApiHeaders(),
       });
-      if (!res.ok) {
-        setCanonicalTextFetchFailed(true);
-        setCanonicalTextLoadError(`Failed to load extracted text (HTTP ${res.status}).`);
-        setIsLoadingCanonicalText(false);
-        return;
-      }
-
-      const data = await res.json();
+      const data = await readJsonResponse(res, "Load extracted text");
       setExtractedTextOverride(typeof data.content === "string" ? data.content : "");
       setCanonicalTextFetchFailed(false);
-      setIsLoadingCanonicalText(false);
     } catch (err) {
       console.error("Failed to fetch canonical text", err);
       setCanonicalTextFetchFailed(true);
-      setCanonicalTextLoadError("Failed to load extracted text (network error).");
+      setCanonicalTextLoadError(err instanceof Error ? err.message : "Failed to load extracted text.");
+    } finally {
       setIsLoadingCanonicalText(false);
+    }
+  };
+
+  const fetchAgendaItems = async () => {
+    if (!hit.catalog_id || demoMode) return;
+    setIsLoadingAgendaItems(true);
+    setAgendaLoadError(null);
+    try {
+      const res = await fetch(buildProtectedCatalogApiUrl(`/catalog/${hit.catalog_id}/agenda_items`), {
+        headers: getApiHeaders(),
+      });
+      const data = await readJsonResponse(res, "Load agenda items");
+      setAgendaItems(Array.isArray(data.items) ? data.items : []);
+    } catch (err) {
+      console.error("Failed to fetch agenda items", err);
+      setAgendaLoadError(err instanceof Error ? err.message : "Failed to load agenda items.");
+    } finally {
+      setIsLoadingAgendaItems(false);
     }
   };
 
@@ -291,6 +347,7 @@ export default function ResultCard({ hit, onPersonClick, onTopicClick }) {
     if (!hit.catalog_id || demoMode) return;
     
     setIsGenerating(true);
+    setSummaryActionError(null);
     try {
       const url = new URL(`/api/summarize/${hit.catalog_id}`, window.location.origin);
       if (force) url.searchParams.set("force", "true");
@@ -299,7 +356,7 @@ export default function ResultCard({ hit, onPersonClick, onTopicClick }) {
         method: "POST",
         headers: getApiHeaders()
       });
-      const data = await res.json();
+      const data = await readJsonResponse(res, "Generate summary");
       
       if ((data.status === 'cached' || data.status === 'stale') && data.summary) {
         setSummary(data.summary);
@@ -322,12 +379,16 @@ export default function ResultCard({ hit, onPersonClick, onTopicClick }) {
           }
           setIsGenerating(false);
           fetchDerivedStatus();
-        }, () => setIsGenerating(false), 'summary'));
+        }, (error) => {
+          setSummaryActionError(error ? `Summary generation failed: ${error}` : "Summary generation failed.");
+          setIsGenerating(false);
+        }, 'summary'));
       } else {
         setIsGenerating(false);
       }
     } catch (err) {
       console.error("AI Generation failed", err);
+      setSummaryActionError(err instanceof Error ? err.message : "Summary generation failed.");
       setIsGenerating(false);
     }
   };
@@ -335,6 +396,7 @@ export default function ResultCard({ hit, onPersonClick, onTopicClick }) {
   const handleGenerateTopics = async ({ force = false } = {}) => {
     if (!hit.catalog_id || demoMode) return;
     setIsTaggingTopics(true);
+    setTopicsActionError(null);
     try {
       const url = new URL(`/api/topics/${hit.catalog_id}`, window.location.origin);
       if (force) url.searchParams.set("force", "true");
@@ -343,7 +405,7 @@ export default function ResultCard({ hit, onPersonClick, onTopicClick }) {
         method: "POST",
         headers: getApiHeaders(),
       });
-      const data = await res.json();
+      const data = await readJsonResponse(res, "Generate topics");
 
       if ((data.status === "cached" || data.status === "stale") && data.topics) {
         setTopics(data.topics || []);
@@ -369,7 +431,10 @@ export default function ResultCard({ hit, onPersonClick, onTopicClick }) {
             setIsTaggingTopics(false);
             fetchDerivedStatus();
           },
-          () => setIsTaggingTopics(false),
+          (error) => {
+            setTopicsActionError(error ? `Topic generation failed: ${error}` : "Topic generation failed.");
+            setIsTaggingTopics(false);
+          },
           "topics"
         ));
       } else {
@@ -377,6 +442,7 @@ export default function ResultCard({ hit, onPersonClick, onTopicClick }) {
       }
     } catch (err) {
       console.error("Topic generation failed", err);
+      setTopicsActionError(err instanceof Error ? err.message : "Topic generation failed.");
       setIsTaggingTopics(false);
     }
   };
@@ -385,6 +451,7 @@ export default function ResultCard({ hit, onPersonClick, onTopicClick }) {
     if (!hit.catalog_id || demoMode) return;
     
     setIsSegmenting(true);
+    setAgendaActionError(null);
     try {
       const url = new URL(`/api/segment/${hit.catalog_id}`, window.location.origin);
       if (force) url.searchParams.set("force", "true");
@@ -393,25 +460,31 @@ export default function ResultCard({ hit, onPersonClick, onTopicClick }) {
         method: "POST",
         headers: getApiHeaders()
       });
-      const data = await res.json();
+      const data = await readJsonResponse(res, "Segment agenda");
       
       if (data.status === 'cached' && data.items) {
         setAgendaItems(data.items);
         setIsSegmenting(false);
         // Refresh derived status so "Not generated yet" clears immediately after segmentation.
         fetchDerivedStatus();
+        fetchAgendaItems();
       } else if (data.task_id) {
         addPollStop(pollTaskStatus(data.task_id, (result) => {
           setAgendaItems(result);
           setIsSegmenting(false);
           // Segmentation creates AgendaItem rows; update derived status so badges stay in sync.
           fetchDerivedStatus();
-        }, () => setIsSegmenting(false), 'agenda'));
+          fetchAgendaItems();
+        }, (error) => {
+          setAgendaActionError(error ? `Agenda segmentation failed: ${error}` : "Agenda segmentation failed.");
+          setIsSegmenting(false);
+        }, 'agenda'));
       } else {
         setIsSegmenting(false);
       }
     } catch (err) {
       console.error("Agenda segmentation failed", err);
+      setAgendaActionError(err instanceof Error ? err.message : "Agenda segmentation failed.");
       setIsSegmenting(false);
     }
   };
@@ -419,6 +492,7 @@ export default function ResultCard({ hit, onPersonClick, onTopicClick }) {
   const handleReextractText = async ({ ocrFallback = true } = {}) => {
     if (!hit.catalog_id || demoMode) return;
     setIsExtracting(true);
+    setExtractActionError(null);
     try {
       const url = new URL(`/api/extract/${hit.catalog_id}`, window.location.origin);
       url.searchParams.set("force", "true");
@@ -428,7 +502,7 @@ export default function ResultCard({ hit, onPersonClick, onTopicClick }) {
         method: "POST",
         headers: getApiHeaders(),
       });
-      const data = await res.json();
+      const data = await readJsonResponse(res, "Re-extract text");
       if (data.status === "cached") {
         // Pull fresh text from the DB endpoint even when cached so the UI refreshes.
         await fetchCanonicalContent();
@@ -445,7 +519,10 @@ export default function ResultCard({ hit, onPersonClick, onTopicClick }) {
             setIsExtracting(false);
             fetchDerivedStatus();
           },
-          () => setIsExtracting(false),
+          (error) => {
+            setExtractActionError(error ? `Re-extraction failed: ${error}` : "Re-extraction failed.");
+            setIsExtracting(false);
+          },
           "extract"
         ));
         return;
@@ -454,6 +531,7 @@ export default function ResultCard({ hit, onPersonClick, onTopicClick }) {
       setIsExtracting(false);
     } catch (err) {
       console.error("Re-extraction failed", err);
+      setExtractActionError(err instanceof Error ? err.message : "Re-extraction failed.");
       setIsExtracting(false);
     }
   };
@@ -555,6 +633,11 @@ export default function ResultCard({ hit, onPersonClick, onTopicClick }) {
               </div>
             ) : (
               <div className="space-y-3">
+                {reportActionError && (
+                  <div className="rounded-xl border border-red-200 bg-red-50 px-3 py-2 text-[12px] text-red-700">
+                    {reportActionError}
+                  </div>
+                )}
                 <p className="text-xs text-red-600/70 mb-3">What seems to be the problem with this data?</p>
                 <div className="grid grid-cols-2 gap-2">
                   {[
@@ -667,6 +750,11 @@ export default function ResultCard({ hit, onPersonClick, onTopicClick }) {
                   </p>
                 </div>
               )}
+              {derivedStatusLoadError && (
+                <div className="mb-4 rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-[12px] text-amber-800">
+                  {derivedStatusLoadError}
+                </div>
+              )}
               {viewMode === "summary" ? (
                 <div className="p-8 bg-purple-50/30 border border-purple-100 rounded-3xl space-y-6">
                     <div className="space-y-3">
@@ -674,6 +762,11 @@ export default function ResultCard({ hit, onPersonClick, onTopicClick }) {
                         <Sparkles className="w-4 h-4" />
                         Executive Summary
                       </div>
+                      {summaryActionError && (
+                        <div className="rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-[12px] text-amber-800">
+                          {summaryActionError}
+                        </div>
+                      )}
                       {showAiDisclaimer && (
                         <div className="rounded-xl border border-slate-200 bg-slate-50 px-3 py-2">
                           <p className="text-[12px] text-slate-600 flex items-center gap-2">
@@ -799,7 +892,7 @@ export default function ResultCard({ hit, onPersonClick, onTopicClick }) {
                     )}
                   </div>
 
-                  {(hit.entities || (topics && topics.length > 0) || effectiveTopicsBlockReason || topicsNotGeneratedYet) && (
+                  {(hit.entities || (topics && topics.length > 0) || effectiveTopicsBlockReason || topicsActionError || topicsNotGeneratedYet) && (
                     <div className="grid md:grid-cols-2 gap-6 pt-6 border-t border-purple-100">
                       {hit.entities && (
                         <div className="space-y-3">
@@ -813,7 +906,7 @@ export default function ResultCard({ hit, onPersonClick, onTopicClick }) {
                           </div>
                         </div>
                       )}
-		                      {(topics && topics.length > 0) || effectiveTopicsBlockReason || topicsNotGeneratedYet ? (
+			                      {(topics && topics.length > 0) || effectiveTopicsBlockReason || topicsActionError || topicsNotGeneratedYet ? (
 		                        <div className="space-y-3">
 		                          <div className="flex items-center justify-between">
 		                            <div className="flex items-center gap-2">
@@ -844,6 +937,10 @@ export default function ResultCard({ hit, onPersonClick, onTopicClick }) {
                               {effectiveTopicsBlockReason ? (
                                 <div className="rounded-xl border border-amber-200 bg-amber-50 px-3 py-2">
                                   <p className="text-[12px] text-amber-700">Topics unavailable: {effectiveTopicsBlockReason}</p>
+                                </div>
+                              ) : topicsActionError ? (
+                                <div className="rounded-xl border border-amber-200 bg-amber-50 px-3 py-2">
+                                  <p className="text-[12px] text-amber-700">{topicsActionError}</p>
                                 </div>
                               ) : topicsNotGeneratedYet ? (
                                 <div className="rounded-xl border border-slate-200 bg-slate-50 px-3 py-2">
@@ -886,6 +983,17 @@ export default function ResultCard({ hit, onPersonClick, onTopicClick }) {
                         </span>
                       )}
                     </div>
+                    {(agendaLoadError || agendaActionError) && (
+                      <div className="rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-[12px] text-amber-800">
+                        {agendaLoadError || agendaActionError}
+                      </div>
+                    )}
+                    {isLoadingAgendaItems && (
+                      <div className="rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-[12px] text-slate-600 flex items-center gap-2">
+                        <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                        Loading structured agenda...
+                      </div>
+                    )}
                     {showAgendaAiDisclaimer && (
                       <div className="rounded-xl border border-slate-200 bg-slate-50 px-3 py-2">
                         <p className="text-[12px] text-slate-600 flex items-center gap-2">
@@ -980,6 +1088,11 @@ export default function ResultCard({ hit, onPersonClick, onTopicClick }) {
                           {canonicalTextFetchFailed && typeof hit.content === "string" && hit.content.length > 0
                             ? "Showing search snippet instead."
                             : null}
+                        </div>
+                      )}
+                      {extractActionError && (
+                        <div className="mb-4 text-[12px] text-amber-800 bg-amber-50 border border-amber-200 rounded-xl px-3 py-2">
+                          {extractActionError}
                         </div>
                       )}
                       {isLoadingCanonicalText && (

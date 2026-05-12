@@ -37,6 +37,15 @@ export function buildApiUrl(path) {
   return `${API_BASE_URL}${path}`;
 }
 
+export function buildProtectedCatalogApiUrl(path) {
+  const cleanPath = path.startsWith("/") ? path : `/${path}`;
+  if (DEMO_MODE) {
+    const demoPath = getDemoPath(cleanPath);
+    if (demoPath) return `.${demoPath}`;
+  }
+  return `/api${cleanPath}`;
+}
+
 export function getApiHeaders({ useAuth = false, json = false } = {}) {
   const headers = {};
 
