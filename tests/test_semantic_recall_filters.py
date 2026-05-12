@@ -52,6 +52,32 @@ class _AdaptiveBackend:
         return rows
 
 
+class _MaxCapBackend:
+    def __init__(self):
+        self.calls = []
+
+    def health(self):
+        return {"status": "ok", "engine": "faiss"}
+
+    def query(self, _q, k):
+        self.calls.append(k)
+        return [
+            SemanticCandidate(
+                row_id=1,
+                score=0.9,
+                metadata={
+                    "result_type": "meeting",
+                    "db_id": 100,
+                    "catalog_id": 100,
+                    "city": "ca_berkeley",
+                    "meeting_category": "Regular",
+                    "organization": "City Council",
+                    "date": "2025-01-01",
+                },
+            )
+        ]
+
+
 def test_semantic_search_expands_top_k_until_filtered_results_exist(mocker):
     db = MagicMock()
     app.dependency_overrides[get_db] = lambda: db
@@ -75,5 +101,29 @@ def test_semantic_search_expands_top_k_until_filtered_results_exist(mocker):
         payload = resp.json()
         assert payload["semantic_diagnostics"]["expansion_steps"] >= 1
         assert len(payload["hits"]) > 0
+    finally:
+        del app.dependency_overrides[get_db]
+
+
+def test_semantic_search_stops_expansion_at_max_top_k(mocker):
+    db = MagicMock()
+    app.dependency_overrides[get_db] = lambda: db
+    backend = _MaxCapBackend()
+    mocker.patch("semantic_service.main.SEMANTIC_ENABLED", True)
+    mocker.patch("semantic_service.main.SEMANTIC_BASE_TOP_K", 2)
+    mocker.patch("semantic_service.main.SEMANTIC_MAX_TOP_K", 4)
+    mocker.patch("semantic_service.main.SEMANTIC_FILTER_EXPANSION_FACTOR", 1)
+    mocker.patch("semantic_service.main.get_semantic_backend", return_value=backend)
+    mocker.patch("semantic_service.main._hydrate_meeting_hits", return_value=[])
+    mocker.patch("semantic_service.main._hydrate_agenda_hits", return_value=[])
+    client = TestClient(app)
+    try:
+        resp = client.get("/search/semantic?q=zoning&city=cupertino&limit=10", headers={"X-API-Key": VALID_KEY})
+        assert resp.status_code == 200
+        payload = resp.json()
+        assert backend.calls == [4]
+        assert payload["semantic_diagnostics"]["k_used"] == 4
+        assert payload["semantic_diagnostics"]["expansion_steps"] == 0
+        assert payload["semantic_diagnostics"]["filtered_candidates"] == 0
     finally:
         del app.dependency_overrides[get_db]
