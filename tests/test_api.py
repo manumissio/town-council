@@ -689,6 +689,35 @@ def test_catalog_agenda_items_returns_ordered_minimal_payload():
         del app.dependency_overrides[get_db]
 
 
+def test_catalog_agenda_items_preserves_segmentation_source_for_disclaimer():
+    from api.main import get_db
+
+    agenda_item = MagicMock(
+        id=12,
+        order=1,
+        title="Approve project contract",
+        description="Authorize amendment.",
+        classification="Action",
+        result="Passed",
+        page_number=3,
+        votes=None,
+    )
+    db = MagicMock()
+    db.get.return_value = MagicMock(id=909, agenda_segmentation_status="complete")
+    db.query.return_value.filter.return_value.order_by.return_value.all.return_value = [agenda_item]
+
+    def _mock_get_db():
+        yield db
+
+    app.dependency_overrides[get_db] = _mock_get_db
+    try:
+        resp = client.get("/catalog/909/agenda_items", headers={"X-API-Key": VALID_KEY})
+        assert resp.status_code == 200
+        assert resp.json()["items"][0]["source"] == "llm"
+    finally:
+        del app.dependency_overrides[get_db]
+
+
 def test_derived_status_exposes_not_generated_flags():
     from api.main import get_db
 
