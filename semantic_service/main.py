@@ -1,10 +1,10 @@
 import logging
 import os
 import time
-from typing import Optional, Any
+from typing import Any, Optional
 
 import meilisearch
-from fastapi import FastAPI, HTTPException, Query, Depends
+from fastapi import Depends, FastAPI, HTTPException, Query
 from sqlalchemy import text
 from sqlalchemy.orm import Session as SQLAlchemySession, sessionmaker
 
@@ -32,6 +32,11 @@ from semantic_service.filters import (
     build_filter_values as _build_filter_values,
     build_meilisearch_filter_clauses as _build_meilisearch_filter_clauses,
     validate_date_format,
+)
+from semantic_service.retrieval import (
+    SemanticRetrievalSettings,
+    SemanticSearchFilters,
+    retrieve_semantic_candidates,
 )
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(name)s - %(levelname)s - %(message)s")
@@ -267,95 +272,38 @@ def search_documents_semantic(
         include_agenda_items=include_agenda_items,
     )
     target = offset + limit
-    k = max(SEMANTIC_BASE_TOP_K, target * SEMANTIC_FILTER_EXPANSION_FACTOR)
-    k = min(k, SEMANTIC_MAX_TOP_K)
-    expansion_steps = 0
     t0 = time.perf_counter()
     backend = get_semantic_backend()
 
     try:
-        deduped = []
-        raw_count = 0
-        filtered_count = 0
-        diagnostics_extra = {
-            "retrieval_mode": "vector_direct",
-            "result_scope": "full_semantic",
-            "hybrid_rerank_applied": False,
-            "degraded_to_lexical": False,
-            "skipped_reason": None,
-            "lexical_candidates": 0,
-            "eligible_meeting_candidates": 0,
-            "candidate_limit_applied": 0,
-            "fresh_embeddings": 0,
-            "missing_embeddings": 0,
-            "stale_embeddings": 0,
-            "lexical_fallback_candidates": 0,
-        }
-
-        if isinstance(backend, PgvectorSemanticBackend) or (SEMANTIC_BACKEND == "pgvector"):
-            index = client.index("documents")
-            lexical_limit = min(
-                SEMANTIC_MAX_TOP_K,
-                max(target * SEMANTIC_FILTER_EXPANSION_FACTOR, SEMANTIC_RERANK_CANDIDATE_LIMIT),
-            )
-            lexical_params = {
-                "limit": lexical_limit,
-                "offset": 0,
-                "attributesToRetrieve": [
-                    "id",
-                    "db_id",
-                    "event_id",
-                    "catalog_id",
-                    "result_type",
-                    "city",
-                    "meeting_category",
-                    "organization",
-                    "date",
-                ],
-                "filter": _build_meilisearch_filter_clauses(
-                    city=city,
-                    meeting_type=meeting_type,
-                    org=org,
-                    date_from=date_from,
-                    date_to=date_to,
-                    include_agenda_items=include_agenda_items,
-                ),
-            }
-            if not lexical_params["filter"]:
-                del lexical_params["filter"]
-            lexical_results = index.search(q, lexical_params)
-            lexical_hits = lexical_results.get("hits", []) or []
-            raw_count = len(lexical_hits)
-            rerank_with_diagnostics = getattr(backend, "rerank_candidates_with_diagnostics", None)
-            if callable(rerank_with_diagnostics):
-                rerank_result = rerank_with_diagnostics(db, q, lexical_hits, top_k=k)
-                candidates = rerank_result.candidates
-                diagnostics_extra.update(rerank_result.diagnostics)
-            else:
-                candidates = backend.rerank_candidates(db, q, lexical_hits, top_k=k)
-            filtered = [c for c in candidates if _semantic_candidate_matches_filters(c.metadata, filters)]
-            filtered_count = len(filtered)
-            deduped = _dedupe_semantic_candidates(filtered)
-            if diagnostics_extra.get("degraded_to_lexical") or len(deduped) < target:
-                deduped, fallback_added = _merge_semantic_with_lexical_fallback(deduped, lexical_hits, filters)
-                diagnostics_extra["degraded_to_lexical"] = True
-                diagnostics_extra["lexical_fallback_candidates"] = fallback_added
-                if fallback_added and diagnostics_extra.get("skipped_reason") is None:
-                    diagnostics_extra["skipped_reason"] = "partial_embedding_coverage"
-        else:
-            while True:
-                candidates = backend.query(q, k)
-                raw_count = len(candidates)
-                filtered = [c for c in candidates if _semantic_candidate_matches_filters(c.metadata, filters)]
-                filtered_count = len(filtered)
-                deduped = _dedupe_semantic_candidates(filtered)
-                if len(deduped) >= target or k >= SEMANTIC_MAX_TOP_K:
-                    break
-                next_k = min(SEMANTIC_MAX_TOP_K, max(k + 1, k * 2))
-                if next_k == k:
-                    break
-                k = next_k
-                expansion_steps += 1
+        retrieval_result = retrieve_semantic_candidates(
+            backend=backend,
+            db=db,
+            query_text=q,
+            target=target,
+            filters=filters,
+            search_filters=SemanticSearchFilters(
+                city=city,
+                meeting_type=meeting_type,
+                org=org,
+                date_from=date_from,
+                date_to=date_to,
+                include_agenda_items=include_agenda_items,
+            ),
+            settings=SemanticRetrievalSettings(
+                backend_name=SEMANTIC_BACKEND,
+                base_top_k=SEMANTIC_BASE_TOP_K,
+                filter_expansion_factor=SEMANTIC_FILTER_EXPANSION_FACTOR,
+                max_top_k=SEMANTIC_MAX_TOP_K,
+                rerank_candidate_limit=SEMANTIC_RERANK_CANDIDATE_LIMIT,
+            ),
+            meili_client=client,
+            is_pgvector_backend=isinstance(backend, PgvectorSemanticBackend),
+            build_filter_clauses=_build_meilisearch_filter_clauses,
+            filter_matcher=_semantic_candidate_matches_filters,
+            dedupe_candidates=_dedupe_semantic_candidates,
+            merge_lexical_fallback=_merge_semantic_with_lexical_fallback,
+        )
     except FileNotFoundError as exc:
         raise HTTPException(
             status_code=503,
@@ -371,6 +319,7 @@ def search_documents_semantic(
         logger.error("semantic search failed: %s", exc)
         raise HTTPException(status_code=500, detail="Internal semantic search error") from exc
 
+    deduped = retrieval_result.deduped
     page_candidates = deduped[offset : offset + limit]
     meeting_candidates = [c for c in page_candidates if str(c.metadata.get("result_type") or "meeting") == "meeting"]
     agenda_candidates = [c for c in page_candidates if str(c.metadata.get("result_type")) == "agenda_item"]
@@ -393,13 +342,13 @@ def search_documents_semantic(
         "limit": limit,
         "offset": offset,
         "semantic_diagnostics": {
-            "raw_candidates": raw_count,
-            "filtered_candidates": filtered_count,
+            "raw_candidates": retrieval_result.raw_count,
+            "filtered_candidates": retrieval_result.filtered_count,
             "dedup_candidates": len(deduped),
-            "k_used": k,
-            "expansion_steps": expansion_steps,
+            "k_used": retrieval_result.k_used,
+            "expansion_steps": retrieval_result.expansion_steps,
             "latency_ms": elapsed_ms,
             "engine": engine,
-            **diagnostics_extra,
+            **retrieval_result.diagnostics_extra,
         },
     }

@@ -86,7 +86,7 @@ def test_semantic_search_pgvector_hybrid_rerank_path(mocker):
 
     client = TestClient(app)
     try:
-        resp = client.get("/search/semantic?q=zoning&limit=20", headers={"X-API-Key": VALID_KEY})
+        resp = client.get("/search/semantic?q=zoning&include_agenda_items=true&limit=20", headers={"X-API-Key": VALID_KEY})
         assert resp.status_code == 200
         payload = resp.json()
         assert payload["hits"][0]["id"] == "doc_10"
@@ -95,6 +95,24 @@ def test_semantic_search_pgvector_hybrid_rerank_path(mocker):
         assert payload["semantic_diagnostics"]["retrieval_mode"] == "hybrid_pgvector"
         assert payload["semantic_diagnostics"]["result_scope"] == "meeting_hybrid"
         assert payload["semantic_diagnostics"]["hybrid_rerank_applied"] is True
+        meili_index.search.assert_called_once_with(
+            "zoning",
+            {
+                "limit": 200,
+                "offset": 0,
+                "attributesToRetrieve": [
+                    "id",
+                    "db_id",
+                    "event_id",
+                    "catalog_id",
+                    "result_type",
+                    "city",
+                    "meeting_category",
+                    "organization",
+                    "date",
+                ],
+            },
+        )
     finally:
         del app.dependency_overrides[get_db]
 
