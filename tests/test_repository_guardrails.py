@@ -429,6 +429,13 @@ SEMANTIC_BACKEND_CLEANUP_MODULES = (
     "pipeline/semantic_pgvector_rows.py",
     "pipeline/semantic_pgvector_rerank.py",
 )
+SEMANTIC_SERVICE_CLEANUP_MODULES = (
+    "semantic_service/main.py",
+    "semantic_service/candidates.py",
+    "semantic_service/filters.py",
+    "semantic_service/retrieval.py",
+    "semantic_service/hydration.py",
+)
 SUMMARY_TEXT_CLEANUP_MODULES = (
     "pipeline/text_generation.py",
     "pipeline/summary_text_formatting.py",
@@ -1175,6 +1182,29 @@ def test_semantic_backend_cleanup_modules_stay_under_size_target():
     ]
 
     assert oversized_modules == []
+
+
+def test_semantic_service_cleanup_modules_stay_under_size_target():
+    oversized_modules = [
+        module_path
+        for module_path in SEMANTIC_SERVICE_CLEANUP_MODULES
+        if len((ROOT / module_path).read_text(encoding="utf-8").splitlines()) > 300
+    ]
+
+    assert oversized_modules == []
+
+
+def test_batch_g_semantic_service_helpers_do_not_import_facade():
+    forbidden_imports: list[str] = []
+    for module_path in (
+        ROOT / "semantic_service" / "candidates.py",
+        ROOT / "semantic_service" / "filters.py",
+        ROOT / "semantic_service" / "retrieval.py",
+        ROOT / "semantic_service" / "hydration.py",
+    ):
+        forbidden_imports.extend(_forbidden_imports(module_path, {"semantic_service.main"}))
+
+    assert forbidden_imports == []
 
 
 def test_summary_text_cleanup_modules_stay_under_size_target():
