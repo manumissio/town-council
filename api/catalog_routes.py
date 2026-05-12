@@ -19,6 +19,28 @@ BATCH_REQUEST_TOO_LARGE_DETAIL = "Batch request too large. Limit is 50 IDs."
 DOCUMENT_NOT_FOUND_DETAIL = "Document not found"
 PAGE_MARKER_PREFIX = "[PAGE "
 VALID_AGENDA_SEGMENTATION_STATUSES = {None, "complete", "empty", "failed"}
+AGENDA_ITEM_CANONICAL_SOURCE = "catalog_agenda_items"
+AGENDA_ITEM_SEGMENTATION_SOURCE = "llm"
+
+
+def _agenda_item_source(catalog: Catalog) -> str:
+    if getattr(catalog, "agenda_segmentation_status", None) == "complete":
+        return AGENDA_ITEM_SEGMENTATION_SOURCE
+    return AGENDA_ITEM_CANONICAL_SOURCE
+
+
+def _agenda_item_payload(item: AgendaItem, *, source: str) -> dict[str, Any]:
+    return {
+        "id": item.id,
+        "order": item.order,
+        "title": item.title,
+        "description": item.description,
+        "classification": item.classification,
+        "result": item.result,
+        "page_number": item.page_number,
+        "votes": item.votes,
+        "source": source,
+    }
 
 
 def _summary_doc_kind_and_hashes(
@@ -103,6 +125,27 @@ def build_catalog_router(
             "chars": len(catalog.content),
             "has_page_markers": PAGE_MARKER_PREFIX in catalog.content,
             "content": catalog.content,
+        }
+
+    @router.get("/catalog/{catalog_id}/agenda_items", dependencies=[Depends(verify_api_key_dependency)])
+    def get_catalog_agenda_items(
+        catalog_id: int = Path(..., ge=1),
+        db: SQLAlchemySession = Depends(get_db_dependency),
+    ) -> dict[str, Any]:
+        catalog = db.get(Catalog, catalog_id)
+        if not catalog:
+            raise HTTPException(status_code=404, detail=DOCUMENT_NOT_FOUND_DETAIL)
+
+        agenda_items = (
+            db.query(AgendaItem)
+            .filter(AgendaItem.catalog_id == catalog_id)
+            .order_by(AgendaItem.order)
+            .all()
+        )
+        agenda_item_source = _agenda_item_source(catalog)
+        return {
+            "catalog_id": catalog_id,
+            "items": [_agenda_item_payload(item, source=agenda_item_source) for item in agenda_items],
         }
 
     @router.get("/catalog/{catalog_id}/derived_status", dependencies=[Depends(verify_api_key_dependency)])

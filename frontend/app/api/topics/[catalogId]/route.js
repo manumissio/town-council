@@ -1,9 +1,10 @@
 import { proxyBackendJson } from "../../_lib/backend";
 
 export async function POST(request, { params }) {
+  const { catalogId } = await params;
   return proxyBackendJson({
     method: "POST",
-    path: `/topics/${params.catalogId}`,
+    path: `/topics/${catalogId}`,
     searchParams: request.nextUrl.searchParams,
   });
 }

@@ -468,7 +468,7 @@ Use each entry to record:
   - Keeping `api.main` as the facade preserves current imports, dependency overrides, and Docker `main:app` behavior while narrowing implementation ownership.
 - Affected boundaries:
   - `api/main.py` remains the ASGI app and route-wiring boundary.
-  - `api/catalog_routes.py` owns `/catalog/batch`, `/catalog/{catalog_id}/content`, and `/catalog/{catalog_id}/derived_status`.
+  - `api/catalog_routes.py` owns `/catalog/batch`, `/catalog/{catalog_id}/content`, `/catalog/{catalog_id}/derived_status`, and `/catalog/{catalog_id}/agenda_items`.
   - `api/task_routes.py` keeps owning task dispatch while using the `api.main` facade for `_summary_doc_kind_and_hashes`.
 - Canonical references:
   - [ARCHITECTURE.md](../ARCHITECTURE.md)
