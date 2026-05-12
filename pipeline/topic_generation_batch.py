@@ -58,7 +58,7 @@ def _assign_batch_topics(
             keywords = _keywords_for_document_vector(document_vector, feature_names)
             catalog.topics = [_normal_topic_title(keyword) for keyword in keywords]
             catalog.topics_source_hash = catalog.content_hash
-        except IndexError, ValueError:
+        except (IndexError, ValueError):
             catalog.topics_source_hash = catalog.content_hash
             continue
 

@@ -113,7 +113,7 @@ def _place_tokens(db: Any, place_id: int | None, place_model: Any) -> set[str]:
         return set()
     try:
         place = db.get(place_model, place_id)
-    except SQLAlchemyError, RuntimeError, ValueError, AttributeError:
+    except (SQLAlchemyError, RuntimeError, ValueError, AttributeError):
         return set()
 
     display = (getattr(place, "display_name", "") or getattr(place, "name", "") or "").lower()
