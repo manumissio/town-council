@@ -1,3 +1,4 @@
+import datetime
 import json
 import os
 import sys
@@ -173,6 +174,47 @@ def test_legistar_api_spider_falls_back_to_meeting_detail_documents(mocker):
     assert docs[1]["url"] == "https://cupertino.legistar.com/View.ashx?M=M&ID=123"
 
 
+def test_legistar_api_spider_fetches_detail_when_one_api_document_is_missing(mocker):
+    mocker.patch.object(LegistarApi, "_get_last_meeting_date", return_value=None)
+    spider = LegistarApi(client="cupertino", city="cupertino", state="ca")
+    response = TextResponse(
+        url="https://webapi.legistar.com/v1/cupertino/events",
+        body=json.dumps(
+            [
+                {
+                    "EventBodyName": "City Council",
+                    "EventDate": "2026-02-10T00:00:00",
+                    "EventAgendaFile": "https://cupertino.legistar.com/api-agenda.pdf",
+                    "EventMinutesFile": None,
+                    "EventInSiteURL": "https://cupertino.legistar.com/MeetingDetail.aspx?ID=456",
+                }
+            ]
+        ),
+        encoding="utf-8",
+        request=Request(url="https://webapi.legistar.com/v1/cupertino/events"),
+    )
+
+    [request] = list(spider.parse(response))
+    detail_response = TextResponse(
+        url=request.url,
+        body="""
+        <html><body>
+          <a href="https://cupertino.legistar.com/api-agenda.pdf">Agenda</a>
+          <a href="View.ashx?M=M&amp;ID=456">Minutes</a>
+        </body></html>
+        """,
+        encoding="utf-8",
+        request=Request(url=request.url),
+    )
+
+    [event] = list(request.callback(detail_response, **request.cb_kwargs))
+    assert [doc["category"] for doc in event["documents"]] == ["agenda", "minutes"]
+    assert [doc["url"] for doc in event["documents"]] == [
+        "https://cupertino.legistar.com/api-agenda.pdf",
+        "https://cupertino.legistar.com/View.ashx?M=M&ID=456",
+    ]
+
+
 def test_legistar_api_spider_prefers_api_documents_without_duplicate_fallback(mocker):
     mocker.patch.object(LegistarApi, "_get_last_meeting_date", return_value=None)
     spider = LegistarApi(client="cupertino", city="cupertino", state="ca")
@@ -230,3 +272,37 @@ def test_legistar_api_spider_paginates_full_event_history(mocker):
     assert isinstance(next_request, Request)
     assert query["$skip"] == ["1000"]
     assert next_request.cb_kwargs == {"skip": 1000}
+
+
+def test_legistar_api_spider_stops_delta_pagination_after_old_meeting(mocker):
+    mocker.patch.object(LegistarApi, "_get_last_meeting_date", return_value=datetime.date(2026, 2, 1))
+    spider = LegistarApi(client="cupertino", city="cupertino", state="ca")
+    spider.page_size = 2
+    event_rows = [
+        {
+            "EventBodyName": "City Council",
+            "EventDate": "2026-02-10T00:00:00",
+            "EventAgendaFile": "https://cupertino.legistar.com/new-agenda.pdf",
+            "EventMinutesFile": None,
+            "EventInSiteURL": "",
+        },
+        {
+            "EventBodyName": "City Council",
+            "EventDate": "2026-01-10T00:00:00",
+            "EventAgendaFile": "https://cupertino.legistar.com/old-agenda.pdf",
+            "EventMinutesFile": None,
+            "EventInSiteURL": "",
+        },
+    ]
+    response = TextResponse(
+        url=spider._build_events_url(skip=0),
+        body=json.dumps(event_rows),
+        encoding="utf-8",
+        request=Request(url=spider._build_events_url(skip=0)),
+    )
+
+    results = list(spider.parse(response, skip=0))
+
+    assert len(results) == 1
+    assert not isinstance(results[0], Request)
+    assert results[0]["source_url"] == ""

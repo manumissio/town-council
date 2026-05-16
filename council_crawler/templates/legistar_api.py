@@ -130,6 +130,9 @@ class LegistarApi(BaseCitySpider):
             dont_filter=True,
         )
 
+    def _should_fetch_meeting_detail(self, *, source_url, agenda_url, minutes_url):
+        return bool(source_url and (not agenda_url or not minutes_url))
+
     def parse(self, response, *, skip=0):
         # Legistar should return JSON, but in practice we sometimes see:
         # - a UTF-8 BOM prefix
@@ -149,6 +152,7 @@ class LegistarApi(BaseCitySpider):
 
         self.logger.info(f"Received {len(data)} events from Legistar API skip={skip}")
 
+        reached_delta_boundary = False
         for item in data:
             # 1. Parse Date
             raw_date = item.get('EventDate')
@@ -160,7 +164,8 @@ class LegistarApi(BaseCitySpider):
 
             # Use the BaseCitySpider to check if we should skip this meeting
             if self.should_skip_meeting(record_date):
-                continue
+                reached_delta_boundary = True
+                break
 
             # 2. Extract Metadata
             body_name = item.get('EventBodyName', 'City Council')
@@ -173,7 +178,11 @@ class LegistarApi(BaseCitySpider):
 
             # Some Legistar tenants omit file URLs from the API payload even when
             # the meeting detail page still publishes the agenda/minutes links.
-            if not documents and source_url:
+            if self._should_fetch_meeting_detail(
+                source_url=source_url,
+                agenda_url=agenda_url,
+                minutes_url=minutes_url,
+            ):
                 yield scrapy.Request(
                     url=source_url,
                     callback=self.parse_meeting_detail,
@@ -194,6 +203,8 @@ class LegistarApi(BaseCitySpider):
                 documents=documents,
             )
 
+        if reached_delta_boundary:
+            return
         next_request = self._next_events_request(response, data, skip)
         if next_request is not None:
             yield next_request
