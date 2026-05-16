@@ -47,6 +47,7 @@ class HttpInferenceProvider:
         self.timeout_topics_seconds = max(MINIMUM_HTTP_TIMEOUT_SECONDS, facade.LOCAL_AI_HTTP_TIMEOUT_TOPICS_SECONDS)
         self.max_retries = max(0, facade.LOCAL_AI_HTTP_MAX_RETRIES)
         self.model_name = facade.LOCAL_AI_HTTP_MODEL
+        self.context_window = max(0, facade.LLM_CONTEXT_WINDOW)
 
     def health_check(self) -> bool:
         try:
@@ -75,7 +76,13 @@ class HttpInferenceProvider:
         )
 
     def _build_request_payload(self, prompt: str, *, max_tokens: int, temperature: float) -> dict[str, object]:
-        return build_request_payload(prompt, model_name=self.model_name, max_tokens=max_tokens, temperature=temperature)
+        return build_request_payload(
+            prompt,
+            model_name=self.model_name,
+            max_tokens=max_tokens,
+            temperature=temperature,
+            context_window=self.context_window,
+        )
 
     def _post_generate_request(self, payload: dict[str, object], *, timeout_seconds: int) -> requests.Response:
         return _provider_facade().requests.post(

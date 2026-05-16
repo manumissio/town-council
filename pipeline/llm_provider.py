@@ -11,6 +11,7 @@ from pipeline.config import (
     LOCAL_AI_HTTP_TIMEOUT_SEGMENT_SECONDS,
     LOCAL_AI_HTTP_TIMEOUT_SUMMARY_SECONDS,
     LOCAL_AI_HTTP_TIMEOUT_TOPICS_SECONDS,
+    LLM_CONTEXT_WINDOW,
 )
 from pipeline.http_inference_provider import HttpInferenceProvider
 from pipeline.inference_provider_contract import (
@@ -57,6 +58,7 @@ __all__ = [
     "LOCAL_AI_HTTP_TIMEOUT_SEGMENT_SECONDS",
     "LOCAL_AI_HTTP_TIMEOUT_SUMMARY_SECONDS",
     "LOCAL_AI_HTTP_TIMEOUT_TOPICS_SECONDS",
+    "LLM_CONTEXT_WINDOW",
     "OPERATION_EXTRACT_AGENDA",
     "OPERATION_GENERATE_JSON",
     "OPERATION_GENERATE_TOPICS",

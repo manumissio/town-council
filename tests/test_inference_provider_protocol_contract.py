@@ -93,6 +93,17 @@ def test_inprocess_provider_satisfies_protocol():
     assert provider.summarize_text("x", temperature=0.0, max_tokens=8) == "ok"
 
 
+def test_http_provider_payload_includes_configured_context_window(monkeypatch):
+    monkeypatch.setattr(llm_provider, "LLM_CONTEXT_WINDOW", 8192)
+    provider = DirectHttpInferenceProvider()
+
+    payload = provider._build_request_payload("summarize this", max_tokens=128, temperature=0.2)
+
+    assert payload["options"]["num_ctx"] == 8192
+    assert payload["options"]["num_predict"] == 128
+    assert payload["options"]["temperature"] == 0.2
+
+
 def test_inprocess_provider_preserves_response_format_fallback():
     owner = _DummyOwner()
     owner.llm = _FormatRejectingLlama()

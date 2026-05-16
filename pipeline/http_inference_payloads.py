@@ -14,15 +14,19 @@ def build_request_payload(
     model_name: str,
     max_tokens: int,
     temperature: float,
+    context_window: int | None = None,
 ) -> dict[str, object]:
+    options: dict[str, object] = {
+        "num_predict": int(max_tokens),
+        "temperature": float(temperature),
+    }
+    if context_window is not None and context_window > 0:
+        options["num_ctx"] = int(context_window)
     return {
         "model": model_name,
         "prompt": prompt,
         "stream": False,
-        "options": {
-            "num_predict": int(max_tokens),
-            "temperature": float(temperature),
-        },
+        "options": options,
     }
 
 
