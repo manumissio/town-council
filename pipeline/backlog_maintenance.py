@@ -80,12 +80,14 @@ def persist_agenda_summary(
     summary: str,
     content_hash: str | None,
     agenda_items_hash: str | None,
+    agenda_segmentation_status: str | None = None,
 ) -> dict[str, Any]:
     return agenda_summary_maintenance_mod.persist_agenda_summary(
         catalog=catalog,
         summary=summary,
         content_hash=content_hash,
         agenda_items_hash=agenda_items_hash,
+        agenda_segmentation_status=agenda_segmentation_status,
     )
 
 

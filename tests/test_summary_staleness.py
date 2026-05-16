@@ -7,7 +7,7 @@ from fastapi.testclient import TestClient
 sys.modules["llama_cpp"] = MagicMock()
 
 from api.main import app
-from pipeline.summary_freshness import compute_agenda_items_hash
+from pipeline.summary_freshness import compute_agenda_items_hash, is_summary_fresh
 
 
 client = TestClient(app)
@@ -213,3 +213,25 @@ def test_summarize_returns_stale_for_agenda_when_agenda_items_hash_is_missing(mo
         delay.assert_not_called()
     finally:
         del app.dependency_overrides[get_db]
+
+
+def test_empty_agenda_summary_freshness_uses_content_hash():
+    assert is_summary_fresh(
+        "agenda",
+        summary="No items were detected.",
+        summary_source_hash="content-hash",
+        content_hash="content-hash",
+        agenda_items_hash=None,
+        agenda_segmentation_status="empty",
+    )
+
+
+def test_empty_agenda_with_rows_uses_agenda_items_hash():
+    assert not is_summary_fresh(
+        "agenda",
+        summary="Old empty agenda fallback.",
+        summary_source_hash="content-hash",
+        content_hash="content-hash",
+        agenda_items_hash="items-hash",
+        agenda_segmentation_status="empty",
+    )

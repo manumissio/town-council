@@ -56,6 +56,7 @@ def backfill(limit: int | None = None) -> dict:
                 doc_kind,
                 content_hash=content_hash,
                 agenda_items_hash=agenda_items_hash,
+                agenda_segmentation_status=getattr(c, "agenda_segmentation_status", None),
             )
 
             if c.summary and not c.summary_source_hash and summary_source_hash:

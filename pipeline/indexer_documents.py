@@ -115,6 +115,7 @@ def _build_meeting_search_doc(
             summary_source_hash=catalog.summary_source_hash,
             content_hash=catalog.content_hash,
             agenda_items_hash=getattr(catalog, "agenda_items_hash", None),
+            agenda_segmentation_status=getattr(catalog, "agenda_segmentation_status", None),
         ),
         "topics_is_stale": bool(
             catalog.topics is not None

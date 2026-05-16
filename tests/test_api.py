@@ -802,3 +802,49 @@ def test_derived_status_marks_agenda_summary_stale_from_structured_items():
         assert payload["summary_is_stale"] is True
     finally:
         del app.dependency_overrides[get_db]
+
+
+def test_derived_status_marks_empty_agenda_fallback_summary_fresh():
+    from api.main import get_db
+    from pipeline.models import AgendaItem, Document
+
+    catalog = MagicMock(
+        id=913,
+        content="Extracted agenda text with no substantive agenda items.",
+        content_hash="content-hash",
+        agenda_items_hash=None,
+        summary="Agenda segmentation completed, but no substantive agenda items were detected in the extracted text.",
+        summary_source_hash="content-hash",
+        topics=[],
+        topics_source_hash=None,
+        agenda_segmentation_status="empty",
+        agenda_segmentation_item_count=0,
+        agenda_segmentation_attempted_at=None,
+        agenda_segmentation_error=None,
+    )
+    db = MagicMock()
+    db.get.return_value = catalog
+
+    def _query_side_effect(model):
+        query = MagicMock()
+        if model is Document:
+            query.filter_by.return_value.first.return_value = MagicMock(category="agenda")
+        elif model is AgendaItem:
+            query.filter_by.return_value.order_by.return_value.all.return_value = []
+        return query
+
+    db.query.side_effect = _query_side_effect
+
+    def _mock_get_db():
+        yield db
+
+    app.dependency_overrides[get_db] = _mock_get_db
+    try:
+        resp = client.get("/catalog/913/derived_status", headers={"X-API-Key": VALID_KEY})
+        assert resp.status_code == 200
+        payload = resp.json()
+        assert payload["summary_is_stale"] is False
+        assert payload["summary_not_generated_yet"] is False
+        assert payload["agenda_is_empty"] is True
+    finally:
+        del app.dependency_overrides[get_db]

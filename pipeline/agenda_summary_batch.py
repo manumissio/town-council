@@ -17,8 +17,15 @@ from pipeline.agenda_summary_contracts import (
     empty_agenda_summary_timings,
     rounded_agenda_summary_timings,
 )
+from pipeline.agenda_summary_empty import (
+    EMPTY_AGENDA_COMPLETION_MODE,
+    EMPTY_AGENDA_SEGMENTATION_STATUS,
+    build_empty_agenda_summary_text,
+    is_empty_agenda_without_items,
+)
 from pipeline.agenda_summary_inputs import build_agenda_summary_input_bundle
 from pipeline.config import AGENDA_SUMMARY_MAX_INPUT_CHARS, AGENDA_SUMMARY_MIN_RESERVED_OUTPUT_CHARS
+from pipeline.content_hash import compute_content_hash
 from pipeline.db_session import db_session
 from pipeline.laserfiche_error_pages import classify_catalog_bad_content
 from pipeline.models import AgendaItem, Catalog, Document
@@ -95,6 +102,7 @@ def persist_agenda_summary(
     summary: str,
     content_hash: str | None,
     agenda_items_hash: str | None,
+    agenda_segmentation_status: str | None = None,
 ) -> AgendaSummaryPayload:
     prior_summary = catalog.summary
     prior_summary_source_hash = catalog.summary_source_hash
@@ -103,6 +111,7 @@ def persist_agenda_summary(
         "agenda",
         content_hash=content_hash,
         agenda_items_hash=agenda_items_hash,
+        agenda_segmentation_status=agenda_segmentation_status,
     )
     catalog.summary = summary
     if content_hash:
@@ -211,11 +220,23 @@ def _build_catalog_result(
     if classification:
         return {"status": "error", "error": classification.reason}
 
+    agenda_items = agenda_items_by_catalog_id.get(catalog_id, [])
+    if is_empty_agenda_without_items(catalog, agenda_items):
+        content_hash = compute_content_hash(catalog.content) if (catalog.content or "") else None
+        persisted_result = persist_agenda_summary(
+            catalog=catalog,
+            summary=build_empty_agenda_summary_text(),
+            content_hash=content_hash,
+            agenda_items_hash=None,
+            agenda_segmentation_status=EMPTY_AGENDA_SEGMENTATION_STATUS,
+        )
+        return {**persisted_result, "completion_mode": EMPTY_AGENDA_COMPLETION_MODE}
+
     summary_bundle = _time_agenda_summary_bundle_build(
         agenda_summary_timings,
         catalog=catalog,
         document=documents_by_catalog_id.get(catalog_id),
-        agenda_items=agenda_items_by_catalog_id.get(catalog_id, []),
+        agenda_items=agenda_items,
         max_input_chars=max_input_chars,
         min_reserved_output_chars=min_reserved_output_chars,
     )

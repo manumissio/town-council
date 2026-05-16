@@ -1,3 +1,5 @@
+from contextlib import nullcontext
+
 import pytest
 from unittest.mock import MagicMock
 import sys
@@ -12,6 +14,8 @@ from sqlalchemy.orm import sessionmaker
 from pipeline.run_pipeline import process_document_chunk
 from pipeline.agenda_service import persist_agenda_items
 from pipeline.tasks import select_catalog_ids_for_summary_hydration, run_summary_hydration_backfill
+from pipeline.agenda_summary_batch import build_deterministic_agenda_summary_payloads
+from pipeline.agenda_summary_empty import EMPTY_AGENDA_SUMMARY_TEXT
 from pipeline.agenda_worker import select_catalog_ids_for_agenda_segmentation
 from pipeline.table_worker import select_catalog_ids_for_table_extraction
 from pipeline.models import Base, Catalog, Document, AgendaItem, Event, Place
@@ -321,6 +325,37 @@ def test_select_catalog_ids_for_summary_hydration_filters_agenda_without_items(b
     assert summarized_catalog.id not in selected
 
 
+def test_select_catalog_ids_for_summary_hydration_includes_empty_agenda_without_items(batching_db):
+    db, event, place = batching_db
+    empty_agenda = _add_catalog(
+        db,
+        event,
+        place,
+        category="agenda",
+        content="agenda text",
+        content_hash="empty-content-hash",
+        summary=None,
+        segmentation_status="empty",
+    )
+    fresh_empty_agenda = _add_catalog(
+        db,
+        event,
+        place,
+        category="agenda",
+        content="agenda text",
+        content_hash="fresh-content-hash",
+        summary=EMPTY_AGENDA_SUMMARY_TEXT,
+        summary_source_hash="fresh-content-hash",
+        segmentation_status="empty",
+    )
+    db.commit()
+
+    selected = select_catalog_ids_for_summary_hydration(db)
+
+    assert empty_agenda.id in selected
+    assert fresh_empty_agenda.id not in selected
+
+
 def test_select_catalog_ids_for_summary_hydration_treats_agenda_html_like_agenda(batching_db):
     db, event, place = batching_db
     agenda_html_with_items = _add_catalog(
@@ -404,6 +439,86 @@ def test_select_catalog_ids_for_summary_hydration_includes_stale_agenda_but_skip
 
     assert fresh_agenda.id not in selected
     assert stale_agenda.id in selected
+
+
+def test_select_catalog_ids_for_summary_hydration_reselects_empty_agenda_after_items_exist(batching_db):
+    db, event, place = batching_db
+    empty_agenda_with_items = _add_catalog(
+        db,
+        event,
+        place,
+        category="agenda",
+        content="agenda text",
+        content_hash="content-hash",
+        summary=EMPTY_AGENDA_SUMMARY_TEXT,
+        summary_source_hash="content-hash",
+        segmentation_status="empty",
+    )
+    items = [
+        {
+            "order": 1,
+            "title": "New Item",
+            "description": "Desc",
+            "classification": "Agenda",
+            "result": "",
+            "page_number": 1,
+        }
+    ]
+    persist_agenda_items(db, empty_agenda_with_items.id, event.id, items)
+    db.commit()
+
+    selected = select_catalog_ids_for_summary_hydration(db)
+
+    assert empty_agenda_with_items.id in selected
+
+
+def test_deterministic_agenda_summary_payloads_persist_empty_agenda_fallback(batching_db):
+    db, event, place = batching_db
+    empty_agenda = _add_catalog(
+        db,
+        event,
+        place,
+        category="agenda",
+        content="agenda text",
+        content_hash=None,
+        summary=None,
+        summary_source_hash=None,
+        segmentation_status="empty",
+    )
+    db.commit()
+
+    batch = build_deterministic_agenda_summary_payloads(
+        [empty_agenda.id],
+        session_factory=lambda: nullcontext(db),
+    )
+
+    refreshed = db.get(Catalog, empty_agenda.id)
+    assert batch["results"][empty_agenda.id]["status"] == "complete"
+    assert batch["results"][empty_agenda.id]["completion_mode"] == "agenda_empty_deterministic"
+    assert refreshed.summary == EMPTY_AGENDA_SUMMARY_TEXT
+    assert refreshed.summary_source_hash == refreshed.content_hash
+
+
+def test_deterministic_agenda_summary_payloads_do_not_fallback_for_failed_agenda(batching_db):
+    db, event, place = batching_db
+    failed_agenda = _add_catalog(
+        db,
+        event,
+        place,
+        category="agenda",
+        content="agenda text",
+        summary=None,
+        segmentation_status="failed",
+    )
+    db.commit()
+
+    batch = build_deterministic_agenda_summary_payloads(
+        [failed_agenda.id],
+        session_factory=lambda: nullcontext(db),
+    )
+
+    assert batch["results"][failed_agenda.id]["status"] == "not_generated_yet"
+    assert db.get(Catalog, failed_agenda.id).summary is None
 
 
 def test_persist_agenda_items_updates_catalog_agenda_items_hash(batching_db):

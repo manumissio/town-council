@@ -35,6 +35,7 @@ def summarize_document_request(
         summary_source_hash=catalog.summary_source_hash,
         content_hash=content_hash,
         agenda_items_hash=agenda_items_hash,
+        agenda_segmentation_status=getattr(catalog, "agenda_segmentation_status", None),
     )
 
     if (not force) and is_fresh:

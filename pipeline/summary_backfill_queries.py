@@ -44,6 +44,16 @@ def select_catalog_ids_for_summary_hydration(
     """
     doc_kind = summary_doc_kind_subquery(db)
     agenda_items_exist = db.query(AgendaItem.id).filter(AgendaItem.catalog_id == Catalog.id).exists()
+    empty_agenda_needs_summary = and_(
+        Catalog.agenda_segmentation_status == "empty",
+        ~agenda_items_exist,
+        or_(
+            Catalog.summary.is_(None),
+            Catalog.summary_source_hash.is_(None),
+            Catalog.content_hash.is_(None),
+            Catalog.summary_source_hash != Catalog.content_hash,
+        ),
+    )
     query = (
         db.query(Catalog.id)
         .join(doc_kind, doc_kind.c.catalog_id == Catalog.id)
@@ -64,12 +74,17 @@ def select_catalog_ids_for_summary_hydration(
                 ),
                 and_(
                     doc_kind.c.doc_kind == "agenda",
-                    agenda_items_exist,
                     or_(
-                        Catalog.summary.is_(None),
-                        Catalog.summary_source_hash.is_(None),
-                        Catalog.agenda_items_hash.is_(None),
-                        Catalog.summary_source_hash != Catalog.agenda_items_hash,
+                        and_(
+                            agenda_items_exist,
+                            or_(
+                                Catalog.summary.is_(None),
+                                Catalog.summary_source_hash.is_(None),
+                                Catalog.agenda_items_hash.is_(None),
+                                Catalog.summary_source_hash != Catalog.agenda_items_hash,
+                            ),
+                        ),
+                        empty_agenda_needs_summary,
                     ),
                 ),
             ),
