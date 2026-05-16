@@ -1,6 +1,6 @@
 # Town Council Architecture (2026)
 
-Last updated: 2026-05-12
+Last updated: 2026-05-16
 
 ## 1) System Overview
 
@@ -437,7 +437,7 @@ Owners:
 | `catalog.content_hash` | Canonical hash for extracted text used to detect staleness | `pipeline/content_hash.py`, `pipeline/extraction_service.py`, `pipeline/tasks.py` |
 | `catalog.entities_source_hash` | Hash of source text used to generate current entities | `pipeline/backfill_entities.py`, `pipeline/nlp_worker.py` facade plus focused `pipeline/nlp_entity_*` modules |
 | `catalog.agenda_items_hash` | Hash of the normalized structured agenda payload used for agenda-summary freshness | `pipeline/agenda_service.py`, `pipeline/summary_freshness.py`, `pipeline/tasks.py` |
-| `catalog.summary_source_hash` | Hash of the governing summary input; `content_hash` for non-agenda summaries and `agenda_items_hash` for agenda summaries | `pipeline/tasks.py`, `api/main.py`, `api/task_routes.py`, `api/catalog_routes.py`, `pipeline/summary_freshness.py` |
+| `catalog.summary_source_hash` | Hash of the governing summary input; `content_hash` for non-agenda summaries, `agenda_items_hash` for agenda summaries, and `content_hash` for deterministic summaries of agendas whose segmentation status is `empty` | `pipeline/tasks.py`, `api/main.py`, `api/task_routes.py`, `api/catalog_routes.py`, `pipeline/summary_freshness.py` |
 | `catalog.topics_source_hash` | Hash of source text used to generate current topics | `pipeline/topic_generation.py` facade plus focused `pipeline/topic_generation_*` modules, `pipeline/enrichment_tasks.py`, `pipeline/topic_worker.py`, `api/task_routes.py`, `api/catalog_routes.py` |
 | `agenda_item.result` | Normalized outcome field for agenda/vote interpretation | `pipeline/models.py` facade plus focused `pipeline/model_*` modules, `pipeline/tasks.py` |
 | `agenda_item.votes` | Structured vote payload with extraction metadata | `pipeline/models.py` facade plus focused `pipeline/model_*` modules, `pipeline/tasks.py` |

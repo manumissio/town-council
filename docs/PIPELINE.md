@@ -1,6 +1,6 @@
 # Town Council Pipeline Guide
 
-Last updated: 2026-05-10
+Last updated: 2026-05-16
 
 ## 1) Purpose and Boundaries
 
@@ -266,6 +266,7 @@ Agenda summaries are derived from segmented agenda items, not arbitrary raw text
 Freshness contract:
 - non-agenda summaries use `content_hash`
 - agenda summaries use `agenda_items_hash`
+- agendas with `agenda_segmentation_status=empty` use `content_hash` for their deterministic empty-agenda summaries
 - `summary_source_hash` stores whichever governing input hash applies to that catalog
 
 Why this exists:
