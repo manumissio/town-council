@@ -107,6 +107,7 @@ def persist_agenda_summary(
     prior_summary = catalog.summary
     prior_summary_source_hash = catalog.summary_source_hash
     prior_agenda_items_hash = catalog.agenda_items_hash
+    prior_content_hash = catalog.content_hash
     summary_source_hash = compute_summary_source_hash(
         "agenda",
         content_hash=content_hash,
@@ -124,6 +125,7 @@ def persist_agenda_summary(
         prior_summary != summary
         or prior_summary_source_hash != summary_source_hash
         or prior_agenda_items_hash != agenda_items_hash
+        or (content_hash is not None and prior_content_hash != content_hash)
     )
     return {"status": "complete", "summary": summary, "changed": changed}
 

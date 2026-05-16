@@ -20,6 +20,7 @@ from pipeline.agenda_worker import select_catalog_ids_for_agenda_segmentation
 from pipeline.table_worker import select_catalog_ids_for_table_extraction
 from pipeline.models import Base, Catalog, Document, AgendaItem, Event, Place
 from pipeline.city_scope import ordered_hydration_cities, source_aliases_for_city
+from pipeline.content_hash import compute_content_hash
 from pipeline.summary_freshness import compute_agenda_items_hash
 
 
@@ -115,7 +116,6 @@ def test_run_entity_backfill_uses_in_process_fast_path_for_small_snapshots(mocke
 
 def test_process_entity_chunk_marks_low_signal_docs_fresh_without_spacy(db_session, mocker):
     from pipeline.backfill_entities import process_entity_chunk
-    from pipeline.content_hash import compute_content_hash
     from pipeline.models import Catalog, Document, Event, Place
 
     place = Place(
@@ -167,7 +167,6 @@ def test_process_entity_chunk_marks_low_signal_docs_fresh_without_spacy(db_sessi
 
 def test_process_entity_chunk_backfills_missing_entities_source_hash_without_rerunning_ner(db_session, mocker):
     from pipeline.backfill_entities import process_entity_chunk
-    from pipeline.content_hash import compute_content_hash
     from pipeline.models import Catalog, Document, Event, Place
 
     place = Place(
@@ -497,6 +496,52 @@ def test_deterministic_agenda_summary_payloads_persist_empty_agenda_fallback(bat
     assert batch["results"][empty_agenda.id]["completion_mode"] == "agenda_empty_deterministic"
     assert refreshed.summary == EMPTY_AGENDA_SUMMARY_TEXT
     assert refreshed.summary_source_hash == refreshed.content_hash
+
+
+def test_empty_agenda_content_hash_backfill_marks_catalog_changed(batching_db):
+    db, event, place = batching_db
+    content = "agenda text"
+    expected_content_hash = compute_content_hash(content)
+    empty_agenda = _add_catalog(
+        db,
+        event,
+        place,
+        category="agenda",
+        content=content,
+        content_hash=None,
+        summary=EMPTY_AGENDA_SUMMARY_TEXT,
+        summary_source_hash=expected_content_hash,
+        segmentation_status="empty",
+    )
+    db.commit()
+    reindexed_catalog_ids: list[int] = []
+    embedded_catalog_ids: list[int] = []
+
+    batch = build_deterministic_agenda_summary_payloads(
+        [empty_agenda.id],
+        session_factory=lambda: nullcontext(db),
+        reindex_callback=lambda catalog_ids: reindexed_catalog_ids.extend(catalog_ids)
+        or {
+            "catalogs_considered": len(catalog_ids),
+            "catalogs_reindexed": len(catalog_ids),
+            "catalogs_failed": 0,
+            "failed_catalog_ids": [],
+        },
+        embed_callback=lambda catalog_ids: embedded_catalog_ids.extend(catalog_ids)
+        or {
+            "catalogs_considered": len(catalog_ids),
+            "embed_enqueued": len(catalog_ids),
+            "embed_dispatch_failed": 0,
+            "failed_catalog_ids": [],
+        },
+    )
+
+    refreshed = db.get(Catalog, empty_agenda.id)
+    assert batch["results"][empty_agenda.id]["changed"] is True
+    assert batch["changed_catalog_ids"] == [empty_agenda.id]
+    assert reindexed_catalog_ids == [empty_agenda.id]
+    assert embedded_catalog_ids == [empty_agenda.id]
+    assert refreshed.content_hash == expected_content_hash
 
 
 def test_deterministic_agenda_summary_payloads_do_not_fallback_for_failed_agenda(batching_db):
