@@ -1,7 +1,7 @@
 import datetime
 import html
 import json
-from urllib.parse import parse_qs, urlparse
+from urllib.parse import parse_qs, urlencode, urlparse
 
 import scrapy
 
@@ -17,6 +17,7 @@ class LegistarApi(BaseCitySpider):
     """
     name = 'legistar_api'
     client_name = '' # e.g. 'cupertino'
+    page_size = 1000
     
     def __init__(self, client='', city='', state='', *args, **kwargs):
         # Use canonical slug identity for storage while keeping the API client
@@ -30,17 +31,32 @@ class LegistarApi(BaseCitySpider):
         
         super().__init__(*args, **kwargs)
 
-    def start_requests(self):
-        # We fetch the last 1000 events from the Legistar API.
-        #
+    def _initial_events_request(self):
         # Important: Legistar's Web API can respond with XML unless we ask for JSON.
         # Scrapy's default Accept header prefers HTML/XML, so we override it here.
-        url = f'https://webapi.legistar.com/v1/{self.client_name}/events?$top=1000&$orderby=EventDate%20desc'
-        yield scrapy.Request(
+        url = self._build_events_url(skip=0)
+        return scrapy.Request(
             url=url,
             callback=self.parse,
+            cb_kwargs={"skip": 0},
             headers={"Accept": "application/json"},
         )
+
+    async def start(self):
+        yield self._initial_events_request()
+
+    def start_requests(self):
+        yield self._initial_events_request()
+
+    def _build_events_url(self, *, skip):
+        query = urlencode(
+            {
+                "$top": str(self.page_size),
+                "$skip": str(skip),
+                "$orderby": "EventDate desc",
+            }
+        )
+        return f"https://webapi.legistar.com/v1/{self.client_name}/events?{query}"
 
     def _build_documents(self, *, agenda_url=None, minutes_url=None):
         documents = []
@@ -102,7 +118,19 @@ class LegistarApi(BaseCitySpider):
             documents=api_documents + fallback_documents,
         )
 
-    def parse(self, response):
+    def _next_events_request(self, response, data, skip):
+        if len(data) < self.page_size:
+            return None
+        next_skip = skip + self.page_size
+        return response.follow(
+            self._build_events_url(skip=next_skip),
+            callback=self.parse,
+            cb_kwargs={"skip": next_skip},
+            headers={"Accept": "application/json"},
+            dont_filter=True,
+        )
+
+    def parse(self, response, *, skip=0):
         # Legistar should return JSON, but in practice we sometimes see:
         # - a UTF-8 BOM prefix
         # - a non-JSON HTML/body when a proxy/WAF returns an error page
@@ -119,7 +147,7 @@ class LegistarApi(BaseCitySpider):
             )
             return
 
-        self.logger.info(f"Received {len(data)} events from Legistar API")
+        self.logger.info(f"Received {len(data)} events from Legistar API skip={skip}")
 
         for item in data:
             # 1. Parse Date
@@ -165,3 +193,7 @@ class LegistarApi(BaseCitySpider):
                 body_name=body_name,
                 documents=documents,
             )
+
+        next_request = self._next_events_request(response, data, skip)
+        if next_request is not None:
+            yield next_request
