@@ -25,5 +25,5 @@ class Sunnyvale(LegistarApi):
             meeting_type=meeting_type,
         )
         body_name = (meeting_type or meeting_name).removesuffix(" Meeting").strip()
-        event["name"] = f"Sunnyvale, CA City Council {body_name}"
+        event["name"] = f"Sunnyvale, CA {body_name}"
         return event

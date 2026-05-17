@@ -69,7 +69,7 @@ def test_sunnyvale_spider_uses_legistar_api_client(mocker):
     assert request.url.startswith("https://webapi.legistar.com/v1/sunnyvaleca/events?")
 
 
-def test_sunnyvale_api_spider_preserves_existing_event_names(mocker):
+def test_sunnyvale_api_spider_preserves_body_event_names(mocker):
     mocker.patch.object(Sunnyvale, "_get_last_meeting_date", return_value=None)
     spider = Sunnyvale()
 
@@ -92,11 +92,43 @@ def test_sunnyvale_api_spider_preserves_existing_event_names(mocker):
 
     [event] = list(spider.parse(response))
 
-    assert event["name"] == "Sunnyvale, CA City Council Planning Commission"
+    assert event["name"] == "Sunnyvale, CA Planning Commission"
     assert [doc["url"] for doc in event["documents"]] == [
         "https://sunnyvaleca.legistar.com/agenda.pdf",
         "https://sunnyvaleca.legistar.com/minutes.pdf",
     ]
+
+
+def test_sunnyvale_api_spider_does_not_duplicate_city_council_name(mocker):
+    mocker.patch.object(Sunnyvale, "_get_last_meeting_date", return_value=None)
+    spider = Sunnyvale()
+    response = TextResponse(
+        url="https://webapi.legistar.com/v1/sunnyvaleca/events",
+        body=json.dumps(
+            [
+                {
+                    "EventBodyName": "City Council",
+                    "EventDate": "2026-02-10T00:00:00",
+                    "EventAgendaFile": "https://sunnyvaleca.legistar.com/agenda.pdf",
+                    "EventMinutesFile": None,
+                    "EventInSiteURL": "https://sunnyvaleca.legistar.com/MeetingDetail.aspx?ID=123",
+                }
+            ]
+        ),
+        encoding="utf-8",
+        request=Request(url="https://webapi.legistar.com/v1/sunnyvaleca/events"),
+    )
+
+    [request] = list(spider.parse(response))
+    detail_response = TextResponse(
+        url=request.url,
+        body="",
+        encoding="utf-8",
+        request=Request(url=request.url),
+    )
+    [event] = list(request.callback(detail_response, **request.cb_kwargs))
+
+    assert event["name"] == "Sunnyvale, CA City Council"
 
 
 def test_legistar_api_spider_emits_no_documents_when_urls_missing(mocker):
