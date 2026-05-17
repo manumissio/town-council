@@ -215,6 +215,35 @@ def test_legistar_api_spider_fetches_detail_when_one_api_document_is_missing(moc
     ]
 
 
+def test_legistar_api_spider_keeps_api_documents_when_detail_fetch_fails(mocker):
+    mocker.patch.object(LegistarApi, "_get_last_meeting_date", return_value=None)
+    spider = LegistarApi(client="cupertino", city="cupertino", state="ca")
+    response = TextResponse(
+        url="https://webapi.legistar.com/v1/cupertino/events",
+        body=json.dumps(
+            [
+                {
+                    "EventBodyName": "City Council",
+                    "EventDate": "2026-02-10T00:00:00",
+                    "EventAgendaFile": "https://cupertino.legistar.com/api-agenda.pdf",
+                    "EventMinutesFile": None,
+                    "EventInSiteURL": "https://cupertino.legistar.com/MeetingDetail.aspx?ID=456",
+                }
+            ]
+        ),
+        encoding="utf-8",
+        request=Request(url="https://webapi.legistar.com/v1/cupertino/events"),
+    )
+
+    [request] = list(spider.parse(response))
+    failure = type("DetailFailure", (), {"request": request, "value": RuntimeError("detail failed")})()
+
+    [event] = list(request.errback(failure))
+
+    assert [doc["category"] for doc in event["documents"]] == ["agenda"]
+    assert event["documents"][0]["url"] == "https://cupertino.legistar.com/api-agenda.pdf"
+
+
 def test_legistar_api_spider_prefers_api_documents_without_duplicate_fallback(mocker):
     mocker.patch.object(LegistarApi, "_get_last_meeting_date", return_value=None)
     spider = LegistarApi(client="cupertino", city="cupertino", state="ca")

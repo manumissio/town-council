@@ -118,6 +118,20 @@ class LegistarApi(BaseCitySpider):
             documents=api_documents + fallback_documents,
         )
 
+    def parse_meeting_detail_error(self, failure):
+        request = failure.request
+        self.logger.warning(
+            "Failed to fetch Legistar meeting detail %s: %s",
+            request.url,
+            failure.value,
+        )
+        yield self._build_event_item(
+            item=request.cb_kwargs["item"],
+            record_date=request.cb_kwargs["record_date"],
+            body_name=request.cb_kwargs["body_name"],
+            documents=request.cb_kwargs["api_documents"],
+        )
+
     def _next_events_request(self, response, data, skip):
         if len(data) < self.page_size:
             return None
@@ -186,6 +200,7 @@ class LegistarApi(BaseCitySpider):
                 yield scrapy.Request(
                     url=source_url,
                     callback=self.parse_meeting_detail,
+                    errback=self.parse_meeting_detail_error,
                     cb_kwargs={
                         "item": item,
                         "record_date": record_date,
