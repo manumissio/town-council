@@ -214,7 +214,7 @@ If sorting appears to have no effect, see the runbook section in [`docs/OPERATIO
 Runtime profile commands:
 ```bash
 # terminal 1
-mlx_lm.server --model mlx-community/gemma-4-e2b-it-OptiQ-4bit --host 127.0.0.1 --port 8080
+mlx_lm.server --model mlx-community/gemma-3-text-4b-it-4bit --host 127.0.0.1 --port 8080
 
 # terminal 2
 docker compose up -d --build postgres redis meilisearch tika semantic semantic-worker
