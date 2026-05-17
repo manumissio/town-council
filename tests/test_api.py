@@ -528,6 +528,39 @@ def test_summarize_returns_blocked_low_signal_without_queueing(mocker):
         del app.dependency_overrides[get_db]
 
 
+def test_summarize_empty_agenda_bypasses_low_signal_gate(mocker):
+    from api.main import get_db
+
+    catalog = MagicMock(
+        id=910,
+        content="Agenda",
+        summary=None,
+        content_hash="h1",
+        summary_source_hash=None,
+        agenda_segmentation_status="empty",
+    )
+    db = MagicMock()
+    db.get.return_value = catalog
+
+    def _mock_get_db():
+        yield db
+
+    app.dependency_overrides[get_db] = _mock_get_db
+    mock_task = MagicMock()
+    mock_task.id = "task_summary_empty_agenda"
+    delay = mocker.patch("api.main.generate_summary_task.delay", return_value=mock_task)
+    mocker.patch("api.main._summary_doc_kind_and_hashes", return_value=("agenda", "h1", None))
+    try:
+        resp = client.post("/summarize/910", headers={"X-API-Key": VALID_KEY})
+        assert resp.status_code == 200
+        payload = resp.json()
+        assert payload["status"] == "processing"
+        assert payload["task_id"] == "task_summary_empty_agenda"
+        delay.assert_called_once()
+    finally:
+        del app.dependency_overrides[get_db]
+
+
 def test_topics_returns_blocked_low_signal_without_queueing(mocker):
     from api.main import get_db
 
