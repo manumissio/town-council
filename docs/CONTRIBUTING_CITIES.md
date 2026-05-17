@@ -22,6 +22,23 @@ Prefer existing templates/base classes when possible:
 - `BaseCitySpider`
 - Legistar templates in `council_crawler/templates/`
 
+Legistar source choice:
+- Use the Legistar Web API template (`LegistarApi`) when the city exposes
+  meeting rows through `webapi.legistar.com`.
+- Use the Legistar CMS template only when the public calendar page is the
+  reliable source of truth and the Web API is unavailable or incomplete.
+
+When using `LegistarApi`:
+- Pass the tenant slug as `client` (for example `sunnyvaleca`) and the local
+  city slug as `city` (for example `sunnyvale`). The API client slug controls
+  the upstream URL; the city slug controls normalized local identity.
+- The template requests JSON explicitly, orders events by descending
+  `EventDate`, and paginates with `$top` / `$skip`.
+- The template fetches the meeting detail page when either the agenda or minutes
+  URL is missing from the API row, then dedupes API and detail-page documents.
+  This prevents partial Legistar API rows from silently dropping one document
+  category.
+
 ### 3) Validate crawler output contract
 Ensure emitted items include:
 - meeting/event identity
@@ -51,6 +68,9 @@ Add/extend tests with invariant checks (not brittle exact output):
 - seed places includes city record
 - spider handles missing optional doc links cleanly
 - mapping from source payload -> internal fields remains valid
+- Legistar API spiders preserve API documents when detail fallback fails
+- Legistar API detail fallback recovers the missing agenda or minutes URL when
+  only one document category is present in the API row
 
 ## Related Docs
 - Crawler internals: `council_crawler/council_crawler_readme.md`
