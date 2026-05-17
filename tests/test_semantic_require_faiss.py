@@ -13,3 +13,14 @@ def test_semantic_require_faiss_raises_when_faiss_missing(monkeypatch):
     monkeypatch.setattr(semantic_index, "SEMANTIC_ALLOW_MULTIPROCESS", True)
     with pytest.raises(SemanticConfigError):
         backend._guard_runtime()
+
+
+def test_faiss_health_hides_exception_detail(monkeypatch):
+    semantic_index.FaissSemanticBackend._instance = None
+    backend = FaissSemanticBackend()
+    monkeypatch.setattr(backend, "_guard_runtime", lambda: None)
+    monkeypatch.setattr(backend, "_load_artifacts", lambda: (_ for _ in ()).throw(FileNotFoundError("/secret/index.faiss")))
+
+    health = backend.health()
+
+    assert health == {"status": "error", "error": "FileNotFoundError"}

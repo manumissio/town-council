@@ -174,4 +174,4 @@ class FaissSemanticBackend(SemanticBackend):
                 },
             }
         except (FileNotFoundError, json.JSONDecodeError, OSError, RuntimeError, ValueError) as exc:
-            return {"status": "error", "error": exc.__class__.__name__, "detail": str(exc)}
+            return {"status": "error", "error": exc.__class__.__name__}
