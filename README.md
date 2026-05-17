@@ -201,6 +201,9 @@ If sorting appears to have no effect, see the runbook section in [`docs/OPERATIO
   - lineage read endpoints remain available independently
 - `LOCAL_AI_BACKEND=inprocess|http`:
   - switches LocalAI transport mode
+- `LOCAL_AI_HTTP_API=ollama|openai_compat`:
+  - selects the HTTP provider wire protocol
+  - default remains `ollama`
 - `LOCAL_AI_HTTP_PROFILE=conservative|balanced`:
   - selects HTTP inference runtime profile
 - timeout overrides (optional):
@@ -210,9 +213,21 @@ If sorting appears to have no effect, see the runbook section in [`docs/OPERATIO
 
 Runtime profile commands:
 ```bash
+# terminal 1
+mlx_lm.server --model mlx-community/gemma-4-e2b-it-OptiQ-4bit --host 127.0.0.1 --port 8080
+
+# terminal 2
+docker compose up -d --build postgres redis meilisearch tika semantic semantic-worker
+docker compose --env-file env/profiles/m5_mlx_conservative.env up -d --build --no-deps worker api pipeline frontend
 docker compose --env-file env/profiles/m5_conservative.env up -d --build inference worker api pipeline frontend
 docker compose --env-file env/profiles/desktop_balanced.env up -d --build inference worker api pipeline frontend
 ```
+
+M5 Pro MLX opt-in path:
+- `env/profiles/m5_mlx_conservative.env` is the preferred first profile on an M5 Pro with 64GB memory
+- `env/profiles/m5_mlx_balanced.env` is for follow-up throughput testing after conservative evidence is stable
+- MLX runs on the Mac host; Docker services reach it through `http://host.docker.internal:8080`
+- the Docker/Ollama profiles remain the reproducible baseline path
 
 Apple Silicon opt-in host-Metal path:
 ```bash

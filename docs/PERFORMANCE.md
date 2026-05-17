@@ -223,7 +223,7 @@ Track:
 
 ## Inference Decoupling & Throughput Stabilization: Runtime Profile
 
-Default conservative profile for rollout:
+Default conservative Docker/Ollama profile for rollout:
 - `LOCAL_AI_BACKEND=http`
 - worker concurrency: `3`
 - inference service caps: ~4GB RAM / 2 CPU
@@ -237,6 +237,7 @@ Default conservative profile for rollout:
 Promotion rule:
 - move to a balanced profile only after one week of clean SLOs.
 - a passing conservative week makes balanced eligible for opt-in evaluation only; conservative remains the default recommendation.
+- M5 MLX profiles are diagnostic opt-in performance paths until benchmark evidence promotes them.
 
 Provider telemetry for promotion gate:
 - `tc_provider_requests_total` by `{provider,operation,model,outcome}`
