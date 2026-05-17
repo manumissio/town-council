@@ -528,6 +528,39 @@ def test_summarize_returns_blocked_low_signal_without_queueing(mocker):
         del app.dependency_overrides[get_db]
 
 
+def test_summarize_empty_agenda_bypasses_low_signal_gate(mocker):
+    from api.main import get_db
+
+    catalog = MagicMock(
+        id=910,
+        content="Agenda",
+        summary=None,
+        content_hash="h1",
+        summary_source_hash=None,
+        agenda_segmentation_status="empty",
+    )
+    db = MagicMock()
+    db.get.return_value = catalog
+
+    def _mock_get_db():
+        yield db
+
+    app.dependency_overrides[get_db] = _mock_get_db
+    mock_task = MagicMock()
+    mock_task.id = "task_summary_empty_agenda"
+    delay = mocker.patch("api.main.generate_summary_task.delay", return_value=mock_task)
+    mocker.patch("api.main._summary_doc_kind_and_hashes", return_value=("agenda", "h1", None))
+    try:
+        resp = client.post("/summarize/910", headers={"X-API-Key": VALID_KEY})
+        assert resp.status_code == 200
+        payload = resp.json()
+        assert payload["status"] == "processing"
+        assert payload["task_id"] == "task_summary_empty_agenda"
+        delay.assert_called_once()
+    finally:
+        del app.dependency_overrides[get_db]
+
+
 def test_topics_returns_blocked_low_signal_without_queueing(mocker):
     from api.main import get_db
 
@@ -800,5 +833,51 @@ def test_derived_status_marks_agenda_summary_stale_from_structured_items():
         assert resp.status_code == 200
         payload = resp.json()
         assert payload["summary_is_stale"] is True
+    finally:
+        del app.dependency_overrides[get_db]
+
+
+def test_derived_status_marks_empty_agenda_fallback_summary_fresh():
+    from api.main import get_db
+    from pipeline.models import AgendaItem, Document
+
+    catalog = MagicMock(
+        id=913,
+        content="Extracted agenda text with no substantive agenda items.",
+        content_hash="content-hash",
+        agenda_items_hash=None,
+        summary="Agenda segmentation completed, but no substantive agenda items were detected in the extracted text.",
+        summary_source_hash="content-hash",
+        topics=[],
+        topics_source_hash=None,
+        agenda_segmentation_status="empty",
+        agenda_segmentation_item_count=0,
+        agenda_segmentation_attempted_at=None,
+        agenda_segmentation_error=None,
+    )
+    db = MagicMock()
+    db.get.return_value = catalog
+
+    def _query_side_effect(model):
+        query = MagicMock()
+        if model is Document:
+            query.filter_by.return_value.first.return_value = MagicMock(category="agenda")
+        elif model is AgendaItem:
+            query.filter_by.return_value.order_by.return_value.all.return_value = []
+        return query
+
+    db.query.side_effect = _query_side_effect
+
+    def _mock_get_db():
+        yield db
+
+    app.dependency_overrides[get_db] = _mock_get_db
+    try:
+        resp = client.get("/catalog/913/derived_status", headers={"X-API-Key": VALID_KEY})
+        assert resp.status_code == 200
+        payload = resp.json()
+        assert payload["summary_is_stale"] is False
+        assert payload["summary_not_generated_yet"] is False
+        assert payload["agenda_is_empty"] is True
     finally:
         del app.dependency_overrides[get_db]

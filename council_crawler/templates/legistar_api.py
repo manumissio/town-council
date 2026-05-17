@@ -1,7 +1,7 @@
 import datetime
 import html
 import json
-from urllib.parse import parse_qs, urlparse
+from urllib.parse import parse_qs, urlencode, urlparse
 
 import scrapy
 
@@ -17,6 +17,7 @@ class LegistarApi(BaseCitySpider):
     """
     name = 'legistar_api'
     client_name = '' # e.g. 'cupertino'
+    page_size = 1000
     
     def __init__(self, client='', city='', state='', *args, **kwargs):
         # Use canonical slug identity for storage while keeping the API client
@@ -30,17 +31,32 @@ class LegistarApi(BaseCitySpider):
         
         super().__init__(*args, **kwargs)
 
-    def start_requests(self):
-        # We fetch the last 1000 events from the Legistar API.
-        #
+    def _initial_events_request(self):
         # Important: Legistar's Web API can respond with XML unless we ask for JSON.
         # Scrapy's default Accept header prefers HTML/XML, so we override it here.
-        url = f'https://webapi.legistar.com/v1/{self.client_name}/events?$top=1000&$orderby=EventDate%20desc'
-        yield scrapy.Request(
+        url = self._build_events_url(skip=0)
+        return scrapy.Request(
             url=url,
             callback=self.parse,
+            cb_kwargs={"skip": 0},
             headers={"Accept": "application/json"},
         )
+
+    async def start(self):
+        yield self._initial_events_request()
+
+    def start_requests(self):
+        yield self._initial_events_request()
+
+    def _build_events_url(self, *, skip):
+        query = urlencode(
+            {
+                "$top": str(self.page_size),
+                "$skip": str(skip),
+                "$orderby": "EventDate desc",
+            }
+        )
+        return f"https://webapi.legistar.com/v1/{self.client_name}/events?{query}"
 
     def _build_documents(self, *, agenda_url=None, minutes_url=None):
         documents = []
@@ -102,7 +118,36 @@ class LegistarApi(BaseCitySpider):
             documents=api_documents + fallback_documents,
         )
 
-    def parse(self, response):
+    def parse_meeting_detail_error(self, failure):
+        request = failure.request
+        self.logger.warning(
+            "Failed to fetch Legistar meeting detail %s: %s",
+            request.url,
+            failure.value,
+        )
+        yield self._build_event_item(
+            item=request.cb_kwargs["item"],
+            record_date=request.cb_kwargs["record_date"],
+            body_name=request.cb_kwargs["body_name"],
+            documents=request.cb_kwargs["api_documents"],
+        )
+
+    def _next_events_request(self, response, data, skip):
+        if len(data) < self.page_size:
+            return None
+        next_skip = skip + self.page_size
+        return response.follow(
+            self._build_events_url(skip=next_skip),
+            callback=self.parse,
+            cb_kwargs={"skip": next_skip},
+            headers={"Accept": "application/json"},
+            dont_filter=True,
+        )
+
+    def _should_fetch_meeting_detail(self, *, source_url, agenda_url, minutes_url):
+        return bool(source_url and (not agenda_url or not minutes_url))
+
+    def parse(self, response, *, skip=0):
         # Legistar should return JSON, but in practice we sometimes see:
         # - a UTF-8 BOM prefix
         # - a non-JSON HTML/body when a proxy/WAF returns an error page
@@ -119,8 +164,9 @@ class LegistarApi(BaseCitySpider):
             )
             return
 
-        self.logger.info(f"Received {len(data)} events from Legistar API")
+        self.logger.info(f"Received {len(data)} events from Legistar API skip={skip}")
 
+        reached_delta_boundary = False
         for item in data:
             # 1. Parse Date
             raw_date = item.get('EventDate')
@@ -132,7 +178,8 @@ class LegistarApi(BaseCitySpider):
 
             # Use the BaseCitySpider to check if we should skip this meeting
             if self.should_skip_meeting(record_date):
-                continue
+                reached_delta_boundary = True
+                break
 
             # 2. Extract Metadata
             body_name = item.get('EventBodyName', 'City Council')
@@ -145,10 +192,15 @@ class LegistarApi(BaseCitySpider):
 
             # Some Legistar tenants omit file URLs from the API payload even when
             # the meeting detail page still publishes the agenda/minutes links.
-            if not documents and source_url:
+            if self._should_fetch_meeting_detail(
+                source_url=source_url,
+                agenda_url=agenda_url,
+                minutes_url=minutes_url,
+            ):
                 yield scrapy.Request(
                     url=source_url,
                     callback=self.parse_meeting_detail,
+                    errback=self.parse_meeting_detail_error,
                     cb_kwargs={
                         "item": item,
                         "record_date": record_date,
@@ -165,3 +217,9 @@ class LegistarApi(BaseCitySpider):
                 body_name=body_name,
                 documents=documents,
             )
+
+        if reached_delta_boundary:
+            return
+        next_request = self._next_events_request(response, data, skip)
+        if next_request is not None:
+            yield next_request

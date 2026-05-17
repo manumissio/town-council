@@ -170,6 +170,7 @@ def build_catalog_router(
             summary_source_hash=catalog.summary_source_hash,
             content_hash=content_hash,
             agenda_items_hash=agenda_items_hash,
+            agenda_segmentation_status=getattr(catalog, "agenda_segmentation_status", None),
         )
         topics_is_stale = bool(
             catalog.topics is not None and (not content_hash or catalog.topics_source_hash != content_hash)

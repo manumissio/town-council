@@ -53,9 +53,12 @@ def compute_summary_source_hash(
     *,
     content_hash: str | None,
     agenda_items_hash: str | None,
+    agenda_segmentation_status: str | None = None,
 ) -> str | None:
     normalized_kind = normalize_summary_doc_kind(doc_kind)
     if normalized_kind == "agenda":
+        if agenda_segmentation_status == "empty" and not agenda_items_hash:
+            return content_hash
         return agenda_items_hash
     return content_hash
 
@@ -67,11 +70,13 @@ def is_summary_fresh(
     summary_source_hash: str | None,
     content_hash: str | None,
     agenda_items_hash: str | None,
+    agenda_segmentation_status: str | None = None,
 ) -> bool:
     expected_source_hash = compute_summary_source_hash(
         doc_kind,
         content_hash=content_hash,
         agenda_items_hash=agenda_items_hash,
+        agenda_segmentation_status=agenda_segmentation_status,
     )
     return bool(summary and expected_source_hash and summary_source_hash == expected_source_hash)
 
@@ -83,6 +88,7 @@ def is_summary_stale(
     summary_source_hash: str | None,
     content_hash: str | None,
     agenda_items_hash: str | None,
+    agenda_segmentation_status: str | None = None,
 ) -> bool:
     return bool(
         summary
@@ -92,5 +98,6 @@ def is_summary_stale(
             summary_source_hash=summary_source_hash,
             content_hash=content_hash,
             agenda_items_hash=agenda_items_hash,
+            agenda_segmentation_status=agenda_segmentation_status,
         )
     )

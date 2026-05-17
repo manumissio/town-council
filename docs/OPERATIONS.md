@@ -1,6 +1,6 @@
 # Operations Runbook
 
-Last updated: 2026-05-12
+Last updated: 2026-05-16
 
 ## Core workflow
 
@@ -144,7 +144,7 @@ Batch runtime notes:
 - entity backfill now reports `ner_processed`, `ner_skipped_low_signal`, `freshness_advanced`, and `candidate_slice_fallback_prefix`
 - default people linking is now driven by the entity delta from the same batch run rather than rescanning every entity-bearing catalog
 - people linking now reports `catalogs_with_people`, `catalogs_changed`, `exact_matches`, `fuzzy_matches`, and `cities_loaded`
-- agenda summaries now use structured-input freshness: deterministic agenda summaries store `summary_source_hash = agenda_items_hash`, while non-agenda summaries still key freshness to `content_hash`
+- agenda summaries now use structured-input freshness: deterministic agenda summaries store `summary_source_hash = agenda_items_hash`, while empty-segmented agenda summaries and non-agenda summaries key freshness to `content_hash`
 - `agenda_items_hash` is maintained when agenda rows are persisted and lets summary hydration skip already-fresh agenda summaries instead of rebuilding them every run
 - default `run_batch_enrichment.py` now snapshots eligible topic/table work before invoking heavy steps
 - topic modeling only hydrates catalogs whose topics are missing or stale relative to `content_hash`
@@ -1409,10 +1409,10 @@ Summary format:
 
 Agenda summary contract:
 - For `Document.category == "agenda"`, summaries are derived from segmented agenda items (Structured Agenda) to avoid drift.
-- Agenda summary freshness is keyed to `agenda_items_hash`; non-agenda summary freshness stays keyed to `content_hash`.
+- Agenda summary freshness is keyed to `agenda_items_hash`; agendas with `agenda_segmentation_status=empty` use deterministic empty-agenda summaries keyed to `content_hash`; non-agenda summary freshness also stays keyed to `content_hash`.
 - Agenda summary input uses structured fields (`title`, `description`, `classification`, `result`, `page_number`) and is hard-capped for context safety.
 - If input is truncated for context budget, summary output discloses partial coverage (`first N of M agenda items`) in `Unknowns`.
-- If an agenda has not been segmented yet, summary generation returns `not_generated_yet` and prompts you to segment first.
+- If an agenda has not been segmented yet, summary generation returns `not_generated_yet` and prompts you to segment first; if segmentation completed with `empty`, summary generation stores the deterministic empty-agenda summary.
 - If model output is too short/noncompliant/ungrounded, the system falls back to deterministic decision-brief output.
 - Existing catalogs do not update retroactively. Re-run both steps after tuning:
   - `POST /segment/{catalog_id}?force=true`
