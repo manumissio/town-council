@@ -95,6 +95,9 @@ docker compose run --rm crawler scrapy crawl berkeley
 
 # Cupertino (Legistar API crawler)
 docker compose run --rm crawler scrapy crawl cupertino
+
+# Sunnyvale (Legistar API crawler)
+docker compose run --rm crawler scrapy crawl sunnyvale
 ```
 
 ### 4) Process + index

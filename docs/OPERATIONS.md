@@ -565,9 +565,14 @@ Task polling note:
 Default local model: Gemma 3 270M (trained for up to 32K context).
 
 We default to a smaller context window for Docker stability/performance. Tune via env vars (worker reads them):
-- `LLM_CONTEXT_WINDOW` (default `16384`, max for this model: `32768`)
-- `LLM_SUMMARY_MAX_TEXT` (default `30000`)
-- `LLM_SUMMARY_MAX_TOKENS` (default `512`)
+- `LLM_CONTEXT_WINDOW` (default `16384`, max for this model: `32768`): sent
+  to Ollama as `options.num_ctx`, which controls the model context window for
+  the request.
+- `LLM_SUMMARY_MAX_TEXT` (default `30000`): trims the source text before the
+  prompt is built; lowering this reduces prompt size but does not raise the
+  model context window.
+- `LLM_SUMMARY_MAX_TOKENS` (default `512`): sent to Ollama as `num_predict`,
+  which controls the output token budget.
 - `LLM_AGENDA_MAX_TEXT` (default `60000`)
 
 ### LocalAI process model guardrail
@@ -1410,6 +1415,7 @@ Summary format:
 Agenda summary contract:
 - For `Document.category == "agenda"`, summaries are derived from segmented agenda items (Structured Agenda) to avoid drift.
 - Agenda summary freshness is keyed to `agenda_items_hash`; agendas with `agenda_segmentation_status=empty` use deterministic empty-agenda summaries keyed to `content_hash`; non-agenda summary freshness also stays keyed to `content_hash`.
+- `POST /summarize/{catalog_id}` allows that deterministic empty-agenda summary path before the low-signal text gate when segmentation reached the terminal `empty` state.
 - Agenda summary input uses structured fields (`title`, `description`, `classification`, `result`, `page_number`) and is hard-capped for context safety.
 - If input is truncated for context budget, summary output discloses partial coverage (`first N of M agenda items`) in `Unknowns`.
 - If an agenda has not been segmented yet, summary generation returns `not_generated_yet` and prompts you to segment first; if segmentation completed with `empty`, summary generation stores the deterministic empty-agenda summary.
