@@ -24,6 +24,7 @@ def run_summary_hydration_backfill(
     select_catalog_ids_callable: Callable[[Any, int | None, str | None], list[int]] | None = None,
     summary_doc_kind_map_callable: Callable[[Any, list[int]], dict[int, str]] | None = None,
     agenda_summary_batch_builder: Callable[..., dict[str, Any]] | None = None,
+    non_agenda_summary_builder: Callable[..., dict[str, Any]] | None = None,
     summarize_catalog_callable: Callable[..., dict[str, Any]] | None = None,
 ) -> dict[str, int]:
     # Resolve embed dispatch through this facade so existing monkeypatch seams stay live.
@@ -51,6 +52,11 @@ def run_summary_hydration_backfill(
         **(
             {"agenda_summary_batch_builder": agenda_summary_batch_builder}
             if agenda_summary_batch_builder is not None
+            else {}
+        ),
+        **(
+            {"non_agenda_summary_builder": non_agenda_summary_builder}
+            if non_agenda_summary_builder is not None
             else {}
         ),
         **(

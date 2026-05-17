@@ -103,13 +103,18 @@ def capture_summary_fallback_events() -> dict[str, int]:
     class _CaptureHandler(logging.Handler):
         def emit(self, record: logging.LogRecord) -> None:
             message = record.getMessage()
-            if "AI Agenda Items Summarization failed" not in message:
+            if (
+                "AI Agenda Items Summarization failed" not in message
+                and "AI Summarization failed" not in message
+            ):
                 return
             lowered = message.lower()
             if "timed out" in lowered:
                 counts["timeout"] += 1
             if "unavailable" in lowered or "connection" in lowered:
                 counts["unavailable"] += 1
+            if "empty response payload" in lowered:
+                counts["empty_response"] += 1
 
     handler = _CaptureHandler()
     local_ai_logger.addHandler(handler)

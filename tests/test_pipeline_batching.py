@@ -16,6 +16,11 @@ from pipeline.agenda_service import persist_agenda_items
 from pipeline.tasks import select_catalog_ids_for_summary_hydration, run_summary_hydration_backfill
 from pipeline.agenda_summary_batch import build_deterministic_agenda_summary_payloads
 from pipeline.agenda_summary_empty import EMPTY_AGENDA_SUMMARY_TEXT
+from pipeline.non_agenda_summary_fallback import (
+    NON_AGENDA_FALLBACK_COMPLETION_MODE,
+    NON_AGENDA_FALLBACK_NOTE,
+    build_deterministic_non_agenda_summary_payload,
+)
 from pipeline.agenda_worker import select_catalog_ids_for_agenda_segmentation
 from pipeline.table_worker import select_catalog_ids_for_table_extraction
 from pipeline.models import Base, Catalog, Document, AgendaItem, Event, Place
@@ -713,6 +718,123 @@ def test_run_summary_hydration_backfill_counts_outcomes(mocker):
     assert counts["agenda_summary_embed_dispatch_ms"] == 55
     batch_spy.assert_called_once()
     summarize_spy.assert_called_once()
+
+
+def test_run_summary_hydration_backfill_uses_non_agenda_fallback_builder(mocker):
+    mock_db = MagicMock()
+    mock_db.close.return_value = None
+    mocker.patch("pipeline.tasks.SessionLocal", return_value=mock_db)
+    mocker.patch("pipeline.tasks.select_catalog_ids_for_summary_hydration", return_value=[3])
+    mocker.patch("pipeline.tasks._summary_doc_kind_map", return_value={3: "minutes"})
+    agenda_builder_spy = mocker.patch("pipeline.tasks.build_deterministic_agenda_summary_payloads")
+    non_agenda_builder_spy = mocker.patch(
+        "pipeline.tasks.build_deterministic_non_agenda_summary_payload",
+        return_value={
+            "status": "complete",
+            "completion_mode": NON_AGENDA_FALLBACK_COMPLETION_MODE,
+            "changed": True,
+        },
+    )
+
+    def _summarize_with_fallback(catalog_id, *, deterministic_summary_callable, **kwargs):
+        _ = kwargs
+        return deterministic_summary_callable(catalog_id)
+
+    mocker.patch(
+        "pipeline.tasks.summarize_catalog_with_maintenance_mode",
+        side_effect=_summarize_with_fallback,
+    )
+
+    counts = run_summary_hydration_backfill(summary_fallback_mode="deterministic")
+
+    assert counts["selected"] == 1
+    assert counts["complete"] == 1
+    assert counts["deterministic_fallback_complete"] == 1
+    agenda_builder_spy.assert_not_called()
+    non_agenda_builder_spy.assert_called_once()
+
+
+def test_non_agenda_fallback_persists_content_hash_and_side_effects(batching_db):
+    db, event, place = batching_db
+    minutes_content = (
+        "The council approved the consent calendar and reviewed transportation funding. "
+        "Members discussed budget updates, public comments, and next steps for staff reports."
+    )
+    minutes_catalog = _add_catalog(
+        db,
+        event,
+        place,
+        category="minutes",
+        content=minutes_content,
+    )
+    db.commit()
+
+    reindexed_catalog_ids = []
+    embedded_catalog_ids = []
+    fallback_result = build_deterministic_non_agenda_summary_payload(
+        minutes_catalog.id,
+        reindex_callback=reindexed_catalog_ids.append,
+        embed_callback=embedded_catalog_ids.append,
+        session_factory=lambda: nullcontext(db),
+    )
+
+    db.expire_all()
+    refreshed = db.get(Catalog, minutes_catalog.id)
+    assert fallback_result["status"] == "complete"
+    assert fallback_result["completion_mode"] == NON_AGENDA_FALLBACK_COMPLETION_MODE
+    assert fallback_result["changed"] is True
+    assert fallback_result["reindexed"] == 1
+    assert fallback_result["embed_enqueued"] == 1
+    assert refreshed.summary.startswith("BLUF:")
+    assert NON_AGENDA_FALLBACK_NOTE in refreshed.summary
+    assert refreshed.summary_source_hash == refreshed.content_hash
+    assert refreshed.content_hash == compute_content_hash(minutes_content)
+    assert reindexed_catalog_ids == [minutes_catalog.id]
+    assert embedded_catalog_ids == [minutes_catalog.id]
+
+
+def test_non_agenda_fallback_preserves_low_signal_block(batching_db):
+    db, event, place = batching_db
+    low_signal_catalog = _add_catalog(db, event, place, category="minutes", content="Minutes")
+    db.commit()
+
+    fallback_result = build_deterministic_non_agenda_summary_payload(
+        low_signal_catalog.id,
+        session_factory=lambda: nullcontext(db),
+    )
+
+    db.expire_all()
+    refreshed = db.get(Catalog, low_signal_catalog.id)
+    assert fallback_result["status"] == "blocked_low_signal"
+    assert refreshed.summary is None
+
+
+def test_non_agenda_fallback_rejects_unknown_document_kind(batching_db):
+    db, event, place = batching_db
+    unknown_catalog = _add_catalog(
+        db,
+        event,
+        place,
+        category="attachment",
+        content=(
+            "Attachment text includes enough substantive terms about council business, "
+            "budget updates, transportation planning, public comments, and staff reports."
+        ),
+    )
+    db.commit()
+
+    fallback_result = build_deterministic_non_agenda_summary_payload(
+        unknown_catalog.id,
+        session_factory=lambda: nullcontext(db),
+    )
+
+    db.expire_all()
+    refreshed = db.get(Catalog, unknown_catalog.id)
+    assert fallback_result == {
+        "status": "error",
+        "error": "Non-agenda fallback only supports minutes documents",
+    }
+    assert refreshed.summary is None
 
 
 def test_summary_backfill_progress_helpers_preserve_counts_and_empty_payload():

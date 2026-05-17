@@ -8,7 +8,7 @@ from pipeline.db_session import db_session
 from pipeline.document_kinds import normalize_summary_doc_kind
 from pipeline.models import Document
 
-_PROVIDER_FAILURE_TOKENS = ("timed out", "timeout", "unavailable", "connection")
+_PROVIDER_FAILURE_TOKENS = ("timed out", "timeout", "unavailable", "connection", "empty response payload")
 
 
 def summarize_catalog_with_optional_fallback(
@@ -77,7 +77,11 @@ def summarize_catalog_with_maintenance_mode(
 
 
 def _provider_failure_detected(result: dict[str, Any], fallback_events: dict[str, int]) -> bool:
-    if fallback_events.get("timeout", 0) or fallback_events.get("unavailable", 0):
+    if (
+        fallback_events.get("timeout", 0)
+        or fallback_events.get("unavailable", 0)
+        or fallback_events.get("empty_response", 0)
+    ):
         return True
     lowered_error = str(result.get("error") or "").lower()
     return any(token in lowered_error for token in _PROVIDER_FAILURE_TOKENS)
