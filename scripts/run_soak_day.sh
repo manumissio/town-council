@@ -83,6 +83,7 @@ manifest = {
     "catalog_count": len(catalog_ids),
     "profile": {
         "LOCAL_AI_BACKEND": (os.getenv("LOCAL_AI_BACKEND") or "").strip().lower() or "http",
+        "LOCAL_AI_HTTP_API": (os.getenv("LOCAL_AI_HTTP_API") or "").strip().lower() or "ollama",
         "LOCAL_AI_HTTP_PROFILE": (os.getenv("LOCAL_AI_HTTP_PROFILE") or "").strip().lower() or "conservative",
         "LOCAL_AI_HTTP_MODEL": (os.getenv("LOCAL_AI_HTTP_MODEL") or "").strip() or "gemma-3-270m-custom",
         "WORKER_CONCURRENCY": _env_int("WORKER_CONCURRENCY", 3),

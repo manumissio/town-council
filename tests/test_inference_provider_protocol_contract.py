@@ -2,9 +2,23 @@ import threading
 
 from pipeline import llm as llm_mod
 from pipeline import llm_provider
+from pipeline.http_inference_payloads import parse_openai_compatible_response_payload
 from pipeline.http_inference_provider import HttpInferenceProvider as DirectHttpInferenceProvider
 from pipeline.llm_provider import InferenceProvider, InProcessLlamaProvider, HttpInferenceProvider
 from pipeline.llm_provider import ProviderResponseError
+from pipeline.provider_telemetry import TOKEN_METRIC_COMPLETION_TOKENS, TOKEN_METRIC_PROMPT_TOKENS
+
+
+class _JsonResponse:
+    def __init__(self, payload):
+        self._payload = payload
+
+    def json(self):
+        return self._payload
+
+
+class _OkResponse:
+    ok = True
 
 
 class _DummyLlama:
@@ -94,6 +108,7 @@ def test_inprocess_provider_satisfies_protocol():
 
 
 def test_http_provider_payload_includes_configured_context_window(monkeypatch):
+    monkeypatch.setattr(llm_provider, "LOCAL_AI_HTTP_API", "ollama")
     monkeypatch.setattr(llm_provider, "LLM_CONTEXT_WINDOW", 8192)
     provider = DirectHttpInferenceProvider()
 
@@ -102,6 +117,80 @@ def test_http_provider_payload_includes_configured_context_window(monkeypatch):
     assert payload["options"]["num_ctx"] == 8192
     assert payload["options"]["num_predict"] == 128
     assert payload["options"]["temperature"] == 0.2
+
+
+def test_http_provider_openai_compatible_payload_uses_chat_completion_shape(monkeypatch):
+    monkeypatch.setattr(llm_provider, "LOCAL_AI_HTTP_API", "openai_compat")
+    monkeypatch.setattr(llm_provider, "LOCAL_AI_HTTP_MODEL", "mlx-community/test-model")
+    provider = DirectHttpInferenceProvider()
+
+    payload = provider._build_request_payload("summarize this", max_tokens=128, temperature=0.2)
+
+    assert payload == {
+        "model": "mlx-community/test-model",
+        "messages": [{"role": "user", "content": "summarize this"}],
+        "temperature": 0.2,
+        "max_tokens": 128,
+        "stream": False,
+    }
+
+
+def test_http_provider_openai_compatible_health_check_uses_health_endpoint(monkeypatch):
+    requested_urls = []
+
+    def fake_get(url, timeout):
+        requested_urls.append((url, timeout))
+        return _OkResponse()
+
+    monkeypatch.setattr(llm_provider, "LOCAL_AI_HTTP_API", "openai_compat")
+    monkeypatch.setattr(llm_provider, "LOCAL_AI_HTTP_BASE_URL", "http://host.docker.internal:8080")
+    monkeypatch.setattr(llm_provider.requests, "get", fake_get)
+    provider = DirectHttpInferenceProvider()
+
+    assert provider.health_check() is True
+    assert requested_urls[0][0] == "http://host.docker.internal:8080/health"
+
+
+def test_openai_compatible_response_parser_returns_content_and_usage_tokens():
+    text, token_metrics = parse_openai_compatible_response_payload(
+        _JsonResponse(
+            {
+                "choices": [{"message": {"content": "  useful summary  "}}],
+                "usage": {"prompt_tokens": 11, "completion_tokens": 7},
+            }
+        )
+    )
+
+    assert text == "useful summary"
+    assert token_metrics[TOKEN_METRIC_PROMPT_TOKENS] == 11
+    assert token_metrics[TOKEN_METRIC_COMPLETION_TOKENS] == 7
+
+
+def test_openai_compatible_response_parser_rejects_empty_choices():
+    try:
+        parse_openai_compatible_response_payload(_JsonResponse({"choices": []}))
+    except ProviderResponseError:
+        pass
+    else:  # pragma: no cover - defensive
+        raise AssertionError("expected ProviderResponseError")
+
+
+def test_openai_compatible_response_parser_rejects_missing_content():
+    try:
+        parse_openai_compatible_response_payload(_JsonResponse({"choices": [{"message": {}}]}))
+    except ProviderResponseError:
+        pass
+    else:  # pragma: no cover - defensive
+        raise AssertionError("expected ProviderResponseError")
+
+
+def test_openai_compatible_response_parser_rejects_empty_content():
+    try:
+        parse_openai_compatible_response_payload(_JsonResponse({"choices": [{"message": {"content": "  "}}]}))
+    except ProviderResponseError:
+        pass
+    else:  # pragma: no cover - defensive
+        raise AssertionError("expected ProviderResponseError")
 
 
 def test_inprocess_provider_preserves_response_format_fallback():

@@ -31,6 +31,17 @@ Apple Silicon opt-in helper (host-native Ollama on Metal, current Gemma 3 model 
 bash ./scripts/dev_up_host_metal.sh
 ```
 
+M5 Pro MLX opt-in path:
+```bash
+# terminal 1
+mlx_lm.server --model mlx-community/gemma-4-e2b-it-OptiQ-4bit --host 127.0.0.1 --port 8080
+
+# terminal 2
+docker compose up -d --build postgres redis meilisearch tika semantic semantic-worker
+docker compose --env-file env/profiles/m5_mlx_conservative.env up -d --build --no-deps worker api pipeline frontend
+docker compose exec -T worker python scripts/worker_healthcheck.py
+```
+
 What `scripts/dev_up.sh` does:
 - starts the core Docker Compose stack (with `--build`)
 - bootstraps the shared local model volume
@@ -561,13 +572,18 @@ Frontend server-side proxy must set:
 Task polling note:
 - `GET /tasks/{task_id}` expects a valid UUID task ID; malformed IDs return `400`
 
-## Local AI tuning (Gemma 3)
+## Local AI tuning
 Default local model: Gemma 3 270M (trained for up to 32K context).
+
+HTTP API mode:
+- `LOCAL_AI_HTTP_API=ollama` keeps the default Ollama `/api/generate` protocol.
+- `LOCAL_AI_HTTP_API=openai_compat` uses an OpenAI-compatible `/v1/chat/completions` server such as MLX-LM.
 
 We default to a smaller context window for Docker stability/performance. Tune via env vars (worker reads them):
 - `LLM_CONTEXT_WINDOW` (default `16384`, max for this model: `32768`): sent
-  to Ollama as `options.num_ctx`, which controls the model context window for
-  the request.
+  to Ollama as `options.num_ctx`. OpenAI-compatible MLX-LM profiles keep the
+  same app-side input truncation knobs, but context capacity is controlled by
+  the host MLX server and selected model.
 - `LLM_SUMMARY_MAX_TEXT` (default `30000`): trims the source text before the
   prompt is built; lowering this reduces prompt size but does not raise the
   model context window.
@@ -799,7 +815,7 @@ Fixed manifest:
 Scripts:
 - `scripts/run_soak_day.sh`
   - writes `experiments/results/soak/<run_id>/run_manifest.json` with:
-    - profile identity (`LOCAL_AI_BACKEND`, `LOCAL_AI_HTTP_PROFILE`, `LOCAL_AI_HTTP_MODEL`, `WORKER_CONCURRENCY`, `WORKER_POOL`, `OLLAMA_NUM_PARALLEL`)
+    - profile identity (`LOCAL_AI_BACKEND`, `LOCAL_AI_HTTP_API`, `LOCAL_AI_HTTP_PROFILE`, `LOCAL_AI_HTTP_MODEL`, `WORKER_CONCURRENCY`, `WORKER_POOL`, `OLLAMA_NUM_PARALLEL`)
     - soak corpus identity (`catalog_ids`, `catalog_count`, source catalog file)
     - pre-run worker-provider counters (`provider_counters_before_run`)
     - baseline capture status (`provider_counters_before_run_available`, `provider_counters_before_run_source`, optional `provider_counters_before_run_error`)
@@ -1115,6 +1131,28 @@ Notes:
 
 ### Host profiles (recommended)
 
+M5 MLX conservative opt-in:
+```bash
+# terminal 1
+mlx_lm.server --model mlx-community/gemma-4-e2b-it-OptiQ-4bit --host 127.0.0.1 --port 8080
+
+# terminal 2
+docker compose up -d --build postgres redis meilisearch tika semantic semantic-worker
+docker compose --env-file env/profiles/m5_mlx_conservative.env up -d --build --no-deps worker api pipeline frontend
+docker compose exec -T worker python scripts/worker_healthcheck.py
+```
+
+M5 MLX balanced opt-in:
+```bash
+# terminal 1
+mlx_lm.server --model mlx-community/gemma-4-e2b-it-OptiQ-4bit --host 127.0.0.1 --port 8080
+
+# terminal 2
+docker compose up -d --build postgres redis meilisearch tika semantic semantic-worker
+docker compose --env-file env/profiles/m5_mlx_balanced.env up -d --build --no-deps worker api pipeline frontend
+docker compose exec -T worker python scripts/worker_healthcheck.py
+```
+
 M5 conservative baseline:
 ```bash
 docker compose --env-file env/profiles/m5_conservative.env up -d --build inference worker api pipeline frontend
@@ -1137,9 +1175,12 @@ bash ./scripts/dev_up_host_metal.sh
 ```
 
 Interpretation rules:
-- this path is supported for `gemma-3-270m-custom` only
-- this path is explicit opt-in and does not replace the default Docker `inference` workflow
-- Docker `inference` must remain stopped while the host-Metal helper is active
+- the M5 MLX profiles are preferred opt-in performance profiles for M5 Pro 64GB hosts, not default policy
+- MLX-LM must bind to localhost on the Mac host; do not expose it publicly for normal local use
+- the host-Ollama helper path is supported for `gemma-3-270m-custom` only
+- both host-native paths are explicit opt-in and do not replace the default Docker `inference` workflow
+- Docker `inference` must remain stopped while either host-native profile is active
+- if host MLX-LM is unreachable or the required model is missing from `/v1/models`, the worker healthcheck fails fast
 - if host Ollama is unreachable or the required alias is missing, fail fast and fix the host setup instead of relying on fallback behavior
 
 ### Queue-aware timeout math (why conservative timeout is high)

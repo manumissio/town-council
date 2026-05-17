@@ -15,6 +15,7 @@ def _read_profile(path: str) -> dict[str, str]:
 def test_m1_conservative_profile_defaults():
     values = _read_profile("env/profiles/m1_conservative.env")
     assert values["LOCAL_AI_BACKEND"] == "http"
+    assert values["LOCAL_AI_HTTP_API"] == "ollama"
     assert values["LOCAL_AI_HTTP_MODEL"] == "gemma-3-270m-custom"
     assert values["LOCAL_AI_HTTP_PROFILE"] == "conservative"
     assert values["WORKER_CONCURRENCY"] == "3"
@@ -30,6 +31,7 @@ def test_m1_conservative_profile_defaults():
 def test_m5_conservative_profile_defaults():
     values = _read_profile("env/profiles/m5_conservative.env")
     assert values["LOCAL_AI_BACKEND"] == "http"
+    assert values["LOCAL_AI_HTTP_API"] == "ollama"
     assert values["LOCAL_AI_HTTP_MODEL"] == "gemma-3-270m-custom"
     assert values["LOCAL_AI_HTTP_PROFILE"] == "conservative"
     assert values["WORKER_CONCURRENCY"] == "3"
@@ -42,9 +44,42 @@ def test_m5_conservative_profile_defaults():
     assert values["LOCAL_AI_HTTP_MAX_RETRIES"] == "0"
 
 
+def test_m5_mlx_conservative_profile_defaults():
+    values = _read_profile("env/profiles/m5_mlx_conservative.env")
+    assert values["LOCAL_AI_BACKEND"] == "http"
+    assert values["LOCAL_AI_HTTP_API"] == "openai_compat"
+    assert values["LOCAL_AI_HTTP_BASE_URL"] == "http://host.docker.internal:8080"
+    assert values["HOST_MLX_BASE_URL"] == "http://localhost:8080"
+    assert values["LOCAL_AI_HTTP_MODEL"] == "mlx-community/gemma-4-e2b-it-OptiQ-4bit"
+    assert values["LOCAL_AI_HTTP_PROFILE"] == "conservative"
+    assert values["WORKER_CONCURRENCY"] == "2"
+    assert values["WORKER_POOL"] == "prefork"
+    assert values["LOCAL_AI_HTTP_TIMEOUT_SUMMARY_SECONDS"] == "180"
+    assert values["LOCAL_AI_HTTP_MAX_RETRIES"] == "0"
+    assert values["LLM_CONTEXT_WINDOW"] == "8192"
+    assert values["LLM_SUMMARY_MAX_TEXT"] == "12000"
+
+
+def test_m5_mlx_balanced_profile_defaults():
+    values = _read_profile("env/profiles/m5_mlx_balanced.env")
+    assert values["LOCAL_AI_BACKEND"] == "http"
+    assert values["LOCAL_AI_HTTP_API"] == "openai_compat"
+    assert values["LOCAL_AI_HTTP_BASE_URL"] == "http://host.docker.internal:8080"
+    assert values["HOST_MLX_BASE_URL"] == "http://localhost:8080"
+    assert values["LOCAL_AI_HTTP_MODEL"] == "mlx-community/gemma-4-e2b-it-OptiQ-4bit"
+    assert values["LOCAL_AI_HTTP_PROFILE"] == "balanced"
+    assert values["WORKER_CONCURRENCY"] == "4"
+    assert values["WORKER_POOL"] == "prefork"
+    assert values["LOCAL_AI_HTTP_TIMEOUT_SUMMARY_SECONDS"] == "120"
+    assert values["LOCAL_AI_HTTP_MAX_RETRIES"] == "1"
+    assert values["LLM_CONTEXT_WINDOW"] == "8192"
+    assert values["LLM_SUMMARY_MAX_TEXT"] == "12000"
+
+
 def test_desktop_balanced_profile_defaults():
     values = _read_profile("env/profiles/desktop_balanced.env")
     assert values["LOCAL_AI_BACKEND"] == "http"
+    assert values["LOCAL_AI_HTTP_API"] == "ollama"
     assert values["LOCAL_AI_HTTP_MODEL"] == "gemma-3-270m-custom"
     assert values["LOCAL_AI_HTTP_PROFILE"] == "balanced"
     assert values["WORKER_CONCURRENCY"] == "3"
@@ -60,6 +95,7 @@ def test_desktop_balanced_profile_defaults():
 def test_gemma4_e2b_second_tier_profile_defaults():
     values = _read_profile("env/profiles/gemma4_e2b_second_tier.env")
     assert values["LOCAL_AI_BACKEND"] == "http"
+    assert values["LOCAL_AI_HTTP_API"] == "ollama"
     assert values["LOCAL_AI_HTTP_MODEL"] == "gemma4:e2b"
     assert values["LOCAL_AI_HTTP_PROFILE"] == "conservative"
     assert values["WORKER_CONCURRENCY"] == "3"
@@ -76,6 +112,7 @@ def test_gemma4_e2b_second_tier_profile_defaults():
 def test_gemma4_e2b_host_metal_strict_profile_defaults():
     values = _read_profile("env/profiles/gemma4_e2b_host_metal_strict.env")
     assert values["LOCAL_AI_BACKEND"] == "http"
+    assert values["LOCAL_AI_HTTP_API"] == "ollama"
     assert values["LOCAL_AI_HTTP_BASE_URL"] == "http://host.docker.internal:11434"
     assert values["HOST_OLLAMA_BASE_URL"] == "http://localhost:11434"
     assert values["LOCAL_AI_HTTP_MODEL"] == "gemma4:e2b"
@@ -93,6 +130,7 @@ def test_gemma4_e2b_host_metal_strict_profile_defaults():
 def test_gemma3_270m_host_metal_conservative_profile_defaults():
     values = _read_profile("env/profiles/gemma3_270m_host_metal_conservative.env")
     assert values["LOCAL_AI_BACKEND"] == "http"
+    assert values["LOCAL_AI_HTTP_API"] == "ollama"
     assert values["LOCAL_AI_HTTP_BASE_URL"] == "http://host.docker.internal:11434"
     assert values["HOST_OLLAMA_BASE_URL"] == "http://localhost:11434"
     assert values["LOCAL_AI_HTTP_MODEL"] == "gemma-3-270m-custom"
@@ -109,6 +147,7 @@ def test_gemma3_270m_host_metal_conservative_profile_defaults():
 
 def test_docker_compose_forwards_operation_specific_http_timeouts():
     text = Path("docker-compose.yml").read_text(encoding="utf-8")
+    assert "LOCAL_AI_HTTP_API=${LOCAL_AI_HTTP_API:-ollama}" in text
     assert "LOCAL_AI_HTTP_PROFILE=${LOCAL_AI_HTTP_PROFILE:-conservative}" in text
     assert "LOCAL_AI_HTTP_TIMEOUT_SEGMENT_SECONDS=${LOCAL_AI_HTTP_TIMEOUT_SEGMENT_SECONDS:-60}" in text
     assert "LOCAL_AI_HTTP_TIMEOUT_SUMMARY_SECONDS=${LOCAL_AI_HTTP_TIMEOUT_SUMMARY_SECONDS:-60}" in text

@@ -66,6 +66,7 @@ cat > "$RESULT_DIR/run_config.json" <<EOF
   "wait_seconds": "$WAIT_SECONDS",
   "profile": {
     "LOCAL_AI_BACKEND": "${LOCAL_AI_BACKEND:-}",
+    "LOCAL_AI_HTTP_API": "${LOCAL_AI_HTTP_API:-}",
     "LOCAL_AI_HTTP_BASE_URL": "${LOCAL_AI_HTTP_BASE_URL:-}",
     "LOCAL_AI_HTTP_PROFILE": "${LOCAL_AI_HTTP_PROFILE:-}",
     "LOCAL_AI_HTTP_MODEL": "${LOCAL_AI_HTTP_MODEL:-unknown}",

@@ -2,10 +2,11 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-from pipeline.config_env import env_bool, env_choice, env_float, env_int, env_nonempty_stripped
+from pipeline.config_env import env_bool, env_choice, env_float, env_int, env_nonempty_stripped, env_required_choice
 
 
 LOCAL_AI_BACKEND_VALUES = frozenset({"inprocess", "http"})
+LOCAL_AI_HTTP_API_VALUES = frozenset({"ollama", "openai_compat"})
 LOCAL_AI_HTTP_PROFILE_VALUES = frozenset({"conservative", "balanced"})
 AGENDA_SUMMARY_PROFILE_VALUES = frozenset({"decision_brief", "item_digest", "risk_first"})
 AGENDA_SUMMARY_SINGLE_ITEM_MODE_VALUES = frozenset({"deep_brief", "minimal"})
@@ -16,6 +17,7 @@ class InferenceConfig:
     local_ai_allow_multiprocess: bool
     local_ai_require_solo_pool: bool
     local_ai_backend: str
+    local_ai_http_api: str
     local_ai_http_base_url: str
     local_ai_http_profile: str
     local_ai_http_timeout_seconds: int
@@ -63,12 +65,14 @@ def _profile_retries_default(profile: str) -> str:
 
 def load_inference_config() -> InferenceConfig:
     backend = env_choice("LOCAL_AI_BACKEND", "http", LOCAL_AI_BACKEND_VALUES)
+    http_api = env_required_choice("LOCAL_AI_HTTP_API", "ollama", LOCAL_AI_HTTP_API_VALUES)
     profile = env_choice("LOCAL_AI_HTTP_PROFILE", "conservative", LOCAL_AI_HTTP_PROFILE_VALUES)
     timeout_seconds = env_int("LOCAL_AI_HTTP_TIMEOUT_SECONDS", _profile_timeout_default(profile))
     return InferenceConfig(
         local_ai_allow_multiprocess=env_bool("LOCAL_AI_ALLOW_MULTIPROCESS", False),
         local_ai_require_solo_pool=env_bool("LOCAL_AI_REQUIRE_SOLO_POOL", True),
         local_ai_backend=backend,
+        local_ai_http_api=http_api,
         local_ai_http_base_url=env_nonempty_stripped(
             "LOCAL_AI_HTTP_BASE_URL",
             "http://inference:11434",

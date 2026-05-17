@@ -23,10 +23,11 @@ def test_worker_healthcheck_main_returns_zero_when_all_probes_pass(monkeypatch):
     monkeypatch.setenv("CELERY_BROKER_URL", "redis://:secret@redis:6379/0")
     monkeypatch.setenv("DATABASE_URL", "postgresql://user:pass@postgres:5432/town_council_db")
     monkeypatch.setenv("LOCAL_AI_BACKEND", "http")
+    monkeypatch.setenv("LOCAL_AI_HTTP_API", "ollama")
     monkeypatch.setenv("LOCAL_AI_HTTP_BASE_URL", "http://inference:11434")
     monkeypatch.setenv("LOCAL_AI_HTTP_MODEL", "gemma-3-270m-custom")
     monkeypatch.setattr(mod, "_probe_tcp", lambda host, port, label: None)
-    monkeypatch.setattr(mod, "_probe_http_model", lambda base_url, model_name: None)
+    monkeypatch.setattr(mod, "_probe_http_model", lambda base_url, model_name, http_api: None)
 
     assert mod.main() == 0
 
@@ -36,6 +37,7 @@ def test_worker_healthcheck_main_returns_one_with_compact_failures(monkeypatch, 
     monkeypatch.setenv("CELERY_BROKER_URL", "redis://:secret@redis:6379/0")
     monkeypatch.setenv("DATABASE_URL", "postgresql://user:pass@postgres:5432/town_council_db")
     monkeypatch.setenv("LOCAL_AI_BACKEND", "http")
+    monkeypatch.setenv("LOCAL_AI_HTTP_API", "ollama")
     monkeypatch.setenv("LOCAL_AI_HTTP_BASE_URL", "http://inference:11434")
     monkeypatch.setenv("LOCAL_AI_HTTP_MODEL", "gemma-3-270m-custom")
 
@@ -43,7 +45,7 @@ def test_worker_healthcheck_main_returns_one_with_compact_failures(monkeypatch, 
         return f"{label} probe failed: boom" if label != "postgres" else None
 
     monkeypatch.setattr(mod, "_probe_tcp", fake_probe)
-    monkeypatch.setattr(mod, "_probe_http_model", lambda base_url, model_name: None)
+    monkeypatch.setattr(mod, "_probe_http_model", lambda base_url, model_name, http_api: None)
 
     assert mod.main() == 1
     stderr = capsys.readouterr().err
@@ -56,15 +58,43 @@ def test_worker_healthcheck_reports_missing_inference_model(monkeypatch, capsys)
     monkeypatch.setenv("CELERY_BROKER_URL", "redis://:secret@redis:6379/0")
     monkeypatch.setenv("DATABASE_URL", "postgresql://user:pass@postgres:5432/town_council_db")
     monkeypatch.setenv("LOCAL_AI_BACKEND", "http")
+    monkeypatch.setenv("LOCAL_AI_HTTP_API", "ollama")
     monkeypatch.setenv("LOCAL_AI_HTTP_BASE_URL", "http://inference:11434")
     monkeypatch.setenv("LOCAL_AI_HTTP_MODEL", "gemma-3-270m-custom")
     monkeypatch.setattr(mod, "_probe_tcp", lambda host, port, label: None)
     monkeypatch.setattr(
         mod,
         "_probe_http_model",
-        lambda base_url, model_name: f"inference model probe failed: model '{model_name}' is missing",
+        lambda base_url, model_name, http_api: f"inference model probe failed: api={http_api} model '{model_name}' is missing",
     )
 
     assert mod.main() == 1
     stderr = capsys.readouterr().err
-    assert "inference model probe failed: model 'gemma-3-270m-custom' is missing" in stderr
+    assert "inference model probe failed: api=ollama model 'gemma-3-270m-custom' is missing" in stderr
+
+
+def test_worker_healthcheck_uses_openai_compatible_model_probe(monkeypatch):
+    observed = {}
+
+    def fake_probe(base_url, model_name, http_api):
+        observed["base_url"] = base_url
+        observed["model_name"] = model_name
+        observed["http_api"] = http_api
+        return None
+
+    monkeypatch.setenv("TC_WORKER_METRICS_PORT", "8001")
+    monkeypatch.setenv("CELERY_BROKER_URL", "redis://:secret@redis:6379/0")
+    monkeypatch.setenv("DATABASE_URL", "postgresql://user:pass@postgres:5432/town_council_db")
+    monkeypatch.setenv("LOCAL_AI_BACKEND", "http")
+    monkeypatch.setenv("LOCAL_AI_HTTP_API", "openai_compat")
+    monkeypatch.setenv("LOCAL_AI_HTTP_BASE_URL", "http://host.docker.internal:8080")
+    monkeypatch.setenv("LOCAL_AI_HTTP_MODEL", "mlx-community/test-model")
+    monkeypatch.setattr(mod, "_probe_tcp", lambda host, port, label: None)
+    monkeypatch.setattr(mod, "_probe_http_model", fake_probe)
+
+    assert mod.main() == 0
+    assert observed == {
+        "base_url": "http://host.docker.internal:8080",
+        "model_name": "mlx-community/test-model",
+        "http_api": "openai_compat",
+    }
