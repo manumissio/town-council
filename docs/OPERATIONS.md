@@ -1,6 +1,6 @@
 # Operations Runbook
 
-Last updated: 2026-05-16
+Last updated: 2026-05-17
 
 ## Core workflow
 
@@ -608,6 +608,9 @@ Provider error policy:
 - Orchestrator mapping:
   - timeout/unavailable => retry path
   - response error => deterministic fallback path (no transport retry loop)
+- Non-agenda deterministic summary fallback is maintenance/backfill-only and requires
+  `summary_fallback_mode="deterministic"`; direct interactive summary tasks keep their
+  existing retry/error behavior.
 - `extract_agenda` on the HTTP provider skips transport retries and falls back to the local heuristic parser after the first timeout/unavailable response. This avoids paying the same long queue wait twice before segmentation degrades to its deterministic path.
 - Under the conservative HTTP profile, summary/topic operations also skip provider-level retries so Celery owns the retry and the worker does not immediately re-enter the same saturated inference queue.
 - HTTP provider classification:
@@ -770,7 +773,7 @@ Interpretation rules:
 - zero-work summary/agenda/entity/org/people backlog phases should now be nearly free because the default orchestration invokes their callable runners directly instead of spawning Python subprocesses
 - default pipeline maintenance backfills now use backlog-specific latency guards:
   - agenda segmentation runs in `maintenance` mode with heuristic-first routing and a shorter maintenance timeout
-  - summary hydration runs with a shorter maintenance timeout and deterministic fallback enabled only for provider timeout/unavailable failures
+  - summary hydration runs with a shorter maintenance timeout and deterministic fallback enabled only for provider timeout/unavailable/empty-response failures when deterministic fallback mode is explicitly selected
 - interpret the one-line backlog logs as the primary maintenance evidence:
   - `agenda_segmentation_backfill ... llm_skipped_heuristic_first=... heuristic_complete=... timeout_fallbacks=...`
   - `summary_hydration_backfill ... changed_catalogs=... agenda_deterministic_complete=... llm_complete=... deterministic_fallback_complete=... reindexed=... reindex_failed=... embed_enqueued=...`
@@ -1415,6 +1418,7 @@ Summary format:
 Agenda summary contract:
 - For `Document.category == "agenda"`, summaries are derived from segmented agenda items (Structured Agenda) to avoid drift.
 - Agenda summary freshness is keyed to `agenda_items_hash`; agendas with `agenda_segmentation_status=empty` use deterministic empty-agenda summaries keyed to `content_hash`; non-agenda summary freshness also stays keyed to `content_hash`.
+- For non-agenda minutes in maintenance backfills, deterministic fallback summaries are deliberately low-claim and content-hash keyed when the provider returns an empty response payload.
 - `POST /summarize/{catalog_id}` allows that deterministic empty-agenda summary path before the low-signal text gate when segmentation reached the terminal `empty` state.
 - Agenda summary input uses structured fields (`title`, `description`, `classification`, `result`, `page_number`) and is hard-capped for context safety.
 - If input is truncated for context budget, summary output discloses partial coverage (`first N of M agenda items`) in `Unknowns`.
