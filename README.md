@@ -252,8 +252,8 @@ Current compose default:
 - `LOCAL_AI_BACKEND=inprocess` remains supported, but it is an explicit alternative mode that should run with stricter worker settings (`WORKER_POOL=solo`, `WORKER_CONCURRENCY=1`).
 - That is a local-first default because the HTTP inference service is part of the local Compose stack, not a required remote dependency.
 
-For detailed rollout status, milestones, and policy:
-- [`ROADMAP.md`](ROADMAP.md)
+For strategic priorities, runtime policy, and rollout evidence:
+- [`ROADMAP.md`](ROADMAP.md) for the living roadmap: completed work, active priorities, next initiatives, deferred work, and candidate future interfaces
 - [`docs/OPERATIONS.md`](docs/OPERATIONS.md)
 - [`docs/PERFORMANCE.md`](docs/PERFORMANCE.md)
 - [`docs/city-onboarding-status.md`](docs/city-onboarding-status.md)
@@ -272,11 +272,14 @@ Canonical initiative names:
 - Signal Intelligence
 - Civic Alerts & Subscriptions
 
-Model A/B tooling:
+Diagnostic model-evaluation tooling:
 - `scripts/setup_ollama_270m.sh`
 - `scripts/run_ab_eval.sh`
 - `scripts/collect_ab_results.py`
 - `scripts/score_ab_results.py`
+
+Use these scripts for local experiments only. Gemma 4 remains diagnostic or
+opt-in until a separate model-policy decision changes the roadmap/runbook.
 
 ## GitHub Pages Demo
 
@@ -312,7 +315,7 @@ For complete troubleshooting (auth, stale/blocked/not-generated states, startup 
 - Start here for architecture intent and system boundaries: [`ARCHITECTURE.md`](ARCHITECTURE.md)
 - Use the runnable operator procedures and troubleshooting guide: [`docs/OPERATIONS.md`](docs/OPERATIONS.md)
 - Use the pipeline deep-dive for batch + async behavior details: [`docs/PIPELINE.md`](docs/PIPELINE.md)
-- Use rollout and milestone status: [`ROADMAP.md`](ROADMAP.md)
+- Use strategic roadmap status: [`ROADMAP.md`](ROADMAP.md)
 - Use city rollout truth and latest onboarding evidence: [`docs/city-onboarding-status.md`](docs/city-onboarding-status.md)
 - Use reproducibility and performance notes: [`docs/PERFORMANCE.md`](docs/PERFORMANCE.md)
 - Use contributor guidance for new crawlers: [`docs/CONTRIBUTING_CITIES.md`](docs/CONTRIBUTING_CITIES.md)
