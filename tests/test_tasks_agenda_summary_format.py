@@ -282,7 +282,7 @@ def test_summarize_catalog_with_optional_fallback_uses_deterministic_on_runtime_
     assert fallback_summary_result["status"] == "complete"
     assert fallback_summary_result["summary"] == "fallback summary"
     assert fallback_summary_result["provider_failure"] == {}
-    deterministic_spy.assert_called_once_with(303)
+    deterministic_spy.assert_called_once_with(303, fallback_reason="timeout")
 
 
 def test_summarize_catalog_with_optional_fallback_uses_deterministic_on_empty_summary_response():
@@ -305,7 +305,7 @@ def test_summarize_catalog_with_optional_fallback_uses_deterministic_on_empty_su
 
     assert fallback_summary_result["status"] == "complete"
     assert fallback_summary_result["summary"] == "fallback summary"
-    deterministic_spy.assert_called_once_with(304)
+    deterministic_spy.assert_called_once_with(304, fallback_reason="empty_response")
 
 
 def test_summarize_catalog_with_optional_fallback_keeps_empty_summary_error_when_disabled():

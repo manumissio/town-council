@@ -19,6 +19,7 @@ from pipeline.agenda_summary_empty import EMPTY_AGENDA_SUMMARY_TEXT
 from pipeline.non_agenda_summary_fallback import (
     NON_AGENDA_FALLBACK_COMPLETION_MODE,
     NON_AGENDA_FALLBACK_NOTE,
+    NON_AGENDA_FALLBACK_NOTE_PREFIX,
     build_deterministic_non_agenda_summary_payload,
 )
 from pipeline.agenda_worker import select_catalog_ids_for_agenda_segmentation
@@ -791,6 +792,33 @@ def test_non_agenda_fallback_persists_content_hash_and_side_effects(batching_db)
     assert refreshed.content_hash == compute_content_hash(minutes_content)
     assert reindexed_catalog_ids == [minutes_catalog.id]
     assert embedded_catalog_ids == [minutes_catalog.id]
+
+
+def test_non_agenda_fallback_records_timeout_reason(batching_db):
+    db, event, place = batching_db
+    minutes_catalog = _add_catalog(
+        db,
+        event,
+        place,
+        category="minutes",
+        content=(
+            "The council discussed housing, transportation, public comments, budget "
+            "updates, staff reports, and future meeting actions."
+        ),
+    )
+    db.commit()
+
+    fallback_result = build_deterministic_non_agenda_summary_payload(
+        minutes_catalog.id,
+        session_factory=lambda: nullcontext(db),
+        fallback_reason="timeout",
+    )
+
+    db.expire_all()
+    refreshed = db.get(Catalog, minutes_catalog.id)
+    assert fallback_result["status"] == "complete"
+    assert f"{NON_AGENDA_FALLBACK_NOTE_PREFIX} timed out" in refreshed.summary
+    assert "returned an empty summary response" not in refreshed.summary
 
 
 def test_non_agenda_fallback_preserves_low_signal_block(batching_db):

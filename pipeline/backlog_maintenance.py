@@ -129,12 +129,14 @@ def build_deterministic_non_agenda_summary_payload(
     *,
     reindex_callback: Callable[[int], Any] | None = None,
     embed_callback: Callable[[int], Any] | None = None,
+    fallback_reason: str = "empty_response",
 ) -> dict[str, Any]:
     return _build_deterministic_non_agenda_summary_payload(
         catalog_id,
         reindex_callback=reindex_callback,
         embed_callback=embed_callback,
         session_factory=db_session,
+        fallback_reason=fallback_reason,
     )
 
 

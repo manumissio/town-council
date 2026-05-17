@@ -163,10 +163,11 @@ def _run_backfill_loop(
                     cid,
                     summary_fallback_mode=summary_fallback_mode,
                     generate_summary_callable=lambda catalog_id: generate_summary_callable(catalog_id),
-                    deterministic_summary_callable=lambda catalog_id: non_agenda_summary_builder(
+                    deterministic_summary_callable=lambda catalog_id, fallback_reason="empty_response": non_agenda_summary_builder(
                         catalog_id,
                         reindex_callback=reindex_catalog,
                         embed_callback=lambda target_catalog_id: embed_catalog_task.delay(target_catalog_id),
+                        fallback_reason=fallback_reason,
                     ),
                 )
             record_summary_result_counts(counts, result)

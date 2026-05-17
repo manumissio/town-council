@@ -24,11 +24,16 @@ from pipeline.task_summary_generation_contracts import (
 logger = logging.getLogger(__name__)
 
 NON_AGENDA_FALLBACK_COMPLETION_MODE = "deterministic_fallback"
-NON_AGENDA_FALLBACK_NOTE = (
-    "Generation note: Deterministic fallback used because the local AI provider "
-    "returned an empty summary response."
+NON_AGENDA_FALLBACK_NOTE_PREFIX = (
+    "Generation note: Deterministic fallback used because the local AI provider"
 )
+NON_AGENDA_FALLBACK_NOTE = f"{NON_AGENDA_FALLBACK_NOTE_PREFIX} returned an empty summary response."
 NON_AGENDA_FALLBACK_REASON = "empty_response"
+_FALLBACK_REASON_NOTES = {
+    "empty_response": "returned an empty summary response.",
+    "timeout": "timed out while generating the summary.",
+    "unavailable": "was unavailable while generating the summary.",
+}
 _CATALOG_NOT_FOUND_ERROR = "Catalog not found"
 _DOCUMENT_NOT_FOUND_ERROR = "Document not found"
 _NO_CONTENT_ERROR = "No content to summarize"
@@ -46,13 +51,26 @@ class NonAgendaFallbackPersistence:
 def build_non_agenda_fallback_summary_text(*, document: Document | None, content: str | None) -> str:
     doc_label = _document_label(document)
     excerpt = _fallback_excerpt(content)
+    return _format_non_agenda_fallback_summary(
+        doc_label=doc_label,
+        excerpt=excerpt,
+        fallback_reason=NON_AGENDA_FALLBACK_REASON,
+    )
+
+
+def _format_non_agenda_fallback_summary(
+    *,
+    doc_label: str,
+    excerpt: str,
+    fallback_reason: str,
+) -> str:
+    provider_note = _provider_note(fallback_reason)
     return (
-        f"BLUF: {doc_label} text is available, but the local AI provider returned "
-        "an empty response before it could generate a model summary.\n"
+        f"BLUF: {doc_label} text is available, but the local AI provider {provider_note}\n"
         f"- Source excerpt: {excerpt}\n"
         "- Review the extracted minutes for the authoritative meeting details.\n"
         "- Regenerate this summary after the local provider/runtime issue is resolved.\n"
-        f"{NON_AGENDA_FALLBACK_NOTE}"
+        f"{NON_AGENDA_FALLBACK_NOTE_PREFIX} {provider_note}"
     )
 
 
@@ -62,9 +80,14 @@ def build_deterministic_non_agenda_summary_payload(
     reindex_callback: Callable[[int], Any] | None = None,
     embed_callback: Callable[[int], Any] | None = None,
     session_factory: Callable[[], Any] = db_session,
+    fallback_reason: str = NON_AGENDA_FALLBACK_REASON,
 ) -> dict[str, Any]:
     with session_factory() as session:
-        persistence = _build_and_persist_non_agenda_fallback(session, catalog_id)
+        persistence = _build_and_persist_non_agenda_fallback(
+            session,
+            catalog_id,
+            fallback_reason=fallback_reason,
+        )
         if isinstance(persistence, dict):
             return persistence
 
@@ -72,7 +95,7 @@ def build_deterministic_non_agenda_summary_payload(
         "non_agenda_summary_fallback.used catalog_id=%s doc_kind=%s fallback_reason=%s summary_fallback_mode=%s",
         catalog_id,
         persistence.doc_kind,
-        NON_AGENDA_FALLBACK_REASON,
+        fallback_reason,
         "deterministic",
     )
     side_effects = _run_fallback_side_effects(
@@ -92,6 +115,8 @@ def build_deterministic_non_agenda_summary_payload(
 def _build_and_persist_non_agenda_fallback(
     session: Any,
     catalog_id: int,
+    *,
+    fallback_reason: str,
 ) -> NonAgendaFallbackPersistence | dict[str, Any]:
     catalog = session.get(Catalog, catalog_id)
     document = session.query(Document).filter_by(catalog_id=catalog_id).first()
@@ -102,7 +127,11 @@ def _build_and_persist_non_agenda_fallback(
     if catalog is None or document is None:
         return {"status": SUMMARY_ERROR_STATUS, "error": _CATALOG_NOT_FOUND_ERROR}
     doc_kind = normalize_summary_doc_kind(document.category)
-    fallback_summary = build_non_agenda_fallback_summary_text(document=document, content=catalog.content)
+    fallback_summary = _format_non_agenda_fallback_summary(
+        doc_label=_document_label(document),
+        excerpt=_fallback_excerpt(catalog.content),
+        fallback_reason=fallback_reason,
+    )
     persisted_summary = _persist_non_agenda_fallback_summary(
         catalog=catalog,
         summary=fallback_summary,
@@ -122,6 +151,10 @@ def _document_label(document: Document | None) -> str:
         return "Non-agenda document"
     doc_kind = normalize_summary_doc_kind(document.category)
     return f"{doc_kind.title()} document"
+
+
+def _provider_note(fallback_reason: str) -> str:
+    return _FALLBACK_REASON_NOTES.get(fallback_reason, _FALLBACK_REASON_NOTES[NON_AGENDA_FALLBACK_REASON])
 
 
 def _fallback_excerpt(content: str | None) -> str:

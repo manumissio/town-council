@@ -8,7 +8,11 @@ from pipeline.db_session import db_session
 from pipeline.document_kinds import normalize_summary_doc_kind
 from pipeline.models import Document
 
-_PROVIDER_FAILURE_TOKENS = ("timed out", "timeout", "unavailable", "connection", "empty response payload")
+_PROVIDER_FAILURE_REASONS = (
+    ("empty_response", ("empty response payload",)),
+    ("timeout", ("timed out", "timeout")),
+    ("unavailable", ("unavailable", "connection")),
+)
 
 
 def summarize_catalog_with_optional_fallback(
@@ -16,7 +20,7 @@ def summarize_catalog_with_optional_fallback(
     *,
     summary_fallback_mode: str = "none",
     generate_summary_callable: Callable[[int], dict[str, Any] | None],
-    deterministic_summary_callable: Callable[[int], dict[str, Any]],
+    deterministic_summary_callable: Callable[..., dict[str, Any]],
     capture_summary_fallback_events_factory: Callable[[], Any] | None = None,
 ) -> AgendaSummaryPayload:
     fallback_context = (
@@ -31,12 +35,9 @@ def summarize_catalog_with_optional_fallback(
             result = {"status": "error", "error": str(error)}
 
     status = str(result.get("status") or "other")
-    if (
-        summary_fallback_mode == "deterministic"
-        and status == "error"
-        and _provider_failure_detected(result, fallback_events)
-    ):
-        fallback_result = deterministic_summary_callable(catalog_id)
+    fallback_reason = _provider_failure_reason(result, fallback_events)
+    if summary_fallback_mode == "deterministic" and status == "error" and fallback_reason:
+        fallback_result = deterministic_summary_callable(catalog_id, fallback_reason=fallback_reason)
         fallback_result["provider_failure"] = dict(fallback_events)
         return fallback_result
     if status == "complete":
@@ -49,7 +50,7 @@ def summarize_catalog_with_maintenance_mode(
     *,
     summary_fallback_mode: str = "none",
     generate_summary_callable: Callable[[int], dict[str, Any] | None],
-    deterministic_summary_callable: Callable[[int], dict[str, Any]],
+    deterministic_summary_callable: Callable[..., dict[str, Any]],
     session_factory: Callable[[], Any] = db_session,
     capture_summary_fallback_events_factory: Callable[[], Any] | None = None,
     optional_fallback_callable: Callable[..., AgendaSummaryPayload] = summarize_catalog_with_optional_fallback,
@@ -76,12 +77,12 @@ def summarize_catalog_with_maintenance_mode(
     )
 
 
-def _provider_failure_detected(result: dict[str, Any], fallback_events: dict[str, int]) -> bool:
-    if (
-        fallback_events.get("timeout", 0)
-        or fallback_events.get("unavailable", 0)
-        or fallback_events.get("empty_response", 0)
-    ):
-        return True
+def _provider_failure_reason(result: dict[str, Any], fallback_events: dict[str, int]) -> str | None:
+    for reason, _tokens in _PROVIDER_FAILURE_REASONS:
+        if fallback_events.get(reason, 0):
+            return reason
     lowered_error = str(result.get("error") or "").lower()
-    return any(token in lowered_error for token in _PROVIDER_FAILURE_TOKENS)
+    for reason, tokens in _PROVIDER_FAILURE_REASONS:
+        if any(token in lowered_error for token in tokens):
+            return reason
+    return None
