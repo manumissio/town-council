@@ -282,7 +282,70 @@ def test_summarize_catalog_with_optional_fallback_uses_deterministic_on_runtime_
     assert fallback_summary_result["status"] == "complete"
     assert fallback_summary_result["summary"] == "fallback summary"
     assert fallback_summary_result["provider_failure"] == {}
-    deterministic_spy.assert_called_once_with(303)
+    deterministic_spy.assert_called_once_with(303, fallback_reason="timeout")
+
+
+def test_summarize_catalog_with_optional_fallback_uses_deterministic_on_empty_summary_response():
+    import logging
+
+    deterministic_spy = MagicMock(return_value={"status": "complete", "summary": "fallback summary"})
+    local_ai_logger = logging.getLogger("local-ai")
+
+    def _raise_empty_response_error(catalog_id):
+        _ = catalog_id
+        local_ai_logger.error("AI Summarization failed: Empty response payload")
+        raise RuntimeError("AI Summarization returned None (Model missing or error)")
+
+    fallback_summary_result = backlog_maintenance.summarize_catalog_with_optional_fallback(
+        304,
+        summary_fallback_mode="deterministic",
+        generate_summary_callable=_raise_empty_response_error,
+        deterministic_summary_callable=deterministic_spy,
+    )
+
+    assert fallback_summary_result["status"] == "complete"
+    assert fallback_summary_result["summary"] == "fallback summary"
+    deterministic_spy.assert_called_once_with(304, fallback_reason="empty_response")
+
+
+def test_summarize_catalog_with_optional_fallback_keeps_empty_summary_error_when_disabled():
+    deterministic_spy = MagicMock(return_value={"status": "complete", "summary": "fallback summary"})
+
+    fallback_summary_result = backlog_maintenance.summarize_catalog_with_optional_fallback(
+        305,
+        summary_fallback_mode="none",
+        generate_summary_callable=MagicMock(side_effect=RuntimeError("AI Summarization returned None (Model missing or error)")),
+        deterministic_summary_callable=deterministic_spy,
+    )
+
+    assert fallback_summary_result["status"] == "error"
+    assert "AI Summarization returned None" in fallback_summary_result["error"]
+    deterministic_spy.assert_not_called()
+
+
+def test_summarize_catalog_with_optional_fallback_does_not_override_low_signal():
+    deterministic_spy = MagicMock(return_value={"status": "complete", "summary": "fallback summary"})
+
+    fallback_summary_result = backlog_maintenance.summarize_catalog_with_optional_fallback(
+        306,
+        summary_fallback_mode="deterministic",
+        generate_summary_callable=MagicMock(return_value={"status": "blocked_low_signal", "summary": None}),
+        deterministic_summary_callable=deterministic_spy,
+    )
+
+    assert fallback_summary_result["status"] == "blocked_low_signal"
+    deterministic_spy.assert_not_called()
+
+
+def test_capture_summary_fallback_events_counts_non_agenda_empty_response():
+    import logging
+
+    local_ai_logger = logging.getLogger("local-ai")
+
+    with backlog_maintenance.capture_summary_fallback_events() as fallback_events:
+        local_ai_logger.error("AI Summarization failed: Empty response payload")
+
+    assert fallback_events["empty_response"] == 1
 
 
 def test_summarize_catalog_with_maintenance_mode_returns_error_when_agenda_deterministic_fails(mocker):

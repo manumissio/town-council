@@ -64,6 +64,7 @@ def run_summary_hydration_backfill(
         select_catalog_ids_callable=facade["select_catalog_ids_for_summary_hydration"],
         summary_doc_kind_map_callable=facade["_summary_doc_kind_map"],
         agenda_summary_batch_builder=facade["build_deterministic_agenda_summary_payloads"],
+        non_agenda_summary_builder=facade["build_deterministic_non_agenda_summary_payload"],
         summarize_catalog_callable=facade["summarize_catalog_with_maintenance_mode"],
     )
 

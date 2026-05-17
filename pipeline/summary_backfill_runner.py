@@ -3,8 +3,8 @@ from __future__ import annotations
 from typing import Any, Callable
 
 from pipeline.backlog_maintenance import (
-    build_deterministic_agenda_summary_payload,
     build_deterministic_agenda_summary_payloads,
+    build_deterministic_non_agenda_summary_payload,
     summarize_catalog_with_maintenance_mode,
     summary_timeout_override,
 )
@@ -44,6 +44,7 @@ def run_summary_hydration_backfill(
     ] = select_catalog_ids_for_summary_hydration,
     summary_doc_kind_map_callable: Callable[[Any, list[int]], dict[int, str]] = summary_doc_kind_map,
     agenda_summary_batch_builder: Callable[..., dict[str, Any]] = build_deterministic_agenda_summary_payloads,
+    non_agenda_summary_builder: Callable[..., dict[str, Any]] = build_deterministic_non_agenda_summary_payload,
     summarize_catalog_callable: Callable[..., dict[str, Any]] = summarize_catalog_with_maintenance_mode,
 ) -> dict[str, int]:
     """
@@ -82,6 +83,7 @@ def run_summary_hydration_backfill(
         progress_callback=progress_callback,
         progress_every=progress_every,
         generate_summary_callable=generate_summary_callable,
+        non_agenda_summary_builder=non_agenda_summary_builder,
         summarize_catalog_callable=summarize_catalog_callable,
     )
     log_backfill_counts(counts)
@@ -149,6 +151,7 @@ def _run_backfill_loop(
     progress_callback: Callable[[dict[str, Any]], None] | None,
     progress_every: int,
     generate_summary_callable: Callable[[int], dict[str, Any]],
+    non_agenda_summary_builder: Callable[..., dict[str, Any]],
     summarize_catalog_callable: Callable[..., dict[str, Any]],
 ) -> None:
     with summary_timeout_override(summary_timeout_seconds):
@@ -160,10 +163,11 @@ def _run_backfill_loop(
                     cid,
                     summary_fallback_mode=summary_fallback_mode,
                     generate_summary_callable=lambda catalog_id: generate_summary_callable(catalog_id),
-                    deterministic_summary_callable=lambda catalog_id: build_deterministic_agenda_summary_payload(
+                    deterministic_summary_callable=lambda catalog_id, fallback_reason="empty_response": non_agenda_summary_builder(
                         catalog_id,
                         reindex_callback=reindex_catalog,
                         embed_callback=lambda target_catalog_id: embed_catalog_task.delay(target_catalog_id),
+                        fallback_reason=fallback_reason,
                     ),
                 )
             record_summary_result_counts(counts, result)

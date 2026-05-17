@@ -9,6 +9,9 @@ from pipeline.agenda_resolver import has_viable_structured_agenda_source
 from pipeline.config import AGENDA_SUMMARY_MAX_INPUT_CHARS, AGENDA_SUMMARY_MIN_RESERVED_OUTPUT_CHARS
 from pipeline.db_session import db_session
 from pipeline.models import Document
+from pipeline.non_agenda_summary_fallback import (
+    build_deterministic_non_agenda_summary_payload as _build_deterministic_non_agenda_summary_payload,
+)
 
 AGENDA_SUMMARY_READY_STATUS = agenda_summary_maintenance_mod.AGENDA_SUMMARY_READY_STATUS
 AGENDA_SUMMARY_SEGMENTATION_REQUIRED_REASON = (
@@ -118,6 +121,22 @@ def build_deterministic_agenda_summary_payload(
         reindex_callback=reindex_callback,
         embed_callback=embed_callback,
         build_payloads_callable=build_deterministic_agenda_summary_payloads,
+    )
+
+
+def build_deterministic_non_agenda_summary_payload(
+    catalog_id: int,
+    *,
+    reindex_callback: Callable[[int], Any] | None = None,
+    embed_callback: Callable[[int], Any] | None = None,
+    fallback_reason: str = "empty_response",
+) -> dict[str, Any]:
+    return _build_deterministic_non_agenda_summary_payload(
+        catalog_id,
+        reindex_callback=reindex_callback,
+        embed_callback=embed_callback,
+        session_factory=db_session,
+        fallback_reason=fallback_reason,
     )
 
 

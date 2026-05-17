@@ -10,6 +10,7 @@ from pipeline.agenda_resolver import has_viable_structured_agenda_source, resolv
 from pipeline.backlog_maintenance import (
     build_agenda_summary_input_bundle,
     build_deterministic_agenda_summary_payloads,
+    build_deterministic_non_agenda_summary_payload,
     persist_agenda_summary,
     summarize_catalog_with_maintenance_mode,
 )
@@ -44,7 +45,8 @@ from pipeline.text_cleaning import postprocess_extracted_text
 from pipeline.vote_extractor import run_vote_extraction_for_catalog
 
 _TASK_FACADE_DEPENDENCIES = (
-    build_agenda_summary_input_bundle, build_deterministic_agenda_summary_payloads, persist_agenda_summary,
+    build_agenda_summary_input_bundle, build_deterministic_agenda_summary_payloads,
+    build_deterministic_non_agenda_summary_payload, persist_agenda_summary,
     summarize_catalog_with_maintenance_mode, classify_catalog_bad_content, persist_agenda_items,
     has_viable_structured_agenda_source, resolve_agenda_items, TIKA_MIN_EXTRACTED_CHARS_FOR_NO_OCR,
     ENABLE_VOTE_EXTRACTION, reextract_catalog_content, reindex_catalog, compute_content_hash,
