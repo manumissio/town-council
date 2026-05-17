@@ -9,6 +9,7 @@ def test_run_ab_eval_script_contract():
     assert "run_config.json" in text
     assert '"commit_sha"' in text
     assert '"model"' in text
+    assert '"LOCAL_AI_HTTP_API"' in text
     assert '"LOCAL_AI_HTTP_BASE_URL"' in text
     assert '"LOCAL_AI_HTTP_TIMEOUT_SEGMENT_SECONDS"' in text
     assert '"INFERENCE_MEM_LIMIT"' in text

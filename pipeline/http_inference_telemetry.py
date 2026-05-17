@@ -21,8 +21,9 @@ def log_provider_policy(
     max_retries: int,
 ) -> None:
     logger.info(
-        "provider_policy provider=%s model=%s profile=%s operation=%s timeout_s=%s retry_budget=%s",
+        "provider_policy provider=%s api=%s model=%s profile=%s operation=%s timeout_s=%s retry_budget=%s",
         identity.provider_name,
+        identity.api_name,
         identity.model_name,
         identity.profile_name,
         operation,

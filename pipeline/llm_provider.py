@@ -3,6 +3,7 @@ from __future__ import annotations
 import requests
 
 from pipeline.config import (
+    LOCAL_AI_HTTP_API,
     LOCAL_AI_HTTP_BASE_URL,
     LOCAL_AI_HTTP_MAX_RETRIES,
     LOCAL_AI_HTTP_MODEL,
@@ -51,6 +52,7 @@ __all__ = [
     "InferenceProvider",
     "InProcessLlamaProvider",
     "LOCAL_AI_HTTP_BASE_URL",
+    "LOCAL_AI_HTTP_API",
     "LOCAL_AI_HTTP_MAX_RETRIES",
     "LOCAL_AI_HTTP_MODEL",
     "LOCAL_AI_HTTP_PROFILE",

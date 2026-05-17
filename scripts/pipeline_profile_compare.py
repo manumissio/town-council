@@ -16,6 +16,7 @@ from scripts.pipeline_profile_analysis import rank_bottlenecks
 
 PAIRWISE_CONTROLLED_PROFILE_KEYS = (
     "LOCAL_AI_BACKEND",
+    "LOCAL_AI_HTTP_API",
     "LOCAL_AI_HTTP_PROFILE",
     "WORKER_CONCURRENCY",
     "WORKER_POOL",

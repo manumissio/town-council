@@ -20,7 +20,7 @@ class _FakeResponse:
 
 
 def test_probe_candidate_passes_for_ready_response(monkeypatch):
-    monkeypatch.setattr(mod, "_list_models", lambda base_url, timeout_seconds: ["gemma4:e2b"])
+    monkeypatch.setattr(mod, "_list_models", lambda base_url, timeout_seconds, http_api: ["gemma4:e2b"])
     monkeypatch.setattr(
         mod.requests,
         "post",
@@ -29,6 +29,7 @@ def test_probe_candidate_passes_for_ready_response(monkeypatch):
 
     out = mod.probe_candidate(
         base_url="http://localhost:11434",
+        http_api="ollama",
         model="gemma4:e2b",
         prompt="Reply with exactly READY.",
         timeout_seconds=5,
@@ -40,7 +41,7 @@ def test_probe_candidate_passes_for_ready_response(monkeypatch):
 
 
 def test_probe_candidate_rejects_reasoning_tags(monkeypatch):
-    monkeypatch.setattr(mod, "_list_models", lambda base_url, timeout_seconds: ["gemma4:e2b"])
+    monkeypatch.setattr(mod, "_list_models", lambda base_url, timeout_seconds, http_api: ["gemma4:e2b"])
     monkeypatch.setattr(
         mod.requests,
         "post",
@@ -49,6 +50,7 @@ def test_probe_candidate_rejects_reasoning_tags(monkeypatch):
 
     out = mod.probe_candidate(
         base_url="http://localhost:11434",
+        http_api="ollama",
         model="gemma4:e2b",
         prompt="Reply with exactly READY.",
         timeout_seconds=5,
@@ -57,6 +59,32 @@ def test_probe_candidate_rejects_reasoning_tags(monkeypatch):
 
     assert out["status"] == "fail"
     assert out["reason"] == "reasoning_tag_detected"
+
+
+def test_probe_candidate_passes_for_openai_compatible_ready_response(monkeypatch):
+    observed = {}
+
+    def fake_post(url, json, timeout):
+        observed["url"] = url
+        observed["payload"] = json
+        observed["timeout"] = timeout
+        return _FakeResponse({"choices": [{"message": {"content": "READY"}}]})
+
+    monkeypatch.setattr(mod, "_list_models", lambda base_url, timeout_seconds, http_api: ["mlx-community/test-model"])
+    monkeypatch.setattr(mod.requests, "post", fake_post)
+
+    out = mod.probe_candidate(
+        base_url="http://localhost:8080",
+        http_api="openai_compat",
+        model="mlx-community/test-model",
+        prompt="Reply with exactly READY.",
+        timeout_seconds=5,
+        max_tokens=8,
+    )
+
+    assert out["status"] == "pass"
+    assert observed["url"] == "http://localhost:8080/v1/chat/completions"
+    assert observed["payload"]["messages"] == [{"role": "user", "content": "Reply with exactly READY."}]
 
 
 def test_main_uses_candidate_order_and_writes_artifact(monkeypatch, tmp_path: Path):

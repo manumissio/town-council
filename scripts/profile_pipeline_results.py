@@ -44,6 +44,7 @@ def write_run_manifest(
             key: os.getenv(key)
             for key in (
                 "LOCAL_AI_BACKEND",
+                "LOCAL_AI_HTTP_API",
                 "LOCAL_AI_HTTP_PROFILE",
                 "LOCAL_AI_HTTP_MODEL",
                 "WORKER_CONCURRENCY",

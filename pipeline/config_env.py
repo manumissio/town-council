@@ -45,3 +45,11 @@ def env_choice(name: str, default: str, allowed_values: Collection[str]) -> str:
     if value in allowed_values:
         return value
     return default
+
+
+def env_required_choice(name: str, default: str, allowed_values: Collection[str]) -> str:
+    value = env_nonempty_lower(name, default)
+    if value in allowed_values:
+        return value
+    allowed = ", ".join(sorted(allowed_values))
+    raise ValueError(f"{name} must be one of: {allowed}")

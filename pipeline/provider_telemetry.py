@@ -22,6 +22,10 @@ TOKEN_METRIC_PROMPT_EVAL_DURATION_MS = "prompt_eval_duration_ms"
 TOKEN_METRIC_EVAL_DURATION_MS = "eval_duration_ms"
 TOKEN_METRIC_TTFT_MS = "ttft_ms"
 TOKEN_METRIC_TOKENS_PER_SEC = "tokens_per_sec"
+OPENAI_USAGE_FIELD = "usage"
+OPENAI_PROMPT_TOKENS_FIELD = "prompt_tokens"
+OPENAI_COMPLETION_TOKENS_FIELD = "completion_tokens"
+OPENAI_TOTAL_TOKENS_FIELD = "total_tokens"
 NANOSECONDS_PER_MILLISECOND = 1_000_000.0
 NANOSECONDS_PER_SECOND = 1_000_000_000.0
 
@@ -31,6 +35,7 @@ class ProviderTelemetryIdentity:
     provider_name: str
     model_name: str
     profile_name: str
+    api_name: str = ""
 
 
 @dataclass(frozen=True)
@@ -110,14 +115,37 @@ def parse_token_metrics(payload: dict[str, object]) -> TokenMetrics:
     }
 
 
+def parse_openai_token_metrics(payload: dict[str, object]) -> TokenMetrics:
+    token_metrics = empty_token_metrics()
+    raw_usage = payload.get(OPENAI_USAGE_FIELD)
+    if not isinstance(raw_usage, dict):
+        return token_metrics
+
+    prompt_tokens = raw_usage.get(OPENAI_PROMPT_TOKENS_FIELD)
+    completion_tokens = raw_usage.get(OPENAI_COMPLETION_TOKENS_FIELD)
+    total_tokens = raw_usage.get(OPENAI_TOTAL_TOKENS_FIELD)
+    if isinstance(prompt_tokens, int):
+        token_metrics[TOKEN_METRIC_PROMPT_TOKENS] = max(0, prompt_tokens)
+    if isinstance(completion_tokens, int):
+        token_metrics[TOKEN_METRIC_COMPLETION_TOKENS] = max(0, completion_tokens)
+    if isinstance(total_tokens, int):
+        token_metrics[TOKEN_METRIC_TOTAL_TOKENS] = max(0, total_tokens)
+    elif token_metrics[TOKEN_METRIC_PROMPT_TOKENS] is not None or token_metrics[TOKEN_METRIC_COMPLETION_TOKENS] is not None:
+        token_metrics[TOKEN_METRIC_TOTAL_TOKENS] = int(token_metrics[TOKEN_METRIC_PROMPT_TOKENS] or 0) + int(
+            token_metrics[TOKEN_METRIC_COMPLETION_TOKENS] or 0
+        )
+    return token_metrics
+
+
 def record_provider_retry_event(
     logger: logging.Logger,
     identity: ProviderTelemetryIdentity,
     retry_telemetry: ProviderRetryTelemetry,
 ) -> None:
     logger.warning(
-        "provider_retry provider=%s model=%s profile=%s operation=%s attempt=%s retry_budget=%s timeout_s=%s error_class=%s",
+        "provider_retry provider=%s api=%s model=%s profile=%s operation=%s attempt=%s retry_budget=%s timeout_s=%s error_class=%s",
         identity.provider_name,
+        identity.api_name,
         identity.model_name,
         identity.profile_name,
         retry_telemetry.operation,
@@ -140,8 +168,9 @@ def record_provider_attempt_event(
 ) -> None:
     token_metrics = attempt_telemetry.token_metrics
     logger.info(
-        "provider_request provider=%s model=%s profile=%s operation=%s attempt=%s retry_budget=%s timeout_s=%s outcome=%s error_class=%s duration_ms=%.2f ttft_ms=%s prompt_tokens=%s completion_tokens=%s total_tokens=%s tokens_per_sec=%s prompt_eval_duration_ms=%s eval_duration_ms=%s",
+        "provider_request provider=%s api=%s model=%s profile=%s operation=%s attempt=%s retry_budget=%s timeout_s=%s outcome=%s error_class=%s duration_ms=%.2f ttft_ms=%s prompt_tokens=%s completion_tokens=%s total_tokens=%s tokens_per_sec=%s prompt_eval_duration_ms=%s eval_duration_ms=%s",
         identity.provider_name,
+        identity.api_name,
         identity.model_name,
         identity.profile_name,
         attempt_telemetry.operation,

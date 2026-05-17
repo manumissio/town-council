@@ -51,6 +51,7 @@ EXPECTED_CONFIG_EXPORTS = {
     "LLM_SUMMARY_MAX_TOKENS",
     "LOCAL_AI_ALLOW_MULTIPROCESS",
     "LOCAL_AI_BACKEND",
+    "LOCAL_AI_HTTP_API",
     "LOCAL_AI_HTTP_BASE_URL",
     "LOCAL_AI_HTTP_MAX_RETRIES",
     "LOCAL_AI_HTTP_MODEL",
@@ -131,6 +132,7 @@ CONFIG_TEST_ENV_KEYS = {
     "CITY_SEGMENTATION_WORKERS",
     "FEATURE_TRENDS_DASHBOARD",
     "LOCAL_AI_BACKEND",
+    "LOCAL_AI_HTTP_API",
     "LOCAL_AI_HTTP_MODEL",
     "LOCAL_AI_HTTP_PROFILE",
     "LOCAL_AI_HTTP_TIMEOUT_SECONDS",
@@ -198,11 +200,18 @@ def test_config_reload_preserves_inference_env_normalization(monkeypatch):
         },
     ) as config_module:
         assert config_module.LOCAL_AI_BACKEND == "http"
+        assert config_module.LOCAL_AI_HTTP_API == "ollama"
         assert config_module.LOCAL_AI_HTTP_PROFILE == "conservative"
         assert config_module.LOCAL_AI_HTTP_TIMEOUT_SECONDS == 77
         assert config_module.LOCAL_AI_HTTP_TIMEOUT_SEGMENT_SECONDS == 88
         assert config_module.LOCAL_AI_HTTP_MODEL == "gemma-3-270m-custom"
         assert config_module.CITY_SEGMENTATION_WORKERS == 6
+
+
+def test_config_reload_rejects_invalid_http_api(monkeypatch):
+    with pytest.raises(ValueError, match="LOCAL_AI_HTTP_API"):
+        with _config_with_env(monkeypatch, {"LOCAL_AI_HTTP_API": "bad-api"}):
+            pass
 
 
 def test_config_reload_preserves_backend_dependent_worker_default(monkeypatch):

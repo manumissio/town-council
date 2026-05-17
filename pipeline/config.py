@@ -67,6 +67,7 @@ TEXT_REPAIR_MIN_IMPLAUSIBILITY_SCORE = processing_config.text_repair_min_implaus
 LOCAL_AI_ALLOW_MULTIPROCESS = inference_config.local_ai_allow_multiprocess
 LOCAL_AI_REQUIRE_SOLO_POOL = inference_config.local_ai_require_solo_pool
 LOCAL_AI_BACKEND = inference_config.local_ai_backend
+LOCAL_AI_HTTP_API = inference_config.local_ai_http_api
 LOCAL_AI_HTTP_BASE_URL = inference_config.local_ai_http_base_url
 LOCAL_AI_HTTP_PROFILE = inference_config.local_ai_http_profile
 LOCAL_AI_HTTP_TIMEOUT_SECONDS = inference_config.local_ai_http_timeout_seconds
