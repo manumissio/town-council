@@ -34,7 +34,7 @@ bash ./scripts/dev_up_host_metal.sh
 M5 Pro MLX opt-in path:
 ```bash
 # terminal 1
-mlx_lm.server --model mlx-community/gemma-4-e2b-it-OptiQ-4bit --host 127.0.0.1 --port 8080
+mlx_lm.server --model mlx-community/gemma-3-text-4b-it-4bit --host 127.0.0.1 --port 8080
 
 # terminal 2
 docker compose up -d --build postgres redis meilisearch tika semantic semantic-worker
@@ -1134,7 +1134,7 @@ Notes:
 M5 MLX conservative opt-in:
 ```bash
 # terminal 1
-mlx_lm.server --model mlx-community/gemma-4-e2b-it-OptiQ-4bit --host 127.0.0.1 --port 8080
+mlx_lm.server --model mlx-community/gemma-3-text-4b-it-4bit --host 127.0.0.1 --port 8080
 
 # terminal 2
 docker compose up -d --build postgres redis meilisearch tika semantic semantic-worker
@@ -1145,7 +1145,7 @@ docker compose exec -T worker python scripts/worker_healthcheck.py
 M5 MLX balanced opt-in:
 ```bash
 # terminal 1
-mlx_lm.server --model mlx-community/gemma-4-e2b-it-OptiQ-4bit --host 127.0.0.1 --port 8080
+mlx_lm.server --model mlx-community/gemma-3-text-4b-it-4bit --host 127.0.0.1 --port 8080
 
 # terminal 2
 docker compose up -d --build postgres redis meilisearch tika semantic semantic-worker
