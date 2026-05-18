@@ -40,22 +40,11 @@ Optional helper (same steps, fewer flags to remember):
 bash ./scripts/dev_up.sh
 ```
 
-Apple Silicon opt-in helper (host-native Ollama on Metal, current Gemma 3 model only):
-```bash
-bash ./scripts/dev_up_host_metal.sh
-```
-
 What `scripts/dev_up.sh` does:
 - starts the core Docker Compose stack (with `--build`)
 - bootstraps the shared local model volume
 - initializes the DB schema
 - runs a small smoke check (`/health`)
-
-What `scripts/dev_up_host_metal.sh` does:
-- verifies host Ollama and bootstraps the `gemma-3-270m-custom` alias on the host
-- keeps Docker `inference` stopped to avoid backend ambiguity
-- starts the normal app stack pointed at `http://host.docker.internal:11434`
-- preserves the same current-model, conservative HTTP profile and worker settings
 
 What it does *not* do:
 - scrape any city data (no crawler runs)
@@ -223,26 +212,20 @@ docker compose --env-file env/profiles/m5_conservative.env up -d --build inferen
 docker compose --env-file env/profiles/desktop_balanced.env up -d --build inference worker api pipeline frontend
 ```
 
+Model policy:
+- default/baseline: Docker/Ollama `gemma-3-270m-custom`
+- preferred M5 Pro opt-in: MLX-LM `mlx-community/gemma-3-text-4b-it-4bit`
+- diagnostic only: Ollama `gemma4:e2b`
+
 M5 Pro MLX opt-in path:
 - `env/profiles/m5_mlx_conservative.env` is the preferred first profile on an M5 Pro with 64GB memory
 - `env/profiles/m5_mlx_balanced.env` is for follow-up throughput testing after conservative evidence is stable
 - MLX runs on the Mac host; Docker services reach it through `http://host.docker.internal:8080`
 - the Docker/Ollama profiles remain the reproducible baseline path
 
-Apple Silicon opt-in host-Metal path:
-```bash
-bash ./scripts/bootstrap_host_ollama_270m.sh
-bash ./scripts/dev_up_host_metal.sh
-```
-
 Notes:
-- this is supported only as an explicit opt-in path on Apple Silicon macOS
-- it keeps the current `gemma-3-270m-custom` model and HTTP profile, but routes inference to host-native Ollama on Metal
 - the default contributor workflow remains the Docker `inference` path
-- Gemma 4 remains experimental and outside this supported path
-
-Historical reference:
-- `env/profiles/m1_conservative.env` remains available for reproducing older M1 Pro baseline runs.
+- retired host-Ollama and M1 profiles live under `archive/` as historical reference only
 
 ## Runtime Modes
 - Local default:

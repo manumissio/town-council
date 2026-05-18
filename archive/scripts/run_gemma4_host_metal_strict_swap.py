@@ -17,7 +17,7 @@ from urllib.request import urlopen
 
 
 DEFAULT_RESULTS_ROOT = "experiments/results"
-DEFAULT_ENV_FILE = "env/profiles/gemma4_e2b_host_metal_strict.env"
+DEFAULT_ENV_FILE = "archive/env/profiles/gemma4_e2b_host_metal_strict.env"
 DEFAULT_CATALOG_FILE = "experiments/ab_catalogs_v1.txt"
 SUPPORT_SERVICES = ["postgres", "redis", "meilisearch", "semantic", "semantic-worker", "tika"]
 APP_SERVICES = ["worker", "api", "pipeline"]

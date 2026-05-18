@@ -1,9 +1,9 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-cd "$(dirname "$0")/.."
+cd "$(dirname "$0")/../.."
 
-PROFILE_PATH="${PROFILE_PATH:-env/profiles/gemma3_270m_host_metal_conservative.env}"
+PROFILE_PATH="${PROFILE_PATH:-archive/env/profiles/gemma3_270m_host_metal_conservative.env}"
 MODEL_NAME="${MODEL_NAME:-gemma-3-270m-custom}"
 HOST_OLLAMA_BASE_URL="${HOST_OLLAMA_BASE_URL:-http://localhost:11434}"
 GGUF_CACHE_DIR="${GGUF_CACHE_DIR:-$PWD/tmp/host_ollama_models}"

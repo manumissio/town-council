@@ -10,3 +10,5 @@ How to use it:
 - Treat these files as historical context, not as current supported tooling.
 - If we revive one of these workflows, move it back into `scripts/` with fresh
   docs and tests instead of calling the archived path a supported entrypoint.
+- Some archived scripts depend on archived runtime profiles under
+  `archive/env/profiles/`; restore both together if reviving a workflow.
