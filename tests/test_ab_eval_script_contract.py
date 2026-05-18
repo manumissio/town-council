@@ -69,7 +69,7 @@ def test_gemma4_host_metal_strict_swap_script_contract():
     path = Path("archive/scripts/run_gemma4_host_metal_strict_swap.py")
     text = path.read_text(encoding="utf-8")
 
-    assert "env/profiles/gemma4_e2b_host_metal_strict.env" in text
+    assert "archive/env/profiles/gemma4_e2b_host_metal_strict.env" in text
     assert "LOCAL_AI_HTTP_BASE_URL" in text
     assert "HOST_OLLAMA_BASE_URL" in text
     assert "docker compose stop inference" not in text  # command is structured, not shell-concatenated
@@ -82,9 +82,9 @@ def test_gemma4_host_metal_strict_swap_script_contract():
 
 
 def test_bootstrap_host_ollama_270m_script_contract():
-    text = Path("scripts/bootstrap_host_ollama_270m.sh").read_text(encoding="utf-8")
+    text = Path("archive/scripts/bootstrap_host_ollama_270m.sh").read_text(encoding="utf-8")
 
-    assert "gemma3_270m_host_metal_conservative.env" in text
+    assert "archive/env/profiles/gemma3_270m_host_metal_conservative.env" in text
     assert "This helper supports Apple Silicon macOS only" in text
     assert "ollama show" in text
     assert "ollama create" in text
@@ -93,9 +93,9 @@ def test_bootstrap_host_ollama_270m_script_contract():
 
 
 def test_dev_up_host_metal_script_contract():
-    text = Path("scripts/dev_up_host_metal.sh").read_text(encoding="utf-8")
+    text = Path("archive/scripts/dev_up_host_metal.sh").read_text(encoding="utf-8")
 
-    assert "gemma3_270m_host_metal_conservative.env" in text
+    assert "archive/env/profiles/gemma3_270m_host_metal_conservative.env" in text
     assert "bootstrap_host_ollama_270m.sh" in text
     assert "docker compose stop inference" in text
     assert "worker_healthcheck.py" in text

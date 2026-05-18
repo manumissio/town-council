@@ -1,9 +1,9 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-cd "$(dirname "$0")/.."
+cd "$(dirname "$0")/../.."
 
-PROFILE_PATH="${PROFILE_PATH:-env/profiles/gemma3_270m_host_metal_conservative.env}"
+PROFILE_PATH="${PROFILE_PATH:-archive/env/profiles/gemma3_270m_host_metal_conservative.env}"
 APP_SERVICES=(postgres redis meilisearch tika semantic semantic-worker api worker enrichment-worker monitor frontend)
 
 if [[ ! -f "$PROFILE_PATH" ]]; then
@@ -18,7 +18,7 @@ echo "[dev_up_host_metal] Using profile: $PROFILE_PATH"
 echo "[dev_up_host_metal] Target inference endpoint: ${LOCAL_AI_HTTP_BASE_URL:-<unset>}"
 
 echo "[dev_up_host_metal] Bootstrapping host Ollama alias..."
-PROFILE_PATH="$PROFILE_PATH" HOST_OLLAMA_BASE_URL="${HOST_OLLAMA_BASE_URL:-http://localhost:11434}" MODEL_NAME="${LOCAL_AI_HTTP_MODEL:-gemma-3-270m-custom}" bash ./scripts/bootstrap_host_ollama_270m.sh
+PROFILE_PATH="$PROFILE_PATH" HOST_OLLAMA_BASE_URL="${HOST_OLLAMA_BASE_URL:-http://localhost:11434}" MODEL_NAME="${LOCAL_AI_HTTP_MODEL:-gemma-3-270m-custom}" bash ./archive/scripts/bootstrap_host_ollama_270m.sh
 
 echo "[dev_up_host_metal] Ensuring Docker inference is stopped..."
 docker compose stop inference >/dev/null 2>&1 || true

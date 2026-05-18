@@ -1,0 +1,6 @@
+profile_path,status,runtime,model,owner,purpose
+env/profiles/m5_mlx_conservative.env,preferred,host-mlx,mlx-community/gemma-3-text-4b-it-4bit,local-ai,Preferred M5 Pro 64GB opt-in profile
+env/profiles/m5_mlx_balanced.env,diagnostic,host-mlx,mlx-community/gemma-3-text-4b-it-4bit,local-ai,Higher-throughput M5 Pro MLX experiment profile
+env/profiles/m5_conservative.env,baseline,docker-ollama,gemma-3-270m-custom,local-ai,Reproducible Docker/Ollama conservative baseline
+env/profiles/desktop_balanced.env,diagnostic,docker-ollama,gemma-3-270m-custom,local-ai,Higher-throughput Docker/Ollama diagnostic profile
+env/profiles/gemma4_e2b_second_tier.env,diagnostic,docker-ollama,gemma4:e2b,local-ai,Diagnostic larger-model Gemma 4 profile
