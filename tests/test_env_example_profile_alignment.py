@@ -19,11 +19,17 @@ def test_operations_mentions_profile_env_files():
     assert "env/profiles/m5_mlx_conservative.env" in text
     assert "env/profiles/m5_mlx_balanced.env" in text
     assert "env/profiles/m5_conservative.env" in text
-    assert "env/profiles/m1_conservative.env" in text
     assert "env/profiles/desktop_balanced.env" in text
+    assert "env/profiles/profile_manifest.csv" in text
 
 
 def test_operations_uses_local_ollama_setup_for_270m_alias():
     text = Path("docs/OPERATIONS.md").read_text(encoding="utf-8")
     assert "./scripts/setup_ollama_270m.sh /models/gemma-3-270m-it-Q4_K_M.gguf" in text
     assert 'ollama pull "${LOCAL_AI_HTTP_MODEL:-gemma-3-270m-custom}"' not in text
+
+
+def test_operations_does_not_advertise_retired_host_ollama_helper():
+    text = Path("docs/OPERATIONS.md").read_text(encoding="utf-8")
+    assert "bash ./scripts/dev_up_host_metal.sh" not in text
+    assert "bash ./scripts/bootstrap_host_ollama_270m.sh" not in text

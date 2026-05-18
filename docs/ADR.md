@@ -8,6 +8,29 @@ Use each entry to record:
 - the affected boundary or contract
 - links to the canonical docs that carry the ongoing operational or architecture detail
 
+## 2026-05-17: Retire legacy runtime profiles behind a lifecycle manifest
+
+- Status: Accepted
+- Decision:
+  - Active runtime profiles are classified in `env/profiles/profile_manifest.csv`.
+  - Docker/Ollama `gemma-3-270m-custom` remains the shared default and reproducible baseline.
+  - MLX-LM `mlx-community/gemma-3-text-4b-it-4bit` is the preferred M5 Pro opt-in local AI path.
+  - Ollama `gemma4:e2b` remains diagnostic only until stronger gate evidence supports promotion.
+  - Host-Ollama 270M helper scripts and M1/host-Ollama profiles move to `archive/`.
+- Why:
+  - The active runtime surface had accumulated historical M1, host-Ollama, Gemma 4, Docker/Ollama, and MLX options without a machine-readable lifecycle policy.
+  - Keeping Docker/Ollama 270M preserves reproducible contributor defaults while M5 MLX becomes the practical performance path for the current host.
+  - Gemma 4 showed useful instruction-following behavior but still produced empty minutes-summary responses, so it remains diagnostic.
+- Affected boundaries:
+  - `env/profiles/*.env` contains active runtime profiles only.
+  - `env/profiles/profile_manifest.csv` is the active profile inventory.
+  - `archive/env/profiles/` and `archive/scripts/` hold historical runtime workflows.
+  - Runtime defaults, Compose defaults, API behavior, DB schema, and fallback policy stay unchanged.
+- Canonical references:
+  - [README.md](../README.md)
+  - [docs/OPERATIONS.md](OPERATIONS.md)
+  - [docs/PERFORMANCE.md](PERFORMANCE.md)
+
 ## 2026-05-12: Track Batch G semantic service cleanup helpers
 
 - Status: Accepted

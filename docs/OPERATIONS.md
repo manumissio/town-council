@@ -26,11 +26,6 @@ Optional helper (same steps, fewer flags to remember):
 bash ./scripts/dev_up.sh
 ```
 
-Apple Silicon opt-in helper (host-native Ollama on Metal, current Gemma 3 model only):
-```bash
-bash ./scripts/dev_up_host_metal.sh
-```
-
 M5 Pro MLX opt-in path:
 ```bash
 # terminal 1
@@ -47,12 +42,6 @@ What `scripts/dev_up.sh` does:
 - bootstraps the shared local model volume
 - initializes the DB schema
 - runs a small smoke check (`/health`)
-
-What `scripts/dev_up_host_metal.sh` does:
-- verifies host Ollama is reachable and bootstraps the `gemma-3-270m-custom` alias on the host
-- keeps Docker `inference` stopped to avoid backend ambiguity
-- starts the normal app stack against `http://host.docker.internal:11434`
-- verifies worker readiness and backend provenance before declaring success
 
 What it does *not* do:
 - scrape any city data (no crawler runs)
@@ -87,18 +76,12 @@ Use this when the shared model volume is empty, after pruning Docker volumes, or
 bash ./scripts/bootstrap_local_models.sh
 ```
 
-### 1.56) Apple Silicon host-Metal bootstrap (opt-in)
-Use this only when you explicitly want the supported host-native Ollama path for the current Gemma 3 model.
+### 1.56) Retired host-Ollama path
+The host-Ollama 270M helper path is retired from active operator workflows.
+Historical scripts and profiles remain under `archive/` only.
 
-```bash
-bash ./scripts/bootstrap_host_ollama_270m.sh
-```
-
-What it does:
-- verifies Apple Silicon macOS and `ollama` availability
-- verifies host Ollama is reachable at `HOST_OLLAMA_BASE_URL`
-- creates the `gemma-3-270m-custom` alias on the host if it is missing
-- fails fast instead of silently falling back to Docker `inference`
+Use Docker/Ollama for reproducible baseline runs, or M5 MLX for the preferred
+M5 Pro opt-in path.
 
 ### 1.6) Verify stack health contracts
 Use this after `docker compose up -d --build` and before running onboarding or soak flows.
@@ -665,11 +648,11 @@ Policy guardrails:
 
 Run profile:
 - `env/profiles/m5_conservative.env` for the current M5 Pro baseline host.
-- `env/profiles/m1_conservative.env` remains available for historical M1 Pro comparisons only.
 - `env/profiles/gemma4_e2b_second_tier.env` for diagnostic Gemma 4 verification only.
   - not baseline-valid
   - raises `INFERENCE_MEM_LIMIT` to `10G`
   - keeps the checked-in M5 conservative HTTP timeout budgets
+- `env/profiles/profile_manifest.csv` is the active profile inventory.
 
 Shared gate table:
 - `provider_timeout_rate`:
@@ -1163,25 +1146,13 @@ Desktop balanced:
 docker compose --env-file env/profiles/desktop_balanced.env up -d --build inference worker api pipeline frontend
 ```
 
-Historical M1 conservative reference:
-```bash
-docker compose --env-file env/profiles/m1_conservative.env up -d --build inference worker api pipeline frontend
-```
-
-Apple Silicon host-Metal opt-in:
-```bash
-bash ./scripts/bootstrap_host_ollama_270m.sh
-bash ./scripts/dev_up_host_metal.sh
-```
-
 Interpretation rules:
 - the M5 MLX profiles are preferred opt-in performance profiles for M5 Pro 64GB hosts, not default policy
 - MLX-LM must bind to localhost on the Mac host; do not expose it publicly for normal local use
-- the host-Ollama helper path is supported for `gemma-3-270m-custom` only
-- both host-native paths are explicit opt-in and do not replace the default Docker `inference` workflow
-- Docker `inference` must remain stopped while either host-native profile is active
+- the host-Ollama helper path is archived and no longer supported as an active workflow
+- host MLX is explicit opt-in and does not replace the default Docker `inference` workflow
+- Docker `inference` must remain stopped while host MLX is active
 - if host MLX-LM is unreachable or the required model is missing from `/v1/models`, the worker healthcheck fails fast
-- if host Ollama is unreachable or the required alias is missing, fail fast and fix the host setup instead of relying on fallback behavior
 
 ### Queue-aware timeout math (why conservative timeout is high)
 

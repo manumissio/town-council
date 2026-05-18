@@ -1,6 +1,6 @@
 # Performance
 
-Last updated: 2026-05-16
+Last updated: 2026-05-17
 
 This page describes how to interpret and reproduce performance evidence for local Docker runs.
 For operational troubleshooting and sorting diagnostics, use `docs/OPERATIONS.md`.
@@ -237,7 +237,7 @@ Default conservative Docker/Ollama profile for rollout:
 Promotion rule:
 - move to a balanced profile only after one week of clean SLOs.
 - a passing conservative week makes balanced eligible for opt-in evaluation only; conservative remains the default recommendation.
-- M5 MLX profiles are diagnostic opt-in performance paths until benchmark evidence promotes them.
+- M5 MLX is the preferred M5 Pro opt-in path, but it is not the shared default until benchmark evidence promotes it.
 
 Provider telemetry for promotion gate:
 - `tc_provider_requests_total` by `{provider,operation,model,outcome}`
