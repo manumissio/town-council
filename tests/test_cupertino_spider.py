@@ -68,11 +68,25 @@ def test_cupertino_api_parsing(mocker):
     assert m1['documents'][0]['category'] == 'agenda'
     assert m1['documents'][1]['category'] == 'minutes'
     
-    # Check City Council meeting
-    m2 = results[1]
+    # Check City Council meeting with one missing API document triggers detail fallback
+    request = results[1]
+    assert request.url == "https://cupertino.legistar.com/MeetingDetail.aspx?ID=2"
+    detail_response = TextResponse(
+        url=request.url,
+        body="""
+        <html><body>
+          <a href="https://cupertino.legistar.com/cc_agenda.pdf">Agenda</a>
+          <a href="View.ashx?M=M&amp;ID=2">Minutes</a>
+        </body></html>
+        """,
+        encoding="utf-8",
+        request=Request(url=request.url)
+    )
+    [m2] = list(request.callback(detail_response, **request.cb_kwargs))
     assert m2['meeting_type'] == "City Council"
-    assert len(m2['documents']) == 1
+    assert len(m2['documents']) == 2
     assert m2['documents'][0]['url'] == "https://cupertino.legistar.com/cc_agenda.pdf"
+    assert m2['documents'][1]['url'] == "https://cupertino.legistar.com/View.ashx?M=M&ID=2"
 
     # Check event without documents does not emit empty/invalid document entries
     request = results[2]
