@@ -20,7 +20,7 @@ AGENDA_SUMMARY_SUBPHASE_KEYS = (
     AGENDA_SUMMARY_EMBED_DISPATCH_MS,
 )
 BASELINE_MANIFEST_DIR = "profiling/manifests"
-BASELINE_PROFILE_COMMAND = "python scripts/profile_pipeline.py"
+BASELINE_PROFILE_COMMAND = "PYTHONPATH=. .venv/bin/python scripts/profile_pipeline.py"
 NON_COMPARABLE_REASON_TEXT = {
     "baseline_invalid": "Run is not baseline-valid, so timing and counter checks are diagnostic only.",
     "confidence_reduced": "Run has reduced-confidence evidence, so timing and counter checks are diagnostic only.",

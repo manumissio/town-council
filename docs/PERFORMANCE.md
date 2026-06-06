@@ -70,14 +70,14 @@ Use the profiling harness when the question is "what is actually slow on the cri
 
 Commands:
 ```bash
-python scripts/profile_pipeline.py --mode triage
-python scripts/build_profile_manifest.py --name <name>
-python scripts/build_profile_manifest.py --name <name> --write
-python scripts/profile_pipeline.py --mode baseline --manifest profiling/manifests/<name>.txt --dry-run-prepare
-python scripts/profile_pipeline.py --mode baseline --manifest profiling/manifests/<name>.txt
-python scripts/profile_pipeline.py --mode baseline --manifest profiling/manifests/<name>.txt --compare-to profiling/baselines/<name>.json
-python scripts/analyze_pipeline_profile.py --run-id <run_id>
-python scripts/analyze_pipeline_profile.py --run-id <run_id> --compare-to profiling/baselines/<name>.json
+PYTHONPATH=. .venv/bin/python scripts/profile_pipeline.py --mode triage
+PYTHONPATH=. .venv/bin/python scripts/build_profile_manifest.py --name <name>
+PYTHONPATH=. .venv/bin/python scripts/build_profile_manifest.py --name <name> --write
+PYTHONPATH=. .venv/bin/python scripts/profile_pipeline.py --mode baseline --manifest profiling/manifests/<name>.txt --dry-run-prepare
+PYTHONPATH=. .venv/bin/python scripts/profile_pipeline.py --mode baseline --manifest profiling/manifests/<name>.txt
+PYTHONPATH=. .venv/bin/python scripts/profile_pipeline.py --mode baseline --manifest profiling/manifests/<name>.txt --compare-to profiling/baselines/<name>.json
+PYTHONPATH=. .venv/bin/python scripts/analyze_pipeline_profile.py --run-id <run_id>
+PYTHONPATH=. .venv/bin/python scripts/analyze_pipeline_profile.py --run-id <run_id> --compare-to profiling/baselines/<name>.json
 ```
 
 Artifacts:
