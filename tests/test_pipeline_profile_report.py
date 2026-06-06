@@ -298,6 +298,117 @@ def test_compare_against_expected_baseline_fails_for_counter_drift(tmp_path: Pat
     )
 
 
+def test_render_compare_report_explains_failed_elapsed_phase_and_counter_checks():
+    report = mod.render_compare_report(
+        {"run_id": "profile_run_slow"},
+        {
+            "expected_baseline": "profiling/baselines/baseline_representative_v1.json",
+            "manifest_name": "baseline_representative_v1",
+            "status": "fail",
+            "reason": "timing_regression",
+            "comparable": True,
+            "checks": [
+                {
+                    "metric": "elapsed_seconds",
+                    "expected": 9.473,
+                    "actual": 12.5,
+                    "delta": 3.027,
+                    "tolerance_pct": 20.0,
+                    "tolerance_abs": 1.895,
+                    "status": "fail",
+                    "reason": "timing_regression",
+                },
+                {
+                    "metric": "phase.summarize.duration_s",
+                    "expected": 3.601,
+                    "actual": 5.0,
+                    "delta": 1.399,
+                    "tolerance_pct": 25.0,
+                    "tolerance_abs": 0.9,
+                    "status": "fail",
+                    "reason": "timing_regression",
+                },
+                {
+                    "metric": "summary_hydration_backfill.selected",
+                    "expected": 12,
+                    "actual": 15,
+                    "status": "fail",
+                    "reason": "workload_shape_drift",
+                },
+            ],
+        },
+    )
+
+    assert "## Failed Checks" in report
+    assert "`elapsed_seconds`" in report
+    assert "expected=`9.473`" in report
+    assert "actual=`12.5`" in report
+    assert "tolerance=`20.0% / 1.895`" in report
+    assert "`phase.summarize.duration_s`" in report
+    assert "tolerance=`25.0% / 0.9`" in report
+    assert "`summary_hydration_backfill.selected`" in report
+    assert "reason=`workload_shape_drift`" in report
+    assert "PYTHONPATH=. .venv/bin/python scripts/profile_pipeline.py --mode baseline" in report
+    assert "--compare-to profiling/baselines/baseline_representative_v1.json" in report
+
+
+def test_render_compare_report_explains_non_comparable_confidence_reason():
+    report = mod.render_compare_report(
+        {"run_id": "profile_run_low_confidence"},
+        {
+            "expected_baseline": "profiling/baselines/baseline_representative_v1.json",
+            "manifest_name": "baseline_representative_v1",
+            "status": "non_comparable",
+            "reason": "confidence_reduced",
+            "comparable": False,
+            "checks": [],
+        },
+    )
+
+    assert "- status: `non_comparable`" in report
+    assert "- reason: `confidence_reduced`" in report
+    assert "- comparable: `False`" in report
+    assert "## Non-Comparable Run" in report
+    assert "reduced-confidence" in report
+    assert "## Failed Checks" not in report
+    assert "No checks were evaluated." in report
+
+
+def test_render_compare_report_handles_empty_checks_without_crashing():
+    report = mod.render_compare_report(
+        {"run_id": "profile_run_empty"},
+        {
+            "expected_baseline": "profiling/baselines/baseline_representative_v1.json",
+            "manifest_name": "baseline_representative_v1",
+            "status": "pass",
+            "reason": "matched",
+            "comparable": True,
+            "checks": [],
+        },
+    )
+
+    assert "- status: `pass`" in report
+    assert "No checks were evaluated." in report
+    assert "## Reproduce" in report
+
+
+def test_render_compare_report_handles_malformed_checks_without_crashing():
+    report = mod.render_compare_report(
+        {"run_id": "profile_run_malformed"},
+        {
+            "expected_baseline": "profiling/baselines/baseline_representative_v1.json",
+            "manifest_name": "baseline_representative_v1",
+            "status": "non_comparable",
+            "reason": "confidence_reduced",
+            "comparable": False,
+            "checks": 1,
+        },
+    )
+
+    assert "- status: `non_comparable`" in report
+    assert "No checks were evaluated." in report
+
+
 def test_compare_against_expected_baseline_marks_reduced_confidence_as_non_comparable(tmp_path: Path):
     run_dir = tmp_path / "profile_run_low_confidence"
     run_dir.mkdir()

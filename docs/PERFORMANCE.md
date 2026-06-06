@@ -70,14 +70,14 @@ Use the profiling harness when the question is "what is actually slow on the cri
 
 Commands:
 ```bash
-python scripts/profile_pipeline.py --mode triage
-python scripts/build_profile_manifest.py --name <name>
-python scripts/build_profile_manifest.py --name <name> --write
-python scripts/profile_pipeline.py --mode baseline --manifest profiling/manifests/<name>.txt --dry-run-prepare
-python scripts/profile_pipeline.py --mode baseline --manifest profiling/manifests/<name>.txt
-python scripts/profile_pipeline.py --mode baseline --manifest profiling/manifests/<name>.txt --compare-to profiling/baselines/<name>.json
-python scripts/analyze_pipeline_profile.py --run-id <run_id>
-python scripts/analyze_pipeline_profile.py --run-id <run_id> --compare-to profiling/baselines/<name>.json
+PYTHONPATH=. .venv/bin/python scripts/profile_pipeline.py --mode triage
+PYTHONPATH=. .venv/bin/python scripts/build_profile_manifest.py --name <name>
+PYTHONPATH=. .venv/bin/python scripts/build_profile_manifest.py --name <name> --write
+PYTHONPATH=. .venv/bin/python scripts/profile_pipeline.py --mode baseline --manifest profiling/manifests/<name>.txt --dry-run-prepare
+PYTHONPATH=. .venv/bin/python scripts/profile_pipeline.py --mode baseline --manifest profiling/manifests/<name>.txt
+PYTHONPATH=. .venv/bin/python scripts/profile_pipeline.py --mode baseline --manifest profiling/manifests/<name>.txt --compare-to profiling/baselines/<name>.json
+PYTHONPATH=. .venv/bin/python scripts/analyze_pipeline_profile.py --run-id <run_id>
+PYTHONPATH=. .venv/bin/python scripts/analyze_pipeline_profile.py --run-id <run_id> --compare-to profiling/baselines/<name>.json
 ```
 
 Artifacts:
@@ -131,6 +131,13 @@ Interpretation rule:
   - timings use percentage tolerances to absorb normal host variance
   - stable counters from `commands.log` are compared exactly
   - reduced-confidence or non-baseline-valid runs are reported as non-comparable, not clean passes
+
+Baseline compare report:
+- `status=pass` means every comparable timing and stable-counter check stayed within the checked-in baseline contract.
+- `status=fail` means the report's `Failed Checks` section is the priority list; inspect the first failed reason, then compare expected, actual, delta, and tolerance values before changing code.
+- `status=non_comparable` means the run is diagnostic only. Fix the listed confidence or baseline-validity reason before using the run for regression or promotion decisions.
+- `Failed Checks` lists timing regressions, missing artifacts, and workload-shape drift separately enough for an engineer to reproduce the failing condition without reading the JSON payload.
+- The `Reproduce` command at the end of the report is the canonical rerun command for that manifest/baseline pair.
 
 ### Latest runtime optimization note
 
