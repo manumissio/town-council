@@ -132,6 +132,13 @@ Interpretation rule:
   - stable counters from `commands.log` are compared exactly
   - reduced-confidence or non-baseline-valid runs are reported as non-comparable, not clean passes
 
+Baseline compare report:
+- `status=pass` means every comparable timing and stable-counter check stayed within the checked-in baseline contract.
+- `status=fail` means the report's `Failed Checks` section is the priority list; inspect the first failed reason, then compare expected, actual, delta, and tolerance values before changing code.
+- `status=non_comparable` means the run is diagnostic only. Fix the listed confidence or baseline-validity reason before using the run for regression or promotion decisions.
+- `Failed Checks` lists timing regressions, missing artifacts, and workload-shape drift separately enough for an engineer to reproduce the failing condition without reading the JSON payload.
+- The `Reproduce` command at the end of the report is the canonical rerun command for that manifest/baseline pair.
+
 ### Latest runtime optimization note
 
 - The default core pipeline and batch enrichment paths no longer shell into full `python indexer.py` rebuilds.
