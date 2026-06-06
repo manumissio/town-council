@@ -19,6 +19,12 @@ AGENDA_SUMMARY_SUBPHASE_KEYS = (
     AGENDA_SUMMARY_REINDEX_MS,
     AGENDA_SUMMARY_EMBED_DISPATCH_MS,
 )
+BASELINE_MANIFEST_DIR = "profiling/manifests"
+BASELINE_PROFILE_COMMAND = "python scripts/profile_pipeline.py"
+NON_COMPARABLE_REASON_TEXT = {
+    "baseline_invalid": "Run is not baseline-valid, so timing and counter checks are diagnostic only.",
+    "confidence_reduced": "Run has reduced-confidence evidence, so timing and counter checks are diagnostic only.",
+}
 
 
 def load_expected_baseline(path: Path, load_json: Callable[[Path], dict[str, Any]]) -> dict[str, Any]:
@@ -121,21 +127,99 @@ def render_report(summary: dict[str, Any]) -> str:
 
 
 def render_compare_report(summary: dict[str, Any], comparison: dict[str, Any]) -> str:
+    checks = _checks_from_comparison(comparison)
     lines = [
         f"# Baseline Compare: {summary.get('run_id')}",
         "",
         f"- expected_baseline: `{comparison.get('expected_baseline')}`",
+        f"- manifest_name: `{comparison.get('manifest_name')}`",
         f"- status: `{comparison.get('status')}`",
         f"- reason: `{comparison.get('reason')}`",
         f"- comparable: `{comparison.get('comparable')}`",
         "",
-        "## Checks",
     ]
-    for check in comparison.get("checks") or []:
-        lines.append(
-            f"- `{check['metric']}`: `{check['status']}` expected=`{check.get('expected')}` actual=`{check.get('actual')}`"
-        )
+    lines.extend(_render_non_comparable_section(comparison))
+    lines.extend(_render_failed_checks(checks))
+    lines.extend(
+        [
+            "## Checks",
+            *_render_check_lines(checks),
+            "",
+            "## Reproduce",
+            "```bash",
+            _baseline_compare_command(comparison),
+            "```",
+        ]
+    )
     return "\n".join(lines) + "\n"
+
+
+def _checks_from_comparison(comparison: dict[str, Any]) -> list[dict[str, Any]]:
+    raw_checks = comparison.get("checks")
+    if not isinstance(raw_checks, list):
+        return []
+    return [check for check in raw_checks if isinstance(check, dict)]
+
+
+def _render_non_comparable_section(comparison: dict[str, Any]) -> list[str]:
+    if comparison.get("comparable") is not False:
+        return []
+    reason = str(comparison.get("reason") or "")
+    detail = NON_COMPARABLE_REASON_TEXT.get(reason, "Run is non-comparable; inspect run confidence before using it.")
+    return ["## Non-Comparable Run", "", f"- detail: {detail}", ""]
+
+
+def _render_failed_checks(checks: list[dict[str, Any]]) -> list[str]:
+    failed_checks = [check for check in checks if check.get("status") == "fail"]
+    if not failed_checks:
+        return []
+    return ["## Failed Checks", *(_render_check_line(check) for check in failed_checks), ""]
+
+
+def _render_check_lines(checks: list[dict[str, Any]]) -> list[str]:
+    if not checks:
+        return ["No checks were evaluated."]
+    return [_render_check_line(check) for check in checks]
+
+
+def _render_check_line(check: dict[str, Any]) -> str:
+    return (
+        f"- `{check.get('metric')}`: `{check.get('status')}` "
+        f"expected=`{check.get('expected')}` actual=`{check.get('actual')}` "
+        f"{_render_delta(check)}{_render_tolerance(check)}reason=`{check.get('reason')}`"
+    )
+
+
+def _render_delta(check: dict[str, Any]) -> str:
+    if "delta" not in check:
+        return ""
+    return f"delta=`{check.get('delta')}` "
+
+
+def _render_tolerance(check: dict[str, Any]) -> str:
+    tolerance_pct = check.get("tolerance_pct")
+    tolerance_abs = check.get("tolerance_abs")
+    if tolerance_pct is None and tolerance_abs is None:
+        return ""
+    return f"tolerance=`{tolerance_pct}% / {tolerance_abs}` "
+
+
+def _baseline_compare_command(comparison: dict[str, Any]) -> str:
+    return " ".join(
+        [
+            BASELINE_PROFILE_COMMAND,
+            "--mode baseline",
+            f"--manifest {_manifest_path_for_comparison(comparison)}",
+            f"--compare-to {comparison.get('expected_baseline') or '<baseline.json>'}",
+        ]
+    )
+
+
+def _manifest_path_for_comparison(comparison: dict[str, Any]) -> str:
+    manifest_name = str(comparison.get("manifest_name") or "").strip()
+    if not manifest_name:
+        return "<manifest.txt>"
+    return f"{BASELINE_MANIFEST_DIR}/{manifest_name}.txt"
 
 
 def render_pairwise_compare_report(comparison: dict[str, Any]) -> str:
