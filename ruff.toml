@@ -1,65 +1,141 @@
+# Ruff configuration — single source of truth for lint scope and rules.
+# Policy rationale: docs/ENGINEERING_GUARDRAILS.md. Do not duplicate these
+# lists in docs or CI; CI should invoke `ruff check .` against this config.
+#
+# Ratchet contract (per ENGINEERING_GUARDRAILS "exception" policy):
+# - Every per-file entry below is an acknowledged, dated debt, not a grant.
+# - Remove entries as their tasks land: DTZ entries with T-TIME-*,
+#   S105 entries with T-SEC-*, C901/BLE001 entries as Phase 2 refactors and
+#   boundary cleanups shrink the offending functions/handlers.
+# - Never widen an entry's code list to silence a NEW violation; fix the code
+#   or raise it in the PR per the AGENTS.md objection protocol.
+# - Pruned as stale on 2026-07-18 (no longer violating): api/metrics.py,
+#   pipeline/backlog_maintenance.py, pipeline/db_session.py,
+#   pipeline/nlp_entity_model.py, pipeline/profiling.py,
+#   pipeline/summary_backfill.py, pipeline/semantic_index.py,
+#   pipeline/task_startup.py, scripts/backfill_summaries.py,
+#   scripts/evaluate_soak_week.py, scripts/hydration_repaired_runner.py,
+#   scripts/worker_healthcheck.py [BLE001].
+
 target-version = "py314"
 line-length = 120
-src = ["api", "pipeline", "scripts", "tests"]
+src = ["api", "council_crawler", "pipeline", "scripts", "semantic_service", "tests"]
 respect-gitignore = true
 extend-exclude = [
     "archive",
     "data",
     "frontend",
     "monitoring",
-    "semantic_service",
     "tmp",
 ]
 
 [lint]
-select = ["E722", "F401", "F841", "B006", "B007", "B023", "BLE001"]
+# E722  bare except                    F401/F841  unused imports/locals
+# B     bugbear bug patterns           BLE001     blind except Exception
+# C901  complexity ceiling (mccabe)    DTZ        naive-datetime usage
+# S     bandit security checks (api/pipeline only; see per-file ignores)
+select = ["E722", "F401", "F841", "B", "BLE001", "C901", "DTZ", "S"]
+
+[lint.mccabe]
+# T-GOV-3 structural rule. Current offenders are allowlisted below and
+# ratchet down; do not add new entries without an exception rationale.
+max-complexity = 10
+
+[lint.flake8-bugbear]
+# FastAPI dependency-injection defaults are intentional call-in-default.
+extend-immutable-calls = ["fastapi.Depends", "fastapi.Query", "fastapi.Path", "fastapi.Header", "fastapi.Body"]
 
 [lint.per-file-ignores]
-"scripts/*.py" = ["F401", "F841"]
-"tests/*.py" = ["F401", "F841", "B007"]
+# Blanket scopes: operator scripts skip bandit + unused-symbol hygiene noise;
+# tests additionally skip complexity and naive-datetime fixtures.
+"scripts/*.py" = ["F401", "F841", "S"]
+"tests/*.py" = ["F401", "F841", "B007", "S", "DTZ", "C901"]
+
+# council_crawler entered lint scope 2026-07-18 (previously unlinted).
+# F401/B026 are one-line fixes; DTZ ties to T-TIME, S324 to a
+# usedforsecurity=False annotation. Ratchet these first.
+"council_crawler/council_crawler/pipelines.py" = ["BLE001"]
+"council_crawler/council_crawler/spiders/base.py" = ["BLE001", "F401"]
+"council_crawler/council_crawler/spiders/ca_belmont.py" = ["F401"]
+"council_crawler/council_crawler/spiders/ca_berkeley.py" = ["F401"]
+"council_crawler/council_crawler/spiders/ca_cupertino.py" = ["B026"]
+"council_crawler/council_crawler/spiders/ca_dublin.py" = ["F401"]
+"council_crawler/council_crawler/spiders/ca_fremont.py" = ["DTZ007"]
+"council_crawler/council_crawler/spiders/ca_hayward.py" = ["B026"]
+"council_crawler/council_crawler/spiders/ca_moraga.py" = ["F401"]
+"council_crawler/council_crawler/spiders/ca_mtn_view.py" = ["B026"]
+"council_crawler/council_crawler/spiders/ca_san_leandro.py" = ["B026"]
+"council_crawler/council_crawler/spiders/ca_san_mateo.py" = ["DTZ011"]
+"council_crawler/council_crawler/spiders/ca_sunnyvale.py" = ["B026"]
+"council_crawler/council_crawler/utils.py" = ["S324"]
+"council_crawler/templates/legistar_cms.py" = ["F401"]
+
 "api/cache.py" = ["BLE001"]
-"api/main.py" = ["BLE001"]
-"api/metrics.py" = ["BLE001"]
-"pipeline/agenda_legistar.py" = ["BLE001"]
+"api/catalog_routes.py" = ["C901"]
+"api/main.py" = ["B904", "BLE001"]
+"api/search/trends_support.py" = ["DTZ007"]
+"api/task_route_support.py" = ["B904"]
+"api/trends_routes.py" = ["DTZ007"]
+"pipeline/agenda_legistar.py" = ["BLE001", "C901"]
+"pipeline/agenda_text_noise.py" = ["C901"]
 "pipeline/agenda_worker.py" = ["BLE001"]
-"pipeline/backlog_maintenance.py" = ["BLE001"]
+"pipeline/backfill_catalog_hashes.py" = ["C901"]
+"pipeline/backfill_entities.py" = ["C901"]
+"pipeline/backfill_orgs.py" = ["C901"]
 "pipeline/check_faiss_runtime.py" = ["BLE001"]
+"pipeline/city_coverage_audit.py" = ["DTZ011"]
+"pipeline/city_coverage_windows.py" = ["DTZ011"]
+"pipeline/city_onboarding_metrics.py" = ["DTZ007"]
 "pipeline/db_migration_runner.py" = ["BLE001"]
-"pipeline/db_session.py" = ["BLE001"]
-"pipeline/diagnose_search_sort.py" = ["BLE001"]
-"pipeline/diagnose_semantic_search.py" = ["BLE001"]
+"pipeline/diagnose_search_sort.py" = ["BLE001", "C901", "S310"]
+"pipeline/diagnose_semantic_search.py" = ["BLE001", "S310"]
+"pipeline/downloader.py" = ["B905"]
+"pipeline/enrichment_tasks.py" = ["B904"]
+"pipeline/extractor.py" = ["C901"]
 "pipeline/indexer.py" = ["BLE001"]
 "pipeline/indexer_meilisearch.py" = ["BLE001"]
 "pipeline/llm.py" = ["BLE001"]
 "pipeline/local_ai_provider_calls.py" = ["BLE001"]
+"pipeline/metrics_redis_backend.py" = ["S105"]
 "pipeline/model_base.py" = ["BLE001"]
-"pipeline/nlp_entity_model.py" = ["BLE001"]
-"pipeline/profiling.py" = ["BLE001"]
-"pipeline/run_agenda_qa.py" = ["BLE001"]
-"pipeline/run_batch_enrichment.py" = ["BLE001"]
+"pipeline/person_linker.py" = ["C901"]
+"pipeline/provider_telemetry.py" = ["S105"]
+"pipeline/rollout_registry.py" = ["C901"]
+"pipeline/run_agenda_qa.py" = ["BLE001", "DTZ005"]
+"pipeline/run_pipeline_extraction.py" = ["S311"]
+"pipeline/run_pipeline_onboarding.py" = ["DTZ007"]
 "pipeline/run_pipeline_steps.py" = ["BLE001"]
 "pipeline/runtime_guardrails.py" = ["BLE001"]
-"pipeline/summary_backfill.py" = ["BLE001"]
-"pipeline/summary_backfill_dispatch.py" = ["BLE001"]
-"pipeline/semantic_index.py" = ["BLE001"]
-"pipeline/semantic_tasks.py" = ["BLE001"]
+"pipeline/semantic_faiss_backend.py" = ["B905"]
+"pipeline/semantic_pgvector_backend.py" = ["B905"]
+"pipeline/semantic_tasks.py" = ["B904", "BLE001"]
 "pipeline/startup_purge.py" = ["BLE001"]
-"pipeline/task_startup.py" = ["BLE001"]
+"pipeline/summary_backfill_dispatch.py" = ["BLE001"]
 "pipeline/table_worker.py" = ["BLE001"]
-"pipeline/tasks.py" = ["BLE001"]
+"pipeline/task_agenda_titles.py" = ["C901"]
+"pipeline/tasks.py" = ["B904", "BLE001"]
 "pipeline/text_cleaning.py" = ["BLE001"]
+"pipeline/topic_generation_contracts.py" = ["S105"]
+"pipeline/topic_generation_text.py" = ["B009"]
 "pipeline/topic_worker.py" = ["BLE001"]
-"pipeline/vote_extraction_runner.py" = ["BLE001"]
-"scripts/backfill_summaries.py" = ["BLE001"]
+"pipeline/vote_extraction_runner.py" = ["BLE001", "S101"]
+"scripts/audit_city_coverage.py" = ["DTZ007"]
+"scripts/check_city_crawl_evidence.py" = ["DTZ007"]
+"scripts/collect_ab_results_rows.py" = ["B005"]
 "scripts/collect_soak_metrics.py" = ["BLE001"]
 "scripts/enrichment_worker_healthcheck.py" = ["BLE001"]
-"scripts/evaluate_soak_week.py" = ["BLE001"]
-"scripts/hydration_repaired_runner.py" = ["BLE001"]
+"scripts/evaluate_soak_week_gates.py" = ["DTZ006"]
 "scripts/hydration_repaired_summary.py" = ["BLE001"]
+"scripts/laserfiche_repair_downloads.py" = ["B010"]
+"scripts/laserfiche_repair_generated_pdf.py" = ["B010"]
+"scripts/operator_profile_metrics.py" = ["C901"]
 "scripts/parse_task_launch.py" = ["BLE001"]
 "scripts/probe_local_model_candidate.py" = ["BLE001"]
+"scripts/profile_pipeline_runner.py" = ["C901"]
+"scripts/profile_pipeline_selection.py" = ["C901"]
 "scripts/repair_san_mateo_laserfiche_backlog.py" = ["BLE001"]
+"scripts/reset_city_verification_state.py" = ["DTZ007"]
 "scripts/reset_laserfiche_error_agenda_rows.py" = ["BLE001"]
-"scripts/score_ab_results.py" = ["BLE001"]
+"scripts/rollout_registry.py" = ["B904"]
+"scripts/score_ab_results.py" = ["BLE001", "C901"]
 "scripts/semantic_worker_healthcheck.py" = ["BLE001"]
-"scripts/worker_healthcheck.py" = ["BLE001"]
