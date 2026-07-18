@@ -1,17 +1,44 @@
 # Engineering Guardrails
 
-Town Council uses a layered guardrail system to reduce low-signal code smells before they land in `master`.
+Town Council uses a layered guardrail system to reduce low-signal code smells
+before they land in `master`.
 
-## Local command
+Status: this revision lands alongside remediation tasks T-CI-4 (formatter
+scope moves to `ruff.toml`) and T-GOV-3 (structural rules replace per-file
+line lists). Sections marked `[transition]` state which task activates them.
 
-Run the Python-first guardrails before opening a PR:
+## Single-source rule for scopes
+
+Every enforced file set lives in exactly one machine-readable location. This
+document explains the policy and points at the scope; it never duplicates the
+list (see `AGENTS.md` `<docs_sync_rules>`).
+
+| Guardrail            | Scope lives in                                   |
+|----------------------|--------------------------------------------------|
+| Lint                 | `ruff.toml` (rule selection + paths)             |
+| Formatter            | `ruff.toml` format include set `[transition: T-CI-4]` |
+| Typed subtree        | `mypy.ini` `files`/per-module sections           |
+| Smell tests          | constants at the top of `tests/test_repository_guardrails.py` |
+| CI orchestration     | `.github/workflows/python-guardrails.yml`, `.github/workflows/frontend-tests.yml` |
+
+Cleanup-wave history (the former Batch A–G family lists) is decision record
+material, not living policy: see `docs/ADR.md`.
+
+## Local commands
+
+Run before opening a PR:
 
 ```bash
 cd <REPO_ROOT>
 ./.venv/bin/ruff check api pipeline scripts tests
-./.venv/bin/mypy
+./.venv/bin/ruff format --check .        # scope from ruff.toml [transition: T-CI-4]
+./.venv/bin/mypy                          # scope from mypy.ini
 PYTHONPATH=. .venv/bin/pytest -q tests/test_repository_guardrails.py
 ```
+
+CI runs the same checks plus the full test suite on every PR; the guardrail
+subset exists for fast local iteration, not as the merge bar (see
+`docs/TESTING.md`).
 
 ## What the static checks block
 
@@ -20,16 +47,42 @@ PYTHONPATH=. .venv/bin/pytest -q tests/test_repository_guardrails.py
 - bare `except:` blocks
 - broad `except Exception` handlers outside approved boundary files
 
-The first pass is intentionally moderate. It is meant to block lazy hygiene regressions without forcing a repo-wide style migration.
+The pass is intentionally moderate: it blocks lazy hygiene regressions
+without forcing a repo-wide style migration.
+
+## Structural rules `[transition: T-GOV-3]`
+
+These replace the per-file 300-line lists. Rationale: line caps measured a
+proxy and drove mechanical facade+helper splits whose sync machinery was
+worse than the length it removed. The replacement rules measure the thing we
+actually care about — cohesion and dependency direction — and files may be as
+long as their content is cohesive.
+
+1. Complexity ceiling: no function above radon grade C (CC > 10) in `api/`
+   or `pipeline/` without a documented exception. Enforcement mechanism and
+   rule selection are recorded in `ruff.toml` / the guardrail test when
+   adopted; per `AGENTS.md`, do not claim complexity enforcement before the
+   config selects it.
+2. Import direction: helper modules must not import their facade/route
+   module. Generalized from the `semantic_service` rule to every
+   facade+helpers family registered in the guardrail test constants.
+3. Banned structures (mechanically checked): bidirectional
+   `_sync_*_from_*` global-reconciliation functions; f-string interpolation
+   inside SQLAlchemy `text(...)` DDL/DML; duplicated module-global state
+   synchronized by convention. See `AGENTS.md` `<known_antipatterns>` for
+   the full rationale.
+4. Retired: per-file line-count assertions for families collapsed in
+   remediation Phase 2. Remaining line assertions are deleted as their
+   families are recombined, not extended to new files.
 
 ## Optional local dead-code and complexity audit
 
-`pipeline/requirements-dev.txt` pins the local audit tools used during Batch E:
+`pipeline/requirements-dev.txt` pins the local audit tools:
 
 - `vulture==2.16`
 - `radon==6.0.1`
 
-These commands are advisory local audits, not CI gates:
+Advisory local audits, not CI gates:
 
 ```bash
 cd <REPO_ROOT>
@@ -42,139 +95,74 @@ cd <REPO_ROOT>
 - no personal absolute paths in tracked repo files
 - no import-time logging configuration in reusable pipeline modules
 - no raw `print(...)` in non-CLI pipeline modules
-- no silent broad exception handlers or broad exception allowlist drift
-- existing Town Council policy tests for fail-fast runtime behavior, freshness contracts, and profile comparability
-- cleanup module families for downloader, NLP entities, segment-city CLI, hydration CLIs, models, DB migrations, LocalAI, indexing, semantic backends and service helpers, summary text and backfill, vote extraction, provider/person utilities, reporting/profile scripts, shared helper utilities, agenda QA, task/API/search helpers, onboarding/repair scripts, and prior facade splits stay under the 300-line target
+- no silent broad exception handlers or broad-exception allowlist drift
+- fail-fast runtime behavior, freshness contracts, and profile comparability
+  (existing Town Council policy tests)
+- the structural rules above, as they are adopted
 
-Batch G cleanup coverage includes:
-- semantic service facade and helpers: `semantic_service/main.py`, `semantic_service/candidates.py`, `semantic_service/filters.py`, `semantic_service/retrieval.py`, `semantic_service/hydration.py`
-- semantic service helpers must not import `semantic_service.main`; dependencies flow from the route facade into helpers
-
-Batch F cleanup coverage includes:
-- search-read facade and helpers: `api/search_read_routes.py`, `api/search_read_meilisearch.py`, `api/search_read_params.py`, `api/search_read_results.py`
-- city coverage facade and helpers: `pipeline/city_coverage_audit.py`, `pipeline/city_coverage_assembly.py`, `pipeline/city_coverage_buckets.py`, `pipeline/city_coverage_contracts.py`, `pipeline/city_coverage_queries.py`, `pipeline/city_coverage_windows.py`
-- lineage facade and helpers: `pipeline/lineage_service.py`, `pipeline/lineage_assignment.py`, `pipeline/lineage_graph.py`
-- operator A/B facade and aggregation helper: `scripts/operator_profile_ab.py`, `scripts/operator_profile_ab_aggregate.py`
-
-Batch E cleanup coverage includes:
-- reporting facades and helpers: `scripts/evaluate_soak_week.py`, `scripts/evaluate_soak_week_gates.py`, `scripts/collect_ab_results.py`, `scripts/collect_ab_results_rows.py`
-- shared helper utilities: `pipeline/cli_logging.py`, `scripts/operator_numeric.py`
-- agenda QA/scoring surfaces: `pipeline/agenda_qa.py`, `pipeline/agenda_resolver_quality.py`, `pipeline/utils_names.py`
+Scopes for each check live as constants in
+`tests/test_repository_guardrails.py` — edit the constant, not this file.
 
 ## How to request an exception
 
 Keep exceptions narrow and path-specific.
 
 - For stdout-driven operator tools, document why stdout is the contract.
-- For broader exception handling, keep it in an approved boundary file, log with context, and explain what invariant remains true.
-- Remove path-specific suppressions only when both the current lint checks and the guardrail tests prove they are stale, instead of letting exception lists drift forward indefinitely.
+- For broader exception handling, keep it in an approved boundary file, log
+  with context, and explain what invariant remains true.
+- Remove path-specific suppressions only when both the current lint checks
+  and the guardrail tests prove they are stale, instead of letting exception
+  lists drift forward indefinitely.
 - Do not add broad repo-wide ignores when a per-path exception is enough.
 
 ## Boundary exception handlers
 
-Boundary handlers are limited to runtime, provider, exporter, maintenance, and operator-entrypoint edges where the code is isolating an unstable dependency.
+Boundary handlers are limited to runtime, provider, exporter, maintenance,
+and operator-entrypoint edges where the code is isolating an unstable
+dependency.
 
-- If the handler can preserve the caller contract, log with context and return a typed failure payload.
-- If the handler cannot preserve the contract safely, log with context and re-raise.
-- Log-only handlers are allowed only when a nearby comment states why the invariant remains true.
-- Summary hydration embed dispatch is an approved best-effort boundary because summary writes are already durable before enqueue attempts.
+- If the handler can preserve the caller contract, log with context and
+  return a typed failure payload.
+- If the handler cannot preserve the contract safely, log with context and
+  re-raise.
+- Log-only handlers are allowed only when a nearby comment states why the
+  invariant remains true.
+- Summary hydration embed dispatch is an approved best-effort boundary
+  because summary writes are already durable before enqueue attempts.
 
 ## Typed subtree
 
-The first typed subtree is intentionally small and stable:
-
-- `api/metrics.py`
-- `api/search/query_builder.py`
-- `pipeline/config.py`
-- `pipeline/config_env.py`
-- `pipeline/config_startup.py`
-- `pipeline/config_inference.py`
-- `pipeline/config_semantic.py`
-- `pipeline/config_processing.py`
-- `pipeline/config_topic_similarity.py`
-- `pipeline/config_table.py`
-- `pipeline/agenda_crosscheck.py`
-- `pipeline/agenda_legistar.py`
-- `pipeline/agenda_resolver.py`
-- `pipeline/agenda_resolver_contracts.py`
-- `pipeline/agenda_resolver_quality.py`
-- `pipeline/agenda_resolver_legistar_policy.py`
-- `pipeline/agenda_resolver_html.py`
-- `pipeline/agenda_resolver_enrichment.py`
-- `pipeline/agenda_resolver_runner.py`
-- `pipeline/city_scope.py`
-- `pipeline/content_hash.py`
-- `pipeline/document_kinds.py`
-- `pipeline/agenda_service.py`
-- `pipeline/agenda_verification_model_access.py`
-- `pipeline/extraction_service.py`
-- `pipeline/extraction_state.py`
-- `pipeline/maintenance_run_status.py`
-- `pipeline/models.py`
-- `pipeline/model_base.py`
-- `pipeline/model_runtime.py`
-- `pipeline/model_civic.py`
-- `pipeline/model_events.py`
-- `pipeline/model_records.py`
-- `pipeline/profiling.py`
-- `pipeline/rollout_registry.py`
-- `pipeline/runtime_guardrails.py`
-- `pipeline/summary_hydration_diagnostics.py`
-- `pipeline/summary_hydration_diagnostic_contracts.py`
-- `pipeline/summary_hydration_diagnostic_policy.py`
-- `pipeline/summary_hydration_diagnostic_queries.py`
-- `pipeline/summary_hydration_diagnostic_samples.py`
-- `pipeline/summary_hydration_diagnostic_builder.py`
-- `pipeline/profile_manifest.py`
-- `pipeline/profile_manifest_contracts.py`
-- `pipeline/profile_manifest_io.py`
-- `pipeline/profile_manifest_candidates.py`
-- `pipeline/profile_manifest_people.py`
-- `pipeline/profile_manifest_builder.py`
-- `pipeline/profile_manifest_preconditioning.py`
-- `pipeline/topic_generation.py`
-- `pipeline/topic_generation_contracts.py`
-- `pipeline/topic_generation_text.py`
-- `pipeline/topic_generation_keywords.py`
-- `pipeline/topic_generation_task.py`
-- `pipeline/topic_generation_batch.py`
-- `pipeline/summary_quality.py`
-- `pipeline/summary_freshness.py`
-- `pipeline/utils.py`
-- `pipeline/verification_service.py`
-- `pipeline/vote_extractor.py`
-- `pipeline/vote_extraction_contracts.py`
-- `pipeline/vote_extraction_prompting.py`
-- `pipeline/vote_extraction_parser.py`
-- `pipeline/vote_extraction_context.py`
-- `pipeline/vote_extraction_policy.py`
-- `pipeline/vote_extraction_runner.py`
-- `pipeline/vote_extraction_item.py`
-- `scripts/analyze_pipeline_profile.py`
-
-Run:
+The typed subtree is defined in `mypy.ini`. Run:
 
 ```bash
 cd <REPO_ROOT>
 ./.venv/bin/mypy
 ```
 
+Growing the subtree is a policy change: move modules into `mypy.ini` scope in
+their own PR, report old/new scope per the `AGENTS.md` status-reporting
+contract, and do not mix with behavioral edits.
+
 ## Formatting
 
-Python formatting uses Ruff only:
+Python formatting uses Ruff only. The formatter-ready path set is configured
+in `ruff.toml` `[transition: T-CI-4]`; run:
 
 ```bash
 cd <REPO_ROOT>
-./.venv/bin/ruff format --check api/metrics.py api/search/query_builder.py pipeline/config.py pipeline/config_env.py pipeline/config_startup.py pipeline/config_inference.py pipeline/config_semantic.py pipeline/config_processing.py pipeline/config_topic_similarity.py pipeline/config_table.py pipeline/agenda_crosscheck.py pipeline/agenda_legistar.py pipeline/agenda_resolver.py pipeline/agenda_resolver_contracts.py pipeline/agenda_resolver_quality.py pipeline/agenda_resolver_legistar_policy.py pipeline/agenda_resolver_html.py pipeline/agenda_resolver_enrichment.py pipeline/agenda_resolver_runner.py pipeline/city_scope.py pipeline/content_hash.py pipeline/document_kinds.py pipeline/agenda_service.py pipeline/agenda_verification_model_access.py pipeline/extraction_service.py pipeline/extraction_state.py pipeline/maintenance_run_status.py pipeline/models.py pipeline/model_base.py pipeline/model_runtime.py pipeline/model_civic.py pipeline/model_events.py pipeline/model_records.py pipeline/profiling.py pipeline/rollout_registry.py pipeline/runtime_guardrails.py pipeline/summary_hydration_diagnostics.py pipeline/summary_hydration_diagnostic_contracts.py pipeline/summary_hydration_diagnostic_policy.py pipeline/summary_hydration_diagnostic_queries.py pipeline/summary_hydration_diagnostic_samples.py pipeline/summary_hydration_diagnostic_builder.py pipeline/profile_manifest.py pipeline/profile_manifest_contracts.py pipeline/profile_manifest_io.py pipeline/profile_manifest_candidates.py pipeline/profile_manifest_people.py pipeline/profile_manifest_builder.py pipeline/profile_manifest_preconditioning.py pipeline/topic_generation.py pipeline/topic_generation_contracts.py pipeline/topic_generation_text.py pipeline/topic_generation_keywords.py pipeline/topic_generation_task.py pipeline/topic_generation_batch.py pipeline/summary_quality.py pipeline/summary_freshness.py pipeline/utils.py pipeline/verification_service.py pipeline/vote_extractor.py pipeline/vote_extraction_contracts.py pipeline/vote_extraction_prompting.py pipeline/vote_extraction_parser.py pipeline/vote_extraction_context.py pipeline/vote_extraction_policy.py pipeline/vote_extraction_runner.py pipeline/vote_extraction_item.py scripts/analyze_pipeline_profile.py
+./.venv/bin/ruff format --check .
 ```
 
-Use that exact path-scoped command as the scoped formatter guardrail for the current formatter-ready wave. Keep formatter enforcement limited to this explicit path set, and do not mix formatting with behavioral edits.
+Keep formatter enforcement limited to the configured set, and do not mix
+formatting with behavioral edits.
 
 ## How to add a new guardrail
 
 When a smell recurs:
 
 1. Add the smallest rule or smell test that catches it.
-2. Prefer extending existing test helpers and config instead of adding a new framework.
-3. Add the verification command to the change summary.
-4. Update `AGENTS.md` only if the contributor workflow needs to change.
+2. Prefer extending existing test helpers and config instead of adding a new
+   framework.
+3. Put any file scope in the single-source location for that guardrail type.
+4. Add the verification command to the change summary.
+5. Update `AGENTS.md` only if the contributor workflow needs to change.
