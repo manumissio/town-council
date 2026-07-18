@@ -3,13 +3,13 @@
 This file is the AI collaboration contract for this repository.
 
 <project_identity>
-Town Council is a local-first civic data platform for crawling, extracting, indexing, and analyzing local government meeting records. Treat `README.md`, `ARCHITECTURE.md`, `docs/OPERATIONS.md`, `docs/PERFORMANCE.md`, `docs/ENGINEERING_GUARDRAILS.md`, and `ROADMAP.md` as canonical references.
+Town Council is a local-first civic data platform for crawling, extracting, indexing, and analyzing local government meeting records. Treat `README.md`, `ARCHITECTURE.md`, `SECURITY.md`, `docs/OPERATIONS.md`, `docs/PERFORMANCE.md`, `docs/ENGINEERING_GUARDRAILS.md`, `docs/TESTING.md`, `docs/DATA_GOVERNANCE.md`, and `ROADMAP.md` as canonical references.
 
 Keep this file focused on repo-applicable operating policy: project constraints, commands, verification, quality rules, and reporting expectations. Do not use it for agent persona, chat-style output templates, session notes, or implementation logs.
 </project_identity>
 
 <hierarchy_of_truth>
-1. Code for Behavior: For implementation details, function signatures, schemas, and active defaults, the codebase and tests are the descriptive ground truth. If documentation contradicts the code regarding how a feature works, assume the code is correct and update the documentation.
+1. Code for Behavior: For implementation details, function signatures, schemas, and active defaults, the codebase and tests are the descriptive ground truth. If documentation contradicts the code regarding how a feature works, assume the code is correct and update the documentation. Code is ground truth for *behavior only*; it is not a style guide for new structure. Structural idioms listed in `<known_antipatterns>` must not be replicated in new or modified code, even where they dominate the existing codebase.
 2. AGENTS.md for Agent Policy: For agent workflow, repository constraints, action permissions, verification routing, and reporting requirements, this document is the prescriptive entrypoint.
 3. ENGINEERING_GUARDRAILS.md for Guardrail Policy: For static-analysis scope, typed-subtree membership, boundary exception policy, formatter path scope, smell-test coverage, and guardrail exception handling, `docs/ENGINEERING_GUARDRAILS.md` is canonical. If this file and `docs/ENGINEERING_GUARDRAILS.md` conflict on guardrail specifics, treat `docs/ENGINEERING_GUARDRAILS.md` as correct and update this file.
 4. Product and Architecture Docs: Treat `README.md`, `ARCHITECTURE.md`, `docs/OPERATIONS.md`, `docs/PERFORMANCE.md`, and `ROADMAP.md` as canonical for their stated domains.
@@ -31,18 +31,46 @@ Don't:
 - Do not bypass commit hooks or recommend `--no-verify`.
 </hard_invariants>
 
+<known_antipatterns>
+These structures exist in the current codebase and are being removed (see
+`docs/ADR.md`, "Test patch points are not a public API"). Do not replicate
+them in new or materially modified code. Do not preserve them when a task
+authorizes their removal.
+
+- Bidirectional module-global synchronization: paired `_sync_X_from_Y` /
+  `_sync_Y_from_X` functions reconciling duplicated globals between a facade
+  and its implementation module. One module owns state; others import it.
+- Test-seam re-exports: `from module import name as name` blocks or facade
+  wrapper functions whose only purpose is to preserve historical monkeypatch
+  targets. If a test breaks because a symbol moved, repoint the test at the
+  implementation module instead (`docs/TESTING.md`).
+- Patchability parameters: adding injectable-callable parameters to a
+  function signature so tests can substitute internals. Fake at approved
+  boundaries (DB session factory, Celery dispatch, inference provider,
+  Meilisearch client) instead.
+- Conditional splat forwarding: `**({...} if x is not None else {})` chains
+  that duplicate a callee's signature and defaults in a wrapper. Call the
+  callee directly or re-export it without a wrapper.
+- Duplicated implementations held in sync by convention: copying a function
+  into a second module and relying on manual synchronization. Extract to one
+  location and import.
+- Stdlib or dependency re-binding through project modules (for example
+  `hmac = app_setup.hmac`). Import from the source.
+</known_antipatterns>
+
 <action_permissions>
 Allowed without confirmation:
 - Read, grep, stat, or inspect files.
 - Run a single-file lint or typecheck.
 - Run a single targeted test from the verification matrix.
+- Run the full pytest suite (`PYTHONPATH=. .venv/bin/pytest -q`) when a task's
+  verification requires it or before handoff on cross-cutting changes.
 - Create local scratch files under an ignored temporary path when needed for analysis.
 
 Require explicit user confirmation before running:
 - Package installs (`pip`, `apt`, `npm`, etc.).
 - `git commit`, `git push`, `git reset`, `git clean`, or `git stash drop`.
 - Deleting, moving, or renaming tracked files.
-- Running the full pytest suite: `PYTHONPATH=. .venv/bin/pytest -q`.
 - Broad refactors not explicitly requested in the task.
 </action_permissions>
 
@@ -109,6 +137,19 @@ Don't:
 - Do not silently implement a bad approach and bury the concern in a note.
 </objection_protocol>
 
+<security_sensitive_paths>
+Changes touching any of the following require a trust-boundary impact
+statement in the change report (what boundary is affected, what an attacker
+gains or loses, which `SECURITY.md` control applies):
+- `api/app_setup.py` (auth, rate limiting, lifespan checks)
+- `frontend/app/api/**` and `frontend/proxy.js` (proxy key injection, CSP, origin checks)
+- `docker-compose*.yml` and `Dockerfile` (port exposure, credentials, image roles)
+- Any code handling `API_AUTH_KEY`, `MEILI_MASTER_KEY`, `MEILI_SEARCH_KEY`,
+  Redis/Postgres credentials, or CORS configuration.
+If the impact is unclear, invoke the objection protocol rather than guessing.
+`SECURITY.md` is canonical for the threat model and control set.
+</security_sensitive_paths>
+
 <api_library_confidence>
 - Do not invent external API calls, library methods, configuration defaults, or signatures.
 - Before adding or changing dependency-facing code, verify the call against installed code, lockfiles, project docs, tests, or current upstream documentation.
@@ -152,6 +193,14 @@ Don't:
 </status_reporting_contract>
 
 <verification_matrix>
+Scope: the matrix is a fast local pre-check for iterating on a change. The
+authoritative merge gate is the full test suite run by CI on every pull
+request (`python-guardrails` for Python, `frontend-tests` for the frontend).
+A passing matrix row is necessary for proceeding, not sufficient for merge.
+[transition: the CI full-suite and frontend jobs are delivered by remediation
+tasks T-CI-1 and T-CI-2; until both merge, run the full sweep locally before
+handoff on any non-trivial change.]
+
 All commands in applicable row(s) are mandatory, not advisory.
 If no row applies, run `PYTHONPATH=. .venv/bin/pytest -q tests/test_docs_links.py` at minimum.
 Do not skip checks because a change appears trivial.
@@ -194,9 +243,13 @@ Frontend contract changes (`frontend/**` affecting API/task/search behavior):
 - `PYTHONPATH=. .venv/bin/pytest -q tests/test_search_sort_ui_guardrails.py`
 - `PYTHONPATH=. .venv/bin/pytest -q tests/test_semantic_search_ui_guardrails.py`
 
+Frontend component/behavior changes (`frontend/**` JS/JSX):
+- `cd frontend && npm test`
+  [transition: effective when the frontend test runner lands (T-CI-2)]
+
 Broad cross-cutting changes:
 - Required: run all applicable rows above.
-- Optional full sweep (state why): `PYTHONPATH=. .venv/bin/pytest -q`
+- Required before handoff: `PYTHONPATH=. .venv/bin/pytest -q`
 </verification_matrix>
 
 <completion_checklist>
@@ -206,6 +259,7 @@ Broad cross-cutting changes:
 - [ ] Outcomes are reported with explicit PASS/FAIL.
 - [ ] Docs were updated when behavior, contracts, commands, or policy changed.
 - [ ] No drift from local-first/fail-fast invariants was introduced.
+- [ ] No structures from `<known_antipatterns>` were introduced or preserved past an authorized removal.
 - [ ] No personal absolute paths were introduced.
 - [ ] Dirty tree status and changed paths are reported at handoff.
 </completion_checklist>
@@ -225,6 +279,7 @@ Commit/PR summaries must include:
 - Update operational metadata markers (`Last updated`) when materially changing runbooks.
 - Commands, gates, and workflow guidance in docs must reflect current repository reality.
 - Do not duplicate Entry Points / Code Map content from `ARCHITECTURE.md` into `AGENTS.md`; `AGENTS.md` defines constraints/workflow, `ARCHITECTURE.md` defines system map.
+- File-set enumerations (typed subtree, formatter scope, smell-test scope) live in machine-readable config only (`mypy.ini`, `ruff.toml`, guardrail test constants). Docs reference the config location; they never duplicate the list.
 </docs_sync_rules>
 
 <maintenance>
@@ -233,6 +288,7 @@ Update this file when:
 - soak gate semantics change,
 - verification matrix rows change,
 - guardrail or policy enforcement changes,
+- security boundary, testing policy, or data governance policy changes,
 - roadmap sequencing or policy changes.
 
 Keep this file concise and link to canonical docs for details.
