@@ -1,0 +1,317 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Architecture review — Town Council</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script type="module">
+      import mermaid from "https://cdn.jsdelivr.net/npm/mermaid@11/dist/mermaid.esm.min.mjs";
+      mermaid.initialize({ startOnLoad: true, theme: "neutral", securityLevel: "loose" });
+    </script>
+    <style>
+      body { background-image: radial-gradient(#d6d3d1 0.7px, transparent 0.7px); background-size: 18px 18px; }
+      .deep { background: linear-gradient(135deg, #0f172a, #1e293b); }
+      .seam { border-style: dashed; }
+      .mini { min-height: 20rem; }
+      code { overflow-wrap: anywhere; }
+    </style>
+  </head>
+  <body class="bg-stone-50 text-slate-900">
+    <main class="mx-auto max-w-6xl space-y-12 px-6 py-12">
+      <header class="border-b-2 border-slate-900 pb-8">
+        <div class="flex flex-wrap items-end justify-between gap-5">
+          <div>
+            <p class="text-xs font-bold uppercase tracking-[0.28em] text-emerald-700">Architecture interrogation</p>
+            <h1 class="mt-2 font-serif text-5xl font-semibold tracking-tight">Town Council</h1>
+            <p class="mt-3 text-sm text-slate-600">19 July 2026 · current master <code>f554c64</code></p>
+          </div>
+          <div class="grid grid-cols-2 gap-x-6 gap-y-2 text-xs text-slate-600">
+            <span>□ module</span><span>┄ seam</span>
+            <span class="text-red-700">→ leakage</span><span class="font-bold text-slate-900">■ deep module</span>
+          </div>
+        </div>
+      </header>
+
+      <section class="rounded-2xl border border-amber-300 bg-amber-50 p-6">
+        <div class="flex flex-wrap items-center justify-between gap-3">
+          <h2 class="font-serif text-2xl font-semibold">Execution gate</h2>
+          <span class="rounded-full bg-amber-200 px-3 py-1 text-xs font-bold uppercase tracking-wide text-amber-900">Plan drift</span>
+        </div>
+        <p class="mt-3 max-w-4xl text-sm leading-6 text-amber-950">The Phase 2 architecture candidates are supported by current code, but the plan blocks them on T-CI-1 and G3. Neither prerequisite is complete: CI does not run the full Python suite, and <code>docs/TESTING.MD</code> cites an accepted G3 ADR that is absent from <code>docs/ADR.md</code>. Reconcile those gates before architecture implementation.</p>
+      </section>
+
+      <section class="grid gap-4 md:grid-cols-3">
+        <div class="rounded-xl border border-emerald-300 bg-emerald-50 p-5"><p class="text-xs font-bold uppercase tracking-wider text-emerald-800">Landed foundations</p><p class="mt-2 text-sm">Ruff rules/scope, AGENTS antipattern policy, guardrail prose, and three governance documents.</p></div>
+        <div class="rounded-xl border border-amber-300 bg-amber-50 p-5"><p class="text-xs font-bold uppercase tracking-wider text-amber-800">Partial</p><p class="mt-2 text-sm">T-CI-5 config landed, but CI/pre-commit use old invocations. T-GOV-4/5/6 files landed without all acceptance criteria.</p></div>
+        <div class="rounded-xl border border-red-300 bg-red-50 p-5"><p class="text-xs font-bold uppercase tracking-wider text-red-800">Missing gates</p><p class="mt-2 text-sm">Full Python CI, frontend runner, accepted G3 ADR, README governance links, G1 deployment posture, and aligned guardrail tests.</p></div>
+      </section>
+
+      <section id="candidates" class="space-y-12">
+        <article id="metrics" class="rounded-2xl border border-slate-300 bg-white p-7 shadow-sm">
+          <div class="flex flex-wrap items-start justify-between gap-4">
+            <div><p class="text-xs font-bold uppercase tracking-widest text-slate-500">Candidate 01</p><h2 class="mt-1 font-serif text-3xl font-semibold">Collapse provider-metrics state into one module</h2></div>
+            <div class="flex gap-2"><span class="rounded-full bg-emerald-100 px-3 py-1 text-xs font-bold text-emerald-800">Strong</span><span class="rounded-full bg-indigo-100 px-3 py-1 text-xs font-bold text-indigo-800">Exact T-DA-1</span><span class="rounded-full bg-slate-100 px-3 py-1 text-xs font-bold">local-substitutable</span></div>
+          </div>
+          <p class="mt-4 font-mono text-xs text-slate-600">pipeline/metrics.py:42-129 · pipeline/metrics_redis_backend.py:27-113 · tests/test_*metrics*</p>
+          <div class="mt-6 grid gap-5 lg:grid-cols-2">
+            <div class="mini rounded-xl border border-red-200 bg-red-50 p-4"><p class="text-xs font-bold uppercase tracking-wider text-red-700">Before</p><pre class="mermaid">flowchart TB
+M[metrics facade globals] -->|sync both ways| R[redis backend globals]
+M --> I1[duplicate incr]
+R --> I2[duplicate incr]
+T[tests] -.patch.-> M
+T -.patch.-> R
+classDef leak stroke:#dc2626,stroke-width:2px;
+class M,R,I1,I2 leak</pre></div>
+            <div class="mini deep rounded-xl p-4 text-white"><p class="text-xs font-bold uppercase tracking-wider text-emerald-300">After</p><pre class="mermaid">flowchart TB
+C[metrics callers] --> I[metrics interface]
+I --> R[Redis metrics module]
+R --> S[(Redis adapter)]
+T[tests] -.fake adapter.-> R
+classDef deep fill:#0f172a,color:#fff,stroke:#10b981,stroke-width:3px;
+class R deep</pre></div>
+          </div>
+          <div class="mt-5 grid gap-4 md:grid-cols-3"><p><b>Problem.</b> Duplicated globals and Redis mutations require synchronization across the seam.</p><p><b>Solution.</b> Let the Redis metrics module own state and implementation; callers use one interface.</p><ul class="list-disc pl-5 text-sm"><li>locality: one state machine</li><li>leverage: all recorders benefit</li><li>tests fake one adapter</li></ul></div>
+          <p class="mt-4 rounded-lg bg-amber-50 px-4 py-3 text-sm text-amber-900"><b>Deletion test:</b> deleting the facade copies removes complexity rather than moving it. Execute only after T-CI-1 and G3.</p>
+        </article>
+
+        <article id="api-startup" class="rounded-2xl border border-slate-300 bg-white p-7 shadow-sm">
+          <div class="flex flex-wrap items-start justify-between gap-4">
+            <div><p class="text-xs font-bold uppercase tracking-widest text-slate-500">Candidate 02</p><h2 class="mt-1 font-serif text-3xl font-semibold">Give application startup one state owner</h2></div>
+            <div class="flex gap-2"><span class="rounded-full bg-emerald-100 px-3 py-1 text-xs font-bold text-emerald-800">Strong</span><span class="rounded-full bg-indigo-100 px-3 py-1 text-xs font-bold text-indigo-800">Exact T-DC-1</span><span class="rounded-full bg-slate-100 px-3 py-1 text-xs font-bold">in-process</span></div>
+          </div>
+          <p class="mt-4 font-mono text-xs text-slate-600">api/main.py:15-137 · api/app_setup.py:18-92 · api/search/support_core.py:69 · tests/test_api.py:283-321</p>
+          <div class="mt-6 grid gap-5 lg:grid-cols-2">
+            <div class="mini rounded-xl border border-red-200 bg-red-50 p-4"><p class="text-xs font-bold uppercase tracking-wider text-red-700">Before</p><pre class="mermaid">flowchart LR
+MAIN[main facade] <-->|global sync| SETUP[app setup]
+MAIN --> H[hmac rebind]
+MAIN --> X[40 aliases]
+SEARCH[search support] -.imports main.-> MAIN
+TEST[tests] -.mutate facade.-> MAIN
+classDef leak stroke:#dc2626,stroke-width:2px;
+class MAIN,SETUP,H,X,SEARCH leak</pre></div>
+            <div class="mini deep rounded-xl p-4 text-white"><p class="text-xs font-bold uppercase tracking-wider text-emerald-300">After</p><pre class="mermaid">flowchart LR
+ROUTES[route modules] --> APP[application assembly]
+APP --> SETUP[startup interface]
+SETUP --> DB[(DB adapter)]
+TEST[tests] -.DB fake.-> SETUP
+classDef deep fill:#0f172a,color:#fff,stroke:#10b981,stroke-width:3px;
+class SETUP deep</pre></div>
+          </div>
+          <div class="mt-5 grid gap-4 md:grid-cols-3"><p><b>Problem.</b> Startup state and test patch points leak through bidirectional module globals.</p><p><b>Solution.</b> Keep startup state and lifecycle implementation in <code>app_setup</code>; application assembly only consumes it.</p><ul class="list-disc pl-5 text-sm"><li>locality: startup failures concentrate</li><li>interface loses test aliases</li><li>one DB fake seam</li></ul></div>
+          <p class="mt-4 rounded-lg bg-amber-50 px-4 py-3 text-sm text-amber-900"><b>ADR tension:</b> older ADRs preserve facade patch points; the new testing policy rejects them. G3 must resolve this explicitly. Security tasks touching the same files must land separately.</p>
+        </article>
+
+        <article id="frontend-proxy" class="rounded-2xl border border-slate-300 bg-white p-7 shadow-sm">
+          <div class="flex flex-wrap items-start justify-between gap-4">
+            <div><p class="text-xs font-bold uppercase tracking-widest text-slate-500">Security seam</p><h2 class="mt-1 font-serif text-3xl font-semibold">Deepen the frontend proxy module</h2></div>
+            <div class="flex gap-2"><span class="rounded-full bg-emerald-100 px-3 py-1 text-xs font-bold text-emerald-800">Strong</span><span class="rounded-full bg-indigo-100 px-3 py-1 text-xs font-bold text-indigo-800">Exact T-SEC-4/5</span><span class="rounded-full bg-slate-100 px-3 py-1 text-xs font-bold">ports & adapters</span></div>
+          </div>
+          <p class="mt-4 font-mono text-xs text-slate-600">frontend/app/api/_lib/backend.js:23 · frontend/app/api/** · api/app_setup.py:23</p>
+          <div class="mt-6 grid gap-5 lg:grid-cols-2">
+            <div class="mini rounded-xl border border-red-200 bg-red-50 p-4"><p class="text-xs font-bold uppercase tracking-wider text-red-700">Before</p><pre class="mermaid">flowchart LR
+B[browser request] --> R[route handler]
+R --> P[proxy helper]
+R -.must own.-> O[origin policy]
+R -.must own.-> X[client identity]
+P --> A[Town Council API]
+classDef leak stroke:#dc2626,stroke-width:2px;
+class R,O,X leak</pre></div>
+            <div class="mini deep rounded-xl p-4 text-white"><p class="text-xs font-bold uppercase tracking-wider text-emerald-300">After</p><pre class="mermaid">flowchart LR
+B[browser request] --> P[proxy module interface]
+P --> O[origin + client policy]
+P --> K[key injection]
+P --> A[Town Council API adapter]
+classDef deep fill:#0f172a,color:#fff,stroke:#10b981,stroke-width:3px;
+class P,O,K deep</pre></div>
+          </div>
+          <div class="mt-5 grid gap-4 md:grid-cols-3"><p><b>Problem.</b> The reusable proxy cannot own origin or client-identity policy because route handlers flatten the incoming request first.</p><p><b>Solution.</b> Let the existing proxy module absorb request validation, forwarding identity, secret injection, and response policy.</p><ul class="list-disc pl-5 text-sm"><li>locality: proxy controls together</li><li>leverage: every mutation route</li><li>tests cross one seam</li></ul></div>
+          <p class="mt-4 rounded-lg bg-red-50 px-4 py-3 text-sm text-red-900"><b>Trust impact:</b> this reduces cross-site mutation and shared-rate-bucket exposure. Preserve server-side key injection and do not trust forwarded identity from unapproved peers.</p>
+        </article>
+
+        <article id="summary-backfill" class="rounded-2xl border border-slate-300 bg-white p-7 shadow-sm">
+          <div class="flex flex-wrap items-start justify-between gap-4">
+            <div><p class="text-xs font-bold uppercase tracking-widest text-slate-500">Candidate 03</p><h2 class="mt-1 font-serif text-3xl font-semibold">Deepen catalog summary hydration</h2></div>
+            <div class="flex gap-2"><span class="rounded-full bg-emerald-100 px-3 py-1 text-xs font-bold text-emerald-800">Strong</span><span class="rounded-full bg-indigo-100 px-3 py-1 text-xs font-bold text-indigo-800">Exact T-DB-1 + net-new</span><span class="rounded-full bg-slate-100 px-3 py-1 text-xs font-bold">local-substitutable</span></div>
+          </div>
+          <p class="mt-4 font-mono text-xs text-slate-600">pipeline/summary_backfill.py:12-49 · pipeline/summary_backfill_runner.py:30-159 · pipeline/task_summary_generation_contracts.py:20-36</p>
+          <div class="mt-6 grid gap-5 lg:grid-cols-2">
+            <div class="mini rounded-xl border border-red-200 bg-red-50 p-4"><p class="text-xs font-bold uppercase tracking-wider text-red-700">Before</p><pre class="mermaid">flowchart TB
+CALL[callers] --> F[backfill facade 17 params]
+F --> R[runner 19 params]
+R --> A[agenda builder]
+R --> N[minutes fallback]
+R --> Q[selectors]
+S[summary task] --> BAG[15 callable bag]
+TEST[tests] -.inject internals.-> F
+classDef leak stroke:#dc2626,stroke-width:2px;
+class F,R,BAG leak</pre></div>
+            <div class="mini deep rounded-xl p-4 text-white"><p class="text-xs font-bold uppercase tracking-wider text-emerald-300">After</p><pre class="mermaid">flowchart TB
+CALL[maintenance callers] --> H[summary hydration interface]
+H --> P[selection + generation + persistence]
+P --> DB[(DB adapter)]
+P --> LLM[provider adapter]
+P --> IDX[index adapters]
+TEST[tests] -.fake real adapters.-> H
+classDef deep fill:#0f172a,color:#fff,stroke:#10b981,stroke-width:3px;
+class H,P deep</pre></div>
+          </div>
+          <div class="mt-5 grid gap-4 md:grid-cols-3"><p><b>Problem.</b> Callers must understand selection, agenda/minutes routing, persistence, callbacks, and nearly every internal helper.</p><p><b>Solution.</b> Absorb orchestration behind one summary-hydration interface; retain only real DB, provider, and index seams.</p><ul class="list-disc pl-5 text-sm"><li>interface becomes policy-level</li><li>locality: fallback stays internal</li><li>tests assert catalog outcomes</li></ul></div>
+          <p class="mt-4 rounded-lg bg-slate-100 px-4 py-3 text-sm"><b>Deletion test:</b> deleting the facade and callable bags makes test-only complexity disappear. T-DB-1 covers the facade; the 15-callable task seam is missing from the plan.</p>
+        </article>
+
+        <article id="provider-attempts" class="rounded-2xl border border-slate-300 bg-white p-7 shadow-sm">
+          <div class="flex flex-wrap items-start justify-between gap-4">
+            <div><p class="text-xs font-bold uppercase tracking-widest text-slate-500">Candidate 04</p><h2 class="mt-1 font-serif text-3xl font-semibold">Make the provider contract the only provider seam</h2></div>
+            <div class="flex gap-2"><span class="rounded-full bg-emerald-100 px-3 py-1 text-xs font-bold text-emerald-800">Strong</span><span class="rounded-full bg-red-100 px-3 py-1 text-xs font-bold text-red-800">Revise T-DE-1</span><span class="rounded-full bg-slate-100 px-3 py-1 text-xs font-bold">ports & adapters</span></div>
+          </div>
+          <p class="mt-4 font-mono text-xs text-slate-600">pipeline/http_inference_provider.py · pipeline/http_inference_attempts.py · pipeline/inprocess_inference_provider.py · pipeline/inference_provider_contract.py</p>
+          <div class="mt-6 grid gap-5 lg:grid-cols-2">
+            <div class="mini rounded-xl border border-red-200 bg-red-50 p-4"><p class="text-xs font-bold uppercase tracking-wider text-red-700">Before</p><pre class="mermaid">flowchart TB
+L[LocalAI] --> F[llm_provider facade]
+F --> H[HTTP adapter]
+F --> I[in-process adapter]
+H -.reads config backward.-> F
+H --> A[HTTP attempts + telemetry]
+I --> E[typed errors]
+classDef leak stroke:#dc2626,stroke-width:2px;
+class F,H leak</pre></div>
+            <div class="mini deep rounded-xl p-4 text-white"><p class="text-xs font-bold uppercase tracking-wider text-emerald-300">After</p><pre class="mermaid">flowchart TB
+L[LocalAI] --> P[provider contract]
+P --> H[HTTP adapter]
+P --> I[in-process adapter]
+H --> A[HTTP-only attempt policy]
+P --> E[typed errors]
+classDef deep fill:#0f172a,color:#fff,stroke:#10b981,stroke-width:3px;
+class P deep</pre></div>
+          </div>
+          <div class="mt-5 grid gap-4 md:grid-cols-3"><p><b>Problem.</b> The real provider contract has two adapters, but a re-export facade remains and the HTTP implementation reaches backward through it.</p><p><b>Solution.</b> Retain the contract and adapters; remove reverse facade dependency. Keep HTTP retry orchestration local because in-process behavior differs.</p><ul class="list-disc pl-5 text-sm"><li>locality: policy stays truthful</li><li>interface loses re-exports</li><li>two adapters justify seam</li></ul></div>
+          <p class="mt-4 rounded-lg bg-amber-50 px-4 py-3 text-sm text-amber-900"><b>Plan correction:</b> do not move retry implementation into the contract module. Preserve local-first defaults, typed errors, and fail-fast behavior.</p>
+        </article>
+
+        <article id="city-maintenance" class="rounded-2xl border border-slate-300 bg-white p-7 shadow-sm">
+          <div class="flex flex-wrap items-start justify-between gap-4">
+            <div><p class="text-xs font-bold uppercase tracking-widest text-slate-500">Candidate 05</p><h2 class="mt-1 font-serif text-3xl font-semibold">Split city-state and healthcheck decisions</h2></div>
+            <div class="flex gap-2"><span class="rounded-full bg-amber-100 px-3 py-1 text-xs font-bold text-amber-800">Worth exploring</span><span class="rounded-full bg-red-100 px-3 py-1 text-xs font-bold text-red-800">Narrow T-DD-1</span><span class="rounded-full bg-slate-100 px-3 py-1 text-xs font-bold">local-substitutable</span></div>
+          </div>
+          <p class="mt-4 font-mono text-xs text-slate-600">scripts/flush_city_pipeline_state.py · scripts/reset_city_verification_state.py · scripts/*worker_healthcheck.py</p>
+          <div class="mt-6 grid gap-5 lg:grid-cols-2">
+            <div class="mini rounded-xl border border-red-200 bg-red-50 p-4"><p class="text-xs font-bold uppercase tracking-wider text-red-700">Before</p><pre class="mermaid">flowchart TB
+F[flush CLI] --> CF[collect references + delete]
+R[reset CLI] --> CR[collect references + delete]
+W[worker health CLI] --> P1[network probes]
+S[semantic health CLI] --> P2[network probes]
+E[enrichment health CLI] --> P3[network probes]
+classDef leak stroke:#dc2626,stroke-width:2px;
+class CF,CR,P1,P2,P3 leak</pre></div>
+            <div class="mini deep rounded-xl p-4 text-white"><p class="text-xs font-bold uppercase tracking-wider text-emerald-300">After</p><pre class="mermaid">flowchart TB
+F[flush CLI] --> C[city-state module]
+R[reset CLI] --> C
+C --> DB[(DB adapter)]
+W[health CLIs] --> H[health-probe module]
+H --> NET[(network adapters)]
+classDef deep fill:#0f172a,color:#fff,stroke:#10b981,stroke-width:3px;
+class C,H deep</pre></div>
+          </div>
+          <div class="mt-5 grid gap-4 md:grid-cols-3"><p><b>Problem.</b> The plan groups two different questions: city mutation policy and worker health probing.</p><p><b>Solution.</b> Evaluate them separately. Deepen healthcheck orchestration; extract city mutation policy only where the reference-deletion invariant is truly identical.</p><ul class="list-disc pl-5 text-sm"><li>avoid shallow shared module</li><li>keep CLI interfaces stable</li><li>parity tested at CLI</li></ul></div>
+          <p class="mt-4 rounded-lg bg-slate-100 px-4 py-3 text-sm"><b>Deletion test:</b> health reporting reappears across three callers, so it earns depth. Subagents disagreed on flush/reset overlap; require duplicate-window evidence before extraction.</p>
+        </article>
+
+        <article id="crawler" class="rounded-2xl border border-slate-300 bg-white p-7 shadow-sm">
+          <div class="flex flex-wrap items-start justify-between gap-4">
+            <div><p class="text-xs font-bold uppercase tracking-widest text-slate-500">Candidate 06</p><h2 class="mt-1 font-serif text-3xl font-semibold">Fold fork-style meeting spiders into templates</h2></div>
+            <div class="flex gap-2"><span class="rounded-full bg-emerald-100 px-3 py-1 text-xs font-bold text-emerald-800">Strong</span><span class="rounded-full bg-indigo-100 px-3 py-1 text-xs font-bold text-indigo-800">Exact T-CRAWL-2</span><span class="rounded-full bg-slate-100 px-3 py-1 text-xs font-bold">true external / mock</span></div>
+          </div>
+          <p class="mt-4 font-mono text-xs text-slate-600">council_crawler/council_crawler/spiders/ca_belmont.py · ca_fremont.py · ca_moraga.py · council_crawler/templates/*</p>
+          <div class="mt-6 grid gap-5 lg:grid-cols-2">
+            <div class="mini rounded-xl border border-red-200 bg-red-50 p-4"><p class="text-xs font-bold uppercase tracking-wider text-red-700">Before</p><pre class="mermaid">flowchart TB
+B[Belmont 60 lines] --> D1[documents + event]
+F[Fremont 68 lines] --> D2[documents + event]
+M[Moraga 63 lines] --> D3[documents + event]
+D1 --> BASE[BaseCitySpider]
+D2 --> BASE
+D3 --> BASE
+classDef leak stroke:#dc2626,stroke-width:2px;
+class D1,D2,D3 leak</pre></div>
+            <div class="mini deep rounded-xl p-4 text-white"><p class="text-xs font-bold uppercase tracking-wider text-emerald-300">After</p><pre class="mermaid">flowchart TB
+B[Belmont delta] --> T[meeting-portal template]
+F[Fremont delta] --> T
+M[Moraga delta] --> T
+T --> E[event + document policy]
+FIX[recorded fixtures] -.mock portal.-> T
+classDef deep fill:#0f172a,color:#fff,stroke:#10b981,stroke-width:3px;
+class T,E deep</pre></div>
+          </div>
+          <div class="mt-5 grid gap-4 md:grid-cols-3"><p><b>Problem.</b> Each city repeats event/document assembly and date handling; only portal selectors vary.</p><p><b>Solution.</b> Put meeting extraction policy behind an existing template seam and leave city deltas in thin subclasses.</p><ul class="list-disc pl-5 text-sm"><li>locality: crawl policy once</li><li>leverage: three cities</li><li>fixture outputs stay observable</li></ul></div>
+          <p class="mt-4 rounded-lg bg-amber-50 px-4 py-3 text-sm text-amber-900"><b>Test deficit:</b> Belmont has a recorded parse test; comparable Fremont and Moraga output evidence is thin. Capture parity before refactoring.</p>
+        </article>
+
+        <article id="guardrails" class="rounded-2xl border border-slate-300 bg-white p-7 shadow-sm">
+          <div class="flex flex-wrap items-start justify-between gap-4">
+            <div><p class="text-xs font-bold uppercase tracking-widest text-slate-500">Candidate 07</p><h2 class="mt-1 font-serif text-3xl font-semibold">Replace enumerated guardrails with policy modules</h2></div>
+            <div class="flex gap-2"><span class="rounded-full bg-emerald-100 px-3 py-1 text-xs font-bold text-emerald-800">Strong</span><span class="rounded-full bg-indigo-100 px-3 py-1 text-xs font-bold text-indigo-800">Exact T-GOV-3</span><span class="rounded-full bg-slate-100 px-3 py-1 text-xs font-bold">in-process</span></div>
+          </div>
+          <p class="mt-4 font-mono text-xs text-slate-600">tests/test_repository_guardrails.py:1-1265 · docs/ENGINEERING_GUARDRAILS.md:55-71 · ruff.toml</p>
+          <div class="mt-6 grid gap-5 lg:grid-cols-2">
+            <div class="mini rounded-xl border border-red-200 bg-red-50 p-4"><p class="text-xs font-bold uppercase tracking-wider text-red-700">Before</p><div class="mt-5 space-y-2"><div class="h-8 border-l-4 border-red-500 bg-white px-3 py-2 text-xs">family list A + size loop</div><div class="h-8 border-l-4 border-red-500 bg-white px-3 py-2 text-xs">family list B + size loop</div><div class="h-8 border-l-4 border-red-500 bg-white px-3 py-2 text-xs">family list C + size loop</div><div class="h-8 border-l-4 border-red-500 bg-white px-3 py-2 text-xs">… repeated across 1,265 lines</div></div></div>
+            <div class="mini deep rounded-xl p-4 text-white"><p class="text-xs font-bold uppercase tracking-wider text-emerald-300">After</p><div class="mt-5 rounded-xl border-2 border-emerald-400 p-5"><div class="border-b border-slate-500 pb-2 text-sm font-bold">Small policy interface</div><div class="space-y-3 pt-5 text-sm text-slate-200"><p>Complexity → Ruff</p><p>Scopes → config</p><p>Import direction → one generic check</p><p>Forbidden sync/DDL patterns → AST checks</p></div></div></div>
+          </div>
+          <div class="mt-5 grid gap-4 md:grid-cols-3"><p><b>Problem.</b> The guardrail interface is an inventory of implementation files, so every refactor edits policy tests.</p><p><b>Solution.</b> Let machine-readable config own scopes and keep a small set of general architectural invariants.</p><ul class="list-disc pl-5 text-sm"><li>interface states invariants</li><li>locality: scopes live once</li><li>new modules covered automatically</li></ul></div>
+          <p class="mt-4 rounded-lg bg-amber-50 px-4 py-3 text-sm text-amber-900"><b>Sequencing correction:</b> the plan places this after two Phase 2 tasks, but current guardrail tests already fail from config drift. Align config and general enforcement before Phase 2; remove obsolete enumerations after the first migrations.</p>
+        </article>
+
+        <article id="facade-strata" class="rounded-2xl border border-slate-300 bg-white p-7 shadow-sm">
+          <div class="flex flex-wrap items-start justify-between gap-4">
+            <div><p class="text-xs font-bold uppercase tracking-widest text-slate-500">Candidate 08</p><h2 class="mt-1 font-serif text-3xl font-semibold">Retire compatibility facade strata deliberately</h2></div>
+            <div class="flex gap-2"><span class="rounded-full bg-slate-200 px-3 py-1 text-xs font-bold text-slate-800">Speculative</span><span class="rounded-full bg-violet-100 px-3 py-1 text-xs font-bold text-violet-800">Partial / net-new</span><span class="rounded-full bg-slate-100 px-3 py-1 text-xs font-bold">in-process</span></div>
+          </div>
+          <p class="mt-4 font-mono text-xs text-slate-600">api/main.py · api/search_support.py · pipeline/tasks.py · pipeline/llm.py · pipeline/models.py · scripts/* facade families</p>
+          <div class="mt-6 grid gap-5 lg:grid-cols-2">
+            <div class="mini rounded-xl border border-red-200 bg-red-50 p-4"><p class="text-xs font-bold uppercase tracking-wider text-red-700">Before</p><pre class="mermaid">flowchart LR
+CALL[callers + tests] --> F1[facade A]
+F1 --> F2[facade B]
+F2 --> H1[helper family]
+CALL -.patch.-> F1
+H1 -.occasionally imports.-> F2
+classDef leak stroke:#dc2626,stroke-width:2px;
+class F1,F2,H1 leak</pre></div>
+            <div class="mini deep rounded-xl p-4 text-white"><p class="text-xs font-bold uppercase tracking-wider text-emerald-300">After</p><pre class="mermaid">flowchart LR
+CALL[callers + tests] --> D[domain module interface]
+D --> H[private implementation]
+D --> A[real adapters]
+classDef deep fill:#0f172a,color:#fff,stroke:#10b981,stroke-width:3px;
+class D,H deep</pre></div>
+          </div>
+          <div class="mt-5 grid gap-4 md:grid-cols-3"><p><b>Problem.</b> Years of patch-safe extraction produced many shallow facades whose interface mirrors their helper families.</p><p><b>Solution.</b> Retire facades only when a planned task touches that domain; do not launch a broad migration.</p><ul class="list-disc pl-5 text-sm"><li>locality grows per domain</li><li>tests cross real seams</li><li>avoid repository-wide churn</li></ul></div>
+          <p class="mt-4 rounded-lg bg-amber-50 px-4 py-3 text-sm text-amber-900"><b>ADR conflict:</b> many 2026-04/05 ADRs explicitly preserve monkeypatch facades. Revisit them only through accepted G3 policy and one domain at a time. The remediation plan names three such domains, not a global purge.</p>
+        </article>
+      </section>
+
+      <section class="rounded-2xl border border-slate-300 bg-white p-7 shadow-sm">
+        <h2 class="font-serif text-3xl font-semibold">Deferred watchlist</h2>
+        <p class="mt-2 text-sm text-slate-600">Real friction, but not a reason to widen the current remediation batch.</p>
+        <div class="mt-5 grid gap-4 md:grid-cols-2">
+          <div class="rounded-xl border border-slate-200 p-4"><p class="font-semibold">Crawler staging persistence</p><p class="mt-1 text-sm text-slate-600">Net-new. Crawler pipelines duplicate session/transaction policy and staging models. Investigate after T-CRAWL-2.</p></div>
+          <div class="rounded-xl border border-slate-200 p-4"><p class="font-semibold">Search facade stack</p><p class="mt-1 text-sm text-slate-600">Strong evidence, explicitly deferred. <code>api.main</code>, <code>search_routes</code>, and <code>support_core</code> leak import-binding rules.</p></div>
+          <div class="rounded-xl border border-slate-200 p-4"><p class="font-semibold">Semantic retrieval</p><p class="mt-1 text-sm text-slate-600">Net-new. The retrieval module earns depth but exposes implementation callables; revisit after G3 supersedes the facade-preservation ADR.</p></div>
+          <div class="rounded-xl border border-slate-200 p-4"><p class="font-semibold">Index projection</p><p class="mt-1 text-sm text-slate-600">Net-new and G4-dependent. Preserve indexing entrypoints; consolidate projection policy only after person-data policy is ratified.</p></div>
+          <div class="rounded-xl border border-slate-200 p-4"><p class="font-semibold">Frontend search coordinator</p><p class="mt-1 text-sm text-slate-600">Two real adapters already exist: live and demo. T-CI-2 is the prerequisite for behavior-level tests.</p></div>
+          <div class="rounded-xl border border-slate-200 p-4"><p class="font-semibold">ResultCard task lifecycle</p><p class="mt-1 text-sm text-slate-600">The 1,211-line module mixes polling, mutation, formatting, and rendering. Correctly deferred until the frontend test runner lands.</p></div>
+          <div class="rounded-xl border border-slate-200 p-4"><p class="font-semibold">Migration compatibility strata</p><p class="mt-1 text-sm text-slate-600">Keep the deep migration entrypoint. Reconsider shallow version wrappers only after the Alembic decision and PostgreSQL parity evidence.</p></div>
+          <div class="rounded-xl border border-slate-200 p-4"><p class="font-semibold">LocalAI compatibility exports</p><p class="mt-1 text-sm text-slate-600">Keep LocalAI product policy; retire private re-exports only as narrow, domain-scoped follow-ups after G3.</p></div>
+        </div>
+      </section>
+
+      <section class="rounded-2xl border-2 border-slate-900 bg-white p-7">
+        <h2 class="font-serif text-3xl font-semibold">Remediation overlap</h2>
+        <div class="mt-5 overflow-x-auto"><table class="w-full border-collapse text-left text-sm"><thead><tr class="border-b-2 border-slate-900"><th class="py-2">Candidate</th><th>Plan</th><th>Current evidence</th><th>Safe next state</th></tr></thead><tbody class="divide-y divide-slate-200"><tr><td class="py-3">Metrics state</td><td>T-DA-1</td><td>Exact duplicate + sync globals</td><td>Ready after CI/G3</td></tr><tr><td class="py-3">Frontend proxy</td><td>T-SEC-4/5</td><td>Existing seam lacks request policy</td><td>Phase 1 security work</td></tr><tr><td class="py-3">Application startup</td><td>T-DC-1</td><td>Exact sync + test aliases</td><td>After SEC lane</td></tr><tr><td class="py-3">Summary hydration</td><td>T-DB-1</td><td>Exact facade; ownership incomplete</td><td>Expand owned callers first</td></tr><tr><td class="py-3">Provider contract</td><td>Revise T-DE-1</td><td>HTTP attempts already localized</td><td>Remove reverse facade dependency</td></tr><tr><td class="py-3">City/health maintenance</td><td>Narrow T-DD-1</td><td>Health overlap clear; city overlap disputed</td><td>Split tasks, prove duplication</td></tr><tr><td class="py-3">Crawler templates</td><td>T-CRAWL-2</td><td>Three fork-style spiders remain</td><td>Phase 1 with fixtures</td></tr><tr><td class="py-3">Guardrail policy</td><td>Reorder T-GOV-3</td><td>1,265-line test; current failures</td><td>Align enforcement before Phase 2</td></tr><tr><td class="py-3">Facade strata</td><td>Partial</td><td>Many old ADR-preserved aliases</td><td>No broad campaign</td></tr></tbody></table></div>
+      </section>
+
+      <section id="top-recommendation" class="deep rounded-2xl p-8 text-white">
+        <p class="text-xs font-bold uppercase tracking-[0.25em] text-emerald-300">Top recommendation</p>
+        <h2 class="mt-2 font-serif text-4xl font-semibold"><a class="underline decoration-emerald-400 underline-offset-4" href="#metrics">Collapse provider-metrics state</a></h2>
+        <p class="mt-4 max-w-3xl text-lg leading-8 text-slate-200">It is the clearest deletion test, an exact remediation-plan match, and the smallest high-leverage proof that G3 can remove test-only seams without changing runtime metrics contracts. First finish T-CI-1 and ratify G3.</p>
+      </section>
+    </main>
+  </body>
+</html>

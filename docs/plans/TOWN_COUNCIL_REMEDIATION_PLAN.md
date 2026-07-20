@@ -14,6 +14,7 @@ SECURITY.md, docs/TESTING.md, docs/DATA_GOVERNANCE.md, drop-in ruff.toml).
 Doc tasks land the drafts alongside their enabling mechanical tasks; agents
 reconcile transition markers, they do not re-author policy.
 source: Four-pass external code review (security, architecture, smells, process)
+source_artifact: [Town Council architecture review](../reviews/architecture-review-2026-07-19.html)
 orchestrator_contract: Codex instantiates one agent per lane. Agents run in
 parallel ONLY within the same phase and ONLY on their owned paths. AGENTS.md
 remains in force; where this plan is stricter, this plan wins for these tasks.
