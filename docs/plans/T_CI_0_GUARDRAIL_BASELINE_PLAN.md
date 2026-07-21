@@ -14,7 +14,7 @@ execution: code
 - **Objective:** Restore a green Python guardrail baseline before T-CI-5, T-CI-1, or Phase 2 remediation work begins.
 - **Authority:** Code and tests define current behavior; `AGENTS.md`, `docs/ENGINEERING_GUARDRAILS.md`, and `docs/plans/TOWN_COUNCIL_REMEDIATION_PLAN.md` constrain implementation and verification.
 - **Execution profile:** One documentation registration unit followed by independent contract-test and SQLAlchemy-typing units, then integrated verification and delivery.
-- **Stop conditions:** Stop if a correction needs a tracked file outside this task's five-file ownership set, changes Ruff policy, depends on G1-G5, or alters runtime behavior.
+- **Stop conditions:** Stop if a correction needs a tracked file outside this task's seven-file ownership set, broadens effective Ruff policy, depends on G1-G5, or alters runtime behavior.
 - **Tail ownership:** The implementation owner runs simplification, review, full verification, PR delivery, and bounded CI repair.
 
 ---
@@ -31,14 +31,15 @@ A red default branch makes later remediation results unreliable. The four pytest
 
 ### Requirements
 
-- R1. Register T-CI-0 before T-CI-5 and T-CI-1 with an exclusive five-file ownership set.
+- R1. Register T-CI-0 before T-CI-5 and T-CI-1 with an exclusive seven-file ownership set.
 - R2. Require the current `pypdf==6.13.3` batch dependency without changing requirements files.
-- R3. Require the current Ruff source roots and selected rule families without changing `ruff.toml`.
+- R3. Preserve the current Ruff source roots, selected rule families, and effective exception boundary while centralizing the existing task-startup suppression in `ruff.toml`.
 - R4. Keep the exact BLE001 boundary inventory aligned with current non-wildcard Ruff entries.
 - R5. Preserve the formatter transition: documentation owns the config-driven `ruff format --check .` command while CI retains its explicit list until T-CI-4.
 - R6. Type `VECTOR_COLUMN_TYPE` as the dimension constructor shared by pgvector `Vector` and `FallbackVector`, returning SQLAlchemy's common `TypeEngine` base.
 - R7. Preserve ORM metadata, vector dimension construction, runtime fallback behavior, defaults, and public contracts.
 - R8. Produce fresh targeted, guardrail-row, database, docs-link, full-suite, and CI evidence.
+- R9. Keep broad-exception suppressions in Ruff's centralized boundary inventory and reject inline `BLE001` suppressions.
 
 ### Scope Boundaries
 
@@ -47,10 +48,12 @@ Only these tracked files may change:
 - `docs/plans/T_CI_0_GUARDRAIL_BASELINE_PLAN.md`
 - `docs/plans/TOWN_COUNCIL_REMEDIATION_PLAN.md`
 - `pipeline/model_base.py`
+- `pipeline/task_startup.py`
+- `ruff.toml`
 - `tests/test_repository_guardrails.py`
 - `tests/test_docker_build_contracts.py`
 
-No workflow, Ruff configuration, dependency, schema, migration, API, Celery, security boundary, runtime default, or soak policy changes are included.
+No workflow, dependency, schema, migration, API, Celery, security boundary, runtime default, or soak policy changes are included. Ruff's effective boundary is unchanged: the existing `pipeline/task_startup.py` suppression moves from inline source text to the centralized per-file inventory.
 
 ### Acceptance Examples
 
@@ -69,10 +72,11 @@ No workflow, Ruff configuration, dependency, schema, migration, API, Celery, sec
 - KTD2. Annotate the selector as `Callable[[int], TypeEngine[object | None]]`. (review-corrected — the initially approved `type[TypeEngine[object | None]]` accepts both concrete classes but rejects the existing `VECTOR_COLUMN_TYPE(384)` call under full Mypy. The callable contract preserves that constructor use without casts or ignores.)
 - KTD3. Correct stale assertions without changing their strictness. (session-settled: user-directed — chosen over skipping, weakening, or widening tests: this task restores the baseline rather than lowering it.)
 - KTD4. Keep the current formatter transition explicit. Documentation may advertise the config-owned command while the workflow list remains transitional until T-CI-4.
+- KTD5. Centralize the existing `pipeline/task_startup.py` broad-exception suppression in `ruff.toml`. (session-settled: user-directed — chosen over accepting inline suppression outside the approved boundary inventory: centralization preserves behavior and makes policy enforceable.)
 
 ### Reuse Audit
 
-The change extends existing guardrail tests and the existing vector datatype selector. One test-local predicate distinguishes configured or inline BLE001 approvals from handlers that propagate or terminate; no production helper, registry, compatibility alias, test seam, or parallel implementation is introduced. `ruff.toml` remains the policy source.
+The change extends existing guardrail tests and the existing vector datatype selector. One test-local predicate distinguishes configured BLE001 approvals from handlers that propagate or terminate; no production helper, registry, compatibility alias, test seam, or parallel implementation is introduced. `ruff.toml` remains the policy source.
 
 ### Security and Data Governance
 
@@ -84,6 +88,7 @@ No security-sensitive path, secret, person data, scraped content parser, or exte
 - Add no Ruff exception or type suppression.
 - Use existing exact-set comparisons for policy inventory.
 - Do not edit tracked files outside the ownership set.
+- Do not broaden the effective BLE001 boundary; only relocate the existing `pipeline/task_startup.py` suppression.
 - Run the antipattern checklist before and after implementation; any positive result must be corrected or reported.
 
 ### Sequencing
@@ -108,10 +113,10 @@ No security-sensitive path, secret, person data, scraped content parser, or exte
 ### U2. Realign guardrail contracts
 
 - **Goal:** Make contract tests assert the already-landed dependency and Ruff policy accurately.
-- **Requirements:** R2, R3, R4, R5
-- **Files:** `tests/test_repository_guardrails.py`, `tests/test_docker_build_contracts.py`
-- **Approach:** Update the pypdf pin, Ruff roots/rules, exact BLE001 set, and formatter-transition assertions in place. Keep the broad-handler contract strict by accepting only configured or inline approvals and handlers that explicitly propagate or terminate.
-- **Test scenarios:** Current dependency pin, Ruff policy drift, exact BLE001 drift, and transitional formatter ownership.
+- **Requirements:** R2, R3, R4, R5, R9
+- **Files:** `tests/test_repository_guardrails.py`, `tests/test_docker_build_contracts.py`, `pipeline/task_startup.py`, `ruff.toml`
+- **Approach:** Update the pypdf pin, Ruff roots/rules, exact BLE001 set, and formatter-transition assertions in place. Move the existing task-startup suppression into Ruff, reject inline suppressions, and accept otherwise unlisted handlers only when they explicitly propagate or terminate.
+- **Test scenarios:** Current dependency pin, Ruff policy drift, exact BLE001 drift, inline suppression rejection, and transitional formatter ownership.
 - **Verification:** Targeted contract tests plus complete guardrail and Docker contract files.
 
 ### U3. Correct vector datatype typing
@@ -160,8 +165,8 @@ No fake patches a production implementation. The temporary pgvector stub is isol
 - T-CI-0 is registered before dependent remediation work with exactly the approved ownership set.
 - All four original pytest failures pass without skips, weakened assertions, or changed policy.
 - Pgvector-present and pgvector-absent paths both type-check or execute through their existing contracts.
-- Runtime behavior, schemas, dependencies, workflows, Ruff policy, defaults, and decision gates remain unchanged.
+- Runtime behavior, schemas, dependencies, workflows, effective Ruff policy, defaults, and decision gates remain unchanged.
 - Simplification and plan-aware review find no unresolved eligible issue.
 - Every Verification Contract command and PR CI pass with fresh evidence.
 - The diff contains no abandoned experiment, duplicate implementation, compatibility shim, type suppression, unrelated formatting, or personal path.
-- The final report names exact commands, PASS or FAIL outcomes, changed paths, tree state, and review findings. The expected deviation report records the review-required constructor-callable correction from the initially approved class annotation; no other deviation is expected.
+- The final report names exact commands, PASS or FAIL outcomes, changed paths, tree state, and review findings. The expected deviation report records the review-required constructor-callable correction and the operator-approved expansion that centralizes the task-startup suppression; no other deviation is expected.

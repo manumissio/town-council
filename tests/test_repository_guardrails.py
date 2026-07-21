@@ -66,6 +66,7 @@ APPROVED_BROAD_EXCEPTION_PATHS = {
     "pipeline/summary_backfill_dispatch.py",
     "pipeline/semantic_tasks.py",
     "pipeline/startup_purge.py",
+    "pipeline/task_startup.py",
     "pipeline/table_worker.py",
     "pipeline/tasks.py",
     "pipeline/text_cleaning.py",
@@ -82,6 +83,7 @@ APPROVED_BROAD_EXCEPTION_PATHS = {
     "scripts/semantic_worker_healthcheck.py",
 }
 BLE001_WILDCARD_PATHS = {"scripts/*.py", "tests/*.py"}
+INLINE_BROAD_EXCEPTION_SUPPRESSION = "noqa:" + " BLE001"
 TYPED_SUBTREE_PATHS = (
     "api/metrics.py",
     "api/search/query_builder.py",
@@ -520,12 +522,9 @@ def _exception_handler_name(handler_type: ast.expr | None) -> str | None:
 
 def _broad_exception_handler_is_approved(
     relative_path: str,
-    source_lines: list[str],
     handler: ast.ExceptHandler,
 ) -> bool:
     if relative_path in APPROVED_BROAD_EXCEPTION_PATHS:
-        return True
-    if "noqa: BLE001" in source_lines[handler.lineno - 1]:
         return True
     for handler_node in ast.walk(handler):
         if isinstance(handler_node, ast.Raise):
@@ -757,6 +756,18 @@ def test_broad_exception_allowlist_stays_explicit():
     assert broad_exception_paths.isdisjoint(BLE001_WILDCARD_PATHS)
 
 
+def test_broad_exception_suppressions_stay_in_ruff_config():
+    inline_suppressions = [
+        f"{tracked_path.relative_to(ROOT)}:{line_number}"
+        for tracked_path in _tracked_files()
+        if tracked_path.suffix == ".py"
+        for line_number, source_line in enumerate(tracked_path.read_text(encoding="utf-8").splitlines(), start=1)
+        if INLINE_BROAD_EXCEPTION_SUPPRESSION in source_line
+    ]
+
+    assert inline_suppressions == []
+
+
 def test_broad_exception_handlers_stay_on_approved_boundaries_and_take_action():
     unauthorized_handlers: list[str] = []
     silent_handlers: list[str] = []
@@ -768,7 +779,6 @@ def test_broad_exception_handlers_stay_on_approved_boundaries_and_take_action():
         if relative_path.split("/", 1)[0] not in {"api", "pipeline", "scripts", "tests"}:
             continue
         source = tracked_path.read_text(encoding="utf-8")
-        source_lines = source.splitlines()
         tree = ast.parse(source, filename=relative_path)
 
         for node in ast.walk(tree):
@@ -788,7 +798,7 @@ def test_broad_exception_handlers_stay_on_approved_boundaries_and_take_action():
                 if is_silent:
                     silent_handlers.append(handler_ref)
                     continue
-                if not _broad_exception_handler_is_approved(relative_path, source_lines, handler):
+                if not _broad_exception_handler_is_approved(relative_path, handler):
                     unauthorized_handlers.append(handler_ref)
 
     assert unauthorized_handlers == []

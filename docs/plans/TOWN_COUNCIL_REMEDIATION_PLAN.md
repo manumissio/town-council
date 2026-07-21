@@ -92,16 +92,18 @@ model files; PLAT's Alembic baseline runs AFTER TIME merges.
 - priority: P0 (run before every other Phase 0 task)
 - files_owned: docs/plans/T_CI_0_GUARDRAIL_BASELINE_PLAN.md,
   docs/plans/TOWN_COUNCIL_REMEDIATION_PLAN.md, pipeline/model_base.py,
-  tests/test_repository_guardrails.py, tests/test_docker_build_contracts.py
+  pipeline/task_startup.py, ruff.toml, tests/test_repository_guardrails.py,
+  tests/test_docker_build_contracts.py
 - do: Realign stale dependency and Ruff contract expectations with already-landed
   repository policy. Type the vector datatype selector against SQLAlchemy's
   common datatype base so installed pgvector and the local fallback both pass
-  Mypy. Follow the implementation-ready T-CI-0 plan.
+  Mypy. Move the existing task-startup inline BLE001 suppression into Ruff's
+  centralized boundary inventory. Follow the implementation-ready T-CI-0 plan.
 - accept: The four baseline contract failures pass; pgvector-present Mypy passes;
-  complete Python suite passes; no runtime behavior, Ruff policy, workflow,
+  complete Python suite passes; no runtime behavior, effective Ruff policy, workflow,
   dependency, schema, default, or decision-gate change.
-- forbidden: Editing outside `files_owned`; weakening or skipping tests; changing
-  `ruff.toml`; adding casts, ignores, compatibility paths, or new test seams.
+- forbidden: Editing outside `files_owned`; weakening or skipping tests; broadening
+  Ruff policy; adding casts, ignores, compatibility paths, or new test seams.
 - verify: Ruff checks, repo Mypy, deterministic pgvector-present Mypy stub,
   guardrail contracts, Docker contracts, database tests, docs links, complete
   Python suite, and `git diff --check` as specified in
