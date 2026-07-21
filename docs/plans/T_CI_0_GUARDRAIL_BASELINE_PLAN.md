@@ -40,6 +40,7 @@ A red default branch makes later remediation results unreliable. The four pytest
 - R7. Preserve ORM metadata, vector dimension construction, runtime fallback behavior, defaults, and public contracts.
 - R8. Produce fresh targeted, guardrail-row, database, docs-link, full-suite, and CI evidence.
 - R9. Keep broad-exception suppressions in Ruff's centralized boundary inventory and reject inline `BLE001` suppressions.
+- R10. Reject every documented comment directive that can bypass centralized BLE001 policy: bare or rule-specific line-level `noqa`, bare or rule-specific file-level `ruff: noqa`, and legacy file-level `flake8: noqa`.
 
 ### Scope Boundaries
 
@@ -61,6 +62,7 @@ No workflow, dependency, schema, migration, API, Celery, security boundary, runt
 - AE2. Without pgvector installed, existing database tests construct the fallback datatype and preserve ORM behavior.
 - AE3. Guardrail tests compare their expectations to the current Ruff configuration and pass without weakening exact-set assertions.
 - AE4. The complete Python suite passes from the branch before delivery.
+- AE5. Guardrail tests reject spaced and compact BLE001 directives, bare line-level suppression, and bare or BLE001-specific file-level suppression without flagging directive-like text inside Python strings.
 
 ---
 
@@ -73,6 +75,7 @@ No workflow, dependency, schema, migration, API, Celery, security boundary, runt
 - KTD3. Correct stale assertions without changing their strictness. (session-settled: user-directed — chosen over skipping, weakening, or widening tests: this task restores the baseline rather than lowering it.)
 - KTD4. Keep the current formatter transition explicit. Documentation may advertise the config-owned command while the workflow list remains transitional until T-CI-4.
 - KTD5. Centralize the existing `pipeline/task_startup.py` broad-exception suppression in `ruff.toml`. (session-settled: user-directed — chosen over accepting inline suppression outside the approved boundary inventory: centralization preserves behavior and makes policy enforceable.)
+- KTD6. Parse Python comment tokens before classifying Ruff suppression directives. (review-corrected — chosen over extending a raw source-line regular expression: token-aware parsing covers line-level, file-level, blanket, and rule-specific forms without treating strings as policy directives.)
 
 ### Reuse Audit
 
@@ -113,10 +116,10 @@ No security-sensitive path, secret, person data, scraped content parser, or exte
 ### U2. Realign guardrail contracts
 
 - **Goal:** Make contract tests assert the already-landed dependency and Ruff policy accurately.
-- **Requirements:** R2, R3, R4, R5, R9
+- **Requirements:** R2, R3, R4, R5, R9, R10
 - **Files:** `tests/test_repository_guardrails.py`, `tests/test_docker_build_contracts.py`, `pipeline/task_startup.py`, `ruff.toml`
-- **Approach:** Update the pypdf pin, Ruff roots/rules, exact BLE001 set, and formatter-transition assertions in place. Move the existing task-startup suppression into Ruff, reject inline suppressions, and accept otherwise unlisted handlers only when they explicitly propagate or terminate.
-- **Test scenarios:** Current dependency pin, Ruff policy drift, exact BLE001 drift, inline suppression rejection, and transitional formatter ownership.
+- **Approach:** Update the pypdf pin, Ruff roots/rules, exact BLE001 set, and formatter-transition assertions in place. Move the existing task-startup suppression into Ruff, inspect Python comment tokens to reject blanket or BLE001-specific line/file directives, and accept otherwise unlisted handlers only when they explicitly propagate or terminate.
+- **Test scenarios:** Current dependency pin, Ruff policy drift, exact BLE001 drift, spaced and compact rule-specific suppression, bare line suppression, bare and BLE001-specific Ruff file suppression, legacy Flake8 file suppression, string-literal non-directives, and transitional formatter ownership.
 - **Verification:** Targeted contract tests plus complete guardrail and Docker contract files.
 
 ### U3. Correct vector datatype typing
@@ -149,6 +152,7 @@ No security-sensitive path, secret, person data, scraped content parser, or exte
 | Python lint row | `./.venv/bin/ruff check api pipeline scripts tests` | Exit 0 |
 | Typed subtree | `./.venv/bin/mypy` | Exit 0 |
 | Guardrail contracts | `PYTHONPATH=. .venv/bin/pytest -q tests/test_repository_guardrails.py` | File passes |
+| Suppression regression | `PYTHONPATH=. .venv/bin/pytest -q tests/test_repository_guardrails.py::test_broad_exception_suppression_detection_covers_ruff_directives tests/test_repository_guardrails.py::test_broad_exception_suppressions_stay_in_ruff_config` | Documented line/file forms are rejected and string literals are ignored |
 | Docker contracts | `PYTHONPATH=. .venv/bin/pytest -q tests/test_docker_build_contracts.py` | File passes |
 | ORM behavior | `PYTHONPATH=. .venv/bin/pytest -q tests/test_database.py` | File passes |
 | Documentation | `PYTHONPATH=. .venv/bin/pytest -q tests/test_docs_links.py` | File passes |
@@ -167,6 +171,7 @@ No fake patches a production implementation. The temporary pgvector stub is isol
 - Pgvector-present and pgvector-absent paths both type-check or execute through their existing contracts.
 - Runtime behavior, schemas, dependencies, workflows, effective Ruff policy, defaults, and decision gates remain unchanged.
 - Simplification and plan-aware review find no unresolved eligible issue.
+- Ruff's documented line-level and file-level suppression forms cannot bypass the centralized BLE001 inventory.
 - Every Verification Contract command and PR CI pass with fresh evidence.
 - The diff contains no abandoned experiment, duplicate implementation, compatibility shim, type suppression, unrelated formatting, or personal path.
 - The final report names exact commands, PASS or FAIL outcomes, changed paths, tree state, and review findings. The expected deviation report records the review-required constructor-callable correction and the operator-approved expansion that centralizes the task-startup suppression; no other deviation is expected.

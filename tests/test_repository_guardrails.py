@@ -1,9 +1,12 @@
 from __future__ import annotations
 
 import ast
-import subprocess
-from pathlib import Path
 import re
+import subprocess
+import tomllib
+import tokenize
+from io import StringIO
+from pathlib import Path
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -84,10 +87,11 @@ APPROVED_BROAD_EXCEPTION_PATHS = {
 }
 BLE001_WILDCARD_PATHS = {"scripts/*.py", "tests/*.py"}
 BROAD_EXCEPTION_RULE = "BLE001"
-INLINE_NOQA_DIRECTIVE = re.compile(
-    r"#\s*noqa:\s*(?P<rules>[A-Z]+\d{3}(?:\s*,\s*[A-Z]+\d{3})*)",
+NOQA_DIRECTIVE = re.compile(
+    r"(?<!\S)#\s*(?:(?:ruff|flake8)\s*:\s*)?noqa(?=\s|:|$)(?:\s*:\s*(?P<rules>[^#]*))?",
     re.IGNORECASE,
 )
+NOQA_RULE_CODE = re.compile(r"\b[A-Z]+\d{3}\b", re.IGNORECASE)
 TYPED_SUBTREE_PATHS = (
     "api/metrics.py",
     "api/search/query_builder.py",
@@ -469,14 +473,25 @@ def _tracked_files() -> list[Path]:
     return [ROOT / line for line in output.splitlines() if line]
 
 
-def _source_line_suppresses_broad_exception(source_line: str) -> bool:
-    directive_match = INLINE_NOQA_DIRECTIVE.search(source_line)
-    if directive_match is None:
-        return False
-    suppressed_rules = {
-        suppressed_rule.strip().upper() for suppressed_rule in directive_match.group("rules").split(",")
-    }
-    return BROAD_EXCEPTION_RULE in suppressed_rules
+def _comment_suppresses_broad_exception(comment_text: str) -> bool:
+    for directive_match in NOQA_DIRECTIVE.finditer(comment_text):
+        directive_rules = directive_match.group("rules")
+        if directive_rules is None:
+            return True
+        suppressed_rules = {suppressed_rule.upper() for suppressed_rule in NOQA_RULE_CODE.findall(directive_rules)}
+        if BROAD_EXCEPTION_RULE in suppressed_rules:
+            return True
+    return False
+
+
+def _broad_exception_suppression_lines(python_path: Path) -> list[int]:
+    python_source = python_path.read_text(encoding="utf-8")
+    python_tokens = tokenize.generate_tokens(StringIO(python_source).readline)
+    return [
+        python_token.start[0]
+        for python_token in python_tokens
+        if python_token.type == tokenize.COMMENT and _comment_suppresses_broad_exception(python_token.string)
+    ]
 
 
 def _broad_exception_scan_files() -> list[Path]:
@@ -534,38 +549,51 @@ def _exception_handler_name(handler_type: ast.expr | None) -> str | None:
     return None
 
 
+def _statement_is_direct_sys_exit(statement: ast.stmt) -> bool:
+    return (
+        isinstance(statement, ast.Expr)
+        and isinstance(statement.value, ast.Call)
+        and isinstance(statement.value.func, ast.Attribute)
+        and isinstance(statement.value.func.value, ast.Name)
+        and statement.value.func.value.id == "sys"
+        and statement.value.func.attr == "exit"
+    )
+
+
 def _broad_exception_handler_is_approved(
     relative_path: str,
     handler: ast.ExceptHandler,
 ) -> bool:
     if relative_path in APPROVED_BROAD_EXCEPTION_PATHS:
         return True
-    for handler_node in ast.walk(handler):
-        if isinstance(handler_node, ast.Raise):
-            return True
-        if (
-            isinstance(handler_node, ast.Call)
-            and isinstance(handler_node.func, ast.Attribute)
-            and isinstance(handler_node.func.value, ast.Name)
-            and handler_node.func.value.id == "sys"
-            and handler_node.func.attr == "exit"
-        ):
-            return True
-    return False
+    if not handler.body:
+        return False
+    terminal_statement = handler.body[-1]
+    return isinstance(terminal_statement, ast.Raise) or _statement_is_direct_sys_exit(terminal_statement)
+
+
+def _parse_ruff_per_file_ignore_entries(config_text: str) -> dict[str, set[str]]:
+    ruff_config = tomllib.loads(config_text)
+    lint_config = ruff_config.get("lint")
+    if not isinstance(lint_config, dict):
+        raise ValueError("ruff.toml must define a lint table")
+    per_file_ignores = lint_config.get("per-file-ignores")
+    if not isinstance(per_file_ignores, dict):
+        raise ValueError("ruff.toml must define lint.per-file-ignores")
+
+    ignore_entries: dict[str, set[str]] = {}
+    for ignore_path, rule_codes in per_file_ignores.items():
+        if not isinstance(ignore_path, str) or not isinstance(rule_codes, list):
+            raise ValueError("lint.per-file-ignores entries must map paths to rule lists")
+        if not all(isinstance(rule_code, str) for rule_code in rule_codes):
+            raise ValueError(f"lint.per-file-ignores entry {ignore_path} must contain only rule strings")
+        ignore_entries[ignore_path] = set(rule_codes)
+    return ignore_entries
 
 
 def _ruff_per_file_ignore_entries() -> dict[str, set[str]]:
     config_text = (ROOT / "ruff.toml").read_text(encoding="utf-8")
-    entries: dict[str, set[str]] = {}
-    for raw_line in config_text.splitlines():
-        line = raw_line.strip()
-        match = re.match(r'^"(?P<path>[^"]+)"\s*=\s*\[(?P<rules>[^\]]*)\]', line)
-        if not match:
-            continue
-        entries[match.group("path")] = {
-            token.strip().strip('"') for token in match.group("rules").split(",") if token.strip()
-        }
-    return entries
+    return _parse_ruff_per_file_ignore_entries(config_text)
 
 
 def _mypy_enrolled_paths() -> tuple[str, ...]:
@@ -770,13 +798,117 @@ def test_broad_exception_allowlist_stays_explicit():
     assert broad_exception_paths.isdisjoint(BLE001_WILDCARD_PATHS)
 
 
-def test_broad_exception_suppression_detection_covers_ruff_spacing():
-    directive_prefix = "except Exception:  # noqa:"
+def test_broad_exception_suppression_detection_covers_ruff_directives():
+    directive_prefix = "# noqa:"
     spaced_directive = f"{directive_prefix} {BROAD_EXCEPTION_RULE}"
     compact_directive = f"{directive_prefix}{BROAD_EXCEPTION_RULE}"
+    blanket_line_directive = "# noqa"
+    blanket_ruff_file_directive = "# ruff: noqa"
+    specific_ruff_file_directive = f"# ruff: noqa: {BROAD_EXCEPTION_RULE}"
+    mixed_rule_directive = f"# noqa: F401, {BROAD_EXCEPTION_RULE}"
+    blanket_flake8_file_directive = "# flake8: noqa"
+    chained_specific_directive = f"# type: ignore  # noqa: {BROAD_EXCEPTION_RULE}"
+    chained_blanket_directive = "# reason  # noqa"
 
-    assert _source_line_suppresses_broad_exception(spaced_directive)
-    assert _source_line_suppresses_broad_exception(compact_directive)
+    assert _comment_suppresses_broad_exception(spaced_directive)
+    assert _comment_suppresses_broad_exception(compact_directive)
+    assert _comment_suppresses_broad_exception(blanket_line_directive)
+    assert _comment_suppresses_broad_exception(blanket_ruff_file_directive)
+    assert _comment_suppresses_broad_exception(specific_ruff_file_directive)
+    assert _comment_suppresses_broad_exception(mixed_rule_directive)
+    assert _comment_suppresses_broad_exception(blanket_flake8_file_directive)
+    assert _comment_suppresses_broad_exception(chained_specific_directive)
+    assert _comment_suppresses_broad_exception(chained_blanket_directive)
+    assert not _comment_suppresses_broad_exception("# noqa: F401")
+    assert not _comment_suppresses_broad_exception("# ruff: noqa: F401")
+
+
+def test_broad_exception_suppression_scan_uses_comment_tokens(tmp_path: Path):
+    python_path = tmp_path / "directive_examples.py"
+    python_path.write_text(
+        'LINE_DIRECTIVE = "# noqa"\n'
+        'FILE_DIRECTIVE = "# ruff: noqa: BLE001"\n'
+        "try:\n"
+        "    pass\n"
+        "except Exception:  # noqa\n"
+        "    pass\n"
+        "# ruff: noqa: BLE001\n"
+        "try:\n"
+        "    pass\n"
+        "except Exception:  # type: ignore  # noqa: BLE001\n"
+        "    pass\n",
+        encoding="utf-8",
+    )
+
+    assert _broad_exception_suppression_lines(python_path) == [5, 7, 10]
+
+
+def _first_broad_exception_handler(python_source: str) -> ast.ExceptHandler:
+    syntax_tree = ast.parse(python_source)
+    try_node = next(syntax_node for syntax_node in ast.walk(syntax_tree) if isinstance(syntax_node, ast.Try))
+    return try_node.handlers[0]
+
+
+def test_nested_raise_does_not_approve_a_swallowed_broad_exception():
+    exception_handler = _first_broad_exception_handler(
+        "try:\n"
+        "    operation()\n"
+        "except Exception:\n"
+        "    def deferred_failure():\n"
+        "        raise RuntimeError\n"
+        "    record_failure()\n"
+    )
+
+    assert not _broad_exception_handler_is_approved("pipeline/unapproved.py", exception_handler)
+
+
+def test_conditional_and_deferred_termination_do_not_approve_broad_exceptions():
+    conditional_raise = _first_broad_exception_handler(
+        "try:\n"
+        "    operation()\n"
+        "except Exception:\n"
+        "    if should_raise:\n"
+        "        raise\n"
+        "    record_failure()\n"
+    )
+    deferred_exit = _first_broad_exception_handler(
+        "try:\n"
+        "    operation()\n"
+        "except Exception:\n"
+        "    pending_exits = (sys.exit(1) for _ in range(1))\n"
+        "    record_failure()\n"
+    )
+
+    assert not _broad_exception_handler_is_approved("pipeline/unapproved.py", conditional_raise)
+    assert not _broad_exception_handler_is_approved("pipeline/unapproved.py", deferred_exit)
+
+
+def test_unconditional_terminal_actions_approve_broad_exceptions():
+    direct_raise = _first_broad_exception_handler(
+        "try:\n    operation()\nexcept Exception:\n    record_failure()\n    raise\n"
+    )
+    direct_exit = _first_broad_exception_handler(
+        "try:\n    operation()\nexcept Exception:\n    record_failure()\n    sys.exit(1)\n"
+    )
+
+    assert _broad_exception_handler_is_approved("pipeline/unapproved.py", direct_raise)
+    assert _broad_exception_handler_is_approved("pipeline/unapproved.py", direct_exit)
+
+
+def test_ruff_per_file_ignore_parser_accepts_valid_toml_forms():
+    ruff_config = """
+[lint.per-file-ignores]
+'pipeline/single_quote.py' = ['BLE001']
+"pipeline/multiline.py" = [
+    "BLE001",
+    "F401",
+]
+"""
+
+    assert _parse_ruff_per_file_ignore_entries(ruff_config) == {
+        "pipeline/multiline.py": {"BLE001", "F401"},
+        "pipeline/single_quote.py": {"BLE001"},
+    }
 
 
 def test_broad_exception_suppressions_stay_in_ruff_config():
@@ -784,8 +916,7 @@ def test_broad_exception_suppressions_stay_in_ruff_config():
         f"{tracked_path.relative_to(ROOT)}:{line_number}"
         for tracked_path in _tracked_files()
         if tracked_path.suffix == ".py"
-        for line_number, source_line in enumerate(tracked_path.read_text(encoding="utf-8").splitlines(), start=1)
-        if _source_line_suppresses_broad_exception(source_line)
+        for line_number in _broad_exception_suppression_lines(tracked_path)
     ]
 
     assert inline_suppressions == []
