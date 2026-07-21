@@ -91,7 +91,9 @@ NOQA_DIRECTIVE = re.compile(
     r"(?<!\S)#\s*(?:(?:ruff|flake8)\s*:\s*)?noqa(?=\s|:|$)(?:\s*:\s*(?P<rules>[^#]*))?",
     re.IGNORECASE,
 )
-NOQA_RULE_CODE = re.compile(r"\b[A-Z]+\d{3}\b", re.IGNORECASE)
+NOQA_RULE_SEPARATOR = re.compile(r"[\s,]+")
+NOQA_JOINED_RULE_BOUNDARY = re.compile(r"(?<=\d)(?=[A-Z])")
+NOQA_RULE_CODE = re.compile(r"[A-Z]+\d{3,4}")
 TYPED_SUBTREE_PATHS = (
     "api/metrics.py",
     "api/search/query_builder.py",
@@ -473,13 +475,24 @@ def _tracked_files() -> list[Path]:
     return [ROOT / line for line in output.splitlines() if line]
 
 
+def _noqa_rules_suppress_broad_exception(directive_rules: str) -> bool:
+    for rule_fragment in NOQA_RULE_SEPARATOR.split(directive_rules):
+        if not rule_fragment:
+            continue
+        joined_rule_codes = NOQA_JOINED_RULE_BOUNDARY.split(rule_fragment)
+        if not all(NOQA_RULE_CODE.fullmatch(rule_code) for rule_code in joined_rule_codes):
+            return False
+        if BROAD_EXCEPTION_RULE in joined_rule_codes:
+            return True
+    return False
+
+
 def _comment_suppresses_broad_exception(comment_text: str) -> bool:
     for directive_match in NOQA_DIRECTIVE.finditer(comment_text):
         directive_rules = directive_match.group("rules")
         if directive_rules is None:
             return True
-        suppressed_rules = {suppressed_rule.upper() for suppressed_rule in NOQA_RULE_CODE.findall(directive_rules)}
-        if BROAD_EXCEPTION_RULE in suppressed_rules:
+        if _noqa_rules_suppress_broad_exception(directive_rules):
             return True
     return False
 
@@ -806,6 +819,8 @@ def test_broad_exception_suppression_detection_covers_ruff_directives():
     blanket_ruff_file_directive = "# ruff: noqa"
     specific_ruff_file_directive = f"# ruff: noqa: {BROAD_EXCEPTION_RULE}"
     mixed_rule_directive = f"# noqa: F401, {BROAD_EXCEPTION_RULE}"
+    joined_rule_suffix_directive = f"# noqa: F401{BROAD_EXCEPTION_RULE}"
+    joined_rule_prefix_directive = f"# noqa: {BROAD_EXCEPTION_RULE}F401"
     blanket_flake8_file_directive = "# flake8: noqa"
     chained_specific_directive = f"# type: ignore  # noqa: {BROAD_EXCEPTION_RULE}"
     chained_blanket_directive = "# reason  # noqa"
@@ -816,10 +831,20 @@ def test_broad_exception_suppression_detection_covers_ruff_directives():
     assert _comment_suppresses_broad_exception(blanket_ruff_file_directive)
     assert _comment_suppresses_broad_exception(specific_ruff_file_directive)
     assert _comment_suppresses_broad_exception(mixed_rule_directive)
+    assert _comment_suppresses_broad_exception(f"# noqa:,{BROAD_EXCEPTION_RULE}")
+    assert _comment_suppresses_broad_exception(joined_rule_suffix_directive)
+    assert _comment_suppresses_broad_exception(joined_rule_prefix_directive)
     assert _comment_suppresses_broad_exception(blanket_flake8_file_directive)
     assert _comment_suppresses_broad_exception(chained_specific_directive)
     assert _comment_suppresses_broad_exception(chained_blanket_directive)
     assert not _comment_suppresses_broad_exception("# noqa: F401")
+    assert not _comment_suppresses_broad_exception("# noqa: F401E722")
+    assert not _comment_suppresses_broad_exception("# noqa: XBLE001")
+    assert not _comment_suppresses_broad_exception("# noqa: BLE001EXTRA")
+    assert not _comment_suppresses_broad_exception("# noqa: BLE001f401")
+    assert not _comment_suppresses_broad_exception("# noqa: f401BLE001")
+    assert not _comment_suppresses_broad_exception("# noqa: EXTRA,BLE001F401")
+    assert not _comment_suppresses_broad_exception("# noqa: F401 because BLE001 is centralized")
     assert not _comment_suppresses_broad_exception("# ruff: noqa: F401")
 
 
@@ -836,11 +861,27 @@ def test_broad_exception_suppression_scan_uses_comment_tokens(tmp_path: Path):
         "try:\n"
         "    pass\n"
         "except Exception:  # type: ignore  # noqa: BLE001\n"
+        "    pass\n"
+        "try:\n"
+        "    pass\n"
+        "except Exception:  # noqa: BLE001F401\n"
+        "    pass\n"
+        "try:\n"
+        "    pass\n"
+        "except Exception:  # noqa: F401BLE001\n"
+        "    pass\n"
+        "try:\n"
+        "    pass\n"
+        "except Exception:  # noqa: F401E722\n"
+        "    pass\n"
+        "try:\n"
+        "    pass\n"
+        "except Exception:  # noqa:,BLE001\n"
         "    pass\n",
         encoding="utf-8",
     )
 
-    assert _broad_exception_suppression_lines(python_path) == [5, 7, 10]
+    assert _broad_exception_suppression_lines(python_path) == [5, 7, 10, 14, 18, 26]
 
 
 def _first_broad_exception_handler(python_source: str) -> ast.ExceptHandler:
