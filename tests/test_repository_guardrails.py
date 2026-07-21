@@ -47,13 +47,12 @@ REUSABLE_PIPELINE_MODULES = (
 APPROVED_BROAD_EXCEPTION_PATHS = {
     "api/cache.py",
     "api/main.py",
-    "api/metrics.py",
+    "council_crawler/council_crawler/pipelines.py",
+    "council_crawler/council_crawler/spiders/base.py",
     "pipeline/agenda_legistar.py",
     "pipeline/agenda_worker.py",
-    "pipeline/backlog_maintenance.py",
     "pipeline/check_faiss_runtime.py",
     "pipeline/db_migration_runner.py",
-    "pipeline/db_session.py",
     "pipeline/diagnose_search_sort.py",
     "pipeline/diagnose_semantic_search.py",
     "pipeline/indexer.py",
@@ -61,28 +60,19 @@ APPROVED_BROAD_EXCEPTION_PATHS = {
     "pipeline/llm.py",
     "pipeline/local_ai_provider_calls.py",
     "pipeline/model_base.py",
-    "pipeline/nlp_entity_model.py",
-    "pipeline/profiling.py",
     "pipeline/run_agenda_qa.py",
-    "pipeline/run_batch_enrichment.py",
     "pipeline/run_pipeline_steps.py",
     "pipeline/runtime_guardrails.py",
-    "pipeline/summary_backfill.py",
     "pipeline/summary_backfill_dispatch.py",
-    "pipeline/semantic_index.py",
     "pipeline/semantic_tasks.py",
     "pipeline/startup_purge.py",
-    "pipeline/task_startup.py",
     "pipeline/table_worker.py",
     "pipeline/tasks.py",
     "pipeline/text_cleaning.py",
     "pipeline/topic_worker.py",
     "pipeline/vote_extraction_runner.py",
-    "scripts/backfill_summaries.py",
     "scripts/collect_soak_metrics.py",
     "scripts/enrichment_worker_healthcheck.py",
-    "scripts/evaluate_soak_week.py",
-    "scripts/hydration_repaired_runner.py",
     "scripts/hydration_repaired_summary.py",
     "scripts/parse_task_launch.py",
     "scripts/probe_local_model_candidate.py",
@@ -90,7 +80,6 @@ APPROVED_BROAD_EXCEPTION_PATHS = {
     "scripts/reset_laserfiche_error_agenda_rows.py",
     "scripts/score_ab_results.py",
     "scripts/semantic_worker_healthcheck.py",
-    "scripts/worker_healthcheck.py",
 }
 BLE001_WILDCARD_PATHS = {"scripts/*.py", "tests/*.py"}
 TYPED_SUBTREE_PATHS = (
@@ -164,7 +153,7 @@ TYPED_SUBTREE_PATHS = (
     "scripts/analyze_pipeline_profile.py",
 )
 CANDIDATE_FORMATTER_WAVE_PATHS = TYPED_SUBTREE_PATHS
-FORMATTER_WAVE_COMMAND = "./.venv/bin/ruff format --check " + " ".join(CANDIDATE_FORMATTER_WAVE_PATHS)
+CONFIG_OWNED_FORMATTER_COMMAND = "./.venv/bin/ruff format --check ."
 CONFIG_CLEANUP_MODULES = (
     "pipeline/config.py",
     "pipeline/config_env.py",
@@ -529,6 +518,29 @@ def _exception_handler_name(handler_type: ast.expr | None) -> str | None:
     return None
 
 
+def _broad_exception_handler_is_approved(
+    relative_path: str,
+    source_lines: list[str],
+    handler: ast.ExceptHandler,
+) -> bool:
+    if relative_path in APPROVED_BROAD_EXCEPTION_PATHS:
+        return True
+    if "noqa: BLE001" in source_lines[handler.lineno - 1]:
+        return True
+    for handler_node in ast.walk(handler):
+        if isinstance(handler_node, ast.Raise):
+            return True
+        if (
+            isinstance(handler_node, ast.Call)
+            and isinstance(handler_node.func, ast.Attribute)
+            and isinstance(handler_node.func.value, ast.Name)
+            and handler_node.func.value.id == "sys"
+            and handler_node.func.attr == "exit"
+        ):
+            return True
+    return False
+
+
 def _ruff_per_file_ignore_entries() -> dict[str, set[str]]:
     config_text = (ROOT / "ruff.toml").read_text(encoding="utf-8")
     entries: dict[str, set[str]] = {}
@@ -677,8 +689,8 @@ def test_reusable_pipeline_modules_do_not_call_logging_basicconfig_on_import(mon
 def test_ruff_guardrail_config_keeps_scope_and_exceptions_narrow():
     config_text = (ROOT / "ruff.toml").read_text(encoding="utf-8")
 
-    assert 'src = ["api", "pipeline", "scripts", "tests"]' in config_text
-    assert 'select = ["E722", "F401", "F841", "B006", "B007", "B023", "BLE001"]' in config_text
+    assert 'src = ["api", "council_crawler", "pipeline", "scripts", "semantic_service", "tests"]' in config_text
+    assert 'select = ["E722", "F401", "F841", "B", "BLE001", "C901", "DTZ", "S"]' in config_text
     assert "pipeline/*.py" not in config_text
     assert "api/*.py" not in config_text
 
@@ -701,8 +713,7 @@ def test_first_formatter_wave_stays_path_scoped_and_enforced():
     agents_text = (ROOT / "AGENTS.md").read_text(encoding="utf-8")
     workflow_text = (ROOT / ".github" / "workflows" / "python-guardrails.yml").read_text(encoding="utf-8")
 
-    assert FORMATTER_WAVE_COMMAND in docs_text
-    assert "scoped formatter guardrail" in docs_text
+    assert CONFIG_OWNED_FORMATTER_COMMAND in docs_text
     assert "./.venv/bin/ruff format --check api pipeline scripts tests" not in docs_text
     assert "ruff format --check" not in agents_text
     assert "python -m ruff format --check " + " ".join(CANDIDATE_FORMATTER_WAVE_PATHS) in workflow_text
@@ -757,6 +768,7 @@ def test_broad_exception_handlers_stay_on_approved_boundaries_and_take_action():
         if relative_path.split("/", 1)[0] not in {"api", "pipeline", "scripts", "tests"}:
             continue
         source = tracked_path.read_text(encoding="utf-8")
+        source_lines = source.splitlines()
         tree = ast.parse(source, filename=relative_path)
 
         for node in ast.walk(tree):
@@ -767,10 +779,6 @@ def test_broad_exception_handlers_stay_on_approved_boundaries_and_take_action():
                     continue
 
                 handler_ref = f"{relative_path}:{handler.lineno}"
-                if relative_path not in APPROVED_BROAD_EXCEPTION_PATHS:
-                    unauthorized_handlers.append(handler_ref)
-                    continue
-
                 body_nodes = handler.body
                 is_silent = all(
                     isinstance(body_node, ast.Pass)
@@ -779,6 +787,9 @@ def test_broad_exception_handlers_stay_on_approved_boundaries_and_take_action():
                 )
                 if is_silent:
                     silent_handlers.append(handler_ref)
+                    continue
+                if not _broad_exception_handler_is_approved(relative_path, source_lines, handler):
+                    unauthorized_handlers.append(handler_ref)
 
     assert unauthorized_handlers == []
     assert silent_handlers == []

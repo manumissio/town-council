@@ -1,8 +1,9 @@
 # Town Council Remediation Plan (Codex Multi-Agent)
 
-version: 1.2
+version: 1.3
 generated: 2026-07-18
-changelog: v1.2 adds T-CI-5 (land the tightened ruff.toml, delivered as a
+changelog: v1.3 adds T-CI-0 to restore the Python guardrail baseline before
+T-CI-5 and T-CI-1. v1.2 adds T-CI-5 (land the tightened ruff.toml, delivered as a
 drop-in draft verified against the tree at plan date), registers the lint
 ratchet couplings in T-TIME-1, T-SEC-6, T-CRAWL-2, T-DA-1, and T-PLAT-4
 acceptance criteria, re-scopes T-GOV-3 (complexity ceiling now enforced via
@@ -87,13 +88,33 @@ model files; PLAT's Alembic baseline runs AFTER TIME merges.
 
 ## 3. PHASE 0 — SAFETY NET (run first; agent-ci; ~1 day)
 
+### T-CI-0: Restore the Python guardrail baseline
+- priority: P0 (run before every other Phase 0 task)
+- files_owned: docs/plans/T_CI_0_GUARDRAIL_BASELINE_PLAN.md,
+  docs/plans/TOWN_COUNCIL_REMEDIATION_PLAN.md, pipeline/model_base.py,
+  tests/test_repository_guardrails.py, tests/test_docker_build_contracts.py
+- do: Realign stale dependency and Ruff contract expectations with already-landed
+  repository policy. Type the vector datatype selector against SQLAlchemy's
+  common datatype base so installed pgvector and the local fallback both pass
+  Mypy. Follow the implementation-ready T-CI-0 plan.
+- accept: The four baseline contract failures pass; pgvector-present Mypy passes;
+  complete Python suite passes; no runtime behavior, Ruff policy, workflow,
+  dependency, schema, default, or decision-gate change.
+- forbidden: Editing outside `files_owned`; weakening or skipping tests; changing
+  `ruff.toml`; adding casts, ignores, compatibility paths, or new test seams.
+- verify: Ruff checks, repo Mypy, deterministic pgvector-present Mypy stub,
+  guardrail contracts, Docker contracts, database tests, docs links, complete
+  Python suite, and `git diff --check` as specified in
+  `docs/plans/T_CI_0_GUARDRAIL_BASELINE_PLAN.md`.
+
 ### T-CI-1: Run the full Python test suite in CI
 - priority: P0
+- depends_on: T-CI-0
 - files_owned: .github/workflows/python-guardrails.yml
 - do: Add a job step `PYTHONPATH=. python -m pytest -q tests/` after the
   existing guardrail steps. Keep the seven guardrail-test invocations as a
   separate fast-fail step.
-- accept: CI executes all 249 test files on PR; green on current master.
+- accept: CI executes all tests under `tests/` on PR; green on current master.
 - forbidden: Skipping/xfailing tests to get green. If any test fails on
   clean master, report the list; do not fix in this task.
 - verify: Local `PYTHONPATH=. python -m pytest -q tests/` exit 0; workflow
@@ -133,6 +154,7 @@ model files; PLAT's Alembic baseline runs AFTER TIME merges.
 ### T-CI-5: Land the tightened lint configuration
 - priority: P0 (run FIRST in Phase 0 — the allowlist is a snapshot of the
   tree at plan date and goes stale as other tasks merge)
+- depends_on: T-CI-0
 - files_owned: ruff.toml, .pre-commit-config.yaml,
   .github/workflows/python-guardrails.yml (ruff invocation line only)
 - do: Replace ruff.toml with the provided draft (rules: full B + C901 +
@@ -529,7 +551,7 @@ files (GED-5 grant).
 ## 7. EXECUTION ORDER SUMMARY
 
 ```
-Phase 0: agent-ci  [T-CI-5 first (allowlist snapshot freshness), then T-CI-1 .. T-CI-4]
+Phase 0: agent-ci  [T-CI-0, then T-CI-5 (allowlist snapshot freshness), then T-CI-1 .. T-CI-4]
 Docs-0:  agent-gov [T-GOV-6: SECURITY.md] + [T-GOV-4: AGENTS.md]   (with/just after Phase 0)
 Phase 1: agent-sec [T-SEC-1..6] || agent-time [T-TIME-1..3] || agent-crawl [T-CRAWL-1..2]
 Gate:    G3 ratified (T-GOV-1 + docs/TESTING.md via T-GOV-6)
