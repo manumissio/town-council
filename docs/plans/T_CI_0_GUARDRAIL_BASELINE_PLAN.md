@@ -14,7 +14,7 @@ execution: code
 - **Objective:** Restore a green Python guardrail baseline before T-CI-5, T-CI-1, or Phase 2 remediation work begins.
 - **Authority:** Code and tests define current behavior; `AGENTS.md`, `docs/ENGINEERING_GUARDRAILS.md`, and `docs/plans/TOWN_COUNCIL_REMEDIATION_PLAN.md` constrain implementation and verification.
 - **Execution profile:** One documentation registration unit followed by independent contract-test and SQLAlchemy-typing units, then integrated verification and delivery.
-- **Stop conditions:** Stop if a correction needs a tracked file outside this task's seven-file ownership set, broadens effective Ruff policy, depends on G1-G5, or alters runtime behavior.
+- **Stop conditions:** Stop if a correction needs a tracked file outside this task's ten-file ownership set, broadens effective Ruff policy beyond the structural contract below, depends on G1-G5, or alters runtime behavior beyond preserving the existing batch-failure exit contract with `SystemExit`.
 - **Tail ownership:** The implementation owner runs simplification, review, full verification, PR delivery, and bounded CI repair.
 
 ---
@@ -29,9 +29,11 @@ The repository currently fails four Python contract tests and the GitHub Actions
 
 A red default branch makes later remediation results unreliable. The four pytest failures are stale contract expectations, while the Mypy failure comes from annotating the selected vector constructor as a `TypeDecorator` class even though pgvector's `Vector` is a `UserDefinedType`. Both constructors return SQLAlchemy `TypeEngine` instances. Ruff also tolerates missing delimiters between valid rule codes, so directives such as `# noqa: BLE001F401` suppress BLE001 with a warning; the first token-aware predicate missed that form.
 
+PR #108 review found a second guardrail defect: `_broad_exception_handler_is_approved` checks only the handler's final AST statement. A conditional or unconditional early `return`, generator suspension, or unreachable terminal `raise` can therefore pass while still swallowing the broad exception. Treating `sys.exit()` as terminal is also unsafe static policy because the name can be rebound. The correction is a conservative structural contract, not semantic control-flow proof.
+
 ### Requirements
 
-- R1. Register T-CI-0 before T-CI-5 and T-CI-1 with an exclusive seven-file ownership set.
+- R1. Register T-CI-0 before T-CI-5 and T-CI-1 with an exclusive ten-file ownership set.
 - R2. Require the current `pypdf==6.13.3` batch dependency without changing requirements files.
 - R3. Preserve the current Ruff source roots, selected rule families, and effective exception boundary while centralizing the existing task-startup suppression in `ruff.toml`.
 - R4. Keep the exact BLE001 boundary inventory aligned with current non-wildcard Ruff entries.
@@ -41,6 +43,10 @@ A red default branch makes later remediation results unreliable. The four pytest
 - R8. Produce fresh targeted, guardrail-row, database, docs-link, full-suite, and CI evidence.
 - R9. Keep broad-exception suppressions in Ruff's centralized boundary inventory and reject inline `BLE001` suppressions.
 - R10. Reject every documented or Ruff-tolerated comment directive that can bypass centralized BLE001 policy: bare or rule-specific line-level `noqa`, bare or rule-specific file-level `ruff: noqa`, legacy file-level `flake8: noqa`, and delimiter-free joined rule codes.
+- R11. Permit unlisted broad handlers only when they use a flat sequence of simple assignments or direct action calls followed by `raise`; approved Ruff boundary files remain exempt from this structural restriction.
+- R12. Reject compound flow, suspension, early exits, nested definitions, nested exception handling, and `sys.exit()` in unlisted broad handlers.
+- R13. Preserve the batch enrichment failure contract by replacing its direct `sys.exit(1)` terminal action with chained `SystemExit`, verifying the same contextual log and exit status, and leaving the existing metrics call before termination.
+- R14. Require explicit exception translations to use chaining and apply the broad-handler scan to the Python files Ruff actually discovers for `ruff check .`.
 
 ### Scope Boundaries
 
@@ -49,12 +55,15 @@ Only these tracked files may change:
 - `docs/plans/T_CI_0_GUARDRAIL_BASELINE_PLAN.md`
 - `docs/plans/TOWN_COUNCIL_REMEDIATION_PLAN.md`
 - `pipeline/model_base.py`
+- `pipeline/run_batch_enrichment.py`
 - `pipeline/task_startup.py`
 - `ruff.toml`
 - `tests/test_repository_guardrails.py`
 - `tests/test_docker_build_contracts.py`
+- `tests/test_run_pipeline_orchestration.py`
+- `docs/ENGINEERING_GUARDRAILS.md`
 
-No workflow, dependency, schema, migration, API, Celery, security boundary, runtime default, or soak policy changes are included. Ruff's effective boundary is unchanged: the existing `pipeline/task_startup.py` suppression moves from inline source text to the centralized per-file inventory.
+No workflow, dependency, schema, migration, API, Celery, security boundary, runtime default, or soak policy changes are included. Ruff's effective boundary is unchanged: the existing `pipeline/task_startup.py` suppression moves from inline source text to the centralized per-file inventory. T-CI-0 temporarily coordinates ownership of `docs/ENGINEERING_GUARDRAILS.md` with T-GOV-3 and T-GOV-5 only for this narrow exception-policy clarification; their broader redesign and rewrite responsibilities remain unchanged.
 
 ### Acceptance Examples
 
@@ -63,6 +72,8 @@ No workflow, dependency, schema, migration, API, Celery, security boundary, runt
 - AE3. Guardrail tests compare their expectations to the current Ruff configuration and pass without weakening exact-set assertions.
 - AE4. The complete Python suite passes from the branch before delivery.
 - AE5. Guardrail tests reject spaced, compact, and delimiter-free joined BLE001 directives with BLE001 first or last, plus bare line-level and file-level suppression, without flagging non-BLE001 code fragments or directive-like text inside Python strings.
+- AE6. Guardrail tests reject early returns, suspension, compound flow, nested scopes, nested `try`, unchained translation, and `sys.exit()` before a terminal `raise`, while accepting flat context capture or action calls followed by bare or explicitly chained `raise`.
+- AE7. Batch enrichment failure still logs its context and exits with status 1 through chained `SystemExit`; the pre-existing metrics call remains unchanged and is outside this terminal-action correction.
 
 ---
 
@@ -76,10 +87,12 @@ No workflow, dependency, schema, migration, API, Celery, security boundary, runt
 - KTD4. Keep the current formatter transition explicit. Documentation may advertise the config-owned command while the workflow list remains transitional until T-CI-4.
 - KTD5. Centralize the existing `pipeline/task_startup.py` broad-exception suppression in `ruff.toml`. (session-settled: user-directed — chosen over accepting inline suppression outside the approved boundary inventory: centralization preserves behavior and makes policy enforceable.)
 - KTD6. Parse Python comment tokens and split adjacent Ruff rule codes before classifying suppression directives. (review-corrected — chosen over extending a raw source-line regular expression: token-aware parsing covers line-level, file-level, blanket, rule-specific, and Ruff-tolerated joined forms without treating strings as policy directives.)
+- KTD7. Enforce a flat structural contract for unlisted broad handlers and require a terminal `raise`. (review-corrected — chosen over final-statement inspection or a partial control-flow analyzer: the former permits early exits, while the latter adds unsound machinery.) Approved Ruff boundaries remain the reviewed home for legitimate complex handlers.
+- KTD8. Replace the batch operator's `sys.exit(1)` with chained `SystemExit`. (review-corrected — chosen over recognizing `sys.exit` as terminal: direct raising preserves exit status and causal context without trusting a rebindable name.)
 
 ### Reuse Audit
 
-The change extends existing guardrail tests and the existing vector datatype selector. One test-local predicate distinguishes configured BLE001 approvals from handlers that propagate or terminate; no production helper, registry, compatibility alias, test seam, or parallel implementation is introduced. `ruff.toml` remains the policy source.
+The change extends existing guardrail tests, the existing vector datatype selector, and the existing batch failure path. The test-local predicate distinguishes configured BLE001 approvals from unlisted handlers satisfying the flat structural contract; no production helper, registry, compatibility alias, test seam, partial control-flow analyzer, or parallel implementation is introduced. `ruff.toml` remains the approved-boundary source.
 
 ### Security and Data Governance
 
@@ -92,6 +105,8 @@ No security-sensitive path, secret, person data, scraped content parser, or exte
 - Use existing exact-set comparisons for policy inventory.
 - Do not edit tracked files outside the ownership set.
 - Do not broaden the effective BLE001 boundary; only relocate the existing `pipeline/task_startup.py` suppression.
+- Treat the unlisted-handler rule as conservative structural enforcement, not proof that an exception escapes every enclosing Python construct.
+- Defer tuple catches and exception name-resolution parity to a separate Ruff-parity task; do not expand this P2 into name binding analysis.
 - Run the antipattern checklist before and after implementation; any positive result must be corrected or reported.
 
 ### Sequencing
@@ -116,10 +131,10 @@ No security-sensitive path, secret, person data, scraped content parser, or exte
 ### U2. Realign guardrail contracts
 
 - **Goal:** Make contract tests assert the already-landed dependency and Ruff policy accurately.
-- **Requirements:** R2, R3, R4, R5, R9, R10
-- **Files:** `tests/test_repository_guardrails.py`, `tests/test_docker_build_contracts.py`, `pipeline/task_startup.py`, `ruff.toml`
-- **Approach:** Update the pypdf pin, Ruff roots/rules, exact BLE001 set, and formatter-transition assertions in place. Move the existing task-startup suppression into Ruff, inspect Python comment tokens, split delimiter-free rule codes at digit-to-letter boundaries, reject blanket or BLE001-specific line/file directives, and accept otherwise unlisted handlers only when they explicitly propagate or terminate.
-- **Test scenarios:** Current dependency pin, Ruff policy drift, exact BLE001 drift, spaced and compact rule-specific suppression, `BLE001F401`, `F401BLE001`, non-BLE001 joined fragments, bare line suppression, bare and BLE001-specific Ruff file suppression, legacy Flake8 file suppression, string-literal non-directives, and transitional formatter ownership.
+- **Requirements:** R2, R3, R4, R5, R9, R10, R11, R12, R13, R14
+- **Files:** `tests/test_repository_guardrails.py`, `tests/test_docker_build_contracts.py`, `tests/test_run_pipeline_orchestration.py`, `pipeline/run_batch_enrichment.py`, `pipeline/task_startup.py`, `ruff.toml`, `docs/ENGINEERING_GUARDRAILS.md`
+- **Approach:** Update the pypdf pin, Ruff roots/rules, exact BLE001 set, and formatter-transition assertions in place. Move the existing task-startup suppression into Ruff, inspect Python comment tokens, split delimiter-free rule codes at digit-to-letter boundaries, and reject blanket or BLE001-specific line/file directives. Replace final-statement inspection with the flat unlisted-handler contract over Ruff's discovered Python files, require explicit translations to be chained, keep centrally approved Ruff boundaries unchanged, and replace the batch operator's direct `sys.exit(1)` with chained `SystemExit`.
+- **Test scenarios:** Current dependency pin, Ruff policy drift, exact BLE001 drift, spaced and compact rule-specific suppression, `BLE001F401`, `F401BLE001`, non-BLE001 joined fragments, bare line suppression, bare and BLE001-specific Ruff file suppression, legacy Flake8 file suppression, string-literal non-directives, early and conditional return, suspension, compound flow, nested scopes and `try`, direct `sys.exit`, unchained translation, flat assignments/actions followed by bare or chained `raise`, Ruff-discovered file coverage, preserved batch log and exit status, and transitional formatter ownership.
 - **Verification:** Targeted contract tests plus complete guardrail and Docker contract files.
 
 ### U3. Correct vector datatype typing
@@ -153,6 +168,8 @@ No security-sensitive path, secret, person data, scraped content parser, or exte
 | Typed subtree | `./.venv/bin/mypy` | Exit 0 |
 | Guardrail contracts | `PYTHONPATH=. .venv/bin/pytest -q tests/test_repository_guardrails.py` | File passes |
 | Suppression regression | `PYTHONPATH=. .venv/bin/pytest -q tests/test_repository_guardrails.py::test_broad_exception_suppression_detection_covers_ruff_directives tests/test_repository_guardrails.py::test_broad_exception_suppression_scan_uses_comment_tokens tests/test_repository_guardrails.py::test_broad_exception_suppressions_stay_in_ruff_config` | Documented and Ruff-tolerated line/file forms are rejected and string literals are ignored |
+| Broad-handler structure | `PYTHONPATH=. .venv/bin/pytest -q tests/test_repository_guardrails.py -k broad_exception` | Early exits, suspension, compound flow, nested constructs, and `sys.exit` are rejected; flat action followed by `raise` is accepted |
+| Batch failure exit | `PYTHONPATH=. .venv/bin/pytest -q tests/test_run_pipeline_orchestration.py` | Batch callable failure logs context and exits with status 1; the unchanged metrics path is outside this terminal-action correction |
 | Docker contracts | `PYTHONPATH=. .venv/bin/pytest -q tests/test_docker_build_contracts.py` | File passes |
 | ORM behavior | `PYTHONPATH=. .venv/bin/pytest -q tests/test_database.py` | File passes |
 | Documentation | `PYTHONPATH=. .venv/bin/pytest -q tests/test_docs_links.py` | File passes |
@@ -172,9 +189,11 @@ No fake patches a production implementation. The temporary pgvector stub is isol
 - Runtime behavior, schemas, dependencies, workflows, effective Ruff policy, defaults, and decision gates remain unchanged.
 - Simplification and plan-aware review find no unresolved eligible issue.
 - Ruff's documented and tolerated line-level and file-level suppression forms cannot bypass the centralized BLE001 inventory.
+- Unlisted broad handlers satisfy the documented flat structural contract; final-statement position and `sys.exit()` cannot bypass it.
+- Batch enrichment failure preserves its observable status-1 exit contract through explicit `SystemExit`.
 - Every Verification Contract command and PR CI pass with fresh evidence.
 - The diff contains no abandoned experiment, duplicate implementation, compatibility shim, type suppression, unrelated formatting, or personal path.
-- The final report names exact commands, PASS or FAIL outcomes, changed paths, tree state, and review findings. The deviation report records the review-required constructor-callable correction, the operator-approved expansion that centralizes the task-startup suppression, and the review-required joined-code parser correction.
+- The final report names exact commands, PASS or FAIL outcomes, changed paths, tree state, and review findings. The deviation report records the review-required constructor-callable correction, the operator-approved expansions for centralized task-startup suppression and the broad-handler structural contract, and the review-required joined-code parser correction. Tuple catches and exception name resolution remain an explicit follow-up deficit.
 
 ---
 
@@ -244,4 +263,6 @@ No fake patches a production implementation. The temporary pgvector stub is isol
 
 **y) Evidence.** Report every command with PASS or FAIL; unrun checks are `NOT VERIFIED`.
 
-**z) Deviations.** Record any file outside the two-file follow-up scope, parser behavior beyond the bounded Ruff suppression class, weakened test, skipped review line, or unrun check. Expected: none.
+**z) Deviations.** Record any file outside the ten-file ownership set, parser
+behavior beyond the bounded Ruff suppression and broad-handler classes,
+weakened test, skipped review line, or unrun check. Expected: none.

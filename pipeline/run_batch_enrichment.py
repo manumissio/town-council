@@ -17,6 +17,7 @@ from pipeline.topic_worker import run_topic_hydration_backfill, select_catalog_i
 
 LOGGER_NAME = "pipeline-batch"
 LOGGER_FORMAT = "%(asctime)s - %(name)s - %(levelname)s - %(message)s"
+STEP_FAILURE_EXIT_CODE = 1
 
 logger = logging.getLogger(LOGGER_NAME)
 
@@ -39,7 +40,7 @@ def run_batch_callable_step(name, phase, func):
         start_perf = time.perf_counter()
         try:
             result = func()
-        except Exception:
+        except Exception as exc:
             logger.exception("Step %s failed.", name)
             record_pipeline_phase_duration(
                 phase,
@@ -48,7 +49,7 @@ def run_batch_callable_step(name, phase, func):
                 "failure",
                 time.perf_counter() - start_perf,
             )
-            sys.exit(1)
+            raise SystemExit(STEP_FAILURE_EXIT_CODE) from exc
         duration_s = time.perf_counter() - start_perf
         record_pipeline_phase_duration(
             phase,

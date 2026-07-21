@@ -82,7 +82,10 @@ remains in force; where this plan is stricter, this plan wins for these tasks.
 
 Sequencing rule: SEC and DEDUP-C both own api/app_setup.py + api/main.py —
 they are in different phases and MUST NOT run concurrently. TIME owns
-model files; PLAT's Alembic baseline runs AFTER TIME merges.
+model files; PLAT's Alembic baseline runs AFTER TIME merges. T-CI-0 temporarily
+coordinates `docs/ENGINEERING_GUARDRAILS.md` with T-GOV-3 and T-GOV-5 for the
+narrow broad-handler policy correction described below; the GOV lane retains
+ownership of the later redesign and rewrite.
 
 ---
 
@@ -91,19 +94,26 @@ model files; PLAT's Alembic baseline runs AFTER TIME merges.
 ### T-CI-0: Restore the Python guardrail baseline
 - priority: P0 (run before every other Phase 0 task)
 - files_owned: docs/plans/T_CI_0_GUARDRAIL_BASELINE_PLAN.md,
-  docs/plans/TOWN_COUNCIL_REMEDIATION_PLAN.md, pipeline/model_base.py,
-  pipeline/task_startup.py, ruff.toml, tests/test_repository_guardrails.py,
-  tests/test_docker_build_contracts.py
+  docs/plans/TOWN_COUNCIL_REMEDIATION_PLAN.md,
+  docs/ENGINEERING_GUARDRAILS.md, pipeline/model_base.py,
+  pipeline/run_batch_enrichment.py, pipeline/task_startup.py, ruff.toml,
+  tests/test_repository_guardrails.py, tests/test_docker_build_contracts.py,
+  tests/test_run_pipeline_orchestration.py
 - do: Realign stale dependency and Ruff contract expectations with already-landed
   repository policy. Type the vector datatype selector against SQLAlchemy's
   common datatype base so installed pgvector and the local fallback both pass
   Mypy. Move the existing task-startup inline BLE001 suppression into Ruff's
-  centralized boundary inventory. Follow the implementation-ready T-CI-0 plan.
+  centralized boundary inventory. Enforce a conservative flat structural
+  contract for unlisted broad handlers, reject compound flow and `sys.exit()`,
+  and preserve the batch operator's exit status with explicit `SystemExit`.
+  Follow the implementation-ready T-CI-0 plan.
 - accept: The four baseline contract failures pass; pgvector-present Mypy passes;
-  complete Python suite passes; no runtime behavior, effective Ruff policy, workflow,
-  dependency, schema, default, or decision-gate change.
+  broad handlers cannot bypass policy through an early exit or unreachable terminal
+  raise; complete Python suite passes; no runtime contract, effective Ruff boundary,
+  workflow, dependency, schema, default, or decision-gate change.
 - forbidden: Editing outside `files_owned`; weakening or skipping tests; broadening
-  Ruff policy; adding casts, ignores, compatibility paths, or new test seams.
+  Ruff boundary policy; claiming semantic control-flow proof; adding casts, ignores,
+  compatibility paths, partial control-flow machinery, or new test seams.
 - verify: Ruff checks, repo Mypy, deterministic pgvector-present Mypy stub,
   guardrail contracts, Docker contracts, database tests, docs links, complete
   Python suite, and `git diff --check` as specified in
@@ -476,6 +486,9 @@ files (GED-5 grant).
 - priority: P2
 - files_owned: tests/test_repository_guardrails.py,
   docs/ENGINEERING_GUARDRAILS.md
+- coordination: T-CI-0 may edit only the broad-handler structural-policy prose
+  needed to align PR #108 enforcement. T-GOV-3 retains the later structural-rule
+  redesign and must preserve or deliberately supersede that contract.
 - do: Replace enumerated 300-line file lists with general rules:
   (a) complexity ceiling — DELIVERED by T-CI-5 (ruff C901, max-complexity
   10, offenders allowlisted and ratcheting); this task only documents its
@@ -513,6 +526,9 @@ files (GED-5 grant).
 - depends_on: T-CI-4 (formatter scope in ruff.toml); coordinates with
   T-GOV-3 (structural rules).
 - files_owned: docs/ENGINEERING_GUARDRAILS.md
+- coordination: T-CI-0's narrow broad-handler structural-policy correction lands
+  first. T-GOV-5 must carry the corrected policy into the rewritten document and
+  must not restore final-statement or `sys.exit()` authorization.
 - do: Merge the provided draft (drafts/docs/ENGINEERING_GUARDRAILS.md) in
   the same PR as T-CI-4 or immediately after. Reconcile [transition]
   markers: T-CI-4 marker removed when the ruff.toml scope is live; T-GOV-3
