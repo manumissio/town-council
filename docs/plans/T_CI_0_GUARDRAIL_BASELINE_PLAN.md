@@ -14,7 +14,7 @@ execution: code
 - **Objective:** Restore a green Python guardrail baseline before T-CI-5, T-CI-1, or Phase 2 remediation work begins.
 - **Authority:** Code and tests define current behavior; `AGENTS.md`, `docs/ENGINEERING_GUARDRAILS.md`, and `docs/plans/TOWN_COUNCIL_REMEDIATION_PLAN.md` constrain implementation and verification.
 - **Execution profile:** One documentation registration unit followed by independent contract-test and SQLAlchemy-typing units, then integrated verification and delivery.
-- **Stop conditions:** Stop if a correction needs a tracked file outside this task's ten-file ownership set, broadens effective Ruff policy beyond the structural contract below, depends on G1-G5, or alters runtime behavior beyond preserving the existing batch-failure exit contract with `SystemExit`.
+- **Stop conditions:** Stop if a correction needs a tracked file outside this task's eleven-file ownership set, broadens effective Ruff policy beyond the structural contract below, depends on G1-G5, or alters runtime behavior beyond preserving the existing batch-failure exit contract with `SystemExit`.
 - **Tail ownership:** The implementation owner runs simplification, review, full verification, PR delivery, and bounded CI repair.
 
 ---
@@ -29,11 +29,11 @@ The repository currently fails four Python contract tests and the GitHub Actions
 
 A red default branch makes later remediation results unreliable. The four pytest failures are stale contract expectations, while the Mypy failure comes from annotating the selected vector constructor as a `TypeDecorator` class even though pgvector's `Vector` is a `UserDefinedType`. Both constructors return SQLAlchemy `TypeEngine` instances. Ruff also tolerates missing delimiters between valid rule codes, so directives such as `# noqa: BLE001F401` suppress BLE001 with a warning; the first token-aware predicate missed that form.
 
-PR #108 review found a second guardrail defect: `_broad_exception_handler_is_approved` checks only the handler's final AST statement. A conditional or unconditional early `return`, generator suspension, or unreachable terminal `raise` can therefore pass while still swallowing the broad exception. Treating `sys.exit()` as terminal is also unsafe static policy because the name can be rebound. The correction is a conservative structural contract, not semantic control-flow proof.
+PR #108 review found a second guardrail defect: `_broad_exception_handler_is_approved` checks only the handler's final AST statement. A conditional or unconditional early `return`, generator suspension, or unreachable terminal `raise` can therefore pass while still swallowing the broad exception. Treating `sys.exit()` as terminal is also unsafe static policy because the name can be rebound. The correction is a conservative structural contract, not semantic control-flow proof. Later review found that an adjacent plain `# noqa` can evade the comment scanner and that Ruff-discovered crawler, semantic-service, and repository-root Python changes do not all trigger the guardrail workflow.
 
 ### Requirements
 
-- R1. Register T-CI-0 before T-CI-5 and T-CI-1 with an exclusive ten-file ownership set.
+- R1. Register T-CI-0 before T-CI-5 and T-CI-1 with an exclusive eleven-file ownership set.
 - R2. Require the current `pypdf==6.13.3` batch dependency without changing requirements files.
 - R3. Preserve the current Ruff source roots, selected rule families, and effective exception boundary while centralizing the existing task-startup suppression in `ruff.toml`.
 - R4. Keep the exact BLE001 boundary inventory aligned with current non-wildcard Ruff entries.
@@ -47,6 +47,8 @@ PR #108 review found a second guardrail defect: `_broad_exception_handler_is_app
 - R12. Reject compound flow, suspension, early exits, nested definitions, nested exception handling, and `sys.exit()` in unlisted broad handlers.
 - R13. Preserve the batch enrichment failure contract by replacing its direct `sys.exit(1)` terminal action with chained `SystemExit`, verifying the same contextual log and exit status, and leaving the existing metrics call before termination.
 - R14. Require explicit exception translations to use chaining and apply the broad-handler scan to the Python files Ruff actually discovers for `ruff check .`.
+- R15. Detect Ruff-accepted adjacent plain `# noqa` directives, honor only the first applicable line directive, and require file directives to start the comment token.
+- R16. Require both Python Guardrails workflow `paths` blocks to cover every directory and repository-root Python file reported by Ruff discovery.
 
 ### Scope Boundaries
 
@@ -62,8 +64,9 @@ Only these tracked files may change:
 - `tests/test_docker_build_contracts.py`
 - `tests/test_run_pipeline_orchestration.py`
 - `docs/ENGINEERING_GUARDRAILS.md`
+- `.github/workflows/python-guardrails.yml` (event path filters only)
 
-No workflow, dependency, schema, migration, API, Celery, security boundary, runtime default, or soak policy changes are included. Ruff's effective boundary is unchanged: the existing `pipeline/task_startup.py` suppression moves from inline source text to the centralized per-file inventory. T-CI-0 temporarily coordinates ownership of `docs/ENGINEERING_GUARDRAILS.md` with T-GOV-3 and T-GOV-5 only for this narrow exception-policy clarification; their broader redesign and rewrite responsibilities remain unchanged.
+No workflow job, command, permission, dependency, schema, migration, API, Celery, security boundary, runtime default, or soak policy changes are included. Workflow event coverage expands only to locations already included by Ruff discovery. Ruff's effective boundary is unchanged: the existing `pipeline/task_startup.py` suppression moves from inline source text to the centralized per-file inventory. T-CI-0 temporarily coordinates ownership of `docs/ENGINEERING_GUARDRAILS.md` with T-GOV-3 and T-GOV-5 only for this narrow exception-policy clarification; their broader redesign and rewrite responsibilities remain unchanged. T-CI-1 retains ownership of the future full-suite step, and T-CI-5 retains ownership of the Ruff invocation line.
 
 ### Acceptance Examples
 
@@ -73,7 +76,9 @@ No workflow, dependency, schema, migration, API, Celery, security boundary, runt
 - AE4. The complete Python suite passes from the branch before delivery.
 - AE5. Guardrail tests reject spaced, compact, and delimiter-free joined BLE001 directives with BLE001 first or last, plus bare line-level and file-level suppression, without flagging non-BLE001 code fragments or directive-like text inside Python strings.
 - AE6. Guardrail tests reject early returns, suspension, compound flow, nested scopes, nested `try`, unchained translation, and `sys.exit()` before a terminal `raise`, while accepting flat context capture or action calls followed by bare or explicitly chained `raise`.
-- AE7. Batch enrichment failure still logs its context and exits with status 1 through chained `SystemExit`; the pre-existing metrics call remains unchanged and is outside this terminal-action correction.
+- AE7. Guardrail tests detect adjacent plain `# noqa` suppressions while preserving Ruff parity for later duplicate directives, misplaced file directives, and directive-like strings.
+- AE8. Pull-request and master-push filters cover every Ruff-discovered Python directory plus repository-root Python files.
+- AE9. Batch enrichment failure still logs its context and exits with status 1 through chained `SystemExit`; the pre-existing metrics call remains unchanged and is outside this terminal-action correction.
 
 ---
 
@@ -186,36 +191,37 @@ No fake patches a production implementation. The temporary pgvector stub is isol
 - T-CI-0 is registered before dependent remediation work with exactly the approved ownership set.
 - All four original pytest failures pass without skips, weakened assertions, or changed policy.
 - Pgvector-present and pgvector-absent paths both type-check or execute through their existing contracts.
-- Runtime behavior, schemas, dependencies, workflows, effective Ruff policy, defaults, and decision gates remain unchanged.
+- Runtime behavior, schemas, dependencies, workflow jobs and commands, effective Ruff policy, defaults, and decision gates remain unchanged.
 - Simplification and plan-aware review find no unresolved eligible issue.
 - Ruff's documented and tolerated line-level and file-level suppression forms cannot bypass the centralized BLE001 inventory.
 - Unlisted broad handlers satisfy the documented flat structural contract; final-statement position and `sys.exit()` cannot bypass it.
 - Batch enrichment failure preserves its observable status-1 exit contract through explicit `SystemExit`.
+- Adjacent plain `# noqa` syntax cannot bypass the scanner, and every Ruff-discovered Python location triggers both workflow events.
 - Every Verification Contract command and PR CI pass with fresh evidence.
 - The diff contains no abandoned experiment, duplicate implementation, compatibility shim, type suppression, unrelated formatting, or personal path.
 - The final report names exact commands, PASS or FAIL outcomes, changed paths, tree state, and review findings. The deviation report records the review-required constructor-callable correction, the operator-approved expansions for centralized task-startup suppression and the broad-handler structural contract, and the review-required joined-code parser correction. Tuple catches and exception name resolution remain an explicit follow-up deficit.
 
 ---
 
-## Full Template Follow-up: Joined Noqa Codes
+## Full Template Follow-up: Adjacent Noqa and Workflow Triggers
 
 ### 1. Context & Alignment
 
-**a) Driver.** PR #108 still allowed a Ruff-tolerated `# noqa: BLE001F401` directive to suppress BLE001 outside the centralized boundary inventory. The guardrail must fail closed for syntax Ruff actually honors, including malformed syntax that emits a warning.
+**a) Driver.** PR #108 still allowed an adjacent plain `# noqa` to suppress BLE001 outside the centralized boundary inventory, while changes limited to Ruff-discovered crawler, semantic-service, or repository-root Python files did not trigger the guardrail workflow.
 
-**b) Canonical documents.** `AGENTS.md` requires centralized boundary policy, observable tests, exact verification, and no new allowlist entry. `docs/ENGINEERING_GUARDRAILS.md` keeps Ruff as policy owner. `docs/TESTING.md` requires implementation-module patching, but this test-only parser needs no fake. The active remediation plan limits the correction to T-CI-0-owned files.
+**b) Canonical documents.** `AGENTS.md` requires centralized boundary policy, observable tests, exact verification, and explicit workflow ownership. `docs/ENGINEERING_GUARDRAILS.md` keeps Ruff discovery as policy owner. `docs/TESTING.md` permits the existing filesystem and subprocess boundaries without a fake.
 
-**c) Remediation alignment.** This is U2 in T-CI-0. The only touched files are this plan and `tests/test_repository_guardrails.py`, both in `files_owned`.
+**c) Remediation alignment.** T-CI-0 owns the five follow-up files, with `.github/workflows/python-guardrails.yml` limited to event path filters. T-CI-1 retains the future full-suite step, and T-CI-5 retains the Ruff invocation line.
 
 **d) Decision-gate check.** No G1-G5 decision is required or foreclosed.
 
 ### 2. Design
 
-**e) Approach.** First add red assertions for joined codes with BLE001 first and last plus non-BLE001 controls. Then extend the existing comment-token predicate to split adjacent rule codes only at digit-to-letter boundaries. Remove the superseded rule-extraction constant if it becomes unused.
+**e) Approach.** Add red tests first. Match the first plain line-level `# noqa` within a comment token and anchor file directives to the token start. Derive expected workflow trigger patterns from Ruff-discovered files, then add the missing directory and root-file patterns to both events.
 
-**f) Reuse audit.** Extend `_comment_suppresses_broad_exception` and its existing tests. No new module, facade, registry, compatibility path, or duplicate scanner is justified.
+**f) Reuse audit.** Extend `_comment_suppresses_broad_exception`, `_broad_exception_scan_files`, and existing workflow tests. No YAML parser, glob implementation, duplicate source-root list, or production seam is justified.
 
-**g) Data contracts.** No production payload or structured-data contract changes; the parser consumes a Python comment token and returns a boolean.
+**g) Data contracts.** No production payload or structured-data contract changes.
 
 **h) Schema/migration impact.** None.
 
@@ -227,35 +233,35 @@ No fake patches a production implementation. The temporary pgvector stub is isol
 
 **k) Person data.** None; G4 is unaffected.
 
-**l) Untrusted input.** No scraped content is parsed. Test-owned source comments remain the scanner boundary.
+**l) Untrusted input.** No scraped content is parsed. Python source comments remain isolated through `tokenize.COMMENT`.
 
 ### 4. Code Health
 
-**m) GED conformance sweep.** The correction keeps one focused predicate, adds no nested control flow beyond the existing loop, adds no timestamp or error handler, and names rule fragments by domain purpose.
+**m) GED conformance sweep.** The correction keeps one focused regex and one focused workflow contract test. No runtime function, timestamp, environment read, or error handler changes.
 
-**n) Antipattern scan, plan pass.** A1/H1 was resolved with Ruff 0.15.x documentation and a local Ruff 0.15.9 reproduction. A2-A4, B1-B3, C1-C2, D1-D3, E1-E3, F1-F2, and H2-H4 are clear. A broad substring match was rejected because it would misclassify non-code text.
+**n) Antipattern scan, plan pass.** A1/H1 was resolved with Context7 and local Ruff 0.15.9 parity checks. B1/F1 reject a YAML parser and duplicate source-root registry. B3 rejects broadening invalid adjacent file directives. A2-A4, B2, C1-C2, D1-D3, E1-E3, F2, and H2-H4 are clear.
 
-**o) Ratchet interaction.** The touched test file is already the exact BLE001 policy inventory. No Ruff entry is added, removed, or widened.
+**o) Ratchet interaction.** No Ruff entry is added, removed, or widened. Workflow coverage expands only to Ruff-discovered locations.
 
-**p) Dead code and duplication audit.** Reuse the token scanner and delete any rule-code regex made obsolete by joined-code splitting. Expected net delta is under 25 lines.
+**p) Dead code and duplication audit.** Reuse the token scanner and Ruff discovery output. No superseded parser or second root inventory survives.
 
 ### 5. Testing
 
-**q) Edge and failure scenarios.** (1) `BLE001F401` suppresses BLE001; detect it. (2) `F401BLE001` suppresses BLE001; detect it. (3) joined codes without BLE001 remain allowed. (4) strings containing directive text remain ignored. (5) mixed-case joined codes remain invalid. (6) malformed leading fragments prevent later codes from suppressing, while valid earlier codes remain effective. (7) empty comma-separated slots are ignored before valid codes. (8) existing blanket, file-level, chained, and valid-code behavior remains unchanged.
+**q) Edge and failure scenarios.** (1) Adjacent specific and blanket plain directives suppress BLE001. (2) Later duplicate line directives, misplaced file directives, similar non-directives, and strings remain unflagged. (3) both workflow `paths` blocks cover Ruff-discovered directories and root Python files. (4) unrelated event lists cannot satisfy path coverage. (5) jobs, permissions, commands, and branch filters remain unchanged.
 
-**r) Tests.** Update the existing directive predicate test for scenarios 1-3 and 5-7, and the comment-token scan test for scenarios 1, 2, 4, and 7. Existing guardrail tests cover scenario 8. No test is orphaned.
+**r) Tests.** Extend the existing directive and comment-token tests for scenarios 1-2. Add a workflow test that derives trigger patterns from Ruff discovery and checks each event's indentation-bounded `paths` list for scenarios 3-5.
 
 **s) Fakes and mocks.** None.
 
-**t) Verification rows.** Run the guardrail/tooling row, docs-link verification, the T-CI-0 suppression regression, and the complete Python suite before handoff.
+**t) Verification rows.** Run the guardrail/tooling row, docs-link verification, and complete Python suite before handoff.
 
 ### 6. Execution, Rollback, Docs
 
-**u) Commands.** Reproduce with `.venv/bin/ruff check --isolated --select BLE001 -`, prove the red regression with targeted pytest, then run Ruff, Mypy, guardrail tests, docs links, the complete suite, and `git diff --check`.
+**u) Commands.** Reproduce with `.venv/bin/ruff check --isolated --select BLE001 -`, prove all three red regressions with targeted pytest, then run Ruff, Mypy, guardrail tests, docs links, the complete suite, and `git diff --check`.
 
-**v) Rollback.** Revert the joined-code fix commit, rerun the same checks, and reopen the review thread. No migration, configuration, or data remediation exists.
+**v) Rollback.** Revert the follow-up commit, rerun the same checks, and reopen both review threads. No migration, configuration, or data remediation exists.
 
-**w) Docs sync.** Update only this implementation-ready plan. README, API contracts, operations, architecture, security, and governance docs need no change because runtime behavior and policy ownership are unchanged.
+**w) Docs sync.** Update this plan, the remediation ownership record, and the canonical guardrail trigger invariant. README, API contracts, operations, architecture, security, and data-governance docs need no change.
 
 ### 7. Delivery Self-Audit
 
@@ -263,6 +269,4 @@ No fake patches a production implementation. The temporary pgvector stub is isol
 
 **y) Evidence.** Report every command with PASS or FAIL; unrun checks are `NOT VERIFIED`.
 
-**z) Deviations.** Record any file outside the ten-file ownership set, parser
-behavior beyond the bounded Ruff suppression and broad-handler classes,
-weakened test, skipped review line, or unrun check. Expected: none.
+**z) Deviations.** Record any file outside the eleven-file ownership set, workflow edit beyond event paths, parser behavior beyond Ruff parity, weakened test, skipped review, or unrun check. The authorized ownership and event-trigger expansions plus the pre-commit review's first-directive, anchored-file-directive, and exact-path-block corrections are expected.

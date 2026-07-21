@@ -91,8 +91,12 @@ APPROVED_BROAD_EXCEPTION_PATHS = {
 }
 BLE001_WILDCARD_PATHS = {"scripts/*.py", "tests/*.py"}
 BROAD_EXCEPTION_RULE = "BLE001"
-NOQA_DIRECTIVE = re.compile(
-    r"(?<!\S)#\s*(?:(?:ruff|flake8)\s*:\s*)?noqa(?=\s|:|$)(?:\s*:\s*(?P<rules>[^#]*))?",
+LINE_NOQA_DIRECTIVE = re.compile(
+    r"#\s*noqa(?=\s|:|$)(?:\s*:\s*(?P<rules>[^#]*))?",
+    re.IGNORECASE,
+)
+FILE_NOQA_DIRECTIVE = re.compile(
+    r"^#\s*(?:ruff|flake8)\s*:\s*noqa(?=\s|:|$)(?:\s*:\s*(?P<rules>[^#]*))?",
     re.IGNORECASE,
 )
 NOQA_RULE_SEPARATOR = re.compile(r"[\s,]+")
@@ -492,13 +496,14 @@ def _noqa_rules_suppress_broad_exception(directive_rules: str) -> bool:
 
 
 def _comment_suppresses_broad_exception(comment_text: str) -> bool:
-    for directive_match in NOQA_DIRECTIVE.finditer(comment_text):
-        directive_rules = directive_match.group("rules")
-        if directive_rules is None:
-            return True
-        if _noqa_rules_suppress_broad_exception(directive_rules):
-            return True
-    return False
+    directive_match = FILE_NOQA_DIRECTIVE.match(comment_text)
+    if directive_match is None:
+        directive_match = LINE_NOQA_DIRECTIVE.search(comment_text)
+    if directive_match is None:
+        return False
+
+    directive_rules = directive_match.group("rules")
+    return directive_rules is None or _noqa_rules_suppress_broad_exception(directive_rules)
 
 
 def _broad_exception_suppression_lines(python_path: Path) -> list[int]:
@@ -518,6 +523,19 @@ def _broad_exception_scan_files() -> list[Path]:
         text=True,
     )
     return sorted(Path(checked_path).resolve() for checked_path in checked_files.splitlines() if checked_path.endswith(".py"))
+
+
+def _workflow_path_patterns(event_section: str) -> set[str]:
+    _, paths_separator, paths_tail = event_section.partition("    paths:\n")
+    if not paths_separator:
+        raise ValueError("Python Guardrails workflow event must define paths")
+
+    path_patterns: set[str] = set()
+    for workflow_line in paths_tail.splitlines():
+        if not workflow_line.startswith("      - "):
+            break
+        path_patterns.add(workflow_line.removeprefix("      - ").strip('"'))
+    return path_patterns
 
 
 def _python_module_paths(prefix: str) -> list[Path]:
@@ -770,6 +788,35 @@ def test_first_formatter_wave_stays_path_scoped_and_enforced():
     assert "python -m ruff format --check api pipeline scripts tests" not in workflow_text
 
 
+def test_python_guardrail_workflow_triggers_for_ruff_discovered_python_paths():
+    workflow_text = (ROOT / ".github" / "workflows" / "python-guardrails.yml").read_text(encoding="utf-8")
+    pull_request_section, push_separator, push_tail = workflow_text.partition("  push:\n")
+    push_section, permissions_separator, _ = push_tail.partition("\npermissions:\n")
+    assert push_separator and permissions_separator
+
+    expected_path_patterns = {
+        f"{relative_path.parts[0]}/**" if len(relative_path.parts) > 1 else "*.py"
+        for checked_path in _broad_exception_scan_files()
+        for relative_path in (checked_path.relative_to(ROOT),)
+    }
+    for event_section in (pull_request_section, push_section):
+        configured_path_patterns = _workflow_path_patterns(event_section)
+        assert expected_path_patterns <= configured_path_patterns
+
+
+def test_workflow_path_parser_ignores_other_event_lists():
+    event_section = (
+        "    paths:\n"
+        '      - "api/**"\n'
+        "    paths-ignore:\n"
+        '      - "semantic_service/**"\n'
+        "    branches:\n"
+        '      - "master"\n'
+    )
+
+    assert _workflow_path_patterns(event_section) == {"api/**"}
+
+
 def test_facade_import_guardrail_detects_relative_imports(tmp_path: Path):
     pipeline_helper = tmp_path / "pipeline" / "helper.py"
     pipeline_helper.parent.mkdir(parents=True)
@@ -820,6 +867,8 @@ def test_broad_exception_suppression_detection_covers_ruff_directives():
     blanket_flake8_file_directive = "# flake8: noqa"
     chained_specific_directive = f"# type: ignore  # noqa: {BROAD_EXCEPTION_RULE}"
     chained_blanket_directive = "# reason  # noqa"
+    adjacent_specific_directive = f"# type: ignore# noqa: {BROAD_EXCEPTION_RULE}"
+    adjacent_blanket_directive = "# reason# noqa"
 
     assert _comment_suppresses_broad_exception(spaced_directive)
     assert _comment_suppresses_broad_exception(compact_directive)
@@ -833,6 +882,8 @@ def test_broad_exception_suppression_detection_covers_ruff_directives():
     assert _comment_suppresses_broad_exception(blanket_flake8_file_directive)
     assert _comment_suppresses_broad_exception(chained_specific_directive)
     assert _comment_suppresses_broad_exception(chained_blanket_directive)
+    assert _comment_suppresses_broad_exception(adjacent_specific_directive)
+    assert _comment_suppresses_broad_exception(adjacent_blanket_directive)
     assert not _comment_suppresses_broad_exception("# noqa: F401")
     assert not _comment_suppresses_broad_exception("# noqa: F401E722")
     assert not _comment_suppresses_broad_exception("# noqa: XBLE001")
@@ -842,6 +893,13 @@ def test_broad_exception_suppression_detection_covers_ruff_directives():
     assert not _comment_suppresses_broad_exception("# noqa: EXTRA,BLE001F401")
     assert not _comment_suppresses_broad_exception("# noqa: F401 because BLE001 is centralized")
     assert not _comment_suppresses_broad_exception("# ruff: noqa: F401")
+    assert not _comment_suppresses_broad_exception("# type: ignore# ruff: noqa: BLE001")
+    assert not _comment_suppresses_broad_exception("# type: ignore# flake8: noqa")
+    assert not _comment_suppresses_broad_exception("# reason# noqaish: BLE001")
+    assert not _comment_suppresses_broad_exception("# reason# noqa-not: BLE001")
+    assert not _comment_suppresses_broad_exception("# noqa: F401# noqa: BLE001")
+    assert not _comment_suppresses_broad_exception("# reason  # ruff: noqa: BLE001")
+    assert not _comment_suppresses_broad_exception("# reason  # flake8: noqa")
 
 
 def test_broad_exception_suppression_scan_uses_comment_tokens(tmp_path: Path):
@@ -860,6 +918,14 @@ def test_broad_exception_suppression_scan_uses_comment_tokens(tmp_path: Path):
         "    pass\n"
         "try:\n"
         "    pass\n"
+        "except Exception:  # type: ignore# noqa: BLE001\n"
+        "    pass\n"
+        "try:\n"
+        "    pass\n"
+        "except Exception:  # reason# noqa\n"
+        "    pass\n"
+        "try:\n"
+        "    pass\n"
         "except Exception:  # noqa: BLE001F401\n"
         "    pass\n"
         "try:\n"
@@ -873,11 +939,23 @@ def test_broad_exception_suppression_scan_uses_comment_tokens(tmp_path: Path):
         "try:\n"
         "    pass\n"
         "except Exception:  # noqa:,BLE001\n"
+        "    pass\n"
+        "try:\n"
+        "    pass\n"
+        "except Exception:  # noqa: F401# noqa: BLE001\n"
+        "    pass\n"
+        "try:\n"
+        "    pass\n"
+        "except Exception:  # reason  # ruff: noqa: BLE001\n"
+        "    pass\n"
+        "try:\n"
+        "    pass\n"
+        "except Exception:  # reason  # flake8: noqa\n"
         "    pass\n",
         encoding="utf-8",
     )
 
-    assert _broad_exception_suppression_lines(python_path) == [5, 7, 10, 14, 18, 26]
+    assert _broad_exception_suppression_lines(python_path) == [5, 7, 10, 14, 18, 22, 26, 34]
 
 
 def _first_broad_exception_handler(python_source: str) -> ast.ExceptHandler:

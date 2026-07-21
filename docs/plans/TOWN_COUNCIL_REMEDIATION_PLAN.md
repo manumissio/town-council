@@ -1,8 +1,9 @@
 # Town Council Remediation Plan (Codex Multi-Agent)
 
-version: 1.3
+version: 1.4
 generated: 2026-07-18
-changelog: v1.3 adds T-CI-0 to restore the Python guardrail baseline before
+changelog: v1.4 expands T-CI-0 workflow ownership to keep CI triggers aligned
+with Ruff discovery. v1.3 adds T-CI-0 to restore the Python guardrail baseline before
 T-CI-5 and T-CI-1. v1.2 adds T-CI-5 (land the tightened ruff.toml, delivered as a
 drop-in draft verified against the tree at plan date), registers the lint
 ratchet couplings in T-TIME-1, T-SEC-6, T-CRAWL-2, T-DA-1, and T-PLAT-4
@@ -95,7 +96,8 @@ ownership of the later redesign and rewrite.
 - priority: P0 (run before every other Phase 0 task)
 - files_owned: docs/plans/T_CI_0_GUARDRAIL_BASELINE_PLAN.md,
   docs/plans/TOWN_COUNCIL_REMEDIATION_PLAN.md,
-  docs/ENGINEERING_GUARDRAILS.md, pipeline/model_base.py,
+  docs/ENGINEERING_GUARDRAILS.md, .github/workflows/python-guardrails.yml
+  (event path filters only), pipeline/model_base.py,
   pipeline/run_batch_enrichment.py, pipeline/task_startup.py, ruff.toml,
   tests/test_repository_guardrails.py, tests/test_docker_build_contracts.py,
   tests/test_run_pipeline_orchestration.py
@@ -105,12 +107,14 @@ ownership of the later redesign and rewrite.
   Mypy. Move the existing task-startup inline BLE001 suppression into Ruff's
   centralized boundary inventory. Enforce a conservative flat structural
   contract for unlisted broad handlers, reject compound flow and `sys.exit()`,
-  and preserve the batch operator's exit status with explicit `SystemExit`.
+  preserve the batch operator's exit status with explicit `SystemExit`, and
+  ensure all Ruff-discovered Python locations trigger the guardrail workflow.
   Follow the implementation-ready T-CI-0 plan.
 - accept: The four baseline contract failures pass; pgvector-present Mypy passes;
   broad handlers cannot bypass policy through an early exit or unreachable terminal
-  raise; complete Python suite passes; no runtime contract, effective Ruff boundary,
-  workflow, dependency, schema, default, or decision-gate change.
+  raise; both workflow events cover Ruff-discovered Python locations; complete
+  Python suite passes; no runtime contract, effective Ruff boundary, workflow job,
+  dependency, schema, default, or decision-gate change.
 - forbidden: Editing outside `files_owned`; weakening or skipping tests; broadening
   Ruff boundary policy; claiming semantic control-flow proof; adding casts, ignores,
   compatibility paths, partial control-flow machinery, or new test seams.

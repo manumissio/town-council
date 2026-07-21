@@ -105,6 +105,8 @@ The broad-handler scan follows the Python files reported by
 `ruff check --show-files .`; other smell-test scopes live as constants in
 `tests/test_repository_guardrails.py`. Change the machine-readable source,
 not this document.
+The Python Guardrails workflow must trigger for every directory and
+repository-root Python file included by that Ruff discovery command.
 
 ## How to request an exception
 
