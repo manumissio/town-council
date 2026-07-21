@@ -83,7 +83,11 @@ APPROVED_BROAD_EXCEPTION_PATHS = {
     "scripts/semantic_worker_healthcheck.py",
 }
 BLE001_WILDCARD_PATHS = {"scripts/*.py", "tests/*.py"}
-INLINE_BROAD_EXCEPTION_SUPPRESSION = "noqa:" + " BLE001"
+BROAD_EXCEPTION_RULE = "BLE001"
+INLINE_NOQA_DIRECTIVE = re.compile(
+    r"#\s*noqa:\s*(?P<rules>[A-Z]+\d{3}(?:\s*,\s*[A-Z]+\d{3})*)",
+    re.IGNORECASE,
+)
 TYPED_SUBTREE_PATHS = (
     "api/metrics.py",
     "api/search/query_builder.py",
@@ -465,6 +469,16 @@ def _tracked_files() -> list[Path]:
     return [ROOT / line for line in output.splitlines() if line]
 
 
+def _source_line_suppresses_broad_exception(source_line: str) -> bool:
+    directive_match = INLINE_NOQA_DIRECTIVE.search(source_line)
+    if directive_match is None:
+        return False
+    suppressed_rules = {
+        suppressed_rule.strip().upper() for suppressed_rule in directive_match.group("rules").split(",")
+    }
+    return BROAD_EXCEPTION_RULE in suppressed_rules
+
+
 def _broad_exception_scan_files() -> list[Path]:
     tracked_files = {path.resolve() for path in _tracked_files()}
     for module_path in (
@@ -756,13 +770,22 @@ def test_broad_exception_allowlist_stays_explicit():
     assert broad_exception_paths.isdisjoint(BLE001_WILDCARD_PATHS)
 
 
+def test_broad_exception_suppression_detection_covers_ruff_spacing():
+    directive_prefix = "except Exception:  # noqa:"
+    spaced_directive = f"{directive_prefix} {BROAD_EXCEPTION_RULE}"
+    compact_directive = f"{directive_prefix}{BROAD_EXCEPTION_RULE}"
+
+    assert _source_line_suppresses_broad_exception(spaced_directive)
+    assert _source_line_suppresses_broad_exception(compact_directive)
+
+
 def test_broad_exception_suppressions_stay_in_ruff_config():
     inline_suppressions = [
         f"{tracked_path.relative_to(ROOT)}:{line_number}"
         for tracked_path in _tracked_files()
         if tracked_path.suffix == ".py"
         for line_number, source_line in enumerate(tracked_path.read_text(encoding="utf-8").splitlines(), start=1)
-        if INLINE_BROAD_EXCEPTION_SUPPRESSION in source_line
+        if _source_line_suppresses_broad_exception(source_line)
     ]
 
     assert inline_suppressions == []
