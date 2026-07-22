@@ -527,19 +527,6 @@ def _broad_exception_scan_files() -> list[Path]:
     return sorted(Path(checked_path).resolve() for checked_path in checked_files.splitlines() if checked_path.endswith(".py"))
 
 
-def _workflow_path_patterns(event_section: str) -> set[str]:
-    _, paths_separator, paths_tail = event_section.partition("    paths:\n")
-    if not paths_separator:
-        raise ValueError("Python Guardrails workflow event must define paths")
-
-    path_patterns: set[str] = set()
-    for workflow_line in paths_tail.splitlines():
-        if not workflow_line.startswith("      - "):
-            break
-        path_patterns.add(workflow_line.removeprefix("      - ").strip('"'))
-    return path_patterns
-
-
 def _python_module_paths(prefix: str) -> list[Path]:
     return sorted(
         path
@@ -873,6 +860,14 @@ def test_first_formatter_wave_stays_path_scoped_and_enforced():
 
 def test_python_guardrail_workflow_runs_complete_suite_after_fast_fail_checks():
     workflow_text = (ROOT / ".github" / "workflows" / "python-guardrails.yml").read_text(encoding="utf-8")
+    expected_dependency_commands = (
+        "python -m pip install -r pipeline/requirements.txt",
+        "python -m pip install -r api/requirements.txt",
+        "python -m pip install -r council_crawler/requirements.txt",
+        "python -m pip install scikit-learn==1.8.0",
+        "python -m pip install -r pipeline/requirements-dev.txt",
+        "python -m venv --system-site-packages .venv",
+    )
     expected_fast_fail_commands = (
         "PYTHONPATH=. python -m pytest -q tests/test_repository_guardrails.py",
         "PYTHONPATH=. python -m pytest -q tests/test_config_cleanup.py",
@@ -889,12 +884,12 @@ def test_python_guardrail_workflow_runs_complete_suite_after_fast_fail_checks():
 
     dependency_step = workflow_text.partition("      - name: Install guardrail and runtime dependencies\n")[2]
     dependency_step = dependency_step.partition("\n      - name:")[0]
-    dependency_commands = {
+    dependency_commands = tuple(
         workflow_line.strip()
         for workflow_line in dependency_step.splitlines()
-        if workflow_line.startswith("          python -m pip install")
-    }
-    assert "python -m pip install -r council_crawler/requirements.txt" in dependency_commands
+        if workflow_line.startswith("          python -m ")
+    )
+    assert dependency_commands == expected_dependency_commands
     assert workflow_text.count(full_suite_step) == 1
 
     fast_fail_prefix, full_suite_separator, full_suite_tail = workflow_text.partition(full_suite_step)
@@ -917,43 +912,11 @@ def test_python_guardrail_workflow_runs_complete_suite_after_fast_fail_checks():
     assert "--cov" not in workflow_text
 
 
-def test_python_guardrail_workflow_triggers_for_test_configuration():
+def test_python_guardrail_workflow_runs_for_every_pull_request_and_master_push():
     workflow_text = (ROOT / ".github" / "workflows" / "python-guardrails.yml").read_text(encoding="utf-8")
-    pull_request_section, push_separator, push_tail = workflow_text.partition("  push:\n")
-    push_section, permissions_separator, _ = push_tail.partition("\npermissions:\n")
-    assert push_separator and permissions_separator
+    event_configuration = workflow_text.partition("on:\n")[2].partition("\npermissions:\n")[0]
 
-    for event_section in (pull_request_section, push_section):
-        assert "pytest.ini" in _workflow_path_patterns(event_section)
-
-
-def test_python_guardrail_workflow_triggers_for_ruff_discovered_python_paths():
-    workflow_text = (ROOT / ".github" / "workflows" / "python-guardrails.yml").read_text(encoding="utf-8")
-    pull_request_section, push_separator, push_tail = workflow_text.partition("  push:\n")
-    push_section, permissions_separator, _ = push_tail.partition("\npermissions:\n")
-    assert push_separator and permissions_separator
-
-    expected_path_patterns = {
-        f"{relative_path.parts[0]}/**" if len(relative_path.parts) > 1 else "*.py"
-        for checked_path in _broad_exception_scan_files()
-        for relative_path in (checked_path.relative_to(ROOT),)
-    }
-    for event_section in (pull_request_section, push_section):
-        configured_path_patterns = _workflow_path_patterns(event_section)
-        assert expected_path_patterns <= configured_path_patterns
-
-
-def test_workflow_path_parser_ignores_other_event_lists():
-    event_section = (
-        "    paths:\n"
-        '      - "api/**"\n'
-        "    paths-ignore:\n"
-        '      - "semantic_service/**"\n'
-        "    branches:\n"
-        '      - "master"\n'
-    )
-
-    assert _workflow_path_patterns(event_section) == {"api/**"}
+    assert event_configuration == '  pull_request:\n  push:\n    branches: ["master"]\n'
 
 
 def test_facade_import_guardrail_detects_relative_imports(tmp_path: Path):

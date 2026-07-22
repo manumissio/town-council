@@ -20,26 +20,33 @@ v1.6. No G1-G5 decision is required.
 ## 2. Design
 
 1. Add contract tests before workflow or runbook edits.
-2. Confirm the tests fail because the complete suite, crawler dependency
-   installation, pytest configuration triggers, and updated runbook claim are
+2. Confirm the tests fail because the complete suite, required test
+   dependencies, unrestricted event triggers, and updated runbook claim are
    absent.
-3. Add `pytest.ini` to both workflow event path lists.
+3. Remove event path filters so the gate runs for every pull request and master
+   push, including changes to test inputs outside Python directories.
 4. Install `council_crawler/requirements.txt` in the existing dependency step.
-5. Add a distinct `Run full Python test suite` step after `Run guardrail tests`:
+5. Install scikit-learn 1.8.0, whose Python 3.14 wheels satisfy topic tests
+   without changing the Python 3.12 batch-runtime pin.
+6. Create `.venv` with system site packages so existing subprocess tests can
+   use their documented `.venv/bin/python` path in the Actions runner.
+7. Add a distinct `Run full Python test suite` step after `Run guardrail tests`:
 
    ```yaml
    - name: Run full Python test suite
      run: PYTHONPATH=. python -m pytest -q tests/
    ```
 
-6. Update the guardrail runbook to describe the complete Python CI gate while
+8. Update the guardrail runbook to describe the complete Python CI gate while
    preserving T-CI-2, T-CI-3, and T-CI-4 transition boundaries.
-7. Run local gates, independent simplification, pre-commit review, PR delivery,
+9. Run local gates, independent simplification, pre-commit review, PR delivery,
    and CI babysitting.
 
-Reuse the existing job, path parser, tests, and pinned requirements. Do not add
+Reuse the existing job, tests, and pinned requirements. Do not add
 a YAML parser, actionlint, a second job, caching, retries, coverage, or runtime
-code. No application contract, schema, migration, or default changes.
+code. No application contract, schema, migration, or default changes. The
+Python 3.14 CI compatibility pin is test-only; batch runtime dependencies stay
+unchanged.
 
 ## 3. Security & Data Governance
 
@@ -68,8 +75,9 @@ Add tests proving:
 - the seven fast-fail commands remain together and precede the complete suite;
 - the complete command appears exactly once in a distinct blocking step;
 - neither test step uses `if` or `continue-on-error`;
-- the existing workflow installs crawler requirements;
-- both workflow events include `pytest.ini`;
+- the dependency step installs crawler requirements and a Python 3.14-compatible
+  scikit-learn pin, then creates `.venv` with system site packages;
+- no event path filter can bypass the gate;
 - no coverage flags appear before T-CI-3.
 
 Run repository guardrails, docs links, and the complete suite. Optional-package
@@ -84,7 +92,7 @@ Tests-first command:
 ```bash
 PYTHONPATH=. .venv/bin/pytest -q \
   tests/test_repository_guardrails.py::test_python_guardrail_workflow_runs_complete_suite_after_fast_fail_checks \
-  tests/test_repository_guardrails.py::test_python_guardrail_workflow_triggers_for_test_configuration
+  tests/test_repository_guardrails.py::test_python_guardrail_workflow_runs_for_every_pull_request_and_master_push
 ```
 
 Final verification:
