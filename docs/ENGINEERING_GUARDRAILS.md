@@ -30,15 +30,15 @@ Run before opening a PR:
 
 ```bash
 cd <REPO_ROOT>
-./.venv/bin/ruff check api pipeline scripts tests
+./.venv/bin/ruff check .
 ./.venv/bin/ruff format --check .        # scope from ruff.toml [transition: T-CI-4]
 ./.venv/bin/mypy                          # scope from mypy.ini
 PYTHONPATH=. .venv/bin/pytest -q tests/test_repository_guardrails.py
 ```
 
-CI runs the same checks plus the full test suite on every PR; the guardrail
-subset exists for fast local iteration, not as the merge bar (see
-`docs/TESTING.md`).
+CI runs the static checks and fast-fail test subset on every relevant PR.
+Until T-CI-1 adds the complete suite to CI, run it locally before handoff on
+cross-cutting changes (see `docs/TESTING.md`).
 
 ## What the static checks block
 

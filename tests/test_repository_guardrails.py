@@ -14,6 +14,8 @@ import pytest
 
 
 ROOT = Path(__file__).resolve().parents[1]
+RUFF_CLEAN_EXIT = 0
+RUFF_VIOLATION_EXIT = 1
 TEXT_FILE_SUFFIXES = {
     ".md",
     ".plist",
@@ -623,6 +625,43 @@ def _ruff_per_file_ignore_entries() -> dict[str, set[str]]:
     return _parse_ruff_per_file_ignore_entries(config_text)
 
 
+def _ruff_selector_has_current_violation(
+    ignore_pattern: str,
+    ruff_selector: str,
+    tracked_files: list[Path],
+) -> bool:
+    lint_targets = sorted(
+        tracked_file for tracked_file in tracked_files if tracked_file.relative_to(ROOT).match(ignore_pattern)
+    )
+    if not lint_targets:
+        raise AssertionError(f"Ruff ignore pattern has no tracked targets: {ignore_pattern}")
+
+    relative_targets = [str(lint_target.relative_to(ROOT)) for lint_target in lint_targets]
+    ruff_check = subprocess.run(
+        [
+            sys.executable,
+            "-m",
+            "ruff",
+            "check",
+            "--config",
+            "lint.per-file-ignores = {}",
+            "--select",
+            ruff_selector,
+            *relative_targets,
+        ],
+        cwd=ROOT,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    if ruff_check.returncode not in {RUFF_CLEAN_EXIT, RUFF_VIOLATION_EXIT}:
+        raise AssertionError(
+            f"Ruff failed while checking {ignore_pattern} for {ruff_selector}: "
+            f"{ruff_check.stdout}{ruff_check.stderr}"
+        )
+    return ruff_check.returncode == RUFF_VIOLATION_EXIT
+
+
 def _mypy_enrolled_paths() -> tuple[str, ...]:
     config_text = (ROOT / "mypy.ini").read_text(encoding="utf-8")
     enrolled_paths: list[str] = []
@@ -761,6 +800,50 @@ def test_ruff_guardrail_config_keeps_scope_and_exceptions_narrow():
     assert 'select = ["E722", "F401", "F841", "B", "BLE001", "C901", "DTZ", "S"]' in config_text
     assert "pipeline/*.py" not in config_text
     assert "api/*.py" not in config_text
+
+
+def test_ruff_entrypoints_use_config_owned_repository_scope():
+    repository_command = "ruff check ."
+    legacy_command = "ruff check api pipeline scripts tests"
+    ruff_hook_contract = "\n".join(
+        (
+            "      - id: ruff",
+            "        name: ruff-guardrails",
+            '        args: ["."]',
+            "        always_run: true",
+            "        pass_filenames: false",
+        )
+    )
+    workflow_text = (ROOT / ".github" / "workflows" / "python-guardrails.yml").read_text(encoding="utf-8")
+    pre_commit_text = (ROOT / ".pre-commit-config.yaml").read_text(encoding="utf-8")
+    agents_text = (ROOT / "AGENTS.md").read_text(encoding="utf-8")
+    guardrail_docs_text = (ROOT / "docs" / "ENGINEERING_GUARDRAILS.md").read_text(encoding="utf-8")
+
+    assert f"python -m {repository_command}" in workflow_text
+    assert ruff_hook_contract in pre_commit_text
+    assert f"./.venv/bin/{repository_command}" in agents_text
+    assert f"./.venv/bin/{repository_command}" in guardrail_docs_text
+    assert all(
+        legacy_command not in policy_text
+        for policy_text in (workflow_text, pre_commit_text, agents_text, guardrail_docs_text)
+    )
+
+
+def test_ruff_per_file_ignore_selectors_cover_current_violations():
+    ruff_config_text = (ROOT / "ruff.toml").read_text(encoding="utf-8")
+    tracked_files = _tracked_files()
+    stale_ignore_selectors = sorted(
+        f"{ignore_pattern}: {ruff_selector}"
+        for ignore_pattern, ruff_selectors in _parse_ruff_per_file_ignore_entries(ruff_config_text).items()
+        for ruff_selector in ruff_selectors
+        if not _ruff_selector_has_current_violation(
+            ignore_pattern,
+            ruff_selector,
+            tracked_files,
+        )
+    )
+
+    assert stale_ignore_selectors == []
 
 
 def test_typed_subtree_config_stays_explicit_and_aligned():
