@@ -45,7 +45,8 @@ subset exists for fast local iteration, not as the merge bar (see
 - unused imports and unused locals
 - mutable defaults and a small set of high-signal bug patterns
 - bare `except:` blocks
-- broad `except Exception` handlers outside approved boundary files
+- broad `except Exception` handlers that are neither in an approved boundary
+  file nor compliant with the flat re-raise contract below
 
 The pass is intentionally moderate: it blocks lazy hygiene regressions
 without forcing a repo-wide style migration.
@@ -100,16 +101,21 @@ cd <REPO_ROOT>
   (existing Town Council policy tests)
 - the structural rules above, as they are adopted
 
-Scopes for each check live as constants in
-`tests/test_repository_guardrails.py` — edit the constant, not this file.
+The broad-handler scan follows the Python files reported by
+`ruff check --show-files .`; other smell-test scopes live as constants in
+`tests/test_repository_guardrails.py`. Change the machine-readable source,
+not this document.
+The Python Guardrails workflow must trigger for every directory and
+repository-root Python file included by that Ruff discovery command.
 
 ## How to request an exception
 
 Keep exceptions narrow and path-specific.
 
 - For stdout-driven operator tools, document why stdout is the contract.
-- For broader exception handling, keep it in an approved boundary file, log
-  with context, and explain what invariant remains true.
+- For broad handling that cannot satisfy the flat re-raise contract, keep it
+  in an approved boundary file, log with context, and explain what invariant
+  remains true.
 - Remove path-specific suppressions only when both the current lint checks
   and the guardrail tests prove they are stale, instead of letting exception
   lists drift forward indefinitely.
@@ -129,6 +135,27 @@ dependency.
   invariant remains true.
 - Summary hydration embed dispatch is an approved best-effort boundary
   because summary writes are already durable before enqueue attempts.
+
+## Flat re-raise contract
+
+An unlisted broad handler is allowed only when it remains flat: zero or more
+simple assignments or direct action calls followed by `raise`. The final raise
+may re-raise the current exception or translate it explicitly with exception
+chaining. This narrow path supports context capture, logging, rollback, and
+metrics without treating every re-raising handler as a permanent boundary
+exception.
+
+Unlisted handlers must not contain conditional or loop flow, `return`,
+`break`, `continue`, `yield`, `yield from`, `await`, nested `try`, `with`,
+`match`, nested functions, nested classes, or `sys.exit()`. A legitimate
+handler needing compound flow belongs in the centralized Ruff boundary
+inventory and requires boundary review.
+
+This is conservative structural enforcement, not semantic control-flow proof.
+Python name binding and enclosing constructs can change runtime behavior, so
+the guardrail intentionally recognizes only the narrow source structures it
+can verify. Approved Ruff boundary files remain governed by the boundary
+handler policy above.
 
 ## Typed subtree
 

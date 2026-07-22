@@ -1,8 +1,10 @@
 # Town Council Remediation Plan (Codex Multi-Agent)
 
-version: 1.2
+version: 1.4
 generated: 2026-07-18
-changelog: v1.2 adds T-CI-5 (land the tightened ruff.toml, delivered as a
+changelog: v1.4 expands T-CI-0 workflow ownership to keep CI triggers aligned
+with Ruff discovery. v1.3 adds T-CI-0 to restore the Python guardrail baseline before
+T-CI-5 and T-CI-1. v1.2 adds T-CI-5 (land the tightened ruff.toml, delivered as a
 drop-in draft verified against the tree at plan date), registers the lint
 ratchet couplings in T-TIME-1, T-SEC-6, T-CRAWL-2, T-DA-1, and T-PLAT-4
 acceptance criteria, re-scopes T-GOV-3 (complexity ceiling now enforced via
@@ -81,19 +83,54 @@ remains in force; where this plan is stricter, this plan wins for these tasks.
 
 Sequencing rule: SEC and DEDUP-C both own api/app_setup.py + api/main.py —
 they are in different phases and MUST NOT run concurrently. TIME owns
-model files; PLAT's Alembic baseline runs AFTER TIME merges.
+model files; PLAT's Alembic baseline runs AFTER TIME merges. T-CI-0 temporarily
+coordinates `docs/ENGINEERING_GUARDRAILS.md` with T-GOV-3 and T-GOV-5 for the
+narrow broad-handler policy correction described below; the GOV lane retains
+ownership of the later redesign and rewrite.
 
 ---
 
 ## 3. PHASE 0 — SAFETY NET (run first; agent-ci; ~1 day)
 
+### T-CI-0: Restore the Python guardrail baseline
+- priority: P0 (run before every other Phase 0 task)
+- files_owned: docs/plans/T_CI_0_GUARDRAIL_BASELINE_PLAN.md,
+  docs/plans/TOWN_COUNCIL_REMEDIATION_PLAN.md,
+  docs/ENGINEERING_GUARDRAILS.md, .github/workflows/python-guardrails.yml
+  (event path filters only), pipeline/model_base.py,
+  pipeline/run_batch_enrichment.py, pipeline/task_startup.py, ruff.toml,
+  tests/test_repository_guardrails.py, tests/test_docker_build_contracts.py,
+  tests/test_run_pipeline_orchestration.py
+- do: Realign stale dependency and Ruff contract expectations with already-landed
+  repository policy. Type the vector datatype selector against SQLAlchemy's
+  common datatype base so installed pgvector and the local fallback both pass
+  Mypy. Move the existing task-startup inline BLE001 suppression into Ruff's
+  centralized boundary inventory. Enforce a conservative flat structural
+  contract for unlisted broad handlers, reject compound flow and `sys.exit()`,
+  preserve the batch operator's exit status with explicit `SystemExit`, and
+  ensure all Ruff-discovered Python locations trigger the guardrail workflow.
+  Follow the implementation-ready T-CI-0 plan.
+- accept: The four baseline contract failures pass; pgvector-present Mypy passes;
+  broad handlers cannot bypass policy through an early exit or unreachable terminal
+  raise; both workflow events cover Ruff-discovered Python locations; complete
+  Python suite passes; no runtime contract, effective Ruff boundary, workflow job,
+  dependency, schema, default, or decision-gate change.
+- forbidden: Editing outside `files_owned`; weakening or skipping tests; broadening
+  Ruff boundary policy; claiming semantic control-flow proof; adding casts, ignores,
+  compatibility paths, partial control-flow machinery, or new test seams.
+- verify: Ruff checks, repo Mypy, deterministic pgvector-present Mypy stub,
+  guardrail contracts, Docker contracts, database tests, docs links, complete
+  Python suite, and `git diff --check` as specified in
+  `docs/plans/T_CI_0_GUARDRAIL_BASELINE_PLAN.md`.
+
 ### T-CI-1: Run the full Python test suite in CI
 - priority: P0
+- depends_on: T-CI-0
 - files_owned: .github/workflows/python-guardrails.yml
 - do: Add a job step `PYTHONPATH=. python -m pytest -q tests/` after the
   existing guardrail steps. Keep the seven guardrail-test invocations as a
   separate fast-fail step.
-- accept: CI executes all 249 test files on PR; green on current master.
+- accept: CI executes all tests under `tests/` on PR; green on current master.
 - forbidden: Skipping/xfailing tests to get green. If any test fails on
   clean master, report the list; do not fix in this task.
 - verify: Local `PYTHONPATH=. python -m pytest -q tests/` exit 0; workflow
@@ -133,6 +170,7 @@ model files; PLAT's Alembic baseline runs AFTER TIME merges.
 ### T-CI-5: Land the tightened lint configuration
 - priority: P0 (run FIRST in Phase 0 — the allowlist is a snapshot of the
   tree at plan date and goes stale as other tasks merge)
+- depends_on: T-CI-0
 - files_owned: ruff.toml, .pre-commit-config.yaml,
   .github/workflows/python-guardrails.yml (ruff invocation line only)
 - do: Replace ruff.toml with the provided draft (rules: full B + C901 +
@@ -452,6 +490,9 @@ files (GED-5 grant).
 - priority: P2
 - files_owned: tests/test_repository_guardrails.py,
   docs/ENGINEERING_GUARDRAILS.md
+- coordination: T-CI-0 may edit only the broad-handler structural-policy prose
+  needed to align PR #108 enforcement. T-GOV-3 retains the later structural-rule
+  redesign and must preserve or deliberately supersede that contract.
 - do: Replace enumerated 300-line file lists with general rules:
   (a) complexity ceiling — DELIVERED by T-CI-5 (ruff C901, max-complexity
   10, offenders allowlisted and ratcheting); this task only documents its
@@ -489,6 +530,9 @@ files (GED-5 grant).
 - depends_on: T-CI-4 (formatter scope in ruff.toml); coordinates with
   T-GOV-3 (structural rules).
 - files_owned: docs/ENGINEERING_GUARDRAILS.md
+- coordination: T-CI-0's narrow broad-handler structural-policy correction lands
+  first. T-GOV-5 must carry the corrected policy into the rewritten document and
+  must not restore final-statement or `sys.exit()` authorization.
 - do: Merge the provided draft (drafts/docs/ENGINEERING_GUARDRAILS.md) in
   the same PR as T-CI-4 or immediately after. Reconcile [transition]
   markers: T-CI-4 marker removed when the ruff.toml scope is live; T-GOV-3
@@ -529,7 +573,7 @@ files (GED-5 grant).
 ## 7. EXECUTION ORDER SUMMARY
 
 ```
-Phase 0: agent-ci  [T-CI-5 first (allowlist snapshot freshness), then T-CI-1 .. T-CI-4]
+Phase 0: agent-ci  [T-CI-0, then T-CI-5 (allowlist snapshot freshness), then T-CI-1 .. T-CI-4]
 Docs-0:  agent-gov [T-GOV-6: SECURITY.md] + [T-GOV-4: AGENTS.md]   (with/just after Phase 0)
 Phase 1: agent-sec [T-SEC-1..6] || agent-time [T-TIME-1..3] || agent-crawl [T-CRAWL-1..2]
 Gate:    G3 ratified (T-GOV-1 + docs/TESTING.md via T-GOV-6)

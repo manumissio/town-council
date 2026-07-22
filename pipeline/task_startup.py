@@ -60,7 +60,7 @@ def run_startup_purge_on_worker_ready(
             raise SystemExit(1)
     except SystemExit:
         raise
-    except Exception as guardrail_error:  # noqa: BLE001
+    except Exception as guardrail_error:
         # Startup should stay resilient in non-worker contexts, but we still log
         # guardrail failures so a bad environment never disappears silently.
         logger.warning("worker_ready.guardrail_check_failed error=%s", guardrail_error)

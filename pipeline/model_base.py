@@ -1,16 +1,17 @@
 from __future__ import annotations
 
+from collections.abc import Callable
 import json
 import logging
 
 from sqlalchemy.engine.interfaces import Dialect
 from sqlalchemy.orm import DeclarativeBase
-from sqlalchemy.types import Text, TypeDecorator
+from sqlalchemy.types import Text, TypeDecorator, TypeEngine
 
 
 logger = logging.getLogger(__name__)
 
-VECTOR_COLUMN_TYPE: type[TypeDecorator[object | None]]
+VECTOR_COLUMN_TYPE: Callable[[int], TypeEngine[object | None]]
 
 try:
     from pgvector.sqlalchemy import Vector as PgVector

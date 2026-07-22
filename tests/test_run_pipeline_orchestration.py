@@ -256,6 +256,24 @@ def test_run_batch_enrichment_runs_heavy_steps_in_expected_order(mocker):
     people_spy.assert_called_once_with(catalog_ids=[10])
 
 
+def test_run_batch_callable_step_records_failure_context_before_exit(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    def fail_topic_modeling() -> None:
+        raise RuntimeError("topic model unavailable")
+
+    with caplog.at_level("ERROR", logger="pipeline-batch"), pytest.raises(SystemExit) as exit_info:
+        run_batch_enrichment.run_batch_callable_step(
+            "Topic Modeling",
+            "topic_modeling",
+            fail_topic_modeling,
+        )
+
+    assert exit_info.value.code == 1
+    assert "Step Topic Modeling failed." in caplog.text
+    assert "RuntimeError: topic model unavailable" in caplog.text
+
+
 def test_run_batch_enrichment_skips_noop_topic_and_table_steps(mocker):
     calls = []
 

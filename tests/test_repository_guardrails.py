@@ -1,9 +1,16 @@
 from __future__ import annotations
 
 import ast
-import subprocess
-from pathlib import Path
 import re
+import subprocess
+import sys
+import tomllib
+import tokenize
+from io import StringIO
+from pathlib import Path
+from textwrap import indent
+
+import pytest
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -47,13 +54,12 @@ REUSABLE_PIPELINE_MODULES = (
 APPROVED_BROAD_EXCEPTION_PATHS = {
     "api/cache.py",
     "api/main.py",
-    "api/metrics.py",
+    "council_crawler/council_crawler/pipelines.py",
+    "council_crawler/council_crawler/spiders/base.py",
     "pipeline/agenda_legistar.py",
     "pipeline/agenda_worker.py",
-    "pipeline/backlog_maintenance.py",
     "pipeline/check_faiss_runtime.py",
     "pipeline/db_migration_runner.py",
-    "pipeline/db_session.py",
     "pipeline/diagnose_search_sort.py",
     "pipeline/diagnose_semantic_search.py",
     "pipeline/indexer.py",
@@ -61,15 +67,10 @@ APPROVED_BROAD_EXCEPTION_PATHS = {
     "pipeline/llm.py",
     "pipeline/local_ai_provider_calls.py",
     "pipeline/model_base.py",
-    "pipeline/nlp_entity_model.py",
-    "pipeline/profiling.py",
     "pipeline/run_agenda_qa.py",
-    "pipeline/run_batch_enrichment.py",
     "pipeline/run_pipeline_steps.py",
     "pipeline/runtime_guardrails.py",
-    "pipeline/summary_backfill.py",
     "pipeline/summary_backfill_dispatch.py",
-    "pipeline/semantic_index.py",
     "pipeline/semantic_tasks.py",
     "pipeline/startup_purge.py",
     "pipeline/task_startup.py",
@@ -78,11 +79,8 @@ APPROVED_BROAD_EXCEPTION_PATHS = {
     "pipeline/text_cleaning.py",
     "pipeline/topic_worker.py",
     "pipeline/vote_extraction_runner.py",
-    "scripts/backfill_summaries.py",
     "scripts/collect_soak_metrics.py",
     "scripts/enrichment_worker_healthcheck.py",
-    "scripts/evaluate_soak_week.py",
-    "scripts/hydration_repaired_runner.py",
     "scripts/hydration_repaired_summary.py",
     "scripts/parse_task_launch.py",
     "scripts/probe_local_model_candidate.py",
@@ -90,9 +88,20 @@ APPROVED_BROAD_EXCEPTION_PATHS = {
     "scripts/reset_laserfiche_error_agenda_rows.py",
     "scripts/score_ab_results.py",
     "scripts/semantic_worker_healthcheck.py",
-    "scripts/worker_healthcheck.py",
 }
 BLE001_WILDCARD_PATHS = {"scripts/*.py", "tests/*.py"}
+BROAD_EXCEPTION_RULE = "BLE001"
+LINE_NOQA_DIRECTIVE = re.compile(
+    r"#\s*noqa(?=\s|:|$)(?:\s*:\s*(?P<rules>[^#]*))?",
+    re.IGNORECASE,
+)
+FILE_NOQA_DIRECTIVE = re.compile(
+    r"^#\s*(?:ruff|flake8)\s*:\s*noqa(?=\s|:|$)(?:\s*:\s*(?P<rules>[^#]*))?",
+    re.IGNORECASE,
+)
+NOQA_RULE_SEPARATOR = re.compile(r"[\s,]+")
+NOQA_JOINED_RULE_BOUNDARY = re.compile(r"(?<=\d)(?=[A-Z])")
+NOQA_RULE_CODE = re.compile(r"[A-Z]+\d{3,4}")
 TYPED_SUBTREE_PATHS = (
     "api/metrics.py",
     "api/search/query_builder.py",
@@ -164,7 +173,7 @@ TYPED_SUBTREE_PATHS = (
     "scripts/analyze_pipeline_profile.py",
 )
 CANDIDATE_FORMATTER_WAVE_PATHS = TYPED_SUBTREE_PATHS
-FORMATTER_WAVE_COMMAND = "./.venv/bin/ruff format --check " + " ".join(CANDIDATE_FORMATTER_WAVE_PATHS)
+CONFIG_OWNED_FORMATTER_COMMAND = "./.venv/bin/ruff format --check ."
 CONFIG_CLEANUP_MODULES = (
     "pipeline/config.py",
     "pipeline/config_env.py",
@@ -474,43 +483,59 @@ def _tracked_files() -> list[Path]:
     return [ROOT / line for line in output.splitlines() if line]
 
 
+def _noqa_rules_suppress_broad_exception(directive_rules: str) -> bool:
+    for rule_fragment in NOQA_RULE_SEPARATOR.split(directive_rules):
+        if not rule_fragment:
+            continue
+        joined_rule_codes = NOQA_JOINED_RULE_BOUNDARY.split(rule_fragment)
+        if not all(NOQA_RULE_CODE.fullmatch(rule_code) for rule_code in joined_rule_codes):
+            return False
+        if BROAD_EXCEPTION_RULE in joined_rule_codes:
+            return True
+    return False
+
+
+def _comment_suppresses_broad_exception(comment_text: str) -> bool:
+    directive_match = FILE_NOQA_DIRECTIVE.match(comment_text)
+    if directive_match is None:
+        directive_match = LINE_NOQA_DIRECTIVE.search(comment_text)
+    if directive_match is None:
+        return False
+
+    directive_rules = directive_match.group("rules")
+    return directive_rules is None or _noqa_rules_suppress_broad_exception(directive_rules)
+
+
+def _broad_exception_suppression_lines(python_path: Path) -> list[int]:
+    python_source = python_path.read_text(encoding="utf-8")
+    python_tokens = tokenize.generate_tokens(StringIO(python_source).readline)
+    return [
+        python_token.start[0]
+        for python_token in python_tokens
+        if python_token.type == tokenize.COMMENT and _comment_suppresses_broad_exception(python_token.string)
+    ]
+
+
 def _broad_exception_scan_files() -> list[Path]:
-    tracked_files = {path.resolve() for path in _tracked_files()}
-    for module_path in (
-        *CONFIG_CLEANUP_MODULES,
-        *METRICS_CLEANUP_MODULES,
-        *DOWNLOADER_CLEANUP_MODULES,
-        *AGENDA_EXTRACTION_CLEANUP_MODULES,
-        *AGENDA_TEXT_HEURISTICS_CLEANUP_MODULES,
-        *AGENDA_RESOLVER_CLEANUP_MODULES,
-        *AGENDA_QA_CLEANUP_MODULES,
-        *AGENDA_SUMMARY_MAINTENANCE_CLEANUP_MODULES,
-        *AGENDA_SUMMARY_RUNTIME_CLEANUP_MODULES,
-        *PROFILE_MANIFEST_CLEANUP_MODULES,
-        *TOPIC_GENERATION_CLEANUP_MODULES,
-        *LOCAL_AI_CLEANUP_MODULES,
-        *INDEXER_CLEANUP_MODULES,
-        *SEMANTIC_BACKEND_CLEANUP_MODULES,
-        *SUMMARY_TEXT_CLEANUP_MODULES,
-        *VOTE_EXTRACTION_CLEANUP_MODULES,
-        *NLP_ENTITY_CLEANUP_MODULES,
-        *HTTP_PROVIDER_CLEANUP_MODULES,
-        *PERSON_UTILS_CLEANUP_MODULES,
-        *REPORTING_SCRIPTS_CLEANUP_MODULES,
-        *SHARED_HELPER_CLEANUP_MODULES,
-        *TASK_API_FACADE_CLEANUP_MODULES,
-        *SEARCH_SUPPORT_CLEANUP_MODULES,
-        *CITY_COVERAGE_CLEANUP_MODULES,
-        *LINEAGE_CLEANUP_MODULES,
-        *CITY_ONBOARDING_EVALUATOR_CLEANUP_MODULES,
-        *LASERFICHE_REPAIR_CLEANUP_MODULES,
-        *SEGMENT_CITY_CORPUS_CLEANUP_MODULES,
-        *HYDRATION_CLI_CLEANUP_MODULES,
-        *MODEL_CLEANUP_MODULES,
-        *DB_MIGRATION_CLEANUP_MODULES,
-    ):
-        tracked_files.add((ROOT / module_path).resolve())
-    return sorted(tracked_files)
+    checked_files = subprocess.check_output(
+        [sys.executable, "-m", "ruff", "check", "--show-files", "."],
+        cwd=ROOT,
+        text=True,
+    )
+    return sorted(Path(checked_path).resolve() for checked_path in checked_files.splitlines() if checked_path.endswith(".py"))
+
+
+def _workflow_path_patterns(event_section: str) -> set[str]:
+    _, paths_separator, paths_tail = event_section.partition("    paths:\n")
+    if not paths_separator:
+        raise ValueError("Python Guardrails workflow event must define paths")
+
+    path_patterns: set[str] = set()
+    for workflow_line in paths_tail.splitlines():
+        if not workflow_line.startswith("      - "):
+            break
+        path_patterns.add(workflow_line.removeprefix("      - ").strip('"'))
+    return path_patterns
 
 
 def _python_module_paths(prefix: str) -> list[Path]:
@@ -529,18 +554,73 @@ def _exception_handler_name(handler_type: ast.expr | None) -> str | None:
     return None
 
 
+def _statement_contains_suspension(statement: ast.stmt) -> bool:
+    return any(isinstance(node, ast.Await | ast.Yield | ast.YieldFrom) for node in ast.walk(statement))
+
+
+def _statement_calls_sys_exit(statement: ast.stmt) -> bool:
+    return any(
+        isinstance(node, ast.Call)
+        and isinstance(node.func, ast.Attribute)
+        and isinstance(node.func.value, ast.Name)
+        and node.func.value.id == "sys"
+        and node.func.attr == "exit"
+        for node in ast.walk(statement)
+    )
+
+
+def _statement_is_flat_exception_context(statement: ast.stmt) -> bool:
+    if _statement_contains_suspension(statement) or _statement_calls_sys_exit(statement):
+        return False
+    if isinstance(statement, ast.Assign):
+        return all(isinstance(assignment_target, ast.Name) for assignment_target in statement.targets)
+    return isinstance(statement, ast.Expr) and isinstance(statement.value, ast.Call)
+
+
+def _broad_exception_handler_is_approved(
+    relative_path: str,
+    handler: ast.ExceptHandler,
+) -> bool:
+    if relative_path in APPROVED_BROAD_EXCEPTION_PATHS:
+        return True
+    if not handler.body:
+        return False
+    *context_statements, terminal_statement = handler.body
+    explicit_cause = terminal_statement.cause if isinstance(terminal_statement, ast.Raise) else None
+    explicit_cause_preserves_context = explicit_cause is not None and not (
+        isinstance(explicit_cause, ast.Constant) and explicit_cause.value is None
+    )
+    terminal_raise_is_chained = (
+        isinstance(terminal_statement, ast.Raise)
+        and (terminal_statement.exc is None or explicit_cause_preserves_context)
+    )
+    return terminal_raise_is_chained and all(
+        _statement_is_flat_exception_context(context_statement) for context_statement in context_statements
+    )
+
+
+def _parse_ruff_per_file_ignore_entries(config_text: str) -> dict[str, set[str]]:
+    ruff_config = tomllib.loads(config_text)
+    lint_config = ruff_config.get("lint")
+    if not isinstance(lint_config, dict):
+        raise ValueError("ruff.toml must define a lint table")
+    per_file_ignores = lint_config.get("per-file-ignores")
+    if not isinstance(per_file_ignores, dict):
+        raise ValueError("ruff.toml must define lint.per-file-ignores")
+
+    ignore_entries: dict[str, set[str]] = {}
+    for ignore_path, rule_codes in per_file_ignores.items():
+        if not isinstance(ignore_path, str) or not isinstance(rule_codes, list):
+            raise ValueError("lint.per-file-ignores entries must map paths to rule lists")
+        if not all(isinstance(rule_code, str) for rule_code in rule_codes):
+            raise ValueError(f"lint.per-file-ignores entry {ignore_path} must contain only rule strings")
+        ignore_entries[ignore_path] = set(rule_codes)
+    return ignore_entries
+
+
 def _ruff_per_file_ignore_entries() -> dict[str, set[str]]:
     config_text = (ROOT / "ruff.toml").read_text(encoding="utf-8")
-    entries: dict[str, set[str]] = {}
-    for raw_line in config_text.splitlines():
-        line = raw_line.strip()
-        match = re.match(r'^"(?P<path>[^"]+)"\s*=\s*\[(?P<rules>[^\]]*)\]', line)
-        if not match:
-            continue
-        entries[match.group("path")] = {
-            token.strip().strip('"') for token in match.group("rules").split(",") if token.strip()
-        }
-    return entries
+    return _parse_ruff_per_file_ignore_entries(config_text)
 
 
 def _mypy_enrolled_paths() -> tuple[str, ...]:
@@ -625,7 +705,7 @@ def _forbidden_imports(module_path: Path, forbidden_modules: set[str]) -> list[s
 
 def test_tracked_text_files_do_not_contain_personal_absolute_paths():
     offending_files: list[str] = []
-    for tracked_path in _broad_exception_scan_files():
+    for tracked_path in _tracked_files():
         relative_path = tracked_path.relative_to(ROOT)
         if relative_path.parts[0] not in GUARDRAIL_SCAN_PREFIXES:
             continue
@@ -677,8 +757,8 @@ def test_reusable_pipeline_modules_do_not_call_logging_basicconfig_on_import(mon
 def test_ruff_guardrail_config_keeps_scope_and_exceptions_narrow():
     config_text = (ROOT / "ruff.toml").read_text(encoding="utf-8")
 
-    assert 'src = ["api", "pipeline", "scripts", "tests"]' in config_text
-    assert 'select = ["E722", "F401", "F841", "B006", "B007", "B023", "BLE001"]' in config_text
+    assert 'src = ["api", "council_crawler", "pipeline", "scripts", "semantic_service", "tests"]' in config_text
+    assert 'select = ["E722", "F401", "F841", "B", "BLE001", "C901", "DTZ", "S"]' in config_text
     assert "pipeline/*.py" not in config_text
     assert "api/*.py" not in config_text
 
@@ -701,12 +781,40 @@ def test_first_formatter_wave_stays_path_scoped_and_enforced():
     agents_text = (ROOT / "AGENTS.md").read_text(encoding="utf-8")
     workflow_text = (ROOT / ".github" / "workflows" / "python-guardrails.yml").read_text(encoding="utf-8")
 
-    assert FORMATTER_WAVE_COMMAND in docs_text
-    assert "scoped formatter guardrail" in docs_text
+    assert CONFIG_OWNED_FORMATTER_COMMAND in docs_text
     assert "./.venv/bin/ruff format --check api pipeline scripts tests" not in docs_text
     assert "ruff format --check" not in agents_text
     assert "python -m ruff format --check " + " ".join(CANDIDATE_FORMATTER_WAVE_PATHS) in workflow_text
     assert "python -m ruff format --check api pipeline scripts tests" not in workflow_text
+
+
+def test_python_guardrail_workflow_triggers_for_ruff_discovered_python_paths():
+    workflow_text = (ROOT / ".github" / "workflows" / "python-guardrails.yml").read_text(encoding="utf-8")
+    pull_request_section, push_separator, push_tail = workflow_text.partition("  push:\n")
+    push_section, permissions_separator, _ = push_tail.partition("\npermissions:\n")
+    assert push_separator and permissions_separator
+
+    expected_path_patterns = {
+        f"{relative_path.parts[0]}/**" if len(relative_path.parts) > 1 else "*.py"
+        for checked_path in _broad_exception_scan_files()
+        for relative_path in (checked_path.relative_to(ROOT),)
+    }
+    for event_section in (pull_request_section, push_section):
+        configured_path_patterns = _workflow_path_patterns(event_section)
+        assert expected_path_patterns <= configured_path_patterns
+
+
+def test_workflow_path_parser_ignores_other_event_lists():
+    event_section = (
+        "    paths:\n"
+        '      - "api/**"\n'
+        "    paths-ignore:\n"
+        '      - "semantic_service/**"\n'
+        "    branches:\n"
+        '      - "master"\n'
+    )
+
+    assert _workflow_path_patterns(event_section) == {"api/**"}
 
 
 def test_facade_import_guardrail_detects_relative_imports(tmp_path: Path):
@@ -746,31 +854,304 @@ def test_broad_exception_allowlist_stays_explicit():
     assert broad_exception_paths.isdisjoint(BLE001_WILDCARD_PATHS)
 
 
+def test_broad_exception_suppression_detection_covers_ruff_directives():
+    directive_prefix = "# noqa:"
+    spaced_directive = f"{directive_prefix} {BROAD_EXCEPTION_RULE}"
+    compact_directive = f"{directive_prefix}{BROAD_EXCEPTION_RULE}"
+    blanket_line_directive = "# noqa"
+    blanket_ruff_file_directive = "# ruff: noqa"
+    specific_ruff_file_directive = f"# ruff: noqa: {BROAD_EXCEPTION_RULE}"
+    mixed_rule_directive = f"# noqa: F401, {BROAD_EXCEPTION_RULE}"
+    joined_rule_suffix_directive = f"# noqa: F401{BROAD_EXCEPTION_RULE}"
+    joined_rule_prefix_directive = f"# noqa: {BROAD_EXCEPTION_RULE}F401"
+    blanket_flake8_file_directive = "# flake8: noqa"
+    chained_specific_directive = f"# type: ignore  # noqa: {BROAD_EXCEPTION_RULE}"
+    chained_blanket_directive = "# reason  # noqa"
+    adjacent_specific_directive = f"# type: ignore# noqa: {BROAD_EXCEPTION_RULE}"
+    adjacent_blanket_directive = "# reason# noqa"
+
+    assert _comment_suppresses_broad_exception(spaced_directive)
+    assert _comment_suppresses_broad_exception(compact_directive)
+    assert _comment_suppresses_broad_exception(blanket_line_directive)
+    assert _comment_suppresses_broad_exception(blanket_ruff_file_directive)
+    assert _comment_suppresses_broad_exception(specific_ruff_file_directive)
+    assert _comment_suppresses_broad_exception(mixed_rule_directive)
+    assert _comment_suppresses_broad_exception(f"# noqa:,{BROAD_EXCEPTION_RULE}")
+    assert _comment_suppresses_broad_exception(joined_rule_suffix_directive)
+    assert _comment_suppresses_broad_exception(joined_rule_prefix_directive)
+    assert _comment_suppresses_broad_exception(blanket_flake8_file_directive)
+    assert _comment_suppresses_broad_exception(chained_specific_directive)
+    assert _comment_suppresses_broad_exception(chained_blanket_directive)
+    assert _comment_suppresses_broad_exception(adjacent_specific_directive)
+    assert _comment_suppresses_broad_exception(adjacent_blanket_directive)
+    assert not _comment_suppresses_broad_exception("# noqa: F401")
+    assert not _comment_suppresses_broad_exception("# noqa: F401E722")
+    assert not _comment_suppresses_broad_exception("# noqa: XBLE001")
+    assert not _comment_suppresses_broad_exception("# noqa: BLE001EXTRA")
+    assert not _comment_suppresses_broad_exception("# noqa: BLE001f401")
+    assert not _comment_suppresses_broad_exception("# noqa: f401BLE001")
+    assert not _comment_suppresses_broad_exception("# noqa: EXTRA,BLE001F401")
+    assert not _comment_suppresses_broad_exception("# noqa: F401 because BLE001 is centralized")
+    assert not _comment_suppresses_broad_exception("# ruff: noqa: F401")
+    assert not _comment_suppresses_broad_exception("# type: ignore# ruff: noqa: BLE001")
+    assert not _comment_suppresses_broad_exception("# type: ignore# flake8: noqa")
+    assert not _comment_suppresses_broad_exception("# reason# noqaish: BLE001")
+    assert not _comment_suppresses_broad_exception("# reason# noqa-not: BLE001")
+    assert not _comment_suppresses_broad_exception("# noqa: F401# noqa: BLE001")
+    assert not _comment_suppresses_broad_exception("# reason  # ruff: noqa: BLE001")
+    assert not _comment_suppresses_broad_exception("# reason  # flake8: noqa")
+
+
+def test_broad_exception_suppression_scan_uses_comment_tokens(tmp_path: Path):
+    python_path = tmp_path / "directive_examples.py"
+    python_path.write_text(
+        'LINE_DIRECTIVE = "# noqa"\n'
+        'FILE_DIRECTIVE = "# ruff: noqa: BLE001"\n'
+        "try:\n"
+        "    pass\n"
+        "except Exception:  # noqa\n"
+        "    pass\n"
+        "# ruff: noqa: BLE001\n"
+        "try:\n"
+        "    pass\n"
+        "except Exception:  # type: ignore  # noqa: BLE001\n"
+        "    pass\n"
+        "try:\n"
+        "    pass\n"
+        "except Exception:  # type: ignore# noqa: BLE001\n"
+        "    pass\n"
+        "try:\n"
+        "    pass\n"
+        "except Exception:  # reason# noqa\n"
+        "    pass\n"
+        "try:\n"
+        "    pass\n"
+        "except Exception:  # noqa: BLE001F401\n"
+        "    pass\n"
+        "try:\n"
+        "    pass\n"
+        "except Exception:  # noqa: F401BLE001\n"
+        "    pass\n"
+        "try:\n"
+        "    pass\n"
+        "except Exception:  # noqa: F401E722\n"
+        "    pass\n"
+        "try:\n"
+        "    pass\n"
+        "except Exception:  # noqa:,BLE001\n"
+        "    pass\n"
+        "try:\n"
+        "    pass\n"
+        "except Exception:  # noqa: F401# noqa: BLE001\n"
+        "    pass\n"
+        "try:\n"
+        "    pass\n"
+        "except Exception:  # reason  # ruff: noqa: BLE001\n"
+        "    pass\n"
+        "try:\n"
+        "    pass\n"
+        "except Exception:  # reason  # flake8: noqa\n"
+        "    pass\n",
+        encoding="utf-8",
+    )
+
+    assert _broad_exception_suppression_lines(python_path) == [5, 7, 10, 14, 18, 22, 26, 34]
+
+
+def _first_broad_exception_handler(python_source: str) -> ast.ExceptHandler:
+    syntax_tree = ast.parse(python_source)
+    try_node = next(
+        syntax_node
+        for syntax_node in ast.walk(syntax_tree)
+        if isinstance(syntax_node, ast.Try | ast.TryStar)
+    )
+    return try_node.handlers[0]
+
+
+def _source_handler_is_approved(python_source: str) -> bool:
+    exception_handler = _first_broad_exception_handler(python_source)
+    return _broad_exception_handler_is_approved("pipeline/unapproved.py", exception_handler)
+
+
+def _broad_exception_source(
+    handler_body: str,
+    *,
+    async_function: bool = False,
+    exception_operator: str = "except",
+) -> str:
+    function_prefix = "async " if async_function else ""
+    return (
+        f"{function_prefix}def run():\n"
+        "    try:\n"
+        "        operation()\n"
+        f"    {exception_operator} Exception as exc:\n"
+        f"{indent(handler_body, '        ')}\n"
+    )
+
+
+def test_nested_raise_does_not_approve_a_swallowed_broad_exception():
+    exception_handler = _first_broad_exception_handler(
+        "try:\n"
+        "    operation()\n"
+        "except Exception:\n"
+        "    def deferred_failure():\n"
+        "        raise RuntimeError\n"
+        "    record_failure()\n"
+    )
+
+    assert not _broad_exception_handler_is_approved("pipeline/unapproved.py", exception_handler)
+
+
+def test_conditional_and_deferred_termination_do_not_approve_broad_exceptions():
+    conditional_raise = _first_broad_exception_handler(
+        "try:\n"
+        "    operation()\n"
+        "except Exception:\n"
+        "    if should_raise:\n"
+        "        raise\n"
+        "    record_failure()\n"
+    )
+    deferred_exit = _first_broad_exception_handler(
+        "try:\n"
+        "    operation()\n"
+        "except Exception:\n"
+        "    pending_exits = (sys.exit(1) for _ in range(1))\n"
+        "    record_failure()\n"
+    )
+
+    assert not _broad_exception_handler_is_approved("pipeline/unapproved.py", conditional_raise)
+    assert not _broad_exception_handler_is_approved("pipeline/unapproved.py", deferred_exit)
+
+
+@pytest.mark.parametrize(
+    "handler_body",
+    [
+        "failure_message = str(exc)\nraise",
+        "record_failure(exc)\nraise RuntimeError('operation failed') from exc",
+    ],
+    ids=["assignment-and-reraise", "action-and-chained-translation"],
+)
+def test_flat_broad_exception_handlers_must_finish_with_raise(handler_body: str) -> None:
+    assert _source_handler_is_approved(_broad_exception_source(handler_body))
+
+
+@pytest.mark.parametrize(
+    "terminal_raise",
+    ["raise RuntimeError('operation failed')", "raise RuntimeError('operation failed') from None"],
+    ids=["unchained", "suppressed-context"],
+)
+def test_explicit_broad_exception_translation_requires_chaining(terminal_raise: str) -> None:
+    unchained_translation = _broad_exception_source(f"record_failure(exc)\n{terminal_raise}")
+
+    assert not _source_handler_is_approved(unchained_translation)
+
+
+@pytest.mark.parametrize(
+    ("handler_body", "async_function"),
+    [
+        ("if cached:\n    return None\nraise", False),
+        ("return None\nraise", False),
+        ("yield failure_record()\nraise", False),
+        ("yield from failure_records()\nraise", False),
+        ("await record_failure()\nraise", True),
+    ],
+    ids=["conditional-return", "unreachable-raise", "yield", "yield-from", "await"],
+)
+def test_early_exit_or_suspension_rejects_broad_exception_handler(
+    handler_body: str,
+    async_function: bool,
+) -> None:
+    python_source = _broad_exception_source(handler_body, async_function=async_function)
+    assert not _source_handler_is_approved(python_source)
+
+
+@pytest.mark.parametrize(
+    "handler_body",
+    [
+        "if should_record:\n    record_failure()\nraise",
+        "for failure in failures:\n    record_failure(failure)\nraise",
+        "with failure_context():\n    record_failure()\nraise",
+        "match failure_code:\n    case 1:\n        record_failure()\nraise",
+        "try:\n    record_failure()\nfinally:\n    release_failure_lock()\nraise",
+        "def record_later():\n    record_failure()\nraise",
+        "class FailureRecord:\n    code = 1\nraise",
+    ],
+    ids=["branch", "loop", "with", "match", "nested-try", "nested-function", "nested-class"],
+)
+def test_compound_broad_exception_handlers_require_central_approval(handler_body: str) -> None:
+    assert not _source_handler_is_approved(_broad_exception_source(handler_body))
+
+
+def test_central_boundary_approves_compound_broad_exception_handler() -> None:
+    branch_source = _broad_exception_source("if should_record:\n    record_failure()\nraise")
+    approved_handler = _first_broad_exception_handler(branch_source)
+    approved_path = min(APPROVED_BROAD_EXCEPTION_PATHS)
+    assert _broad_exception_handler_is_approved(approved_path, approved_handler)
+
+
+@pytest.mark.parametrize(
+    "handler_body",
+    [
+        "record_failure()\nsys.exit(1)",
+        "sys = failure_controller\nsys.exit(1)",
+        "sys.exit(1)\nraise",
+        "sys = failure_controller\nsys.exit(1)\nraise",
+    ],
+    ids=["direct", "rebound", "before-raise", "rebound-before-raise"],
+)
+def test_sys_exit_does_not_authorize_unlisted_broad_exception_handler(handler_body: str) -> None:
+    assert not _source_handler_is_approved(_broad_exception_source(handler_body))
+
+
+def test_try_star_broad_exception_handlers_follow_the_same_policy() -> None:
+    unsafe_try_star = _broad_exception_source("return None\nraise", exception_operator="except*")
+    assert not _source_handler_is_approved(unsafe_try_star)
+
+
+def test_ruff_per_file_ignore_parser_accepts_valid_toml_forms():
+    ruff_config = """
+[lint.per-file-ignores]
+'pipeline/single_quote.py' = ['BLE001']
+"pipeline/multiline.py" = [
+    "BLE001",
+    "F401",
+]
+"""
+
+    assert _parse_ruff_per_file_ignore_entries(ruff_config) == {
+        "pipeline/multiline.py": {"BLE001", "F401"},
+        "pipeline/single_quote.py": {"BLE001"},
+    }
+
+
+def test_broad_exception_suppressions_stay_in_ruff_config():
+    inline_suppressions = [
+        f"{tracked_path.relative_to(ROOT)}:{line_number}"
+        for tracked_path in _tracked_files()
+        if tracked_path.suffix == ".py"
+        for line_number in _broad_exception_suppression_lines(tracked_path)
+    ]
+
+    assert inline_suppressions == []
+
+
 def test_broad_exception_handlers_stay_on_approved_boundaries_and_take_action():
     unauthorized_handlers: list[str] = []
     silent_handlers: list[str] = []
 
     for tracked_path in _broad_exception_scan_files():
-        if tracked_path.suffix != ".py":
-            continue
         relative_path = str(tracked_path.relative_to(ROOT))
-        if relative_path.split("/", 1)[0] not in {"api", "pipeline", "scripts", "tests"}:
-            continue
         source = tracked_path.read_text(encoding="utf-8")
         tree = ast.parse(source, filename=relative_path)
 
         for node in ast.walk(tree):
-            if not isinstance(node, ast.Try):
+            if not isinstance(node, ast.Try | ast.TryStar):
                 continue
             for handler in node.handlers:
                 if _exception_handler_name(handler.type) != "Exception":
                     continue
 
                 handler_ref = f"{relative_path}:{handler.lineno}"
-                if relative_path not in APPROVED_BROAD_EXCEPTION_PATHS:
-                    unauthorized_handlers.append(handler_ref)
-                    continue
-
                 body_nodes = handler.body
                 is_silent = all(
                     isinstance(body_node, ast.Pass)
@@ -779,6 +1160,9 @@ def test_broad_exception_handlers_stay_on_approved_boundaries_and_take_action():
                 )
                 if is_silent:
                     silent_handlers.append(handler_ref)
+                    continue
+                if not _broad_exception_handler_is_approved(relative_path, handler):
+                    unauthorized_handlers.append(handler_ref)
 
     assert unauthorized_handlers == []
     assert silent_handlers == []

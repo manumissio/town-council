@@ -111,6 +111,7 @@ extend-immutable-calls = ["fastapi.Depends", "fastapi.Query", "fastapi.Path", "f
 "pipeline/semantic_tasks.py" = ["B904", "BLE001"]
 "pipeline/startup_purge.py" = ["BLE001"]
 "pipeline/summary_backfill_dispatch.py" = ["BLE001"]
+"pipeline/task_startup.py" = ["BLE001"]
 "pipeline/table_worker.py" = ["BLE001"]
 "pipeline/task_agenda_titles.py" = ["C901"]
 "pipeline/tasks.py" = ["B904", "BLE001"]
