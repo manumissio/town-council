@@ -1,8 +1,11 @@
 # Town Council Remediation Plan (Codex Multi-Agent)
 
-version: 1.5
-generated: 2026-07-21
-changelog: v1.5 expands T-CI-5 ownership so lint entrypoints, contributor
+version: 1.6
+generated: 2026-07-22
+changelog: v1.6 expands T-CI-1 ownership so the complete-suite workflow,
+contract tests, runbook, and implementation plan land together. It also adds
+the crawler test dependencies and pytest.ini workflow trigger required by the
+complete suite. v1.5 expands T-CI-5 ownership so lint entrypoints, contributor
 commands, policy tests, and the implementation plan change together. It also
 records that the tightened Ruff configuration is already landed and corrects
 the pre-commit verification command. v1.4 expands T-CI-0 workflow ownership to keep CI triggers aligned
@@ -131,16 +134,26 @@ other ownership of those files.
 
 ### T-CI-1: Run the full Python test suite in CI
 - priority: P0
-- depends_on: T-CI-0
-- files_owned: .github/workflows/python-guardrails.yml
-- do: Add a job step `PYTHONPATH=. python -m pytest -q tests/` after the
-  existing guardrail steps. Keep the seven guardrail-test invocations as a
-  separate fast-fail step.
-- accept: CI executes all tests under `tests/` on PR; green on current master.
-- forbidden: Skipping/xfailing tests to get green. If any test fails on
-  clean master, report the list; do not fix in this task.
-- verify: Local `PYTHONPATH=. python -m pytest -q tests/` exit 0; workflow
-  YAML parses (`python -c "import yaml,sys; yaml.safe_load(open(sys.argv[1]))" <file>`).
+- depends_on: T-CI-0, T-CI-5
+- files_owned: docs/plans/T_CI_1_FULL_PYTHON_SUITE_PLAN.md,
+  docs/plans/TOWN_COUNCIL_REMEDIATION_PLAN.md,
+  docs/ENGINEERING_GUARDRAILS.md, tests/test_repository_guardrails.py,
+  .github/workflows/python-guardrails.yml
+- do: Follow the implementation-ready T-CI-1 plan. Install the existing
+  crawler requirements needed by spider tests, add `pytest.ini` to both
+  workflow event filters, and add a distinct
+  `PYTHONPATH=. python -m pytest -q tests/` step after the seven-command
+  fast-fail step.
+- accept: Relevant Python and repository-policy changes trigger CI; the
+  fast-fail tests remain separate and precede the complete suite; CI executes
+  all collected tests under `tests/` with the pinned Python 3.14 environment;
+  current master is green.
+- forbidden: Skipping or x-failing tests; adding coverage before T-CI-3;
+  using `continue-on-error`, `if: always()`, retries, caching, or another job;
+  fixing unrelated assertions if dependency-aligned master is red.
+- verify: Ruff, Mypy, repository guardrails, docs links, local
+  `PYTHONPATH=. .venv/bin/python -m pytest -q tests/`, `git diff --check`, and
+  the PR's Python Guardrails run with the pinned CI dependencies.
 
 ### T-CI-2: Give the frontend a test runner and CI job
 - priority: P0
