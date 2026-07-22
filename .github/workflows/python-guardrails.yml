@@ -2,38 +2,8 @@ name: Python Guardrails
 
 on:
   pull_request:
-    paths:
-      - "AGENTS.md"
-      - ".pre-commit-config.yaml"
-      - ".github/workflows/python-guardrails.yml"
-      - "docs/**"
-      - "ops/**"
-      - "*.py"
-      - "pipeline/**"
-      - "api/**"
-      - "council_crawler/**"
-      - "scripts/**"
-      - "semantic_service/**"
-      - "tests/**"
-      - "mypy.ini"
-      - "ruff.toml"
   push:
     branches: ["master"]
-    paths:
-      - "AGENTS.md"
-      - ".pre-commit-config.yaml"
-      - ".github/workflows/python-guardrails.yml"
-      - "docs/**"
-      - "ops/**"
-      - "*.py"
-      - "pipeline/**"
-      - "api/**"
-      - "council_crawler/**"
-      - "scripts/**"
-      - "semantic_service/**"
-      - "tests/**"
-      - "mypy.ini"
-      - "ruff.toml"
 
 permissions:
   contents: read
@@ -52,7 +22,10 @@ jobs:
         run: |
           python -m pip install -r pipeline/requirements.txt
           python -m pip install -r api/requirements.txt
+          python -m pip install -r council_crawler/requirements.txt
+          python -m pip install scikit-learn==1.8.0
           python -m pip install -r pipeline/requirements-dev.txt
+          python -m venv --system-site-packages .venv
 
       - name: Run static guardrails
         run: python -m ruff check .
@@ -72,3 +45,6 @@ jobs:
           PYTHONPATH=. python -m pytest -q tests/test_summary_staleness.py
           PYTHONPATH=. python -m pytest -q tests/test_pipeline_profile_report.py
           PYTHONPATH=. python -m pytest -q tests/test_docs_links.py
+
+      - name: Run full Python test suite
+        run: PYTHONPATH=. python -m pytest -q tests/
