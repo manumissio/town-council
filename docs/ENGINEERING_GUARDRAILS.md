@@ -36,9 +36,9 @@ cd <REPO_ROOT>
 PYTHONPATH=. .venv/bin/pytest -q tests/test_repository_guardrails.py
 ```
 
-CI runs the static checks and fast-fail test subset on every relevant PR.
-Until T-CI-1 adds the complete suite to CI, run it locally before handoff on
-cross-cutting changes (see `docs/TESTING.md`).
+CI runs the static checks, fast-fail test subset, and complete Python suite on
+every relevant change. The fast-fail subset provides earlier diagnostics; the
+complete suite remains the Python merge gate (see `docs/TESTING.md`).
 
 ## What the static checks block
 

@@ -16,6 +16,7 @@ on:
       - "semantic_service/**"
       - "tests/**"
       - "mypy.ini"
+      - "pytest.ini"
       - "ruff.toml"
   push:
     branches: ["master"]
@@ -33,6 +34,7 @@ on:
       - "semantic_service/**"
       - "tests/**"
       - "mypy.ini"
+      - "pytest.ini"
       - "ruff.toml"
 
 permissions:
@@ -52,6 +54,7 @@ jobs:
         run: |
           python -m pip install -r pipeline/requirements.txt
           python -m pip install -r api/requirements.txt
+          python -m pip install -r council_crawler/requirements.txt
           python -m pip install -r pipeline/requirements-dev.txt
 
       - name: Run static guardrails
@@ -72,3 +75,6 @@ jobs:
           PYTHONPATH=. python -m pytest -q tests/test_summary_staleness.py
           PYTHONPATH=. python -m pytest -q tests/test_pipeline_profile_report.py
           PYTHONPATH=. python -m pytest -q tests/test_docs_links.py
+
+      - name: Run full Python test suite
+        run: PYTHONPATH=. python -m pytest -q tests/

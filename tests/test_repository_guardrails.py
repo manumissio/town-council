@@ -871,6 +871,62 @@ def test_first_formatter_wave_stays_path_scoped_and_enforced():
     assert "python -m ruff format --check api pipeline scripts tests" not in workflow_text
 
 
+def test_python_guardrail_workflow_runs_complete_suite_after_fast_fail_checks():
+    workflow_text = (ROOT / ".github" / "workflows" / "python-guardrails.yml").read_text(encoding="utf-8")
+    expected_fast_fail_commands = (
+        "PYTHONPATH=. python -m pytest -q tests/test_repository_guardrails.py",
+        "PYTHONPATH=. python -m pytest -q tests/test_config_cleanup.py",
+        "PYTHONPATH=. python -m pytest -q tests/test_pipeline_import_side_effects.py",
+        "PYTHONPATH=. python -m pytest -q tests/test_provider_error_mapping_retry_vs_fallback.py",
+        "PYTHONPATH=. python -m pytest -q tests/test_summary_staleness.py",
+        "PYTHONPATH=. python -m pytest -q tests/test_pipeline_profile_report.py",
+        "PYTHONPATH=. python -m pytest -q tests/test_docs_links.py",
+    )
+    full_suite_step = (
+        "      - name: Run full Python test suite\n"
+        "        run: PYTHONPATH=. python -m pytest -q tests/"
+    )
+
+    dependency_step = workflow_text.partition("      - name: Install guardrail and runtime dependencies\n")[2]
+    dependency_step = dependency_step.partition("\n      - name:")[0]
+    dependency_commands = {
+        workflow_line.strip()
+        for workflow_line in dependency_step.splitlines()
+        if workflow_line.startswith("          python -m pip install")
+    }
+    assert "python -m pip install -r council_crawler/requirements.txt" in dependency_commands
+    assert workflow_text.count(full_suite_step) == 1
+
+    fast_fail_prefix, full_suite_separator, full_suite_tail = workflow_text.partition(full_suite_step)
+    assert full_suite_separator
+    fast_fail_marker = "      - name: Run guardrail tests\n"
+    assert fast_fail_marker in fast_fail_prefix
+    fast_fail_step = fast_fail_prefix.rpartition(fast_fail_marker)[2]
+    configured_fast_fail_commands = tuple(
+        workflow_line.strip()
+        for workflow_line in fast_fail_step.splitlines()
+        if workflow_line.strip().startswith("PYTHONPATH=. python -m pytest -q ")
+    )
+    assert configured_fast_fail_commands == expected_fast_fail_commands
+    assert "continue-on-error:" not in fast_fail_step
+    assert "if:" not in fast_fail_step
+
+    full_suite_step_body = full_suite_tail.partition("\n      - name:")[0]
+    assert "continue-on-error:" not in full_suite_step_body
+    assert "if:" not in full_suite_step_body
+    assert "--cov" not in workflow_text
+
+
+def test_python_guardrail_workflow_triggers_for_test_configuration():
+    workflow_text = (ROOT / ".github" / "workflows" / "python-guardrails.yml").read_text(encoding="utf-8")
+    pull_request_section, push_separator, push_tail = workflow_text.partition("  push:\n")
+    push_section, permissions_separator, _ = push_tail.partition("\npermissions:\n")
+    assert push_separator and permissions_separator
+
+    for event_section in (pull_request_section, push_section):
+        assert "pytest.ini" in _workflow_path_patterns(event_section)
+
+
 def test_python_guardrail_workflow_triggers_for_ruff_discovered_python_paths():
     workflow_text = (ROOT / ".github" / "workflows" / "python-guardrails.yml").read_text(encoding="utf-8")
     pull_request_section, push_separator, push_tail = workflow_text.partition("  push:\n")

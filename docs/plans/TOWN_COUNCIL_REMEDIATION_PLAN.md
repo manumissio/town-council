@@ -170,8 +170,10 @@ other ownership of those files.
 ### T-CI-3: Enforce coverage threshold
 - priority: P2
 - depends_on: T-CI-1
-- files_owned: .github/workflows/python-guardrails.yml, .coveragerc
+- files_owned: .github/workflows/python-guardrails.yml, .coveragerc,
+  tests/test_repository_guardrails.py
 - do: Run pytest under coverage in CI; `fail_under = 71` becomes enforced.
+  Replace T-CI-1's temporary contract assertion that coverage remains absent.
 - accept: CI fails if coverage < 71%.
 - verify: `PYTHONPATH=. python -m pytest --cov -q tests/` reports >= 71.
 
