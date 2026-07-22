@@ -1,8 +1,11 @@
 # Town Council Remediation Plan (Codex Multi-Agent)
 
-version: 1.4
-generated: 2026-07-18
-changelog: v1.4 expands T-CI-0 workflow ownership to keep CI triggers aligned
+version: 1.5
+generated: 2026-07-21
+changelog: v1.5 expands T-CI-5 ownership so lint entrypoints, contributor
+commands, policy tests, and the implementation plan change together. It also
+records that the tightened Ruff configuration is already landed and corrects
+the pre-commit verification command. v1.4 expands T-CI-0 workflow ownership to keep CI triggers aligned
 with Ruff discovery. v1.3 adds T-CI-0 to restore the Python guardrail baseline before
 T-CI-5 and T-CI-1. v1.2 adds T-CI-5 (land the tightened ruff.toml, delivered as a
 drop-in draft verified against the tree at plan date), registers the lint
@@ -86,7 +89,10 @@ they are in different phases and MUST NOT run concurrently. TIME owns
 model files; PLAT's Alembic baseline runs AFTER TIME merges. T-CI-0 temporarily
 coordinates `docs/ENGINEERING_GUARDRAILS.md` with T-GOV-3 and T-GOV-5 for the
 narrow broad-handler policy correction described below; the GOV lane retains
-ownership of the later redesign and rewrite.
+ownership of the later redesign and rewrite. T-CI-5 temporarily coordinates
+the lint-command sections of `AGENTS.md` and `docs/ENGINEERING_GUARDRAILS.md`
+plus the corresponding repository guardrail tests; later GOV work retains all
+other ownership of those files.
 
 ---
 
@@ -167,29 +173,30 @@ ownership of the later redesign and rewrite.
 - verify: `python -m ruff format --check .` matches prior behavior on the
   same file set (diff the file lists).
 
-### T-CI-5: Land the tightened lint configuration
+### T-CI-5: Activate and ratchet the landed Ruff scope
 - priority: P0 (run FIRST in Phase 0 — the allowlist is a snapshot of the
   tree at plan date and goes stale as other tasks merge)
 - depends_on: T-CI-0
-- files_owned: ruff.toml, .pre-commit-config.yaml,
+- files_owned: docs/plans/T_CI_5_TIGHTENED_LINT_PLAN.md,
+  docs/plans/TOWN_COUNCIL_REMEDIATION_PLAN.md, AGENTS.md,
+  docs/ENGINEERING_GUARDRAILS.md, tests/test_repository_guardrails.py,
+  ruff.toml, .pre-commit-config.yaml,
   .github/workflows/python-guardrails.yml (ruff invocation line only)
-- do: Replace ruff.toml with the provided draft (rules: full B + C901 +
-  DTZ + S added; scope: semantic_service un-excluded, council_crawler
-  entered scope — both were previously UNLINTED; empirically generated
-  per-file allowlist incl. 12 pruned stale BLE001 entries). Change the CI
-  ruff step and the pre-commit hook args to `ruff check .` so the new
-  scope actually takes effect. If any other PR merged first, regenerate
-  the per-file allowlist against HEAD (`ruff check . --output-format=concise`
-  -> file/code map) rather than hand-editing; entries must never exceed
-  what HEAD violates.
+- do: Activate the tightened Ruff configuration already on master by changing
+  CI, pre-commit, and contributor commands to config-owned `ruff check .`.
+  Reconcile every per-file ignore against current HEAD, remove stale selectors,
+  and add persistent tests for entrypoint parity and allowlist freshness. Keep
+  the existing hook ID and all rule families, exclusions, workflow behavior,
+  and runtime contracts unchanged.
 - accept: `ruff check .` exits 0 on HEAD; a planted DTZ003/C901 violation
   fails; pre-commit and CI use the same invocation; no per-file entry
   lists a code its file does not currently violate.
 - forbidden: Widening any entry to silence a new violation; re-adding the
   pruned stale entries; enabling further rule families (I, UP, PTH, PL,
   TRY are explicitly deferred per review).
-- verify: `ruff check .` (exit 0); plant-check; `pre-commit run ruff-guardrails
-  --all-files`.
+- verify: `ruff check .` (exit 0); plant-check; `pre-commit run ruff
+  --all-files`; Mypy; repository guardrails; docs links; complete Python suite;
+  `git diff --check`.
 - ratchet_registry (entries other tasks must clear; enforced via their
   acceptance criteria): DTZ in api/pipeline/scripts -> T-TIME-1;
   crawler F401/B026/DTZ011/DTZ007/S324 -> T-CRAWL-2; S105 in
