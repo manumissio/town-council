@@ -3,7 +3,8 @@
 version: 1.7
 generated: 2026-07-22
 changelog: v1.7 adds T-CI-1A to make the green `python-guardrails` check
-mandatory through an active default-branch repository ruleset. v1.6 expands T-CI-1 ownership so the complete-suite workflow,
+mandatory through an active default-branch repository ruleset and schedules
+T-CI-2A to add the universal frontend check only after T-CI-2 is green. v1.6 expands T-CI-1 ownership so the complete-suite workflow,
 contract tests, runbook, and implementation plan land together. It also adds
 the crawler and Python 3.14-compatible topic dependencies, preserves the local
 `.venv/bin/python` subprocess contract, and removes event path filters so the
@@ -176,8 +177,9 @@ other ownership of those files.
   it; branch creation remains exempt; T-CI-1's complete-suite check is
   mandatory before the ref can update.
 - forbidden: Requiring approvals, CodeQL, deployments, signed commits, linear
-  history, or any check other than `python-guardrails`; adding bypass actors;
-  changing workflow code or repository files outside `files_owned`.
+  history, or any check other than `python-guardrails` before T-CI-2A is
+  approved and T-CI-2 is green; adding bypass actors; changing workflow code
+  or repository files outside `files_owned`.
 - verify: Read the ruleset back through GitHub's REST API and compare target,
   enforcement, conditions, bypass actors, context, integration, strict policy,
   and effective rules on `master` with the expected contract.
@@ -186,14 +188,51 @@ other ownership of those files.
 - priority: P0
 - depends_on: T-CI-1A
 - files_owned: frontend/package.json, frontend/jest.config.js (new),
-  .github/workflows/frontend-tests.yml (new)
+  .github/workflows/frontend-tests.yml (new),
+  tests/test_repository_guardrails.py
 - do: Add jest (or vitest — pick whichever the 4 existing tests under
   frontend/components/__tests__/ run under with least modification), a
-  `"test"` script, and a workflow running `npm ci && npm test` on PRs
-  touching frontend/**.
-- accept: All 4 existing test files execute and pass in CI.
-- forbidden: Rewriting the tests' assertions; adding new tests.
-- verify: `cd frontend && npm test` exit 0.
+  `"test"` script, and a workflow running `npm ci && npm test` on every pull
+  request and master push so the `frontend-tests` context always exists before
+  T-CI-2A makes it required.
+- accept: All 4 existing test files execute and pass in CI; frontend-only and
+  non-frontend pull requests both receive a terminal `frontend-tests` check;
+  a repository guardrail test enforces the exact job name and unconditional
+  pull-request and master-push triggers.
+- forbidden: Rewriting the existing frontend assertions; adding new frontend
+  component tests; path-filtering the workflow so an otherwise mergeable pull
+  request lacks the check.
+- verify: `cd frontend && npm test` and
+  `PYTHONPATH=. .venv/bin/pytest -q tests/test_repository_guardrails.py` exit 0.
+
+### T-CI-2A: Require the universal frontend test check
+- priority: P0
+- depends_on: T-CI-2
+- files_owned: docs/plans/T_CI_2_REQUIRED_CHECK_POLICY_PLAN.md (new),
+  docs/plans/T_CI_1_REQUIRED_CHECK_POLICY_PLAN.md,
+  docs/plans/TOWN_COUNCIL_REMEDIATION_PLAN.md, AGENTS.md (verification-matrix
+  transition marker only)
+- external_state_owned: repository ruleset `Require Python Guardrails`
+- decision_required: Operator approval of an exact update to ruleset 19594795
+  that adds GitHub Actions context `frontend-tests` from integration 15368
+  while preserving every T-CI-1A field.
+- do: After T-CI-2 is green on frontend and non-frontend pull requests, update
+  ruleset 19594795 so its required status checks are exactly
+  `python-guardrails` and `frontend-tests`. Remove the AGENTS.md transition
+  marker only after the live readback proves both checks are mandatory.
+- accept: Every pull request receives both contexts; the default branch cannot
+  update unless both pass; strict policy, branch-creation exemption, empty
+  bypass list, target, and all other T-CI-1A fields remain unchanged.
+- forbidden: Adding the check while the workflow is path-filtered or unproven;
+  adding any third check or rule; changing the existing Python gate; assuming
+  approval from T-CI-1A.
+- verify: Demonstrate `frontend-tests` on one frontend and one non-frontend PR,
+  update the ruleset once, and assert exact ruleset and effective-`master`
+  readback through the pinned GitHub REST API.
+- rollback: Restore ruleset 19594795 to the exact T-CI-1A Python-only contract;
+  never delete the ruleset or remove `python-guardrails` while rolling back the
+  frontend requirement. Replace T-CI-1A's original creation-time rollback in
+  its owned plan with this restoration procedure.
 
 ### T-CI-3: Enforce coverage threshold
 - priority: P2

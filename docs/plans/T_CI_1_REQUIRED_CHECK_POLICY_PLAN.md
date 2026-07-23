@@ -93,6 +93,10 @@ may be added or altered without a new decision.
 7. Read effective rules for `master` and prove this ruleset supplies the only
    required-status-check rule.
 8. Confirm no second ruleset or legacy branch-protection policy was created.
+9. Keep `python-guardrails` as the sole required check until T-CI-2 runs a
+   stable `frontend-tests` context on every pull request. T-CI-2A then requires
+   a separate operator-approved update to this ruleset; this task does not
+   pre-authorize that future gate change.
 
 No new function or module is added. The GitHub REST API remains the sole owner
 of external repository policy.
@@ -135,8 +139,10 @@ source of enforcement rather than a second implementation of CI.
 
 **o) Ratchets.** Old value: zero default-branch protection rules and zero
 required checks. New value: one active default-branch ruleset requiring only
-`python-guardrails`. Ruff, Mypy, coverage, formatter, and runtime policy remain
-unchanged.
+`python-guardrails`. Remaining deficit: `frontend-tests` cannot become required
+until T-CI-2 emits that context on every pull request and T-CI-2A receives
+separate operator approval. Ruff, Mypy, coverage, formatter, and runtime policy
+remain unchanged.
 
 **p) Dead code and duplication.** None. No existing protection policy is
 superseded because none exists. Expected tracked line delta is documentation
@@ -220,6 +226,12 @@ The POST that created ruleset 19594795 is historical and non-repeatable.
 
 **v) Rollback.**
 
+This creation-time rollback applies only while ruleset 19594795 still has the
+Python-only contract verified by this plan. After T-CI-2A adds
+`frontend-tests`, its plan owns this section and must replace deletion with a
+PATCH that restores the exact Python-only contract below. Deleting the ruleset
+after T-CI-2A would also remove the established Python merge gate.
+
 ```bash
 gh api -H "X-GitHub-Api-Version: 2026-03-10" --method DELETE \
   repos/manumissio/town-council/rulesets/19594795
@@ -247,8 +259,8 @@ ruleset is active; do not duplicate the ruleset JSON into other docs.
 ## 7. Delivery Self-Audit
 
 **x) Diff scan.** Reject any workflow edit, extra rule, bypass actor, extra
-required check, external policy outside the default branch, or tracked file
-outside the two-file ownership set.
+required check before T-CI-2A, external policy outside the default branch, or
+tracked file outside the two-file ownership set.
 
 **y) Evidence.** Ruleset 19594795 is active and exact REST readback confirms
 the approved target, enforcement, conditions, bypass list, sole required
