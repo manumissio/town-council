@@ -877,7 +877,10 @@ def test_formatter_scope_is_config_owned_and_preserved():
     assert "exclude" not in ruff_config.get("format", {})
     assert "exclude" not in formatter_config.get("format", {})
     assert CONFIG_OWNED_FORMATTER_COMMAND in docs_text
-    assert "ruff-format.toml" in agents_text
+    assert (
+        "Guardrail/tooling changes (`ruff.toml`, `ruff-format.toml`, `mypy.ini`,"
+        in agents_text
+    )
     assert "ruff format --check" not in agents_text
     assert workflow_formatter_commands == [
         "run: python -m ruff format --check . --config ruff-format.toml"
