@@ -1,10 +1,12 @@
 # Town Council Remediation Plan (Codex Multi-Agent)
 
-version: 2.1
+version: 2.2
 generated: 2026-07-23
-changelog: v2.1 adds the direct development-only PyYAML contract required to
-validate workflow check identities semantically instead of approximating YAML
-with regular expressions. v2.0 records T-CI-2 completion and adds the implementation-ready
+changelog: v2.2 corrects the T-CI-2A workflow identity guardrail to preserve
+GitHub string semantics for YAML 1.1 Boolean-like scalars. v2.1 adds the direct
+development-only PyYAML contract required to validate workflow check
+identities semantically instead of approximating YAML with regular
+expressions. v2.0 records T-CI-2 completion and adds the implementation-ready
 T-CI-2A plan for the separately approval-gated frontend required-check policy.
 v1.9 corrects T-CI-2 to use the existing Node 20 test runner,
 permits the stale CSP contract to follow its current proxy owner, expands
@@ -229,7 +231,8 @@ contract test only; later GOV work retains all other ownership.
 ### T-CI-2A: Require the universal frontend test check
 - priority: P0
 - depends_on: T-CI-2
-- status: planning complete; live policy update awaits operator approval
+- status: planning and scalar-parity guardrail complete; live policy update
+  awaits operator approval
 - files_owned: docs/plans/T_CI_2_REQUIRED_CHECK_POLICY_PLAN.md (new),
   docs/plans/T_CI_1_REQUIRED_CHECK_POLICY_PLAN.md,
   docs/plans/TOWN_COUNCIL_REMEDIATION_PLAN.md, AGENTS.md (verification-matrix
@@ -252,7 +255,9 @@ contract test only; later GOV work retains all other ownership.
   are mandatory.
 - accept: Every pull request receives both contexts; the default branch cannot
   update unless both pass; strict policy, branch-creation exemption, empty
-  bypass list, target, and all other T-CI-1A fields remain unchanged.
+  bypass list, target, and all other T-CI-1A fields remain unchanged. Workflow
+  identity validation preserves GitHub string semantics for Boolean-like job
+  IDs and display names.
 - forbidden: Adding the check while the workflow is path-filtered or unproven;
   adding any third check or rule; changing the existing Python gate; assuming
   approval from T-CI-1A.

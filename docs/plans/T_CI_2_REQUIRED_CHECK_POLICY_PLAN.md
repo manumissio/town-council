@@ -65,12 +65,15 @@ recorded below. G3 remains open and continues to block Phase 2.
 2. Confirm PR #114 supplies the post-T-CI-2 frontend-change proof:
    `frontend-tests` completed successfully from GitHub Actions integration
    `15368`.
-3. Pin PyYAML in development requirements and use `yaml.safe_load` to prove
+3. Pin PyYAML in development requirements and use
+   `yaml.load(..., Loader=yaml.BaseLoader)` to prove
    `.github/workflows/frontend-tests.yml` contains the only workflow job whose
    effective check name is `frontend-tests`, as canonical job ID
-   `frontend-tests` with no display-name override. Semantic parsing must cover
-   comments, quoted keys, folded scalars, and command blocks without treating
-   their text as workflow jobs.
+   `frontend-tests` with no display-name override. The string-only loader is
+   deliberately narrow: it preserves GitHub's treatment of `on`, `off`, `yes`,
+   and `no` as strings while parsing only the job mappings needed by this
+   contract. Regression cases must cover comments, quoted keys, folded scalars,
+   command blocks, and Boolean-like job IDs and names.
 4. Add this Full plan, update the remediation registry, replace T-CI-1A's
    obsolete deletion rollback with a non-destructive restoration policy, and
    replace the stale AGENTS transition annotations with accurate T-CI-2A
@@ -120,14 +123,16 @@ recorded below. G3 remains open and continues to block Phase 2.
 
 No production function, module, workflow, helper script, compatibility path,
 or new configuration surface is added. The guardrail test uses the direct
-development-only PyYAML dependency rather than maintaining a partial YAML
-parser.
+development-only PyYAML dependency and its string-only `BaseLoader` rather
+than maintaining a partial YAML parser or mutating a shared loader resolver.
 
 **f) Reuse audit.** Reuse the existing universal frontend workflow, its
 GitHub Actions check identity, ruleset `19594795`, T-CI-1A readback
-assertions, GitHub CLI authentication, `jq`, and PyYAML's safe loader. A second
-ruleset, legacy branch protection, custom policy script, or workflow
-duplication is rejected because each would create another enforcement owner.
+assertions, GitHub CLI authentication, `jq`, and PyYAML's `BaseLoader` for the
+two string-valued workflow fields under inspection. A second ruleset, legacy
+branch protection, custom loader subclass, custom resolver, policy script, or
+workflow duplication is rejected because each would create another
+enforcement owner.
 
 **Dependencies.** Add `PyYAML==6.0.3` to
 `pipeline/requirements-dev.txt`. It is already present locally as a transitive
@@ -218,8 +223,10 @@ exposed. G4 is unaffected.
 
 **l) Untrusted input.** GitHub API responses are external input. Verification
 selects and compares named JSON fields with `jq`; no response text is executed.
-Tracked workflow YAML is parsed with `yaml.safe_load`, which does not construct
-arbitrary Python objects.
+Tracked workflow YAML is parsed with PyYAML's `BaseLoader`, which performs
+minimal construction and preserves scalar values as strings. This avoids both
+arbitrary Python object construction and YAML 1.1 Boolean coercion. It is not
+treated as a complete GitHub Actions parser.
 
 ## 4. Code Health
 
@@ -230,7 +237,9 @@ The external mutation is fail-fast and preceded by exact drift detection.
 **n) Antipattern scan, plan pass.**
 
 - A1/H1 corrected: current GitHub REST and OpenAPI documentation verify the
-  ruleset update method and required-status-check fields.
+  ruleset update method and required-status-check fields. PyYAML 6.0.3
+  documentation verifies the explicit `yaml.load(stream, Loader)` call and
+  string-only `BaseLoader` behavior.
 - A2 corrected: no new setting or hidden default is introduced; every changed
   field appears in the approved contract.
 - A3 corrected: repository, PR, and effective-rule claims require fresh API
@@ -287,6 +296,8 @@ and readback commands. Runtime-code delta is zero.
     requirements.
 16. A dynamic top-level job name resolves to `frontend-tests` only at runtime,
     preventing static proof that the required-check producer is unique.
+17. PyYAML's YAML 1.1 Boolean resolver coerces valid GitHub job IDs or names
+    such as `yes` and `On`, causing false guardrail failures.
 
 **r) Verification mapping.**
 
@@ -307,6 +318,7 @@ and readback commands. Runtime-code delta is zero.
 | Semantic workflow-parser regression cases | 14 |
 | Development/runtime dependency boundary contract | 15 |
 | Fail-closed dynamic job-name regression case | 16 |
+| GitHub Boolean-like scalar parity regression cases | 17 |
 
 No fixed test count or inferred UI behavior is used as acceptance evidence.
 
@@ -1197,7 +1209,7 @@ rollback guidance in T-CI-1A.
   T-CI-2A-pending text, then removes that temporary text after live readback.
 - `tests/test_repository_guardrails.py` enforces one canonical repository-wide
   `frontend-tests` workflow job ID and no alternate effective job-name
-  producer, using semantic YAML parsing.
+  producer, using string-preserving structural YAML parsing.
 - `pipeline/requirements-dev.txt` and `tests/test_docker_build_contracts.py`
   make the parser a direct development-only dependency.
 - README, architecture review, ADR, operations, security, data governance,
