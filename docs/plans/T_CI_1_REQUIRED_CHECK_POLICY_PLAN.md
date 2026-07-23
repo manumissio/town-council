@@ -163,13 +163,16 @@ only.
 **r) Verification mapping.** Ruleset readback assertions cover scenarios 1-5.
 Effective-rule readback covers scenarios 1, 2, 5, and 6. Capture the POST
 status and list rulesets after any failure for scenario 7. Static workflow
-search proves one check producer. Docs-link tests cover both tracked files.
+search proves one check producer. The docs-link test covers the canonical map;
+manual semantic diff review covers both tracked plan files.
 
 **s) Fakes and mocks.** None. GitHub's authenticated REST API is the actual
 operator boundary.
 
-**t) Verification rows.** Apply the docs-only row. External acceptance requires
-the live ruleset readback; local tests cannot prove repository enforcement.
+**t) Verification rows.** Apply the docs-only row. That test validates the
+canonical documentation map; it does not inspect internal references in these
+two plan files. External acceptance requires the live ruleset readback, and a
+manual semantic diff review covers the changed plan text.
 
 ## 6. Execution, Rollback, Docs
 
@@ -216,8 +219,18 @@ jq -e --argjson ruleset_id 19594795 '
 ' /tmp/t-ci-1-effective-master-rules.json
 test "$(gh api -H 'X-GitHub-Api-Version: 2026-03-10' \
   repos/manumissio/town-council/rulesets --jq 'length')" = "1"
-! gh api -H "X-GitHub-Api-Version: 2026-03-10" \
-  repos/manumissio/town-council/branches/master/protection
+if gh api --include -H "X-GitHub-Api-Version: 2026-03-10" \
+  repos/manumissio/town-council/branches/master/protection \
+  > /tmp/t-ci-1-legacy-protection-response.txt 2>&1; then
+  echo "Expected legacy branch protection to be absent" >&2
+  exit 1
+fi
+legacy_protection_status=$(awk 'index($0, "HTTP/") == 1 { status=$2 } END { print status }' \
+  /tmp/t-ci-1-legacy-protection-response.txt)
+if [ "$legacy_protection_status" != "404" ]; then
+  echo "Expected HTTP 404, received ${legacy_protection_status:-no status}" >&2
+  exit 1
+fi
 PYTHONPATH=. .venv/bin/pytest -q tests/test_docs_links.py
 git diff --check
 ```
@@ -235,8 +248,18 @@ after T-CI-2A would also remove the established Python merge gate.
 ```bash
 gh api -H "X-GitHub-Api-Version: 2026-03-10" --method DELETE \
   repos/manumissio/town-council/rulesets/19594795
-! gh api -H "X-GitHub-Api-Version: 2026-03-10" \
-  repos/manumissio/town-council/rulesets/19594795
+if gh api --include -H "X-GitHub-Api-Version: 2026-03-10" \
+  repos/manumissio/town-council/rulesets/19594795 \
+  > /tmp/t-ci-1-deleted-ruleset-response.txt 2>&1; then
+  echo "Expected deleted ruleset to return 404" >&2
+  exit 1
+fi
+deleted_ruleset_status=$(awk 'index($0, "HTTP/") == 1 { status=$2 } END { print status }' \
+  /tmp/t-ci-1-deleted-ruleset-response.txt)
+if [ "$deleted_ruleset_status" != "404" ]; then
+  echo "Expected HTTP 404, received ${deleted_ruleset_status:-no status}" >&2
+  exit 1
+fi
 gh api -H "X-GitHub-Api-Version: 2026-03-10" \
   repos/manumissio/town-council/rulesets \
   | jq -e --argjson ruleset_id 19594795 'all(.[]; .id != $ruleset_id)'
@@ -266,8 +289,9 @@ tracked file outside the two-file ownership set.
 the approved target, enforcement, conditions, bypass list, sole required
 check, strict policy, and branch-creation exemption. Effective rules on
 `master` contain that sole rule; legacy branch protection remains absent.
-Report docs-link result, diff check, and rollback command. Mark GitHub UI
-behavior not directly exercised as `NOT VERIFIED` rather than inferring it.
+Report the docs-link result as canonical-map coverage only, plus the manual
+plan diff review, diff check, and rollback command. Mark GitHub UI behavior not
+directly exercised as `NOT VERIFIED` rather than inferring it.
 
 **z) Deviations.** Expected result is none. Any API field change, additional
 ruleset, bypass, unverified readback, or tracked path outside ownership blocks
