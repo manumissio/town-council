@@ -26,6 +26,14 @@ Optional helper (same steps, fewer flags to remember):
 bash ./scripts/dev_up.sh
 ```
 
+After upgrading a stack created before T-SEC-1, recreate the affected services
+once so their removed host bindings do not survive in existing containers:
+
+```bash
+docker compose -f docker-compose.yml up -d --force-recreate \
+  postgres redis meilisearch prometheus grafana
+```
+
 The base stack publishes only the API and frontend. For loopback-only access
 to backing and monitoring interfaces, start only those services with the
 development overlay:

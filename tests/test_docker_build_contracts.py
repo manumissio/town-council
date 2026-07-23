@@ -109,11 +109,16 @@ def test_operator_docs_scope_dev_overlay_to_port_services():
         "  postgres redis meilisearch prometheus grafana"
     )
     purge_warning = "Using the development overlay for the full stack also enables `STARTUP_PURGE_DERIVED=true`."
+    upgrade_command = (
+        "docker compose -f docker-compose.yml up -d --force-recreate \\\n"
+        "  postgres redis meilisearch prometheus grafana"
+    )
 
     assert access_command in readme
     assert access_command in operations
     assert purge_warning in readme
     assert purge_warning in operations
+    assert upgrade_command in operations
 
 
 def test_dockerfile_defines_split_python_targets():
