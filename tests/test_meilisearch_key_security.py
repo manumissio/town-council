@@ -272,12 +272,12 @@ def test_legacy_api_export_contains_reader_key_not_master_key() -> None:
     assert MASTER_KEY_SENTINEL not in completed_process.stdout
 
 
-def test_semantic_dev_startup_warns_without_search_key(
+def test_semantic_dev_startup_warns_with_development_search_key(
     monkeypatch: pytest.MonkeyPatch,
     caplog: pytest.LogCaptureFixture,
 ) -> None:
     monkeypatch.setenv("MEILI_MASTER_KEY", MASTER_KEY_SENTINEL)
-    monkeypatch.setattr(semantic_main, "MEILI_SEARCH_KEY", "")
+    monkeypatch.setattr(semantic_main, "MEILI_SEARCH_KEY", DEVELOPMENT_MEILI_SEARCH_KEY)
     monkeypatch.setattr(semantic_main, "MEILI_READER_KEY", DEVELOPMENT_MEILI_SEARCH_KEY)
     application = FastAPI(lifespan=semantic_main.lifespan)
 

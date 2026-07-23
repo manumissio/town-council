@@ -70,7 +70,7 @@ SessionLocal = sessionmaker(bind=engine, autoflush=False, autocommit=False)
 @asynccontextmanager
 async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     _ = app
-    if not MEILI_SEARCH_KEY.strip() and MEILI_READER_KEY == DEVELOPMENT_MEILI_SEARCH_KEY:
+    if MEILI_READER_KEY == DEVELOPMENT_MEILI_SEARCH_KEY:
         logger.warning(MEILI_SEARCH_KEY_FALLBACK_WARNING)
     yield
 

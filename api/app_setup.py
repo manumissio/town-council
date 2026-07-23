@@ -114,7 +114,7 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         logger.critical("SECURITY WARNING: You are using the default API Key. Please set API_AUTH_KEY in production.")
     from api.search import support_core
 
-    if not support_core.MEILI_SEARCH_KEY.strip() and support_core.MEILI_MASTER_KEY == DEVELOPMENT_MEILI_SEARCH_KEY:
+    if support_core.MEILI_MASTER_KEY == DEVELOPMENT_MEILI_SEARCH_KEY:
         logger.warning(MEILI_SEARCH_KEY_FALLBACK_WARNING)
     initialize_database()
     if not is_db_ready():

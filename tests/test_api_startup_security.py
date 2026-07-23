@@ -125,14 +125,14 @@ def test_non_dev_startup_accepts_configured_api_key(
     assert changed_key_response.status_code == 401
 
 
-def test_api_dev_startup_warns_without_search_key(
+def test_api_dev_startup_warns_with_development_search_key(
     monkeypatch: pytest.MonkeyPatch,
     caplog: pytest.LogCaptureFixture,
 ) -> None:
     monkeypatch.setenv("APP_ENV", "dev")
     monkeypatch.setenv("API_AUTH_KEY", CONFIGURED_API_KEY)
     monkeypatch.setenv("MEILI_MASTER_KEY", MASTER_KEY_SENTINEL)
-    monkeypatch.setattr(support_core, "MEILI_SEARCH_KEY", "")
+    monkeypatch.setattr(support_core, "MEILI_SEARCH_KEY", DEVELOPMENT_MEILI_SEARCH_KEY)
     monkeypatch.setattr(support_core, "MEILI_MASTER_KEY", DEVELOPMENT_MEILI_SEARCH_KEY)
     monkeypatch.setenv("STARTUP_PURGE_DERIVED", "false")
     monkeypatch.setattr(semantic_support.httpx, "get", _healthy_semantic_get)
