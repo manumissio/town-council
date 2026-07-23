@@ -12,7 +12,9 @@ remains in force; where this plan is stricter, this plan wins for these tasks.
 
 - **v2.6:** Records operator approval and live activation of the T-CI-2A
   frontend required check. Final completion remains pending until the policy
-  record merges under both required checks and post-merge readback passes.
+  record merges under both required checks and post-merge readback passes. It
+  also retires T-CI-2's unsafe standalone rollback; any reversal must coordinate
+  the ruleset, producer, guardrails, dependency contract, and policy text.
 - **v2.5:** Records T-SEC-1 completion after local verification, independent
   review, and green pull-request checks.
 - **v2.4:** Records T-CI-3 completion and expands T-SEC-1 ownership so
@@ -253,6 +255,8 @@ in `AGENTS.md`, `docs/TESTING.MD`, and
 - status: live policy active; merge verification pending
 - files_owned: docs/plans/T_CI_2_REQUIRED_CHECK_POLICY_PLAN.md (new),
   docs/plans/T_CI_1_REQUIRED_CHECK_POLICY_PLAN.md,
+  docs/plans/T_CI_2_FRONTEND_TESTS_PLAN.md (historical ruleset evidence and
+  rollback section only),
   docs/plans/TOWN_COUNCIL_REMEDIATION_PLAN.md, AGENTS.md (verification-matrix
   CI-status paragraph and transition markers only),
   pipeline/requirements-dev.txt,

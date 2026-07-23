@@ -45,6 +45,8 @@ both checks and the post-merge ruleset readback passes.
 
 - `docs/plans/T_CI_2_REQUIRED_CHECK_POLICY_PLAN.md`
 - `docs/plans/T_CI_1_REQUIRED_CHECK_POLICY_PLAN.md`
+- `docs/plans/T_CI_2_FRONTEND_TESTS_PLAN.md`, historical ruleset evidence and
+  rollback section only
 - `docs/plans/TOWN_COUNCIL_REMEDIATION_PLAN.md`
 - `AGENTS.md`, verification-matrix CI-status paragraph and transition markers
   only
@@ -116,6 +118,9 @@ to block Phase 2.
     - mark T-CI-2A `live policy active; merge verification pending`;
     - update T-CI-1A's current-state wording without erasing its historical
       decision;
+    - retire T-CI-2's now-unsafe standalone rollback and require a separately
+      authorized coordinated reversal of the ruleset, producer, guardrails,
+      dependency contract, and policy text;
     - remove the two T-CI-2A-pending transition annotations from
       `AGENTS.md`.
 12. Run documentation verification and obtain a fresh subagent pre-commit
@@ -259,7 +264,7 @@ The external mutation is fail-fast and preceded by exact drift detection.
   planning PR before any live policy change; no destructive fallback survives.
 - D1-D3 corrected: no test is weakened or mocked; live policy equality is the
   observable contract.
-- E1-E3 corrected: only the seven tracked owned files and one owned external
+- E1-E3 corrected: only the eight tracked owned files and one owned external
   ruleset may change.
 - A4, B3, C2, F2, H2-H4: no planned violations.
 
@@ -275,8 +280,10 @@ The external mutation is fail-fast and preceded by exact drift detection.
 
 **p) Dead code and duplication audit.** Replace two obsolete transition
 annotations with accurate pending text, then remove that text after activation.
-Remove the obsolete ruleset-deletion rollback. Reuse all existing CI producers
-and readback commands. Runtime-code delta is zero.
+Remove the obsolete ruleset-deletion rollback and retire the unsafe T-CI-2
+standalone procedure, which cannot also reconcile later T-CI-2A guardrails and
+policy. Reuse all existing CI producers and readback commands. Runtime-code
+delta is zero.
 
 ## 5. Testing
 
@@ -1213,6 +1220,9 @@ rollback guidance in T-CI-1A.
   T-CI-2A progress, approval, and final completion.
 - `docs/plans/T_CI_1_REQUIRED_CHECK_POLICY_PLAN.md` replaces the obsolete
   ruleset-deletion rollback in the planning PR before the live update.
+- `docs/plans/T_CI_2_FRONTEND_TESTS_PLAN.md` preserves its historical
+  pre-activation evidence and retires standalone rollback after T-CI-2A
+  activation.
 - `AGENTS.md` first replaces stale landed-task annotations with accurate
   T-CI-2A-pending text, then removes that temporary text after live readback.
 - `tests/test_repository_guardrails.py` enforces one canonical repository-wide

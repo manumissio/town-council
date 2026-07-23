@@ -274,7 +274,8 @@ only non-frontend policy documents and supplies the non-frontend
 demonstration. Do not update the ruleset until both checks are terminal and
 green.
 
-Read back the unchanged Python-only ruleset before delivery:
+Historical delivery evidence before T-CI-2A activation read back the unchanged
+Python-only ruleset:
 
 ```bash
 gh api repos/manumissio/town-council/rulesets/19594795 |
@@ -291,7 +292,7 @@ gh api repos/manumissio/town-council/rulesets/19594795 |
   '
 ```
 
-Expected required checks remain exactly:
+At that time, expected required checks remained exactly:
 
 The comparison exits zero only when `python-guardrails` is the sole required
 context, integration ID `15368` is preserved, strict checking remains enabled,
@@ -299,33 +300,35 @@ and branch creation remains exempt.
 
 **v) Rollback.**
 
-```bash
-git switch master
-git merge --ff-only origin/master
-git revert -m 1 <t_ci_2_merge_commit_sha>
-./.venv/bin/ruff check .
-./.venv/bin/mypy
-PYTHONPATH=. .venv/bin/pytest -q tests/test_repository_guardrails.py
-PYTHONPATH=. .venv/bin/pytest -q tests/test_docs_links.py
-PYTHONPATH=. .venv/bin/pytest -q
-test ! -e .github/workflows/frontend-tests.yml
-gh api repos/manumissio/town-council/rulesets/19594795 |
-  jq -e '
-    [.rules[] | select(.type == "required_status_checks") | .parameters] ==
-    [{
-      "do_not_enforce_on_create": true,
-      "required_status_checks": [{
-        "context": "python-guardrails",
-        "integration_id": 15368
-      }],
-      "strict_required_status_checks_policy": true
-    }]
-  '
-```
+Standalone T-CI-2 rollback is retired after T-CI-2A activation. Do not revert
+T-CI-2 or remove `.github/workflows/frontend-tests.yml`: that would remove the
+only producer of a required context while leaving its ruleset requirement,
+producer-identity guardrail, development dependency contract, and current
+policy text active.
 
-No migration, data remediation, dependency rollback, or external-state
-cleanup is required. Rollback knowingly removes the frontend merge signal;
-ruleset 19594795 must still require only `python-guardrails`.
+A future reversal requires a separately operator-approved Full task with
+explicit ownership of the external ruleset and every tracked T-CI-2/T-CI-2A
+contract it retires. Its ordered procedure must:
+
+1. Restore the exact Python-only contract through
+   `docs/plans/T_CI_2_REQUIRED_CHECK_POLICY_PLAN.md`.
+2. Prove ruleset `19594795` is the only repository ruleset, remains named
+   `Require Python Guardrails`, has repository source
+   `manumissio/town-council` and source type `Repository`, targets only the
+   default branch, remains active with no bypass actors, requires only
+   `python-guardrails` from integration `15368`, keeps strict checking and the
+   branch-creation exemption, has no extra rule or legacy branch protection,
+   and matches the effective-`master` readback.
+3. Retire the frontend producer-identity guardrail, its development dependency
+   contract, and current policy text in the same coordinated change that
+   removes the workflow.
+4. Run every applicable guardrail, dependency, frontend, docs, and complete
+   suite check before merge.
+5. Repeat direct and effective Python-only ruleset readbacks after the default
+   branch advances.
+
+This historical plan does not authorize that future policy reversal. No
+migration or data remediation is involved.
 
 **w) Docs synchronization.**
 
