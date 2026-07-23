@@ -1,6 +1,6 @@
 # Town Council Remediation Plan (Codex Multi-Agent)
 
-version: 2.9
+version: 3.2
 generated: 2026-07-23
 source: Four-pass external code review (security, architecture, smells, process)
 source_artifact: [Town Council architecture review](../reviews/architecture-review-2026-07-19.html)
@@ -10,6 +10,15 @@ remains in force; where this plan is stricter, this plan wins for these tasks.
 
 ## Changelog
 
+- **v3.2:** Closes T-SEC-3 review gaps by aligning base and development reader
+  identities, preserving the development stack during bootstrap, soak
+  recovery, and local experiments, and protecting the frontend's independent
+  Docker build context.
+- **v3.1:** Expands T-SEC-3 ownership to keep local model bootstrap and runtime
+  profile commands on the explicit development Compose stack.
+- **v3.0:** Expands T-SEC-3 to cover both Meilisearch reader services,
+  non-development fail-fast behavior, writer credential wiring, tests,
+  operations guidance, and its Full implementation plan.
 - **v2.9:** Marks T-SEC-2 complete after transport-safe API-key validation,
   focused and full-suite verification, independent review, and green
   implementation-head pull-request checks. The closure commit must pass the
@@ -66,8 +75,9 @@ remains in force; where this plan is stricter, this plan wins for these tasks.
 | State | Tasks |
 |---|---|
 | **Complete** | T-CI-0, T-CI-1, T-CI-1A, T-CI-2, T-CI-2A, T-CI-3, T-CI-4, T-CI-5, T-SEC-1, T-SEC-2 |
+| **In review** | T-SEC-3 |
 | **Partially landed; acceptance incomplete** | T-GOV-4, T-GOV-5, T-GOV-6 |
-| **Pending** | T-SEC-3..6, T-TIME-1..3, T-CRAWL-1..2, T-DA-1, T-DB-1, T-DC-1, T-DD-1, T-DE-1, T-PLAT-1..4, T-GOV-1..3 |
+| **Pending** | T-SEC-4..6, T-TIME-1..3, T-CRAWL-1..2, T-DA-1, T-DB-1, T-DC-1, T-DD-1, T-DE-1, T-PLAT-1..4, T-GOV-1..3 |
 
 ---
 
@@ -118,7 +128,7 @@ remains in force; where this plan is stricter, this plan wins for these tasks.
 | lane      | agent id   | owned paths (exclusive within phase)                      |
 |-----------|-----------|------------------------------------------------------------|
 | CI        | agent-ci   | .github/workflows/**, ruff.toml, ruff-format.toml (new), .pre-commit-config.yaml, .coveragerc, frontend/package.json, frontend/jest.config.* (new) |
-| SEC       | agent-sec  | docker-compose.yml, docker-compose.dev.yml, .env.example, api/app_setup.py, api/main.py (CORS+/stats sections only), api/search/support_core.py, frontend/app/api/** |
+| SEC       | agent-sec  | docker-compose.yml, docker-compose.dev.yml, .dockerignore, .env.example, api/app_setup.py, api/main.py (CORS+/stats sections only), api/search/support_core.py, pipeline/meilisearch_credentials.py, semantic_service/main.py, frontend/app/api/** |
 | TIME      | agent-time | pipeline/model_base.py, model_civic.py, model_events.py, model_records.py, model_runtime.py, models.py, db_migrate.py, migrate_v10.py (new), pipeline/summary_freshness.py (verify-only) |
 | CRAWL     | agent-crawl| council_crawler/**                                          |
 | DEDUP-A   | agent-da   | pipeline/metrics.py, pipeline/metrics_redis_backend.py, tests/test_*metrics* |
@@ -444,19 +454,45 @@ in `AGENTS.md`, `docs/TESTING.MD`, and
   outbound HTTP or purge.
 - verify: Targeted pytest for the new test; full suite green.
 
-### T-SEC-3: API read path uses a scoped Meilisearch search key, not the master key
+### T-SEC-3: API and semantic readers use a scoped Meilisearch search key
 - priority: P1
-- files_owned: api/search/support_core.py, docker-compose.yml (api env only),
-  .env.example, README.md (search-key setup note only)
-- do: Introduce `MEILI_SEARCH_KEY` env; api client prefers it, falls back to
-  master key with a logged warning (preserves dev ergonomics). Document key
-  creation (`/keys` endpoint) in README search section or OPERATIONS. The
-  pipeline/indexer keeps the master key (it writes).
-- accept: With MEILI_SEARCH_KEY set, api never sends the master key.
-- forbidden: New config module; put the env read next to the existing ones
-  in support_core.
-- verify: grep confirms api/ has no MEILI_MASTER_KEY usage on the request
-  path when search key present; suite green.
+- status: in-review
+- implementation_plan: `docs/plans/T_SEC_3_MEILISEARCH_SEARCH_KEY_PLAN.md`
+- files_owned: docs/plans/T_SEC_3_MEILISEARCH_SEARCH_KEY_PLAN.md,
+  docs/plans/TOWN_COUNCIL_REMEDIATION_PLAN.md,
+  pipeline/meilisearch_credentials.py, api/app_setup.py,
+  api/search/support_core.py, semantic_service/main.py, docker-compose.yml,
+  docker-compose.dev.yml, .dockerignore, .env.example, README.md,
+  scripts/dev_up.sh, scripts/bootstrap_local_models.sh,
+  scripts/run_soak_day.sh, frontend/.dockerignore,
+  env/profiles/README.md, docs/OPERATIONS.md, SECURITY.md,
+  tests/test_api_startup_security.py, tests/test_meilisearch_key_security.py,
+  tests/test_docker_build_contracts.py, tests/test_run_soak_day_contract.py,
+  tests/test_startup_purge_gating.py
+- do: Introduce `MEILI_SEARCH_KEY` for API and semantic readers. Keep the fake
+  master fallback only in development with a value-free warning; fail
+  non-development startup when the scoped key is absent, equals the development
+  fallback, or is unsafe. Scope the reader key to `search` and `stats.get` on
+  `documents` so the existing API statistics read remains available. Remove
+  the deployed master key from reader containers, require it in base Compose,
+  run Meilisearch in production mode by default, and provide the key to
+  pipeline writer containers. Document key creation, verification, rotation,
+  and revocation.
+- accept: API and semantic clients use only the scoped key when configured;
+  reader containers do not receive the deployed master key or repository
+  `.env`; development mounts expose only required source directories; build
+  contexts exclude local environment files; base readers default to
+  non-development while the overlay marks them as development; local
+  bootstrap, soak recovery, and runtime profile commands preserve the
+  development overlay; soak recovery explicitly disables startup purge; writer
+  containers retain indexing access; isolated and deployed-key permission
+  checks prove search and statistics reads succeed while write and
+  administration fail.
+- forbidden: Master retry, duplicate credential-policy implementations, facade
+  removal before G3, public key exposure, or new client/config registries.
+- verify: Follow the Full T-SEC-3 plan, including credential tests, resolved
+  Compose contracts, live v1.6 permission smoke, API/semantic/indexer suites,
+  Ruff, Mypy, docs links, and the complete Python suite.
 
 ### T-SEC-4: Real client identity through the proxy; per-client rate limits
 - priority: P0
