@@ -1,8 +1,10 @@
 # Town Council Remediation Plan (Codex Multi-Agent)
 
-version: 1.7
+version: 1.8
 generated: 2026-07-22
-changelog: v1.7 adds T-CI-1A to make the green `python-guardrails` check
+changelog: v1.8 expands T-CI-4 ownership and records the dedicated
+formatter-scope config required to preserve repository-wide lint discovery.
+v1.7 adds T-CI-1A to make the green `python-guardrails` check
 mandatory through an active default-branch repository ruleset and schedules
 T-CI-2A to add the universal frontend check only after T-CI-2 is green. v1.6 expands T-CI-1 ownership so the complete-suite workflow,
 contract tests, runbook, and implementation plan land together. It also adds
@@ -78,7 +80,7 @@ remains in force; where this plan is stricter, this plan wins for these tasks.
 
 | lane      | agent id   | owned paths (exclusive within phase)                      |
 |-----------|-----------|------------------------------------------------------------|
-| CI        | agent-ci   | .github/workflows/**, ruff.toml, .pre-commit-config.yaml, .coveragerc, frontend/package.json, frontend/jest.config.* (new) |
+| CI        | agent-ci   | .github/workflows/**, ruff.toml, ruff-format.toml (new), .pre-commit-config.yaml, .coveragerc, frontend/package.json, frontend/jest.config.* (new) |
 | SEC       | agent-sec  | docker-compose.yml, docker-compose.dev.yml, .env.example, api/app_setup.py, api/main.py (CORS+/stats sections only), api/search/support_core.py, frontend/app/api/** |
 | TIME      | agent-time | pipeline/model_base.py, model_civic.py, model_events.py, model_records.py, model_runtime.py, models.py, db_migrate.py, migrate_v10.py (new), pipeline/summary_freshness.py (verify-only) |
 | CRAWL     | agent-crawl| council_crawler/**                                          |
@@ -98,7 +100,9 @@ narrow broad-handler policy correction described below; the GOV lane retains
 ownership of the later redesign and rewrite. T-CI-5 temporarily coordinates
 the lint-command sections of `AGENTS.md` and `docs/ENGINEERING_GUARDRAILS.md`
 plus the corresponding repository guardrail tests; later GOV work retains all
-other ownership of those files.
+other ownership of those files. T-CI-4 receives the same narrow temporary
+coordination grant for formatter config-location prose and the formatter
+contract test only; later GOV work retains all other ownership.
 
 ---
 
@@ -246,14 +250,29 @@ other ownership of those files.
 
 ### T-CI-4: Move formatter file list out of the workflow
 - priority: P2
-- files_owned: .github/workflows/python-guardrails.yml, ruff.toml
-- do: Replace the ~70-file `ruff format --check <list>` CLI enumeration with
-  ruff.toml include/exclude config; workflow runs `ruff format --check .`
-  scoped by config. Formatted-file set must be byte-identical before/after.
-- accept: `git diff` empty after running format on the configured set;
-  CI step is a one-liner.
-- verify: `python -m ruff format --check .` matches prior behavior on the
-  same file set (diff the file lists).
+- depends_on: T-CI-1A
+- files_owned: docs/plans/T_CI_4_FORMATTER_SCOPE_PLAN.md,
+  docs/plans/TOWN_COUNCIL_REMEDIATION_PLAN.md, AGENTS.md,
+  docs/ENGINEERING_GUARDRAILS.md, tests/test_repository_guardrails.py,
+  .github/workflows/python-guardrails.yml (formatter step only), ruff.toml
+  (verify only), ruff-format.toml (new)
+- decision: Approved by the operator on 2026-07-22: replace the registered
+  single-`ruff.toml` design with the dedicated `ruff-format.toml` and expanded
+  ownership. Serialize this registry edit after T-CI-1A and use remediation
+  plan version 1.8.
+- do: Move the exact current formatter path set into `ruff-format.toml`, which
+  extends `ruff.toml`, and run the one-line config-owned formatter command in
+  CI. Keep lint discovery and every non-formatter workflow step unchanged.
+- accept: The formatter config discovers exactly the current 68 paths;
+  `ruff format --check` changes no bytes; the workflow contains no formatter
+  file list; lint remains repository-wide; policy docs point to the correct
+  config.
+- forbidden: Narrowing lint discovery; expanding formatter enrollment;
+  encoding the inverse set as hundreds of exclusions; editing workflow steps
+  other than the formatter; formatting source files.
+- verify: Ruff discovery parity, Ruff lint, configured formatter check,
+  pre-commit, Mypy, repository guardrails, docs links, complete Python suite,
+  and `git diff --check` as specified in the T-CI-4 plan.
 
 ### T-CI-5: Activate and ratchet the landed Ruff scope
 - priority: P0 (run FIRST in Phase 0 — the allowlist is a snapshot of the
@@ -616,7 +635,7 @@ files (GED-5 grant).
 
 ### T-GOV-5: Land the rewritten ENGINEERING_GUARDRAILS.md
 - priority: P1
-- depends_on: T-CI-4 (formatter scope in ruff.toml); coordinates with
+- depends_on: T-CI-4 (formatter scope in ruff-format.toml); coordinates with
   T-GOV-3 (structural rules).
 - files_owned: docs/ENGINEERING_GUARDRAILS.md
 - coordination: T-CI-0's narrow broad-handler structural-policy correction lands
@@ -624,7 +643,8 @@ files (GED-5 grant).
   must not restore final-statement or `sys.exit()` authorization.
 - do: Merge the provided draft (drafts/docs/ENGINEERING_GUARDRAILS.md) in
   the same PR as T-CI-4 or immediately after. Reconcile [transition]
-  markers: T-CI-4 marker removed when the ruff.toml scope is live; T-GOV-3
+  markers: T-CI-4 marker removed when the `ruff-format.toml` scope is live;
+  T-GOV-3
   markers removed as each structural rule gains enforcement. The typed
   subtree list must be confirmed present in mypy.ini before deleting the
   doc enumeration (it already is — verify, don't assume).
