@@ -1,6 +1,6 @@
 # Town Council Remediation Plan (Codex Multi-Agent)
 
-version: 2.8
+version: 2.9
 generated: 2026-07-23
 source: Four-pass external code review (security, architecture, smells, process)
 source_artifact: [Town Council architecture review](../reviews/architecture-review-2026-07-19.html)
@@ -10,6 +10,10 @@ remains in force; where this plan is stricter, this plan wins for these tasks.
 
 ## Changelog
 
+- **v2.9:** Marks T-SEC-2 complete after transport-safe API-key validation,
+  focused and full-suite verification, independent review, and green
+  implementation-head pull-request checks. The closure commit must pass the
+  same required checks before merge.
 - **v2.8:** Expands T-SEC-2 ownership so its startup policy, focused tests,
   security checklist, registry, and Full plan land together.
 - **v2.7:** Marks T-CI-2A complete after PR #120 merged under both required
@@ -61,8 +65,7 @@ remains in force; where this plan is stricter, this plan wins for these tasks.
 
 | State | Tasks |
 |---|---|
-| **Complete** | T-CI-0, T-CI-1, T-CI-1A, T-CI-2, T-CI-2A, T-CI-3, T-CI-4, T-CI-5, T-SEC-1 |
-| **Implementation ready** | T-SEC-2 |
+| **Complete** | T-CI-0, T-CI-1, T-CI-1A, T-CI-2, T-CI-2A, T-CI-3, T-CI-4, T-CI-5, T-SEC-1, T-SEC-2 |
 | **Partially landed; acceptance incomplete** | T-GOV-4, T-GOV-5, T-GOV-6 |
 | **Pending** | T-SEC-3..6, T-TIME-1..3, T-CRAWL-1..2, T-DA-1, T-DB-1, T-DC-1, T-DD-1, T-DE-1, T-PLAT-1..4, T-GOV-1..3 |
 
@@ -421,7 +424,7 @@ in `AGENTS.md`, `docs/TESTING.MD`, and
 
 ### T-SEC-2: Fail fast on default API key outside dev
 - priority: P0
-- status: implementation-ready
+- status: complete
 - implementation_plan: `docs/plans/T_SEC_2_DEFAULT_API_KEY_PLAN.md`
 - files_owned: docs/plans/T_SEC_2_DEFAULT_API_KEY_PLAN.md,
   docs/plans/TOWN_COUNCIL_REMEDIATION_PLAN.md, api/app_setup.py,

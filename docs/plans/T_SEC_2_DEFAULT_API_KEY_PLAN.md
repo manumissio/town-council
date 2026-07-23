@@ -1,7 +1,7 @@
 # T-SEC-2: Reject the Default API Key Outside Development
 
 `artifact_contract: ce-unified-plan/v1`
-`artifact_readiness: implementation-ready`
+`artifact_readiness: complete`
 `execution: code`
 
 ## 1. Context & Alignment
@@ -269,12 +269,29 @@ default, secret-bearing logs, dev behavior drift, uncontrolled outbound HTTP,
 endpoint changes, new configuration, private-state assertions, facade
 patching, unrelated formatting, or edits outside the five-file ownership set.
 
-**y) Evidence required.** Report the tests-first failure, every command in 6u,
-independent planning and pre-commit review findings, fixes, commit hashes, PR
-URL, unresolved-thread count, current-head review result, and final CI state.
-Anything unrun is `NOT VERIFIED`.
+**y) Evidence.**
 
-**z) Deviations.** The authorized remediation-plan correction is expanded
-T-SEC-2 ownership. Any additional path, credential/default change, endpoint
-policy change, unrelated task-status change, unresolved P1/P2, skipped review,
-or unrun required check is a blocker.
+- Tests-first: `4 failed, 9 passed`; the edge-whitespace and internal-whitespace
+  cases reached the database sentinel before the production correction.
+- Focused startup security: `14 passed`.
+- API and docs verification: `63 passed`.
+- Complete Python suite: `1,143 passed`.
+- Ruff, pre-commit Ruff, Mypy, and `git diff --check`: PASS.
+- Independent pre-commit review: two P2 findings corrected; final re-review
+  reported no P1/P2 findings.
+- Pull request: [#122](https://github.com/manumissio/town-council/pull/122).
+- Commits: `eb41624`, `109cb46`, and P1 correction `97ff76f`.
+- Implementation-head review: Codex reported no major issues on `97ff76f`.
+- Implementation-head CI: frontend, Python Guardrails, and CodeQL checks
+  passed. The closure commit must pass the same pull-request gates before
+  merge.
+- Review threads: `0` unresolved.
+
+**z) Deviations.** The authorized remediation-plan correction expanded
+T-SEC-2 ownership. Delivery uses a fourth, docs-only closure commit because the
+security checklist and registry could not truthfully close until implementation
+CI and review passed. A narrow `sed -i` removed only merge-conflict markers
+during rebase after `apply_patch` could not match them. Context7 had no h11
+entry, so the installed h11 0.16.0 parser provided executable API and boundary
+evidence. No additional path, credential/default, endpoint policy, or unrelated
+task status changed.
