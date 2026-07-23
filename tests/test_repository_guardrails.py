@@ -973,7 +973,7 @@ def _workflow_job_check_producers(
     workflow_text: str,
     required_check_name: str,
 ) -> tuple[tuple[str, str | None], ...]:
-    workflow_contract = yaml.safe_load(workflow_text)
+    workflow_contract = yaml.load(workflow_text, Loader=yaml.BaseLoader)
     assert isinstance(workflow_contract, dict)
     workflow_jobs = workflow_contract.get("jobs")
     assert isinstance(workflow_jobs, dict)
@@ -1065,6 +1065,41 @@ jobs:
 
     with pytest.raises(AssertionError, match="Dynamic workflow job name"):
         _workflow_job_check_producers(workflow_text, "frontend-tests")
+
+
+@pytest.mark.parametrize(
+    "github_string_scalar",
+    ("on", "off", "yes", "no", "On", "OFF", "Yes", "NO"),
+)
+def test_frontend_required_check_preserves_github_string_job_ids(
+    github_string_scalar: str,
+):
+    workflow_text = f"""\
+jobs:
+  {github_string_scalar}:
+    runs-on: ubuntu-latest
+    steps: []
+"""
+
+    assert _workflow_job_check_producers(workflow_text, "frontend-tests") == ()
+
+
+@pytest.mark.parametrize(
+    "github_string_scalar",
+    ("on", "off", "yes", "no", "On", "OFF", "Yes", "NO"),
+)
+def test_frontend_required_check_preserves_github_string_job_names(
+    github_string_scalar: str,
+):
+    workflow_text = f"""\
+jobs:
+  alternate:
+    name: {github_string_scalar}
+    runs-on: ubuntu-latest
+    steps: []
+"""
+
+    assert _workflow_job_check_producers(workflow_text, "frontend-tests") == ()
 
 
 def test_frontend_workflow_installs_locked_dependencies_before_tests():
