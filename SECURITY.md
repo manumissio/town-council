@@ -50,9 +50,13 @@ engineering decisions is `reachable`).
 
 ## Secret policy
 
-- No working default credential may permit non-dev operation. The API
-  refuses to start with the default `API_AUTH_KEY` when `APP_ENV != dev`
-  `[remediation: T-SEC-2]`. Extend the same pattern to any future secret.
+- No working default or blank credential may permit non-development
+  operation. The API refuses to start outside development with a default
+  (including surrounding whitespace), empty, or whitespace-only
+  `API_AUTH_KEY`. Every nonempty API key must contain printable ASCII
+  characters without leading or trailing whitespace so HTTP header parsing
+  cannot change the authenticated value `[remediation: T-SEC-2]`. Extend the
+  same pattern to any future secret.
 - No secret in a `NEXT_PUBLIC_*` variable, ever. These ship to browser
   bundles.
 - Secrets enter via environment/.env only; `.env` is gitignored. No secrets
@@ -67,7 +71,7 @@ engineering decisions is `reachable`).
 
 - [x] Base compose publishes only `api:8000` and `frontend:3000` (T-SEC-1)
 - [ ] Non-default values for every key in the inventory above
-- [ ] API aborts on default key outside dev (T-SEC-2)
+- [x] API aborts on default key outside dev (T-SEC-2)
 - [ ] Meilisearch search key configured for the API (T-SEC-3)
 - [ ] Client IP forwarded from proxy; limiter keys on it with trusted-proxy
       allowlist (T-SEC-4)

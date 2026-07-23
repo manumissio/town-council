@@ -12,10 +12,16 @@ from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import sessionmaker
 
 from pipeline.config import SEMANTIC_ENABLED
+from pipeline.config_env import env_lower, env_raw
 from pipeline.models import db_connect
 from pipeline.startup_purge import run_startup_purge_if_enabled
 
 DEFAULT_API_AUTH_KEY = "dev_secret_key_change_me"
+DEVELOPMENT_APP_ENV = "dev"
+UNSAFE_API_AUTH_KEY_MESSAGE = "API_AUTH_KEY must be set to a non-default, nonblank value when APP_ENV is not dev."
+HEADER_UNSAFE_API_AUTH_KEY_MESSAGE = (
+    "API_AUTH_KEY must contain printable ASCII characters without leading or trailing whitespace."
+)
 DATABASE_UNAVAILABLE_DETAIL = "Database service is unavailable"
 SEMANTIC_SERVICE_URL = os.getenv("SEMANTIC_SERVICE_URL", "http://semantic:8010").rstrip("/")
 
@@ -60,7 +66,7 @@ def get_db() -> Iterator[Any]:
 
 
 async def verify_api_key(request: Request, x_api_key: str = Header(None)) -> None:
-    expected_key = os.getenv("API_AUTH_KEY", DEFAULT_API_AUTH_KEY)
+    expected_key = env_raw("API_AUTH_KEY", DEFAULT_API_AUTH_KEY)
     if not hmac.compare_digest(x_api_key or "", expected_key):
         client_ip = request.client.host if request and request.client else "unknown"
         logger.warning(
@@ -87,8 +93,20 @@ def _semantic_healthcheck_from_facade() -> dict:
 @asynccontextmanager
 async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     _ = app
-    key = os.getenv("API_AUTH_KEY", DEFAULT_API_AUTH_KEY)
-    if key == DEFAULT_API_AUTH_KEY:
+    api_auth_key = env_raw("API_AUTH_KEY", DEFAULT_API_AUTH_KEY)
+    app_env = env_lower("APP_ENV", DEVELOPMENT_APP_ENV)
+    normalized_api_auth_key = api_auth_key.strip()
+    if app_env != DEVELOPMENT_APP_ENV and (
+        normalized_api_auth_key == DEFAULT_API_AUTH_KEY or not normalized_api_auth_key
+    ):
+        raise RuntimeError(UNSAFE_API_AUTH_KEY_MESSAGE)
+    if api_auth_key and (
+        not api_auth_key.isascii()
+        or not api_auth_key.isprintable()
+        or api_auth_key != normalized_api_auth_key
+    ):
+        raise RuntimeError(HEADER_UNSAFE_API_AUTH_KEY_MESSAGE)
+    if api_auth_key == DEFAULT_API_AUTH_KEY:
         logger.critical("SECURITY WARNING: You are using the default API Key. Please set API_AUTH_KEY in production.")
     initialize_database()
     if not is_db_ready():
