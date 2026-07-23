@@ -1,6 +1,6 @@
 # Town Council Remediation Plan (Codex Multi-Agent)
 
-version: 2.4
+version: 2.5
 generated: 2026-07-23
 source: Four-pass external code review (security, architecture, smells, process)
 source_artifact: [Town Council architecture review](../reviews/architecture-review-2026-07-19.html)
@@ -10,6 +10,8 @@ remains in force; where this plan is stricter, this plan wins for these tasks.
 
 ## Changelog
 
+- **v2.5:** Records T-SEC-1 completion after local verification, independent
+  review, and green pull-request checks.
 - **v2.4:** Records T-CI-3 completion and expands T-SEC-1 ownership so
   backing-service port hardening, contract tests, and operator documentation
   land together. Includes Prometheus and limits development bindings to
@@ -46,9 +48,8 @@ remains in force; where this plan is stricter, this plan wins for these tasks.
 
 | State | Tasks |
 |---|---|
-| **Complete** | T-CI-0, T-CI-1, T-CI-1A, T-CI-2, T-CI-3, T-CI-4, T-CI-5 |
+| **Complete** | T-CI-0, T-CI-1, T-CI-1A, T-CI-2, T-CI-3, T-CI-4, T-CI-5, T-SEC-1 |
 | **Awaiting operator approval** | T-CI-2A |
-| **Implementation complete; review pending** | T-SEC-1 |
 | **Partially landed; acceptance incomplete** | T-GOV-4, T-GOV-5, T-GOV-6 |
 | **Pending** | T-SEC-2..6, T-TIME-1..3, T-CRAWL-1..2, T-DA-1, T-DB-1, T-DC-1, T-DD-1, T-DE-1, T-PLAT-1..4, T-GOV-1..3 |
 
@@ -381,7 +382,7 @@ in `AGENTS.md`, `docs/TESTING.MD`, and
 
 ### T-SEC-1: Stop publishing backing-store ports; remove default-cred blast radius
 - priority: P0
-- status: implementation complete; review pending
+- status: complete
 - implementation_plan: `docs/plans/T_SEC_1_BACKEND_PORT_HARDENING_PLAN.md`
 - files_owned: docs/plans/T_SEC_1_BACKEND_PORT_HARDENING_PLAN.md,
   docs/plans/TOWN_COUNCIL_REMEDIATION_PLAN.md, docker-compose.yml,
