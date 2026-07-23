@@ -160,11 +160,22 @@ docker compose run --rm pipeline python reindex_only.py
 ```
 
 ## Access URLs
+The base stack publishes only the UI and API. To publish local operator
+interfaces for backing and monitoring services on `127.0.0.1`, start only
+those services through the development overlay:
+
+```bash
+docker compose -f docker-compose.yml -f docker-compose.dev.yml up -d \
+  postgres redis meilisearch prometheus grafana
+```
+
+Using the development overlay for the full stack also enables `STARTUP_PURGE_DERIVED=true`.
+
 - UI: [http://localhost:3000](http://localhost:3000)
 - API docs: [http://localhost:8000/docs](http://localhost:8000/docs)
-- Meilisearch: [http://localhost:7700](http://localhost:7700)
-- Grafana: [http://localhost:3001](http://localhost:3001)
-- Prometheus: [http://localhost:9090](http://localhost:9090)
+- Meilisearch with the dev overlay: [http://localhost:7700](http://localhost:7700)
+- Grafana with the dev overlay: [http://localhost:3001](http://localhost:3001)
+- Prometheus with the dev overlay: [http://localhost:9090](http://localhost:9090)
 - Static demo (GitHub Pages): [https://manumissio.github.io/town-council/](https://manumissio.github.io/town-council/)
 
 ## Search Behavior (Meetings vs Agenda Items)
