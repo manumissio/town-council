@@ -61,7 +61,7 @@ under test is reaching through a boundary it shouldn't.
   `test_config_cleanup.py`, etc.) are CI fast-fail steps and also run in the
   full suite.
 - Frontend tests live in `frontend/components/__tests__/` and run via
-  `cd frontend && npm test` [transition: T-CI-2].
+  `cd frontend && npm test`.
 
 ## Verification layers
 

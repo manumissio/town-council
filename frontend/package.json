@@ -7,6 +7,7 @@
     "dev": "next dev",
     "build": "node scripts/build.js",
     "start": "next start",
+    "test": "node --test components/__tests__/*.test.js",
     "lint": "next lint"
   },
   "dependencies": {

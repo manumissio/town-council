@@ -1,7 +1,7 @@
 # T-CI-2: Give the Frontend a Test Runner and CI Job
 
-`artifact_contract: ce-unified-plan/v1`  
-`artifact_readiness: implementation-ready`  
+`artifact_contract: ce-unified-plan/v1`
+`artifact_readiness: implementation-ready`
 `execution: code`
 
 ## 1. Context & Alignment
