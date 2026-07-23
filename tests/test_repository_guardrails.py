@@ -174,8 +174,7 @@ TYPED_SUBTREE_PATHS = (
     "pipeline/vote_extraction_item.py",
     "scripts/analyze_pipeline_profile.py",
 )
-CANDIDATE_FORMATTER_WAVE_PATHS = TYPED_SUBTREE_PATHS
-CONFIG_OWNED_FORMATTER_COMMAND = "./.venv/bin/ruff format --check ."
+CONFIG_OWNED_FORMATTER_COMMAND = "./.venv/bin/ruff format --check . --config ruff-format.toml"
 CONFIG_CLEANUP_MODULES = (
     "pipeline/config.py",
     "pipeline/config_env.py",
@@ -846,16 +845,46 @@ def test_typed_subtree_config_stays_explicit_and_aligned():
     assert "python -m mypy api/metrics.py" not in workflow_text
 
 
-def test_first_formatter_wave_stays_path_scoped_and_enforced():
+def test_formatter_scope_is_config_owned_and_preserved():
+    formatter_config_path = ROOT / "ruff-format.toml"
+    formatter_config = tomllib.loads(formatter_config_path.read_text(encoding="utf-8"))
+    ruff_config = tomllib.loads((ROOT / "ruff.toml").read_text(encoding="utf-8"))
     docs_text = (ROOT / "docs" / "ENGINEERING_GUARDRAILS.md").read_text(encoding="utf-8")
     agents_text = (ROOT / "AGENTS.md").read_text(encoding="utf-8")
     workflow_text = (ROOT / ".github" / "workflows" / "python-guardrails.yml").read_text(encoding="utf-8")
+    formatter_paths = formatter_config["include"]
+    ruff_formatter_discovery = subprocess.check_output(
+        [sys.executable, "-m", "ruff", "check", "--show-files", ".", "--config", "ruff-format.toml"],
+        cwd=ROOT,
+        text=True,
+    )
+    effective_formatter_paths = sorted(
+        Path(discovered_path).resolve().relative_to(ROOT).as_posix()
+        for discovered_path in ruff_formatter_discovery.splitlines()
+    )
+    workflow_formatter_commands = [
+        workflow_line.strip()
+        for workflow_line in workflow_text.splitlines()
+        if "ruff format --check" in workflow_line
+    ]
 
+    assert formatter_config["extend"] == "ruff.toml"
+    assert formatter_paths
+    assert len(formatter_paths) == len(set(formatter_paths))
+    assert all((ROOT / formatter_path).is_file() for formatter_path in formatter_paths)
+    assert sorted(formatter_paths) == effective_formatter_paths
+    assert "include" not in ruff_config
+    assert "exclude" not in ruff_config.get("format", {})
+    assert "exclude" not in formatter_config.get("format", {})
     assert CONFIG_OWNED_FORMATTER_COMMAND in docs_text
-    assert "./.venv/bin/ruff format --check api pipeline scripts tests" not in docs_text
+    assert (
+        "Guardrail/tooling changes (`ruff.toml`, `ruff-format.toml`, `mypy.ini`,"
+        in agents_text
+    )
     assert "ruff format --check" not in agents_text
-    assert "python -m ruff format --check " + " ".join(CANDIDATE_FORMATTER_WAVE_PATHS) in workflow_text
-    assert "python -m ruff format --check api pipeline scripts tests" not in workflow_text
+    assert workflow_formatter_commands == [
+        "run: python -m ruff format --check . --config ruff-format.toml"
+    ]
 
 
 def test_python_guardrail_workflow_runs_complete_suite_after_fast_fail_checks():

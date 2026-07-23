@@ -210,7 +210,9 @@ Docs-only changes (`README.md`, `docs/**`, `AGENTS.md`, `ARCHITECTURE.md`):
 - Required: `PYTHONPATH=. .venv/bin/pytest -q tests/test_docs_links.py`
 - Optional (if architecture/policy text changed materially): `PYTHONPATH=. .venv/bin/pytest -q tests/test_env_example_profile_alignment.py`
 
-Guardrail/tooling changes (`ruff.toml`, `mypy.ini`, `.pre-commit-config.yaml`, `.github/workflows/python-guardrails.yml`, `tests/test_repository_guardrails.py`):
+Guardrail/tooling changes (`ruff.toml`, `ruff-format.toml`, `mypy.ini`,
+`.pre-commit-config.yaml`, `.github/workflows/python-guardrails.yml`,
+`tests/test_repository_guardrails.py`):
 - `./.venv/bin/ruff check .`
 - `./.venv/bin/mypy`
 - `PYTHONPATH=. .venv/bin/pytest -q tests/test_repository_guardrails.py`
@@ -279,7 +281,7 @@ Commit/PR summaries must include:
 - Update operational metadata markers (`Last updated`) when materially changing runbooks.
 - Commands, gates, and workflow guidance in docs must reflect current repository reality.
 - Do not duplicate Entry Points / Code Map content from `ARCHITECTURE.md` into `AGENTS.md`; `AGENTS.md` defines constraints/workflow, `ARCHITECTURE.md` defines system map.
-- File-set enumerations (typed subtree, formatter scope, smell-test scope) live in machine-readable config only (`mypy.ini`, `ruff.toml`, guardrail test constants). Docs reference the config location; they never duplicate the list.
+- File-set enumerations (typed subtree, formatter scope, smell-test scope) live in machine-readable config only (`mypy.ini`, `ruff-format.toml`, guardrail test constants). Docs reference the config location; they never duplicate the list.
 </docs_sync_rules>
 
 <maintenance>
