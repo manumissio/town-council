@@ -279,7 +279,7 @@ Commit/PR summaries must include:
 - Update operational metadata markers (`Last updated`) when materially changing runbooks.
 - Commands, gates, and workflow guidance in docs must reflect current repository reality.
 - Do not duplicate Entry Points / Code Map content from `ARCHITECTURE.md` into `AGENTS.md`; `AGENTS.md` defines constraints/workflow, `ARCHITECTURE.md` defines system map.
-- File-set enumerations (typed subtree, formatter scope, smell-test scope) live in machine-readable config only (`mypy.ini`, `ruff.toml`, guardrail test constants). Docs reference the config location; they never duplicate the list.
+- File-set enumerations (typed subtree, formatter scope, smell-test scope) live in machine-readable config only (`mypy.ini`, `ruff-format.toml`, guardrail test constants). Docs reference the config location; they never duplicate the list.
 </docs_sync_rules>
 
 <maintenance>

@@ -210,8 +210,8 @@ git show origin/master:.github/workflows/python-guardrails.yml \
   | tr ' ' '\n' | sort > /tmp/t-ci-4-formatter-paths.before
 ```
 
-The `.venv` symlink is ignored, local-only worktree setup; no personal path is
-written to tracked files.
+The `.venv` symlink is local-only worktree setup. Remove it before staging so
+no personal path can enter the commit or handoff state.
 
 Tests-first red evidence:
 

@@ -3,9 +3,9 @@
 Town Council uses a layered guardrail system to reduce low-signal code smells
 before they land in `master`.
 
-Status: this revision lands alongside remediation tasks T-CI-4 (formatter
-scope moves to `ruff.toml`) and T-GOV-3 (structural rules replace per-file
-line lists). Sections marked `[transition]` state which task activates them.
+Status: this revision lands alongside remediation task T-GOV-3 (structural
+rules replace per-file line lists). Sections marked `[transition]` state which
+task activates them.
 
 ## Single-source rule for scopes
 
@@ -16,7 +16,7 @@ list (see `AGENTS.md` `<docs_sync_rules>`).
 | Guardrail            | Scope lives in                                   |
 |----------------------|--------------------------------------------------|
 | Lint                 | `ruff.toml` (rule selection + paths)             |
-| Formatter            | `ruff.toml` format include set `[transition: T-CI-4]` |
+| Formatter            | `ruff-format.toml` `include`                         |
 | Typed subtree        | `mypy.ini` `files`/per-module sections           |
 | Smell tests          | constants at the top of `tests/test_repository_guardrails.py` |
 | CI orchestration     | `.github/workflows/python-guardrails.yml`, `.github/workflows/frontend-tests.yml` |
@@ -31,7 +31,7 @@ Run before opening a PR:
 ```bash
 cd <REPO_ROOT>
 ./.venv/bin/ruff check .
-./.venv/bin/ruff format --check .        # scope from ruff.toml [transition: T-CI-4]
+./.venv/bin/ruff format --check . --config ruff-format.toml
 ./.venv/bin/mypy                          # scope from mypy.ini
 PYTHONPATH=. .venv/bin/pytest -q tests/test_repository_guardrails.py
 ```
@@ -174,11 +174,11 @@ contract, and do not mix with behavioral edits.
 ## Formatting
 
 Python formatting uses Ruff only. The formatter-ready path set is configured
-in `ruff.toml` `[transition: T-CI-4]`; run:
+in `ruff-format.toml`; run:
 
 ```bash
 cd <REPO_ROOT>
-./.venv/bin/ruff format --check .
+./.venv/bin/ruff format --check . --config ruff-format.toml
 ```
 
 Keep formatter enforcement limited to the configured set, and do not mix
