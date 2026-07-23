@@ -119,6 +119,8 @@ implementation. Legacy API facade re-exports remain deferred to Phase 2.
   Its deployed permissions are `search` and `stats.get` on `documents`.
 - `MEILI_MASTER_KEY` remains the writer/admin credential.
 - Development may use the fake master fallback when no search key is set.
+- In the development overlay, a missing search key follows the configured
+  local master so existing customized local environments remain usable.
 - Non-development startup fails if the search key is missing, blank, equal to
   the development fallback, or transport-unsafe.
 - A rejected search request never retries with the master key.

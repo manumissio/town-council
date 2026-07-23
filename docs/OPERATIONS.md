@@ -636,6 +636,9 @@ when the reader key is missing or unsafe; they never retry with the master key.
 Base Compose runs Meilisearch with `MEILI_ENV=production`, which enforces its
 production master-key requirements. The development overlay is the only
 checked-in path that selects Meilisearch development mode.
+When local `.env` customizes `MEILI_MASTER_KEY` but leaves `MEILI_SEARCH_KEY`
+blank, the development overlay gives readers the same local credential. An
+explicit `MEILI_SEARCH_KEY` still takes precedence.
 
 Create a key scoped to search and read statistics from the `documents` index:
 

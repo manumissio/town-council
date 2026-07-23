@@ -187,6 +187,29 @@ def test_dev_overlay_allows_soak_recovery_to_disable_startup_purge(
         assert development_services[service_name]["environment"]["STARTUP_PURGE_DERIVED"] == "false"
 
 
+def test_dev_overlay_reader_key_tracks_customized_local_master(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    customized_local_master_key = "customized-local-meilisearch-master-key"
+    monkeypatch.delenv("MEILI_SEARCH_KEY", raising=False)
+    monkeypatch.setenv("MEILI_MASTER_KEY", customized_local_master_key)
+    development_services = _compose_services("docker-compose.yml", "docker-compose.dev.yml")
+
+    for reader_service_name in ("api", "semantic"):
+        reader_environment = development_services[reader_service_name]["environment"]
+        assert reader_environment["MEILI_SEARCH_KEY"] == customized_local_master_key
+        assert "MEILI_MASTER_KEY" not in reader_environment
+
+    explicit_search_key = "explicit-local-reader-key"
+    monkeypatch.setenv("MEILI_SEARCH_KEY", explicit_search_key)
+    explicit_search_services = _compose_services("docker-compose.yml", "docker-compose.dev.yml")
+    for reader_service_name in ("api", "semantic"):
+        assert (
+            explicit_search_services[reader_service_name]["environment"]["MEILI_SEARCH_KEY"]
+            == explicit_search_key
+        )
+
+
 def test_docker_build_context_excludes_local_environment_files() -> None:
     dockerignore = Path(".dockerignore").read_text(encoding="utf-8").splitlines()
     frontend_dockerignore = Path("frontend/.dockerignore").read_text(encoding="utf-8").splitlines()

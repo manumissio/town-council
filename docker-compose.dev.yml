@@ -30,6 +30,7 @@ services:
       - ./pipeline:/app/pipeline
     environment:
       - APP_ENV=dev
+      - MEILI_SEARCH_KEY=${MEILI_SEARCH_KEY:-${MEILI_MASTER_KEY:-masterKey}}
       - STARTUP_PURGE_DERIVED=${STARTUP_PURGE_DERIVED:-true}
 
   semantic:
@@ -38,6 +39,7 @@ services:
       - ./semantic_service:/app/semantic_service
     environment:
       - APP_ENV=dev
+      - MEILI_SEARCH_KEY=${MEILI_SEARCH_KEY:-${MEILI_MASTER_KEY:-masterKey}}
 
   worker:
     environment:

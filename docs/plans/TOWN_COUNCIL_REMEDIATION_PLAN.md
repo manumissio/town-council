@@ -1,6 +1,6 @@
 # Town Council Remediation Plan (Codex Multi-Agent)
 
-version: 3.2
+version: 3.3
 generated: 2026-07-23
 source: Four-pass external code review (security, architecture, smells, process)
 source_artifact: [Town Council architecture review](../reviews/architecture-review-2026-07-19.html)
@@ -10,6 +10,9 @@ remains in force; where this plan is stricter, this plan wins for these tasks.
 
 ## Changelog
 
+- **v3.3:** Preserves customized local Meilisearch credentials by deriving the
+  development reader key from the local master only when no explicit search
+  key is configured.
 - **v3.2:** Closes T-SEC-3 review gaps by aligning base and development reader
   identities, preserving the development stack during bootstrap, soak
   recovery, and local experiments, and protecting the frontend's independent
