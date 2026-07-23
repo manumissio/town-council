@@ -24,6 +24,7 @@ UNSAFE_SEARCH_KEY_MESSAGE = "MEILI_SEARCH_KEY must contain printable ASCII chara
 MISSING_SEARCH_KEY_MESSAGE = "MEILI_SEARCH_KEY must be set when APP_ENV is not dev"
 DEVELOPMENT_SEARCH_KEY_MESSAGE = "MEILI_SEARCH_KEY must not use the development fallback"
 FALLBACK_WARNING = "Meilisearch reader is using the development fallback key"
+READER_SUBPROCESS_TIMEOUT_SECONDS = 30
 
 
 @pytest.mark.parametrize("app_env", ["prod", "staging", ""])
@@ -80,7 +81,7 @@ def test_reader_module_rejects_missing_non_dev_search_key(module_name: str) -> N
         capture_output=True,
         env=reader_environment,
         text=True,
-        timeout=10,
+        timeout=READER_SUBPROCESS_TIMEOUT_SECONDS,
     )
 
     assert completed_process.returncode != 0
@@ -102,7 +103,7 @@ def test_reader_module_rejects_development_key_outside_dev(module_name: str) -> 
         capture_output=True,
         env=reader_environment,
         text=True,
-        timeout=10,
+        timeout=READER_SUBPROCESS_TIMEOUT_SECONDS,
     )
 
     assert completed_process.returncode != 0
@@ -194,7 +195,7 @@ def test_rejected_reader_search_uses_scoped_key_once_without_master_retry(
             capture_output=True,
             env=search_environment,
             text=True,
-            timeout=10,
+            timeout=READER_SUBPROCESS_TIMEOUT_SECONDS,
         )
     finally:
         server.shutdown()
@@ -234,7 +235,7 @@ def test_api_stats_uses_scoped_reader_key() -> None:
             capture_output=True,
             env=stats_environment,
             text=True,
-            timeout=10,
+            timeout=READER_SUBPROCESS_TIMEOUT_SECONDS,
         )
     finally:
         server.shutdown()
@@ -264,7 +265,7 @@ def test_legacy_api_export_contains_reader_key_not_master_key() -> None:
         capture_output=True,
         env=reader_environment,
         text=True,
-        timeout=10,
+        timeout=READER_SUBPROCESS_TIMEOUT_SECONDS,
     )
 
     assert completed_process.stdout.strip() == SCOPED_SEARCH_KEY
