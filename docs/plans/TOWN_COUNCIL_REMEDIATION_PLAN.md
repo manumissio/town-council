@@ -1,6 +1,6 @@
 # Town Council Remediation Plan (Codex Multi-Agent)
 
-version: 2.5
+version: 2.6
 generated: 2026-07-23
 source: Four-pass external code review (security, architecture, smells, process)
 source_artifact: [Town Council architecture review](../reviews/architecture-review-2026-07-19.html)
@@ -10,6 +10,11 @@ remains in force; where this plan is stricter, this plan wins for these tasks.
 
 ## Changelog
 
+- **v2.6:** Records operator approval and live activation of the T-CI-2A
+  frontend required check. Final completion remains pending until the policy
+  record merges under both required checks and post-merge readback passes. It
+  also retires T-CI-2's unsafe standalone rollback; any reversal must coordinate
+  the ruleset, producer, guardrails, dependency contract, and policy text.
 - **v2.5:** Records T-SEC-1 completion after local verification, independent
   review, and green pull-request checks.
 - **v2.4:** Records T-CI-3 completion and expands T-SEC-1 ownership so
@@ -49,7 +54,7 @@ remains in force; where this plan is stricter, this plan wins for these tasks.
 | State | Tasks |
 |---|---|
 | **Complete** | T-CI-0, T-CI-1, T-CI-1A, T-CI-2, T-CI-3, T-CI-4, T-CI-5, T-SEC-1 |
-| **Awaiting operator approval** | T-CI-2A |
+| **Live policy active; merge verification pending** | T-CI-2A |
 | **Partially landed; acceptance incomplete** | T-GOV-4, T-GOV-5, T-GOV-6 |
 | **Pending** | T-SEC-2..6, T-TIME-1..3, T-CRAWL-1..2, T-DA-1, T-DB-1, T-DC-1, T-DD-1, T-DE-1, T-PLAT-1..4, T-GOV-1..3 |
 
@@ -200,17 +205,17 @@ in `AGENTS.md`, `docs/TESTING.MD`, and
 - external_state_owned: repository ruleset `Require Python Guardrails`
 - decision: Approved by the operator on 2026-07-22 using the exact active
   ruleset payload in `docs/plans/T_CI_1_REQUIRED_CHECK_POLICY_PLAN.md`.
-- do: Maintain the active default-branch ruleset with no bypass actors. Its
-  sole required context is GitHub Actions `python-guardrails` from integration
-  15368, evaluated against the latest default-branch code.
-- accept: GitHub reports the ruleset active; its only required status context
-  is `python-guardrails`; the target is the default branch; no actor can bypass
-  it; branch creation remains exempt; T-CI-1's complete-suite check is
-  mandatory before the ref can update.
+- do: Maintain `python-guardrails` from integration 15368 as the foundational
+  required context. T-CI-2A now also requires `frontend-tests` under separate
+  operator approval.
+- accept: T-CI-1A's historical Python-only activation evidence remains
+  recorded. Current acceptance is owned by T-CI-2A and must preserve the
+  default-branch target, empty bypass list, strict policy, branch-creation
+  exemption, and mandatory Python gate.
 - forbidden: Requiring approvals, CodeQL, deployments, signed commits, linear
-  history, or any check other than `python-guardrails` before T-CI-2A is
-  approved and T-CI-2 is green; adding bypass actors; changing workflow code
-  or repository files outside `files_owned`.
+  history, or an unapproved third check; removing `python-guardrails`; adding
+  bypass actors; changing workflow code or repository files outside
+  `files_owned`.
 - verify: Read the ruleset back through GitHub's REST API and compare target,
   enforcement, conditions, bypass actors, context, integration, strict policy,
   and effective rules on `master` with the expected contract.
@@ -247,10 +252,11 @@ in `AGENTS.md`, `docs/TESTING.MD`, and
 ### T-CI-2A: Require the universal frontend test check
 - priority: P0
 - depends_on: T-CI-2
-- status: planning and scalar-parity guardrail complete; live policy update
-  awaits operator approval
+- status: live policy active; merge verification pending
 - files_owned: docs/plans/T_CI_2_REQUIRED_CHECK_POLICY_PLAN.md (new),
   docs/plans/T_CI_1_REQUIRED_CHECK_POLICY_PLAN.md,
+  docs/plans/T_CI_2_FRONTEND_TESTS_PLAN.md (historical ruleset evidence and
+  rollback section only),
   docs/plans/TOWN_COUNCIL_REMEDIATION_PLAN.md, AGENTS.md (verification-matrix
   CI-status paragraph and transition markers only),
   pipeline/requirements-dev.txt,
@@ -259,16 +265,16 @@ in `AGENTS.md`, `docs/TESTING.MD`, and
   tests/test_repository_guardrails.py
   (canonical frontend required-check job identity only)
 - external_state_owned: repository ruleset `Require Python Guardrails`
-- decision_required: Operator approval of an exact update to ruleset 19594795
-  that adds GitHub Actions context `frontend-tests` from integration 15368
-  while preserving every T-CI-1A field.
+- decision: Operator approved the exact semantic ruleset update on 2026-07-23.
+  Live direct and effective readbacks require `frontend-tests` from integration
+  15368 alongside `python-guardrails` while preserving every other T-CI-1A
+  field.
 - implementation_plan: `docs/plans/T_CI_2_REQUIRED_CHECK_POLICY_PLAN.md`
-- do: After T-CI-2 is green on frontend and non-frontend pull requests, update
-  ruleset 19594795 so its required status checks are exactly
-  `python-guardrails` and `frontend-tests`. Replace stale landed-task
-  transition text with accurate T-CI-2A-pending text in the planning PR, then
-  remove both temporary markers only after live readback proves both checks
-  are mandatory.
+- do: Preserve ruleset 19594795 with exactly `python-guardrails` and
+  `frontend-tests` required. Merge the live-policy record under both checks,
+  verify direct and effective policy after `master` advances, obtain explicit
+  operator acceptance of the documented digest-approval deviation, then mark
+  T-CI-2A complete in a separate closure PR.
 - accept: Every pull request receives both contexts; the default branch cannot
   update unless both pass; strict policy, branch-creation exemption, empty
   bypass list, target, and all other T-CI-1A fields remain unchanged. Workflow
@@ -278,8 +284,9 @@ in `AGENTS.md`, `docs/TESTING.MD`, and
   adding any third check or rule; changing the existing Python gate; assuming
   approval from T-CI-1A.
 - verify: Demonstrate `frontend-tests` on one frontend and one non-frontend PR,
-  update the ruleset once, and assert exact ruleset and effective-`master`
-  readback through the pinned GitHub REST API.
+  preserve the one-time update evidence, require both checks on the policy
+  record PR, and assert exact ruleset and effective-`master` readback after
+  each default-branch advance.
 - rollback: Restore ruleset 19594795 to the exact T-CI-1A Python-only contract;
   never delete the ruleset or remove `python-guardrails` while rolling back the
   frontend requirement. Replace T-CI-1A's original creation-time rollback in

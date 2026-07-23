@@ -9,6 +9,7 @@ implementation_status: complete
 external_state_status: active
 external_ruleset_id: 19594795
 activated: 2026-07-22
+current_required_checks: python-guardrails, frontend-tests
 
 ## 1. Context & Alignment
 
@@ -94,9 +95,10 @@ may be added or altered without a new decision.
    required-status-check rule.
 8. Confirm no second ruleset or legacy branch-protection policy was created.
 9. Keep `python-guardrails` as the sole required check until T-CI-2 runs a
-   stable `frontend-tests` context on every pull request. T-CI-2A then requires
-   a separate operator-approved update to this ruleset; this task does not
-   pre-authorize that future gate change.
+   stable `frontend-tests` context on every pull request. This historical
+   condition was satisfied before the operator separately approved T-CI-2A on
+   2026-07-23. The live ruleset now requires both contexts; T-CI-1A remains the
+   record of the foundational Python gate.
 
 No new function or module is added. The GitHub REST API remains the sole owner
 of external repository policy.
@@ -137,12 +139,11 @@ No wrapper, compatibility path, duplicate workflow, weakened test, ignored
 failure, broad edit, or import-time work is introduced. The ruleset is one
 source of enforcement rather than a second implementation of CI.
 
-**o) Ratchets.** Old value: zero default-branch protection rules and zero
-required checks. New value: one active default-branch ruleset requiring only
-`python-guardrails`. Remaining deficit: `frontend-tests` cannot become required
-until T-CI-2 emits that context on every pull request and T-CI-2A receives
-separate operator approval. Ruff, Mypy, coverage, formatter, and runtime policy
-remain unchanged.
+**o) Ratchets.** T-CI-1A changed the value from zero default-branch protection
+rules and zero required checks to one active default-branch ruleset requiring
+`python-guardrails`. T-CI-2A later added `frontend-tests` under separate
+operator approval. Ruff, Mypy, coverage, formatter, and runtime policy remain
+unchanged.
 
 **p) Dead code and duplication.** None. No existing protection policy is
 superseded because none exists. Expected tracked line delta is documentation
@@ -266,13 +267,12 @@ ruleset is active; do not duplicate the ruleset JSON into other docs.
 required check before T-CI-2A, external policy outside the default branch, or
 tracked file outside the two-file ownership set.
 
-**y) Evidence.** Ruleset 19594795 is active and exact REST readback confirms
-the approved target, enforcement, conditions, bypass list, sole required
-check, strict policy, and branch-creation exemption. Effective rules on
-`master` contain that sole rule; legacy branch protection remains absent.
-Report the docs-link result as canonical-map coverage only, plus the manual
-plan diff review, diff check, and rollback command. Mark GitHub UI behavior not
-directly exercised as `NOT VERIFIED` rather than inferring it.
+**y) Evidence.** T-CI-1A's activation evidence confirmed the original
+Python-only contract. The current exact REST readback is owned by T-CI-2A and
+confirms that ruleset 19594795 now requires both `python-guardrails` and
+`frontend-tests` while preserving the target, enforcement, conditions, empty
+bypass list, strict policy, and branch-creation exemption. Mark GitHub UI
+behavior not directly exercised as `NOT VERIFIED` rather than inferring it.
 
 **z) Deviations.** Expected result is none. Any API field change, additional
 ruleset, bypass, unverified readback, or tracked path outside ownership blocks

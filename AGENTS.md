@@ -198,10 +198,8 @@ authoritative CI verification is the full test suite run by both jobs on every
 pull request (`python-guardrails` for Python, `frontend-tests` for the
 frontend). The Python suite runs under the production scope and coverage floor
 configured in `.coveragerc`. A passing matrix row is necessary for proceeding,
-not sufficient for merge.
-[transition: both jobs run on every pull request, but only
-`python-guardrails` is mandatory until T-CI-2A adds `frontend-tests` to the
-required-check ruleset.]
+not sufficient for merge. Both jobs are mandatory under the active
+default-branch ruleset.
 
 All commands in applicable row(s) are mandatory, not advisory.
 If no row applies, run `PYTHONPATH=. .venv/bin/pytest -q tests/test_docs_links.py` at minimum.
@@ -255,7 +253,6 @@ Frontend contract changes (`frontend/**` affecting API/task/search behavior):
 
 Frontend component/behavior changes (`frontend/**` JS/JSX):
 - `cd frontend && npm test`
-  [transition: the runner is live; T-CI-2A makes its CI context mandatory]
 
 Broad cross-cutting changes:
 - Required: run all applicable rows above.

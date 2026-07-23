@@ -5,14 +5,20 @@
 `execution: code`
 `task: T-CI-2A`
 `lane: CI`
+`implementation_status: live policy active; merge verification pending`
+`external_state_status: active`
+`external_ruleset_id: 19594795`
+`approved: 2026-07-23`
+`activated: 2026-07-23`
 
 ## 1. Context & Alignment
 
-**a) Driver.** T-CI-2 is merged and now emits `frontend-tests` on every pull
-request and every push to `master`. The active default-branch ruleset still
-requires only `python-guardrails`, so a frontend regression can remain
-mergeable even when the frontend test job fails. T-CI-2A closes that gap after
-one frontend and one non-frontend pull request prove the context is universal.
+**a) Driver.** T-CI-2 emits `frontend-tests` on every pull request and every
+push to `master`. Before T-CI-2A activation, the default-branch ruleset required
+only `python-guardrails`, so a frontend regression could remain mergeable even
+when the frontend test job failed. The approved live update now requires both
+checks. Final completion remains pending until this policy record merges under
+both checks and the post-merge ruleset readback passes.
 
 **b) Canonical documents consulted.**
 
@@ -27,8 +33,8 @@ one frontend and one non-frontend pull request prove the context is universal.
 - `docs/plans/TOWN_COUNCIL_REMEDIATION_PLAN.md` requires T-CI-2A after T-CI-2
   and grants ownership of the live ruleset.
 - `docs/plans/T_CI_1_REQUIRED_CHECK_POLICY_PLAN.md` records every field in the
-  current Python-only ruleset and requires T-CI-2A to replace its obsolete
-  deletion rollback.
+  historical Python-only contract and requires T-CI-2A to preserve its
+  non-destructive rollback.
 - `docs/plans/T_CI_2_FRONTEND_TESTS_PLAN.md` records the universal workflow,
   its exact job context, and the required frontend/non-frontend proof.
 - `docs/reviews/architecture-review-2026-07-19.html` historically identified
@@ -39,6 +45,8 @@ one frontend and one non-frontend pull request prove the context is universal.
 
 - `docs/plans/T_CI_2_REQUIRED_CHECK_POLICY_PLAN.md`
 - `docs/plans/T_CI_1_REQUIRED_CHECK_POLICY_PLAN.md`
+- `docs/plans/T_CI_2_FRONTEND_TESTS_PLAN.md`, historical ruleset evidence and
+  rollback section only
 - `docs/plans/TOWN_COUNCIL_REMEDIATION_PLAN.md`
 - `AGENTS.md`, verification-matrix CI-status paragraph and transition markers
   only
@@ -51,10 +59,10 @@ one frontend and one non-frontend pull request prove the context is universal.
 
 No workflow, runtime package, runtime behavior, or application file may change.
 
-**d) Decision-gate check.** No G1-G5 gate applies. T-CI-2A has its own explicit
-operator decision. Repository planning work may proceed, but the ruleset
-`PUT` must not run until the operator approves the exact old and new contracts
-recorded below. G3 remains open and continues to block Phase 2.
+**d) Decision-gate check.** No G1-G5 gate applies. The operator explicitly
+approved the T-CI-2A ruleset update on 2026-07-23, and the live direct and
+effective readbacks match the contracts below. G3 remains open and continues
+to block Phase 2.
 
 ## 2. Design
 
@@ -110,6 +118,9 @@ recorded below. G3 remains open and continues to block Phase 2.
     - mark T-CI-2A `live policy active; merge verification pending`;
     - update T-CI-1A's current-state wording without erasing its historical
       decision;
+    - retire T-CI-2's now-unsafe standalone rollback and require a separately
+      authorized coordinated reversal of the ruleset, producer, guardrails,
+      dependency contract, and policy text;
     - remove the two T-CI-2A-pending transition annotations from
       `AGENTS.md`.
 12. Run documentation verification and obtain a fresh subagent pre-commit
@@ -117,9 +128,11 @@ recorded below. G3 remains open and continues to block Phase 2.
 13. Commit and push the completion policy record, open a second PR, wait for
     all checks, request review, merge, and verify the ruleset again after the
     default branch advances.
-14. Open a final closure PR that records T-CI-2A complete only after the
-    post-merge ruleset and effective-`master` readbacks pass. Merge it after
-    both required checks pass, then repeat the policy readback.
+14. Obtain explicit operator acceptance of the digest-approval deviation
+    recorded in 7z. Then open a final closure PR that records T-CI-2A complete
+    only after that acceptance and the post-merge ruleset and
+    effective-`master` readbacks pass. Merge it after both required checks
+    pass, then repeat the policy readback.
 
 No production function, module, workflow, helper script, compatibility path,
 or new configuration surface is added. The guardrail test uses the direct
@@ -141,7 +154,7 @@ that accidental relationship. It remains absent from runtime requirements.
 
 **g) Data contracts.**
 
-Current contract:
+Historical pre-activation contract:
 
 ```json
 {
@@ -170,7 +183,7 @@ Current contract:
 }
 ```
 
-Proposed contract:
+Activated live contract:
 
 ```json
 {
@@ -251,7 +264,7 @@ The external mutation is fail-fast and preceded by exact drift detection.
   planning PR before any live policy change; no destructive fallback survives.
 - D1-D3 corrected: no test is weakened or mocked; live policy equality is the
   observable contract.
-- E1-E3 corrected: only the seven tracked owned files and one owned external
+- E1-E3 corrected: only the eight tracked owned files and one owned external
   ruleset may change.
 - A4, B3, C2, F2, H2-H4: no planned violations.
 
@@ -267,8 +280,10 @@ The external mutation is fail-fast and preceded by exact drift detection.
 
 **p) Dead code and duplication audit.** Replace two obsolete transition
 annotations with accurate pending text, then remove that text after activation.
-Remove the obsolete ruleset-deletion rollback. Reuse all existing CI producers
-and readback commands. Runtime-code delta is zero.
+Remove the obsolete ruleset-deletion rollback and retire the unsafe T-CI-2
+standalone procedure, which cannot also reconcile later T-CI-2A guardrails and
+policy. Reuse all existing CI producers and readback commands. Runtime-code
+delta is zero.
 
 ## 5. Testing
 
@@ -335,7 +350,16 @@ post-merge recheck.
 
 **u) Exact commands.**
 
-Repository setup:
+The activation sequence below is historical audit evidence. It completed on
+2026-07-23 and **none of its repository setup, Python-only precondition,
+approval-artifact, or mutation commands may be rerun**. Current remaining work
+is limited to merging the completion record under both required checks,
+performing its post-merge direct and effective two-check readbacks, obtaining
+explicit operator acceptance of the deviation in 7z, merging the final closure
+record under both required checks, and repeating the policy readbacks after
+that second default-branch advance.
+
+Historical repository setup:
 
 ```bash
 git fetch origin --prune
@@ -590,9 +614,8 @@ jq . "$RULESET_REQUEST"
 shasum -a 256 "$RULESET_REQUEST"
 ```
 
-After approval of both displayed JSON documents and digests, establish the
-exclusive ruleset change window, export `APPROVED_PRESTATE_SHA256` and
-`APPROVED_REQUEST_SHA256` with those exact digests, and run one fail-closed
+The historical mutation procedure required approval of both displayed JSON
+documents and digests, an exclusive ruleset change window, and one fail-closed
 mutation block:
 
 ```bash
@@ -1199,12 +1222,15 @@ rollback guidance in T-CI-1A.
 
 **w) Docs synchronization.**
 
-- This plan records the proposed request and defines how approval, evidence,
-  rollback, and final state will be recorded.
+- This plan records the activated request and defines how approval, evidence,
+  rollback, and final state are recorded.
 - `docs/plans/TOWN_COUNCIL_REMEDIATION_PLAN.md` records T-CI-2 completion,
   T-CI-2A progress, approval, and final completion.
 - `docs/plans/T_CI_1_REQUIRED_CHECK_POLICY_PLAN.md` replaces the obsolete
   ruleset-deletion rollback in the planning PR before the live update.
+- `docs/plans/T_CI_2_FRONTEND_TESTS_PLAN.md` preserves its historical
+  pre-activation evidence and retires standalone rollback after T-CI-2A
+  activation.
 - `AGENTS.md` first replaces stale landed-task annotations with accurate
   T-CI-2A-pending text, then removes that temporary text after live readback.
 - `tests/test_repository_guardrails.py` enforces one canonical repository-wide
@@ -1222,15 +1248,35 @@ extra check, bypass actor, copied API response as request, missing drift check,
 workflow edit, new script, weakened evidence, unrelated documentation edit,
 or transition removal before live proof.
 
-**y) Evidence.** Report PASS/FAIL for the Python-only precondition, expected
-two-check assertion failure, frontend and non-frontend PR contexts,
-integration IDs, explicit approval, update response, exact direct and
-effective readbacks, ruleset count, docs-link test, diff check, subagent
-planning and pre-commit review findings, commits, PR URL, unresolved-thread
-count, CI state, merge, and post-merge policy readback. Anything unrun is
-`NOT VERIFIED`.
+**y) Evidence.** On 2026-07-23, the operator approved the exact semantic
+transition from one required check to two. The fail-closed update produced a
+live direct and effective readback with:
 
-**z) Deviations.** The expected deviation report is none. Any changed tracked
-path outside the seven owned files, any external policy field outside the
-approved request, missing frontend/non-frontend proof, skipped review,
-unresolved P1/P2, or unrun required check is a blocker.
+- ruleset ID `19594795`, target `branch`, enforcement `active`;
+- exactly one repository ruleset and no legacy branch protection (`404`);
+- default-branch-only condition and no bypass actors;
+- strict required-check policy and branch-creation exemption unchanged;
+- required contexts `python-guardrails` and `frontend-tests`, both from
+  integration `15368`;
+- observed update timestamp `2026-07-23T11:23:01.116-04:00`.
+
+The canonical pre-state SHA-256 was
+`335bce222d1664b91fd89e0eb16cc687654e1b24913f60ef78842bf69f04f98d`;
+the request SHA-256 was
+`9d0fd138be8c765b451098898c714c5cc50001333f07c0937835537d8e464065`.
+This completion-record pull request and its post-merge policy readback remain
+pending and must be reported separately before T-CI-2A is marked complete.
+Final closure also requires explicit operator acceptance of the procedural
+deviation below.
+
+**z) Deviations.** The operator approved the exact semantic old and new
+contracts after they were displayed, but did not separately approve the
+generated SHA-256 values before the update. The live request changed no field
+outside that approved semantic contract, and complete direct and effective
+readbacks matched it. The first shell attempt was rejected before execution
+because it contained a prohibited cleanup command, so it changed no external
+state; the corrected fail-closed attempt performed the one approved update.
+This process deviation is recorded rather than hidden. The remaining
+acceptance path requires explicit operator acceptance of this deviation, both
+mandatory checks on this record PR, and a fresh post-merge readback. No tracked
+path outside ownership may change.
