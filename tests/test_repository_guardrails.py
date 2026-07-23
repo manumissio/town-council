@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import ast
+import json
 import re
 import subprocess
 import sys
@@ -946,6 +947,41 @@ def test_python_guardrail_workflow_runs_for_every_pull_request_and_master_push()
     event_configuration = workflow_text.partition("on:\n")[2].partition("\npermissions:\n")[0]
 
     assert event_configuration == '  pull_request:\n  push:\n    branches: ["master"]\n'
+
+
+def test_frontend_test_script_uses_existing_node_runner():
+    frontend_package = json.loads((ROOT / "frontend" / "package.json").read_text(encoding="utf-8"))
+
+    assert frontend_package["scripts"]["test"] == "node --test components/__tests__/*.test.js"
+    assert "jest" not in frontend_package.get("devDependencies", {})
+    assert "vitest" not in frontend_package.get("devDependencies", {})
+
+
+def test_frontend_workflow_runs_for_every_pull_request_and_master_push():
+    workflow_text = (ROOT / ".github" / "workflows" / "frontend-tests.yml").read_text(encoding="utf-8")
+    event_configuration = workflow_text.partition("on:\n")[2].partition("\npermissions:\n")[0]
+
+    assert event_configuration == '  pull_request:\n  push:\n    branches: ["master"]\n'
+    assert workflow_text.count("\n  frontend-tests:\n") == 1
+    assert "paths:" not in event_configuration
+    assert "paths-ignore:" not in event_configuration
+
+
+def test_frontend_workflow_installs_locked_dependencies_before_tests():
+    workflow_text = (ROOT / ".github" / "workflows" / "frontend-tests.yml").read_text(encoding="utf-8")
+    install_step = "      - name: Install dependencies\n        run: npm ci"
+    test_step = "      - name: Run frontend tests\n        run: npm test"
+
+    assert "uses: actions/checkout@v5" in workflow_text
+    assert "uses: actions/setup-node@v6" in workflow_text
+    assert 'node-version: "20"' in workflow_text
+    assert 'cache: "npm"' in workflow_text
+    assert "cache-dependency-path: frontend/package-lock.json" in workflow_text
+    assert "working-directory: frontend" in workflow_text
+    assert workflow_text.index(install_step) < workflow_text.index(test_step)
+    assert "continue-on-error:" not in workflow_text
+    assert "if:" not in workflow_text
+    assert "strategy:" not in workflow_text
 
 
 def test_facade_import_guardrail_detects_relative_imports(tmp_path: Path):

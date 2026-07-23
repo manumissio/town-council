@@ -1,8 +1,11 @@
 # Town Council Remediation Plan (Codex Multi-Agent)
 
-version: 1.8
-generated: 2026-07-22
-changelog: v1.8 expands T-CI-4 ownership and records the dedicated
+version: 1.9
+generated: 2026-07-23
+changelog: v1.9 corrects T-CI-2 to use the existing Node 20 test runner,
+permits the stale CSP contract to follow its current proxy owner, expands
+planning and testing-policy ownership, and records completed Phase 0 work.
+v1.8 expands T-CI-4 ownership and records the dedicated
 formatter-scope config required to preserve repository-wide lint discovery.
 v1.7 adds T-CI-1A to make the green `python-guardrails` check
 mandatory through an active default-branch repository ruleset and schedules
@@ -110,6 +113,7 @@ contract test only; later GOV work retains all other ownership.
 
 ### T-CI-0: Restore the Python guardrail baseline
 - priority: P0 (run before every other Phase 0 task)
+- status: complete and verified 2026-07-22 (PR #108)
 - files_owned: docs/plans/T_CI_0_GUARDRAIL_BASELINE_PLAN.md,
   docs/plans/TOWN_COUNCIL_REMEDIATION_PLAN.md,
   docs/ENGINEERING_GUARDRAILS.md, .github/workflows/python-guardrails.yml
@@ -142,6 +146,7 @@ contract test only; later GOV work retains all other ownership.
 ### T-CI-1: Run the full Python test suite in CI
 - priority: P0
 - depends_on: T-CI-0, T-CI-5
+- status: complete and verified 2026-07-22 (PR #111)
 - files_owned: docs/plans/T_CI_1_FULL_PYTHON_SUITE_PLAN.md,
   docs/plans/TOWN_COUNCIL_REMEDIATION_PLAN.md,
   docs/ENGINEERING_GUARDRAILS.md, tests/test_repository_guardrails.py,
@@ -191,21 +196,28 @@ contract test only; later GOV work retains all other ownership.
 ### T-CI-2: Give the frontend a test runner and CI job
 - priority: P0
 - depends_on: T-CI-1A
-- files_owned: frontend/package.json, frontend/jest.config.js (new),
+- files_owned: docs/plans/T_CI_2_FRONTEND_TESTS_PLAN.md,
+  docs/plans/TOWN_COUNCIL_REMEDIATION_PLAN.md, docs/TESTING.MD (frontend
+  transition sentence only), frontend/package.json,
+  frontend/components/__tests__/NextConfig.security-headers.test.js,
   .github/workflows/frontend-tests.yml (new),
   tests/test_repository_guardrails.py
-- do: Add jest (or vitest — pick whichever the 4 existing tests under
-  frontend/components/__tests__/ run under with least modification), a
-  `"test"` script, and a workflow running `npm ci && npm test` on every pull
-  request and master push so the `frontend-tests` context always exists before
-  T-CI-2A makes it required.
+- decision: Approved by the operator's completion objective on 2026-07-23:
+  use the Node 20 test runner already imported by all four test files instead
+  of adding Jest/Vitest, and repoint only the stale CSP source contract from
+  next.config.js to its current owner in proxy.js.
+- do: Add `"test": "node --test components/__tests__/*.test.js"` and a
+  workflow running `npm ci` then `npm test` on every pull request and master
+  push so the `frontend-tests` context always exists before T-CI-2A makes it
+  required. Preserve all existing frontend assertions.
 - accept: All 4 existing test files execute and pass in CI; frontend-only and
   non-frontend pull requests both receive a terminal `frontend-tests` check;
   a repository guardrail test enforces the exact job name and unconditional
   pull-request and master-push triggers.
 - forbidden: Rewriting the existing frontend assertions; adding new frontend
-  component tests; path-filtering the workflow so an otherwise mergeable pull
-  request lacks the check.
+  component tests; adding a third-party runner or package-lock change;
+  path-filtering or masking workflow failures so an otherwise mergeable pull
+  request lacks a terminal check.
 - verify: `cd frontend && npm test` and
   `PYTHONPATH=. .venv/bin/pytest -q tests/test_repository_guardrails.py` exit 0.
 
@@ -251,6 +263,7 @@ contract test only; later GOV work retains all other ownership.
 ### T-CI-4: Move formatter file list out of the workflow
 - priority: P2
 - depends_on: T-CI-1A
+- status: complete and verified 2026-07-23 (PR #113)
 - files_owned: docs/plans/T_CI_4_FORMATTER_SCOPE_PLAN.md,
   docs/plans/TOWN_COUNCIL_REMEDIATION_PLAN.md, AGENTS.md,
   docs/ENGINEERING_GUARDRAILS.md, tests/test_repository_guardrails.py,
@@ -278,6 +291,7 @@ contract test only; later GOV work retains all other ownership.
 - priority: P0 (run FIRST in Phase 0 — the allowlist is a snapshot of the
   tree at plan date and goes stale as other tasks merge)
 - depends_on: T-CI-0
+- status: complete and verified 2026-07-22 (PR #110)
 - files_owned: docs/plans/T_CI_5_TIGHTENED_LINT_PLAN.md,
   docs/plans/TOWN_COUNCIL_REMEDIATION_PLAN.md, AGENTS.md,
   docs/ENGINEERING_GUARDRAILS.md, tests/test_repository_guardrails.py,
@@ -453,7 +467,7 @@ contract test only; later GOV work retains all other ownership.
 
 ---
 
-## 5. PHASE 2 — DEDUPLICATION & DE-FACADING (blocked by G3 + T-CI-1)
+## 5. PHASE 2 — DEDUPLICATION & DE-FACADING (blocked by G3)
 
 Shared directive for all Phase 2 tasks: when a test patches a facade symbol,
 repoint the test at the implementation module. Delete the facade seam. Never
