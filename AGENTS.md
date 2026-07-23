@@ -195,8 +195,10 @@ If the impact is unclear, invoke the objection protocol rather than guessing.
 <verification_matrix>
 Scope: the matrix is a fast local pre-check for iterating on a change. The
 authoritative CI verification is the full test suite run by both jobs on every
-pull request (`python-guardrails` for Python, `frontend-tests` for the frontend).
-A passing matrix row is necessary for proceeding, not sufficient for merge.
+pull request (`python-guardrails` for Python, `frontend-tests` for the
+frontend). The Python suite runs under the production scope and coverage floor
+configured in `.coveragerc`. A passing matrix row is necessary for proceeding,
+not sufficient for merge.
 [transition: both jobs run on every pull request, but only
 `python-guardrails` is mandatory until T-CI-2A adds `frontend-tests` to the
 required-check ruleset.]
@@ -217,6 +219,12 @@ Guardrail/tooling changes (`ruff.toml`, `ruff-format.toml`, `mypy.ini`,
 - `./.venv/bin/mypy`
 - `PYTHONPATH=. .venv/bin/pytest -q tests/test_repository_guardrails.py`
 - `PYTHONPATH=. .venv/bin/pytest -q tests/test_docs_links.py`
+
+Coverage-gate changes (`.coveragerc`, coverage pins in
+`pipeline/requirements-dev.txt`):
+- `PYTHONPATH=. .venv/bin/python -m pytest -q --cov --cov-config=.coveragerc --cov-report=term-missing:skip-covered tests/`
+- `PYTHONPATH=. .venv/bin/pytest -q tests/test_repository_guardrails.py`
+- `PYTHONPATH=. .venv/bin/pytest -q tests/test_docker_build_contracts.py`
 
 API/search behavior changes (`api/**`, query contracts):
 - `PYTHONPATH=. .venv/bin/pytest -q tests/test_api.py`
@@ -281,7 +289,10 @@ Commit/PR summaries must include:
 - Update operational metadata markers (`Last updated`) when materially changing runbooks.
 - Commands, gates, and workflow guidance in docs must reflect current repository reality.
 - Do not duplicate Entry Points / Code Map content from `ARCHITECTURE.md` into `AGENTS.md`; `AGENTS.md` defines constraints/workflow, `ARCHITECTURE.md` defines system map.
-- File-set enumerations (typed subtree, formatter scope, smell-test scope) live in machine-readable config only (`mypy.ini`, `ruff-format.toml`, guardrail test constants). Docs reference the config location; they never duplicate the list.
+- File-set enumerations (typed subtree, formatter scope, coverage scope,
+  smell-test scope) live in machine-readable config only (`mypy.ini`,
+  `ruff-format.toml`, `.coveragerc`, guardrail test constants). Docs reference
+  the config location; they never duplicate the list.
 </docs_sync_rules>
 
 <maintenance>

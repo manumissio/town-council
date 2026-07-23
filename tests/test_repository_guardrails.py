@@ -1,12 +1,15 @@
 from __future__ import annotations
 
 import ast
+import configparser
 import json
+import os
 import re
 import subprocess
 import sys
 import tomllib
 import tokenize
+from fnmatch import fnmatch
 from io import StringIO
 from pathlib import Path
 from textwrap import indent
@@ -19,6 +22,10 @@ ROOT = Path(__file__).resolve().parents[1]
 RUFF_CLEAN_EXIT = 0
 RUFF_VIOLATION_EXIT = 1
 GITHUB_EXPRESSION_OPEN = "${{"
+COVERAGE_PROCESS_ENVIRONMENT_KEYS = (
+    "COVERAGE_PROCESS_CONFIG",
+    "COVERAGE_PROCESS_START",
+)
 TEXT_FILE_SUFFIXES = {
     ".md",
     ".plist",
@@ -890,7 +897,7 @@ def test_formatter_scope_is_config_owned_and_preserved():
     ]
 
 
-def test_python_guardrail_workflow_runs_complete_suite_after_fast_fail_checks():
+def test_python_guardrail_workflow_enforces_production_coverage():
     workflow_text = (ROOT / ".github" / "workflows" / "python-guardrails.yml").read_text(encoding="utf-8")
     expected_dependency_commands = (
         "python -m pip install -r pipeline/requirements.txt",
@@ -911,7 +918,9 @@ def test_python_guardrail_workflow_runs_complete_suite_after_fast_fail_checks():
     )
     full_suite_step = (
         "      - name: Run full Python test suite\n"
-        "        run: PYTHONPATH=. python -m pytest -q tests/"
+        "        run: PYTHONPATH=. python -m pytest -q --cov "
+        "--cov-config=.coveragerc "
+        "--cov-report=term-missing:skip-covered tests/"
     )
 
     dependency_step = workflow_text.partition("      - name: Install guardrail and runtime dependencies\n")[2]
@@ -937,11 +946,96 @@ def test_python_guardrail_workflow_runs_complete_suite_after_fast_fail_checks():
     assert configured_fast_fail_commands == expected_fast_fail_commands
     assert "continue-on-error:" not in fast_fail_step
     assert "if:" not in fast_fail_step
+    assert "--cov" not in fast_fail_step
 
     full_suite_step_body = full_suite_tail.partition("\n      - name:")[0]
     assert "continue-on-error:" not in full_suite_step_body
     assert "if:" not in full_suite_step_body
-    assert "--cov" not in workflow_text
+
+
+def test_coverage_configuration_measures_repository_production_python():
+    coverage_config = configparser.ConfigParser()
+    coverage_config.read(ROOT / ".coveragerc")
+
+    assert coverage_config["run"].getboolean("branch") is False
+    assert coverage_config["run"]["source"].split() == ["."]
+    assert coverage_config["run"]["omit"].split() == [
+        "tests/*",
+        "archive/*",
+        "experiments/*",
+        ".venv*/*",
+    ]
+    assert coverage_config["run"]["patch"].split() == ["subprocess"]
+    assert coverage_config["report"].getfloat("fail_under") == 71
+    assert coverage_config["report"].getboolean("include_namespace_packages") is True
+
+
+def test_coverage_configuration_reports_every_tracked_production_python_file(
+    tmp_path: Path,
+):
+    coverage_data_path = tmp_path / "coverage-data"
+    coverage_report_path = tmp_path / "coverage.json"
+    coverage_environment = os.environ.copy()
+    for environment_key in COVERAGE_PROCESS_ENVIRONMENT_KEYS:
+        coverage_environment.pop(environment_key, None)
+    coverage_environment["COVERAGE_FILE"] = str(coverage_data_path)
+
+    subprocess.run(
+        [
+            sys.executable,
+            "-m",
+            "coverage",
+            "run",
+            "--rcfile=.coveragerc",
+            "pipeline/content_hash.py",
+        ],
+        cwd=ROOT,
+        env=coverage_environment,
+        check=True,
+    )
+    subprocess.run(
+        [
+            sys.executable,
+            "-m",
+            "coverage",
+            "combine",
+            "--rcfile=.coveragerc",
+            str(tmp_path),
+        ],
+        cwd=ROOT,
+        env=coverage_environment,
+        check=True,
+    )
+    subprocess.run(
+        [
+            sys.executable,
+            "-m",
+            "coverage",
+            "json",
+            "--rcfile=.coveragerc",
+            "--fail-under=0",
+            "-o",
+            str(coverage_report_path),
+            "-q",
+        ],
+        cwd=ROOT,
+        env=coverage_environment,
+        check=True,
+    )
+
+    coverage_config = configparser.ConfigParser()
+    coverage_config.read(ROOT / ".coveragerc")
+    omit_patterns = coverage_config["run"]["omit"].split()
+    tracked_production_paths = {
+        tracked_path.relative_to(ROOT).as_posix()
+        for tracked_path in _tracked_files()
+        if tracked_path.suffix == ".py"
+        and not any(fnmatch(tracked_path.relative_to(ROOT).as_posix(), omit_pattern) for omit_pattern in omit_patterns)
+    }
+    coverage_report = json.loads(coverage_report_path.read_text(encoding="utf-8"))
+    reported_paths = {Path(reported_path).as_posix() for reported_path in coverage_report["files"]}
+
+    assert reported_paths == tracked_production_paths
 
 
 def test_python_guardrail_workflow_runs_for_every_pull_request_and_master_push():

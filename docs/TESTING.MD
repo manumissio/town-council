@@ -71,7 +71,7 @@ under test is reaching through a boundary it shouldn't.
    `PYTHONPATH=. .venv/bin/pytest -q`.
 3. CI, authoritative merge gate: full Python suite + guardrail fast-fail
    steps + frontend suite + coverage threshold (`.coveragerc`
-   `fail_under`) [transition: T-CI-1..3].
+   `fail_under`).
 
 A change is "verified" only at layer 3. Layers 1–2 are diagnostic (matching
 the existing `AGENTS.md` workflow contract).
@@ -85,8 +85,17 @@ skip without a linked issue.
 
 ## Coverage
 
-`fail_under = 71` in `.coveragerc` is the enforced floor [transition:
-T-CI-3]. Raising it is a ratchet decision: report old value, new value, and
+`.coveragerc` owns the production file scope, subprocess measurement, and the
+enforced `fail_under = 71` floor. Reproduce the CI gate locally with:
+
+```bash
+PYTHONPATH=. .venv/bin/python -m pytest -q --cov \
+  --cov-config=.coveragerc \
+  --cov-report=term-missing:skip-covered \
+  tests/
+```
+
+Raising the floor is a ratchet decision: report old value, new value, and
 rationale per the status-reporting contract. Do not chase coverage with
-assertion-free tests; the floor exists to catch untested new modules, not to
-be gamed.
+assertion-free tests; the floor exists to catch untested new production
+modules, not to be gamed.
