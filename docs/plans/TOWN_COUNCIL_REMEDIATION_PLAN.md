@@ -1,8 +1,12 @@
 # Town Council Remediation Plan (Codex Multi-Agent)
 
-version: 1.9
+version: 2.1
 generated: 2026-07-23
-changelog: v1.9 corrects T-CI-2 to use the existing Node 20 test runner,
+changelog: v2.1 adds the direct development-only PyYAML contract required to
+validate workflow check identities semantically instead of approximating YAML
+with regular expressions. v2.0 records T-CI-2 completion and adds the implementation-ready
+T-CI-2A plan for the separately approval-gated frontend required-check policy.
+v1.9 corrects T-CI-2 to use the existing Node 20 test runner,
 permits the stale CSP contract to follow its current proxy owner, expands
 planning and testing-policy ownership, and records completed Phase 0 work.
 v1.8 expands T-CI-4 ownership and records the dedicated
@@ -196,6 +200,7 @@ contract test only; later GOV work retains all other ownership.
 ### T-CI-2: Give the frontend a test runner and CI job
 - priority: P0
 - depends_on: T-CI-1A
+- status: complete and verified 2026-07-23 (PR #115)
 - files_owned: docs/plans/T_CI_2_FRONTEND_TESTS_PLAN.md,
   docs/plans/TOWN_COUNCIL_REMEDIATION_PLAN.md, docs/TESTING.MD (frontend
   transition sentence only), frontend/package.json,
@@ -224,18 +229,27 @@ contract test only; later GOV work retains all other ownership.
 ### T-CI-2A: Require the universal frontend test check
 - priority: P0
 - depends_on: T-CI-2
+- status: planning complete; live policy update awaits operator approval
 - files_owned: docs/plans/T_CI_2_REQUIRED_CHECK_POLICY_PLAN.md (new),
   docs/plans/T_CI_1_REQUIRED_CHECK_POLICY_PLAN.md,
   docs/plans/TOWN_COUNCIL_REMEDIATION_PLAN.md, AGENTS.md (verification-matrix
-  transition marker only)
+  CI-status paragraph and transition markers only),
+  pipeline/requirements-dev.txt,
+  tests/test_docker_build_contracts.py
+  (development-only workflow parser dependency contract only),
+  tests/test_repository_guardrails.py
+  (canonical frontend required-check job identity only)
 - external_state_owned: repository ruleset `Require Python Guardrails`
 - decision_required: Operator approval of an exact update to ruleset 19594795
   that adds GitHub Actions context `frontend-tests` from integration 15368
   while preserving every T-CI-1A field.
+- implementation_plan: `docs/plans/T_CI_2_REQUIRED_CHECK_POLICY_PLAN.md`
 - do: After T-CI-2 is green on frontend and non-frontend pull requests, update
   ruleset 19594795 so its required status checks are exactly
-  `python-guardrails` and `frontend-tests`. Remove the AGENTS.md transition
-  marker only after the live readback proves both checks are mandatory.
+  `python-guardrails` and `frontend-tests`. Replace stale landed-task
+  transition text with accurate T-CI-2A-pending text in the planning PR, then
+  remove both temporary markers only after live readback proves both checks
+  are mandatory.
 - accept: Every pull request receives both contexts; the default branch cannot
   update unless both pass; strict policy, branch-creation exemption, empty
   bypass list, target, and all other T-CI-1A fields remain unchanged.

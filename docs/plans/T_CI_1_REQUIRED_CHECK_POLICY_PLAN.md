@@ -239,41 +239,22 @@ The POST that created ruleset 19594795 is historical and non-repeatable.
 
 **v) Rollback.**
 
-This creation-time rollback applies only while ruleset 19594795 still has the
-Python-only contract verified by this plan. After T-CI-2A adds
-`frontend-tests`, its plan owns this section and must replace deletion with a
-PATCH that restores the exact Python-only contract below. Deleting the ruleset
-after T-CI-2A would also remove the established Python merge gate.
+Ruleset 19594795 is now an established merge gate and must never be deleted as
+a rollback action. Reverting this historical plan alone does not authorize
+removing `python-guardrails` or disabling the ruleset.
 
-```bash
-gh api -H "X-GitHub-Api-Version: 2026-03-10" --method DELETE \
-  repos/manumissio/town-council/rulesets/19594795
-if gh api --include -H "X-GitHub-Api-Version: 2026-03-10" \
-  repos/manumissio/town-council/rulesets/19594795 \
-  > /tmp/t-ci-1-deleted-ruleset-response.txt 2>&1; then
-  echo "Expected deleted ruleset to return 404" >&2
-  exit 1
-fi
-deleted_ruleset_status=$(awk 'index($0, "HTTP/") == 1 { status=$2 } END { print status }' \
-  /tmp/t-ci-1-deleted-ruleset-response.txt)
-if [ "$deleted_ruleset_status" != "404" ]; then
-  echo "Expected HTTP 404, received ${deleted_ruleset_status:-no status}" >&2
-  exit 1
-fi
-gh api -H "X-GitHub-Api-Version: 2026-03-10" \
-  repos/manumissio/town-council/rulesets \
-  | jq -e --argjson ruleset_id 19594795 'all(.[]; .id != $ruleset_id)'
-T_CI_1A_DOCS_COMMIT=$(git log --diff-filter=A -1 --format=%H -- \
-  docs/plans/T_CI_1_REQUIRED_CHECK_POLICY_PLAN.md)
-test -n "$T_CI_1A_DOCS_COMMIT"
-git revert "$T_CI_1A_DOCS_COMMIT"
-PYTHONPATH=. .venv/bin/pytest -q tests/test_docs_links.py
-git diff --check
-```
+If T-CI-2A adds another required check and must be rolled back, follow
+`docs/plans/T_CI_2_REQUIRED_CHECK_POLICY_PLAN.md` to restore the exact
+Python-only contract with `PUT`. Rollback is complete only after direct
+ruleset and effective-`master` readbacks prove that:
 
-Rollback is complete only when the named ruleset is absent and the committed
-documents no longer declare it active. No code, migration, data, package, or
-runtime rollback exists.
+- ruleset 19594795 remains active;
+- `python-guardrails` from integration 15368 remains required;
+- strict latest-default-branch policy remains enabled;
+- branch creation remains exempt;
+- no bypass actor or extra rule exists.
+
+No code, migration, data, package, or runtime rollback exists.
 
 **w) Docs synchronization.** Update this implementation plan and remediation
 registry only. Existing guardrail policy text becomes accurate when the live
