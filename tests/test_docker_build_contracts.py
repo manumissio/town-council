@@ -1,5 +1,46 @@
+import json
 import re
+import subprocess
 from pathlib import Path
+
+
+def _compose_services(*compose_paths: str) -> dict[str, dict[str, object]]:
+    compose_command = ["docker", "compose"]
+    for compose_path in compose_paths:
+        compose_command.extend(("-f", compose_path))
+    compose_command.extend(("config", "--format", "json"))
+    completed_process = subprocess.run(
+        compose_command,
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+    compose_project = json.loads(completed_process.stdout)
+    return compose_project["services"]
+
+
+def _published_port_bindings(
+    compose_services: dict[str, dict[str, object]],
+) -> set[tuple[str, str | None, str, int]]:
+    return {
+        (
+            service_name,
+            port_mapping.get("host_ip"),
+            port_mapping["published"],
+            port_mapping["target"],
+        )
+        for service_name, service_config in compose_services.items()
+        for port_mapping in service_config.get("ports", [])
+    }
+
+
+def _service_dependencies(
+    compose_services: dict[str, dict[str, object]],
+) -> dict[str, set[str]]:
+    return {
+        service_name: set(service_config.get("depends_on", {}))
+        for service_name, service_config in compose_services.items()
+    }
 
 
 def _requirement_names(requirements_path: Path) -> set[str]:
@@ -24,6 +65,55 @@ def test_compose_uses_role_specific_python_images_and_model_volume():
     assert "enrichment-worker:" in source
     assert "semantic-worker:" in source
     assert "models_data:/models" in source
+
+
+def test_base_compose_publishes_only_application_interfaces():
+    compose_services = _compose_services("docker-compose.yml")
+
+    assert _published_port_bindings(compose_services) == {
+        ("api", None, "8000", 8000),
+        ("frontend", None, "3000", 3000),
+    }
+    assert all(service_config.get("network_mode") != "host" for service_config in compose_services.values())
+
+
+def test_dev_overlay_publishes_operator_services_on_loopback_only():
+    base_services = _compose_services("docker-compose.yml")
+    development_services = _compose_services("docker-compose.yml", "docker-compose.dev.yml")
+
+    assert _published_port_bindings(development_services) == {
+        ("api", None, "8000", 8000),
+        ("frontend", None, "3000", 3000),
+        ("grafana", "127.0.0.1", "3001", 3000),
+        ("meilisearch", "127.0.0.1", "7700", 7700),
+        ("postgres", "127.0.0.1", "5432", 5432),
+        ("prometheus", "127.0.0.1", "9090", 9090),
+        ("redis", "127.0.0.1", "6379", 6379),
+    }
+    assert _service_dependencies(development_services) == _service_dependencies(base_services)
+    assert all(service_config.get("network_mode") != "host" for service_config in development_services.values())
+
+
+def test_example_grafana_credentials_are_labeled_local_only():
+    example_environment = Path(".env.example").read_text(encoding="utf-8")
+
+    assert "Grafana admin credentials (local development only)" in example_environment
+    assert "unsafe for reachable deployments" in example_environment
+
+
+def test_operator_docs_scope_dev_overlay_to_port_services():
+    readme = Path("README.md").read_text(encoding="utf-8")
+    operations = Path("docs/OPERATIONS.md").read_text(encoding="utf-8")
+    access_command = (
+        "docker compose -f docker-compose.yml -f docker-compose.dev.yml up -d \\\n"
+        "  postgres redis meilisearch prometheus grafana"
+    )
+    purge_warning = "Using the development overlay for the full stack also enables `STARTUP_PURGE_DERIVED=true`."
+
+    assert access_command in readme
+    assert access_command in operations
+    assert purge_warning in readme
+    assert purge_warning in operations
 
 
 def test_dockerfile_defines_split_python_targets():

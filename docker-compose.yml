@@ -1,3 +1,5 @@
+# Inter-container traffic uses the Compose network; opt-in host bindings for
+# backing and monitoring services belong in docker-compose.dev.yml.
 services:
   # PostgreSQL Database: Replaces SQLite for production-grade concurrency and performance.
   postgres:
@@ -8,8 +10,6 @@ services:
       POSTGRES_USER: ${POSTGRES_USER:-town_council}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-secure_dev_password}
       POSTGRES_DB: ${POSTGRES_DB:-town_council_db}
-    ports:
-      - "5432:5432"
     volumes:
       - postgres_data:/var/lib/postgresql/data
 
@@ -393,8 +393,6 @@ services:
   # Meilisearch: A fast, typo-tolerant search engine (FOSS).
   meilisearch:
     image: getmeili/meilisearch:v1.6
-    ports:
-      - "7700:7700"
     environment:
       - MEILI_MASTER_KEY=${MEILI_MASTER_KEY:-masterKey}
     volumes:
@@ -445,8 +443,6 @@ services:
   # This reduces database load by ~95% for read-heavy operations.
   redis:
     image: redis:7-alpine
-    ports:
-      - "6379:6379"
     command: redis-server --requirepass ${REDIS_PASSWORD:-secure_redis_password} --maxmemory 256mb --maxmemory-policy allkeys-lru
     volumes:
       - redis_data:/data
@@ -570,8 +566,6 @@ services:
     volumes:
       - ./monitoring/prometheus.yml:/etc/prometheus/prometheus.yml
       - prometheus_data:/prometheus
-    ports:
-      - "9090:9090"
 
   # Grafana: FOSS analytics and interactive visualization web application.
   grafana:
@@ -580,8 +574,6 @@ services:
       - grafana_data:/var/lib/grafana
       - ./monitoring/grafana/provisioning:/etc/grafana/provisioning
       - ./monitoring/grafana/dashboards:/var/lib/grafana/dashboards
-    ports:
-      - "3001:3000" # Mapped to 3001 to avoid conflict with frontend
     environment:
       - GF_SECURITY_ADMIN_USER=${GRAFANA_ADMIN_USER:-admin}
       - GF_SECURITY_ADMIN_PASSWORD=${GRAFANA_ADMIN_PASSWORD:-admin}

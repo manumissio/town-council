@@ -65,7 +65,8 @@ engineering decisions is `reachable`).
 
 ## Hardening checklist (reachable posture)
 
-- [ ] Base compose publishes only `api:8000` and `frontend:3000` (T-SEC-1)
+- [ ] Base compose publishes only `api:8000` and `frontend:3000` (T-SEC-1;
+  implementation complete, merge pending)
 - [ ] Non-default values for every key in the inventory above
 - [ ] API aborts on default key outside dev (T-SEC-2)
 - [ ] Meilisearch search key configured for the API (T-SEC-3)

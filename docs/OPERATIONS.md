@@ -1,6 +1,6 @@
 # Operations Runbook
 
-Last updated: 2026-05-17
+Last updated: 2026-07-23
 
 ## Core workflow
 
@@ -25,6 +25,17 @@ Optional helper (same steps, fewer flags to remember):
 ```bash
 bash ./scripts/dev_up.sh
 ```
+
+The base stack publishes only the API and frontend. For loopback-only access
+to backing and monitoring interfaces, start only those services with the
+development overlay:
+
+```bash
+docker compose -f docker-compose.yml -f docker-compose.dev.yml up -d \
+  postgres redis meilisearch prometheus grafana
+```
+
+Using the development overlay for the full stack also enables `STARTUP_PURGE_DERIVED=true`.
 
 M5 Pro MLX opt-in path:
 ```bash
@@ -1524,7 +1535,9 @@ Targets should be UP:
 - `cadvisor`
 
 Check:
-- Prometheus targets: [http://localhost:9090/targets](http://localhost:9090/targets)
+- After starting the service-scoped development overlay above, inspect
+  Prometheus targets at
+  [http://localhost:9090/targets](http://localhost:9090/targets).
 
 ## Code scanning hygiene
 - Keep captured portal snapshots and fixtures out of runtime source roots when possible.
