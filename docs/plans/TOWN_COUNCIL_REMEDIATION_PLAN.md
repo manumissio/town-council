@@ -1,8 +1,11 @@
 # Town Council Remediation Plan (Codex Multi-Agent)
 
-version: 2.2
+version: 2.3
 generated: 2026-07-23
-changelog: v2.2 corrects the T-CI-2A workflow identity guardrail to preserve
+changelog: v2.3 expands T-CI-3 ownership and defines a production-only,
+subprocess-aware coverage contract before activating the existing 71% floor.
+It prevents test code from inflating the gate and keeps coverage dependencies
+out of runtime images. v2.2 corrects the T-CI-2A workflow identity guardrail to preserve
 GitHub string semantics for YAML 1.1 Boolean-like scalars. v2.1 adds the direct
 development-only PyYAML contract required to validate workflow check
 identities semantically instead of approximating YAML with regular
@@ -112,6 +115,10 @@ plus the corresponding repository guardrail tests; later GOV work retains all
 other ownership of those files. T-CI-4 receives the same narrow temporary
 coordination grant for formatter config-location prose and the formatter
 contract test only; later GOV work retains all other ownership.
+T-CI-3 receives a narrow temporary coordination grant for coverage scope
+references, verification commands, merge-gate prose, and transition markers
+in `AGENTS.md`, `docs/TESTING.MD`, and
+`docs/ENGINEERING_GUARDRAILS.md`; later GOV work retains all other ownership.
 
 ---
 
@@ -272,12 +279,33 @@ contract test only; later GOV work retains all other ownership.
 ### T-CI-3: Enforce coverage threshold
 - priority: P2
 - depends_on: T-CI-1
-- files_owned: .github/workflows/python-guardrails.yml, .coveragerc,
-  tests/test_repository_guardrails.py
-- do: Run pytest under coverage in CI; `fail_under = 71` becomes enforced.
-  Replace T-CI-1's temporary contract assertion that coverage remains absent.
-- accept: CI fails if coverage < 71%.
-- verify: `PYTHONPATH=. python -m pytest --cov -q tests/` reports >= 71.
+- status: implementation-ready
+- files_owned: docs/plans/T_CI_3_COVERAGE_GATE_PLAN.md,
+  docs/plans/TOWN_COUNCIL_REMEDIATION_PLAN.md, AGENTS.md,
+  docs/TESTING.MD, docs/ENGINEERING_GUARDRAILS.md,
+  .github/workflows/python-guardrails.yml, .coveragerc,
+  pipeline/requirements-dev.txt, tests/test_repository_guardrails.py,
+  tests/test_docker_build_contracts.py
+- do: Follow the implementation-ready T-CI-3 plan. Pin pytest-cov and
+  coverage.py as development-only dependencies. Measure repository production
+  Python from `.coveragerc`, omit tests, archives, experiments, and local
+  virtual environments, include namespace-package files, enable coverage.py
+  subprocess patching, and replace only the authoritative full-suite workflow
+  command with the coverage-aware command.
+- accept: CI fails below the unchanged 71% floor; tests do not inflate the
+  measured total; every tracked production Python file, including
+  namespace-package, repository-root, and subprocess-executed files, remains
+  eligible for measurement; coverage tooling remains absent from runtime
+  requirements; fast-fail tests, workflow identity, permissions, triggers,
+  static checks, and runtime behavior remain unchanged.
+- forbidden: Raising or lowering the threshold; counting tests or archived
+  code; using explicit `--cov=SOURCE` arguments that override `.coveragerc`;
+  adding coverage to fast-fail tests; adding a job, retry, skip, xfail,
+  tolerance, cache, external upload, or runtime dependency.
+- verify: Ruff lint and configured formatter, pre-commit Ruff, Mypy,
+  repository guardrails, Docker dependency contracts, docs links, the
+  complete production-only coverage command, `git diff --check`, and PR CI as
+  specified in `docs/plans/T_CI_3_COVERAGE_GATE_PLAN.md`.
 
 ### T-CI-4: Move formatter file list out of the workflow
 - priority: P2
