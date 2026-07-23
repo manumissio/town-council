@@ -427,15 +427,17 @@ in `AGENTS.md`, `docs/TESTING.MD`, and
 - files_owned: docs/plans/T_SEC_2_DEFAULT_API_KEY_PLAN.md,
   docs/plans/TOWN_COUNCIL_REMEDIATION_PLAN.md, api/app_setup.py,
   tests/test_api_startup_security.py, SECURITY.md
-- do: In `lifespan`, if normalized `APP_ENV != "dev"` and `API_AUTH_KEY` is
-  the checked-in default, empty, or whitespace-only, raise `RuntimeError`
-  before database, purge, or semantic startup work. Read environment values
-  through `pipeline/config_env.py`, preserve the warning in dev, and preserve
-  the raw nonblank key for request authentication.
-- accept: Non-development boot with a default or blank key aborts with a clear
-  message before downstream startup work; development behavior is unchanged;
-  a configured nonblank key starts; focused tests cover every branch without
-  uncontrolled outbound HTTP.
+- do: In `lifespan`, reject non-ASCII `API_AUTH_KEY` values in every
+  environment. When normalized `APP_ENV != "dev"`, also reject the checked-in
+  default after trimming or a blank key. Raise `RuntimeError` before database,
+  purge, or semantic startup work. Read environment values through
+  `pipeline/config_env.py`, preserve the default-key warning in dev, and
+  preserve an accepted raw key for request authentication.
+- accept: A non-ASCII key always aborts with a clear message. Non-development
+  boot with a default or blank key also aborts before downstream startup work;
+  default-key development behavior is unchanged; a configured ASCII key
+  starts; focused tests cover every branch without uncontrolled outbound HTTP
+  or purge.
 - verify: Targeted pytest for the new test; full suite green.
 
 ### T-SEC-3: API read path uses a scoped Meilisearch search key, not the master key

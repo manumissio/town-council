@@ -50,8 +50,11 @@ engineering decisions is `reachable`).
 
 ## Secret policy
 
-- No working default credential may permit non-dev operation. The API
-  refuses to start with the default `API_AUTH_KEY` when `APP_ENV != dev`
+- No working default or blank credential may permit non-development
+  operation. The API refuses to start outside development with a default
+  (including surrounding whitespace), empty, or whitespace-only
+  `API_AUTH_KEY`. It rejects non-ASCII API keys in every environment because
+  the constant-time string comparison cannot authenticate them
   `[remediation: T-SEC-2]`. Extend the same pattern to any future secret.
 - No secret in a `NEXT_PUBLIC_*` variable, ever. These ship to browser
   bundles.

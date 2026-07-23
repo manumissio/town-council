@@ -1,7 +1,7 @@
 # T-SEC-2: Reject the Default API Key Outside Development
 
-`artifact_contract: ce-unified-plan/v1`  
-`artifact_readiness: implementation-ready`  
+`artifact_contract: ce-unified-plan/v1`
+`artifact_readiness: implementation-ready`
 `execution: code`
 
 ## 1. Context & Alignment
@@ -53,15 +53,16 @@ not individual users.
    `env_raw` and read `APP_ENV` through `env_lower`, reusing
    `pipeline/config_env.py`. Preserve the raw configured key for constant-time
    request comparison.
-4. When normalized `APP_ENV` is not `dev` and the raw key is the checked-in
-   default, empty, or whitespace-only, raise `RuntimeError` with a named,
+4. When normalized `APP_ENV` is not `dev` and the stripped key is the
+   checked-in default or blank, raise `RuntimeError` with a named,
    operator-facing message before database initialization, startup purge, or
-   semantic health checks. Use stripping only for the blank-key predicate; do
-   not silently rewrite a nonblank credential.
+   semantic health checks. Use stripping only to classify unsafe credentials;
+   do not rewrite an accepted key.
 5. When the key equals the default and normalized `APP_ENV` is `dev`, preserve
    the current critical warning and continue startup.
-6. When a nonblank, non-default key is supplied, continue startup in every
-   environment.
+6. Reject non-ASCII keys in every environment because string
+   `hmac.compare_digest` cannot authenticate them. When an ASCII, nonblank,
+   non-default key is supplied, continue startup without rewriting it.
 7. Mark the T-SEC-2 security checklist item complete only after local and pull
    request verification are green.
 8. Run simplification and an independent pre-commit review, then commit, push,
@@ -82,10 +83,12 @@ validator.
 - missing `APP_ENV` defaults to `dev`;
 - whitespace and case in `APP_ENV` normalize through `env_lower`;
 - blank or any normalized value other than `dev` is non-development;
-- the known development key, an empty key, and a whitespace-only key are
-  rejected outside development;
-- a nonblank, non-default key starts normally and remains byte-for-byte
-  unchanged for request authentication.
+- the known development key with or without surrounding whitespace, an empty
+  key, and a whitespace-only key are rejected outside development;
+- non-ASCII keys are rejected in every environment with an operator-facing
+  error instead of failing later during authentication;
+- an ASCII, nonblank, non-default key starts normally and remains
+  byte-for-byte unchanged for request authentication.
 
 **h) Schema/migration impact.** None.
 
@@ -94,9 +97,11 @@ validator.
 **i) Security-sensitive path.** `api/app_setup.py` is the API startup,
 authentication, and rate-limit trust boundary. The change removes an attacker's
 ability to authenticate to a non-development API with the public checked-in
-key or with no request header when the configured key is empty. It implements
-`SECURITY.md` "Secret policy" and does not alter endpoint authorization, rate
-limiting, CORS, or proxy behavior.
+key, a padded form of that key, or no request header when the configured key is
+empty. It also rejects non-ASCII keys that the current constant-time string
+comparison cannot authenticate. It implements `SECURITY.md` "Secret policy"
+and does not alter endpoint authorization, rate limiting, CORS, or proxy
+behavior.
 
 **j) Secrets.** No credential or default changes. The checked-in key remains a
 local-development fallback. No value is logged; only the policy violation is
@@ -135,8 +140,8 @@ threshold, or workflow gate changes.
 
 **p) Dead code and duplication audit.** The unconditional warning branch is
 replaced by environment-aware fail-fast behavior in the same location. No
-production code is copied. Expected production delta is a named message,
-two config-helper imports, and one conditional branch.
+production code is copied. Expected production delta is two named messages,
+two config-helper imports, and two conditional branches.
 
 ## 5. Testing
 
@@ -147,22 +152,26 @@ two config-helper imports, and one conditional branch.
 3. Blank `APP_ENV` with the default key fails closed.
 4. An empty or whitespace-only key outside development aborts startup, so a
    missing request header cannot authenticate against an empty expected key.
-5. Missing `APP_ENV` defaults to development and starts with the current
+5. Surrounding whitespace cannot disguise the checked-in default key outside
+   development.
+6. A non-ASCII key in either development or non-development aborts with a
+   clear startup error.
+7. Missing `APP_ENV` defaults to development and starts with the current
    critical warning.
-6. Mixed-case or padded `dev` normalizes to development and starts.
-7. Non-default key starts in production.
-8. Rejection occurs before database, purge, or semantic startup work.
-9. No key value appears in the exception or log message.
-10. Accepted startup never performs an uncontrolled semantic-service request,
+8. Mixed-case or padded `dev` normalizes to development and starts.
+9. Non-default ASCII key starts in production.
+10. Rejection occurs before database, purge, or semantic startup work.
+11. No key value appears in the exception or log message.
+12. Accepted startup never performs an uncontrolled semantic-service request,
     regardless of the process's imported feature-flag state.
 
 **r) Tests added.**
 
 | Test | Scenarios |
 |---|---|
-| `test_non_dev_startup_rejects_unsafe_api_key` | 1-4, 8, 9 |
-| `test_dev_startup_allows_default_api_key_with_warning` | 5, 6, 9, 10 |
-| `test_non_dev_startup_accepts_configured_api_key` | 7, 10 |
+| `test_non_dev_startup_rejects_unsafe_api_key` | 1-6, 10, 11 |
+| `test_dev_startup_allows_default_api_key_with_warning` | 7, 8, 11, 12 |
+| `test_non_dev_startup_accepts_configured_api_key` | 9, 12 |
 
 Each test constructs a small `FastAPI(lifespan=app_setup.lifespan)` instance
 and enters it through `TestClient` so startup behavior is observable at the
@@ -181,7 +190,8 @@ approved environment, database, and outbound-HTTP boundaries:
 - accepted tests patch `api.search.semantic_support.httpx.get` with a healthy
   response at the approved outbound-HTTP boundary, preventing a real request
   even if `SEMANTIC_ENABLED` was true before test collection;
-- startup purge remains disabled through its documented environment contract.
+- accepted tests explicitly disable startup purge through its documented
+  environment contract.
 
 No private semantic helper, facade re-export, or purge function is patched. No
 new production test seam is added.
