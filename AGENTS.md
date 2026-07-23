@@ -194,12 +194,12 @@ If the impact is unclear, invoke the objection protocol rather than guessing.
 
 <verification_matrix>
 Scope: the matrix is a fast local pre-check for iterating on a change. The
-authoritative merge gate is the full test suite run by CI on every pull
-request (`python-guardrails` for Python, `frontend-tests` for the frontend).
+authoritative CI verification is the full test suite run by both jobs on every
+pull request (`python-guardrails` for Python, `frontend-tests` for the frontend).
 A passing matrix row is necessary for proceeding, not sufficient for merge.
-[transition: the CI full-suite and frontend jobs are delivered by remediation
-tasks T-CI-1 and T-CI-2; until both merge, run the full sweep locally before
-handoff on any non-trivial change.]
+[transition: both jobs run on every pull request, but only
+`python-guardrails` is mandatory until T-CI-2A adds `frontend-tests` to the
+required-check ruleset.]
 
 All commands in applicable row(s) are mandatory, not advisory.
 If no row applies, run `PYTHONPATH=. .venv/bin/pytest -q tests/test_docs_links.py` at minimum.
@@ -247,7 +247,7 @@ Frontend contract changes (`frontend/**` affecting API/task/search behavior):
 
 Frontend component/behavior changes (`frontend/**` JS/JSX):
 - `cd frontend && npm test`
-  [transition: effective when the frontend test runner lands (T-CI-2)]
+  [transition: the runner is live; T-CI-2A makes its CI context mandatory]
 
 Broad cross-cutting changes:
 - Required: run all applicable rows above.
