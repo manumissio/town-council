@@ -19,7 +19,9 @@ from pipeline.startup_purge import run_startup_purge_if_enabled
 DEFAULT_API_AUTH_KEY = "dev_secret_key_change_me"
 DEVELOPMENT_APP_ENV = "dev"
 UNSAFE_API_AUTH_KEY_MESSAGE = "API_AUTH_KEY must be set to a non-default, nonblank value when APP_ENV is not dev."
-NON_ASCII_API_AUTH_KEY_MESSAGE = "API_AUTH_KEY must contain only ASCII characters."
+HEADER_UNSAFE_API_AUTH_KEY_MESSAGE = (
+    "API_AUTH_KEY must contain printable ASCII characters without leading or trailing whitespace."
+)
 DATABASE_UNAVAILABLE_DETAIL = "Database service is unavailable"
 SEMANTIC_SERVICE_URL = os.getenv("SEMANTIC_SERVICE_URL", "http://semantic:8010").rstrip("/")
 
@@ -98,8 +100,12 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         normalized_api_auth_key == DEFAULT_API_AUTH_KEY or not normalized_api_auth_key
     ):
         raise RuntimeError(UNSAFE_API_AUTH_KEY_MESSAGE)
-    if not api_auth_key.isascii():
-        raise RuntimeError(NON_ASCII_API_AUTH_KEY_MESSAGE)
+    if api_auth_key and (
+        not api_auth_key.isascii()
+        or not api_auth_key.isprintable()
+        or api_auth_key != normalized_api_auth_key
+    ):
+        raise RuntimeError(HEADER_UNSAFE_API_AUTH_KEY_MESSAGE)
     if api_auth_key == DEFAULT_API_AUTH_KEY:
         logger.critical("SECURITY WARNING: You are using the default API Key. Please set API_AUTH_KEY in production.")
     initialize_database()

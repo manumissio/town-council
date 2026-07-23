@@ -1,6 +1,7 @@
 import logging
 from typing import Never
 
+import h11
 import pytest
 from fastapi import Depends, FastAPI
 from fastapi.testclient import TestClient
@@ -11,8 +12,10 @@ from api.search import semantic_support
 
 DEFAULT_KEY_WARNING = "SECURITY WARNING: You are using the default API Key."
 UNSAFE_KEY_MESSAGE = "API_AUTH_KEY must be set to a non-default, nonblank value when APP_ENV is not dev."
-NON_ASCII_KEY_MESSAGE = "API_AUTH_KEY must contain only ASCII characters."
-CONFIGURED_API_KEY = "  configured-production-key  "
+HEADER_UNSAFE_KEY_MESSAGE = (
+    "API_AUTH_KEY must contain printable ASCII characters without leading or trailing whitespace."
+)
+CONFIGURED_API_KEY = "Configured Production Key_123"
 
 
 class _HealthySemanticResponse:
@@ -45,8 +48,10 @@ def _protected_status() -> dict[str, str]:
         ("prod", "", UNSAFE_KEY_MESSAGE),
         ("prod", "   ", UNSAFE_KEY_MESSAGE),
         ("prod", f" {app_setup.DEFAULT_API_AUTH_KEY} ", UNSAFE_KEY_MESSAGE),
-        ("prod", "configured-key-\u00e9", NON_ASCII_KEY_MESSAGE),
-        ("dev", "configured-key-\u00e9", NON_ASCII_KEY_MESSAGE),
+        ("prod", " configured-production-key ", HEADER_UNSAFE_KEY_MESSAGE),
+        ("prod", "configured-key-\x7f", HEADER_UNSAFE_KEY_MESSAGE),
+        ("prod", "configured-key-\u00e9", HEADER_UNSAFE_KEY_MESSAGE),
+        ("dev", "configured-key-\u00e9", HEADER_UNSAFE_KEY_MESSAGE),
     ],
 )
 def test_startup_rejects_unsafe_api_key(
@@ -108,7 +113,22 @@ def test_non_dev_startup_accepts_configured_api_key(
 
     with TestClient(application) as client:
         exact_key_response = client.get("/protected", headers={"X-API-Key": CONFIGURED_API_KEY})
-        stripped_key_response = client.get("/protected", headers={"X-API-Key": CONFIGURED_API_KEY.strip()})
+        changed_key_response = client.get("/protected", headers={"X-API-Key": CONFIGURED_API_KEY.lower()})
 
     assert exact_key_response.status_code == 200
-    assert stripped_key_response.status_code == 401
+    assert changed_key_response.status_code == 401
+
+
+def test_h11_removes_edge_whitespace_but_preserves_internal_api_key_space() -> None:
+    connection = h11.Connection(h11.SERVER)
+    connection.receive_data(
+        b"GET /protected HTTP/1.1\r\n"
+        b"Host: test\r\n"
+        b"X-API-Key:   Configured Production Key_123   \r\n"
+        b"\r\n"
+    )
+
+    request = connection.next_event()
+
+    assert isinstance(request, h11.Request)
+    assert dict(request.headers)[b"x-api-key"] == CONFIGURED_API_KEY.encode()

@@ -60,9 +60,11 @@ not individual users.
    do not rewrite an accepted key.
 5. When the key equals the default and normalized `APP_ENV` is `dev`, preserve
    the current critical warning and continue startup.
-6. Reject non-ASCII keys in every environment because string
-   `hmac.compare_digest` cannot authenticate them. When an ASCII, nonblank,
-   non-default key is supplied, continue startup without rewriting it.
+6. Reject every nonempty key containing non-ASCII, control, or leading or
+   trailing whitespace characters because HTTP header parsing or string
+   comparison cannot authenticate it reliably. When a printable-ASCII,
+   nonblank, non-default key is supplied, continue startup without rewriting
+   it.
 7. Mark the T-SEC-2 security checklist item complete only after local and pull
    request verification are green.
 8. Run simplification and an independent pre-commit review, then commit, push,
@@ -85,10 +87,11 @@ validator.
 - blank or any normalized value other than `dev` is non-development;
 - the known development key with or without surrounding whitespace, an empty
   key, and a whitespace-only key are rejected outside development;
-- non-ASCII keys are rejected in every environment with an operator-facing
-  error instead of failing later during authentication;
-- an ASCII, nonblank, non-default key starts normally and remains
-  byte-for-byte unchanged for request authentication.
+- keys containing non-ASCII, control, or edge-whitespace characters are
+  rejected with an operator-facing error instead of failing later during HTTP
+  authentication;
+- a printable-ASCII, nonblank, non-default key starts normally and remains
+  byte-for-byte unchanged and case-sensitive for request authentication.
 
 **h) Schema/migration impact.** None.
 
@@ -98,10 +101,10 @@ validator.
 authentication, and rate-limit trust boundary. The change removes an attacker's
 ability to authenticate to a non-development API with the public checked-in
 key, a padded form of that key, or no request header when the configured key is
-empty. It also rejects non-ASCII keys that the current constant-time string
-comparison cannot authenticate. It implements `SECURITY.md` "Secret policy"
-and does not alter endpoint authorization, rate limiting, CORS, or proxy
-behavior.
+empty. It also rejects keys whose non-ASCII, control, or edge-whitespace
+characters cannot survive the HTTP header boundary unchanged. It implements
+`SECURITY.md` "Secret policy" and does not alter endpoint authorization, rate
+limiting, CORS, or proxy behavior.
 
 **j) Secrets.** No credential or default changes. The checked-in key remains a
 local-development fallback. No value is logged; only the policy violation is
@@ -154,12 +157,13 @@ two config-helper imports, and two conditional branches.
    missing request header cannot authenticate against an empty expected key.
 5. Surrounding whitespace cannot disguise the checked-in default key outside
    development.
-6. A non-ASCII key in either development or non-development aborts with a
-   clear startup error.
+6. A key containing non-ASCII, control, or edge-whitespace characters aborts
+   with a clear startup error before downstream startup work.
 7. Missing `APP_ENV` defaults to development and starts with the current
    critical warning.
 8. Mixed-case or padded `dev` normalizes to development and starts.
-9. Non-default ASCII key starts in production.
+9. A non-default printable-ASCII key starts in production and remains
+   case-sensitive.
 10. Rejection occurs before database, purge, or semantic startup work.
 11. No key value appears in the exception or log message.
 12. Accepted startup never performs an uncontrolled semantic-service request,
@@ -270,7 +274,7 @@ independent planning and pre-commit review findings, fixes, commit hashes, PR
 URL, unresolved-thread count, current-head review result, and final CI state.
 Anything unrun is `NOT VERIFIED`.
 
-**z) Deviations.** The authorized remediation-plan corrections are expanded
-T-SEC-2 ownership and moving functionally complete T-GOV-4 into the Complete
-status row. Any additional path, credential/default change, endpoint policy
-change, unresolved P1/P2, skipped review, or unrun required check is a blocker.
+**z) Deviations.** The authorized remediation-plan correction is expanded
+T-SEC-2 ownership. Any additional path, credential/default change, endpoint
+policy change, unrelated task-status change, unresolved P1/P2, skipped review,
+or unrun required check is a blocker.

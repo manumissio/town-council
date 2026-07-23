@@ -53,9 +53,10 @@ engineering decisions is `reachable`).
 - No working default or blank credential may permit non-development
   operation. The API refuses to start outside development with a default
   (including surrounding whitespace), empty, or whitespace-only
-  `API_AUTH_KEY`. It rejects non-ASCII API keys in every environment because
-  the constant-time string comparison cannot authenticate them
-  `[remediation: T-SEC-2]`. Extend the same pattern to any future secret.
+  `API_AUTH_KEY`. Every nonempty API key must contain printable ASCII
+  characters without leading or trailing whitespace so HTTP header parsing
+  cannot change the authenticated value `[remediation: T-SEC-2]`. Extend the
+  same pattern to any future secret.
 - No secret in a `NEXT_PUBLIC_*` variable, ever. These ship to browser
   bundles.
 - Secrets enter via environment/.env only; `.env` is gitignored. No secrets
