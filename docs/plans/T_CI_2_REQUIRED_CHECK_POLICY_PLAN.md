@@ -5,8 +5,8 @@
 `execution: code`
 `task: T-CI-2A`
 `lane: CI`
-`implementation_status: live policy active; merge verification pending`
-`external_state_status: active`
+`implementation_status: complete`
+`external_state_status: active and verified`
 `external_ruleset_id: 19594795`
 `approved: 2026-07-23`
 `activated: 2026-07-23`
@@ -17,8 +17,9 @@
 push to `master`. Before T-CI-2A activation, the default-branch ruleset required
 only `python-guardrails`, so a frontend regression could remain mergeable even
 when the frontend test job failed. The approved live update now requires both
-checks. Final completion remains pending until this policy record merges under
-both checks and the post-merge ruleset readback passes.
+checks. PR #120 merged under both required checks, its post-merge direct and
+effective readbacks passed, and the operator explicitly accepted the recorded
+digest-approval deviation.
 
 **b) Canonical documents consulted.**
 
@@ -60,9 +61,9 @@ both checks and the post-merge ruleset readback passes.
 No workflow, runtime package, runtime behavior, or application file may change.
 
 **d) Decision-gate check.** No G1-G5 gate applies. The operator explicitly
-approved the T-CI-2A ruleset update on 2026-07-23, and the live direct and
-effective readbacks match the contracts below. G3 remains open and continues
-to block Phase 2.
+approved the T-CI-2A ruleset update and accepted its recorded procedural
+deviation on 2026-07-23. The live direct and effective readbacks match the
+contracts below. G3 remains open and continues to block Phase 2.
 
 ## 2. Design
 
@@ -132,7 +133,9 @@ to block Phase 2.
     recorded in 7z. Then open a final closure PR that records T-CI-2A complete
     only after that acceptance and the post-merge ruleset and
     effective-`master` readbacks pass. Merge it after both required checks
-    pass, then repeat the policy readback.
+    pass, then repeat the policy readback. The acceptance and first post-merge
+    readback completed on 2026-07-23; only closure delivery and its final
+    no-drift readback remain.
 
 No production function, module, workflow, helper script, compatibility path,
 or new configuration surface is added. The guardrail test uses the direct
@@ -352,12 +355,11 @@ post-merge recheck.
 
 The activation sequence below is historical audit evidence. It completed on
 2026-07-23 and **none of its repository setup, Python-only precondition,
-approval-artifact, or mutation commands may be rerun**. Current remaining work
-is limited to merging the completion record under both required checks,
-performing its post-merge direct and effective two-check readbacks, obtaining
-explicit operator acceptance of the deviation in 7z, merging the final closure
-record under both required checks, and repeating the policy readbacks after
-that second default-branch advance.
+approval-artifact, or mutation commands may be rerun**. PR #120 subsequently
+merged under both required checks, its direct and effective readbacks passed,
+and the operator explicitly accepted the deviation in 7z. The final delivery
+sequence is limited to merging this closure record under both required checks
+and repeating the no-drift policy readbacks after that default-branch advance.
 
 Historical repository setup:
 
@@ -1264,10 +1266,13 @@ The canonical pre-state SHA-256 was
 `335bce222d1664b91fd89e0eb16cc687654e1b24913f60ef78842bf69f04f98d`;
 the request SHA-256 was
 `9d0fd138be8c765b451098898c714c5cc50001333f07c0937835537d8e464065`.
-This completion-record pull request and its post-merge policy readback remain
-pending and must be reported separately before T-CI-2A is marked complete.
-Final closure also requires explicit operator acceptance of the procedural
-deviation below.
+PR #120 merged as `28d42a50ae574c6c5c8e83d07ed2e0830b497024`
+after `frontend-tests`, `python-guardrails`, and all other checks passed. The
+subsequent direct and effective readbacks matched the contract above, exactly
+one repository ruleset remained, and legacy branch protection remained absent
+with a `404` response. The operator explicitly accepted the procedural
+deviation below on 2026-07-23. T-CI-2A is complete; this closure record must
+still merge under both required checks and receive the final no-drift readback.
 
 **z) Deviations.** The operator approved the exact semantic old and new
 contracts after they were displayed, but did not separately approve the
@@ -1276,7 +1281,7 @@ outside that approved semantic contract, and complete direct and effective
 readbacks matched it. The first shell attempt was rejected before execution
 because it contained a prohibited cleanup command, so it changed no external
 state; the corrected fail-closed attempt performed the one approved update.
-This process deviation is recorded rather than hidden. The remaining
-acceptance path requires explicit operator acceptance of this deviation, both
-mandatory checks on this record PR, and a fresh post-merge readback. No tracked
-path outside ownership may change.
+This process deviation is recorded rather than hidden. The operator explicitly
+accepted it on 2026-07-23 after reviewing the semantic contract and recorded
+digests. The closure PR still requires both mandatory checks and a fresh
+post-merge no-drift readback. No tracked path outside ownership may change.

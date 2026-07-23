@@ -1,6 +1,6 @@
 # Town Council Remediation Plan (Codex Multi-Agent)
 
-version: 2.6
+version: 2.7
 generated: 2026-07-23
 source: Four-pass external code review (security, architecture, smells, process)
 source_artifact: [Town Council architecture review](../reviews/architecture-review-2026-07-19.html)
@@ -10,6 +10,12 @@ remains in force; where this plan is stricter, this plan wins for these tasks.
 
 ## Changelog
 
+- **v2.7:** Marks T-CI-2A complete after PR #120 merged under both required
+  checks, the direct and effective ruleset readbacks passed against the
+  advanced default branch, and the operator explicitly accepted the recorded
+  digest-approval deviation. The closure record still must merge under both
+  checks and receive the final no-drift readback required by its delivery
+  procedure.
 - **v2.6:** Records operator approval and live activation of the T-CI-2A
   frontend required check. Final completion remains pending until the policy
   record merges under both required checks and post-merge readback passes. It
@@ -53,8 +59,7 @@ remains in force; where this plan is stricter, this plan wins for these tasks.
 
 | State | Tasks |
 |---|---|
-| **Complete** | T-CI-0, T-CI-1, T-CI-1A, T-CI-2, T-CI-3, T-CI-4, T-CI-5, T-SEC-1 |
-| **Live policy active; merge verification pending** | T-CI-2A |
+| **Complete** | T-CI-0, T-CI-1, T-CI-1A, T-CI-2, T-CI-2A, T-CI-3, T-CI-4, T-CI-5, T-SEC-1 |
 | **Partially landed; acceptance incomplete** | T-GOV-4, T-GOV-5, T-GOV-6 |
 | **Pending** | T-SEC-2..6, T-TIME-1..3, T-CRAWL-1..2, T-DA-1, T-DB-1, T-DC-1, T-DD-1, T-DE-1, T-PLAT-1..4, T-GOV-1..3 |
 
@@ -252,7 +257,7 @@ in `AGENTS.md`, `docs/TESTING.MD`, and
 ### T-CI-2A: Require the universal frontend test check
 - priority: P0
 - depends_on: T-CI-2
-- status: live policy active; merge verification pending
+- status: complete and verified 2026-07-23
 - files_owned: docs/plans/T_CI_2_REQUIRED_CHECK_POLICY_PLAN.md (new),
   docs/plans/T_CI_1_REQUIRED_CHECK_POLICY_PLAN.md,
   docs/plans/T_CI_2_FRONTEND_TESTS_PLAN.md (historical ruleset evidence and
@@ -268,13 +273,14 @@ in `AGENTS.md`, `docs/TESTING.MD`, and
 - decision: Operator approved the exact semantic ruleset update on 2026-07-23.
   Live direct and effective readbacks require `frontend-tests` from integration
   15368 alongside `python-guardrails` while preserving every other T-CI-1A
-  field.
+  field. After PR #120 merged under both checks, those readbacks passed against
+  the advanced default branch and the operator explicitly accepted the
+  documented digest-approval deviation.
 - implementation_plan: `docs/plans/T_CI_2_REQUIRED_CHECK_POLICY_PLAN.md`
 - do: Preserve ruleset 19594795 with exactly `python-guardrails` and
-  `frontend-tests` required. Merge the live-policy record under both checks,
-  verify direct and effective policy after `master` advances, obtain explicit
-  operator acceptance of the documented digest-approval deviation, then mark
-  T-CI-2A complete in a separate closure PR.
+  `frontend-tests` required. Keep the merged live-policy record and accepted
+  procedural deviation as the audit trail. Merge the closure record under both
+  checks and repeat the no-drift readback after `master` advances.
 - accept: Every pull request receives both contexts; the default branch cannot
   update unless both pass; strict policy, branch-creation exemption, empty
   bypass list, target, and all other T-CI-1A fields remain unchanged. Workflow
