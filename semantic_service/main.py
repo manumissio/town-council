@@ -1,6 +1,7 @@
 import logging
-import os
 import time
+from collections.abc import AsyncIterator
+from contextlib import asynccontextmanager
 from typing import Any, Optional
 
 import meilisearch
@@ -15,6 +16,13 @@ from pipeline.config import (
     SEMANTIC_FILTER_EXPANSION_FACTOR,
     SEMANTIC_MAX_TOP_K,
     SEMANTIC_RERANK_CANDIDATE_LIMIT,
+)
+from pipeline.config_env import env_lower, env_raw
+from pipeline.meilisearch_credentials import (
+    DEVELOPMENT_APP_ENV,
+    DEVELOPMENT_MEILI_SEARCH_KEY,
+    MEILI_SEARCH_KEY_FALLBACK_WARNING,
+    resolve_meilisearch_reader_key,
 )
 from pipeline.models import db_connect
 from pipeline.semantic_index import (
@@ -48,14 +56,26 @@ from semantic_service.retrieval import (
 logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(name)s - %(levelname)s - %(message)s")
 logger = logging.getLogger("town-council-semantic")
 
-MEILI_HOST = os.getenv("MEILI_HOST", "http://meilisearch:7700")
-MEILI_MASTER_KEY = os.getenv("MEILI_MASTER_KEY", "masterKey")
-client = meilisearch.Client(MEILI_HOST, MEILI_MASTER_KEY, timeout=5)
+MEILI_HOST = env_raw("MEILI_HOST", "http://meilisearch:7700")
+MEILI_SEARCH_KEY = env_raw("MEILI_SEARCH_KEY", "")
+MEILI_READER_KEY = resolve_meilisearch_reader_key(
+    env_lower("APP_ENV", DEVELOPMENT_APP_ENV),
+    MEILI_SEARCH_KEY,
+)
+client = meilisearch.Client(MEILI_HOST, MEILI_READER_KEY, timeout=5)
 
 engine = db_connect()
 SessionLocal = sessionmaker(bind=engine, autoflush=False, autocommit=False)
 
-app = FastAPI(title="Town Council Semantic Service")
+@asynccontextmanager
+async def lifespan(app: FastAPI) -> AsyncIterator[None]:
+    _ = app
+    if not MEILI_SEARCH_KEY.strip() and MEILI_READER_KEY == DEVELOPMENT_MEILI_SEARCH_KEY:
+        logger.warning(MEILI_SEARCH_KEY_FALLBACK_WARNING)
+    yield
+
+
+app = FastAPI(title="Town Council Semantic Service", lifespan=lifespan)
 
 SEMANTIC_BACKEND_UNHEALTHY_DETAIL = "Semantic backend unhealthy"
 SEMANTIC_SERVICE_MISCONFIGURED_DETAIL = "Semantic service is misconfigured"

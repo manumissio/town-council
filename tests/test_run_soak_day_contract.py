@@ -9,7 +9,13 @@ def test_run_soak_day_script_contract():
     assert "TASK_MAX_WAIT_SECONDS" in text
     assert "scripts/dev_up.sh" in text
     assert "[[ -f \"scripts/dev_up.sh\" ]]" in text
-    assert "docker compose up -d inference worker api pipeline frontend" in text
+    assert "COMPOSE=(docker compose -f docker-compose.yml -f docker-compose.dev.yml)" in text
+    assert (
+        'STARTUP_PURGE_DERIVED=false "${COMPOSE[@]}" up -d '
+        "inference worker api pipeline frontend"
+    ) in text
+    assert '"${COMPOSE[@]}" ps' in text
+    assert "\ndocker compose up " not in text
     assert "stack_offline" in text
     assert "task_poll_timeout" in text
     assert "scripts/parse_task_launch.py" in text

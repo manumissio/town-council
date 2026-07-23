@@ -1,18 +1,31 @@
 import json
+import os
 import re
 import subprocess
 from pathlib import Path
 
+import pytest
 
-def _compose_services(*compose_paths: str) -> dict[str, dict[str, object]]:
+TEST_MEILI_MASTER_KEY = "test-only-meilisearch-master-key"
+
+
+def _compose_services(
+    *compose_paths: str,
+    profiles: tuple[str, ...] = (),
+) -> dict[str, dict[str, object]]:
     compose_command = ["docker", "compose"]
+    for profile in profiles:
+        compose_command.extend(("--profile", profile))
     for compose_path in compose_paths:
         compose_command.extend(("-f", compose_path))
     compose_command.extend(("config", "--format", "json"))
+    compose_environment = os.environ.copy()
+    compose_environment.setdefault("MEILI_MASTER_KEY", TEST_MEILI_MASTER_KEY)
     completed_process = subprocess.run(
         compose_command,
         check=True,
         capture_output=True,
+        env=compose_environment,
         text=True,
     )
     compose_project = json.loads(completed_process.stdout)
@@ -94,6 +107,108 @@ def test_dev_overlay_publishes_operator_services_on_loopback_only():
     assert all(service_config.get("network_mode") != "host" for service_config in development_services.values())
 
 
+def test_compose_separates_meilisearch_reader_and_writer_credentials(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    scoped_search_key = "compose-scoped-search-key"
+    master_key_sentinel = "compose-master-key-sentinel"
+    monkeypatch.setenv("MEILI_SEARCH_KEY", scoped_search_key)
+    monkeypatch.setenv("MEILI_MASTER_KEY", master_key_sentinel)
+    compose_services = _compose_services("docker-compose.yml", profiles=("batch-tools",))
+
+    for reader_service_name in ("api", "semantic"):
+        reader_service = compose_services[reader_service_name]
+        reader_environment = reader_service["environment"]
+        assert reader_environment["MEILI_SEARCH_KEY"] == scoped_search_key
+        assert "MEILI_MASTER_KEY" not in reader_environment
+        assert all(volume.get("type") != "bind" for volume in reader_service["volumes"])
+
+    for reader_service_name in ("api", "semantic"):
+        assert compose_services[reader_service_name]["environment"]["APP_ENV"] == "production"
+    assert compose_services["meilisearch"]["environment"]["MEILI_ENV"] == "production"
+    for writer_service_name in ("pipeline", "pipeline-batch", "worker", "enrichment-worker"):
+        writer_environment = compose_services[writer_service_name]["environment"]
+        assert writer_environment["MEILI_HOST"] == "http://meilisearch:7700"
+        assert writer_environment["MEILI_MASTER_KEY"] == master_key_sentinel
+
+
+def test_base_compose_requires_meilisearch_master_key() -> None:
+    compose_environment = os.environ.copy()
+    compose_environment.pop("MEILI_MASTER_KEY", None)
+    compose_environment.pop("COMPOSE_ENV_FILES", None)
+    completed_process = subprocess.run(
+        [
+            "docker",
+            "compose",
+            "--env-file",
+            "/dev/null",
+            "-f",
+            "docker-compose.yml",
+            "config",
+            "--quiet",
+        ],
+        check=False,
+        capture_output=True,
+        env=compose_environment,
+        text=True,
+    )
+
+    assert completed_process.returncode != 0
+    assert "MEILI_MASTER_KEY must be set" in completed_process.stderr
+
+
+def test_dev_overlay_mounts_reader_source_without_repository_secrets() -> None:
+    development_services = _compose_services("docker-compose.yml", "docker-compose.dev.yml")
+    expected_targets = {
+        "api": {"/app/api", "/app/pipeline"},
+        "semantic": {"/app/pipeline", "/app/semantic_service"},
+    }
+
+    for reader_service_name in ("api", "semantic"):
+        reader_volumes = development_services[reader_service_name]["volumes"]
+        bind_targets = {
+            volume["target"]
+            for volume in reader_volumes
+            if volume.get("type") == "bind"
+        }
+        assert bind_targets == expected_targets[reader_service_name]
+        assert "/app" not in bind_targets
+        assert development_services[reader_service_name]["environment"]["APP_ENV"] == "dev"
+    assert development_services["meilisearch"]["environment"]["MEILI_ENV"] == "development"
+
+
+def test_dev_overlay_allows_soak_recovery_to_disable_startup_purge(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("STARTUP_PURGE_DERIVED", "false")
+    development_services = _compose_services("docker-compose.yml", "docker-compose.dev.yml")
+
+    for service_name in ("api", "worker", "pipeline"):
+        assert development_services[service_name]["environment"]["STARTUP_PURGE_DERIVED"] == "false"
+
+
+def test_docker_build_context_excludes_local_environment_files() -> None:
+    dockerignore = Path(".dockerignore").read_text(encoding="utf-8").splitlines()
+    frontend_dockerignore = Path("frontend/.dockerignore").read_text(encoding="utf-8").splitlines()
+
+    assert "**/.env" in dockerignore
+    assert "**/.env.*" in dockerignore
+    assert "!**/.env.example" in dockerignore
+    assert "!.env" not in dockerignore
+    assert "!.env.*" not in dockerignore
+    assert ".env" in frontend_dockerignore
+    assert ".env.*" in frontend_dockerignore
+
+
+def test_dev_helper_requires_local_environment_file() -> None:
+    dev_helper = Path("scripts/dev_up.sh").read_text(encoding="utf-8")
+
+    assert 'if [[ ! -f .env ]]' in dev_helper
+    assert "Create it from .env.example" in dev_helper
+    assert "COMPOSE=(docker compose -f docker-compose.yml -f docker-compose.dev.yml)" in dev_helper
+    assert dev_helper.count('"${COMPOSE[@]}"') == 3
+
+
 def test_example_grafana_credentials_are_labeled_local_only():
     example_environment = Path(".env.example").read_text(encoding="utf-8")
 
@@ -110,7 +225,7 @@ def test_operator_docs_scope_dev_overlay_to_port_services():
     )
     purge_warning = "Using the development overlay for the full stack also enables `STARTUP_PURGE_DERIVED=true`."
     upgrade_command = (
-        "docker compose -f docker-compose.yml up -d --force-recreate \\\n"
+        "docker compose -f docker-compose.yml -f docker-compose.dev.yml up -d --force-recreate \\\n"
         "  postgres redis meilisearch prometheus grafana"
     )
 
@@ -142,7 +257,7 @@ def test_dockerfile_defines_split_python_targets():
 def test_dev_up_bootstraps_models_before_db_init():
     source = Path("scripts/dev_up.sh").read_text(encoding="utf-8")
 
-    assert 'docker compose up -d --build "${CORE_SERVICES[@]}"' in source
+    assert '"${COMPOSE[@]}" up -d --build "${CORE_SERVICES[@]}"' in source
     assert "semantic" in source
     assert "semantic-worker" in source
     assert "enrichment-worker" in source
@@ -150,7 +265,7 @@ def test_dev_up_bootstraps_models_before_db_init():
     assert " nlp" not in source
     assert "bash ./scripts/bootstrap_local_models.sh" in source
     assert source.index("bash ./scripts/bootstrap_local_models.sh") < source.index(
-        "docker compose run --rm pipeline python db_init.py"
+        '"${COMPOSE[@]}" run --rm pipeline python db_init.py'
     )
 
 
@@ -246,7 +361,14 @@ def test_bootstrap_and_runbook_use_semantic_image_for_semantic_artifacts():
     bootstrap = Path("scripts/bootstrap_local_models.sh").read_text(encoding="utf-8")
     ops = Path("docs/OPERATIONS.md").read_text(encoding="utf-8")
 
-    assert 'docker compose run --rm semantic python -c "from sentence_transformers import SentenceTransformer; SentenceTransformer(\'all-MiniLM-L6-v2\')"' in bootstrap
+    assert "COMPOSE=(docker compose -f docker-compose.yml -f docker-compose.dev.yml)" in bootstrap
+    assert bootstrap.count('"${COMPOSE[@]}"') == 4
+    assert (
+        '"${COMPOSE[@]}" run --rm semantic python -c '
+        '"from sentence_transformers import SentenceTransformer; '
+        "SentenceTransformer('all-MiniLM-L6-v2')\""
+    ) in bootstrap
+    assert "\ndocker compose " not in bootstrap
     assert "docker compose run --rm semantic python ../pipeline/reindex_semantic.py" in ops
 
 

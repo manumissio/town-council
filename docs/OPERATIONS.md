@@ -16,9 +16,12 @@ cd "$REPO_ROOT"
 
 ### 1) Start stack
 ```bash
-docker compose up -d --build postgres redis meilisearch tika inference semantic semantic-worker api worker enrichment-worker monitor frontend
+test -f .env || cp .env.example .env
+docker compose -f docker-compose.yml -f docker-compose.dev.yml up -d --build \
+  postgres redis meilisearch tika inference semantic semantic-worker api worker enrichment-worker monitor frontend
 bash ./scripts/bootstrap_local_models.sh
-docker compose run --rm pipeline python db_init.py
+docker compose -f docker-compose.yml -f docker-compose.dev.yml run --rm \
+  pipeline python db_init.py
 ```
 
 Optional helper (same steps, fewer flags to remember):
@@ -30,7 +33,7 @@ After upgrading a stack created before T-SEC-1, recreate the affected services
 once so their removed host bindings do not survive in existing containers:
 
 ```bash
-docker compose -f docker-compose.yml up -d --force-recreate \
+docker compose -f docker-compose.yml -f docker-compose.dev.yml up -d --force-recreate \
   postgres redis meilisearch prometheus grafana
 ```
 
@@ -51,8 +54,11 @@ M5 Pro MLX opt-in path:
 mlx_lm.server --model mlx-community/gemma-3-text-4b-it-4bit --host 127.0.0.1 --port 8080
 
 # terminal 2
-docker compose up -d --build postgres redis meilisearch tika semantic semantic-worker
-docker compose --env-file env/profiles/m5_mlx_conservative.env up -d --build --no-deps worker api pipeline frontend
+docker compose -f docker-compose.yml -f docker-compose.dev.yml up -d --build \
+  postgres redis meilisearch tika semantic semantic-worker
+docker compose --env-file .env --env-file env/profiles/m5_mlx_conservative.env \
+  -f docker-compose.yml -f docker-compose.dev.yml up -d --build --no-deps \
+  worker api pipeline frontend
 docker compose exec -T worker python scripts/worker_healthcheck.py
 ```
 
@@ -103,7 +109,8 @@ Use Docker/Ollama for reproducible baseline runs, or M5 MLX for the preferred
 M5 Pro opt-in path.
 
 ### 1.6) Verify stack health contracts
-Use this after `docker compose up -d --build` and before running onboarding or soak flows.
+Use this after starting the local stack with the base-plus-development Compose
+files and before running onboarding or soak flows.
 
 ```bash
 docker ps --format '{{.Names}} {{.Status}}'
@@ -621,6 +628,97 @@ Override (not recommended):
 Security logging rule:
 - Do not log API key values or key fragments. Log only path/client metadata on auth failures.
 
+### Meilisearch reader-key operations
+
+API and semantic readers use `MEILI_SEARCH_KEY`. Pipeline and worker indexing
+paths use `MEILI_MASTER_KEY`. Outside development, both readers fail startup
+when the reader key is missing or unsafe; they never retry with the master key.
+Base Compose runs Meilisearch with `MEILI_ENV=production`, which enforces its
+production master-key requirements. The development overlay is the only
+checked-in path that selects Meilisearch development mode.
+
+Create a key scoped to search and read statistics from the `documents` index:
+
+```bash
+: "${MEILI_URL:?set the Meilisearch URL}"
+: "${MEILI_MASTER_KEY:?set the operator master key}"
+umask 077
+MEILI_MASTER_HEADER_FILE=$(mktemp)
+MEILI_SEARCH_HEADER_FILE=$(mktemp)
+trap 'rm -f "$MEILI_MASTER_HEADER_FILE" "$MEILI_SEARCH_HEADER_FILE"' EXIT
+printf 'Authorization: Bearer %s\n' "$MEILI_MASTER_KEY" >"$MEILI_MASTER_HEADER_FILE"
+KEY_RESPONSE=$(curl --connect-timeout 2 --max-time 10 -fsS -X POST \
+  "$MEILI_URL/keys" \
+  -H "@$MEILI_MASTER_HEADER_FILE" \
+  -H "Content-Type: application/json" \
+  --data-binary '{"name":"Town Council readers","actions":["search","stats.get"],"indexes":["documents"],"expiresAt":null}')
+MEILI_SEARCH_KEY=$(printf '%s' "$KEY_RESPONSE" | .venv/bin/python -c \
+  'import json,sys; print(json.load(sys.stdin)["key"])')
+MEILI_SEARCH_KEY_UID=$(printf '%s' "$KEY_RESPONSE" | .venv/bin/python -c \
+  'import json,sys; print(json.load(sys.stdin)["uid"])')
+printf 'Authorization: Bearer %s\n' "$MEILI_SEARCH_KEY" >"$MEILI_SEARCH_HEADER_FILE"
+export MEILI_SEARCH_KEY MEILI_SEARCH_KEY_UID
+```
+
+Store `MEILI_SEARCH_KEY` in the deployment secret source and retain
+`MEILI_SEARCH_KEY_UID` in the operator key inventory. Do not print either
+value. The UID is not passed to application containers.
+
+Before deploying, use the master key only from the operator shell to inspect
+`GET /keys/{uid}` and prove the candidate value and scope are exact:
+
+```bash
+KEY_RECORD=$(curl --connect-timeout 2 --max-time 10 -fsS \
+  "$MEILI_URL/keys/$MEILI_SEARCH_KEY_UID" \
+  -H "@$MEILI_MASTER_HEADER_FILE")
+printf '%s' "$KEY_RECORD" | .venv/bin/python -c \
+  'import json,sys; from pathlib import Path; r=json.load(sys.stdin); expected=Path(sys.argv[1]).read_text().removeprefix("Authorization: Bearer ").strip(); assert r["uid"] == sys.argv[2] and r["key"] == expected and r["actions"] == ["search","stats.get"] and r["indexes"] == ["documents"]' \
+  "$MEILI_SEARCH_HEADER_FILE" "$MEILI_SEARCH_KEY_UID"
+```
+
+Verify reader behavior without modifying index data:
+
+```bash
+curl --connect-timeout 2 --max-time 10 -fsS -X POST \
+  "$MEILI_URL/indexes/documents/search" \
+  -H "@$MEILI_SEARCH_HEADER_FILE" -H "Content-Type: application/json" \
+  --data-binary '{"q":"","limit":1}' >/dev/null
+curl --connect-timeout 2 --max-time 10 -fsS \
+  "$MEILI_URL/indexes/documents/stats" -H "@$MEILI_SEARCH_HEADER_FILE" >/dev/null
+test "$(curl --connect-timeout 2 --max-time 10 -sS -o /dev/null \
+  -w '%{http_code}' "$MEILI_URL/indexes/documents/settings" \
+  -H "@$MEILI_SEARCH_HEADER_FILE")" = 403
+test "$(curl --connect-timeout 2 --max-time 10 -sS -o /dev/null \
+  -w '%{http_code}' "$MEILI_URL/keys" -H "@$MEILI_SEARCH_HEADER_FILE")" = 403
+```
+
+Deploy or rotate:
+
+1. Create and preflight the replacement key.
+2. Set `MEILI_SEARCH_KEY` in the deployment secret source.
+3. For a non-development deployment, run
+   `APP_ENV=production docker compose -f docker-compose.yml up -d --build
+   --force-recreate api semantic` so reader images are rebuilt without local
+   environment files. Local development uses the base-plus-development
+   Compose files documented in the quickstart.
+4. Verify API health and a representative lexical/semantic search.
+5. Revoke the previous key only after both readers pass.
+
+Revoke a retired key:
+
+```bash
+curl --connect-timeout 2 --max-time 10 -fsS -X DELETE \
+  "$MEILI_URL/keys/$RETIRED_MEILI_SEARCH_KEY_UID" \
+  -H "@$MEILI_MASTER_HEADER_FILE"
+rm -f "$MEILI_MASTER_HEADER_FILE" "$MEILI_SEARCH_HEADER_FILE"
+trap - EXIT
+```
+
+Rollback by restoring the previous scoped reader key, recreating `api` and
+`semantic` with `--build --force-recreate`, and verifying health/search. Never
+restore `MEILI_MASTER_KEY` to reader containers. If the previous key was
+already revoked, create and preflight a new scoped key instead.
+
 Provider error policy:
 - Provider transport code raises typed errors (`ProviderTimeoutError`, `ProviderUnavailableError`, `ProviderResponseError`).
 - Orchestrator mapping:
@@ -825,7 +923,8 @@ Scripts:
     - strategy A: HTTP probe to `http://localhost:8001/metrics`
     - strategy B: collector-based registry exposition (`RedisProviderMetricsCollector`)
   - preflight `/health` poll for 60 seconds (default)
-  - one fast self-heal attempt via `docker compose up -d inference worker api pipeline frontend`
+  - one fast self-heal attempt via the base-plus-development Compose stack for
+    `inference`, `worker`, `api`, `pipeline`, and `frontend`
   - falls back to `scripts/dev_up.sh` only if fast recovery fails
   - treats a successful pre-run worker scrape with no provider series yet as a valid zero baseline (`provider_counters_before_run_source=zero_baseline_no_provider_series`)
   - marks day `stack_offline` and exits cleanly if recovery fails
@@ -1077,7 +1176,9 @@ Notes:
 
 1. Enable HTTP backend:
 ```bash
-LOCAL_AI_BACKEND=http docker compose up -d --build worker api pipeline inference
+LOCAL_AI_BACKEND=http docker compose \
+  -f docker-compose.yml -f docker-compose.dev.yml \
+  up -d --build worker api pipeline inference
 ```
 2. Create the local inference model alias once:
 ```bash
@@ -1089,7 +1190,9 @@ LOCAL_AI_BACKEND=http docker compose up -d --build worker api pipeline inference
 ```
 4. If parity or SLOs regress, rollback immediately:
 ```bash
-LOCAL_AI_BACKEND=inprocess WORKER_CONCURRENCY=1 WORKER_POOL=solo docker compose up -d --build worker api pipeline
+LOCAL_AI_BACKEND=inprocess WORKER_CONCURRENCY=1 WORKER_POOL=solo docker compose \
+  -f docker-compose.yml -f docker-compose.dev.yml \
+  up -d --build worker api pipeline
 ```
 5. If the recent inference hardening commits cause regressions, rollback code explicitly:
 ```bash
@@ -1139,8 +1242,11 @@ M5 MLX conservative opt-in:
 mlx_lm.server --model mlx-community/gemma-3-text-4b-it-4bit --host 127.0.0.1 --port 8080
 
 # terminal 2
-docker compose up -d --build postgres redis meilisearch tika semantic semantic-worker
-docker compose --env-file env/profiles/m5_mlx_conservative.env up -d --build --no-deps worker api pipeline frontend
+docker compose -f docker-compose.yml -f docker-compose.dev.yml up -d --build \
+  postgres redis meilisearch tika semantic semantic-worker
+docker compose --env-file .env --env-file env/profiles/m5_mlx_conservative.env \
+  -f docker-compose.yml -f docker-compose.dev.yml up -d --build --no-deps \
+  worker api pipeline frontend
 docker compose exec -T worker python scripts/worker_healthcheck.py
 ```
 
@@ -1150,19 +1256,26 @@ M5 MLX balanced opt-in:
 mlx_lm.server --model mlx-community/gemma-3-text-4b-it-4bit --host 127.0.0.1 --port 8080
 
 # terminal 2
-docker compose up -d --build postgres redis meilisearch tika semantic semantic-worker
-docker compose --env-file env/profiles/m5_mlx_balanced.env up -d --build --no-deps worker api pipeline frontend
+docker compose -f docker-compose.yml -f docker-compose.dev.yml up -d --build \
+  postgres redis meilisearch tika semantic semantic-worker
+docker compose --env-file .env --env-file env/profiles/m5_mlx_balanced.env \
+  -f docker-compose.yml -f docker-compose.dev.yml up -d --build --no-deps \
+  worker api pipeline frontend
 docker compose exec -T worker python scripts/worker_healthcheck.py
 ```
 
 M5 conservative baseline:
 ```bash
-docker compose --env-file env/profiles/m5_conservative.env up -d --build inference worker api pipeline frontend
+docker compose --env-file .env --env-file env/profiles/m5_conservative.env \
+  -f docker-compose.yml -f docker-compose.dev.yml up -d --build \
+  inference worker api pipeline frontend
 ```
 
 Desktop balanced:
 ```bash
-docker compose --env-file env/profiles/desktop_balanced.env up -d --build inference worker api pipeline frontend
+docker compose --env-file .env --env-file env/profiles/desktop_balanced.env \
+  -f docker-compose.yml -f docker-compose.dev.yml up -d --build \
+  inference worker api pipeline frontend
 ```
 
 Interpretation rules:
@@ -1200,14 +1313,20 @@ same 270M model.
 
 2) Run Arm A (control, conservative):
 ```bash
-LOCAL_AI_BACKEND=http LOCAL_AI_HTTP_MODEL=gemma-3-270m-custom LOCAL_AI_HTTP_PROFILE=conservative WORKER_CONCURRENCY=3 WORKER_POOL=prefork docker compose up -d --build inference worker api pipeline
+LOCAL_AI_BACKEND=http LOCAL_AI_HTTP_MODEL=gemma-3-270m-custom \
+  LOCAL_AI_HTTP_PROFILE=conservative WORKER_CONCURRENCY=3 WORKER_POOL=prefork \
+  docker compose -f docker-compose.yml -f docker-compose.dev.yml \
+  up -d --build inference worker api pipeline
 ./scripts/run_ab_eval.sh --arm A --catalog-file experiments/ab_catalogs_v1.txt --run-id A_run1
 python scripts/collect_ab_results.py --run-id A_run1
 ```
 
 3) Run Arm B (treatment, balanced):
 ```bash
-LOCAL_AI_BACKEND=http LOCAL_AI_HTTP_MODEL=gemma-3-270m-custom LOCAL_AI_HTTP_PROFILE=balanced WORKER_CONCURRENCY=3 WORKER_POOL=prefork docker compose up -d --build inference worker api pipeline
+LOCAL_AI_BACKEND=http LOCAL_AI_HTTP_MODEL=gemma-3-270m-custom \
+  LOCAL_AI_HTTP_PROFILE=balanced WORKER_CONCURRENCY=3 WORKER_POOL=prefork \
+  docker compose -f docker-compose.yml -f docker-compose.dev.yml \
+  up -d --build inference worker api pipeline
 ./scripts/run_ab_eval.sh --arm B --catalog-file experiments/ab_catalogs_v1.txt --run-id B_run1
 python scripts/collect_ab_results.py --run-id B_run1
 ```
@@ -1279,7 +1398,10 @@ The probe writes:
 
 Arm A (control):
 ```bash
-LOCAL_AI_BACKEND=http LOCAL_AI_HTTP_MODEL=gemma-3-270m-custom LOCAL_AI_HTTP_PROFILE=conservative WORKER_CONCURRENCY=3 WORKER_POOL=prefork docker compose up -d --build inference worker api pipeline
+LOCAL_AI_BACKEND=http LOCAL_AI_HTTP_MODEL=gemma-3-270m-custom \
+  LOCAL_AI_HTTP_PROFILE=conservative WORKER_CONCURRENCY=3 WORKER_POOL=prefork \
+  docker compose -f docker-compose.yml -f docker-compose.dev.yml \
+  up -d --build inference worker api pipeline
 ./scripts/run_ab_eval.sh --arm A --catalog-file experiments/ab_catalogs_v1.txt --run-id gemma4_ab_control --arm-model gemma-3-270m-custom
 python scripts/collect_ab_results.py --run-id gemma4_ab_control
 ```
@@ -1289,7 +1411,10 @@ between arms.
 
 Arm B (treatment):
 ```bash
-LOCAL_AI_BACKEND=http LOCAL_AI_HTTP_MODEL=gemma4:e2b LOCAL_AI_HTTP_PROFILE=conservative WORKER_CONCURRENCY=3 WORKER_POOL=prefork docker compose up -d --build inference worker api pipeline
+LOCAL_AI_BACKEND=http LOCAL_AI_HTTP_MODEL=gemma4:e2b \
+  LOCAL_AI_HTTP_PROFILE=conservative WORKER_CONCURRENCY=3 WORKER_POOL=prefork \
+  docker compose -f docker-compose.yml -f docker-compose.dev.yml \
+  up -d --build inference worker api pipeline
 ./scripts/run_ab_eval.sh --arm B --catalog-file experiments/ab_catalogs_v1.txt --run-id gemma4_ab_treatment --arm-model gemma4:e2b
 python scripts/collect_ab_results.py --run-id gemma4_ab_treatment
 ```
@@ -1311,13 +1436,19 @@ The scorer now preserves arm identity from `run_config.json`:
 
 Control:
 ```bash
-LOCAL_AI_BACKEND=http LOCAL_AI_HTTP_MODEL=gemma-3-270m-custom LOCAL_AI_HTTP_PROFILE=conservative WORKER_CONCURRENCY=3 WORKER_POOL=prefork docker compose up -d --build inference worker api pipeline enrichment-worker
+LOCAL_AI_BACKEND=http LOCAL_AI_HTTP_MODEL=gemma-3-270m-custom \
+  LOCAL_AI_HTTP_PROFILE=conservative WORKER_CONCURRENCY=3 WORKER_POOL=prefork \
+  docker compose -f docker-compose.yml -f docker-compose.dev.yml \
+  up -d --build inference worker api pipeline enrichment-worker
 sleep 1 && PYTHONPATH=. .venv/bin/python scripts/profile_pipeline.py --mode baseline --manifest profiling/manifests/baseline_representative_v1.txt
 ```
 
 Treatment:
 ```bash
-LOCAL_AI_BACKEND=http LOCAL_AI_HTTP_MODEL=gemma4:e2b LOCAL_AI_HTTP_PROFILE=conservative WORKER_CONCURRENCY=3 WORKER_POOL=prefork docker compose up -d --build inference worker api pipeline enrichment-worker
+LOCAL_AI_BACKEND=http LOCAL_AI_HTTP_MODEL=gemma4:e2b \
+  LOCAL_AI_HTTP_PROFILE=conservative WORKER_CONCURRENCY=3 WORKER_POOL=prefork \
+  docker compose -f docker-compose.yml -f docker-compose.dev.yml \
+  up -d --build inference worker api pipeline enrichment-worker
 sleep 1 && PYTHONPATH=. .venv/bin/python scripts/profile_pipeline.py --mode baseline --manifest profiling/manifests/baseline_representative_v1.txt
 ```
 

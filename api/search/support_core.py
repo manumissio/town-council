@@ -1,13 +1,20 @@
 import logging
-import os
 from typing import Any
 
 import meilisearch
 
 from pipeline import config as pipeline_config
+from pipeline.config_env import env_lower, env_raw
+from pipeline.meilisearch_credentials import DEVELOPMENT_APP_ENV, resolve_meilisearch_reader_key
 
-MEILI_HOST = os.getenv("MEILI_HOST", "http://meilisearch:7700")
-MEILI_MASTER_KEY = os.getenv("MEILI_MASTER_KEY", "masterKey")
+MEILI_HOST = env_raw("MEILI_HOST", "http://meilisearch:7700")
+APP_ENV = env_lower("APP_ENV", DEVELOPMENT_APP_ENV)
+MEILI_SEARCH_KEY = env_raw("MEILI_SEARCH_KEY", "")
+# G3 defers facade removal; the legacy export now carries reader privilege only.
+MEILI_MASTER_KEY = resolve_meilisearch_reader_key(
+    APP_ENV,
+    MEILI_SEARCH_KEY,
+)
 
 DOCUMENT_INDEX_NAME = "documents"
 TOPICS_FACET_NAME = "topics"
