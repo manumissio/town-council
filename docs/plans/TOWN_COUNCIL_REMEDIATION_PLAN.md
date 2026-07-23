@@ -1,8 +1,11 @@
 # Town Council Remediation Plan (Codex Multi-Agent)
 
-version: 2.3
+version: 2.4
 generated: 2026-07-23
-changelog: v2.3 expands T-CI-3 ownership and defines a production-only,
+changelog: v2.4 records T-CI-3 completion and expands T-SEC-1 ownership so
+backing-service port hardening, contract tests, and operator documentation land
+together. It reconciles the security acceptance rule by including Prometheus
+and limits development-overlay bindings to loopback. v2.3 expands T-CI-3 ownership and defines a production-only,
 subprocess-aware coverage contract before activating the existing 71% floor.
 It prevents test code from inflating the gate and keeps coverage dependencies
 out of runtime images. v2.2 corrects the T-CI-2A workflow identity guardrail to preserve
@@ -279,7 +282,7 @@ in `AGENTS.md`, `docs/TESTING.MD`, and
 ### T-CI-3: Enforce coverage threshold
 - priority: P2
 - depends_on: T-CI-1
-- status: implementation-ready
+- status: complete and verified 2026-07-23 (PR #118)
 - files_owned: docs/plans/T_CI_3_COVERAGE_GATE_PLAN.md,
   docs/plans/TOWN_COUNCIL_REMEDIATION_PLAN.md, AGENTS.md,
   docs/TESTING.MD, docs/ENGINEERING_GUARDRAILS.md,
@@ -373,15 +376,26 @@ in `AGENTS.md`, `docs/TESTING.MD`, and
 
 ### T-SEC-1: Stop publishing backing-store ports; remove default-cred blast radius
 - priority: P0
-- files_owned: docker-compose.yml, docker-compose.dev.yml, .env.example
-- do: Remove host `ports:` for postgres, redis, meilisearch, grafana-admin
-  defaults note. Move dev-convenience port publishing to
-  docker-compose.dev.yml only. Add comment: inter-container traffic uses the
-  compose network.
+- status: implementation-ready
+- implementation_plan: `docs/plans/T_SEC_1_BACKEND_PORT_HARDENING_PLAN.md`
+- files_owned: docs/plans/T_SEC_1_BACKEND_PORT_HARDENING_PLAN.md,
+  docs/plans/TOWN_COUNCIL_REMEDIATION_PLAN.md, docker-compose.yml,
+  docker-compose.dev.yml, .env.example, tests/test_docker_build_contracts.py,
+  README.md, docs/OPERATIONS.md, SECURITY.md
+- do: Remove host `ports:` for postgres, redis, meilisearch, prometheus, and
+  grafana from the base file. Add loopback-only development mappings to
+  docker-compose.dev.yml. Label Grafana defaults as local-development values
+  and synchronize operator access guidance. Add a comment that inter-container
+  traffic uses the Compose network.
 - accept: Base compose exposes only api:8000 and frontend:3000;
-  `docker compose config` valid; dev overlay restores old behavior.
-- forbidden: Changing service images, env defaults, or dependencies.
-- verify: `docker compose config >/dev/null` (base and base+dev).
+  `docker compose config` is valid; the explicit dev overlay restores local
+  host access for all five moved services without publishing them beyond
+  loopback.
+- forbidden: Changing service images, env defaults, dependencies, credentials,
+  startup-purge behavior, or the standard `scripts/dev_up.sh` path.
+- verify: Follow the Full T-SEC-1 plan: base and merged Compose validation,
+  Docker contract tests, startup-purge contract, Ruff, docs links, complete
+  Python suite, and `git diff --check`.
 
 ### T-SEC-2: Fail fast on default API key outside dev
 - priority: P0
