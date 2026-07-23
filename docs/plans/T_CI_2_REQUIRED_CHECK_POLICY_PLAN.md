@@ -42,11 +42,14 @@ one frontend and one non-frontend pull request prove the context is universal.
 - `docs/plans/TOWN_COUNCIL_REMEDIATION_PLAN.md`
 - `AGENTS.md`, verification-matrix CI-status paragraph and transition markers
   only
+- `pipeline/requirements-dev.txt`, direct development-only YAML parser pin
+- `tests/test_docker_build_contracts.py`, development-only dependency boundary
+  assertion
 - `tests/test_repository_guardrails.py`, canonical frontend required-check job
   identity only
 - repository ruleset `Require Python Guardrails`, ID `19594795`
 
-No workflow, package, runtime, or application file may change.
+No workflow, runtime package, runtime behavior, or application file may change.
 
 **d) Decision-gate check.** No G1-G5 gate applies. T-CI-2A has its own explicit
 operator decision. Repository planning work may proceed, but the ruleset
@@ -62,9 +65,12 @@ recorded below. G3 remains open and continues to block Phase 2.
 2. Confirm PR #114 supplies the post-T-CI-2 frontend-change proof:
    `frontend-tests` completed successfully from GitHub Actions integration
    `15368`.
-3. Add a repository guardrail test proving `.github/workflows/frontend-tests.yml`
-   contains the only literal `frontend-tests` occurrence across workflow files,
-   as the canonical job ID `frontend-tests:` with no name override.
+3. Pin PyYAML in development requirements and use `yaml.safe_load` to prove
+   `.github/workflows/frontend-tests.yml` contains the only workflow job whose
+   effective check name is `frontend-tests`, as canonical job ID
+   `frontend-tests` with no display-name override. Semantic parsing must cover
+   comments, quoted keys, folded scalars, and command blocks without treating
+   their text as workflow jobs.
 4. Add this Full plan, update the remediation registry, replace T-CI-1A's
    obsolete deletion rollback with a non-destructive restoration policy, and
    replace the stale AGENTS transition annotations with accurate T-CI-2A
@@ -112,14 +118,21 @@ recorded below. G3 remains open and continues to block Phase 2.
     post-merge ruleset and effective-`master` readbacks pass. Merge it after
     both required checks pass, then repeat the policy readback.
 
-No function, module, workflow, helper script, parser, compatibility path, or
-new configuration surface is added.
+No production function, module, workflow, helper script, compatibility path,
+or new configuration surface is added. The guardrail test uses the direct
+development-only PyYAML dependency rather than maintaining a partial YAML
+parser.
 
 **f) Reuse audit.** Reuse the existing universal frontend workflow, its
 GitHub Actions check identity, ruleset `19594795`, T-CI-1A readback
-assertions, GitHub CLI authentication, and `jq`. A second ruleset, legacy
-branch protection, custom policy script, or workflow duplication is rejected
-because each would create another enforcement owner.
+assertions, GitHub CLI authentication, `jq`, and PyYAML's safe loader. A second
+ruleset, legacy branch protection, custom policy script, or workflow
+duplication is rejected because each would create another enforcement owner.
+
+**Dependencies.** Add `PyYAML==6.0.3` to
+`pipeline/requirements-dev.txt`. It is already present locally as a transitive
+dependency of pre-commit, but the workflow contract test must not depend on
+that accidental relationship. It remains absent from runtime requirements.
 
 **g) Data contracts.**
 
@@ -205,6 +218,8 @@ exposed. G4 is unaffected.
 
 **l) Untrusted input.** GitHub API responses are external input. Verification
 selects and compares named JSON fields with `jq`; no response text is executed.
+Tracked workflow YAML is parsed with `yaml.safe_load`, which does not construct
+arbitrary Python objects.
 
 ## 4. Code Health
 
@@ -220,13 +235,14 @@ The external mutation is fail-fast and preceded by exact drift detection.
   field appears in the approved contract.
 - A3 corrected: repository, PR, and effective-rule claims require fresh API
   readback.
-- B1/F1 corrected: no wrapper, registry, parser, duplicate workflow, or
-  second ruleset.
+- B1/F1 corrected: no wrapper, registry, hand-written parser, duplicate
+  workflow, or second ruleset. The established PyYAML parser is pinned
+  directly for the contract test.
 - B2/C1 corrected: T-CI-1A's obsolete deletion rollback is replaced in the
   planning PR before any live policy change; no destructive fallback survives.
 - D1-D3 corrected: no test is weakened or mocked; live policy equality is the
   observable contract.
-- E1-E3 corrected: only the five tracked owned files and one owned external
+- E1-E3 corrected: only the seven tracked owned files and one owned external
   ruleset may change.
 - A4, B3, C2, F2, H2-H4: no planned violations.
 
@@ -265,6 +281,12 @@ and readback commands. Runtime-code delta is zero.
 12. The request or observed pre-state bytes change after operator approval.
 13. Another operator changes the ruleset between the final pre-state read and
     the full `PUT`; the API has no documented atomic write precondition.
+14. Comments, step names, command bodies, quoted YAML, or folded scalars cause
+    a text scanner to misclassify the effective workflow job name.
+15. The workflow parser is present only transitively or leaks into runtime
+    requirements.
+16. A dynamic top-level job name resolves to `frontend-tests` only at runtime,
+    preventing static proof that the required-check producer is unique.
 
 **r) Verification mapping.**
 
@@ -282,6 +304,9 @@ and readback commands. Runtime-code delta is zero.
 | Canonical frontend job-identity guardrail | 11 |
 | Approved request and pre-state SHA-256 assertions | 12 |
 | Exclusive change window, immediate pre-state check, and exact readback | 13 |
+| Semantic workflow-parser regression cases | 14 |
+| Development/runtime dependency boundary contract | 15 |
+| Fail-closed dynamic job-name regression case | 16 |
 
 No fixed test count or inferred UI behavior is used as acceptance evidence.
 
@@ -870,6 +895,7 @@ Repository verification:
 ./.venv/bin/ruff check .
 ./.venv/bin/mypy
 PYTHONPATH=. .venv/bin/pytest -q tests/test_repository_guardrails.py
+PYTHONPATH=. .venv/bin/pytest -q tests/test_docker_build_contracts.py
 PYTHONPATH=. .venv/bin/pytest -q tests/test_docs_links.py
 PYTHONPATH=. .venv/bin/pytest -q
 git diff --check
@@ -1170,8 +1196,10 @@ rollback guidance in T-CI-1A.
 - `AGENTS.md` first replaces stale landed-task annotations with accurate
   T-CI-2A-pending text, then removes that temporary text after live readback.
 - `tests/test_repository_guardrails.py` enforces one canonical repository-wide
-  `frontend-tests` workflow job ID with no alternate occurrence or name
-  override.
+  `frontend-tests` workflow job ID and no alternate effective job-name
+  producer, using semantic YAML parsing.
+- `pipeline/requirements-dev.txt` and `tests/test_docker_build_contracts.py`
+  make the parser a direct development-only dependency.
 - README, architecture review, ADR, operations, security, data governance,
   application contracts, and workflows: no changes.
 
@@ -1191,6 +1219,6 @@ count, CI state, merge, and post-merge policy readback. Anything unrun is
 `NOT VERIFIED`.
 
 **z) Deviations.** The expected deviation report is none. Any changed tracked
-path outside the five owned files, any external policy field outside the
+path outside the seven owned files, any external policy field outside the
 approved request, missing frontend/non-frontend proof, skipped review,
 unresolved P1/P2, or unrun required check is a blocker.

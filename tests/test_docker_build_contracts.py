@@ -1,3 +1,4 @@
+import re
 from pathlib import Path
 
 
@@ -63,13 +64,25 @@ def test_compose_maps_worker_family_to_live_and_batch_images():
     assert 'profiles: ["batch-tools"]' in source
 
 
-def test_worker_runtime_requirements_exclude_dev_benchmark_tooling():
+def test_worker_runtime_requirements_exclude_development_tooling():
     runtime = Path("pipeline/requirements.txt").read_text(encoding="utf-8")
     dev = Path("pipeline/requirements-dev.txt").read_text(encoding="utf-8")
+    runtime_requirement_names = {
+        re.split(r"[<>=!~;\[\s]", requirement_line, maxsplit=1)[0].lower()
+        for runtime_line in runtime.splitlines()
+        if (requirement_line := runtime_line.partition("#")[0].strip())
+    }
 
-    for package in ("pytest==9.0.3", "pytest-mock==3.12.0", "pytest-benchmark==5.1.0", "locust==2.33.0"):
+    for package in (
+        "pytest==9.0.3",
+        "pytest-mock==3.12.0",
+        "pytest-benchmark==5.1.0",
+        "locust==2.33.0",
+    ):
         assert package not in runtime
         assert package in dev
+    assert "pyyaml" not in runtime_requirement_names
+    assert "PyYAML==6.0.3" in dev
 
 
 def test_semantic_dependencies_live_outside_worker_runtime():

@@ -12,11 +12,13 @@ from pathlib import Path
 from textwrap import indent
 
 import pytest
+import yaml
 
 
 ROOT = Path(__file__).resolve().parents[1]
 RUFF_CLEAN_EXIT = 0
 RUFF_VIOLATION_EXIT = 1
+GITHUB_EXPRESSION_OPEN = "${{"
 TEXT_FILE_SUFFIXES = {
     ".md",
     ".plist",
@@ -967,41 +969,102 @@ def test_frontend_workflow_runs_for_every_pull_request_and_master_push():
     assert "paths-ignore:" not in event_configuration
 
 
+def _workflow_job_check_producers(
+    workflow_text: str,
+    required_check_name: str,
+) -> tuple[tuple[str, str | None], ...]:
+    workflow_contract = yaml.safe_load(workflow_text)
+    assert isinstance(workflow_contract, dict)
+    workflow_jobs = workflow_contract.get("jobs")
+    assert isinstance(workflow_jobs, dict)
+
+    check_producers: list[tuple[str, str | None]] = []
+    for workflow_job_id, workflow_job_contract in workflow_jobs.items():
+        assert isinstance(workflow_job_id, str)
+        assert isinstance(workflow_job_contract, dict)
+        configured_job_name = workflow_job_contract.get("name")
+        assert configured_job_name is None or isinstance(configured_job_name, str)
+        assert configured_job_name is None or GITHUB_EXPRESSION_OPEN not in configured_job_name, (
+            f"Dynamic workflow job name cannot prove required-check identity: {workflow_job_id}"
+        )
+        if (configured_job_name or workflow_job_id) == required_check_name:
+            check_producers.append((workflow_job_id, configured_job_name))
+    return tuple(check_producers)
+
+
 def test_frontend_required_check_uses_one_canonical_workflow_job():
     workflow_directory = ROOT / ".github" / "workflows"
-    frontend_workflow_text = (workflow_directory / "frontend-tests.yml").read_text(
-        encoding="utf-8"
-    )
-    frontend_workflow_lines = frontend_workflow_text.splitlines()
-    frontend_job_start = frontend_workflow_lines.index("  frontend-tests:")
-    frontend_job_end = next(
-        (
-            line_number
-            for line_number, workflow_line in enumerate(
-                frontend_workflow_lines[frontend_job_start + 1 :],
-                start=frontend_job_start + 1,
-            )
-            if re.match(r"^ {2}\S.*:", workflow_line)
-        ),
-        len(frontend_workflow_lines),
-    )
-    frontend_job_text = "\n".join(
-        frontend_workflow_lines[frontend_job_start:frontend_job_end]
-    )
     candidate_workflow_paths = sorted(
         (*workflow_directory.glob("*.yml"), *workflow_directory.glob("*.yaml"))
     )
-    required_check_occurrences = tuple(
-        (workflow_path.relative_to(ROOT).as_posix(), workflow_line.strip())
+    frontend_check_producers = tuple(
+        (
+            workflow_path.relative_to(ROOT).as_posix(),
+            workflow_job_id,
+            configured_job_name,
+        )
         for workflow_path in candidate_workflow_paths
-        for workflow_line in workflow_path.read_text(encoding="utf-8").splitlines()
-        if "frontend-tests" in workflow_line
+        for workflow_job_id, configured_job_name in _workflow_job_check_producers(
+            workflow_path.read_text(encoding="utf-8"),
+            "frontend-tests",
+        )
     )
 
-    assert required_check_occurrences == (
-        (".github/workflows/frontend-tests.yml", "frontend-tests:"),
+    assert frontend_check_producers == (
+        (".github/workflows/frontend-tests.yml", "frontend-tests", None),
     )
-    assert re.search(r"""(?m)^ {4}["']?name["']?[ ]*:""", frontend_job_text) is None
+
+
+@pytest.mark.parametrize(
+    "configured_job_name",
+    (
+        "frontend-tests",
+        '"frontend-tests"',
+        ">-\n      frontend-tests",
+    ),
+)
+def test_frontend_required_check_detects_semantic_job_name_overrides(
+    configured_job_name: str,
+):
+    workflow_text = f"""\
+jobs:
+  alternate:
+    name: {configured_job_name}
+    runs-on: ubuntu-latest
+    steps: []
+"""
+
+    assert _workflow_job_check_producers(workflow_text, "frontend-tests") == (
+        ("alternate", "frontend-tests"),
+    )
+
+
+def test_frontend_required_check_ignores_comments_steps_and_command_text():
+    workflow_text = """\
+jobs:
+  alternate:
+    runs-on: ubuntu-latest
+    steps:
+      # frontend-tests: required check
+      - name: frontend-tests
+        run: |
+          echo "frontend-tests:"
+"""
+
+    assert _workflow_job_check_producers(workflow_text, "frontend-tests") == ()
+
+
+def test_frontend_required_check_rejects_dynamic_job_names():
+    workflow_text = """\
+jobs:
+  alternate:
+    name: ${{ vars.REQUIRED_CHECK }}
+    runs-on: ubuntu-latest
+    steps: []
+"""
+
+    with pytest.raises(AssertionError, match="Dynamic workflow job name"):
+        _workflow_job_check_producers(workflow_text, "frontend-tests")
 
 
 def test_frontend_workflow_installs_locked_dependencies_before_tests():

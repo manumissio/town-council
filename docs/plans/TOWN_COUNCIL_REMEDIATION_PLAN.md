@@ -1,8 +1,10 @@
 # Town Council Remediation Plan (Codex Multi-Agent)
 
-version: 2.0
+version: 2.1
 generated: 2026-07-23
-changelog: v2.0 records T-CI-2 completion and adds the implementation-ready
+changelog: v2.1 adds the direct development-only PyYAML contract required to
+validate workflow check identities semantically instead of approximating YAML
+with regular expressions. v2.0 records T-CI-2 completion and adds the implementation-ready
 T-CI-2A plan for the separately approval-gated frontend required-check policy.
 v1.9 corrects T-CI-2 to use the existing Node 20 test runner,
 permits the stale CSP contract to follow its current proxy owner, expands
@@ -232,6 +234,9 @@ contract test only; later GOV work retains all other ownership.
   docs/plans/T_CI_1_REQUIRED_CHECK_POLICY_PLAN.md,
   docs/plans/TOWN_COUNCIL_REMEDIATION_PLAN.md, AGENTS.md (verification-matrix
   CI-status paragraph and transition markers only),
+  pipeline/requirements-dev.txt,
+  tests/test_docker_build_contracts.py
+  (development-only workflow parser dependency contract only),
   tests/test_repository_guardrails.py
   (canonical frontend required-check job identity only)
 - external_state_owned: repository ruleset `Require Python Guardrails`
