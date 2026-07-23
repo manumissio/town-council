@@ -1,5 +1,15 @@
 [run]
 branch = False
+source =
+    .
+omit =
+    tests/*
+    archive/*
+    experiments/*
+    .venv*/*
+patch =
+    subprocess
 
 [report]
 fail_under = 71
+include_namespace_packages = True

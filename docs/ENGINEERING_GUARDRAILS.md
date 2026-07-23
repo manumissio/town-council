@@ -18,6 +18,7 @@ list (see `AGENTS.md` `<docs_sync_rules>`).
 | Lint                 | `ruff.toml` (rule selection + paths)             |
 | Formatter            | `ruff-format.toml` `include`                         |
 | Typed subtree        | `mypy.ini` `files`/per-module sections           |
+| Coverage             | `.coveragerc`                                     |
 | Smell tests          | constants at the top of `tests/test_repository_guardrails.py` |
 | CI orchestration     | `.github/workflows/python-guardrails.yml`, `.github/workflows/frontend-tests.yml` |
 
@@ -36,10 +37,21 @@ cd <REPO_ROOT>
 PYTHONPATH=. .venv/bin/pytest -q tests/test_repository_guardrails.py
 ```
 
-CI runs the static checks, fast-fail test subset, and complete Python suite on
-every pull request and master push. The fast-fail subset provides earlier
-diagnostics; the complete suite remains the Python merge gate (see
+CI runs the static checks, fast-fail test subset, and complete Python suite
+under the `.coveragerc` production scope and coverage floor on every pull
+request and master push. The fast-fail subset provides earlier diagnostics;
+the coverage-enabled complete suite remains the Python merge gate (see
 `docs/TESTING.md`).
+
+Run that gate locally when changing coverage policy:
+
+```bash
+cd <REPO_ROOT>
+PYTHONPATH=. .venv/bin/python -m pytest -q --cov \
+  --cov-config=.coveragerc \
+  --cov-report=term-missing:skip-covered \
+  tests/
+```
 
 ## What the static checks block
 

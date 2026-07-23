@@ -2,6 +2,17 @@ import re
 from pathlib import Path
 
 
+def _requirement_names(requirements_path: Path) -> set[str]:
+    requirement_names = set()
+    for requirement_line in requirements_path.read_text(encoding="utf-8").splitlines():
+        requirement_specifier = requirement_line.partition("#")[0].strip()
+        if not requirement_specifier:
+            continue
+        requirement_name = re.split(r"[<>=!~;\[\s]", requirement_specifier, maxsplit=1)[0]
+        requirement_names.add(re.sub(r"[-_.]+", "-", requirement_name).lower())
+    return requirement_names
+
+
 def test_compose_uses_role_specific_python_images_and_model_volume():
     source = Path("docker-compose.yml").read_text(encoding="utf-8")
 
@@ -83,6 +94,35 @@ def test_worker_runtime_requirements_exclude_development_tooling():
         assert package in dev
     assert "pyyaml" not in runtime_requirement_names
     assert "PyYAML==6.0.3" in dev
+
+
+def test_coverage_tooling_is_development_only():
+    runtime_requirement_paths = (
+        Path("api/requirements.txt"),
+        Path("council_crawler/requirements.txt"),
+        Path("pipeline/requirements.txt"),
+        Path("pipeline/requirements-batch.txt"),
+        Path("semantic_service/requirements.txt"),
+    )
+    development_requirements = Path("pipeline/requirements-dev.txt").read_text(encoding="utf-8")
+
+    for runtime_requirement_path in runtime_requirement_paths:
+        runtime_requirements = runtime_requirement_path.read_text(encoding="utf-8")
+        runtime_requirement_names = _requirement_names(runtime_requirement_path)
+        runtime_requirement_directives = [
+            requirement_line.partition("#")[0].strip()
+            for requirement_line in runtime_requirements.splitlines()
+        ]
+        assert "coverage" not in runtime_requirement_names
+        assert "pytest-cov" not in runtime_requirement_names
+        assert not any(
+            requirement_directive.startswith(("-r", "--requirement"))
+            and "requirements-dev.txt" in requirement_directive
+            for requirement_directive in runtime_requirement_directives
+        )
+
+    assert "coverage==7.13.3" in development_requirements
+    assert "pytest-cov==7.0.0" in development_requirements
 
 
 def test_semantic_dependencies_live_outside_worker_runtime():
