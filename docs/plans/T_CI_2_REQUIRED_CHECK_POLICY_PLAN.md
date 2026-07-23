@@ -350,7 +350,16 @@ post-merge recheck.
 
 **u) Exact commands.**
 
-Repository setup:
+The activation sequence below is historical audit evidence. It completed on
+2026-07-23 and **none of its repository setup, Python-only precondition,
+approval-artifact, or mutation commands may be rerun**. Current remaining work
+is limited to merging the completion record under both required checks,
+performing its post-merge direct and effective two-check readbacks, obtaining
+explicit operator acceptance of the deviation in 7z, merging the final closure
+record under both required checks, and repeating the policy readbacks after
+that second default-branch advance.
+
+Historical repository setup:
 
 ```bash
 git fetch origin --prune
@@ -605,10 +614,9 @@ jq . "$RULESET_REQUEST"
 shasum -a 256 "$RULESET_REQUEST"
 ```
 
-Historical activation procedure follows for auditability. It completed once on
-2026-07-23 and **must not be rerun**. Before activation, the procedure required
-approval of both displayed JSON documents and digests, an exclusive ruleset
-change window, and one fail-closed mutation block:
+The historical mutation procedure required approval of both displayed JSON
+documents and digests, an exclusive ruleset change window, and one fail-closed
+mutation block:
 
 ```bash
 set -euo pipefail
