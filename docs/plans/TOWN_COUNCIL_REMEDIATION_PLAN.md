@@ -2,50 +2,55 @@
 
 version: 2.4
 generated: 2026-07-23
-changelog: v2.4 records T-CI-3 completion and expands T-SEC-1 ownership so
-backing-service port hardening, contract tests, and operator documentation land
-together. It reconciles the security acceptance rule by including Prometheus
-and limits development-overlay bindings to loopback. v2.3 expands T-CI-3 ownership and defines a production-only,
-subprocess-aware coverage contract before activating the existing 71% floor.
-It prevents test code from inflating the gate and keeps coverage dependencies
-out of runtime images. v2.2 corrects the T-CI-2A workflow identity guardrail to preserve
-GitHub string semantics for YAML 1.1 Boolean-like scalars. v2.1 adds the direct
-development-only PyYAML contract required to validate workflow check
-identities semantically instead of approximating YAML with regular
-expressions. v2.0 records T-CI-2 completion and adds the implementation-ready
-T-CI-2A plan for the separately approval-gated frontend required-check policy.
-v1.9 corrects T-CI-2 to use the existing Node 20 test runner,
-permits the stale CSP contract to follow its current proxy owner, expands
-planning and testing-policy ownership, and records completed Phase 0 work.
-v1.8 expands T-CI-4 ownership and records the dedicated
-formatter-scope config required to preserve repository-wide lint discovery.
-v1.7 adds T-CI-1A to make the green `python-guardrails` check
-mandatory through an active default-branch repository ruleset and schedules
-T-CI-2A to add the universal frontend check only after T-CI-2 is green. v1.6 expands T-CI-1 ownership so the complete-suite workflow,
-contract tests, runbook, and implementation plan land together. It also adds
-the crawler and Python 3.14-compatible topic dependencies, preserves the local
-`.venv/bin/python` subprocess contract, and removes event path filters so the
-gate runs on every pull request and master push. v1.5 expands T-CI-5 ownership so lint entrypoints, contributor
-commands, policy tests, and the implementation plan change together. It also
-records that the tightened Ruff configuration is already landed and corrects
-the pre-commit verification command. v1.4 expands T-CI-0 workflow ownership to keep CI triggers aligned
-with Ruff discovery. v1.3 adds T-CI-0 to restore the Python guardrail baseline before
-T-CI-5 and T-CI-1. v1.2 adds T-CI-5 (land the tightened ruff.toml, delivered as a
-drop-in draft verified against the tree at plan date), registers the lint
-ratchet couplings in T-TIME-1, T-SEC-6, T-CRAWL-2, T-DA-1, and T-PLAT-4
-acceptance criteria, re-scopes T-GOV-3 (complexity ceiling now enforced via
-ruff C901), and adds .pre-commit-config.yaml to CI-lane ownership. v1.1
-added the documentation workstream (T-GOV-4..6), expanded GOV lane
-ownership, and registered draft documents delivered with this plan
-(updated AGENTS.md, rewritten docs/ENGINEERING_GUARDRAILS.md, new
-SECURITY.md, docs/TESTING.md, docs/DATA_GOVERNANCE.md, drop-in ruff.toml).
-Doc tasks land the drafts alongside their enabling mechanical tasks; agents
-reconcile transition markers, they do not re-author policy.
 source: Four-pass external code review (security, architecture, smells, process)
 source_artifact: [Town Council architecture review](../reviews/architecture-review-2026-07-19.html)
 orchestrator_contract: Codex instantiates one agent per lane. Agents run in
 parallel ONLY within the same phase and ONLY on their owned paths. AGENTS.md
 remains in force; where this plan is stricter, this plan wins for these tasks.
+
+## Changelog
+
+- **v2.4:** Records T-CI-3 completion and expands T-SEC-1 ownership so
+  backing-service port hardening, contract tests, and operator documentation
+  land together. Includes Prometheus and limits development bindings to
+  loopback.
+- **v2.3:** Defines a production-only, subprocess-aware T-CI-3 coverage
+  contract without adding coverage tools to runtime images.
+- **v2.2:** Corrects T-CI-2A workflow identity checks for GitHub's YAML scalar
+  semantics.
+- **v2.1:** Adds the development-only PyYAML contract used to validate workflow
+  check identities semantically.
+- **v2.0:** Records T-CI-2 completion and adds the approval-gated T-CI-2A
+  frontend required-check plan.
+- **v1.9:** Aligns T-CI-2 with the existing Node 20 test runner, current CSP
+  owner, testing policy, and completed Phase 0 work.
+- **v1.8:** Expands T-CI-4 ownership and adds a dedicated formatter-scope
+  config.
+- **v1.7:** Adds T-CI-1A for the required Python Guardrails check and schedules
+  T-CI-2A after the frontend check is proven.
+- **v1.6:** Expands T-CI-1 ownership for the complete Python suite, crawler and
+  Python 3.14 topic dependencies, subprocess environment, and universal CI
+  triggers.
+- **v1.5:** Expands T-CI-5 ownership for aligned Ruff entrypoints, policy tests,
+  and pre-commit guidance.
+- **v1.4:** Expands T-CI-0 ownership to keep workflow triggers aligned with Ruff
+  discovery.
+- **v1.3:** Adds T-CI-0 to restore the Python guardrail baseline before other
+  Phase 0 work.
+- **v1.2:** Adds T-CI-5, lint-ratchet ownership, the T-GOV-3 complexity
+  correction, and pre-commit ownership.
+- **v1.1:** Adds the T-GOV-4..6 documentation workstream and registers the
+  initial policy-document drafts.
+
+## Task Status
+
+| State | Tasks |
+|---|---|
+| **Complete** | T-CI-0, T-CI-1, T-CI-1A, T-CI-2, T-CI-3, T-CI-4, T-CI-5 |
+| **Awaiting operator approval** | T-CI-2A |
+| **Implementation complete; review pending** | T-SEC-1 |
+| **Partially landed; acceptance incomplete** | T-GOV-4, T-GOV-5, T-GOV-6 |
+| **Pending** | T-SEC-2..6, T-TIME-1..3, T-CRAWL-1..2, T-DA-1, T-DB-1, T-DC-1, T-DD-1, T-DE-1, T-PLAT-1..4, T-GOV-1..3 |
 
 ---
 
@@ -376,7 +381,7 @@ in `AGENTS.md`, `docs/TESTING.MD`, and
 
 ### T-SEC-1: Stop publishing backing-store ports; remove default-cred blast radius
 - priority: P0
-- status: implementation-ready
+- status: implementation complete; review pending
 - implementation_plan: `docs/plans/T_SEC_1_BACKEND_PORT_HARDENING_PLAN.md`
 - files_owned: docs/plans/T_SEC_1_BACKEND_PORT_HARDENING_PLAN.md,
   docs/plans/TOWN_COUNCIL_REMEDIATION_PLAN.md, docker-compose.yml,

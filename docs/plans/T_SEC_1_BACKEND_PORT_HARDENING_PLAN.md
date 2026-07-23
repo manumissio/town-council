@@ -338,5 +338,7 @@ URL, unresolved-thread count, and final CI state. Mark anything unrun as
 **z) Deviations.** Authorized corrections are adding Prometheus to the move,
 using loopback-only development bindings rather than all-interface mappings,
 expanding ownership to nine files, and synchronizing the stale T-CI-3 status.
+The operator additionally directed the remediation changelog to become a
+versioned list and requested a scannable task-status summary.
 Any additional path, changed service behavior, credential/default change,
 unresolved P1/P2, skipped review, or unrun required check is a blocker.
