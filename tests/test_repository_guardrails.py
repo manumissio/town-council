@@ -967,6 +967,43 @@ def test_frontend_workflow_runs_for_every_pull_request_and_master_push():
     assert "paths-ignore:" not in event_configuration
 
 
+def test_frontend_required_check_uses_one_canonical_workflow_job():
+    workflow_directory = ROOT / ".github" / "workflows"
+    frontend_workflow_text = (workflow_directory / "frontend-tests.yml").read_text(
+        encoding="utf-8"
+    )
+    frontend_workflow_lines = frontend_workflow_text.splitlines()
+    frontend_job_start = frontend_workflow_lines.index("  frontend-tests:")
+    frontend_job_end = next(
+        (
+            line_number
+            for line_number, workflow_line in enumerate(
+                frontend_workflow_lines[frontend_job_start + 1 :],
+                start=frontend_job_start + 1,
+            )
+            if re.match(r"^ {2}\S.*:", workflow_line)
+        ),
+        len(frontend_workflow_lines),
+    )
+    frontend_job_text = "\n".join(
+        frontend_workflow_lines[frontend_job_start:frontend_job_end]
+    )
+    candidate_workflow_paths = sorted(
+        (*workflow_directory.glob("*.yml"), *workflow_directory.glob("*.yaml"))
+    )
+    required_check_occurrences = tuple(
+        (workflow_path.relative_to(ROOT).as_posix(), workflow_line.strip())
+        for workflow_path in candidate_workflow_paths
+        for workflow_line in workflow_path.read_text(encoding="utf-8").splitlines()
+        if "frontend-tests" in workflow_line
+    )
+
+    assert required_check_occurrences == (
+        (".github/workflows/frontend-tests.yml", "frontend-tests:"),
+    )
+    assert re.search(r"""(?m)^ {4}["']?name["']?[ ]*:""", frontend_job_text) is None
+
+
 def test_frontend_workflow_installs_locked_dependencies_before_tests():
     workflow_text = (ROOT / ".github" / "workflows" / "frontend-tests.yml").read_text(encoding="utf-8")
     install_step = "      - name: Install dependencies\n        run: npm ci"
