@@ -1,6 +1,6 @@
 # Town Council Remediation Plan (Codex Multi-Agent)
 
-version: 3.28
+version: 3.29
 generated: 2026-07-24
 source: Four-pass external code review (security, architecture, smells, process)
 source_artifact: [Town Council architecture review](../reviews/architecture-review-2026-07-19.html)
@@ -10,6 +10,9 @@ remains in force; where this plan is stricter, this plan wins for these tasks.
 
 ## Changelog
 
+- **v3.29:** Activates T-DA-1 with tests-first ownership for a single Redis
+  metrics state owner, direct backend test patches, and removal of the stale
+  metrics S105 exception.
 - **v3.28:** Marks T-GOV-5 complete after independently verifying the landed
   engineering guardrails rewrite, correcting three stale policy claims, and
   adding a durable completion contract. Exact identity with the unavailable
@@ -156,8 +159,9 @@ remains in force; where this plan is stricter, this plan wins for these tasks.
 | State | Tasks |
 |---|---|
 | **Complete** | T-CI-0, T-CI-1, T-CI-1A, T-CI-2, T-CI-2A, T-CI-3, T-CI-4, T-CI-5, T-SEC-1, T-SEC-2, T-SEC-3, T-SEC-3C, T-SEC-4, T-SEC-4A, T-SEC-5, T-SEC-6, T-TIME-3, T-CRAWL-1, T-CRAWL-2, T-PLAT-2A, T-GOV-1, T-GOV-4, T-GOV-5 |
+| **In progress** | T-DA-1 |
 | **Partially landed; acceptance incomplete** | T-GOV-6 |
-| **Pending** | T-TIME-1..2, T-DA-1, T-DB-1, T-DC-1, T-DD-1, T-DE-1, T-PLAT-1, T-PLAT-2, T-PLAT-3, T-PLAT-4, T-GOV-2..3 |
+| **Pending** | T-TIME-1..2, T-DB-1, T-DC-1, T-DD-1, T-DE-1, T-PLAT-1, T-PLAT-2, T-PLAT-3, T-PLAT-4, T-GOV-2..3 |
 
 ---
 
@@ -798,13 +802,20 @@ files (GED-5 grant).
 
 ### T-DA-1: Collapse the metrics twins
 - priority: P1
-- files_owned: pipeline/metrics.py, pipeline/metrics_redis_backend.py,
-  tests/test_*metrics*
+- status: in progress
+- implementation_plan: `docs/plans/T_DA_1_METRICS_DEDUPLICATION_PLAN.md`
+- files_owned: docs/plans/T_DA_1_METRICS_DEDUPLICATION_PLAN.md,
+  docs/plans/TOWN_COUNCIL_REMEDIATION_PLAN.md, pipeline/metrics.py,
+  pipeline/metrics_redis_backend.py, pipeline/metrics_provider_recorders.py,
+  pipeline/metrics_task_recorders.py, ruff.toml, tests/test_metrics_api.py,
+  tests/test_provider_metrics_prefork_redis_aggregation.py,
+  tests/test_task_metrics.py, tests/test_worker_metrics_exporter_provider_series.py
 - do: Single source of truth for the redis client state machine and
   `_redis_incr/_redis_hincrby/_redis_hincrbyfloat` (keep them in
-  metrics_redis_backend). metrics.py imports and calls; delete its
-  duplicated implementations and BOTH `_sync_redis_*` functions and the
-  duplicated module globals.
+  metrics_redis_backend). Provider recorders import and call that backend;
+  metrics.py keeps the public collector binding. Delete the facade's duplicate
+  implementations, BOTH `_sync_redis_*` functions, duplicated module globals,
+  dynamic metric lookups, and injected Redis callables.
 - accept: One implementation of each function repo-wide; zero
   `_sync_redis_*` symbols; the S105 ruff.toml entry for
   metrics_redis_backend.py is resolved and removed (env-source the default
