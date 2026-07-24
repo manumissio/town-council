@@ -2203,6 +2203,11 @@ G3_COPULAR_TEMPORAL_POLICY = re.compile(
     rf"{G3_DEFERRED_WORK.pattern}\s+{G3_COPULAR_TEMPORAL_ACTION_PATTERN}",
     re.IGNORECASE,
 )
+G3_QUALIFIED_FACADE_TEMPORAL_POLICY = re.compile(
+    rf"\b(?:the\s+)?[a-z_]\w*(?:\.[a-z_]\w*)+\s+facades?\s+"
+    rf"{G3_COPULAR_TEMPORAL_ACTION_PATTERN}",
+    re.IGNORECASE,
+)
 G3_INTERROGATIVE_OPENING_PATTERN = (
     r"(?:am|are|can|could|did|do|does|had|has|have|how|is|may|might|must|"
     r"shall|should|was|were|what|when|where|which|who|why|will|would)"
@@ -2215,7 +2220,8 @@ G3_NONASSERTIVE_POLICY_CONTEXT = re.compile(
     re.IGNORECASE,
 )
 G3_ORDERED_PREREQUISITE_POLICY = re.compile(
-    rf"(?:\bG3\b\s+{G3_MUST_PRECEDE_ACTION_PATTERN}\s+"
+    rf"(?:\bG3\b\s+(?:{REMEDIATION_TASK_REFERENCE.pattern}\s+)?"
+    rf"{G3_MUST_PRECEDE_ACTION_PATTERN}\s+"
     rf"(?:{G3_REMOVAL_OBJECT_MODIFIER_PATTERN}\s+){{0,2}}"
     rf"{G3_DEFERRED_WORK.pattern}|"
     rf"{G3_DEFERRED_WORK.pattern}\s+must\s+wait\s+(?:for|until)\s+\bG3\b)",
@@ -2435,13 +2441,19 @@ def _g3_clause_defers_work(policy_clause: str) -> bool:
     subject_first_requirement = G3_SUBJECT_FIRST_REQUIREMENT_POLICY.search(
         policy_clause
     )
+    qualified_facade_temporal = G3_QUALIFIED_FACADE_TEMPORAL_POLICY.search(
+        policy_clause
+    )
     if negated_permission:
-        has_deferred_work = subject_first_requirement or G3_DEFERRED_WORK.search(
-            policy_clause
+        has_deferred_work = (
+            subject_first_requirement
+            or qualified_facade_temporal
+            or G3_DEFERRED_WORK.search(policy_clause)
         )
     else:
         has_deferred_work = (
             subject_first_requirement
+            or qualified_facade_temporal
             or _has_positive_g3_deferred_work(policy_clause)
         )
     return bool(
@@ -2470,6 +2482,7 @@ def _g3_clause_defers_work(policy_clause: str) -> bool:
                 G3_COPULAR_TEMPORAL_POLICY.search(policy_clause)
                 and not G3_NONASSERTIVE_POLICY_CONTEXT.search(policy_clause)
             )
+            or qualified_facade_temporal
             or G3_ORDERED_PREREQUISITE_POLICY.search(policy_clause)
             or G3_PROHIBITION_POLICY.search(policy_clause)
         )
@@ -2915,6 +2928,7 @@ def test_g3_deferral_scan_groups_wrapped_comment_blocks(tmp_path: Path):
         "# G3 proceeds without blocking facade removal.",
         "# G3 preserves the public facade.",
         "# G3 requires the public facade to remain.",
+        "# The api.main facade does not remain until G3 lands.",
         "# G3 preserves facade runtime compatibility.",
         "# G3 blocks cache removal.",
         "# G3 blocks temporary-file removal.",
@@ -3015,6 +3029,9 @@ def test_g3_deferral_scan_allows_non_deferral_policy(accepted_policy: str):
         "# G3 and\n# T-SEC-4 block facade removal.",
         "# Both G3 and T-SEC-4 block facade removal.",
         "# Both G3 and\n# T-SEC-4 block facade removal.",
+        "# G3 and T-SEC-4 must land before facade removal.",
+        "# G3 and\n# T-SEC-4 must land before facade removal.",
+        "# Both G3 and T-SEC-4 must land before facade removal.",
         "# G3 preserves runtime compatibility and the test facade.",
         "# G3 remains pending; therefore preserve the test facade.",
         "# G3 blockers are blocking facade removal.",
@@ -3073,6 +3090,7 @@ def test_g3_deferral_scan_allows_non_deferral_policy(accepted_policy: str):
         "# G3 requires temporary preservation of the test seam.",
         "# G3 requires the test facade to remain.",
         "# G3 requires the public facade and test facade to remain.",
+        "# The api.main facade remains until G3 lands.",
         "# G3 still blocks removal of the facade.",
         "# G3 defers removing the facade.",
         "# Until G3 lands, do not remove this facade.",
