@@ -2137,8 +2137,15 @@ G3_PROHIBITION_REJECTION_PATTERN = (
 G3_CONTROLLED_WORK_CONTINUATION_PATTERN = (
     r"can\s+(?:proceed|be\s+(?:cleaned\s+up|deleted|removed))"
 )
+G3_COPULAR_TEMPORAL_ACTION_PATTERN = (
+    r"(?:(?:must|shall|should|will)\s+(?:(?:continue\s+to|still)\s+)?|"
+    r"(?:has|have|needs?)\s+to\s+|"
+    r"(?:are|is)\s+(?:still\s+)?required\s+to\s+)?"
+    r"remain(?:s)?\s+(?:in\s+place\s+)?until\s+\bG3\b"
+)
 G3_CONTROLLED_WORK_TAIL_PATTERN = (
     rf"(?:$|\b{G3_CONTROLLED_WORK_CONTINUATION_PATTERN}\b|"
+    rf"\b{G3_COPULAR_TEMPORAL_ACTION_PATTERN}|"
     r"\b(?:because|pending|unless|until|while)\b|"
     rf"\b{G3_ORDERED_PREREQUISITE_ACTION_PATTERN}\b|"
     rf"\b(?:are|is|remain(?:s)?|was|were)\s+"
@@ -2165,6 +2172,37 @@ G3_DIRECT_DEFERRED_WORK_PATTERN = (
 G3_DEFERRED_WORK = re.compile(
     rf"(?:{G3_DIRECT_DEFERRED_WORK_PATTERN}|deduplicat\w*|de-fac\w*|"
     rf"{G3_REMOVAL_FIRST_WORK_PATTERN})",
+    re.IGNORECASE,
+)
+G3_PERMISSIVE_ACTION_PATTERN = (
+    r"(?:permit(?:s|ted|ting)?|allow(?:s|ed|ing)?|enabl(?:e|es|ed|ing))"
+)
+G3_KEEP_HOLD_ACTION_PATTERN = r"(?:keep(?:s|ing)?|kept|hold(?:s|ing)?|held)"
+G3_REQUIREMENT_ACTION_PATTERN = r"requir(?:e|es|ed|ing)"
+G3_REQUIREMENT_MODIFIER_PATTERN = r"(?:a|an|continued|existing|temporary|the)"
+G3_CONTRASTIVE_DEFERRED_WORK = re.compile(
+    rf"\b(?:instead\s+of|rather\s+than)\s+"
+    rf"(?:(?:{G3_DEFERRAL_ACTION_PATTERN}|{G3_PERMISSIVE_ACTION_PATTERN}|"
+    rf"{G3_KEEP_HOLD_ACTION_PATTERN}|{G3_REQUIREMENT_ACTION_PATTERN}"
+    rf"(?:\s+(?:{G3_REQUIREMENT_MODIFIER_PATTERN}\s+){{0,3}}"
+    rf"preserv(?:ation|ing)\s+of)?)\s+)?"
+    rf"(?:{G3_REMOVAL_OBJECT_MODIFIER_PATTERN}\s+){{0,2}}"
+    rf"{G3_DEFERRED_WORK.pattern}",
+    re.IGNORECASE,
+)
+G3_COPULAR_TEMPORAL_POLICY = re.compile(
+    rf"{G3_DEFERRED_WORK.pattern}\s+{G3_COPULAR_TEMPORAL_ACTION_PATTERN}",
+    re.IGNORECASE,
+)
+G3_INTERROGATIVE_OPENING_PATTERN = (
+    r"(?:am|are|can|could|did|do|does|had|has|have|how|is|may|might|must|"
+    r"shall|should|was|were|what|when|where|which|who|why|will|would)"
+)
+G3_NONASSERTIVE_POLICY_CONTEXT = re.compile(
+    r"(?:\b(?:ask(?:s|ed|ing)?|check(?:s|ed|ing)?|document(?:s|ed|ing)?|"
+    r"record(?:s|ed|ing)?|report(?:s|ed|ing)?|track(?:s|ed|ing)?)\s*"
+    rf"(?:(?:if|whether)\b|:\s*{G3_INTERROGATIVE_OPENING_PATTERN}\b)|"
+    rf"^\s*{G3_INTERROGATIVE_OPENING_PATTERN}\b|\?\s*$)",
     re.IGNORECASE,
 )
 G3_ORDERED_PREREQUISITE_POLICY = re.compile(
@@ -2209,7 +2247,6 @@ G3_PROHIBITED_DEFERRAL_ACTION = re.compile(
     rf"{G3_DEFERRAL_ACTION_PATTERN}\b",
     re.IGNORECASE,
 )
-G3_KEEP_HOLD_ACTION_PATTERN = r"(?:keep(?:s|ing)?|kept|hold(?:s|ing)?|held)"
 G3_KEEP_HOLD_NON_OBJECT_PATTERN = (
     r"(?:about|comment|discussion|documentation|for|note|of|on|policy|progress|"
     r"record|regarding|report|status|tracking)"
@@ -2235,9 +2272,8 @@ G3_REJECTED_KEEP_HOLD_ACTION = re.compile(
     rf"{G3_NEGATION_GAP}\s+{G3_KEEP_HOLD_ACTION_PATTERN}\b",
     re.IGNORECASE,
 )
-G3_REQUIREMENT_MODIFIER_PATTERN = r"(?:a|an|continued|existing|temporary|the)"
 G3_REQUIREMENT_POLICY = re.compile(
-    r"\brequir(?:e|es|ed|ing)\s+"
+    rf"\b{G3_REQUIREMENT_ACTION_PATTERN}\s+"
     rf"(?:{G3_REQUIREMENT_MODIFIER_PATTERN}\s+){{0,3}}"
     rf"(?:preserv(?:ation|ing)\s+of\s+"
     rf"(?:{G3_REQUIREMENT_MODIFIER_PATTERN}\s+){{0,3}})?"
@@ -2271,7 +2307,7 @@ G3_BEFORE_REMOVAL_DIRECTIVE_POLICY = re.compile(
     rf"\bbefore\s+\bG3\b.{{0,80}}{G3_NEGATED_REMOVAL_DIRECTIVE_PATTERN})",
     re.IGNORECASE,
 )
-G3_POLICY_SENTENCE_BOUNDARY = re.compile(r"\.(?=\s|$)")
+G3_POLICY_SENTENCE_BOUNDARY = re.compile(r"[.?](?=\s|$)")
 G3_POLICY_CLAUSE_BOUNDARY = re.compile(
     r"(;|,|\b(?:and|but|however|while|yet|so|therefore|thus|hence|then)\b)",
     re.IGNORECASE,
@@ -2279,9 +2315,6 @@ G3_POLICY_CLAUSE_BOUNDARY = re.compile(
 G3_NOUN_ACTION_CONTINUATION = re.compile(
     r"^\s+(?:are|is|was|were|exist|exists|listed|documented)\b",
     re.IGNORECASE,
-)
-G3_PERMISSIVE_ACTION_PATTERN = (
-    r"(?:permit(?:s|ted|ting)?|allow(?:s|ed|ing)?|enabl(?:e|es|ed|ing))"
 )
 G3_PERMISSIVE_ACTION = re.compile(
     rf"\b{G3_PERMISSIVE_ACTION_PATTERN}\b",
@@ -2338,6 +2371,9 @@ def _has_positive_g3_deferred_work(policy_clause: str) -> bool:
     negated_work_spans = [
         negated_work.span()
         for negated_work in G3_NEGATED_DEFERRED_WORK.finditer(policy_clause)
+    ] + [
+        contrastive_work.span()
+        for contrastive_work in G3_CONTRASTIVE_DEFERRED_WORK.finditer(policy_clause)
     ]
     return any(
         not any(start <= deferred_work.start() < end for start, end in negated_work_spans)
@@ -2348,15 +2384,26 @@ def _has_positive_g3_deferred_work(policy_clause: str) -> bool:
 def _g3_keep_hold_defers_work(policy_text: str) -> bool:
     negated_permission = G3_NEGATED_PERMISSIVE_ACTION.search(policy_text)
     positive_permission = G3_PERMISSIVE_ACTION.search(policy_text)
+    contrastive_spans = [
+        contrastive_work.span()
+        for contrastive_work in G3_CONTRASTIVE_DEFERRED_WORK.finditer(policy_text)
+    ]
+    positive_keep_hold = any(
+        not any(start <= keep_hold.start() < end for start, end in contrastive_spans)
+        for keep_hold in G3_KEEP_HOLD_POLICY.finditer(policy_text)
+    )
     return bool(
-        G3_KEEP_HOLD_POLICY.search(policy_text)
+        positive_keep_hold
         and not G3_NEGATED_KEEP_HOLD_ACTION.search(policy_text)
         and not G3_REJECTED_KEEP_HOLD_ACTION.search(policy_text)
+        and not G3_NONASSERTIVE_POLICY_CONTEXT.search(policy_text)
         and not (positive_permission and not negated_permission)
     )
 
 
 def _g3_clause_defers_work(policy_clause: str) -> bool:
+    if G3_NONASSERTIVE_POLICY_CONTEXT.search(policy_clause):
+        return False
     negated_permission = G3_NEGATED_PERMISSIVE_ACTION.search(policy_clause)
     has_deferred_work = (
         G3_DEFERRED_WORK.search(policy_clause)
@@ -2378,6 +2425,10 @@ def _g3_clause_defers_work(policy_clause: str) -> bool:
             or (
                 G3_PREREQUISITE_POLICY.search(policy_clause)
                 and not G3_NEGATED_PREREQUISITE_POLICY.search(policy_clause)
+            )
+            or (
+                G3_COPULAR_TEMPORAL_POLICY.search(policy_clause)
+                and not G3_NONASSERTIVE_POLICY_CONTEXT.search(policy_clause)
             )
             or G3_ORDERED_PREREQUISITE_POLICY.search(policy_clause)
             or G3_PROHIBITION_POLICY.search(policy_clause)
@@ -2753,6 +2804,16 @@ def test_g3_deferral_scan_groups_wrapped_comment_blocks(tmp_path: Path):
         "# G3 blocker is documented and facade removal status is current.",
         "# G3 preservation is documented and facade removal status is current.",
         "# G3 blocks migration, not facade removal.",
+        "# G3 blocks migration rather than facade removal.",
+        "# G3 blocks migration instead of test seam cleanup.",
+        "# G3 blocks migration rather than blocking facade removal.",
+        "# G3 blocks migration instead of allowing facade removal.",
+        "# G3 delays migration rather than preserving the test seam.",
+        "# G3 blocks migration instead of keeping the test facade.",
+        "# G3 blocks migration rather than holding the test seam.",
+        "# G3 blocks migration instead of requiring preservation of the test facade.",
+        "# G3 blocks migration instead of requiring the preservation of the test facade.",
+        "# G3 blocks migration instead of requiring continued preservation of the test facade.",
         "# G3 no longer blocks facade removal, preserving the runtime API.",
         "# G3 blocks neither facade removal nor test seams.",
         "# G3 preserves no test facade.",
@@ -2811,6 +2872,23 @@ def test_g3_deferral_scan_groups_wrapped_comment_blocks(tmp_path: Path):
         "# G3 must land. T-SEC-4 blocks migration until its work lands. Facade removal remains blocked until then.",
         "# Do not remove the test facade before T-SEC-4 lands; G3 is accepted.",
         "# G3 is accepted; do not remove the test facade before T-SEC-4 lands.",
+        "# G3 records whether the test seam remains until G3 is accepted.",
+        "# G3 asks whether the test seam remains until G3 is accepted.",
+        "# G3 checks whether the test seam remains until G3 is accepted.",
+        "# Does the test seam remain until G3 is accepted?",
+        "# Why must the test seam remain until G3 is accepted?",
+        "# The G3 audit asks: does the test seam remain until G3 is accepted?",
+        "# G3 asks whether to keep the test facade until Phase 2.",
+        "# Does G3 block facade removal until G3 is accepted?",
+        "# Why does G3 preserve the test seam until Phase 2?",
+        "# Does G3 require preservation of the test facade until Phase 2?",
+        "# Does G3 prohibit facade removal until Phase 2?",
+        "# May G3 preserve the test seam until Phase 2?",
+        "# Might G3 block facade removal until Phase 2?",
+        "# Shall G3 keep the test facade until Phase 2?",
+        "# Did G3 block facade removal until Phase 2?",
+        "# Was G3 preserving the test seam until Phase 2?",
+        "# Did G3 require preservation of the test facade until Phase 2?",
     ),
 )
 def test_g3_deferral_scan_allows_non_deferral_policy(accepted_policy: str):
@@ -2856,6 +2934,22 @@ def test_g3_deferral_scan_allows_non_deferral_policy(accepted_policy: str):
         "# Keep these test patch points until G3 is resolved.",
         "# Keep the test facades until G3 is resolved.",
         "# Keep the test facade while G3 remains unresolved.",
+        "# The test seam remains until G3 is accepted.",
+        "# The test facade remains in place until G3 is resolved.",
+        "# The test patch point remains until G3 lands.",
+        "# The test seam will remain until G3 is accepted.",
+        "# The test facades must remain in place until G3 lands.",
+        "# The test patch point should remain until G3 is resolved.",
+        "# The test seam has to remain until G3 is accepted.",
+        "# The test seam is required to remain until G3 is accepted.",
+        "# The test seam needs to remain until G3 is accepted.",
+        "# The test seam is still required to remain until G3 is accepted.",
+        "# The test seam must continue to remain until G3 is accepted.",
+        "# G3 blocks migration rather than facade removal, but G3 preserves the test seam.",
+        "# G3 records whether migration is blocked, but the test seam remains until G3 is accepted.",
+        "# G3 asks whether migration is blocked, but the test seam remains until G3 is accepted.",
+        "# G3 asks whether to keep one test facade, but G3 preserves the test seam.",
+        "# Does G3 block migration? G3 preserves the test seam.",
         "# G3 delays facade removal.",
         "# G3 postpones test seam cleanup.",
         "# Nothing but G3 blocks facade removal.",
