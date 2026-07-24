@@ -10,10 +10,13 @@ def test_run_soak_day_script_contract():
     assert "scripts/dev_up.sh" in text
     assert "[[ -f \"scripts/dev_up.sh\" ]]" in text
     assert "COMPOSE=(docker compose -f docker-compose.yml -f docker-compose.dev.yml)" in text
-    assert (
-        'STARTUP_PURGE_DERIVED=false "${COMPOSE[@]}" up -d '
-        "inference worker api pipeline frontend"
-    ) in text
+    fallback_guard = '[[ ! -f .env && -z "${MEILI_MASTER_KEY:-}" ]]'
+    fallback_export = 'export MEILI_MASTER_KEY="$DEVELOPMENT_MEILI_MASTER_KEY"'
+    recovery_command = 'STARTUP_PURGE_DERIVED=false "${COMPOSE[@]}" up -d '
+    assert fallback_guard in text
+    assert fallback_export in text
+    assert text.index(fallback_guard) < text.index(fallback_export) < text.index(recovery_command)
+    assert recovery_command + "inference worker api pipeline frontend" in text
     assert '"${COMPOSE[@]}" ps' in text
     assert "\ndocker compose up " not in text
     assert "stack_offline" in text
