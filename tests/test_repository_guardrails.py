@@ -2112,7 +2112,7 @@ G3_COORDINATED_SUBJECT = re.compile(r"^\s*(?:both\s+)?G3\s*$", re.IGNORECASE)
 G3_DEFERRAL_ACTION_PATTERN = (
     r"(?:defer(?:s|red|ring)?|block(?:s|ed|ing)?|preserv(?:e|es|ed|ing)|"
     r"prevent(?:s|ed|ing)?|retain(?:s|ed)?|retaining|delay(?:s|ed|ing)?|"
-    r"postpon(?:e|es|ed|ing)|gat(?:es|ed|ing))"
+    r"postpon(?:e|es|ed|ing)|stop(?:s|ped|ping)?|gat(?:es|ed|ing))"
 )
 G3_DEFERRAL_ACTION = re.compile(
     rf"\b{G3_DEFERRAL_ACTION_PATTERN}\b",
@@ -2159,10 +2159,11 @@ G3_CONTROLLED_WORK_CONTINUATION_PATTERN = (
     r"can\s+(?:proceed|be\s+(?:cleaned\s+up|deleted|removed))"
 )
 G3_COPULAR_TEMPORAL_ACTION_PATTERN = (
-    r"(?:(?:must|shall|should|will)\s+(?:(?:continue\s+to|still)\s+)?|"
+    r"(?:(?:(?:must|shall|should|will)\s+(?:(?:continue\s+to|still)\s+)?|"
     r"(?:has|have|needs?)\s+to\s+|"
     r"(?:are|is)\s+(?:still\s+)?required\s+to\s+)?"
-    r"(?:remain(?:s)?|stay(?:s)?)\s+(?:in\s+place\s+)?until\s+\bG3\b"
+    r"(?:remain(?:s)?|stay(?:s)?)\s+(?:in\s+place\s+)?until\s+\bG3\b|"
+    r"(?:cannot|can't)\s+begin\s+until\s+\bG3\b)"
 )
 G3_CONTROLLED_WORK_TAIL_PATTERN = (
     rf"(?:$|\b{G3_CONTROLLED_WORK_CONTINUATION_PATTERN}\b|"
@@ -2285,7 +2286,8 @@ G3_NEGATED_SUBJECT_DEFERRAL_ACTION = re.compile(
     re.IGNORECASE,
 )
 G3_PROHIBITED_DEFERRAL_ACTION = re.compile(
-    rf"\b(?:{G3_PROHIBITION_REJECTION_PATTERN}|prevent(?:s|ed|ing)?)\s+"
+    rf"\b(?:{G3_PROHIBITION_REJECTION_PATTERN}|prevent(?:s|ed|ing)?|"
+    rf"stop(?:s|ped|ping)?)\s+"
     rf"{G3_DEFERRAL_ACTION_PATTERN}\b",
     re.IGNORECASE,
 )
@@ -2435,6 +2437,9 @@ def _positive_g3_deferral_action(policy_clause: str) -> re.Match[str] | None:
     ] + [
         negated_action.span()
         for negated_action in G3_PROHIBITED_DEFERRAL_ACTION.finditer(policy_clause)
+    ] + [
+        rejected_action.span()
+        for rejected_action in G3_REJECTED_KEEP_HOLD_ACTION.finditer(policy_clause)
     ]
     for deferral_action in G3_DEFERRAL_ACTION.finditer(policy_clause):
         if any(
@@ -3170,6 +3175,8 @@ def test_g3_deferral_scan_groups_wrapped_comment_blocks(tmp_path: Path):
         "# G3 once blocked facade removal.",
         "# Historically, G3 required the test facade to remain, and G3 preserved the test seam.",
         "# G3 prevents retaining the test facade.",
+        "# G3 stops retaining the test facade.",
+        "# Phase 2 can begin after G3 lands.",
         "# G3: no test facade must remain.",
         "# G3: neither the test facade nor the test seam must remain.",
         "# G3 records the Phase 2 gate.",
@@ -3221,6 +3228,7 @@ def test_g3_deferral_scan_allows_non_deferral_policy(accepted_policy: str):
         "# G3 is unresolved, therefore block facade removal.",
         "# G3 remains a blocker for facade removal.",
         "# G3 prevents facade removal.",
+        "# G3 stops facade removal.",
         "# Until G3 is resolved, retain the test seam.",
         "# Until G3 lands, do not remove the test facade, but T-SEC-4 status is current.",
         "# T-SEC-4 status is current, but before G3 lands, do not remove the test facade.",
@@ -3259,6 +3267,7 @@ def test_g3_deferral_scan_allows_non_deferral_policy(accepted_policy: str):
         "# Does G3 block migration? G3 preserves the test seam.",
         "# G3 delays facade removal.",
         "# Facade removal is gated on G3.",
+        "# Phase 2 cannot begin until G3 lands.",
         "# G3 gates Phase 2.",
         "# G3 postpones test seam cleanup.",
         "# Nothing but G3 blocks facade removal.",
