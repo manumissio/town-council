@@ -755,14 +755,17 @@ files (GED-5 grant).
 
 ### T-DB-1: Collapse the summary_backfill facade
 - priority: P1
-- files_owned: pipeline/summary_backfill*.py, tests/test_*backfill*
+- files_owned: pipeline/summary_backfill*.py, pipeline/task_facade_helpers.py,
+  pipeline/tasks.py, tests/test_*backfill*, tests/test_pipeline_batching.py,
+  tests/test_run_pipeline_orchestration.py, tests/test_staged_hydrate_cities.py,
+  tests/test_tasks_agenda_summary_format.py
 - do: Callers import run_summary_hydration_backfill from
   summary_backfill_runner directly (or keep summary_backfill.py as a pure
   one-line re-import, no signature duplication, no conditional **splats).
-  Reduce injectable-callable params to the boundary fakes tests actually
-  need (DB session factory, summary callable); repoint tests for the rest.
-- accept: <= 8 params on the public signature; no conditional dict-splat
-  forwarding; backfill tests green.
+  Remove injectable-callable params. Repoint tests at implementation modules
+  and fake only the approved DB session factory or inference provider boundary.
+- accept: <= 8 params on the public signature; no injectable-callable params;
+  no conditional dict-splat forwarding; backfill tests green.
 - verify: Full suite green.
 
 ### T-DC-1: Remove the api.main <-> app_setup sync machinery
