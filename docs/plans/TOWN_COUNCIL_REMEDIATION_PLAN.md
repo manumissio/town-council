@@ -1,6 +1,6 @@
 # Town Council Remediation Plan (Codex Multi-Agent)
 
-version: 3.8
+version: 3.9
 generated: 2026-07-23
 source: Four-pass external code review (security, architecture, smells, process)
 source_artifact: [Town Council architecture review](../reviews/architecture-review-2026-07-19.html)
@@ -10,6 +10,9 @@ remains in force; where this plan is stricter, this plan wins for these tasks.
 
 ## Changelog
 
+- **v3.9:** Expands T-CRAWL-2 ownership to the repository guardrail contract
+  after removing crawler BLE001 exceptions exposed its exact inventory as
+  stale.
 - **v3.8:** Activates T-CRAWL-2 with characterization-first ownership for the
   shared archive-table parser, all crawler Ruff debt, and parity verification.
 - **v3.7:** Closes T-SEC-3 and T-SEC-3C after synchronizing the canonical
@@ -620,6 +623,7 @@ in `AGENTS.md`, `docs/TESTING.MD`, and
 - files_owned: docs/plans/T_CRAWL_2_TEMPLATE_REFACTOR_PLAN.md,
   docs/plans/TOWN_COUNCIL_REMEDIATION_PLAN.md, ruff.toml,
   tests/test_crawler_refactor_contract.py,
+  tests/test_repository_guardrails.py,
   council_crawler/council_crawler/pipelines.py,
   council_crawler/council_crawler/utils.py,
   council_crawler/council_crawler/spiders/base.py,

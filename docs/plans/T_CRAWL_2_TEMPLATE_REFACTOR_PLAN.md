@@ -37,6 +37,7 @@ ownership before implementation to:
 - `docs/plans/TOWN_COUNCIL_REMEDIATION_PLAN.md`
 - `ruff.toml`
 - `tests/test_crawler_refactor_contract.py`
+- `tests/test_repository_guardrails.py`
 - `council_crawler/council_crawler/pipelines.py`
 - `council_crawler/council_crawler/utils.py`
 - `council_crawler/council_crawler/spiders/base.py`
@@ -53,7 +54,9 @@ ownership before implementation to:
 - `council_crawler/council_crawler/spiders/ca_sunnyvale.py`
 - `council_crawler/templates/legistar_cms.py`
 
-No other tracked file may change.
+No other tracked file may change. The repository guardrail contract was added
+after the first implementation pass proved that clearing the crawler BLE001
+entries also requires removing their stale exact-inventory rows.
 
 **d) Decision-gate check.** T-CRAWL-2 does not depend on or foreclose G1-G5.
 It does not alter crawler delay, robots behavior, concurrency, runtime
@@ -293,8 +296,11 @@ and Ruff-exception counts, all commands in 6u, item-parity evidence,
 independent-review findings, commits, PR URL, unresolved-thread count, and CI
 state. Mark unrun checks `NOT VERIFIED`.
 
-**z) Deviations.** The required local planning and pre-commit subagent could
-not start because the agent thread limit was reached; current-head GitHub
-Codex review is the independent fallback. Any other changed path, retained
-crawler exception, changed item contract, skipped test, unresolved P1/P2, or
-unrun required check is a blocker.
+**z) Deviations.** The operator approved adding
+`tests/test_repository_guardrails.py` after the guardrail suite proved that
+the exact BLE001 inventory must ratchet with `ruff.toml`. The required local
+planning and pre-commit subagent could not start because the agent thread limit
+was reached; an independent local Codex review ran against the uncommitted diff
+instead, with current-head GitHub review retained as the delivery backstop. Any
+other changed path, retained crawler exception, changed item contract, skipped
+test, unresolved P1/P2, or unrun required check is a blocker.

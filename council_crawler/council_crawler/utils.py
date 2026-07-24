@@ -2,7 +2,7 @@ import hashlib
 from dateutil import parser
 
 def url_to_md5(url):
-    m = hashlib.md5()
+    m = hashlib.md5(usedforsecurity=False)
     m.update(url.encode())
     return m.hexdigest()
 

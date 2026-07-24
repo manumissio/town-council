@@ -8,8 +8,9 @@ class Mtn_View(LegistarCms):
 
     def __init__(self, *args, **kwargs):
         super().__init__(
-            legistar_url='https://mountainview.legistar.com/Calendar.aspx',
-            city='mountain view',
-            state='ca',
-            *args, **kwargs
+            'https://mountainview.legistar.com/Calendar.aspx',
+            'mountain view',
+            'ca',
+            *args,
+            **kwargs,
         )

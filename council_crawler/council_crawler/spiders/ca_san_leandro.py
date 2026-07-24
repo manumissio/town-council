@@ -8,8 +8,9 @@ class San_Leandro(LegistarCms):
 
     def __init__(self, *args, **kwargs):
         super().__init__(
-            legistar_url='https://sanleandro.legistar.com/Calendar.aspx',
-            city='san leandro',
-            state='ca',
-            *args, **kwargs
+            'https://sanleandro.legistar.com/Calendar.aspx',
+            'san leandro',
+            'ca',
+            *args,
+            **kwargs,
         )

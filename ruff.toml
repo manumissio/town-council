@@ -51,25 +51,6 @@ extend-immutable-calls = ["fastapi.Depends", "fastapi.Query", "fastapi.Path", "f
 "scripts/*.py" = ["F401", "S"]
 "tests/*.py" = ["F401", "B007", "S", "DTZ", "C901"]
 
-# council_crawler entered lint scope 2026-07-18 (previously unlinted).
-# F401/B026 are one-line fixes; DTZ ties to T-TIME, S324 to a
-# usedforsecurity=False annotation. Ratchet these first.
-"council_crawler/council_crawler/pipelines.py" = ["BLE001"]
-"council_crawler/council_crawler/spiders/base.py" = ["BLE001", "F401"]
-"council_crawler/council_crawler/spiders/ca_belmont.py" = ["F401"]
-"council_crawler/council_crawler/spiders/ca_berkeley.py" = ["F401"]
-"council_crawler/council_crawler/spiders/ca_cupertino.py" = ["B026"]
-"council_crawler/council_crawler/spiders/ca_dublin.py" = ["F401"]
-"council_crawler/council_crawler/spiders/ca_fremont.py" = ["DTZ007"]
-"council_crawler/council_crawler/spiders/ca_hayward.py" = ["B026"]
-"council_crawler/council_crawler/spiders/ca_moraga.py" = ["F401"]
-"council_crawler/council_crawler/spiders/ca_mtn_view.py" = ["B026"]
-"council_crawler/council_crawler/spiders/ca_san_leandro.py" = ["B026"]
-"council_crawler/council_crawler/spiders/ca_san_mateo.py" = ["DTZ011"]
-"council_crawler/council_crawler/spiders/ca_sunnyvale.py" = ["B026"]
-"council_crawler/council_crawler/utils.py" = ["S324"]
-"council_crawler/templates/legistar_cms.py" = ["F401"]
-
 "api/cache.py" = ["BLE001"]
 "api/catalog_routes.py" = ["C901"]
 "api/main.py" = ["B904", "BLE001"]

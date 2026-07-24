@@ -1,5 +1,6 @@
 import datetime
 import json
+from zoneinfo import ZoneInfo
 
 import scrapy
 
@@ -239,8 +240,10 @@ class San_Mateo(BaseCitySpider):
         if self._effective_last_meeting_date is None:
             # The first San Mateo bootstrap only needs enough recent corpus to
             # make onboarding decision-grade; later runs fall back to delta crawl.
-            bootstrap_start = datetime.date.today() - datetime.timedelta(days=self.bootstrap_days)
-            bootstrap_end = datetime.date.today()
+            bootstrap_end = self._local_today()
+            bootstrap_start = bootstrap_end - datetime.timedelta(
+                days=self.bootstrap_days
+            )
             clauses.append(
                 f'{{[]:[Date]>="{bootstrap_start.strftime("%-m/%-d/%Y")}", [Date]<="{bootstrap_end.strftime("%-m/%-d/%Y")}"}}'
             )
@@ -289,4 +292,9 @@ class San_Mateo(BaseCitySpider):
         return meeting_date
 
     def _is_implausible_future_date(self, meeting_date):
-        return meeting_date > (datetime.date.today() + datetime.timedelta(days=self.max_future_days))
+        return meeting_date > (
+            self._local_today() + datetime.timedelta(days=self.max_future_days)
+        )
+
+    def _local_today(self) -> datetime.date:
+        return datetime.datetime.now(ZoneInfo(self.timezone)).date()

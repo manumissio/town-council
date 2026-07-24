@@ -1,6 +1,7 @@
 import datetime
 
 from scrapy.exceptions import DropItem
+from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import sessionmaker
 
 from council_crawler.items import Event
@@ -69,10 +70,10 @@ class CreateEventPipeline(object):
             try:
                 session.add(event_record)
                 session.commit()
-            except Exception as e:
+            except SQLAlchemyError as exc:
                 # If the save fails, rollback the transaction to keep the DB clean.
                 session.rollback()
-                spider.logger.error(f"Error saving event to staging: {e}")
+                spider.logger.error(f"Error saving event to staging: {exc}")
                 raise
             finally:
                 session.close()
@@ -102,11 +103,12 @@ class StageDocumentLinkPipeline(object):
                 try:
                     session.add(doc_record)
                     session.commit()
-                except Exception as e:
+                except SQLAlchemyError as exc:
                     session.rollback()
-                    spider.logger.error(f"Error saving document link to staging: {e}")
+                    spider.logger.error(
+                        f"Error saving document link to staging: {exc}"
+                    )
                     # We don't raise here because one bad link shouldn't drop the whole event.
                 finally:
                     session.close()
         return event
-

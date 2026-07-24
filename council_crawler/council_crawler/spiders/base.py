@@ -1,7 +1,13 @@
 import datetime
-import sys
 import os
+import sys
+from collections.abc import Iterator
+from zoneinfo import ZoneInfo
+
 import scrapy
+from scrapy.http import Response
+from scrapy.selector import Selector
+from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import sessionmaker
 
 # Add project root to path for pipeline imports
@@ -9,7 +15,7 @@ from sqlalchemy.orm import sessionmaker
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '../../..')))
 from pipeline.models import db_connect, Event as EventModel
 from council_crawler.items import Event
-from council_crawler.utils import url_to_md5, parse_date_string
+from council_crawler.utils import parse_date_string, url_to_md5
 
 class BaseCitySpider(scrapy.Spider):
     """
@@ -104,10 +110,12 @@ class BaseCitySpider(scrapy.Spider):
             # We extract just the date from it
             return result[0] if result else None
 
-        except Exception as e:
+        except SQLAlchemyError as exc:
             # If the DB is down or tables don't exist, we just crawl everything
             # This is a "fail-safe" approach - better to get duplicates than miss data
-            self.logger.warning(f"Database connection check skipped ({e}). Running full crawl.")
+            self.logger.warning(
+                f"Database connection check skipped ({exc}). Running full crawl."
+            )
             return None
 
         finally:
@@ -148,3 +156,112 @@ class BaseCitySpider(scrapy.Spider):
             meeting_type=(meeting_type or meeting_name).strip(),
             documents=documents
         )
+
+
+class TableArchiveSpider(BaseCitySpider):
+    """Parse municipal archive tables through city-specific selectors."""
+
+    start_url = ""
+    row_selector = ""
+    container_selector: str | None = None
+    container_meeting_type_selector: str | None = None
+    meeting_type_selector: str | None = None
+    date_selectors: tuple[str, ...] = ()
+    date_format: str | None = None
+    agenda_selector = ""
+    minutes_selector = ""
+    agenda_all = False
+
+    def start_requests(self) -> Iterator[scrapy.Request]:
+        yield scrapy.Request(url=self.start_url, callback=self.parse_archive)
+
+    def _iter_archive_rows(
+        self,
+        response: Response,
+    ) -> Iterator[tuple[Selector, str | None]]:
+        if self.container_selector is None:
+            for row in response.xpath(self.row_selector):
+                yield row, None
+            return
+
+        for container in response.xpath(self.container_selector):
+            meeting_type = self._extract_text(
+                container, self.container_meeting_type_selector
+            )
+            for row in container.xpath(self.row_selector):
+                yield row, meeting_type
+
+    @staticmethod
+    def _extract_text(selector: Selector, xpath: str | None) -> str | None:
+        return selector.xpath(xpath).get() if xpath else None
+
+    def _extract_date_text(self, row: Selector) -> str | None:
+        date_fragments = [row.xpath(xpath).get() for xpath in self.date_selectors]
+        if not date_fragments or any(fragment is None for fragment in date_fragments):
+            return None
+        return " ".join(fragment for fragment in date_fragments if fragment is not None)
+
+    def _parse_record_date(self, date_text: str | None) -> datetime.date | None:
+        if self.date_format is None:
+            return parse_date_string(date_text)
+        if date_text is None:
+            return None
+        try:
+            parsed_datetime = datetime.datetime.strptime(
+                date_text, self.date_format
+            ).replace(tzinfo=ZoneInfo(self.timezone))
+        except ValueError:
+            self.logger.warning(f"Could not parse date: {date_text}")
+            return None
+        return parsed_datetime.date()
+
+    def _resolve_agenda_url(self, response: Response, agenda_url: str) -> str:
+        return response.urljoin(agenda_url)
+
+    def _agenda_urls(self, row: Selector) -> list[str]:
+        agenda_links = row.xpath(self.agenda_selector)
+        if self.agenda_all:
+            return agenda_links.getall()
+        agenda_url = agenda_links.get()
+        return [agenda_url] if agenda_url else []
+
+    def _build_documents(self, response: Response, row: Selector) -> list[dict[str, str]]:
+        documents = []
+        for agenda_url in self._agenda_urls(row):
+            resolved_url = self._resolve_agenda_url(response, agenda_url)
+            documents.append(
+                {
+                    "url": resolved_url,
+                    "url_hash": url_to_md5(resolved_url),
+                    "category": "agenda",
+                }
+            )
+
+        minutes_url = row.xpath(self.minutes_selector).get()
+        if minutes_url:
+            resolved_url = response.urljoin(minutes_url)
+            documents.append(
+                {
+                    "url": resolved_url,
+                    "url_hash": url_to_md5(resolved_url),
+                    "category": "minutes",
+                }
+            )
+        return documents
+
+    def parse_archive(self, response: Response) -> Iterator[Event]:
+        for row, container_meeting_type in self._iter_archive_rows(response):
+            record_date = self._parse_record_date(self._extract_date_text(row))
+            if self.should_skip_meeting(record_date):
+                continue
+
+            meeting_type = container_meeting_type or self._extract_text(
+                row, self.meeting_type_selector
+            )
+            yield self.create_event_item(
+                meeting_date=record_date,
+                meeting_name=f"City Council {meeting_type}",
+                source_url=response.url,
+                documents=self._build_documents(response, row),
+                meeting_type=meeting_type,
+            )

@@ -8,8 +8,9 @@ class Hayward(LegistarCms):
 
     def __init__(self, *args, **kwargs):
         super().__init__(
-            legistar_url='https://hayward.legistar.com/Calendar.aspx',
-            city='hayward',
-            state='ca',
-            *args, **kwargs
+            'https://hayward.legistar.com/Calendar.aspx',
+            'hayward',
+            'ca',
+            *args,
+            **kwargs,
         )

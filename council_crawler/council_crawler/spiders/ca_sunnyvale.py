@@ -9,9 +9,9 @@ class Sunnyvale(LegistarApi):
 
     def __init__(self, *args, **kwargs):
         super().__init__(
-            client='sunnyvaleca',
-            city='sunnyvale',
-            state='ca',
+            'sunnyvaleca',
+            'sunnyvale',
+            'ca',
             *args,
             **kwargs,
         )

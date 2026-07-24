@@ -66,8 +66,6 @@ REUSABLE_PIPELINE_MODULES = (
 APPROVED_BROAD_EXCEPTION_PATHS = {
     "api/cache.py",
     "api/main.py",
-    "council_crawler/council_crawler/pipelines.py",
-    "council_crawler/council_crawler/spiders/base.py",
     "pipeline/agenda_legistar.py",
     "pipeline/agenda_worker.py",
     "pipeline/check_faiss_runtime.py",
