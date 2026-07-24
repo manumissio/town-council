@@ -1,6 +1,6 @@
 # Town Council Remediation Plan (Codex Multi-Agent)
 
-version: 3.14
+version: 3.15
 generated: 2026-07-24
 source: Four-pass external code review (security, architecture, smells, process)
 source_artifact: [Town Council architecture review](../reviews/architecture-review-2026-07-19.html)
@@ -10,6 +10,9 @@ remains in force; where this plan is stricter, this plan wins for these tasks.
 
 ## Changelog
 
+- **v3.15:** Activates T-SEC-4A to record the operator-approved G2
+  visitor-access policy independently from T-SEC-5 closure and T-SEC-4
+  runtime implementation.
 - **v3.14:** Marks T-SEC-5 complete after PR #130 merged with all required
   checks green, its P2 review finding resolved, and final Codex review clean.
 - **v3.13:** Activates T-SEC-5 with a Full implementation plan and expands
@@ -106,7 +109,7 @@ remains in force; where this plan is stricter, this plan wins for these tasks.
 | State | Tasks |
 |---|---|
 | **Complete** | T-CI-0, T-CI-1, T-CI-1A, T-CI-2, T-CI-2A, T-CI-3, T-CI-4, T-CI-5, T-SEC-1, T-SEC-2, T-SEC-3, T-SEC-3C, T-SEC-5, T-TIME-3, T-CRAWL-1, T-CRAWL-2, T-PLAT-2A |
-| **In progress** | None |
+| **In progress** | T-SEC-4A |
 | **Partially landed; acceptance incomplete** | T-GOV-4, T-GOV-5, T-GOV-6 |
 | **Pending** | T-SEC-4, T-SEC-6, T-TIME-1..2, T-DA-1, T-DB-1, T-DC-1, T-DD-1, T-DE-1, T-PLAT-1, T-PLAT-2, T-PLAT-3, T-PLAT-4, T-GOV-1..3 |
 
@@ -539,6 +542,25 @@ in `AGENTS.md`, `docs/TESTING.MD`, and
   three owned files.
 - verify: Docs links, targeted contradiction checks, clean diff, current-head
   review, and green PR checks.
+
+### T-SEC-4A: Record the approved G2 visitor-access policy
+- priority: P0
+- status: in progress
+- decision_gate: G2 operator approval received 2026-07-24; durable record
+  pending this task
+- implementation_plan: `docs/plans/T_SEC_4A_G2_VISITOR_ACCESS_POLICY_PLAN.md`
+- files_owned: docs/plans/T_SEC_4A_G2_VISITOR_ACCESS_POLICY_PLAN.md,
+  docs/plans/TOWN_COUNCIL_REMEDIATION_PLAN.md, SECURITY.md,
+  tests/test_repository_guardrails.py
+- do: Record the approved visitor-access policy, its rationale, the interim
+  accepted risk, and its dependency on T-SEC-4 without changing runtime code.
+- accept: `SECURITY.md` and the remediation ledger agree; policy tests prevent
+  status/risk drift; T-SEC-4 remains pending.
+- forbidden: Runtime changes, operator-auth implementation, G3 content, or
+  edits outside `files_owned`.
+- verify: Follow the Full T-SEC-4A plan, including tests-first evidence,
+  guardrail and docs verification, the complete Python suite, independent
+  review, and decided CI.
 
 ### T-SEC-4: Real client identity through the proxy; per-client rate limits
 - priority: P0
