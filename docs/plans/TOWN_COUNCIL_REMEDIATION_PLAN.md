@@ -1,6 +1,6 @@
 # Town Council Remediation Plan (Codex Multi-Agent)
 
-version: 3.21
+version: 3.22
 generated: 2026-07-24
 source: Four-pass external code review (security, architecture, smells, process)
 source_artifact: [Town Council architecture review](../reviews/architecture-review-2026-07-19.html)
@@ -10,6 +10,11 @@ remains in force; where this plan is stricter, this plan wins for these tasks.
 
 ## Changelog
 
+- **v3.22:** Marks T-SEC-4 complete after PR #136 merged as `2cbaf7e` with
+  Frontend Tests, Python Guardrails, and CodeQL green. Codex found no major
+  issues on implementation commit `0f1332a`. Caddy is now the sole public
+  frontend entry, and authenticated frontend requests receive per-client
+  limiter keys.
 - **v3.21:** Starts T-SEC-4 implementation after tests-first evidence. Records
   Caddy as sole public frontend entry, validated client forwarding, raw API
   peer preservation, the deployment-key trust boundary, and the
@@ -129,8 +134,7 @@ remains in force; where this plan is stricter, this plan wins for these tasks.
 
 | State | Tasks |
 |---|---|
-| **Complete** | T-CI-0, T-CI-1, T-CI-1A, T-CI-2, T-CI-2A, T-CI-3, T-CI-4, T-CI-5, T-SEC-1, T-SEC-2, T-SEC-3, T-SEC-3C, T-SEC-4A, T-SEC-5, T-TIME-3, T-CRAWL-1, T-CRAWL-2, T-PLAT-2A, T-GOV-1 |
-| **In progress** | T-SEC-4 |
+| **Complete** | T-CI-0, T-CI-1, T-CI-1A, T-CI-2, T-CI-2A, T-CI-3, T-CI-4, T-CI-5, T-SEC-1, T-SEC-2, T-SEC-3, T-SEC-3C, T-SEC-4, T-SEC-4A, T-SEC-5, T-TIME-3, T-CRAWL-1, T-CRAWL-2, T-PLAT-2A, T-GOV-1 |
 | **Partially landed; acceptance incomplete** | T-GOV-4, T-GOV-5, T-GOV-6 |
 | **Pending** | T-SEC-6, T-TIME-1..2, T-DA-1, T-DB-1, T-DC-1, T-DD-1, T-DE-1, T-PLAT-1, T-PLAT-2, T-PLAT-3, T-PLAT-4, T-GOV-2..3 |
 
@@ -169,7 +173,7 @@ remains in force; where this plan is stricter, this plan wins for these tasks.
   (summarize/segment/extract/topics) remain available to visitors through the
   public Next.js proxy with per-client rate limits. Direct calls to these
   protected AI mutation endpoints remain deployment-key protected; public read
-  and task-status routes remain public. T-SEC-4 is authorized; operator-only
+  and task-status routes remain public. T-SEC-4 is complete; operator-only
   proxy authentication is not approved. Rationale: preserve account-free
   public access to civic record analysis and use client-scoped limiting, rather
   than end-user identity, as the abuse control.
@@ -582,7 +586,8 @@ in `AGENTS.md`, `docs/TESTING.MD`, and
 - do: Record the approved visitor-access policy, its rationale, the interim
   accepted risk, and its dependency on T-SEC-4 without changing runtime code.
 - accept: `SECURITY.md` and the remediation ledger agree; policy tests prevent
-  status/risk drift; T-SEC-4 remains pending.
+  status/risk drift. T-SEC-4 was pending when this policy record merged;
+  current delivery status is owned by the T-SEC-4 task entry.
 - forbidden: Runtime changes, operator-auth implementation, G3 content, or
   edits outside `files_owned`.
 - verify: Follow the Full T-SEC-4A plan, including tests-first evidence,
@@ -591,7 +596,7 @@ in `AGENTS.md`, `docs/TESTING.MD`, and
 
 ### T-SEC-4: Real client identity through the proxy; per-client rate limits
 - priority: P0
-- status: in progress
+- status: complete and verified 2026-07-24 (PR #136)
 - decision_gate: G2 approved 2026-07-24; repository-owned ingress approved 2026-07-24
 - implementation_plan: `docs/plans/T_SEC_4_TRUSTED_CLIENT_IDENTITY_PLAN.md`
 - files_owned: docs/plans/T_SEC_4_TRUSTED_CLIENT_IDENTITY_PLAN.md,

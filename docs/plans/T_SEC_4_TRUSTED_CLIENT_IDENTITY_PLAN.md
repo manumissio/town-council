@@ -1,8 +1,9 @@
 # T-SEC-4: Trusted Client Identity and Per-Client Rate Limits
 
 `artifact_contract: ce-unified-plan/v1`
-`artifact_readiness: implementation-ready`
+`artifact_readiness: complete`
 `execution: code`
+`delivery: PR #136 merged as 2cbaf7e5ae27673f0fc9b5fd61f415d2a59d2f26 on 2026-07-24`
 
 ## 1. Context & Alignment
 
@@ -250,8 +251,9 @@ No migration or data repair is required.
 
 **w) Docs sync.** Update `SECURITY.md` trust boundaries, checklist, and accepted
 risk; `docs/OPERATIONS.md` startup, ingress, verification, and rollback;
-remediation status and changelog; this plan. README, ADR, testing policy,
-architecture map, API contract, and data-governance docs remain unchanged.
+README and `env/profiles/README.md` startup commands; remediation status and
+changelog; this plan. ADR, testing policy, architecture map, API contract, and
+data-governance docs remain unchanged.
 
 ## 7. Delivery Self-Audit
 
@@ -264,6 +266,23 @@ unrelated formatting, and edits outside owned paths.
 counts, image/config validation, runtime smoke, planning and pre-commit review
 findings, commits, PR, unresolved threads, and final CI state. Mark unrun work
 `NOT VERIFIED`.
+
+Delivery evidence for implementation commit `0f1332a23d`, merged through PR
+#136 as `2cbaf7e5ae27673f0fc9b5fd61f415d2a59d2f26`:
+
+- Expected tests-first failures: Compose ingress 3, API identity 7, frontend
+  forwarding 1, request-less GET compatibility 1, startup paths 3, profile 1.
+- PASS `./.venv/bin/ruff check .`; PASS `./.venv/bin/mypy` (68 files).
+- PASS `PYTHONPATH=. .venv/bin/pytest -q tests/test_api_client_identity.py
+  tests/test_api.py tests/test_docker_build_contracts.py
+  tests/test_startup_purge_gating.py tests/test_repository_guardrails.py
+  tests/test_docs_links.py tests/test_meilisearch_key_security.py` (487).
+- PASS `cd frontend && npm test` (30); PASS full Python suite (1,471).
+- PASS Compose config and pinned Caddy validation; PASS
+  `./scripts/verify_caddy_forwarded_for.sh` (spoof replaced by Docker peer).
+- PASS bounded API/frontend/ingress smoke; API health reported DB connected.
+- PASS GitHub Frontend Tests, Python Guardrails, and CodeQL. Final Codex review
+  found no major issues; the PR had no review comments or unresolved threads.
 
 **z) Deviations.** Expected: Caddy ingress, expanded ownership, explicit
 deployment-key trust instead of unstable CIDR trust, Uvicorn raw-peer
