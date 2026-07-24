@@ -2051,6 +2051,59 @@ def _required_markdown_section(markdown: str, heading: str, next_heading: str) -
     return " ".join(section.split())
 
 
+def _python_comment_blocks(source_path: Path) -> list[tuple[int, str]]:
+    source_text = source_path.read_text(encoding="utf-8")
+    source_lines = source_text.splitlines()
+    comment_tokens = [
+        (
+            python_token.start[0],
+            python_token.start[1],
+            not source_lines[python_token.start[0] - 1][: python_token.start[1]].strip(),
+            python_token.string,
+        )
+        for python_token in tokenize.generate_tokens(StringIO(source_text).readline)
+        if python_token.type == tokenize.COMMENT
+    ]
+    grouped_comments: list[tuple[int, int, int, bool, str]] = []
+
+    for line_number, column, is_full_line, comment_text in comment_tokens:
+        previous_comment = grouped_comments[-1] if grouped_comments else None
+        if (
+            previous_comment
+            and is_full_line
+            and previous_comment[3]
+            and line_number == previous_comment[1] + 1
+            and column == previous_comment[2]
+        ):
+            start_line, _, _, _, previous_text = previous_comment
+            grouped_comments[-1] = (
+                start_line,
+                line_number,
+                column,
+                is_full_line,
+                f"{previous_text} {comment_text}",
+            )
+        else:
+            grouped_comments.append(
+                (line_number, line_number, column, is_full_line, comment_text)
+            )
+
+    return [
+        (start_line, comment_text)
+        for start_line, _, _, _, comment_text in grouped_comments
+    ]
+
+
+def _comment_block_defers_g3(comment_block: str) -> bool:
+    has_g3_reference = re.search(r"\bG3\b", comment_block, re.IGNORECASE)
+    has_deferral_language = re.search(
+        r"\b(?:defer|block|preserv)\w*\b",
+        comment_block,
+        re.IGNORECASE,
+    )
+    return bool(has_g3_reference and has_deferral_language)
+
+
 G2_OPEN_POLICY = re.compile(
     r"(?:\bg2\b\s+(?:is|remains)\s+(?:open|pending|unresolved)\b"
     r"|\bg2\b\s*(?:status\s*)?:\s*(?:open|pending|unresolved)\b"
@@ -2268,19 +2321,49 @@ def test_live_python_does_not_treat_g3_as_a_facade_deferral():
         relative_source_path = source_path.relative_to(ROOT)
         if relative_source_path.parts[0] in {"archive", "tests"}:
             continue
-        for line_number, source_line in enumerate(
-            source_path.read_text(encoding="utf-8").splitlines(),
-            start=1,
-        ):
-            has_g3_reference = re.search(r"\bG3\b", source_line, re.IGNORECASE)
-            has_deferral_language = re.search(
-                r"\b(?:defer|block|preserv)\w*\b",
-                source_line,
-                re.IGNORECASE,
-            )
-            if has_g3_reference and has_deferral_language:
+        for line_number, comment_block in _python_comment_blocks(source_path):
+            if _comment_block_defers_g3(comment_block):
                 live_g3_references.append(
-                    f"{relative_source_path}:{line_number}: {source_line.strip()}"
+                    f"{relative_source_path}:{line_number}: {comment_block}"
                 )
 
     assert live_g3_references == []
+
+
+def test_g3_deferral_scan_groups_wrapped_comment_blocks(tmp_path: Path):
+    wrapped_policy = tmp_path / "wrapped_policy.py"
+    wrapped_policy.write_text(
+        "# G3 still\n# blocks facade removal.\n\n# An unrelated comment.\n",
+        encoding="utf-8",
+    )
+    comment_blocks = _python_comment_blocks(wrapped_policy)
+
+    assert comment_blocks == [
+        (1, "# G3 still # blocks facade removal."),
+        (4, "# An unrelated comment."),
+    ]
+    assert _comment_block_defers_g3(comment_blocks[0][1])
+    assert not _comment_block_defers_g3(comment_blocks[1][1])
+
+
+def test_g3_deferral_scan_keeps_adjacent_inline_comments_separate(tmp_path: Path):
+    unrelated_comments = tmp_path / "unrelated_comments.py"
+    unrelated_comments.write_text(
+        "first = 1  # G3 marker\n"
+        "second = 2  # preserves runtime behavior\n"
+        "# G3 standalone\n"
+        "third = 3  # blocks invalid input\n",
+        encoding="utf-8",
+    )
+    comment_blocks = _python_comment_blocks(unrelated_comments)
+
+    assert comment_blocks == [
+        (1, "# G3 marker"),
+        (2, "# preserves runtime behavior"),
+        (3, "# G3 standalone"),
+        (4, "# blocks invalid input"),
+    ]
+    assert not any(
+        _comment_block_defers_g3(comment_text)
+        for _, comment_text in comment_blocks
+    )
