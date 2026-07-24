@@ -1,7 +1,7 @@
 import datetime
 import os
 import sys
-from collections.abc import Iterator
+from collections.abc import AsyncIterator, Iterator
 from zoneinfo import ZoneInfo
 
 import scrapy
@@ -172,7 +172,7 @@ class TableArchiveSpider(BaseCitySpider):
     minutes_selector = ""
     agenda_all = False
 
-    def start_requests(self) -> Iterator[scrapy.Request]:
+    async def start(self) -> AsyncIterator[scrapy.Request]:
         yield scrapy.Request(url=self.start_url, callback=self.parse_archive)
 
     def _iter_archive_rows(

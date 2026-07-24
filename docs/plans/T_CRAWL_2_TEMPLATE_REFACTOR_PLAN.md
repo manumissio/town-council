@@ -102,7 +102,8 @@ defaults, or soak policy.
 
 New functions remain focused:
 
-- `TableArchiveSpider.start_requests`: emit the configured listing request.
+- `TableArchiveSpider.start`: emit the configured listing request through
+  Scrapy 2.16's async engine entrypoint.
 - `TableArchiveSpider._iter_archive_rows`: pair each row with an optional
   container-level meeting type.
 - `TableArchiveSpider._extract_date_text`: compose configured date fragments.
@@ -301,6 +302,8 @@ state. Mark unrun checks `NOT VERIFIED`.
 the exact BLE001 inventory must ratchet with `ruff.toml`. The required local
 planning and pre-commit subagent could not start because the agent thread limit
 was reached; an independent local Codex review ran against the uncommitted diff
-instead, with current-head GitHub review retained as the delivery backstop. Any
-other changed path, retained crawler exception, changed item contract, skipped
-test, unresolved P1/P2, or unrun required check is a blocker.
+instead. Current-head GitHub review found that Scrapy 2.16 no longer dispatches
+the inherited `start_requests()` override; the implementation now owns async
+`start()` and the regression suite exercises that engine contract. Any other
+changed path, retained crawler exception, changed item contract, skipped test,
+unresolved P1/P2, or unrun required check is a blocker.

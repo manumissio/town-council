@@ -1,3 +1,4 @@
+import asyncio
 import datetime
 import logging
 import sys
@@ -6,6 +7,7 @@ from pathlib import Path
 from typing import Callable
 
 import pytest
+import scrapy
 from scrapy.http import HtmlResponse
 from sqlalchemy.exc import SQLAlchemyError
 
@@ -38,6 +40,37 @@ def _disable_delta(
     spider_class: type[spider_base.BaseCitySpider],
 ) -> None:
     monkeypatch.setattr(spider_class, "_get_last_meeting_date", lambda _spider: None)
+
+
+async def _collect_start_requests(
+    spider: spider_base.TableArchiveSpider,
+) -> list[scrapy.Request]:
+    return [request async for request in spider.start()]
+
+
+@pytest.mark.parametrize(
+    ("spider_class", "expected_url"),
+    [
+        (
+            Belmont,
+            "http://www.belmont.gov/city-hall/city-government/city-meetings/-toggle-all",
+        ),
+        (Fremont, "https://fremont.gov/AgendaCenter/"),
+        (Moraga, "http://www.moraga.ca.us/council/meetings/2017"),
+    ],
+)
+def test_archive_spiders_define_scrapy_2_16_start_contract(
+    monkeypatch: pytest.MonkeyPatch,
+    spider_class: type[spider_base.TableArchiveSpider],
+    expected_url: str,
+) -> None:
+    _disable_delta(monkeypatch, spider_class)
+    spider = spider_class()
+
+    assert spider_base.TableArchiveSpider.start is not scrapy.Spider.start
+    [request] = asyncio.run(_collect_start_requests(spider))
+    assert request.url == expected_url
+    assert request.callback == spider.parse_archive
 
 
 def test_belmont_archive_event_contract(monkeypatch: pytest.MonkeyPatch) -> None:
