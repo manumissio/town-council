@@ -38,10 +38,15 @@ engineering decisions is `reachable`).
 2. Frontend server -> API: the proxy injects `X-API-Key` server-side
    (`frontend/app/api/_lib/backend.js`). Consequence: the API key does NOT
    authenticate end users; it only authenticates the frontend deployment.
-   Every proxied route is effectively public. Per-client rate limiting
-   therefore depends on forwarding real client identity
-   `[remediation: T-SEC-4]`, and any "operator only" action requires auth at
-   the proxy, not just the key (decision G2, currently open).
+   Every proxied route is effectively public. Decision G2, approved 2026-07-24,
+   keeps AI task endpoints available to visitors through the public Next.js
+   proxy. Direct API requests still require `X-API-Key`. Town Council
+   intentionally provides civic record analysis without end-user accounts;
+   adding operator authentication would change that access model. Per-client
+   rate limits are therefore the approved abuse control and depend on
+   forwarding real client identity `[remediation: T-SEC-4]`. Any future
+   "operator only" action would require a new policy decision and proxy
+   authentication, not just the deployment key.
 3. API and semantic service -> backing stores (Postgres, Redis, Meilisearch,
    inference): compose
    network only. No host port publication in the base compose file
@@ -106,7 +111,13 @@ engineering decisions is `reachable`).
 Record deliberate acceptances here with rationale and revisit date, per the
 `AGENTS.md` status-reporting contract (old value, new value, rationale).
 
-- (none recorded yet)
+- **Visitor-accessible AI actions before T-SEC-4.** G2 preserves account-free
+  public access to civic record analysis through the Next.js proxy. Until
+  trusted client identity reaches the API limiter, visitors can share a rate
+  bucket and unauthenticated proxy callers can consume shared inference
+  capacity. Direct API requests remain API-key protected. T-SEC-5 reduces
+  cross-site browser abuse but does not authenticate proxy callers. Revisit
+  when T-SEC-4 merges or by 2026-08-31, whichever comes first.
 
 ## Dependency and supply chain
 

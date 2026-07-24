@@ -2041,3 +2041,66 @@ def test_nlp_entity_cleanup_modules_stay_under_size_target():
     ]
 
     assert oversized_modules == []
+
+
+def _required_markdown_section(markdown: str, heading: str, next_heading: str) -> str:
+    _, heading_separator, section_remainder = markdown.partition(heading)
+    assert heading_separator, f"Missing required Markdown heading: {heading}"
+    section, next_separator, _ = section_remainder.partition(next_heading)
+    assert next_separator, f"Missing Markdown boundary after: {heading}"
+    return " ".join(section.split())
+
+
+def test_g2_visitor_access_policy_is_aligned_between_security_and_remediation_ledger():
+    security_policy = (ROOT / "SECURITY.md").read_text(encoding="utf-8")
+    remediation_ledger = (
+        ROOT / "docs" / "plans" / "TOWN_COUNCIL_REMEDIATION_PLAN.md"
+    ).read_text(encoding="utf-8")
+    frontend_api_boundary = _required_markdown_section(
+        security_policy,
+        "2. Frontend server -> API:",
+        "\n3. API and semantic service",
+    )
+    g2_entry = _required_markdown_section(
+        remediation_ledger,
+        "- G2 protected_action_policy:",
+        "\n- G3 test_seam_adr:",
+    )
+    t_sec_4_entry = _required_markdown_section(
+        remediation_ledger,
+        "### T-SEC-4: Real client identity through the proxy; per-client rate limits",
+        "\n### T-SEC-5:",
+    )
+    pending_row = next(
+        line for line in remediation_ledger.splitlines() if line.startswith("| **Pending** |")
+    )
+
+    assert "Decision G2, approved 2026-07-24" in frontend_api_boundary
+    assert "public Next.js proxy" in frontend_api_boundary
+    assert "Direct API requests still require `X-API-Key`" in frontend_api_boundary
+    assert "**Approved 2026-07-24.**" in g2_entry
+    assert "public Next.js proxy" in g2_entry
+    assert "T-SEC-4 is authorized" in g2_entry
+    assert "operator-only proxy authentication is not approved" in g2_entry
+    assert "per-client rate limits" in frontend_api_boundary.lower()
+    assert "per-client rate limits" in g2_entry.lower()
+    assert "decision_gate: G2 approved 2026-07-24" in t_sec_4_entry
+    assert "T-SEC-4" in pending_row
+
+
+def test_g2_accepted_risk_is_bounded_without_overclaiming_t_sec_4():
+    security_policy = (ROOT / "SECURITY.md").read_text(encoding="utf-8")
+    accepted_risk = _required_markdown_section(
+        security_policy,
+        "**Visitor-accessible AI actions before T-SEC-4.**",
+        "\n## Dependency and supply chain",
+    )
+
+    assert "unauthenticated proxy callers" in accepted_risk
+    assert "Direct API requests remain API-key protected." in accepted_risk
+    assert "T-SEC-5 reduces cross-site browser abuse but does not authenticate" in accepted_risk
+    assert (
+        "Revisit when T-SEC-4 merges or by 2026-08-31, whichever comes first."
+        in accepted_risk
+    )
+    assert "- [ ] Client IP forwarded from proxy" in security_policy

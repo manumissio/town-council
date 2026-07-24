@@ -1,6 +1,6 @@
 # Town Council Remediation Plan (Codex Multi-Agent)
 
-version: 3.15
+version: 3.16
 generated: 2026-07-24
 source: Four-pass external code review (security, architecture, smells, process)
 source_artifact: [Town Council architecture review](../reviews/architecture-review-2026-07-19.html)
@@ -10,6 +10,9 @@ remains in force; where this plan is stricter, this plan wins for these tasks.
 
 ## Changelog
 
+- **v3.16:** Records the operator-approved G2 policy: account-free AI actions
+  remain available through the public Next.js proxy, direct API access remains
+  key-protected, and T-SEC-4 owns the pending per-client limiting control.
 - **v3.15:** Activates T-SEC-4A to record the operator-approved G2
   visitor-access policy independently from T-SEC-5 closure and T-SEC-4
   runtime implementation.
@@ -144,10 +147,13 @@ remains in force; where this plan is stricter, this plan wins for these tasks.
 - G1 deployment_posture: Is any instance ever network-reachable beyond
   localhost? Default assumption for this plan: YES (harden accordingly).
   Affects severity of SEC lane; does not block it.
-- G2 protected_action_policy: Are AI task endpoints (summarize/segment/
-  extract/topics) "any visitor" or "operator only"? Default: any visitor,
-  with per-client rate limits (T-SEC-4). If "operator only", add auth to the
-  Next proxy in a follow-up task (out of scope here).
+- G2 protected_action_policy: **Approved 2026-07-24.** AI task endpoints
+  (summarize/segment/extract/topics) remain available to visitors through the
+  public Next.js proxy with per-client rate limits. Direct API requests remain
+  deployment-key protected. T-SEC-4 is authorized; operator-only proxy
+  authentication is not approved. Rationale: preserve account-free public
+  access to civic record analysis and use client-scoped limiting, rather than
+  end-user identity, as the abuse control.
 - G3 test_seam_adr: Ratify ADR "Test patch points are not a public API"
   (T-GOV-1). BLOCKS all Phase 2 tasks.
 - G4 pii_policy: Ratify ADR on person-entity minimization for non-officials
@@ -564,6 +570,7 @@ in `AGENTS.md`, `docs/TESTING.MD`, and
 
 ### T-SEC-4: Real client identity through the proxy; per-client rate limits
 - priority: P0
+- decision_gate: G2 approved 2026-07-24
 - files_owned: frontend/app/api/_lib/backend.js, api/app_setup.py
 - do: (a) backend.js forwards `X-Forwarded-For` (append client IP from
   request) on proxied calls. (b) app_setup limiter key_func: trust XFF only
@@ -979,7 +986,8 @@ its owned files reports and halts rather than widening scope.
 
 - Splitting frontend/components/ResultCard.js (needs a design pass, not a
   mechanical one; schedule after T-CI-2 provides a harness).
-- "Operator-only" auth on the Next proxy (pending G2).
+- "Operator-only" auth on the Next proxy (not approved by G2; requires a
+  future policy change).
 - Retiring generational strata (search_routes/search_read/api-search;
   migrate_v* files) beyond what Phase 2 tasks name.
 - env-access consolidation into config_env (low value until Phase 2 lands).

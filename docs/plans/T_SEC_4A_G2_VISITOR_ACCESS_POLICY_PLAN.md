@@ -1,7 +1,7 @@
 # T-SEC-4A: Record the Approved G2 Visitor-Access Policy
 
-`artifact_contract: ce-unified-plan/v1`  
-`artifact_readiness: implementation-ready`  
+`artifact_contract: ce-unified-plan/v1`
+`artifact_readiness: implementation-ready`
 `execution: docs-and-policy-tests`
 
 ## 1. Context & Alignment
