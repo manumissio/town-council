@@ -17,6 +17,7 @@ docker compose run --rm crawler scrapy crawl cupertino
 
 Notes:
 * The crawler uses `DATABASE_URL` (set in `docker-compose.yml`) to write to Postgres.
+* Requests identify as `TownCouncilBot/1.0` with the public repository URL, obey `robots.txt`, and retain a two-second per-domain delay.
 * The repo root `README.md` documents the end-to-end runbook (crawler + pipeline).
 * City onboarding and crawler extension workflow is documented in `docs/CONTRIBUTING_CITIES.md`.
 * Operational troubleshooting and runtime checks are documented in `docs/OPERATIONS.md`.
