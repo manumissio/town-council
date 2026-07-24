@@ -1,6 +1,6 @@
 # Town Council Remediation Plan (Codex Multi-Agent)
 
-version: 3.24
+version: 3.25
 generated: 2026-07-24
 source: Four-pass external code review (security, architecture, smells, process)
 source_artifact: [Town Council architecture review](../reviews/architecture-review-2026-07-19.html)
@@ -10,6 +10,9 @@ remains in force; where this plan is stricter, this plan wins for these tasks.
 
 ## Changelog
 
+- **v3.25:** Activates the T-GOV-4 closure audit for the revised `AGENTS.md`
+  policy that landed in commit `453c386`; adds plan, ledger, guardrail, and
+  two testing-policy path-casing corrections without re-authoring policy.
 - **v3.24:** Marks T-SEC-6 complete after PR #138 merged as `1805acd`.
   Public stats now expose only document count, credentialed CORS is disabled,
   stale browser-key guidance is removed, and two broad S105 exceptions are
@@ -142,7 +145,8 @@ remains in force; where this plan is stricter, this plan wins for these tasks.
 | State | Tasks |
 |---|---|
 | **Complete** | T-CI-0, T-CI-1, T-CI-1A, T-CI-2, T-CI-2A, T-CI-3, T-CI-4, T-CI-5, T-SEC-1, T-SEC-2, T-SEC-3, T-SEC-3C, T-SEC-4, T-SEC-4A, T-SEC-5, T-SEC-6, T-TIME-3, T-CRAWL-1, T-CRAWL-2, T-PLAT-2A, T-GOV-1 |
-| **Partially landed; acceptance incomplete** | T-GOV-4, T-GOV-5, T-GOV-6 |
+| **In progress** | T-GOV-4 |
+| **Partially landed; acceptance incomplete** | T-GOV-5, T-GOV-6 |
 | **Pending** | T-TIME-1..2, T-DA-1, T-DB-1, T-DC-1, T-DD-1, T-DE-1, T-PLAT-1, T-PLAT-2, T-PLAT-3, T-PLAT-4, T-GOV-2..3 |
 
 ---
@@ -981,18 +985,22 @@ files (GED-5 grant).
 
 ### T-GOV-4: Land the revised AGENTS.md
 - priority: P1
-- files_owned: AGENTS.md
-- depends_on: none for the antipatterns/security/hierarchy edits; the
-  verification-matrix and action-permission edits carry [transition]
-  markers tied to T-CI-1/T-CI-2.
-- do: Merge the provided draft (drafts/AGENTS.md). Verify every section not
-  named in the draft changelog is byte-identical to master (the revision is
-  surgical: canonical-doc list, hierarchy #1 clarification, new
+- status: in progress
+- implementation_plan: `docs/plans/T_GOV_4_AGENTS_POLICY_CLOSURE_PLAN.md`
+- files_owned: AGENTS.md (two `docs/TESTING.md` casing corrections only),
+  docs/plans/T_GOV_4_AGENTS_POLICY_CLOSURE_PLAN.md,
+  docs/plans/TOWN_COUNCIL_REMEDIATION_PLAN.md,
+  tests/test_repository_guardrails.py
+- depends_on: none. The former T-CI-1/T-CI-2 transition conditions are
+  satisfied, and their markers have been removed from `AGENTS.md`.
+- landed_evidence: commit `453c386` changed only `AGENTS.md`.
+- do: Verify every section not named in the landed revision is byte-identical
+  to its parent and correct two testing-policy links to tracked-path casing.
+  The revision is surgical: canonical-doc list, hierarchy #1 clarification, new
   <known_antipatterns>, full-pytest permission move, matrix scope preamble +
   frontend npm row + mandatory cross-cutting sweep, new
   <security_sensitive_paths>, docs enumeration rule, checklist line,
-  maintenance triggers). When T-CI-1 and T-CI-2 merge, remove the two
-  [transition] markers in a follow-up commit.
+  maintenance triggers.
 - forbidden: Re-authoring policy text; reflowing unchanged sections.
 - accept: Diff against master touches only the enumerated sections;
   docs-link test green.
