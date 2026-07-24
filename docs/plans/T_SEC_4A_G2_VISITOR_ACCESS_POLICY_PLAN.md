@@ -9,9 +9,10 @@
 **a) Driver.** The operator approved account-free visitor access through the
 public Next.js proxy to summarize, segment, extract, and topic-generation
 actions, with per-client rate limits as the abuse control. Direct API requests
-still require the deployment API key. The repository must record that decision
-consistently without implying that T-SEC-4 has already delivered trustworthy
-client identity or separate rate buckets.
+to the protected AI mutation endpoints still require the deployment API key;
+public read and task-status routes remain public. The repository must record
+that decision consistently without implying that T-SEC-4 has already delivered
+trustworthy client identity or separate rate buckets.
 
 **b) Canonical documents consulted.**
 
@@ -52,7 +53,8 @@ required. G1, G3, G4, and G5 are unaffected.
 4. Record G2 as approved in the remediation ledger, including its rationale.
 5. Update the `SECURITY.md` frontend-to-API boundary:
    - AI task endpoints remain visitor-accessible through the public proxy.
-   - Direct API requests still require the deployment API key.
+   - Direct calls to protected AI mutation endpoints still require the
+     deployment API key; public read and task-status routes remain public.
    - The frontend API key authenticates the deployment, not proxy visitors.
    - Per-client limiting is the approved abuse control.
    - Operator-only proxy authentication is not approved.
@@ -76,7 +78,8 @@ duplicate security-policy source.
 
 - Old policy: G2 is open and visitor access is only a default assumption.
 - New policy: AI task endpoints remain visitor-accessible through the public
-  Next.js proxy; direct API requests still require the deployment API key;
+  Next.js proxy; direct calls to protected AI mutation endpoints still require
+  the deployment API key; public read and task-status routes remain public;
   per-client limiting is the selected abuse control; operator-only proxy
   authentication is not approved.
 - Remaining deficit: T-SEC-4 has not yet delivered trusted client identity or
@@ -92,9 +95,9 @@ default, or soak policy changes.
 **i) Trust-boundary impact.** This task records, but does not change, the
 Internet-to-Frontend-to-API boundary. It grants an attacker no new runtime
 capability. It documents the existing risk that unauthenticated proxy callers
-can consume shared inference capacity until T-SEC-4 lands. Direct API requests
-remain API-key protected. `SECURITY.md` remains the canonical control and risk
-record.
+can consume shared inference capacity until T-SEC-4 lands. Direct calls to
+protected AI mutation endpoints remain API-key protected. `SECURITY.md` remains
+the canonical control and risk record.
 
 **j) Secrets.** No credential, key, environment variable, or default changes.
 
@@ -136,8 +139,9 @@ ledger. Expected runtime-code delta is zero.
 2. Either document describes operator-only authentication as approved or
    pending.
 3. Visitor access is documented without per-client rate limits.
-4. Documentation implies direct API access no longer requires the deployment
-   API key or that T-SEC-4 is already implemented.
+4. Documentation implies protected AI mutation endpoints no longer require the
+   deployment API key, public read/status routes require it, or T-SEC-4 is
+   already implemented.
 5. The accepted risk lacks both the T-SEC-4 merge event and the 2026-08-31
    review deadline.
 6. T-SEC-5 is incorrectly described as visitor authentication.

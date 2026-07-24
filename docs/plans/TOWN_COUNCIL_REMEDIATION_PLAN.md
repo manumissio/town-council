@@ -11,8 +11,9 @@ remains in force; where this plan is stricter, this plan wins for these tasks.
 ## Changelog
 
 - **v3.16:** Records the operator-approved G2 policy: account-free AI actions
-  remain available through the public Next.js proxy, direct API access remains
-  key-protected, and T-SEC-4 owns the pending per-client limiting control.
+  remain available through the public Next.js proxy, direct calls to protected
+  AI mutation endpoints remain key-protected, and T-SEC-4 owns the pending
+  per-client limiting control.
 - **v3.15:** Activates T-SEC-4A to record the operator-approved G2
   visitor-access policy independently from T-SEC-5 closure and T-SEC-4
   runtime implementation.
@@ -149,11 +150,12 @@ remains in force; where this plan is stricter, this plan wins for these tasks.
   Affects severity of SEC lane; does not block it.
 - G2 protected_action_policy: **Approved 2026-07-24.** AI task endpoints
   (summarize/segment/extract/topics) remain available to visitors through the
-  public Next.js proxy with per-client rate limits. Direct API requests remain
-  deployment-key protected. T-SEC-4 is authorized; operator-only proxy
-  authentication is not approved. Rationale: preserve account-free public
-  access to civic record analysis and use client-scoped limiting, rather than
-  end-user identity, as the abuse control.
+  public Next.js proxy with per-client rate limits. Direct calls to these
+  protected AI mutation endpoints remain deployment-key protected; public read
+  and task-status routes remain public. T-SEC-4 is authorized; operator-only
+  proxy authentication is not approved. Rationale: preserve account-free
+  public access to civic record analysis and use client-scoped limiting, rather
+  than end-user identity, as the abuse control.
 - G3 test_seam_adr: Ratify ADR "Test patch points are not a public API"
   (T-GOV-1). BLOCKS all Phase 2 tasks.
 - G4 pii_policy: Ratify ADR on person-entity minimization for non-officials

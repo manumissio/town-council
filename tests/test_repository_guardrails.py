@@ -2051,6 +2051,55 @@ def _required_markdown_section(markdown: str, heading: str, next_heading: str) -
     return " ".join(section.split())
 
 
+G2_OPEN_POLICY = re.compile(
+    r"(?:\bg2\b\s+(?:is|remains)\s+(?:open|pending|unresolved)\b"
+    r"|\bg2\b\s*(?:status\s*)?:\s*(?:open|pending|unresolved)\b"
+    r"|\bdecision\s+g2,\s+currently\s+(?:open|pending|unresolved)\b"
+    r"|\b(?:open|pending|unresolved)\s+g2\b)",
+    re.IGNORECASE,
+)
+OPERATOR_AUTH_APPROVAL_POLICY = re.compile(
+    r"\boperator(?:-only)?(?: proxy)? authentication\s+(?:is\s+)?(?:approved|pending)\b",
+    re.IGNORECASE,
+)
+
+
+def _g2_policy_has_contradiction(g2_policy: str) -> bool:
+    return bool(
+        G2_OPEN_POLICY.search(g2_policy) or OPERATOR_AUTH_APPROVAL_POLICY.search(g2_policy)
+    )
+
+
+@pytest.mark.parametrize(
+    "contradictory_policy",
+    (
+        "G2 is open.",
+        "G2 status: pending.",
+        "Pending G2.",
+        "Operator-only authentication is approved.",
+        "Operator authentication pending.",
+    ),
+)
+def test_g2_policy_contradiction_detection_covers_equivalent_wording(
+    contradictory_policy: str,
+) -> None:
+    assert _g2_policy_has_contradiction(contradictory_policy)
+
+
+@pytest.mark.parametrize(
+    "approved_policy",
+    (
+        "G2 is approved; T-SEC-4 remains pending.",
+        "G2 is not open.",
+        "Operator-only proxy authentication is not approved.",
+    ),
+)
+def test_g2_policy_contradiction_detection_allows_approved_wording(
+    approved_policy: str,
+) -> None:
+    assert not _g2_policy_has_contradiction(approved_policy)
+
+
 def test_g2_visitor_access_policy_is_aligned_between_security_and_remediation_ledger():
     security_policy = (ROOT / "SECURITY.md").read_text(encoding="utf-8")
     remediation_ledger = (
@@ -2074,10 +2123,15 @@ def test_g2_visitor_access_policy_is_aligned_between_security_and_remediation_le
     pending_row = next(
         line for line in remediation_ledger.splitlines() if line.startswith("| **Pending** |")
     )
+    pending_tasks = {task.strip() for task in pending_row.split("|")[2].split(",")}
 
     assert "Decision G2, approved 2026-07-24" in frontend_api_boundary
     assert "public Next.js proxy" in frontend_api_boundary
-    assert "Direct API requests still require `X-API-Key`" in frontend_api_boundary
+    assert (
+        "Direct calls to these protected AI mutation endpoints still require `X-API-Key`"
+        in frontend_api_boundary
+    )
+    assert "public read and task-status routes remain public" in frontend_api_boundary
     assert "**Approved 2026-07-24.**" in g2_entry
     assert "public Next.js proxy" in g2_entry
     assert "T-SEC-4 is authorized" in g2_entry
@@ -2085,7 +2139,9 @@ def test_g2_visitor_access_policy_is_aligned_between_security_and_remediation_le
     assert "per-client rate limits" in frontend_api_boundary.lower()
     assert "per-client rate limits" in g2_entry.lower()
     assert "decision_gate: G2 approved 2026-07-24" in t_sec_4_entry
-    assert "T-SEC-4" in pending_row
+    assert "T-SEC-4" in pending_tasks
+    canonical_g2_policy = f"{frontend_api_boundary} {g2_entry}".lower()
+    assert not _g2_policy_has_contradiction(canonical_g2_policy)
 
 
 def test_g2_accepted_risk_is_bounded_without_overclaiming_t_sec_4():
@@ -2097,7 +2153,9 @@ def test_g2_accepted_risk_is_bounded_without_overclaiming_t_sec_4():
     )
 
     assert "unauthenticated proxy callers" in accepted_risk
-    assert "Direct API requests remain API-key protected." in accepted_risk
+    assert "Direct calls to protected AI mutation endpoints remain API-key protected." in (
+        accepted_risk
+    )
     assert "T-SEC-5 reduces cross-site browser abuse but does not authenticate" in accepted_risk
     assert (
         "Revisit when T-SEC-4 merges or by 2026-08-31, whichever comes first."
