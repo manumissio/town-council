@@ -1,11 +1,10 @@
 # T-SEC-5: Reject Non-Same-Origin Proxy Mutations
 
-`artifact_contract: ce-unified-plan/v1`  
-`artifact_readiness: implementation-ready`  
+`artifact_contract: ce-unified-plan/v1`
+`artifact_readiness: implementation-ready`
 `execution: code`
 
 ## 1. Context & Alignment
-
 **a) Driver.** Town Council's frontend proxy injects the deployment API key
 into every backend request, so that key authenticates the frontend service,
 not the visitor. The current POST route handlers accept cross-site browser
@@ -14,7 +13,6 @@ request-forgery gap without deciding who may use AI actions, changing the API
 key contract, or altering local-first runtime defaults.
 
 **b) Canonical documents consulted.**
-
 - `AGENTS.md` `<security_sensitive_paths>` requires a trust-boundary impact
   statement for `frontend/app/api/**`.
 - `SECURITY.md` "Trust boundaries" identifies Internet-to-Frontend mutations
@@ -47,9 +45,7 @@ visitor authorization. T-SEC-4 remains blocked on G2, and Phase 2 remains
 blocked on G3.
 
 ## 2. Design
-
 **e) Step-by-step approach.**
-
 1. Register this Full Template plan and corrected ownership in the remediation
    ledger.
 2. Add failing Node tests before implementation for cross-site, mismatched
@@ -58,15 +54,16 @@ blocked on G3.
    the standard `Response.json` supported by Next.js route handlers. This
    makes the actual proxy boundary directly testable with Node's built-in Web
    APIs; it does not change response semantics.
-4. Add one private `isCrossSiteMutation` predicate to
-   `frontend/app/api/_lib/backend.js`. Its only responsibility is to classify
-   POST requests from `Origin`, `Sec-Fetch-Site`, and the request URL.
+4. Add private target-origin and mutation predicates to the existing backend
+   helper. The target origin uses the standard `Host`, the first
+   `X-Forwarded-Proto` value after the edge proxy overwrites it, and the
+   request URL as fallback; it never trusts `X-Forwarded-Host`.
 5. Require each existing POST route to pass its incoming request to
-   `proxyBackendJson`. GET routes remain unchanged because the predicate
-   returns before request-header access for non-POST methods.
+   `proxyBackendJson` and keep method metadata aligned. The guard activates
+   when either method is POST, so a wiring mismatch fails closed.
 6. Return a JSON 403 before reading the API key or calling the backend when
    `Sec-Fetch-Site` is `cross-site` or `same-site`, or when a present `Origin`
-   differs from the route request origin. Town Council does not define trusted
+   differs from that external target origin. Town Council defines no trusted
    sibling subdomains, so same-site is not equivalent to same-origin.
 7. Permit exact same-origin requests and requests with neither browser header;
    the latter preserves callers that do not originate in a browser. This is a
@@ -89,7 +86,6 @@ add middleware, a CSRF package, a test loader, a route wrapper, or a second
 origin-policy implementation.
 
 Rejected alternatives:
-
 - Global Next proxy enforcement: rejected because it would cover safe reads
   and unrelated routes rather than the shared backend mutation boundary.
 - Referer-only validation: rejected because `Origin` and Fetch Metadata are
@@ -108,7 +104,6 @@ JavaScript request-boundary change.
 **h) Schema/migration impact.** None.
 
 ## 3. Security & Data Governance
-
 **i) Security-sensitive path.** This task changes the
 Internet-to-Frontend trust boundary defined by `SECURITY.md`. An attacker loses
 the ability to cause a visitor's browser to submit a cross-site mutation
@@ -121,20 +116,18 @@ The API key remains server-side and is not logged or returned.
 **k) Person data.** No person-level data is created, linked, aggregated, or
 exposed. G4 is unaffected.
 
-**l) Untrusted input.** `Origin` and `Sec-Fetch-Site` are untrusted request
-headers. The boundary compares exact normalized header values through the
-standard `Headers` interface and compares a supplied origin with
-`new URL(request.url).origin`. No scraped content or HTML is parsed.
+**l) Untrusted input.** `Origin`, `Sec-Fetch-Site`, and forwarded protocol are
+untrusted request headers. The guard normalizes the target through `URL`,
+uses standard `Host` rather than spoofable `X-Forwarded-Host`, and rejects
+invalid target metadata. No scraped content or HTML is parsed.
 
 ## 4. Code Health
-
-**m) GED conformance sweep.** The private predicate has two parameters, no
-deep nesting, and one responsibility. HTTP methods, response status, header
-names, and rejection text use named constants. No environment read, timestamp,
-exception handler, type suppression, or import-time side effect is added.
+**m) GED conformance sweep.** Each private function has one responsibility and
+no deep nesting. Named constants own policy literals. URL parsing catches only
+`TypeError` and maps invalid target metadata to rejection. No environment read,
+timestamp, type suppression, or import-time side effect is added.
 
 **n) Antipattern scan, plan pass.**
-
 - A1/H1: Next.js route-handler `Request`/`Response` behavior was verified
   against official Next.js 16.2.9 documentation and installed Next.js
   16.2.11. Node 20 `node:test` cleanup and global Fetch APIs were verified
@@ -157,13 +150,11 @@ exception selector changes. No exception boundary is added or widened.
 **p) Dead code and duplication audit.** Delete the `next/server` import after
 replacing its sole `NextResponse.json` use with standard `Response.json`.
 Reuse the shared proxy instead of repeating checks in five route handlers.
-Expected runtime delta is one private predicate plus five request-property
-additions.
+Expected runtime delta is focused private parsing/classification helpers plus
+five request-property additions.
 
 ## 5. Testing
-
 **q) Edge cases and failure scenarios.**
-
 1. `Sec-Fetch-Site: cross-site` must return 403 even without `Origin`.
 2. `Sec-Fetch-Site: same-site` must return 403 because sibling subdomains are
    not trusted.
@@ -176,16 +167,19 @@ additions.
    because either signal can identify a non-same-origin request.
 8. Unknown future `Sec-Fetch-Site` values must fall back to Origin validation.
 9. Rejection must occur before API-key lookup or backend fetch.
-10. Every existing POST route must supply its request object; a missing
-   request is a programming error and must fail closed.
+10. Every existing POST route must supply its request object and matching
+    method metadata; missing or mismatched metadata must fail closed.
 11. Existing JSON body, query, authentication header, and backend-response
    forwarding must remain unchanged for allowed requests.
-12. GET routes and frontend build behavior must remain unchanged.
-13. Missing `API_AUTH_KEY` on an allowed request must retain the existing 500
+12. Next standalone's internal URL must honor standard Host and the first
+   forwarded protocol value for a matching external origin.
+13. Malformed Host/protocol metadata must reject, and `X-Forwarded-Host` must
+   not override the standard Host.
+14. GET routes and frontend build behavior must remain unchanged.
+15. Missing `API_AUTH_KEY` on an allowed request must retain the existing 500
    response.
 
 **r) Tests added or updated.**
-
 | Test | Scenarios |
 |---|---|
 | Cross-site and same-site Fetch Metadata return JSON 403 | 1, 2, 9 |
@@ -195,11 +189,13 @@ additions.
 | Unknown Fetch Metadata falls back to Origin validation | 8 |
 | Same-origin POST forwards the backend response | 5, 11 |
 | Headerless POST forwards the backend response | 6, 11 |
-| Missing POST request fails before backend access | 10 |
-| Every POST route forwards its request object | 10 |
-| Allowed request without API key retains configuration error | 13 |
-| Existing frontend suite and production build | 11, 12 |
-| Existing Python frontend-contract tests | 12 |
+| Missing/mismatched POST metadata fails before backend access | 10 |
+| Every POST route forwards its request and POST method | 10 |
+| Standalone internal URL honors external Host/first protocol | 12 |
+| Malformed metadata and spoofed X-Forwarded-Host reject | 13 |
+| Allowed request without API key retains configuration error | 15 |
+| Existing frontend suite and production build | 11, 14 |
+| Existing Python frontend-contract tests | 14 |
 
 The test file is written and run red before proxy implementation.
 
@@ -214,9 +210,7 @@ and `docs/plans/**` change. Run the complete Python suite before handoff
 because this is a security-boundary change.
 
 ## 6. Execution, Rollback, Docs
-
 **u) Exact commands.**
-
 ```bash
 git fetch origin --prune
 git switch master
@@ -225,18 +219,32 @@ git switch -c codex/t-sec-5-proxy-origin-guard
 ```
 
 Tests-first red evidence:
-
 ```bash
 cd frontend
 node --test components/__tests__/BackendProxy.origin.test.js
 ```
 
 Final local verification:
-
 ```bash
 cd frontend
 npm test
 npm run build -- --webpack
+STANDALONE_SERVER=$(find .next/standalone -path '*/frontend/server.js' -print -quit)
+test -n "$STANDALONE_SERVER"
+HOSTNAME=0.0.0.0 PORT=3124 APP_ENV=dev \
+  API_AUTH_KEY=frontend-proxy-test-key \
+  INTERNAL_API_BASE_URL=http://127.0.0.1:9999 \
+  node "$STANDALONE_SERVER" >/tmp/t-sec-5-next.log 2>&1 &
+SERVER_PID=$!
+trap 'kill "$SERVER_PID" 2>/dev/null || true' EXIT
+until curl -fsS http://localhost:3124 >/dev/null; do sleep 1; done
+STATUS=$(curl -sS -o /tmp/t-sec-5-response.json -w '%{http_code}' \
+  -X POST -H 'Origin: http://localhost:3124' \
+  -H 'Sec-Fetch-Site: same-origin' \
+  http://localhost:3124/api/summarize/42)
+test "$STATUS" != 403
+kill "$SERVER_PID"
+trap - EXIT
 cd ..
 
 PYTHONPATH=. .venv/bin/pytest -q tests/test_frontend_pages_config.py
@@ -250,7 +258,6 @@ git status --short
 ```
 
 Delivery uses two atomic commits:
-
 1. `docs(remediation): authorize the proxy origin guard`
 2. `fix(frontend): reject non-same-origin proxy mutations`
 
@@ -262,13 +269,12 @@ close T-SEC-5 in a separate evidence-only ledger change.
 `git revert -m 1 <t-sec-5-closure-merge-sha>`, then run
 `git revert -m 1 <t-sec-5-implementation-merge-sha>`. Rerun frontend tests and
 build, the four Python frontend-contract tests, docs links, and the complete
-Python suite. The closure reversal reopens the `SECURITY.md` checklist and
-ledger status before implementation is removed. No migration, secret
-rotation, environment restore, or data repair is required. Rollback restores
-the known non-same-origin mutation gap.
+Python suite. The closure reversal reopens the ledger status; the
+implementation reversal reopens the `SECURITY.md` checklist. No migration,
+secret rotation, environment restore, or data repair is required. Rollback
+restores the known non-same-origin mutation gap.
 
 **w) Docs sync.**
-
 - `SECURITY.md` "Trust boundaries" and hardening checklist: record active
   same-origin mutation enforcement.
 - Remediation plan: version, active status, corrected ownership, acceptance,
@@ -278,7 +284,6 @@ the known non-same-origin mutation gap.
   and data-governance docs: no change.
 
 ## 7. Delivery Self-Audit
-
 **x) Antipattern scan, diff pass.** Re-run A-F and H. Reject a new middleware
 layer, duplicate route checks, user-auth behavior, test-only production
 exports, swallowed errors, source-only assertions, unrelated formatting, or
