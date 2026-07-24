@@ -40,9 +40,13 @@ engineering decisions is `reachable`).
    authenticate end users; it only authenticates the frontend deployment.
    Every proxied route is effectively public. Decision G2, approved
    2026-07-24, keeps AI task endpoints available to any visitor with
-   per-client rate limits. That control depends on forwarding real client
-   identity `[remediation: T-SEC-4]`. Any future "operator only" action would
-   require a new policy decision and auth at the proxy, not just the key.
+   per-client rate limits. Town Council intentionally provides public civic
+   record analysis without end-user accounts; adding operator authentication
+   would change that access model, while the frontend key authenticates only
+   the deployment. Per-client limiting is therefore the approved abuse
+   control and depends on forwarding real client identity
+   `[remediation: T-SEC-4]`. Any future "operator only" action would require a
+   new policy decision and auth at the proxy, not just the key.
 3. API and semantic service -> backing stores (Postgres, Redis, Meilisearch,
    inference): compose
    network only. No host port publication in the base compose file
@@ -107,7 +111,13 @@ engineering decisions is `reachable`).
 Record deliberate acceptances here with rationale and revisit date, per the
 `AGENTS.md` status-reporting contract (old value, new value, rationale).
 
-- (none recorded yet)
+- **Visitor-accessible AI actions before T-SEC-4.** The approved G2 policy
+  accepts that, until real client identity reaches the API limiter, visitors
+  can share a rate bucket and a direct caller can consume shared inference
+  capacity. T-SEC-5 reduces cross-site browser abuse but does not authenticate
+  direct callers. This risk is accepted to preserve account-free public civic
+  access while T-SEC-4 delivers per-client limits. Revisit when T-SEC-4 merges
+  or by 2026-08-31, whichever comes first.
 
 ## Dependency and supply chain
 

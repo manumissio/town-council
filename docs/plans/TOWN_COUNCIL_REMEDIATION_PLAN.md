@@ -1,6 +1,6 @@
 # Town Council Remediation Plan (Codex Multi-Agent)
 
-version: 3.16
+version: 3.17
 generated: 2026-07-24
 source: Four-pass external code review (security, architecture, smells, process)
 source_artifact: [Town Council architecture review](../reviews/architecture-review-2026-07-19.html)
@@ -10,6 +10,8 @@ remains in force; where this plan is stricter, this plan wins for these tasks.
 
 ## Changelog
 
+- **v3.17:** Records G2's public-access rationale and the accepted interim
+  abuse/capacity risk pending T-SEC-4, with a review checkpoint.
 - **v3.16:** Synchronizes the approved G2 visitor-access policy with canonical
   `SECURITY.md`; T-SEC-4 remains the delivery task for per-client rate limits.
 - **v3.15:** Records operator approval of G2 and G3: AI task endpoints remain
@@ -149,7 +151,9 @@ remains in force; where this plan is stricter, this plan wins for these tasks.
 - G2 protected_action_policy: **Approved 2026-07-24.** AI task endpoints
   (summarize/segment/extract/topics) remain available to any visitor with
   per-client rate limits. T-SEC-4 is authorized; operator-only proxy
-  authentication is not part of the approved policy.
+  authentication is not part of the approved policy. Rationale: preserve
+  account-free public access to civic record analysis and use client-scoped
+  limiting, rather than end-user identity, as the abuse control.
 - G3 test_seam_adr: **Approved 2026-07-24.** Ratify "Test patch points are not
   a public API." T-GOV-1 must record the decision as an Accepted ADR before
   Phase 2 implementation begins.
