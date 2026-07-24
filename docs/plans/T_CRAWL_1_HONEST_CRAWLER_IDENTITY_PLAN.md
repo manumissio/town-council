@@ -48,7 +48,8 @@ is unresolved.
 
 **e) Step-by-step approach.**
 
-1. Register this plan, mark merged T-SEC-3 complete, and mark T-CRAWL-1 active.
+1. Register this plan, record T-SEC-3 implementation as merged with closure
+   pending, and mark T-CRAWL-1 active.
 2. Add a failing settings-contract test before changing crawler settings.
 3. Assert the crawler uses
    `TownCouncilBot/1.0 (+https://github.com/manumissio/town-council)`.
@@ -209,8 +210,9 @@ required. Rollback knowingly restores browser impersonation.
 
 **w) Docs synchronization.**
 
-- Remediation plan: mark T-SEC-3 complete, register T-CRAWL-1 ownership and
-  active status, and add the implementation-plan link.
+- Remediation plan: record T-SEC-3 implementation as merged with closure
+  pending, register T-CRAWL-1 ownership and active status, and add the
+  implementation-plan link.
 - Crawler readme: identify the bot and preserved robots/delay policy.
 - README, ADR, operations, architecture, security, testing, and data-governance
   docs: no changes.
