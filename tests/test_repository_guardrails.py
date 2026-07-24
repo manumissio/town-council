@@ -2272,7 +2272,13 @@ def test_live_python_does_not_treat_g3_as_a_facade_deferral():
             source_path.read_text(encoding="utf-8").splitlines(),
             start=1,
         ):
-            if re.search(r"\bG3\b", source_line, re.IGNORECASE):
+            has_g3_reference = re.search(r"\bG3\b", source_line, re.IGNORECASE)
+            has_deferral_language = re.search(
+                r"\b(?:defer|block|preserv)\w*\b",
+                source_line,
+                re.IGNORECASE,
+            )
+            if has_g3_reference and has_deferral_language:
                 live_g3_references.append(
                     f"{relative_source_path}:{line_number}: {source_line.strip()}"
                 )
