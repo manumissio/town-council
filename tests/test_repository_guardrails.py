@@ -2159,7 +2159,7 @@ G3_COPULAR_TEMPORAL_ACTION_PATTERN = (
     r"(?:(?:must|shall|should|will)\s+(?:(?:continue\s+to|still)\s+)?|"
     r"(?:has|have|needs?)\s+to\s+|"
     r"(?:are|is)\s+(?:still\s+)?required\s+to\s+)?"
-    r"remain(?:s)?\s+(?:in\s+place\s+)?until\s+\bG3\b"
+    r"(?:remain(?:s)?|stay(?:s)?)\s+(?:in\s+place\s+)?until\s+\bG3\b"
 )
 G3_CONTROLLED_WORK_TAIL_PATTERN = (
     rf"(?:$|\b{G3_CONTROLLED_WORK_CONTINUATION_PATTERN}\b|"
@@ -3088,6 +3088,7 @@ def test_g3_deferral_scan_groups_wrapped_comment_blocks(tmp_path: Path):
         "# Do not remove the test facade before T-SEC-4 lands; G3 is accepted.",
         "# G3 is accepted; do not remove the test facade before T-SEC-4 lands.",
         "# G3 records whether the test seam remains until G3 is accepted.",
+        "# G3 asks whether the test facade stays until G3 lands.",
         "# G3 asks whether the test seam remains until G3 is accepted.",
         "# G3 checks whether the test seam remains until G3 is accepted.",
         "# Does the test seam remain until G3 is accepted?",
@@ -3237,6 +3238,7 @@ def test_g3_deferral_scan_allows_non_deferral_policy(accepted_policy: str):
         "# G3 must land. Facade removal remains blocked until then.",
         "# Do not remove the test facade before G3 is accepted.",
         "# The test facade cannot be removed until G3 lands.",
+        "# The test facade stays until G3 lands.",
         "# G3 means the facade cannot be removed.",
     ),
 )
