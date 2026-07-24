@@ -1,6 +1,6 @@
 # Town Council Remediation Plan (Codex Multi-Agent)
 
-version: 3.23
+version: 3.24
 generated: 2026-07-24
 source: Four-pass external code review (security, architecture, smells, process)
 source_artifact: [Town Council architecture review](../reviews/architecture-review-2026-07-19.html)
@@ -10,6 +10,10 @@ remains in force; where this plan is stricter, this plan wins for these tasks.
 
 ## Changelog
 
+- **v3.24:** Marks T-SEC-6 complete after PR #138 merged as `1805acd`.
+  Public stats now expose only document count, credentialed CORS is disabled,
+  stale browser-key guidance is removed, and two broad S105 exceptions are
+  replaced by ten explained line-level suppressions.
 - **v3.23:** Activates T-SEC-6 with tests-first ownership for public stats
   minimization, credential-free CORS, stale public-key guidance removal, and
   exact line-level S105 explanations.
@@ -137,8 +141,7 @@ remains in force; where this plan is stricter, this plan wins for these tasks.
 
 | State | Tasks |
 |---|---|
-| **Complete** | T-CI-0, T-CI-1, T-CI-1A, T-CI-2, T-CI-2A, T-CI-3, T-CI-4, T-CI-5, T-SEC-1, T-SEC-2, T-SEC-3, T-SEC-3C, T-SEC-4, T-SEC-4A, T-SEC-5, T-TIME-3, T-CRAWL-1, T-CRAWL-2, T-PLAT-2A, T-GOV-1 |
-| **In progress** | T-SEC-6 |
+| **Complete** | T-CI-0, T-CI-1, T-CI-1A, T-CI-2, T-CI-2A, T-CI-3, T-CI-4, T-CI-5, T-SEC-1, T-SEC-2, T-SEC-3, T-SEC-3C, T-SEC-4, T-SEC-4A, T-SEC-5, T-SEC-6, T-TIME-3, T-CRAWL-1, T-CRAWL-2, T-PLAT-2A, T-GOV-1 |
 | **Partially landed; acceptance incomplete** | T-GOV-4, T-GOV-5, T-GOV-6 |
 | **Pending** | T-TIME-1..2, T-DA-1, T-DB-1, T-DC-1, T-DD-1, T-DE-1, T-PLAT-1, T-PLAT-2, T-PLAT-3, T-PLAT-4, T-GOV-2..3 |
 
@@ -648,7 +651,7 @@ in `AGENTS.md`, `docs/TESTING.MD`, and
 
 ### T-SEC-6: Small closures
 - priority: P2
-- status: in progress
+- status: complete and verified 2026-07-24 (PR #138)
 - implementation_plan: `docs/plans/T_SEC_6_SMALL_SECURITY_CLOSURES_PLAN.md`
 - files_owned: .env.example, api/main.py (CORS and `/stats` only),
   pipeline/provider_telemetry.py (metric-key constants only),

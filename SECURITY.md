@@ -108,7 +108,7 @@ engineering decisions is `reachable`).
       API limiter trusts it only with the deployment key (T-SEC-4)
 - [x] Origin/Sec-Fetch-Site check on proxy mutation routes (T-SEC-5)
 - [ ] `NEXT_CSP_ENFORCE=true` after a report-only soak
-- [ ] `/stats` gated or minimized; CORS without `allow_credentials`
+- [x] `/stats` gated or minimized; CORS without `allow_credentials`
       (T-SEC-6)
 - [ ] Backups configured per `docs/OPERATIONS.md` (T-PLAT-3)
 

@@ -2059,6 +2059,20 @@ def _required_markdown_entry(markdown: str, heading: str) -> str:
     return " ".join(section_remainder[: next_heading.start()].split())
 
 
+def _remediation_task_states(remediation_ledger: str, task_id: str) -> list[str]:
+    status_rows = [
+        line
+        for line in remediation_ledger.splitlines()
+        if line.startswith("| **") and " |" in line
+    ]
+    return [
+        row.split("|")[1].strip().strip("*")
+        for row in status_rows
+        for listed_task_id in row.split("|")[2].split(",")
+        if listed_task_id.strip() == task_id
+    ]
+
+
 def _python_comment_blocks(source_path: Path) -> list[tuple[int, str]]:
     source_text = source_path.read_text(encoding="utf-8")
     source_lines = source_text.splitlines()
@@ -2832,17 +2846,7 @@ def test_g2_visitor_access_policy_is_aligned_after_t_sec_4_delivery():
         "### T-SEC-4: Real client identity through the proxy; per-client rate limits",
         "\n### T-SEC-5:",
     )
-    status_rows = [
-        line
-        for line in remediation_ledger.splitlines()
-        if line.startswith("| **") and " |" in line
-    ]
-    t_sec_4_states = [
-        row.split("|")[1].strip().strip("*")
-        for row in status_rows
-        for task in row.split("|")[2].split(",")
-        if task.strip() == "T-SEC-4"
-    ]
+    t_sec_4_states = _remediation_task_states(remediation_ledger, "T-SEC-4")
 
     assert "Decision G2, approved 2026-07-24" in frontend_api_boundary
     assert (
@@ -2919,14 +2923,14 @@ def test_t_sec_6_closures_are_scoped():
         assert source.count("# noqa: S105") == expected_explanations
         assert source.count(expected_explanation) == expected_explanations
 
-    assert "| **In progress** | T-SEC-6 |" in remediation_ledger
-    assert "- status: in progress" in _required_markdown_section(
+    assert _remediation_task_states(remediation_ledger, "T-SEC-6") == ["Complete"]
+    assert "- status: complete and verified 2026-07-24 (PR #138)" in _required_markdown_section(
         remediation_ledger,
         "### T-SEC-6: Small closures",
         "\n### T-TIME-1:",
     )
-    assert "`artifact_readiness: implementation-ready`" in implementation_plan
-    assert "- [ ] `/stats` gated or minimized; CORS without `allow_credentials`" in security_policy
+    assert "`artifact_readiness: complete`" in implementation_plan
+    assert "- [x] `/stats` gated or minimized; CORS without `allow_credentials`" in security_policy
 
 
 def test_t_sec_4a_is_complete_after_g2_policy_record_merged():
@@ -2938,17 +2942,7 @@ def test_t_sec_4a_is_complete_after_g2_policy_record_merged():
         "### T-SEC-4A: Record the approved G2 visitor-access policy",
         "\n### T-SEC-4:",
     )
-    status_rows = [
-        line
-        for line in remediation_ledger.splitlines()
-        if line.startswith("| **") and " |" in line
-    ]
-    t_sec_4a_states = [
-        row.split("|")[1].strip().strip("*")
-        for row in status_rows
-        for task in row.split("|")[2].split(",")
-        if task.strip() == "T-SEC-4A"
-    ]
+    t_sec_4a_states = _remediation_task_states(remediation_ledger, "T-SEC-4A")
     normalized_t_sec_4a_entry = " ".join(t_sec_4a_entry.lower().split())
 
     assert "status: complete and verified 2026-07-24 (PR #133)" in t_sec_4a_entry
