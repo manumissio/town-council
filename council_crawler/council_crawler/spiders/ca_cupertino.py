@@ -13,5 +13,4 @@ class Cupertino(LegistarApi):
 
     def __init__(self, *args, **kwargs):
         # We pass 'cupertino' as the client name for the Legistar API
-        super().__init__(client='cupertino', city='cupertino', state='ca', *args, **kwargs)
-
+        super().__init__('cupertino', 'cupertino', 'ca', *args, **kwargs)

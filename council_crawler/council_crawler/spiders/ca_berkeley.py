@@ -1,4 +1,3 @@
-import datetime
 import scrapy
 from council_crawler.utils import url_to_md5, parse_date_string
 from .base import BaseCitySpider

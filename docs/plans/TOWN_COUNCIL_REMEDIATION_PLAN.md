@@ -1,6 +1,6 @@
 # Town Council Remediation Plan (Codex Multi-Agent)
 
-version: 3.7
+version: 3.9
 generated: 2026-07-23
 source: Four-pass external code review (security, architecture, smells, process)
 source_artifact: [Town Council architecture review](../reviews/architecture-review-2026-07-19.html)
@@ -10,6 +10,11 @@ remains in force; where this plan is stricter, this plan wins for these tasks.
 
 ## Changelog
 
+- **v3.9:** Expands T-CRAWL-2 ownership to the repository guardrail contract
+  after removing crawler BLE001 exceptions exposed its exact inventory as
+  stale.
+- **v3.8:** Activates T-CRAWL-2 with characterization-first ownership for the
+  shared archive-table parser, all crawler Ruff debt, and parity verification.
 - **v3.7:** Closes T-SEC-3 and T-SEC-3C after synchronizing the canonical
   Meilisearch reader-key checklist with the merged, green implementation.
 - **v3.6:** Marks merged T-CRAWL-1 complete and registers T-SEC-3C to
@@ -88,8 +93,9 @@ remains in force; where this plan is stricter, this plan wins for these tasks.
 | State | Tasks |
 |---|---|
 | **Complete** | T-CI-0, T-CI-1, T-CI-1A, T-CI-2, T-CI-2A, T-CI-3, T-CI-4, T-CI-5, T-SEC-1, T-SEC-2, T-SEC-3, T-SEC-3C, T-CRAWL-1 |
+| **In progress** | T-CRAWL-2 |
 | **Partially landed; acceptance incomplete** | T-GOV-4, T-GOV-5, T-GOV-6 |
-| **Pending** | T-SEC-4..6, T-TIME-1..3, T-CRAWL-2, T-DA-1, T-DB-1, T-DC-1, T-DD-1, T-DE-1, T-PLAT-1..4, T-GOV-1..3 |
+| **Pending** | T-SEC-4..6, T-TIME-1..3, T-DA-1, T-DB-1, T-DC-1, T-DD-1, T-DE-1, T-PLAT-1..4, T-GOV-1..3 |
 
 ---
 
@@ -612,8 +618,27 @@ in `AGENTS.md`, `docs/TESTING.MD`, and
 
 ### T-CRAWL-2: Fold fork-style spiders onto the template layer
 - priority: P1
-- files_owned: council_crawler/** (spiders: ca_belmont, ca_fremont,
-  ca_moraga; templates/)
+- status: in progress
+- implementation_plan: `docs/plans/T_CRAWL_2_TEMPLATE_REFACTOR_PLAN.md`
+- files_owned: docs/plans/T_CRAWL_2_TEMPLATE_REFACTOR_PLAN.md,
+  docs/plans/TOWN_COUNCIL_REMEDIATION_PLAN.md, ruff.toml,
+  tests/test_crawler_refactor_contract.py,
+  tests/test_repository_guardrails.py,
+  council_crawler/council_crawler/pipelines.py,
+  council_crawler/council_crawler/utils.py,
+  council_crawler/council_crawler/spiders/base.py,
+  council_crawler/council_crawler/spiders/ca_belmont.py,
+  council_crawler/council_crawler/spiders/ca_berkeley.py,
+  council_crawler/council_crawler/spiders/ca_cupertino.py,
+  council_crawler/council_crawler/spiders/ca_dublin.py,
+  council_crawler/council_crawler/spiders/ca_fremont.py,
+  council_crawler/council_crawler/spiders/ca_hayward.py,
+  council_crawler/council_crawler/spiders/ca_moraga.py,
+  council_crawler/council_crawler/spiders/ca_mtn_view.py,
+  council_crawler/council_crawler/spiders/ca_san_leandro.py,
+  council_crawler/council_crawler/spiders/ca_san_mateo.py,
+  council_crawler/council_crawler/spiders/ca_sunnyvale.py,
+  council_crawler/templates/legistar_cms.py
 - do: Refactor the three 60–80-line copy-paste spiders into thin subclasses
   of the existing template/base (target: parity with the 14-line spiders).
   Extract genuinely city-specific deltas into overrides. Byte-identical
