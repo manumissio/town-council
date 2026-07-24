@@ -1,7 +1,7 @@
 # Town Council Remediation Plan (Codex Multi-Agent)
 
-version: 3.13
-generated: 2026-07-23
+version: 3.14
+generated: 2026-07-24
 source: Four-pass external code review (security, architecture, smells, process)
 source_artifact: [Town Council architecture review](../reviews/architecture-review-2026-07-19.html)
 orchestrator_contract: Codex instantiates one agent per lane. Agents run in
@@ -10,6 +10,8 @@ remains in force; where this plan is stricter, this plan wins for these tasks.
 
 ## Changelog
 
+- **v3.14:** Marks T-SEC-5 complete after PR #130 merged with all required
+  checks green, its P2 review finding resolved, and final Codex review clean.
 - **v3.13:** Activates T-SEC-5 with a Full implementation plan and expands
   ownership to its executable frontend test and canonical security checklist.
 - **v3.12:** Marks T-PLAT-2A complete after PR #128 merged with required
@@ -103,8 +105,8 @@ remains in force; where this plan is stricter, this plan wins for these tasks.
 
 | State | Tasks |
 |---|---|
-| **Complete** | T-CI-0, T-CI-1, T-CI-1A, T-CI-2, T-CI-2A, T-CI-3, T-CI-4, T-CI-5, T-SEC-1, T-SEC-2, T-SEC-3, T-SEC-3C, T-TIME-3, T-CRAWL-1, T-CRAWL-2, T-PLAT-2A |
-| **In progress** | T-SEC-5 |
+| **Complete** | T-CI-0, T-CI-1, T-CI-1A, T-CI-2, T-CI-2A, T-CI-3, T-CI-4, T-CI-5, T-SEC-1, T-SEC-2, T-SEC-3, T-SEC-3C, T-SEC-5, T-TIME-3, T-CRAWL-1, T-CRAWL-2, T-PLAT-2A |
+| **In progress** | None |
 | **Partially landed; acceptance incomplete** | T-GOV-4, T-GOV-5, T-GOV-6 |
 | **Pending** | T-SEC-4, T-SEC-6, T-TIME-1..2, T-DA-1, T-DB-1, T-DC-1, T-DD-1, T-DE-1, T-PLAT-1, T-PLAT-2, T-PLAT-3, T-PLAT-4, T-GOV-1..3 |
 
@@ -554,7 +556,7 @@ in `AGENTS.md`, `docs/TESTING.MD`, and
 
 ### T-SEC-5: CSRF/origin check on proxy mutation routes
 - priority: P1
-- status: in progress
+- status: complete and verified 2026-07-24 (PR #130)
 - implementation_plan: `docs/plans/T_SEC_5_PROXY_ORIGIN_GUARD_PLAN.md`
 - files_owned: docs/plans/T_SEC_5_PROXY_ORIGIN_GUARD_PLAN.md,
   docs/plans/TOWN_COUNCIL_REMEDIATION_PLAN.md, SECURITY.md,
