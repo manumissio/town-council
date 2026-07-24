@@ -24,7 +24,7 @@ services:
       - "127.0.0.1:3001:3000"
 
   api:
-    command: uvicorn main:app --host 0.0.0.0 --port 8000 --reload
+    command: uvicorn main:app --host 0.0.0.0 --port 8000 --reload --no-proxy-headers
     volumes:
       - ./api:/app/api
       - ./pipeline:/app/pipeline

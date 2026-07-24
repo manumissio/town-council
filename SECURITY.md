@@ -26,15 +26,17 @@ engineering decisions is `reachable`).
 
 ## Trust boundaries
 
-1. Internet -> Frontend (Next.js): untrusted browsers. CSP (nonce +
+1. Internet -> Caddy -> Frontend (Next.js): untrusted browsers. Caddy is the
+   only published frontend entry and replaces caller-supplied
+   `X-Forwarded-For` before requests reach Next.js. It is deliberately not
+   configured to trust an upstream proxy. CSP (nonce +
    strict-dynamic), security headers, and same-origin checks on mutation
    routes apply here. The mutation guard rejects `same-site` and `cross-site`
    Fetch Metadata plus mismatched `Origin` values; requests with neither
    browser signal remain compatible for non-browser callers
    `[remediation: T-SEC-5]`.
-   Reverse proxies must preserve the public `Host` header and overwrite any
-   incoming `X-Forwarded-Proto`; the guard deliberately ignores
-   `X-Forwarded-Host`.
+   Caddy preserves the public `Host` header and writes `X-Forwarded-Proto`;
+   the guard deliberately ignores `X-Forwarded-Host`.
 2. Frontend server -> API: the proxy injects `X-API-Key` server-side
    (`frontend/app/api/_lib/backend.js`). Consequence: the API key does NOT
    authenticate end users; it only authenticates the frontend deployment.
@@ -45,10 +47,11 @@ engineering decisions is `reachable`).
    public read and task-status routes remain public. Town Council intentionally
    provides civic record analysis without end-user accounts. Adding operator
    authentication would change that access model. Per-client rate limits are
-   therefore the approved abuse control and depend on forwarding real client
-   identity `[remediation: T-SEC-4]`. Any future "operator only" action would
-   require a new policy decision and proxy authentication, not just the
-   deployment key.
+   therefore the approved abuse control. The frontend forwards one validated
+   client IP, and the API uses it only when `API_AUTH_KEY` authenticates the
+   deployment hop; otherwise the limiter uses the direct API peer
+   `[remediation: T-SEC-4]`. Any future "operator only" action would require a
+   new policy decision and proxy authentication, not just the deployment key.
 3. API and semantic service -> backing stores (Postgres, Redis, Meilisearch,
    inference): compose
    network only. No host port publication in the base compose file
@@ -96,12 +99,13 @@ engineering decisions is `reachable`).
 
 ## Hardening checklist (reachable posture)
 
-- [x] Base compose publishes only `api:8000` and `frontend:3000` (T-SEC-1)
+- [x] Base compose publishes only `api:8000` and Caddy ingress `3000`
+      (T-SEC-1, T-SEC-4)
 - [ ] Non-default values for every key in the inventory above
 - [x] API aborts on default key outside dev (T-SEC-2)
 - [x] Meilisearch search key enforced for API and semantic readers (T-SEC-3)
-- [ ] Client IP forwarded from proxy; limiter keys on it with trusted-proxy
-      allowlist (T-SEC-4)
+- [x] Caddy replaces caller forwarding metadata; frontend validates one IP;
+      API limiter trusts it only with the deployment key (T-SEC-4)
 - [x] Origin/Sec-Fetch-Site check on proxy mutation routes (T-SEC-5)
 - [ ] `NEXT_CSP_ENFORCE=true` after a report-only soak
 - [ ] `/stats` gated or minimized; CORS without `allow_credentials`
@@ -113,14 +117,14 @@ engineering decisions is `reachable`).
 Record deliberate acceptances here with rationale and revisit date, per the
 `AGENTS.md` status-reporting contract (old value, new value, rationale).
 
-- **Visitor-accessible AI actions before T-SEC-4.** G2 preserves account-free
-  public access to summarize, segment, extract, and topic-generation actions
-  through the Next.js proxy. Until trusted client identity reaches the API
-  limiter, visitors can share a rate bucket and unauthenticated proxy callers
-  can consume shared inference capacity. Direct calls to protected AI mutation
-  endpoints remain API-key protected. T-SEC-5 reduces cross-site browser abuse
-  but does not authenticate proxy callers. Revisit when T-SEC-4 merges or by
-  2026-08-31, whichever comes first.
+- **Deployment-key client identity trust.** G2 preserves account-free public
+  access through the frontend while protected direct API actions require
+  `API_AUTH_KEY`. The same deployment key authenticates forwarded client
+  identity at the API. A direct caller holding that secret can therefore
+  choose a forwarded limiter key, but already has authority to invoke the
+  protected actions. Visitors never receive the key. Revisit if the key is
+  delegated beyond trusted deployment operators or by 2026-10-31, whichever
+  comes first.
 
 ## Dependency and supply chain
 

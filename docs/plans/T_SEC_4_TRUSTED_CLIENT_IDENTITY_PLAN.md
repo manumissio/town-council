@@ -35,6 +35,7 @@ entry and overwrites forwarded identity before requests reach Next.js.
 - `docs/plans/T_SEC_4_TRUSTED_CLIENT_IDENTITY_PLAN.md`
 - `docs/plans/TOWN_COUNCIL_REMEDIATION_PLAN.md`
 - `docker-compose.yml`
+- `docker-compose.dev.yml`
 - `docker/Caddyfile`
 - `frontend/app/api/_lib/backend.js`
 - `frontend/components/__tests__/BackendProxy.origin.test.js`
@@ -43,8 +44,12 @@ entry and overwrites forwarded identity before requests reach Next.js.
 - `tests/test_docker_build_contracts.py`
 - `tests/test_repository_guardrails.py`
 - `scripts/verify_caddy_forwarded_for.sh`
+- `scripts/dev_up.sh`
+- `README.md`
+- `env/profiles/README.md`
 - `SECURITY.md`
 - `docs/OPERATIONS.md`
+- `tests/test_startup_purge_gating.py`
 
 **d) Decision gates.** G2 is approved. On 2026-07-24 the operator also
 approved the repository-owned ingress and its runtime-topology change. G1's
@@ -75,6 +80,8 @@ G4 and G5 are unaffected.
    upstream during runtime verification.
 8. Update security and operations docs. Mark T-SEC-4 complete only after
    runtime verification, independent review, and green PR checks.
+9. Keep the development overlay, standard helper, README quickstart, and
+   profile commands aligned with the ingress and raw-peer contracts.
 
 New functions:
 
@@ -220,9 +227,11 @@ git diff --check
 Runtime smoke:
 
 ```bash
-docker compose up -d --build ingress frontend api
+docker compose -f docker-compose.yml -f docker-compose.dev.yml up -d --build \
+  ingress frontend api
 curl -fsS http://localhost:3000/
-docker compose ps ingress frontend api
+docker compose -f docker-compose.yml -f docker-compose.dev.yml ps \
+  ingress frontend api
 ```
 
 Spoof replacement proof uses the same pinned Caddy image with a temporary echo
@@ -258,6 +267,7 @@ findings, commits, PR, unresolved threads, and final CI state. Mark unrun work
 
 **z) Deviations.** Expected: Caddy ingress, expanded ownership, explicit
 deployment-key trust instead of unstable CIDR trust, Uvicorn raw-peer
-preservation, and one owned verification script for the functional Caddy
-proof. Any other topology, dependency, config, policy, or file change is a
+preservation, one owned verification script for the functional Caddy proof,
+and the operator-approved startup-path expansion found during pre-commit
+review. Any other topology, dependency, config, policy, or file change is a
 blocker.

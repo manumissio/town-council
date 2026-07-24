@@ -85,7 +85,7 @@ def test_base_compose_publishes_only_application_interfaces():
 
     assert _published_port_bindings(compose_services) == {
         ("api", None, "8000", 8000),
-        ("frontend", None, "3000", 3000),
+        ("ingress", None, "3000", 3000),
     }
     assert all(service_config.get("network_mode") != "host" for service_config in compose_services.values())
 
@@ -96,7 +96,7 @@ def test_dev_overlay_publishes_operator_services_on_loopback_only():
 
     assert _published_port_bindings(development_services) == {
         ("api", None, "8000", 8000),
-        ("frontend", None, "3000", 3000),
+        ("ingress", None, "3000", 3000),
         ("grafana", "127.0.0.1", "3001", 3000),
         ("meilisearch", "127.0.0.1", "7700", 7700),
         ("postgres", "127.0.0.1", "5432", 5432),
@@ -105,6 +105,39 @@ def test_dev_overlay_publishes_operator_services_on_loopback_only():
     }
     assert _service_dependencies(development_services) == _service_dependencies(base_services)
     assert all(service_config.get("network_mode") != "host" for service_config in development_services.values())
+
+
+def test_ingress_is_the_only_public_frontend_boundary() -> None:
+    compose_services = _compose_services("docker-compose.yml")
+    development_services = _compose_services(
+        "docker-compose.yml",
+        "docker-compose.dev.yml",
+    )
+    ingress = compose_services["ingress"]
+    frontend = compose_services["frontend"]
+    api = compose_services["api"]
+
+    assert ingress["image"] == "caddy:2.11.4-alpine"
+    assert set(ingress["depends_on"]) == {"frontend"}
+    assert frontend.get("ports", []) == []
+    assert frontend["expose"] == ["3000"]
+    assert "--no-proxy-headers" in api["command"]
+    assert "--no-proxy-headers" in development_services["api"]["command"]
+
+    ingress_mounts = {
+        (volume["source"], volume["target"], volume["read_only"])
+        for volume in ingress["volumes"]
+    }
+    assert (
+        str((Path.cwd() / "docker" / "Caddyfile").resolve()),
+        "/etc/caddy/Caddyfile",
+        True,
+    ) in ingress_mounts
+
+    caddyfile = Path("docker/Caddyfile").read_text(encoding="utf-8")
+    assert "reverse_proxy frontend:3000" in caddyfile
+    assert "trusted_proxies" not in caddyfile
+    assert "header_up X-Forwarded-For" not in caddyfile
 
 
 def test_compose_separates_meilisearch_reader_and_writer_credentials(
@@ -225,11 +258,18 @@ def test_docker_build_context_excludes_local_environment_files() -> None:
 
 def test_dev_helper_requires_local_environment_file() -> None:
     dev_helper = Path("scripts/dev_up.sh").read_text(encoding="utf-8")
+    readme = Path("README.md").read_text(encoding="utf-8")
+    operations = Path("docs/OPERATIONS.md").read_text(encoding="utf-8")
+    profile_readme = Path("env/profiles/README.md").read_text(encoding="utf-8")
 
     assert 'if [[ ! -f .env ]]' in dev_helper
     assert "Create it from .env.example" in dev_helper
     assert "COMPOSE=(docker compose -f docker-compose.yml -f docker-compose.dev.yml)" in dev_helper
+    assert "monitor frontend ingress)" in dev_helper
     assert dev_helper.count('"${COMPOSE[@]}"') == 3
+    assert "monitor frontend ingress" in readme
+    assert "monitor frontend ingress" in operations
+    assert "worker api pipeline frontend ingress" in profile_readme
 
 
 def test_example_grafana_credentials_are_labeled_local_only():

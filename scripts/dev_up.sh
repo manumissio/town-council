@@ -14,7 +14,7 @@ if [[ ! -f .env ]]; then
   exit 1
 fi
 
-CORE_SERVICES=(postgres redis meilisearch tika inference semantic semantic-worker api worker enrichment-worker monitor frontend)
+CORE_SERVICES=(postgres redis meilisearch tika inference semantic semantic-worker api worker enrichment-worker monitor frontend ingress)
 COMPOSE=(docker compose -f docker-compose.yml -f docker-compose.dev.yml)
 
 echo "[dev_up] Building and starting core services..."
