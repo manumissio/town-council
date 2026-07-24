@@ -2095,6 +2095,7 @@ def _python_comment_blocks(source_path: Path) -> list[tuple[int, str]]:
 
 
 G3_REFERENCE = re.compile(r"\bG3\b", re.IGNORECASE)
+REMEDIATION_TASK_REFERENCE = re.compile(r"\bT-[A-Z]+-\d+[A-Z]?\b", re.IGNORECASE)
 G3_DEFERRAL_ACTION_PATTERN = (
     r"(?:defer(?:s|red|ring)?|block(?:s|ed|ing)?|preserv(?:e|es|ed|ing)|"
     r"prevent(?:s|ed|ing)?|retain(?:s|ed)?|retaining|delay(?:s|ed|ing)?|"
@@ -2418,10 +2419,22 @@ def _comment_block_defers_g3(comment_block: str) -> bool:
     has_g3_context = False
     for policy_sentence in G3_POLICY_SENTENCE_BOUNDARY.split(normalized_comment):
         sentence_has_g3 = bool(G3_REFERENCE.search(policy_sentence))
+        sentence_has_other_task = bool(
+            REMEDIATION_TASK_REFERENCE.search(policy_sentence)
+        )
         if sentence_has_g3:
-            has_g3_context = bool(G3_UNRESOLVED_POLICY.search(policy_sentence))
+            has_g3_context = bool(
+                G3_UNRESOLVED_POLICY.search(policy_sentence)
+                or G3_PENDING_PREREQUISITE_POLICY.search(policy_sentence)
+            )
+        elif sentence_has_other_task:
+            has_g3_context = False
         scoped_sentence = policy_sentence
-        if has_g3_context and not sentence_has_g3:
+        if (
+            has_g3_context
+            and not sentence_has_g3
+            and not sentence_has_other_task
+        ):
             scoped_sentence = f"G3 {policy_sentence}"
         if _g3_sentence_defers_work(scoped_sentence):
             return True
@@ -2443,6 +2456,11 @@ G3_UNRESOLVED_POLICY = re.compile(
     r"(?:\bg3\b\s+(?:is|remains)\s+(?:open|pending|unresolved)\b"
     r"|\bg3\b\s*(?:status\s*)?:\s*(?:open|pending|unresolved)\b"
     r"|\b(?:open|pending|unresolved)\s+g3\b)",
+    re.IGNORECASE,
+)
+G3_PENDING_PREREQUISITE_POLICY = re.compile(
+    r"\bG3\b\s+(?:still\s+)?must\s+"
+    r"(?:land|be\s+(?:accepted|completed?|resolved))\s*$",
     re.IGNORECASE,
 )
 PHASE_2_G3_BLOCKER_POLICY = re.compile(
@@ -2767,6 +2785,9 @@ def test_g3_deferral_scan_groups_wrapped_comment_blocks(tmp_path: Path):
         "# G3 preserves the HTTP response wrapper.",
         "# G3 blocks removal of the crawler request wrapper.",
         "# G3 preserves the public API re-export.",
+        "# G3 must land for audit documentation. T-SEC-4 blocks facade removal until its work lands.",
+        "# G3 must land. T-SEC-4 blocks facade removal until its work lands.",
+        "# G3 must land. T-SEC-4 blocks migration until its work lands. Facade removal remains blocked until then.",
     ),
 )
 def test_g3_deferral_scan_allows_non_deferral_policy(accepted_policy: str):
@@ -2839,6 +2860,7 @@ def test_g3_deferral_scan_allows_non_deferral_policy(accepted_policy: str):
         "# G3 blocks removal of the test wrapper.",
         "# G3 preserves synchronized globals.",
         "# G3 delays removal of injectable callables.",
+        "# G3 must land. Facade removal remains blocked until then.",
     ),
 )
 def test_g3_deferral_scan_detects_positive_policy_after_other_negation(
