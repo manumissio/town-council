@@ -3053,6 +3053,49 @@ def test_test_patch_points_policy_has_accepted_adr_and_effective_runbook():
         assert owned_path in dedup_b_row
 
 
+def test_t_gov_4_agents_policy_is_complete():
+    agent_policy = (ROOT / "AGENTS.md").read_text(encoding="utf-8")
+    remediation_ledger = (
+        ROOT / "docs" / "plans" / "TOWN_COUNCIL_REMEDIATION_PLAN.md"
+    ).read_text(encoding="utf-8")
+    implementation_plan = (
+        ROOT / "docs" / "plans" / "T_GOV_4_AGENTS_POLICY_CLOSURE_PLAN.md"
+    ).read_text(encoding="utf-8")
+    t_gov_4_entry = _required_markdown_section(
+        remediation_ledger,
+        "### T-GOV-4: Land the revised AGENTS.md",
+        "\n### T-GOV-5:",
+    )
+    project_identity = _required_markdown_section(
+        agent_policy,
+        "<project_identity>",
+        "\n</project_identity>",
+    )
+    known_antipatterns = _required_markdown_section(
+        agent_policy,
+        "<known_antipatterns>",
+        "\n</known_antipatterns>",
+    )
+
+    assert _remediation_task_states(remediation_ledger, "T-GOV-4") == ["Complete"]
+    assert "status: complete and verified 2026-07-24" in t_gov_4_entry
+    assert t_gov_4_entry.count("- status:") == 1
+    assert "commit `453c386` changed only `AGENTS.md`" in t_gov_4_entry
+    assert "carry [transition] markers" not in t_gov_4_entry
+    assert "`artifact_readiness: complete`" in implementation_plan
+
+    assert "<known_antipatterns>" in agent_policy
+    assert "<security_sensitive_paths>" in agent_policy
+    assert "authoritative CI verification is the full test suite" in agent_policy
+    assert "Both jobs are mandatory under the active" in agent_policy
+    assert "File-set enumerations" in agent_policy
+    assert "the CI full-suite and frontend jobs are delivered by remediation" not in agent_policy
+    assert "effective when the frontend test runner lands" not in agent_policy
+    assert "docs/TESTING.md" not in agent_policy
+    assert "docs/TESTING.MD" in project_identity
+    assert "docs/TESTING.MD" in known_antipatterns
+
+
 def test_test_patch_point_adr_boundary_uses_the_next_decision_heading():
     architecture_decisions = """
 ## 2026-07-24: Test patch points are not a public API

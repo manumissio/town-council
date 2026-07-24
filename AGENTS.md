@@ -3,7 +3,7 @@
 This file is the AI collaboration contract for this repository.
 
 <project_identity>
-Town Council is a local-first civic data platform for crawling, extracting, indexing, and analyzing local government meeting records. Treat `README.md`, `ARCHITECTURE.md`, `SECURITY.md`, `docs/OPERATIONS.md`, `docs/PERFORMANCE.md`, `docs/ENGINEERING_GUARDRAILS.md`, `docs/TESTING.md`, `docs/DATA_GOVERNANCE.md`, and `ROADMAP.md` as canonical references.
+Town Council is a local-first civic data platform for crawling, extracting, indexing, and analyzing local government meeting records. Treat `README.md`, `ARCHITECTURE.md`, `SECURITY.md`, `docs/OPERATIONS.md`, `docs/PERFORMANCE.md`, `docs/ENGINEERING_GUARDRAILS.md`, `docs/TESTING.MD`, `docs/DATA_GOVERNANCE.md`, and `ROADMAP.md` as canonical references.
 
 Keep this file focused on repo-applicable operating policy: project constraints, commands, verification, quality rules, and reporting expectations. Do not use it for agent persona, chat-style output templates, session notes, or implementation logs.
 </project_identity>
@@ -43,7 +43,7 @@ authorizes their removal.
 - Test-seam re-exports: `from module import name as name` blocks or facade
   wrapper functions whose only purpose is to preserve historical monkeypatch
   targets. If a test breaks because a symbol moved, repoint the test at the
-  implementation module instead (`docs/TESTING.md`).
+  implementation module instead (`docs/TESTING.MD`).
 - Patchability parameters: adding injectable-callable parameters to a
   function signature so tests can substitute internals. Fake at approved
   boundaries (DB session factory, Celery dispatch, inference provider,
