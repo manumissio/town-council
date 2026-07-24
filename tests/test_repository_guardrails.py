@@ -2114,7 +2114,7 @@ G3_CONTROLLED_WORK_TAIL_PATTERN = (
     rf"\b(?:are|is|remain(?:s)?|was|were)\s+{G3_DEFERRAL_ACTION_PATTERN}\b)"
 )
 G3_REMOVAL_FIRST_WORK_PATTERN = (
-    rf"(?:(?:removal|deletion)\s+of\s+"
+    rf"(?:(?:cleanup|deletion|removal)\s+of\s+"
     rf"(?:{G3_REMOVAL_OBJECT_MODIFIER_PATTERN}\s+){{0,3}}"
     rf"{G3_REMOVAL_OBJECT_PATTERN}|"
     rf"(?:remov|delet)(?:e|es|ed|ing)\s+"
@@ -2694,6 +2694,7 @@ def test_g3_deferral_scan_groups_wrapped_comment_blocks(tmp_path: Path):
         "# Until G3 lands, do not remove this facade documentation.",
         "# G3 defers deleting the test seam status.",
         "# G3 is not a blocker for facade removal.",
+        "# G3 blocks cleanup of the facade documentation.",
     ),
 )
 def test_g3_deferral_scan_allows_non_deferral_policy(accepted_policy: str):
@@ -2749,6 +2750,7 @@ def test_g3_deferral_scan_allows_non_deferral_policy(accepted_policy: str):
         "# G3 defers removing the facade.",
         "# Until G3 lands, do not remove this facade.",
         "# G3 is a blocker for facade removal.",
+        "# G3 blocks cleanup of the facade.",
     ),
 )
 def test_g3_deferral_scan_detects_positive_policy_after_other_negation(
