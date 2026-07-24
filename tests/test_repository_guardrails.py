@@ -2109,8 +2109,12 @@ G3_REMOVAL_OBJECT_PATTERN = (
     r"(?:test(?:-only|\s+only)?\s+)?patch\s+(?:points?|targets?))"
 )
 G3_REMOVAL_OBJECT_MODIFIER_PATTERN = r"(?:a|an|existing|legacy|temporary|that|the|this)"
+G3_ORDERED_PREREQUISITE_ACTION_PATTERN = (
+    r"(?:must\s+land\s+before|must\s+wait\s+(?:for|until))"
+)
 G3_CONTROLLED_WORK_TAIL_PATTERN = (
     r"(?:$|\b(?:because|pending|unless|until|while)\b|"
+    rf"\b{G3_ORDERED_PREREQUISITE_ACTION_PATTERN}\b|"
     rf"\b(?:are|is|remain(?:s)?|was|were)\s+{G3_DEFERRAL_ACTION_PATTERN}\b)"
 )
 G3_REMOVAL_FIRST_WORK_PATTERN = (
@@ -2131,6 +2135,11 @@ G3_DIRECT_DEFERRED_WORK_PATTERN = (
 G3_DEFERRED_WORK = re.compile(
     rf"(?:{G3_DIRECT_DEFERRED_WORK_PATTERN}|deduplicat\w*|de-fac\w*|"
     rf"{G3_REMOVAL_FIRST_WORK_PATTERN})",
+    re.IGNORECASE,
+)
+G3_ORDERED_PREREQUISITE_POLICY = re.compile(
+    rf"(?:\bG3\b\s+must\s+land\s+before\s+{G3_DEFERRED_WORK.pattern}|"
+    rf"{G3_DEFERRED_WORK.pattern}\s+must\s+wait\s+(?:for|until)\s+\bG3\b)",
     re.IGNORECASE,
 )
 G3_NEGATION_GAP = (
@@ -2311,6 +2320,7 @@ def _g3_clause_defers_work(policy_clause: str) -> bool:
                 G3_PREREQUISITE_POLICY.search(policy_clause)
                 and not G3_NEGATED_PREREQUISITE_POLICY.search(policy_clause)
             )
+            or G3_ORDERED_PREREQUISITE_POLICY.search(policy_clause)
         )
     )
 
@@ -2696,6 +2706,11 @@ def test_g3_deferral_scan_groups_wrapped_comment_blocks(tmp_path: Path):
         "# G3 is not a blocker for facade removal.",
         "# G3 blocks cleanup of the facade documentation.",
         "# G3 is satisfied. T-SEC-4 blocks facade removal until its work lands.",
+        "# G3 need not land before facade removal.",
+        "# Facade removal must not wait for G3.",
+        "# Facade removal must land before G3.",
+        "# G3 must wait for facade removal.",
+        "# G3 is satisfied; T-SEC-4 must land before facade removal.",
     ),
 )
 def test_g3_deferral_scan_allows_non_deferral_policy(accepted_policy: str):
@@ -2752,6 +2767,8 @@ def test_g3_deferral_scan_allows_non_deferral_policy(accepted_policy: str):
         "# Until G3 lands, do not remove this facade.",
         "# G3 is a blocker for facade removal.",
         "# G3 blocks cleanup of the facade.",
+        "# G3 must land before facade removal.",
+        "# Facade removal must wait for G3.",
     ),
 )
 def test_g3_deferral_scan_detects_positive_policy_after_other_negation(
