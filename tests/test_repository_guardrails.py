@@ -2713,8 +2713,14 @@ def _comment_block_defers_g3(comment_block: str) -> bool:
         )
         if sentence_has_g3:
             has_g3_context = bool(
-                G3_UNRESOLVED_POLICY.search(policy_sentence)
-                or G3_PENDING_PREREQUISITE_POLICY.search(policy_sentence)
+                not G3_NONASSERTIVE_POLICY_CONTEXT.search(policy_sentence)
+                and not G3_HISTORICAL_POLICY_CONTEXT.search(policy_sentence)
+                and (
+                    G3_UNRESOLVED_POLICY.search(policy_sentence)
+                    or G3_PENDING_PREREQUISITE_POLICY.search(policy_sentence)
+                    or G3_TEMPORAL_REFERENCE_POLICY.search(policy_sentence)
+                    or G3_BEFORE_REFERENCE_POLICY.search(policy_sentence)
+                )
             )
         elif sentence_has_other_task:
             has_g3_context = False
@@ -3122,6 +3128,8 @@ def test_g3_deferral_scan_groups_wrapped_comment_blocks(tmp_path: Path):
         "# Historically, G3 means the facade cannot be removed.",
         "# Does G3 mean the facade cannot be removed?",
         "# G3 means the facade cannot be removed?",
+        "# Until G3 lands? Keep the test facade.",
+        "# Historically, before G3 landed. Keep the test facade.",
         "# G3 preserves the HTTP response wrapper.",
         "# G3 blocks removal of the crawler request wrapper.",
         "# G3 preserves the public API re-export.",
@@ -3279,6 +3287,7 @@ def test_g3_deferral_scan_allows_non_deferral_policy(accepted_policy: str):
         "# G3 preserves synchronized globals.",
         "# G3 delays removal of injectable callables.",
         "# G3 must land. Facade removal remains blocked until then.",
+        "# Until G3 lands. Keep the test facade.",
         "# Do not remove the test facade before G3 is accepted.",
         "# The test facade cannot be removed until G3 lands.",
         "# The test facade stays until G3 lands.",
