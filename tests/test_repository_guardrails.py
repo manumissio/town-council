@@ -2096,7 +2096,8 @@ def _python_comment_blocks(source_path: Path) -> list[tuple[int, str]]:
 
 G3_REFERENCE = re.compile(r"\bG3\b", re.IGNORECASE)
 G3_DEFERRAL_ACTION_PATTERN = (
-    r"(?:defer(?:s|red|ring)?|block(?:s|ed|ing)?|preserv(?:e|es|ed|ing))"
+    r"(?:defer(?:s|red|ring)?|block(?:s|ed|ing)?|preserv(?:e|es|ed|ing)|"
+    r"prevent(?:s|ed|ing)?|retain(?:s|ed)?|retaining)"
 )
 G3_DEFERRAL_ACTION = re.compile(
     rf"\b{G3_DEFERRAL_ACTION_PATTERN}\b",
@@ -2123,7 +2124,7 @@ G3_NEGATED_DEFERRAL_ACTION = re.compile(
 )
 G3_POLICY_SENTENCE_BOUNDARY = re.compile(r"\.(?=\s|$)")
 G3_POLICY_CLAUSE_BOUNDARY = re.compile(
-    r"(;|,|\b(?:and|but|however|while|yet)\b)",
+    r"(;|,|\b(?:and|but|however|while|yet|so|therefore|thus|hence|then)\b)",
     re.IGNORECASE,
 )
 G3_NOUN_ACTION_CONTINUATION = re.compile(
@@ -2131,6 +2132,14 @@ G3_NOUN_ACTION_CONTINUATION = re.compile(
     re.IGNORECASE,
 )
 G3_BLOCKER_POLICY = re.compile(r"\bG3\b\s+remains\s+a\s+blocker\b", re.IGNORECASE)
+G3_PREREQUISITE_POLICY = re.compile(
+    r"\bG3\b.{0,40}\b(?:is|remains)\s+(?:a\s+)?prerequisite\b",
+    re.IGNORECASE,
+)
+G3_NEGATED_PREREQUISITE_POLICY = re.compile(
+    r"\bG3\b.{0,40}\b(?:no\s+longer|not|never)\b.{0,30}\bprerequisite\b",
+    re.IGNORECASE,
+)
 
 
 def _positive_g3_deferral_action(policy_clause: str) -> str | None:
@@ -2170,6 +2179,10 @@ def _g3_clause_defers_work(policy_clause: str) -> bool:
         and (
             _positive_g3_deferral_action(policy_clause)
             or G3_BLOCKER_POLICY.search(policy_clause)
+            or (
+                G3_PREREQUISITE_POLICY.search(policy_clause)
+                and not G3_NEGATED_PREREQUISITE_POLICY.search(policy_clause)
+            )
         )
     )
 
@@ -2181,7 +2194,7 @@ def _g3_sentence_defers_work(policy_sentence: str) -> bool:
     policy_parts = G3_POLICY_CLAUSE_BOUNDARY.split(policy_sentence)
     for part_index in range(0, len(policy_parts), 2):
         policy_clause = policy_parts[part_index]
-        if preceding_boundary in {",", ";", "but", "however", "while", "yet"}:
+        if preceding_boundary and preceding_boundary != "and":
             inherited_deferral_action = None
         clause_has_g3 = bool(G3_REFERENCE.search(policy_clause))
         if clause_has_g3:
@@ -2490,6 +2503,9 @@ def test_g3_deferral_scan_groups_wrapped_comment_blocks(tmp_path: Path):
         "# G3 preserves facade runtime compatibility.",
         "# G3 blocks cache removal.",
         "# G3 blocks temporary-file removal.",
+        "# G3 no longer remains a prerequisite for facade removal.",
+        "# G3 no longer is a prerequisite for facade removal.",
+        "# G3 is no longer a prerequisite for facade removal.",
     ),
 )
 def test_g3_deferral_scan_allows_non_deferral_policy(accepted_policy: str):
@@ -2519,6 +2535,10 @@ def test_g3_deferral_scan_allows_non_deferral_policy(accepted_policy: str):
         "# G3 is still pending, so preserve the test facade.",
         "# G3 is unresolved, therefore block facade removal.",
         "# G3 remains a blocker for facade removal.",
+        "# G3 prevents facade removal.",
+        "# Until G3 is resolved, retain the test seam.",
+        "# G3 remains a prerequisite for facade removal.",
+        "# G3 is not resolved so remains a prerequisite for facade removal.",
     ),
 )
 def test_g3_deferral_scan_detects_positive_policy_after_other_negation(
