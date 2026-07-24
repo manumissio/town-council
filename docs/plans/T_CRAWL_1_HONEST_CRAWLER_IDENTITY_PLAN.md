@@ -65,10 +65,11 @@ is unresolved.
 No new function or module is introduced.
 
 **f) Reuse audit.** Extend the existing Scrapy settings module and crawler
-readme. The new test imports that settings module directly. No wrapper,
-settings registry, environment variable, custom middleware, or duplicate
-configuration is added. No existing runtime path is superseded beyond the
-single browser user-agent literal.
+readme. The new test uses Scrapy's existing settings CLI in a subprocess so it
+does not contaminate the package state used by older spider tests. No
+production wrapper, settings registry, environment variable, custom
+middleware, or duplicate configuration is added. No existing runtime path is
+superseded beyond the single browser user-agent literal.
 
 **g) Data contracts.** No item, API, database, task, or provider contract
 changes. The only outbound HTTP metadata change is the default `User-Agent`
@@ -142,9 +143,9 @@ setting line and concise comment cleanup.
 
 The new test is written and run red before changing `settings.py`.
 
-**s) Fakes and mocks.** None. The unit test imports checked-in settings, and
-the command smoke uses Scrapy's existing CLI boundary. No network request is
-made and no application symbol is patched.
+**s) Fakes and mocks.** None. The unit test uses the approved subprocess
+boundary and Scrapy's existing CLI. No network request is made and no
+application symbol is patched.
 
 **t) Verification rows.** Crawler politeness is not a named matrix row, so run
 Ruff, the new contract, existing crawler/spider tests, docs links, and the
@@ -223,7 +224,8 @@ Ruff, Mypy, focused crawler tests, docs links, complete-suite counts;
 independent-review findings; commits; PR URL; unresolved-thread count; and CI
 state. Mark anything unrun as `NOT VERIFIED`.
 
-**z) Deviations.** Expected deviation is none. Any additional file, crawler
-setting change beyond `USER_AGENT`, network crawl, skipped test, unresolved
-P1/P2, or unrun required check is a blocker.
-
+**z) Deviations.** The planned direct settings import was replaced with the
+Scrapy settings CLI after full-suite evidence showed that the direct import
+cached the outer namespace package and broke older spider imports. Any
+additional file, crawler setting change beyond `USER_AGENT`, network crawl,
+skipped test, unresolved P1/P2, or unrun required check is a blocker.
