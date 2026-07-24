@@ -3096,6 +3096,89 @@ def test_t_gov_4_agents_policy_is_complete():
     assert "docs/TESTING.MD" in known_antipatterns
 
 
+def test_t_gov_5_engineering_guardrails_is_complete():
+    guardrail_policy = (
+        ROOT / "docs" / "ENGINEERING_GUARDRAILS.md"
+    ).read_text(encoding="utf-8")
+    remediation_ledger = (
+        ROOT / "docs" / "plans" / "TOWN_COUNCIL_REMEDIATION_PLAN.md"
+    ).read_text(encoding="utf-8")
+    implementation_plan = (
+        ROOT / "docs" / "plans" / "T_GOV_5_ENGINEERING_GUARDRAILS_CLOSURE_PLAN.md"
+    ).read_text(encoding="utf-8")
+    ruff_config = tomllib.loads((ROOT / "ruff.toml").read_text(encoding="utf-8"))
+    t_gov_5_entry = _required_markdown_section(
+        remediation_ledger,
+        "### T-GOV-5: Land the rewritten ENGINEERING_GUARDRAILS.md",
+        "\n### T-GOV-6:",
+    )
+    structural_rules = _required_markdown_section(
+        guardrail_policy,
+        "## Structural rules `[transition: T-GOV-3]`",
+        "\n## Optional local dead-code and complexity audit",
+    )
+    exception_process = _required_markdown_section(
+        guardrail_policy,
+        "## How to request an exception",
+        "\n## Boundary exception handlers",
+    )
+    boundary_handlers = _required_markdown_section(
+        guardrail_policy,
+        "## Boundary exception handlers",
+        "\n## Flat re-raise contract",
+    )
+    flat_reraise_contract = _required_markdown_section(
+        guardrail_policy,
+        "## Flat re-raise contract",
+        "\n## Typed subtree",
+    )
+    python_path_pattern = re.compile(
+        r"(?<![\w./*?\[\]-])(?:[\w.*?\[\]-]+/)*[\w.*?\[\]-]+\.py\b"
+    )
+    python_path_references = python_path_pattern.findall(guardrail_policy)
+    python_path_globs = {
+        python_path
+        for python_path in python_path_references
+        if any(glob_marker in python_path for glob_marker in ("*", "?", "["))
+    }
+    python_path_enumerations = [
+        sorted(set(python_path_pattern.findall(markdown_section)))
+        for markdown_section in re.split(r"(?m)^## ", guardrail_policy)
+        if len(set(python_path_pattern.findall(markdown_section))) > 1
+    ]
+
+    assert _remediation_task_states(remediation_ledger, "T-GOV-5") == ["Complete"]
+    assert "status: complete and verified 2026-07-24" in t_gov_5_entry
+    assert t_gov_5_entry.count("- status:") == 1
+    assert "commit `c4a4a27` changed only `docs/ENGINEERING_GUARDRAILS.md`" in (
+        t_gov_5_entry
+    )
+    assert "original draft is unavailable for exact identity comparison" in (
+        t_gov_5_entry
+    )
+    assert "`artifact_readiness: complete`" in implementation_plan
+
+    assert "lands alongside remediation task T-GOV-3" not in guardrail_policy
+    assert "docs/TESTING.md" not in guardrail_policy
+    assert "docs/TESTING.MD" in guardrail_policy
+    assert "when adopted" not in structural_rules
+    assert "C901" in structural_rules
+    assert "configured repository scope" in structural_rules
+    assert "max-complexity = 10" in structural_rules
+    assert "C901" in ruff_config["lint"]["select"]
+    assert ruff_config["lint"]["mccabe"]["max-complexity"] == 10
+    assert "[transition: T-CI-4]" not in guardrail_policy
+    assert "Keep exceptions narrow and path-specific." in exception_process
+    assert "log with context and return a typed failure payload" in boundary_handlers
+    assert "must not contain conditional or loop flow" in flat_reraise_contract
+    assert re.search(
+        r"must not contain .*?`sys\.exit\(\)`\.",
+        flat_reraise_contract,
+    )
+    assert python_path_globs == set()
+    assert python_path_enumerations == []
+
+
 def test_test_patch_point_adr_boundary_uses_the_next_decision_heading():
     architecture_decisions = """
 ## 2026-07-24: Test patch points are not a public API

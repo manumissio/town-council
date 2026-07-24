@@ -1,7 +1,7 @@
 # T-GOV-5: Close the Engineering Guardrails Rewrite
 
 `artifact_contract: ce-unified-plan/v1`
-`artifact_readiness: implementation-ready`
+`artifact_readiness: complete`
 `execution: code`
 
 ## 1. Context & Alignment
@@ -150,9 +150,10 @@ focused policy test and this implementation plan.
 8. Boundary-handler, exception-process, or flat re-raise prose is deleted.
 9. `sys.exit()` becomes authorized inside unlisted broad handlers.
 10. A scope inventory is duplicated into prose instead of remaining in config.
-    The test splits the document into Markdown blocks and rejects any block
-    containing more than one distinct backticked `.py` path, while allowing an
-    isolated illustrative path or config-location reference.
+    The test extracts backticked and unbackticked Python path references,
+    rejects all Python glob paths, and rejects any Markdown section containing
+    more than one distinct Python path. Isolated config references and examples
+    remain allowed.
 11. Closure claims exact draft identity despite the original draft being
     unavailable.
 

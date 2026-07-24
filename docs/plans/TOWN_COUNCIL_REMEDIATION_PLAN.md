@@ -1,6 +1,6 @@
 # Town Council Remediation Plan (Codex Multi-Agent)
 
-version: 3.27
+version: 3.28
 generated: 2026-07-24
 source: Four-pass external code review (security, architecture, smells, process)
 source_artifact: [Town Council architecture review](../reviews/architecture-review-2026-07-19.html)
@@ -10,6 +10,10 @@ remains in force; where this plan is stricter, this plan wins for these tasks.
 
 ## Changelog
 
+- **v3.28:** Marks T-GOV-5 complete after independently verifying the landed
+  engineering guardrails rewrite, correcting three stale policy claims, and
+  adding a durable completion contract. Exact identity with the unavailable
+  original draft remains unverified.
 - **v3.27:** Activates T-GOV-5 closure for the rewritten engineering
   guardrails policy. Expands ownership to its Full plan, durable completion
   guardrail, and ledger state while preserving the pending T-GOV-3 structural
@@ -151,8 +155,7 @@ remains in force; where this plan is stricter, this plan wins for these tasks.
 
 | State | Tasks |
 |---|---|
-| **Complete** | T-CI-0, T-CI-1, T-CI-1A, T-CI-2, T-CI-2A, T-CI-3, T-CI-4, T-CI-5, T-SEC-1, T-SEC-2, T-SEC-3, T-SEC-3C, T-SEC-4, T-SEC-4A, T-SEC-5, T-SEC-6, T-TIME-3, T-CRAWL-1, T-CRAWL-2, T-PLAT-2A, T-GOV-1, T-GOV-4 |
-| **In progress** | T-GOV-5 |
+| **Complete** | T-CI-0, T-CI-1, T-CI-1A, T-CI-2, T-CI-2A, T-CI-3, T-CI-4, T-CI-5, T-SEC-1, T-SEC-2, T-SEC-3, T-SEC-3C, T-SEC-4, T-SEC-4A, T-SEC-5, T-SEC-6, T-TIME-3, T-CRAWL-1, T-CRAWL-2, T-PLAT-2A, T-GOV-1, T-GOV-4, T-GOV-5 |
 | **Partially landed; acceptance incomplete** | T-GOV-6 |
 | **Pending** | T-TIME-1..2, T-DA-1, T-DB-1, T-DC-1, T-DD-1, T-DE-1, T-PLAT-1, T-PLAT-2, T-PLAT-3, T-PLAT-4, T-GOV-2..3 |
 
@@ -1015,7 +1018,7 @@ files (GED-5 grant).
 
 ### T-GOV-5: Land the rewritten ENGINEERING_GUARDRAILS.md
 - priority: P1
-- status: in progress
+- status: complete and verified 2026-07-24
 - implementation_plan:
   `docs/plans/T_GOV_5_ENGINEERING_GUARDRAILS_CLOSURE_PLAN.md`
 - depends_on: T-CI-4 (formatter scope in ruff-format.toml); coordinates with
@@ -1027,6 +1030,10 @@ files (GED-5 grant).
 - coordination: T-CI-0's narrow broad-handler structural-policy correction lands
   first. T-GOV-5 must carry the corrected policy into the rewritten document and
   must not restore final-statement or `sys.exit()` authorization.
+- landed_evidence: commit `c4a4a27` changed only
+  `docs/ENGINEERING_GUARDRAILS.md`. The original draft is unavailable for
+  exact identity comparison; current acceptance was independently verified
+  after T-CI-4 completed.
 - do: Close the rewrite that landed in historical commit `c4a4a27` after
   independently verifying current acceptance. Record that the original draft
   is unavailable for exact identity comparison and that the rewrite landed
