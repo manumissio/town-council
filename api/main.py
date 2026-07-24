@@ -23,6 +23,7 @@ from api.lineage_routes import build_lineage_router
 from api.people_routes import build_people_router
 from api.reporting_routes import IssueReport as IssueReport
 from api.reporting_routes import build_reporting_router
+from api.search import support_core as search_support_core
 from api.search_routes import (
     MEILI_HOST as MEILI_HOST,
     MEILI_MASTER_KEY as MEILI_MASTER_KEY,
@@ -182,7 +183,7 @@ allowed_origins = os.getenv("ALLOWED_ORIGINS", "http://localhost:3000").split(",
 app.add_middleware(
     CORSMiddleware,
     allow_origins=allowed_origins,
-    allow_credentials=True,
+    allow_credentials=False,
     allow_methods=["GET", "POST", "OPTIONS"],
     allow_headers=["Content-Type", "Authorization", "X-API-Key"],
 )
@@ -240,7 +241,8 @@ def get_stats():
     Returns basic statistics about the search index.
     """
     try:
-        return client.index('documents').get_stats()
+        search_stats = search_support_core.client.index("documents").get_stats()
+        return {"number_of_documents": search_stats.number_of_documents}
     except Exception as e:
         logger.error(f"Stats check failed: {e}")
         raise HTTPException(status_code=503, detail="Search engine unreachable")

@@ -237,6 +237,15 @@ suppression, new seams, unrelated formatting, or edits outside ownership.
 counts, ratchet old/new values, independent reviews, commits, PR, review
 threads, and final CI. Mark anything unrun `NOT VERIFIED`.
 
+Implementation-head evidence: the tests-first command produced 5 expected
+failures and 1 passing 503 test. After implementation, the same six tests
+passed. Ruff passed; Mypy passed 68 files; API/reader-key tests passed 69;
+guardrail/docs tests passed 388; telemetry/topic/query tests passed 46; the
+complete Python suite passed 1,476 tests. Pre-commit review found one P2 in
+the S105 explanation ratchet; the test now requires each exact explanation,
+and rereview found no remaining P1/P2. PR CI and post-merge closure remain
+`NOT VERIFIED`.
+
 **z) Deviations.** Expected: ownership expands from four to eleven files;
 `/stats` remains public under G2 but is minimized; ten current S105 false
 positives become line-level explanations. Any other response, secret, CORS,

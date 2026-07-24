@@ -229,7 +229,7 @@ def test_api_stats_uses_scoped_reader_key() -> None:
             [
                 sys.executable,
                 "-c",
-                "from api import main; print(main.get_stats().number_of_documents)",
+                "import json; from api import main; print(json.dumps(main.get_stats(), sort_keys=True))",
             ],
             check=True,
             capture_output=True,
@@ -243,7 +243,7 @@ def test_api_stats_uses_scoped_reader_key() -> None:
         server_thread.join(timeout=5)
 
     assert not server_thread.is_alive()
-    assert completed_process.stdout.strip() == "1"
+    assert completed_process.stdout.strip() == '{"number_of_documents": 1}'
     assert authorization_headers == [f"Bearer {SCOPED_SEARCH_KEY}"]
     assert request_paths == ["/indexes/documents/stats"]
 
