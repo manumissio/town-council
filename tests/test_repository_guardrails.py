@@ -2126,13 +2126,19 @@ def test_g2_visitor_access_policy_is_aligned_between_security_and_remediation_le
     pending_tasks = {task.strip() for task in pending_row.split("|")[2].split(",")}
 
     assert "Decision G2, approved 2026-07-24" in frontend_api_boundary
+    assert (
+        "summarize, segment, extract, and topic-generation actions"
+        in frontend_api_boundary
+    )
     assert "public Next.js proxy" in frontend_api_boundary
     assert (
-        "Direct calls to these protected AI mutation endpoints still require `X-API-Key`"
+        "Direct calls to protected AI mutation endpoints, including vote extraction, still require "
+        "`X-API-Key`"
         in frontend_api_boundary
     )
     assert "public read and task-status routes remain public" in frontend_api_boundary
     assert "**Approved 2026-07-24.**" in g2_entry
+    assert "(summarize/segment/extract/topics)" in g2_entry
     assert "public Next.js proxy" in g2_entry
     assert "T-SEC-4 is authorized" in g2_entry
     assert "operator-only proxy authentication is not approved" in g2_entry

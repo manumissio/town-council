@@ -10,10 +10,10 @@ remains in force; where this plan is stricter, this plan wins for these tasks.
 
 ## Changelog
 
-- **v3.16:** Records the operator-approved G2 policy: account-free AI actions
-  remain available through the public Next.js proxy, direct calls to protected
-  AI mutation endpoints remain key-protected, and T-SEC-4 owns the pending
-  per-client limiting control.
+- **v3.16:** Records the operator-approved G2 policy: account-free summarize,
+  segment, extract, and topic-generation actions remain available through the
+  public Next.js proxy, direct calls to protected AI mutation endpoints remain
+  key-protected, and T-SEC-4 owns the pending per-client limiting control.
 - **v3.15:** Activates T-SEC-4A to record the operator-approved G2
   visitor-access policy independently from T-SEC-5 closure and T-SEC-4
   runtime implementation.

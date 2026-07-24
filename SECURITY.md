@@ -39,15 +39,16 @@ engineering decisions is `reachable`).
    (`frontend/app/api/_lib/backend.js`). Consequence: the API key does NOT
    authenticate end users; it only authenticates the frontend deployment.
    Every proxied route is effectively public. Decision G2, approved 2026-07-24,
-   keeps AI task endpoints available to visitors through the public Next.js
-   proxy. Direct calls to these protected AI mutation endpoints still require
-   `X-API-Key`; public read and task-status routes remain public. Town Council
-   intentionally provides civic record analysis without end-user accounts.
-   Adding operator authentication would change that access model. Per-client
-   rate limits are therefore the approved abuse control and depend on
-   forwarding real client identity `[remediation: T-SEC-4]`. Any future
-   "operator only" action would require a new policy decision and proxy
-   authentication, not just the deployment key.
+   keeps summarize, segment, extract, and topic-generation actions available to
+   visitors through the public Next.js proxy. Direct calls to protected AI
+   mutation endpoints, including vote extraction, still require `X-API-Key`;
+   public read and task-status routes remain public. Town Council intentionally
+   provides civic record analysis without end-user accounts. Adding operator
+   authentication would change that access model. Per-client rate limits are
+   therefore the approved abuse control and depend on forwarding real client
+   identity `[remediation: T-SEC-4]`. Any future "operator only" action would
+   require a new policy decision and proxy authentication, not just the
+   deployment key.
 3. API and semantic service -> backing stores (Postgres, Redis, Meilisearch,
    inference): compose
    network only. No host port publication in the base compose file
@@ -113,13 +114,13 @@ Record deliberate acceptances here with rationale and revisit date, per the
 `AGENTS.md` status-reporting contract (old value, new value, rationale).
 
 - **Visitor-accessible AI actions before T-SEC-4.** G2 preserves account-free
-  public access to civic record analysis through the Next.js proxy. Until
-  trusted client identity reaches the API limiter, visitors can share a rate
-  bucket and unauthenticated proxy callers can consume shared inference
-  capacity. Direct calls to protected AI mutation endpoints remain API-key
-  protected. T-SEC-5 reduces cross-site browser abuse but does not authenticate
-  proxy callers. Revisit when T-SEC-4 merges or by 2026-08-31, whichever comes
-  first.
+  public access to summarize, segment, extract, and topic-generation actions
+  through the Next.js proxy. Until trusted client identity reaches the API
+  limiter, visitors can share a rate bucket and unauthenticated proxy callers
+  can consume shared inference capacity. Direct calls to protected AI mutation
+  endpoints remain API-key protected. T-SEC-5 reduces cross-site browser abuse
+  but does not authenticate proxy callers. Revisit when T-SEC-4 merges or by
+  2026-08-31, whichever comes first.
 
 ## Dependency and supply chain
 

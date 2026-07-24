@@ -39,9 +39,10 @@ owned files:
 T-SEC-4 retains exclusive ownership of its runtime implementation files.
 
 **d) Decision-gate check.** G2 was approved by the operator on 2026-07-24:
-AI task endpoints remain available to any visitor with per-client rate limits;
-operator-only authentication is not approved. No further operator decision is
-required. G1, G3, G4, and G5 are unaffected.
+the proxied summarize, segment, extract, and topic-generation actions remain
+available to any visitor with per-client rate limits; operator-only
+authentication is not approved. Vote extraction is not visitor-proxied. No
+further operator decision is required. G1, G3, G4, and G5 are unaffected.
 
 ## 2. Design
 
@@ -52,9 +53,11 @@ required. G1, G3, G4, and G5 are unaffected.
 3. Add two failing policy-alignment tests and record the red result.
 4. Record G2 as approved in the remediation ledger, including its rationale.
 5. Update the `SECURITY.md` frontend-to-API boundary:
-   - AI task endpoints remain visitor-accessible through the public proxy.
-   - Direct calls to protected AI mutation endpoints still require the
-     deployment API key; public read and task-status routes remain public.
+   - Summarize, segment, extract, and topic-generation actions remain
+     visitor-accessible through the public proxy.
+   - Direct calls to protected AI mutation endpoints, including vote
+     extraction, still require the deployment API key; public read and
+     task-status routes remain public.
    - The frontend API key authenticates the deployment, not proxy visitors.
    - Per-client limiting is the approved abuse control.
    - Operator-only proxy authentication is not approved.
@@ -77,11 +80,12 @@ duplicate security-policy source.
 **g) Contracts.**
 
 - Old policy: G2 is open and visitor access is only a default assumption.
-- New policy: AI task endpoints remain visitor-accessible through the public
-  Next.js proxy; direct calls to protected AI mutation endpoints still require
-  the deployment API key; public read and task-status routes remain public;
-  per-client limiting is the selected abuse control; operator-only proxy
-  authentication is not approved.
+- New policy: summarize, segment, extract, and topic-generation actions remain
+  visitor-accessible through the public Next.js proxy; vote extraction is not
+  visitor-proxied; direct calls to protected AI mutation endpoints still
+  require the deployment API key; public read and task-status routes remain
+  public; per-client limiting is the selected abuse control; operator-only
+  proxy authentication is not approved.
 - Remaining deficit: T-SEC-4 has not yet delivered trusted client identity or
   independent rate buckets.
 
