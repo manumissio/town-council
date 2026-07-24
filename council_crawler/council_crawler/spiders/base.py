@@ -13,6 +13,7 @@ from sqlalchemy.orm import sessionmaker
 # Add project root to path for pipeline imports
 # This ensures we can find the 'pipeline' folder even when running from inside 'council_crawler'
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '../../..')))
+from pipeline.model_runtime import DATABASE_URL_MISSING_ERROR
 from pipeline.models import db_connect, Event as EventModel
 from council_crawler.items import Event
 from council_crawler.utils import parse_date_string, url_to_md5
@@ -95,7 +96,15 @@ class BaseCitySpider(scrapy.Spider):
         session = None
         try:
             # Connect to the database
-            engine = db_connect()
+            try:
+                engine = db_connect()
+            except RuntimeError as exc:
+                if exc.args != (DATABASE_URL_MISSING_ERROR,):
+                    raise
+                self.logger.warning(
+                    f"Database connection check skipped ({exc}). Running full crawl."
+                )
+                return None
             Session = sessionmaker(bind=engine)
             session = Session()
 

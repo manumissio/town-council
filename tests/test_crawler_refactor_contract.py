@@ -21,6 +21,7 @@ from council_crawler.spiders.ca_belmont import Belmont
 from council_crawler.spiders.ca_fremont import Fremont
 from council_crawler.spiders.ca_moraga import Moraga
 from council_crawler.utils import url_to_md5
+from pipeline.model_runtime import DATABASE_URL_MISSING_ERROR
 
 
 def _response(url: str, body: str) -> HtmlResponse:
@@ -71,6 +72,16 @@ def test_archive_spiders_define_scrapy_2_16_start_contract(
     [request] = asyncio.run(_collect_start_requests(spider))
     assert request.url == expected_url
     assert request.callback == spider.parse_archive
+
+
+def test_archive_spider_without_database_url_runs_full_crawl(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.delenv("DATABASE_URL", raising=False)
+
+    spider = Belmont()
+
+    assert spider.last_meeting_date is None
 
 
 def test_belmont_archive_event_contract(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -207,6 +218,39 @@ def test_base_spider_propagates_unexpected_database_check_error(
     monkeypatch.setattr(spider_base, "db_connect", fail_database_connection)
 
     with pytest.raises(ValueError, match="programming defect"):
+        _DatabaseProbeSpider()
+
+
+def test_base_spider_propagates_unexpected_runtime_error(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    def fail_database_connection() -> None:
+        raise RuntimeError("unexpected runtime failure")
+
+    monkeypatch.setattr(spider_base, "db_connect", fail_database_connection)
+
+    with pytest.raises(RuntimeError, match="unexpected runtime failure"):
+        _DatabaseProbeSpider()
+
+
+def test_base_spider_propagates_missing_url_message_after_connection(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    class RuntimeFailureSession:
+        def query(self, *_entities: object) -> None:
+            raise RuntimeError(DATABASE_URL_MISSING_ERROR)
+
+        def close(self) -> None:
+            return None
+
+    monkeypatch.setattr(spider_base, "db_connect", lambda: object())
+    monkeypatch.setattr(
+        spider_base,
+        "sessionmaker",
+        lambda **_kwargs: RuntimeFailureSession,
+    )
+
+    with pytest.raises(RuntimeError, match="DATABASE_URL is not set"):
         _DatabaseProbeSpider()
 
 
