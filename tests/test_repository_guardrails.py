@@ -2246,12 +2246,20 @@ G3_TEMPORAL_REFERENCE_POLICY = re.compile(
     r"\bG3\b.*\b(?:pending|unless|until|while)\b)",
     re.IGNORECASE,
 )
-G3_NEGATED_REMOVAL_DIRECTIVE = re.compile(
+G3_NEGATED_REMOVAL_DIRECTIVE_PATTERN = (
     r"\b(?:cannot|can't|do\s+not|don't|never)\s+"
     rf"(?:remov|delet)(?:e|es|ed|ing)\s+"
     rf"(?:{G3_REMOVAL_OBJECT_MODIFIER_PATTERN}\s+){{0,3}}"
     rf"{G3_REMOVAL_OBJECT_PATTERN}"
+)
+G3_NEGATED_REMOVAL_DIRECTIVE = re.compile(
+    rf"{G3_NEGATED_REMOVAL_DIRECTIVE_PATTERN}"
     rf"(?=\s*{G3_CONTROLLED_WORK_TAIL_PATTERN})",
+    re.IGNORECASE,
+)
+G3_BEFORE_REMOVAL_DIRECTIVE_POLICY = re.compile(
+    rf"(?:{G3_NEGATED_REMOVAL_DIRECTIVE_PATTERN}\s+before\s+\bG3\b|"
+    rf"\bbefore\s+\bG3\b.{{0,80}}{G3_NEGATED_REMOVAL_DIRECTIVE_PATTERN})",
     re.IGNORECASE,
 )
 G3_POLICY_SENTENCE_BOUNDARY = re.compile(r"\.(?=\s|$)")
@@ -2369,6 +2377,8 @@ def _g3_clause_defers_work(policy_clause: str) -> bool:
 
 
 def _g3_sentence_defers_work(policy_sentence: str) -> bool:
+    if G3_BEFORE_REMOVAL_DIRECTIVE_POLICY.search(policy_sentence):
+        return True
     if G3_TEMPORAL_REFERENCE_POLICY.search(
         policy_sentence
     ) and G3_NEGATED_REMOVAL_DIRECTIVE.search(policy_sentence):
@@ -2788,6 +2798,8 @@ def test_g3_deferral_scan_groups_wrapped_comment_blocks(tmp_path: Path):
         "# G3 must land for audit documentation. T-SEC-4 blocks facade removal until its work lands.",
         "# G3 must land. T-SEC-4 blocks facade removal until its work lands.",
         "# G3 must land. T-SEC-4 blocks migration until its work lands. Facade removal remains blocked until then.",
+        "# Do not remove the test facade before T-SEC-4 lands; G3 is accepted.",
+        "# G3 is accepted; do not remove the test facade before T-SEC-4 lands.",
     ),
 )
 def test_g3_deferral_scan_allows_non_deferral_policy(accepted_policy: str):
@@ -2861,6 +2873,7 @@ def test_g3_deferral_scan_allows_non_deferral_policy(accepted_policy: str):
         "# G3 preserves synchronized globals.",
         "# G3 delays removal of injectable callables.",
         "# G3 must land. Facade removal remains blocked until then.",
+        "# Do not remove the test facade before G3 is accepted.",
     ),
 )
 def test_g3_deferral_scan_detects_positive_policy_after_other_negation(
