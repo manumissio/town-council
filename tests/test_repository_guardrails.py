@@ -2112,9 +2112,23 @@ G3_REMOVAL_OBJECT_MODIFIER_PATTERN = r"(?:a|an|existing|legacy|temporary|that|th
 G3_ORDERED_PREREQUISITE_ACTION_PATTERN = (
     r"(?:must\s+land\s+before|must\s+wait\s+(?:for|until))"
 )
+G3_PROHIBITION_ACTION_PATTERN = (
+    r"(?:prohibit(?:s|ed|ing)?|forbid(?:s|ding)?|forbade|forbidden)"
+)
+G3_PASSIVE_PROHIBITION_ACTION_PATTERN = r"(?:prohibited|forbidden)"
+G3_PROHIBITION_EMPHASIS_PATTERN = r"(?:(?:[a-z]+ly|still)\s+){0,2}"
+G3_PROHIBITION_REJECTION_PATTERN = (
+    rf"(?:(?:are|is|was|were)\s+{G3_PROHIBITION_EMPHASIS_PATTERN}"
+    rf"{G3_PASSIVE_PROHIBITION_ACTION_PATTERN}\s+from|"
+    rf"{G3_PROHIBITION_EMPHASIS_PATTERN}{G3_PROHIBITION_ACTION_PATTERN}"
+    rf"(?:(?:\s+[a-z0-9-]+){{0,4}}\s+from)?)"
+)
 G3_CONTROLLED_WORK_TAIL_PATTERN = (
     r"(?:$|\b(?:because|pending|unless|until|while)\b|"
     rf"\b{G3_ORDERED_PREREQUISITE_ACTION_PATTERN}\b|"
+    rf"\b(?:are|is|remain(?:s)?|was|were)\s+"
+    rf"{G3_PROHIBITION_EMPHASIS_PATTERN}"
+    rf"{G3_PASSIVE_PROHIBITION_ACTION_PATTERN}\s+by\s+\bG3\b|"
     rf"\b(?:are|is|remain(?:s)?|was|were)\s+{G3_DEFERRAL_ACTION_PATTERN}\b)"
 )
 G3_REMOVAL_FIRST_WORK_PATTERN = (
@@ -2142,6 +2156,16 @@ G3_ORDERED_PREREQUISITE_POLICY = re.compile(
     rf"{G3_DEFERRED_WORK.pattern}\s+must\s+wait\s+(?:for|until)\s+\bG3\b)",
     re.IGNORECASE,
 )
+G3_PROHIBITION_POLICY = re.compile(
+    rf"(?:\bG3\b\s+{G3_PROHIBITION_EMPHASIS_PATTERN}"
+    rf"{G3_PROHIBITION_ACTION_PATTERN}\s+(?:(?:a|an|the)\s+)?"
+    rf"{G3_DEFERRED_WORK.pattern}|"
+    rf"{G3_DEFERRED_WORK.pattern}\s+"
+    rf"(?:are|is|remain(?:s)?|was|were)\s+"
+    rf"{G3_PROHIBITION_EMPHASIS_PATTERN}"
+    rf"{G3_PASSIVE_PROHIBITION_ACTION_PATTERN}\s+by\s+\bG3\b)",
+    re.IGNORECASE,
+)
 G3_NEGATION_GAP = (
     r"(?:\s+(?!(?:so|therefore|thus|hence|then)\b)[a-z][\w'-]*){0,4}"
 )
@@ -2160,6 +2184,11 @@ G3_NEGATED_DEFERRAL_ACTION = re.compile(
 G3_NEGATED_SUBJECT_DEFERRAL_ACTION = re.compile(
     rf"\bnone\s+of\s+(?:the\s+)?{G3_DEFERRED_WORK.pattern}\s+"
     rf"(?:are|is|remain(?:s)?|was|were)\s+{G3_DEFERRAL_ACTION_PATTERN}\b",
+    re.IGNORECASE,
+)
+G3_PROHIBITED_DEFERRAL_ACTION = re.compile(
+    rf"\b{G3_PROHIBITION_REJECTION_PATTERN}\s+"
+    rf"{G3_DEFERRAL_ACTION_PATTERN}\b",
     re.IGNORECASE,
 )
 G3_KEEP_HOLD_ACTION_PATTERN = r"(?:keep(?:s|ing)?|kept|hold(?:s|ing)?|held)"
@@ -2183,7 +2212,8 @@ G3_NEGATED_KEEP_HOLD_ACTION = re.compile(
     re.IGNORECASE,
 )
 G3_REJECTED_KEEP_HOLD_ACTION = re.compile(
-    r"\b(?:avoid(?:s|ed|ing)?|stop(?:s|ped|ping)?)"
+    rf"\b(?:avoid(?:s|ed|ing)?|stop(?:s|ped|ping)?|"
+    rf"{G3_PROHIBITION_REJECTION_PATTERN})"
     rf"{G3_NEGATION_GAP}\s+{G3_KEEP_HOLD_ACTION_PATTERN}\b",
     re.IGNORECASE,
 )
@@ -2260,6 +2290,9 @@ def _positive_g3_deferral_action(policy_clause: str) -> str | None:
         for negated_action in G3_NEGATED_SUBJECT_DEFERRAL_ACTION.finditer(
             policy_clause
         )
+    ] + [
+        negated_action.span()
+        for negated_action in G3_PROHIBITED_DEFERRAL_ACTION.finditer(policy_clause)
     ]
     for deferral_action in G3_DEFERRAL_ACTION.finditer(policy_clause):
         if any(
@@ -2321,6 +2354,7 @@ def _g3_clause_defers_work(policy_clause: str) -> bool:
                 and not G3_NEGATED_PREREQUISITE_POLICY.search(policy_clause)
             )
             or G3_ORDERED_PREREQUISITE_POLICY.search(policy_clause)
+            or G3_PROHIBITION_POLICY.search(policy_clause)
         )
     )
 
@@ -2711,6 +2745,13 @@ def test_g3_deferral_scan_groups_wrapped_comment_blocks(tmp_path: Path):
         "# Facade removal must land before G3.",
         "# G3 must wait for facade removal.",
         "# G3 is satisfied; T-SEC-4 must land before facade removal.",
+        "# G3 does not prohibit facade removal.",
+        "# G3 no longer forbids facade removal.",
+        "# G3 is prohibited from blocking facade removal.",
+        "# G3 is forbidden from blocking facade removal.",
+        "# G3 prohibits blocking facade removal.",
+        "# G3 forbids keeping the test facade.",
+        "# G3 prohibits T-SEC-4 from blocking facade removal.",
     ),
 )
 def test_g3_deferral_scan_allows_non_deferral_policy(accepted_policy: str):
@@ -2769,6 +2810,15 @@ def test_g3_deferral_scan_allows_non_deferral_policy(accepted_policy: str):
         "# G3 blocks cleanup of the facade.",
         "# G3 must land before facade removal.",
         "# Facade removal must wait for G3.",
+        "# G3 prohibits facade removal.",
+        "# G3 forbids facade removal.",
+        "# Facade removal is prohibited by G3.",
+        "# Facade removal is forbidden by G3.",
+        "# G3 still prohibits facade removal.",
+        "# G3 prohibits the removal of the facade.",
+        "# Facade removal is still prohibited by G3.",
+        "# G3 currently prohibits facade removal.",
+        "# Facade removal is explicitly prohibited by G3.",
     ),
 )
 def test_g3_deferral_scan_detects_positive_policy_after_other_negation(
