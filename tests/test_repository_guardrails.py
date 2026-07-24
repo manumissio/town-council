@@ -2051,6 +2051,183 @@ def _required_markdown_section(markdown: str, heading: str, next_heading: str) -
     return " ".join(section.split())
 
 
+def _python_comment_blocks(source_path: Path) -> list[tuple[int, str]]:
+    source_text = source_path.read_text(encoding="utf-8")
+    source_lines = source_text.splitlines()
+    comment_tokens = [
+        (
+            python_token.start[0],
+            python_token.start[1],
+            not source_lines[python_token.start[0] - 1][: python_token.start[1]].strip(),
+            python_token.string,
+        )
+        for python_token in tokenize.generate_tokens(StringIO(source_text).readline)
+        if python_token.type == tokenize.COMMENT
+    ]
+    grouped_comments: list[tuple[int, int, int, bool, str]] = []
+
+    for line_number, column, is_full_line, comment_text in comment_tokens:
+        previous_comment = grouped_comments[-1] if grouped_comments else None
+        if (
+            previous_comment
+            and is_full_line
+            and previous_comment[3]
+            and line_number == previous_comment[1] + 1
+            and column == previous_comment[2]
+        ):
+            start_line, _, _, _, previous_text = previous_comment
+            grouped_comments[-1] = (
+                start_line,
+                line_number,
+                column,
+                is_full_line,
+                f"{previous_text} {comment_text}",
+            )
+        else:
+            grouped_comments.append(
+                (line_number, line_number, column, is_full_line, comment_text)
+            )
+
+    return [
+        (start_line, comment_text)
+        for start_line, _, _, _, comment_text in grouped_comments
+    ]
+
+
+G3_REFERENCE = re.compile(r"\bG3\b", re.IGNORECASE)
+G3_DEFERRAL_ACTION_PATTERN = (
+    r"(?:defer(?:s|red|ring)?|block(?:s|ed|ing)?|preserv(?:e|es|ed|ing)|"
+    r"prevent(?:s|ed|ing)?|retain(?:s|ed)?|retaining)"
+)
+G3_DEFERRAL_ACTION = re.compile(
+    rf"\b{G3_DEFERRAL_ACTION_PATTERN}\b",
+    re.IGNORECASE,
+)
+G3_DEFERRED_WORK = re.compile(
+    r"(?:facade\s+(?:removal|cleanup)|test\s+(?:facade|seam)|patch\s+target|"
+    r"deduplicat\w*|de-fac\w*)",
+    re.IGNORECASE,
+)
+G3_NEGATION_GAP = (
+    r"(?:\s+(?!(?:so|therefore|thus|hence|then)\b)[a-z][\w'-]*){0,4}"
+)
+G3_NEGATED_DEFERRED_WORK = re.compile(
+    rf"\b(?:neither|nor|no|not(?!\s+(?:only|just|merely)\b)){G3_NEGATION_GAP}\s+"
+    rf"{G3_DEFERRED_WORK.pattern}",
+    re.IGNORECASE,
+)
+G3_NEGATED_DEFERRAL_ACTION = re.compile(
+    r"\b(?:no\s+longer|never|cannot|can't|does\s+not|doesn't|is\s+not|isn't|"
+    r"not|without)(?!\s+(?:only|just|merely)\b)"
+    rf"{G3_NEGATION_GAP}\s+{G3_DEFERRAL_ACTION_PATTERN}\b",
+    re.IGNORECASE,
+)
+G3_POLICY_SENTENCE_BOUNDARY = re.compile(r"\.(?=\s|$)")
+G3_POLICY_CLAUSE_BOUNDARY = re.compile(
+    r"(;|,|\b(?:and|but|however|while|yet|so|therefore|thus|hence|then)\b)",
+    re.IGNORECASE,
+)
+G3_NOUN_ACTION_CONTINUATION = re.compile(
+    r"^\s+(?:are|is|was|were|exist|exists|listed|documented)\b",
+    re.IGNORECASE,
+)
+G3_BLOCKER_POLICY = re.compile(r"\bG3\b\s+remains\s+a\s+blocker\b", re.IGNORECASE)
+G3_PREREQUISITE_POLICY = re.compile(
+    r"\bG3\b.{0,40}\b(?:is|remains)\s+(?:a\s+)?prerequisite\b",
+    re.IGNORECASE,
+)
+G3_NEGATED_PREREQUISITE_POLICY = re.compile(
+    r"\bG3\b.{0,40}\b(?:no\s+longer|not|never)\b.{0,30}\bprerequisite\b",
+    re.IGNORECASE,
+)
+
+
+def _positive_g3_deferral_action(policy_clause: str) -> str | None:
+    negated_action_spans = [
+        negated_action.span()
+        for negated_action in G3_NEGATED_DEFERRAL_ACTION.finditer(policy_clause)
+    ]
+    for deferral_action in G3_DEFERRAL_ACTION.finditer(policy_clause):
+        if any(
+            start <= deferral_action.start() < end
+            for start, end in negated_action_spans
+        ):
+            continue
+        if G3_NOUN_ACTION_CONTINUATION.search(
+            policy_clause[deferral_action.end() :]
+        ):
+            continue
+        return deferral_action.group(0)
+    return None
+
+
+def _has_positive_g3_deferred_work(policy_clause: str) -> bool:
+    negated_work_spans = [
+        negated_work.span()
+        for negated_work in G3_NEGATED_DEFERRED_WORK.finditer(policy_clause)
+    ]
+    return any(
+        not any(start <= deferred_work.start() < end for start, end in negated_work_spans)
+        for deferred_work in G3_DEFERRED_WORK.finditer(policy_clause)
+    )
+
+
+def _g3_clause_defers_work(policy_clause: str) -> bool:
+    return bool(
+        G3_REFERENCE.search(policy_clause)
+        and _has_positive_g3_deferred_work(policy_clause)
+        and (
+            _positive_g3_deferral_action(policy_clause)
+            or G3_BLOCKER_POLICY.search(policy_clause)
+            or (
+                G3_PREREQUISITE_POLICY.search(policy_clause)
+                and not G3_NEGATED_PREREQUISITE_POLICY.search(policy_clause)
+            )
+        )
+    )
+
+
+def _g3_sentence_defers_work(policy_sentence: str) -> bool:
+    has_g3_context = False
+    inherited_deferral_action: str | None = None
+    preceding_boundary = ""
+    policy_parts = G3_POLICY_CLAUSE_BOUNDARY.split(policy_sentence)
+    for part_index in range(0, len(policy_parts), 2):
+        policy_clause = policy_parts[part_index]
+        if preceding_boundary and preceding_boundary != "and":
+            inherited_deferral_action = None
+        clause_has_g3 = bool(G3_REFERENCE.search(policy_clause))
+        if clause_has_g3:
+            has_g3_context = True
+        positive_deferral_action = _positive_g3_deferral_action(policy_clause)
+        if positive_deferral_action:
+            inherited_deferral_action = positive_deferral_action
+        elif G3_DEFERRAL_ACTION.search(policy_clause):
+            inherited_deferral_action = None
+        inherited_policy = ""
+        if has_g3_context and not clause_has_g3:
+            inherited_policy = "G3 "
+        if (
+            inherited_deferral_action
+            and not G3_DEFERRAL_ACTION.search(policy_clause)
+        ):
+            inherited_policy = f"{inherited_policy}{inherited_deferral_action} "
+        scoped_clause = f"{inherited_policy}{policy_clause}"
+        if _g3_clause_defers_work(scoped_clause):
+            return True
+        if part_index + 1 < len(policy_parts):
+            preceding_boundary = policy_parts[part_index + 1].lower()
+    return False
+
+
+def _comment_block_defers_g3(comment_block: str) -> bool:
+    normalized_comment = " ".join(comment_block.replace("#", " ").split())
+    return any(
+        _g3_sentence_defers_work(policy_sentence)
+        for policy_sentence in G3_POLICY_SENTENCE_BOUNDARY.split(normalized_comment)
+    )
+
+
 G2_OPEN_POLICY = re.compile(
     r"(?:\bg2\b\s+(?:is|remains)\s+(?:open|pending|unresolved)\b"
     r"|\bg2\b\s*(?:status\s*)?:\s*(?:open|pending|unresolved)\b"
@@ -2060,6 +2237,17 @@ G2_OPEN_POLICY = re.compile(
 )
 OPERATOR_AUTH_APPROVAL_POLICY = re.compile(
     r"\boperator(?:-only)?(?: proxy)? authentication\s+(?:is\s+)?(?:approved|pending)\b",
+    re.IGNORECASE,
+)
+G3_UNRESOLVED_POLICY = re.compile(
+    r"(?:\bg3\b\s+(?:is|remains)\s+(?:open|pending|unresolved)\b"
+    r"|\bg3\b\s*(?:status\s*)?:\s*(?:open|pending|unresolved)\b"
+    r"|\b(?:open|pending|unresolved)\s+g3\b)",
+    re.IGNORECASE,
+)
+PHASE_2_G3_BLOCKER_POLICY = re.compile(
+    r"(?:\bphase 2\b.{0,40}\bblock\w*\b.{0,20}\bg3\b"
+    r"|\bg3\b.{0,40}\bblock\w*\b.{0,20}\bphase 2\b)",
     re.IGNORECASE,
 )
 
@@ -2168,3 +2356,215 @@ def test_g2_accepted_risk_is_bounded_without_overclaiming_t_sec_4():
         in accepted_risk
     )
     assert "- [ ] Client IP forwarded from proxy" in security_policy
+
+
+def test_test_patch_points_policy_has_accepted_adr_and_effective_runbook():
+    architecture_decisions = (ROOT / "docs" / "ADR.md").read_text(encoding="utf-8")
+    testing_policy = (ROOT / "docs" / "TESTING.MD").read_text(encoding="utf-8")
+    remediation_ledger = (
+        ROOT / "docs" / "plans" / "TOWN_COUNCIL_REMEDIATION_PLAN.md"
+    ).read_text(encoding="utf-8")
+    test_patch_point_decision = _required_markdown_section(
+        architecture_decisions,
+        "## 2026-07-24: Test patch points are not a public API",
+        "\n## 2026-05-17:",
+    )
+    g3_entry = _required_markdown_section(
+        remediation_ledger,
+        "- G3 test_seam_adr:",
+        "\n- G4 pii_policy:",
+    )
+    t_gov_1_entry = _required_markdown_section(
+        remediation_ledger,
+        '### T-GOV-1: ADR — "Test patch points are not a public API" (gate G3)',
+        "\n### T-GOV-2:",
+    )
+    t_gov_6_entry = _required_markdown_section(
+        remediation_ledger,
+        "### T-GOV-6: Introduce SECURITY.md, docs/TESTING.md, docs/DATA_GOVERNANCE.md",
+        "\n---\n\n## 7. EXECUTION ORDER SUMMARY",
+    )
+    phase_2_policy = _required_markdown_section(
+        remediation_ledger,
+        "## 5. PHASE 2 — DEDUPLICATION & DE-FACADING",
+        "\n### T-DA-1:",
+    )
+    complete_row = next(
+        line for line in remediation_ledger.splitlines() if line.startswith("| **Complete** |")
+    )
+    in_progress_row = next(
+        line
+        for line in remediation_ledger.splitlines()
+        if line.startswith("| **In progress** |")
+    )
+    partial_row = next(
+        line
+        for line in remediation_ledger.splitlines()
+        if line.startswith("| **Partially landed; acceptance incomplete** |")
+    )
+    pending_row = next(
+        line for line in remediation_ledger.splitlines() if line.startswith("| **Pending** |")
+    )
+
+    assert "- Status: Accepted" in test_patch_point_decision
+    assert test_patch_point_decision.count("- Status:") == 1
+    assert "only to the extent that" in test_patch_point_decision
+    assert "test-only patch target" in test_patch_point_decision
+    assert "Runtime, import, CLI, API, task-identity, and operational contracts remain active" in (
+        test_patch_point_decision
+    )
+    assert "docs/TESTING.MD" in test_patch_point_decision
+    assert "Status: effective." in testing_policy
+    assert testing_policy.count("Status:") == 1
+    assert "effective with the G3 ADR" not in testing_policy
+    assert "**Satisfied 2026-07-24.**" in g3_entry
+    assert "status: complete and verified 2026-07-24" in t_gov_1_entry
+    assert t_gov_1_entry.count("- status:") == 1
+    assert not re.search(
+        r"\bstatus:\s*(?:draft|proposed|pending|in progress|incomplete)\b",
+        f"{test_patch_point_decision} {testing_policy} {t_gov_1_entry}",
+        re.IGNORECASE,
+    )
+    assert "T-GOV-1" in complete_row
+    assert "T-GOV-1" not in pending_row
+    assert "T-SEC-4A" not in complete_row
+    assert "T-SEC-4A" in in_progress_row
+    assert "T-GOV-6" in partial_row
+    assert (
+        "remains partially landed until its three canonical documents are linked from the README "
+        "Documentation Map"
+        in t_gov_6_entry
+    )
+    assert "## 5. PHASE 2 — DEDUPLICATION & DE-FACADING\n" in remediation_ledger
+    assert "PHASE 2 — DEDUPLICATION & DE-FACADING (blocked by G3)" not in remediation_ledger
+    active_g3_policy = (
+        f"{test_patch_point_decision} {testing_policy} {g3_entry} "
+        f"{t_gov_1_entry} {phase_2_policy}"
+    )
+    assert not G3_UNRESOLVED_POLICY.search(active_g3_policy)
+    assert not PHASE_2_G3_BLOCKER_POLICY.search(active_g3_policy)
+
+
+def test_live_python_does_not_treat_g3_as_a_facade_deferral():
+    live_g3_references = []
+
+    for source_path in _broad_exception_scan_files():
+        relative_source_path = source_path.relative_to(ROOT)
+        if relative_source_path.parts[0] in {"archive", "tests"}:
+            continue
+        for line_number, comment_block in _python_comment_blocks(source_path):
+            if _comment_block_defers_g3(comment_block):
+                live_g3_references.append(
+                    f"{relative_source_path}:{line_number}: {comment_block}"
+                )
+
+    assert live_g3_references == []
+
+
+def test_g3_deferral_scan_groups_wrapped_comment_blocks(tmp_path: Path):
+    wrapped_policy = tmp_path / "wrapped_policy.py"
+    wrapped_policy.write_text(
+        "# G3 still\n# blocks facade removal.\n\n# An unrelated comment.\n",
+        encoding="utf-8",
+    )
+    comment_blocks = _python_comment_blocks(wrapped_policy)
+
+    assert comment_blocks == [
+        (1, "# G3 still # blocks facade removal."),
+        (4, "# An unrelated comment."),
+    ]
+    assert _comment_block_defers_g3(comment_blocks[0][1])
+    assert not _comment_block_defers_g3(comment_blocks[1][1])
+
+
+@pytest.mark.parametrize(
+    "accepted_policy",
+    (
+        "# G3 no longer blocks facade removal while preserving the runtime API.",
+        "# G3 blocks are listed in the report.",
+        "# G3 preserves runtime API compatibility.",
+        "# Facade removal is not blocked by G3.",
+        "# Facade removal is not being blocked by G3.",
+        "# G3 is pending for historical reference; facade removal is no longer blocked.",
+        "# G3 remains open for discussion. The facade documentation is current.",
+        "# G3 blocks migration and does not block facade removal and the test seam.",
+        "# G3 blocks are documented and facade removal status is current.",
+        "# G3 blocks are documented; facade removal status is current.",
+        "# G3 block is documented and facade removal status is current.",
+        "# G3 blocker is documented and facade removal status is current.",
+        "# G3 preservation is documented and facade removal status is current.",
+        "# G3 blocks migration, not facade removal.",
+        "# G3 no longer blocks facade removal, preserving the runtime API.",
+        "# G3 blocks neither facade removal nor test seams.",
+        "# G3 preserves no test facade.",
+        "# G3 is not expected to block facade removal.",
+        "# G3 proceeds without blocking facade removal.",
+        "# G3 preserves the public facade.",
+        "# G3 preserves facade runtime compatibility.",
+        "# G3 blocks cache removal.",
+        "# G3 blocks temporary-file removal.",
+        "# G3 no longer remains a prerequisite for facade removal.",
+        "# G3 no longer is a prerequisite for facade removal.",
+        "# G3 is no longer a prerequisite for facade removal.",
+    ),
+)
+def test_g3_deferral_scan_allows_non_deferral_policy(accepted_policy: str):
+    assert not _comment_block_defers_g3(accepted_policy)
+
+
+@pytest.mark.parametrize(
+    "deferred_policy",
+    (
+        "# G3 no longer blocks one cleanup, but G3 still preserves the test facade.",
+        "# G3 no longer blocks one cleanup. # G3 still preserves the test facade.",
+        "# G3 no longer blocks one cleanup, and G3 still preserves the test facade.",
+        "# G3 no longer blocks one cleanup, yet G3 still preserves the test facade.",
+        "# G3 no longer blocks facade removal and still preserves the test seam.",
+        "# G3 blocks migration and facade removal.",
+        "# G3 preserves runtime compatibility and the test facade.",
+        "# G3 remains pending; therefore preserve the test facade.",
+        "# G3 blockers are blocking facade removal.",
+        "# G3 blocks are blocking facade removal.",
+        "# G3 blocks are preserving the test facade.",
+        "# G3 blocks api.main facade removal.",
+        "# G3 blocks not only facade removal but also the test seam.",
+        "# G3 not only blocks facade removal but also preserves the test seam.",
+        "# G3 is not resolved, so preserve the test facade.",
+        "# G3 is not resolved so preserve the test facade.",
+        "# G3 is pending, so preserve the test facade.",
+        "# G3 is still pending, so preserve the test facade.",
+        "# G3 is unresolved, therefore block facade removal.",
+        "# G3 remains a blocker for facade removal.",
+        "# G3 prevents facade removal.",
+        "# Until G3 is resolved, retain the test seam.",
+        "# G3 remains a prerequisite for facade removal.",
+        "# G3 is not resolved so remains a prerequisite for facade removal.",
+    ),
+)
+def test_g3_deferral_scan_detects_positive_policy_after_other_negation(
+    deferred_policy: str,
+):
+    assert _comment_block_defers_g3(deferred_policy)
+
+
+def test_g3_deferral_scan_keeps_adjacent_inline_comments_separate(tmp_path: Path):
+    unrelated_comments = tmp_path / "unrelated_comments.py"
+    unrelated_comments.write_text(
+        "first = 1  # G3 marker\n"
+        "second = 2  # preserves runtime behavior\n"
+        "# G3 standalone\n"
+        "third = 3  # blocks invalid input\n",
+        encoding="utf-8",
+    )
+    comment_blocks = _python_comment_blocks(unrelated_comments)
+
+    assert comment_blocks == [
+        (1, "# G3 marker"),
+        (2, "# preserves runtime behavior"),
+        (3, "# G3 standalone"),
+        (4, "# blocks invalid input"),
+    ]
+    assert not any(
+        _comment_block_defers_g3(comment_text)
+        for _, comment_text in comment_blocks
+    )
