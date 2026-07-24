@@ -236,3 +236,55 @@ Mark anything unrun as `NOT VERIFIED`.
 **z) Deviations.** Expected: none. The superseded
 `codex/t-sec-5-closure` branch is wording reference only and must not enter this
 branch's history.
+
+## Closure Addendum
+
+PR #133 merged the authorized policy record on 2026-07-24 with required checks
+green. The durable G2 record now exists in `SECURITY.md`, the remediation
+ledger, and repository guardrail tests. A closure-only follow-up must correct
+the stale task status without reopening policy or runtime work.
+
+This addendum supersedes the branch, tests-first baseline, implementation
+steps, delivery commits, rollback, self-audit, and documentation edits in
+Sections 1-7 above. Those sections remain the historical execution record for
+PR #133. Their ownership, security analysis, and no-runtime-change constraints
+still apply.
+
+### Closure Scope
+
+1. Add the status expectation first and confirm it fails while T-SEC-4A remains
+   listed as in progress.
+2. Mark T-SEC-4A complete and verified by PR #133.
+3. Move T-SEC-4A from the in-progress row to the complete row. Remove the
+   in-progress row if no task remains in that state.
+4. Mark the durable-record decision-gate condition satisfied.
+5. Preserve T-SEC-4 as pending and preserve every G2 policy statement.
+
+### Closure Verification
+
+```bash
+./.venv/bin/ruff check .
+./.venv/bin/mypy
+PYTHONPATH=. .venv/bin/pytest -q tests/test_repository_guardrails.py
+PYTHONPATH=. .venv/bin/pytest -q tests/test_docs_links.py
+PYTHONPATH=. .venv/bin/pytest -q
+git diff --check
+```
+
+No `SECURITY.md`, runtime, API, schema, environment, or dependency change is
+authorized by this addendum.
+
+### Closure Rollback
+
+Revert only the closure commit. Do not revert PR #133: its G2 policy remains
+approved and durable. Rerun the closure verification commands after the
+revert. No migration, data repair, configuration restore, or external-state
+cleanup is required.
+
+### Closure Self-Audit
+
+Before delivery, verify T-SEC-4A appears exactly once in the status table,
+under Complete; its task entry contains one completed status and no pending
+durable-record wording; T-SEC-4 remains pending; and no file outside the
+existing four-file ownership set changed. Report every command outcome,
+review finding, commit, PR, unresolved thread, and CI state.

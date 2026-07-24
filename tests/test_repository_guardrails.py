@@ -2882,6 +2882,35 @@ def test_g2_accepted_risk_is_bounded_without_overclaiming_t_sec_4():
     assert "- [ ] Client IP forwarded from proxy" in security_policy
 
 
+def test_t_sec_4a_is_complete_after_g2_policy_record_merged():
+    remediation_ledger = (
+        ROOT / "docs" / "plans" / "TOWN_COUNCIL_REMEDIATION_PLAN.md"
+    ).read_text(encoding="utf-8")
+    t_sec_4a_entry = _required_markdown_section(
+        remediation_ledger,
+        "### T-SEC-4A: Record the approved G2 visitor-access policy",
+        "\n### T-SEC-4:",
+    )
+    status_rows = [
+        line
+        for line in remediation_ledger.splitlines()
+        if line.startswith("| **") and " |" in line
+    ]
+    t_sec_4a_states = [
+        row.split("|")[1].strip().strip("*")
+        for row in status_rows
+        for task in row.split("|")[2].split(",")
+        if task.strip() == "T-SEC-4A"
+    ]
+    normalized_t_sec_4a_entry = " ".join(t_sec_4a_entry.lower().split())
+
+    assert "status: complete and verified 2026-07-24 (PR #133)" in t_sec_4a_entry
+    assert t_sec_4a_entry.count("- status:") == 1
+    assert "durable record satisfied by PR #133" in t_sec_4a_entry
+    assert "durable record pending" not in normalized_t_sec_4a_entry
+    assert t_sec_4a_states == ["Complete"]
+
+
 def test_test_patch_points_policy_has_accepted_adr_and_effective_runbook():
     architecture_decisions = (ROOT / "docs" / "ADR.md").read_text(encoding="utf-8")
     testing_policy = (ROOT / "docs" / "TESTING.MD").read_text(encoding="utf-8")
@@ -2923,11 +2952,6 @@ def test_test_patch_points_policy_has_accepted_adr_and_effective_runbook():
     complete_row = next(
         line for line in remediation_ledger.splitlines() if line.startswith("| **Complete** |")
     )
-    in_progress_row = next(
-        line
-        for line in remediation_ledger.splitlines()
-        if line.startswith("| **In progress** |")
-    )
     partial_row = next(
         line
         for line in remediation_ledger.splitlines()
@@ -2958,8 +2982,6 @@ def test_test_patch_points_policy_has_accepted_adr_and_effective_runbook():
     )
     assert "T-GOV-1" in complete_row
     assert "T-GOV-1" not in pending_row
-    assert "T-SEC-4A" not in complete_row
-    assert "T-SEC-4A" in in_progress_row
     assert "T-GOV-6" in partial_row
     assert (
         "remains partially landed until its three canonical documents are linked from the README "
