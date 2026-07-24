@@ -2112,7 +2112,7 @@ G3_COORDINATED_SUBJECT = re.compile(r"^\s*(?:both\s+)?G3\s*$", re.IGNORECASE)
 G3_DEFERRAL_ACTION_PATTERN = (
     r"(?:defer(?:s|red|ring)?|block(?:s|ed|ing)?|preserv(?:e|es|ed|ing)|"
     r"prevent(?:s|ed|ing)?|retain(?:s|ed)?|retaining|delay(?:s|ed|ing)?|"
-    r"postpon(?:e|es|ed|ing))"
+    r"postpon(?:e|es|ed|ing)|gat(?:es|ed|ing))"
 )
 G3_DEFERRAL_ACTION = re.compile(
     rf"\b{G3_DEFERRAL_ACTION_PATTERN}\b",
@@ -2189,7 +2189,7 @@ G3_DIRECT_DEFERRED_WORK_PATTERN = (
 )
 G3_DEFERRED_WORK = re.compile(
     rf"(?:{G3_DIRECT_DEFERRED_WORK_PATTERN}|deduplicat\w*|de-fac\w*|"
-    rf"{G3_REMOVAL_FIRST_WORK_PATTERN})",
+    rf"phase\s+2|{G3_REMOVAL_FIRST_WORK_PATTERN})",
     re.IGNORECASE,
 )
 G3_PERMISSIVE_ACTION_PATTERN = (
@@ -3095,6 +3095,7 @@ def test_g3_deferral_scan_groups_wrapped_comment_blocks(tmp_path: Path):
         "# G3 prevents retaining the test facade.",
         "# G3: no test facade must remain.",
         "# G3: neither the test facade nor the test seam must remain.",
+        "# G3 records the Phase 2 gate.",
     ),
 )
 def test_g3_deferral_scan_allows_non_deferral_policy(accepted_policy: str):
@@ -3178,6 +3179,8 @@ def test_g3_deferral_scan_allows_non_deferral_policy(accepted_policy: str):
         "# G3 asks whether to keep one test facade, but G3 preserves the test seam.",
         "# Does G3 block migration? G3 preserves the test seam.",
         "# G3 delays facade removal.",
+        "# Facade removal is gated on G3.",
+        "# G3 gates Phase 2.",
         "# G3 postpones test seam cleanup.",
         "# Nothing but G3 blocks facade removal.",
         "# G3 remains unresolved, requiring preservation of the test facade.",
