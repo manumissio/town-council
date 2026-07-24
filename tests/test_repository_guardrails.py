@@ -2051,6 +2051,14 @@ def _required_markdown_section(markdown: str, heading: str, next_heading: str) -
     return " ".join(section.split())
 
 
+def _required_markdown_entry(markdown: str, heading: str) -> str:
+    _, heading_separator, section_remainder = markdown.partition(heading)
+    assert heading_separator, f"Missing required Markdown heading: {heading}"
+    next_heading = re.search(r"\n## ", section_remainder)
+    assert next_heading, f"Missing Markdown boundary after: {heading}"
+    return " ".join(section_remainder[: next_heading.start()].split())
+
+
 def _python_comment_blocks(source_path: Path) -> list[tuple[int, str]]:
     source_text = source_path.read_text(encoding="utf-8")
     source_lines = source_text.splitlines()
@@ -2217,6 +2225,17 @@ G3_NONASSERTIVE_POLICY_CONTEXT = re.compile(
     r"record(?:s|ed|ing)?|report(?:s|ed|ing)?|track(?:s|ed|ing)?)\s*"
     rf"(?:(?:if|whether)\b|:\s*{G3_INTERROGATIVE_OPENING_PATTERN}\b)|"
     rf"^\s*{G3_INTERROGATIVE_OPENING_PATTERN}\b|\?\s*$)",
+    re.IGNORECASE,
+)
+G3_HISTORICAL_POLICY_CONTEXT = re.compile(
+    r"(?:^\s*(?:historically|previously|formerly|in\s+the\s+past)\b"
+    r"|\bG3\b(?:\s+[a-z][\w'-]*){0,3}\s+once(?!\s+again\b))",
+    re.IGNORECASE,
+)
+G3_ACTIVE_POLICY_CONTEXT = re.compile(
+    r"\b(?:are|is|has|have|must|shall|should|will|cannot|can't|currently|now|still|"
+    r"defers|blocks|preserves|prevents|retains|delays|postpones|keeps|holds|"
+    r"requires|prohibits|forbids)\b",
     re.IGNORECASE,
 )
 G3_ORDERED_PREREQUISITE_POLICY = re.compile(
@@ -2435,7 +2454,9 @@ def _g3_keep_hold_defers_work(policy_text: str) -> bool:
 
 
 def _g3_clause_defers_work(policy_clause: str) -> bool:
-    if G3_NONASSERTIVE_POLICY_CONTEXT.search(policy_clause):
+    if G3_NONASSERTIVE_POLICY_CONTEXT.search(
+        policy_clause
+    ) or G3_HISTORICAL_POLICY_CONTEXT.search(policy_clause):
         return False
     negated_permission = G3_NEGATED_PERMISSIVE_ACTION.search(policy_clause)
     subject_first_requirement = G3_SUBJECT_FIRST_REQUIREMENT_POLICY.search(
@@ -2493,7 +2514,14 @@ def _g3_sentence_defers_work(policy_sentence: str) -> bool:
     sentence_has_other_task = bool(
         REMEDIATION_TASK_REFERENCE.search(policy_sentence)
     )
-    if not sentence_has_other_task and G3_REFERENCE.search(policy_sentence):
+    sentence_is_historical = bool(
+        G3_HISTORICAL_POLICY_CONTEXT.search(policy_sentence)
+    )
+    if (
+        not sentence_has_other_task
+        and not sentence_is_historical
+        and G3_REFERENCE.search(policy_sentence)
+    ):
         if _g3_keep_hold_defers_work(policy_sentence):
             return True
         if (
@@ -2503,12 +2531,25 @@ def _g3_sentence_defers_work(policy_sentence: str) -> bool:
         ):
             return True
     has_g3_context = False
+    has_historical_context = False
     inherited_deferral_action: str | None = None
     inherited_removal_guard = False
     preceding_boundary = ""
     policy_parts = G3_POLICY_CLAUSE_BOUNDARY.split(policy_sentence)
     for part_index in range(0, len(policy_parts), 2):
         policy_clause = policy_parts[part_index]
+        clause_has_g3 = bool(G3_REFERENCE.search(policy_clause))
+        clause_is_historical = bool(
+            G3_HISTORICAL_POLICY_CONTEXT.search(policy_clause)
+        )
+        if clause_is_historical:
+            has_historical_context = True
+        elif (
+            has_historical_context
+            and clause_has_g3
+            and G3_ACTIVE_POLICY_CONTEXT.search(policy_clause)
+        ):
+            has_historical_context = False
         if preceding_boundary and preceding_boundary != "and":
             inherited_deferral_action = None
         if (
@@ -2516,7 +2557,6 @@ def _g3_sentence_defers_work(policy_sentence: str) -> bool:
             and not G3_NEGATED_PERMISSIVE_ACTION.search(policy_clause)
         ):
             inherited_deferral_action = None
-        clause_has_g3 = bool(G3_REFERENCE.search(policy_clause))
         clause_has_other_task = bool(
             REMEDIATION_TASK_REFERENCE.search(policy_clause)
         )
@@ -2562,6 +2602,10 @@ def _g3_sentence_defers_work(policy_sentence: str) -> bool:
         ):
             inherited_policy = f"{inherited_policy}{inherited_deferral_action} "
         scoped_clause = f"{inherited_policy}{policy_clause}"
+        if has_historical_context:
+            if part_index + 1 < len(policy_parts):
+                preceding_boundary = policy_parts[part_index + 1].lower()
+            continue
         if G3_BEFORE_REMOVAL_DIRECTIVE_POLICY.search(scoped_clause):
             return True
         if G3_TEMPORAL_REFERENCE_POLICY.search(
@@ -2759,10 +2803,9 @@ def test_test_patch_points_policy_has_accepted_adr_and_effective_runbook():
     remediation_ledger = (
         ROOT / "docs" / "plans" / "TOWN_COUNCIL_REMEDIATION_PLAN.md"
     ).read_text(encoding="utf-8")
-    test_patch_point_decision = _required_markdown_section(
+    test_patch_point_decision = _required_markdown_entry(
         architecture_decisions,
         "## 2026-07-24: Test patch points are not a public API",
-        "\n## 2026-05-17:",
     )
     g3_entry = _required_markdown_section(
         remediation_ledger,
@@ -2860,6 +2903,29 @@ def test_test_patch_points_policy_has_accepted_adr_and_effective_runbook():
     ):
         assert owned_path in t_db_1_entry
         assert owned_path in dedup_b_row
+
+
+def test_test_patch_point_adr_boundary_uses_the_next_decision_heading():
+    architecture_decisions = """
+## 2026-07-24: Test patch points are not a public API
+
+- Status: Accepted
+
+## 2026-07-23: Unrelated later decision
+
+- Status: Proposed
+
+## 2026-05-17: Older decision
+
+- Status: Accepted
+"""
+
+    test_patch_point_decision = _required_markdown_entry(
+        architecture_decisions,
+        "## 2026-07-24: Test patch points are not a public API",
+    )
+
+    assert test_patch_point_decision == "- Status: Accepted"
 
 
 def test_live_python_does_not_treat_g3_as_a_facade_deferral():
@@ -3008,6 +3074,9 @@ def test_g3_deferral_scan_groups_wrapped_comment_blocks(tmp_path: Path):
         "# Did G3 block facade removal until Phase 2?",
         "# Was G3 preserving the test seam until Phase 2?",
         "# Did G3 require preservation of the test facade until Phase 2?",
+        "# Historically, G3 required the test facade to remain.",
+        "# G3 once blocked facade removal.",
+        "# Historically, G3 required the test facade to remain, and G3 preserved the test seam.",
     ),
 )
 def test_g3_deferral_scan_allows_non_deferral_policy(accepted_policy: str):
@@ -3032,6 +3101,13 @@ def test_g3_deferral_scan_allows_non_deferral_policy(accepted_policy: str):
         "# G3 and T-SEC-4 must land before facade removal.",
         "# G3 and\n# T-SEC-4 must land before facade removal.",
         "# Both G3 and T-SEC-4 must land before facade removal.",
+        "# Historically, G3 required the test facade to remain, but G3 still blocks facade removal.",
+        "# Historically, G3 required the test facade to remain, and G3 still blocks facade removal.",
+        "# Previously G3 blocked facade removal; G3 still preserves the test seam.",
+        "# Historically, the test facade remained in place; G3 still blocks facade removal.",
+        "# Historically, the test facade remained in place, and G3 now preserves the test seam.",
+        "# Historically, the test facade remained in place, and G3 blocks facade removal.",
+        "# G3 once again blocks facade removal.",
         "# G3 preserves runtime compatibility and the test facade.",
         "# G3 remains pending; therefore preserve the test facade.",
         "# G3 blockers are blocking facade removal.",
