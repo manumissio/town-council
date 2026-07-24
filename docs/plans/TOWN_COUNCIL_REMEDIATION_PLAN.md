@@ -1,6 +1,6 @@
 # Town Council Remediation Plan (Codex Multi-Agent)
 
-version: 3.19
+version: 3.21
 generated: 2026-07-24
 source: Four-pass external code review (security, architecture, smells, process)
 source_artifact: [Town Council architecture review](../reviews/architecture-review-2026-07-19.html)
@@ -10,6 +10,13 @@ remains in force; where this plan is stricter, this plan wins for these tasks.
 
 ## Changelog
 
+- **v3.21:** Starts T-SEC-4 implementation after tests-first evidence. Records
+  Caddy as sole public frontend entry, validated client forwarding, raw API
+  peer preservation, the deployment-key trust boundary, and the
+  operator-approved startup-path ownership found during pre-commit review.
+- **v3.20:** Authorizes T-SEC-4 after operator approval of a repository-owned
+  Caddy ingress. Expands ownership for sole-entry topology, trusted
+  frontend-to-API client identity, tests, security policy, and operations.
 - **v3.19:** Marks T-SEC-4A complete after PR #133 merged the durable G2
   visitor-access policy record with required checks green. T-SEC-4 remains
   pending as the authorized runtime control.
@@ -123,8 +130,9 @@ remains in force; where this plan is stricter, this plan wins for these tasks.
 | State | Tasks |
 |---|---|
 | **Complete** | T-CI-0, T-CI-1, T-CI-1A, T-CI-2, T-CI-2A, T-CI-3, T-CI-4, T-CI-5, T-SEC-1, T-SEC-2, T-SEC-3, T-SEC-3C, T-SEC-4A, T-SEC-5, T-TIME-3, T-CRAWL-1, T-CRAWL-2, T-PLAT-2A, T-GOV-1 |
+| **In progress** | T-SEC-4 |
 | **Partially landed; acceptance incomplete** | T-GOV-4, T-GOV-5, T-GOV-6 |
-| **Pending** | T-SEC-4, T-SEC-6, T-TIME-1..2, T-DA-1, T-DB-1, T-DC-1, T-DD-1, T-DE-1, T-PLAT-1, T-PLAT-2, T-PLAT-3, T-PLAT-4, T-GOV-2..3 |
+| **Pending** | T-SEC-6, T-TIME-1..2, T-DA-1, T-DB-1, T-DC-1, T-DD-1, T-DE-1, T-PLAT-1, T-PLAT-2, T-PLAT-3, T-PLAT-4, T-GOV-2..3 |
 
 ---
 
@@ -583,18 +591,34 @@ in `AGENTS.md`, `docs/TESTING.MD`, and
 
 ### T-SEC-4: Real client identity through the proxy; per-client rate limits
 - priority: P0
-- decision_gate: G2 approved 2026-07-24
-- files_owned: frontend/app/api/_lib/backend.js, api/app_setup.py
-- do: (a) backend.js forwards `X-Forwarded-For` (append client IP from
-  request) on proxied calls. (b) app_setup limiter key_func: trust XFF only
-  when the direct peer is in a configured internal CIDR/hostname allowlist
-  (env `TRUSTED_PROXY_CIDRS`, default the compose network); otherwise use
-  remote address.
-- accept: Two distinct simulated client IPs get independent rate buckets;
-  spoofed XFF from a non-trusted peer is ignored (tests for both).
-- forbidden: Global middleware rewrites; no new middleware class if a
-  key_func suffices.
-- verify: New targeted tests pass; suite green.
+- status: in progress
+- decision_gate: G2 approved 2026-07-24; repository-owned ingress approved 2026-07-24
+- implementation_plan: `docs/plans/T_SEC_4_TRUSTED_CLIENT_IDENTITY_PLAN.md`
+- files_owned: docs/plans/T_SEC_4_TRUSTED_CLIENT_IDENTITY_PLAN.md,
+  docs/plans/TOWN_COUNCIL_REMEDIATION_PLAN.md, docker-compose.yml,
+  docker-compose.dev.yml, docker/Caddyfile, frontend/app/api/_lib/backend.js,
+  frontend/components/__tests__/BackendProxy.origin.test.js, api/app_setup.py,
+  tests/test_api_client_identity.py, tests/test_docker_build_contracts.py,
+  tests/test_repository_guardrails.py, scripts/verify_caddy_forwarded_for.sh,
+  scripts/dev_up.sh, tests/test_startup_purge_gating.py, README.md,
+  env/profiles/README.md, SECURITY.md, docs/OPERATIONS.md
+- do: Make Caddy the sole public frontend entry so caller-supplied forwarded
+  headers are replaced. Validate and forward one client IP from Next.js. Trust
+  it at the API only when the deployment key authenticates the frontend;
+  otherwise use the direct peer. Disable Uvicorn proxy-header rewriting.
+- trust_assumption: Possession of `API_AUTH_KEY` is already the deployment
+  operator boundary. A direct API caller with that secret can choose forwarded
+  identity; this does not grant capability beyond the protected actions that
+  key already authorizes. Public visitors never receive the key.
+- accept: Direct frontend bypass is unavailable; spoofed ingress headers are
+  replaced; two trusted client IPs receive separate limiter keys; untrusted,
+  missing, malformed, and multi-value identity falls back to the direct peer.
+- forbidden: Trusted upstream-proxy configuration, fixed container IPs,
+  dynamic Compose CIDR trust, global middleware, new secrets, or direct
+  frontend publication.
+- verify: Follow the Full T-SEC-4 plan, including tests-first evidence,
+  security/frontend/API/Compose verification, runtime smoke, independent
+  review, complete suites, and decided CI.
 
 ### T-SEC-5: CSRF/origin check on proxy mutation routes
 - priority: P1

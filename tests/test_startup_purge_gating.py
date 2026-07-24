@@ -47,9 +47,16 @@ def test_base_compose_defaults_are_safe_and_dev_override_restores_convenience():
     dockerfile_source = Path("Dockerfile").read_text(encoding="utf-8")
 
     assert "${STARTUP_PURGE_DERIVED:-false}" in compose_source
-    assert "command: uvicorn main:app --host 0.0.0.0 --port 8000\n" in compose_source
+    assert (
+        "command: uvicorn main:app --host 0.0.0.0 --port 8000 --no-proxy-headers\n"
+        in compose_source
+    )
     assert "healthcheck:" in compose_source.split("redis:", 1)[1]
     assert "restart: unless-stopped" in compose_source.split("api:", 1)[1]
-    assert "--reload" in dev_compose_source
+    assert (
+        "command: uvicorn main:app --host 0.0.0.0 --port 8000 "
+        "--reload --no-proxy-headers"
+        in dev_compose_source
+    )
     assert "STARTUP_PURGE_DERIVED=${STARTUP_PURGE_DERIVED:-true}" in dev_compose_source
     assert "sys.exit(1)" in dockerfile_source

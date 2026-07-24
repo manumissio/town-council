@@ -24,7 +24,7 @@ docker compose -f docker-compose.yml -f docker-compose.dev.yml up -d --build \
   postgres redis meilisearch tika semantic semantic-worker
 docker compose --env-file .env --env-file env/profiles/m5_mlx_conservative.env \
   -f docker-compose.yml -f docker-compose.dev.yml up -d --build --no-deps \
-  worker api pipeline frontend
+  worker api pipeline frontend ingress
 docker compose exec -T worker python scripts/worker_healthcheck.py
 ```
 

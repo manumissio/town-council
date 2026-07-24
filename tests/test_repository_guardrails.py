@@ -2835,7 +2835,15 @@ def test_g2_visitor_access_policy_is_aligned_between_security_and_remediation_le
     pending_row = next(
         line for line in remediation_ledger.splitlines() if line.startswith("| **Pending** |")
     )
+    in_progress_row = next(
+        line
+        for line in remediation_ledger.splitlines()
+        if line.startswith("| **In progress** |")
+    )
     pending_tasks = {task.strip() for task in pending_row.split("|")[2].split(",")}
+    in_progress_tasks = {
+        task.strip() for task in in_progress_row.split("|")[2].split(",")
+    }
 
     assert "Decision G2, approved 2026-07-24" in frontend_api_boundary
     assert (
@@ -2857,29 +2865,27 @@ def test_g2_visitor_access_policy_is_aligned_between_security_and_remediation_le
     assert "per-client rate limits" in frontend_api_boundary.lower()
     assert "per-client rate limits" in g2_entry.lower()
     assert "decision_gate: G2 approved 2026-07-24" in t_sec_4_entry
-    assert "T-SEC-4" in pending_tasks
+    assert "status: in progress" in t_sec_4_entry
+    assert "T-SEC-4" in in_progress_tasks
+    assert "T-SEC-4" not in pending_tasks
     canonical_g2_policy = f"{frontend_api_boundary} {g2_entry}".lower()
     assert not _g2_policy_has_contradiction(canonical_g2_policy)
 
 
-def test_g2_accepted_risk_is_bounded_without_overclaiming_t_sec_4():
+def test_g2_deployment_key_trust_is_bounded_after_t_sec_4_starts():
     security_policy = (ROOT / "SECURITY.md").read_text(encoding="utf-8")
     accepted_risk = _required_markdown_section(
         security_policy,
-        "**Visitor-accessible AI actions before T-SEC-4.**",
+        "**Deployment-key client identity trust.**",
         "\n## Dependency and supply chain",
     )
 
-    assert "unauthenticated proxy callers" in accepted_risk
-    assert "Direct calls to protected AI mutation endpoints remain API-key protected." in (
-        accepted_risk
-    )
-    assert "T-SEC-5 reduces cross-site browser abuse but does not authenticate" in accepted_risk
-    assert (
-        "Revisit when T-SEC-4 merges or by 2026-08-31, whichever comes first."
-        in accepted_risk
-    )
-    assert "- [ ] Client IP forwarded from proxy" in security_policy
+    assert "direct caller holding that secret" in accepted_risk
+    assert "already has authority to invoke the protected actions" in accepted_risk
+    assert "Visitors never receive the key." in accepted_risk
+    assert "Revisit if the key is delegated" in accepted_risk
+    assert "- [x] Caddy replaces caller forwarding metadata" in security_policy
+    assert "Visitor-accessible AI actions before T-SEC-4" not in security_policy
 
 
 def test_t_sec_4a_is_complete_after_g2_policy_record_merged():

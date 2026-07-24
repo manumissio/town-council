@@ -1,8 +1,11 @@
+import { isIPv4, isIPv6 } from "node:net";
+
 const BLOCKED_FETCH_SITES = new Set(["cross-site", "same-site"]);
 const CROSS_SITE_DETAIL = "Cross-site mutation requests are not allowed.";
 const FETCH_SITE_HEADER = "sec-fetch-site";
 const FORBIDDEN_STATUS = 403;
 const FORWARDED_PROTOCOL_HEADER = "x-forwarded-proto";
+const FORWARDED_CLIENT_HEADER = "x-forwarded-for";
 const HOST_HEADER = "host";
 const INVALID_HOST_AUTHORITY = /[/\\?#]/;
 const MUTATION_METHOD = "POST";
@@ -19,6 +22,21 @@ function getApiAuthKey() {
     throw new Error("API_AUTH_KEY is required for frontend backend proxy routes.");
   }
   return apiAuthKey;
+}
+
+function getForwardedClientIp(request) {
+  const forwardedClient =
+    request?.headers.get(FORWARDED_CLIENT_HEADER) ?? null;
+  if (
+    forwardedClient === null ||
+    forwardedClient !== forwardedClient.trim() ||
+    forwardedClient.includes(",")
+  ) {
+    return null;
+  }
+  return isIPv4(forwardedClient) || isIPv6(forwardedClient)
+    ? forwardedClient
+    : null;
 }
 
 function parseUrl(urlValue) {
@@ -151,6 +169,10 @@ export async function proxyBackendJson({
   const headers = new Headers({
     "X-API-Key": apiAuthKey,
   });
+  const forwardedClient = getForwardedClientIp(request);
+  if (forwardedClient !== null) {
+    headers.set("X-Forwarded-For", forwardedClient);
+  }
 
   if (body !== undefined) {
     headers.set("Content-Type", "application/json");

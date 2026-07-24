@@ -3,6 +3,7 @@ import logging
 import os
 from collections.abc import AsyncIterator, Iterator
 from contextlib import asynccontextmanager
+from ipaddress import ip_address
 from typing import Any
 
 from fastapi import FastAPI, Header, HTTPException, Request
@@ -28,9 +29,39 @@ HEADER_UNSAFE_API_AUTH_KEY_MESSAGE = (
 )
 DATABASE_UNAVAILABLE_DETAIL = "Database service is unavailable"
 SEMANTIC_SERVICE_URL = os.getenv("SEMANTIC_SERVICE_URL", "http://semantic:8010").rstrip("/")
+API_KEY_HEADER = "x-api-key"
+FORWARDED_CLIENT_HEADER = "x-forwarded-for"
+
+
+def _api_key_matches(candidate: str | None) -> bool:
+    expected_key = env_raw("API_AUTH_KEY", DEFAULT_API_AUTH_KEY)
+    return hmac.compare_digest(candidate or "", expected_key)
+
+
+def _forwarded_client_ip(request: Request) -> str | None:
+    forwarded_client = request.headers.get(FORWARDED_CLIENT_HEADER)
+    if (
+        forwarded_client is None
+        or forwarded_client != forwarded_client.strip()
+        or "," in forwarded_client
+    ):
+        return None
+    try:
+        return str(ip_address(forwarded_client))
+    except ValueError:
+        return None
+
+
+def rate_limit_client_key(request: Request) -> str:
+    if _api_key_matches(request.headers.get(API_KEY_HEADER)):
+        forwarded_client = _forwarded_client_ip(request)
+        if forwarded_client is not None:
+            return forwarded_client
+    return get_remote_address(request)
+
 
 # This protects the local API worker from expensive endpoint floods.
-limiter = Limiter(key_func=get_remote_address)
+limiter = Limiter(key_func=rate_limit_client_key)
 
 SessionLocal: Any = None
 _db_init_error: Exception | None = None
@@ -70,8 +101,7 @@ def get_db() -> Iterator[Any]:
 
 
 async def verify_api_key(request: Request, x_api_key: str = Header(None)) -> None:
-    expected_key = env_raw("API_AUTH_KEY", DEFAULT_API_AUTH_KEY)
-    if not hmac.compare_digest(x_api_key or "", expected_key):
+    if not _api_key_matches(x_api_key):
         client_ip = request.client.host if request and request.client else "unknown"
         logger.warning(
             "Unauthorized API access attempt: invalid or missing API key",

@@ -469,7 +469,7 @@ services:
       - data:/app/data
       - models_data:/models
     working_dir: /app/api
-    command: uvicorn main:app --host 0.0.0.0 --port 8000
+    command: uvicorn main:app --host 0.0.0.0 --port 8000 --no-proxy-headers
     ports:
       - "8000:8000"
     environment:
@@ -533,7 +533,25 @@ services:
       - models_data:/models
       - ollama_data:/root/.ollama
 
-  # Next.js Frontend: The user interface for searching and viewing results.
+  # Public ingress: Replaces caller-controlled forwarding headers before Next.js.
+  ingress:
+    image: caddy:2.11.4-alpine
+    ports:
+      - "3000:3000"
+    volumes:
+      - ./docker/Caddyfile:/etc/caddy/Caddyfile:ro
+    depends_on:
+      frontend:
+        condition: service_healthy
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "wget --no-verbose --tries=1 --spider http://127.0.0.1:3000/ || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 20s
+
+  # Next.js Frontend: Internal UI and API proxy behind the public ingress.
   frontend:
     build:
       context: ./frontend
@@ -542,8 +560,8 @@ services:
         - NEXT_PUBLIC_API_URL=${NEXT_PUBLIC_API_URL:-http://localhost:8000}
         - NEXT_PUBLIC_FEATURE_TRENDS_DASHBOARD=${NEXT_PUBLIC_FEATURE_TRENDS_DASHBOARD:-false}
         - APP_ENV=${APP_ENV:-dev}
-    ports:
-      - "3000:3000"
+    expose:
+      - "3000"
     environment:
       - NEXT_PUBLIC_API_URL=${NEXT_PUBLIC_API_URL:-http://localhost:8000}
       - NEXT_PUBLIC_FEATURE_TRENDS_DASHBOARD=${NEXT_PUBLIC_FEATURE_TRENDS_DASHBOARD:-false}

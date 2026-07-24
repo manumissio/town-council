@@ -29,6 +29,16 @@ function makePostRequest(headers = {}, requestOrigin = FRONTEND_ORIGIN) {
   });
 }
 
+function makeRawForwardedForRequest(forwardedFor) {
+  const request = makePostRequest();
+  const originalGet = request.headers.get.bind(request.headers);
+  request.headers.get = (name) =>
+    name.toLowerCase() === "x-forwarded-for"
+      ? forwardedFor
+      : originalGet(name);
+  return request;
+}
+
 function makeStandalonePost(headers) {
   return makePostRequest(headers, INTERNAL_ORIGIN);
 }
@@ -39,10 +49,11 @@ function rejectUnexpectedBackendAccess() {
   };
 }
 
-function installBackendResponse() {
+function installBackendResponse(onBackendRequest = () => {}) {
   process.env.API_AUTH_KEY = API_AUTH_KEY;
   globalThis.fetch = async (_backendUrl, backendOptions) => {
     assert.equal(backendOptions.headers.get("X-API-Key"), API_AUTH_KEY);
+    onBackendRequest(backendOptions.headers);
     return Response.json({ status: "queued" }, { status: 202 });
   };
 }
@@ -139,6 +150,64 @@ test("headerless POST preserves non-browser callers", async () => {
 
   assert.equal(proxyResponse.status, 202);
   assert.deepEqual(await proxyResponse.json(), { status: "queued" });
+});
+
+test("forwards exactly one valid IPv4 or IPv6 X-Forwarded-For", async () => {
+  for (const forwardedFor of ["203.0.113.42", "2001:db8::42"]) {
+    let backendHeaders;
+    installBackendResponse((headers) => {
+      backendHeaders = headers;
+    });
+
+    const proxyResponse = await proxyBackendJson({
+      request: makePostRequest({ "X-Forwarded-For": forwardedFor }),
+      method: "POST",
+      path: "/summarize/42",
+    });
+
+    assert.equal(proxyResponse.status, 202);
+    assert.equal(backendHeaders.get("X-Forwarded-For"), forwardedFor);
+  }
+});
+
+test("omits missing, malformed, whitespace-padded, and comma-separated X-Forwarded-For", async () => {
+  const requests = [
+    makePostRequest(),
+    makePostRequest({ "X-Forwarded-For": "not-an-ip" }),
+    makeRawForwardedForRequest(" 203.0.113.42 "),
+    makePostRequest({ "X-Forwarded-For": "203.0.113.42, 198.51.100.7" }),
+  ];
+
+  for (const request of requests) {
+    let backendHeaders;
+    installBackendResponse((headers) => {
+      backendHeaders = headers;
+    });
+
+    const proxyResponse = await proxyBackendJson({
+      request,
+      method: "POST",
+      path: "/summarize/42",
+    });
+
+    assert.equal(proxyResponse.status, 202);
+    assert.equal(backendHeaders.has("X-Forwarded-For"), false);
+  }
+});
+
+test("GET without its request preserves existing proxy callers", async () => {
+  let backendHeaders;
+  installBackendResponse((headers) => {
+    backendHeaders = headers;
+  });
+
+  const proxyResponse = await proxyBackendJson({
+    method: "GET",
+    path: "/catalog/42/content",
+  });
+
+  assert.equal(proxyResponse.status, 202);
+  assert.equal(backendHeaders.has("X-Forwarded-For"), false);
 });
 
 test("standalone internal URL honors external Host and protocol", async () => {

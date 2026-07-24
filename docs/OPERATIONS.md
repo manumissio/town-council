@@ -1,6 +1,6 @@
 # Operations Runbook
 
-Last updated: 2026-07-23
+Last updated: 2026-07-24
 
 ## Core workflow
 
@@ -18,7 +18,7 @@ cd "$REPO_ROOT"
 ```bash
 test -f .env || cp .env.example .env
 docker compose -f docker-compose.yml -f docker-compose.dev.yml up -d --build \
-  postgres redis meilisearch tika inference semantic semantic-worker api worker enrichment-worker monitor frontend
+  postgres redis meilisearch tika inference semantic semantic-worker api worker enrichment-worker monitor frontend ingress
 bash ./scripts/bootstrap_local_models.sh
 docker compose -f docker-compose.yml -f docker-compose.dev.yml run --rm \
   pipeline python db_init.py
@@ -37,9 +37,9 @@ docker compose -f docker-compose.yml -f docker-compose.dev.yml up -d --force-rec
   postgres redis meilisearch prometheus grafana
 ```
 
-The base stack publishes only the API and frontend. For loopback-only access
-to backing and monitoring interfaces, start only those services with the
-development overlay:
+The base stack publishes only the API and Caddy ingress; Next.js stays
+internal. For loopback-only access to backing and monitoring interfaces, start
+only those services with the development overlay:
 
 ```bash
 docker compose -f docker-compose.yml -f docker-compose.dev.yml up -d \
@@ -58,7 +58,7 @@ docker compose -f docker-compose.yml -f docker-compose.dev.yml up -d --build \
   postgres redis meilisearch tika semantic semantic-worker
 docker compose --env-file .env --env-file env/profiles/m5_mlx_conservative.env \
   -f docker-compose.yml -f docker-compose.dev.yml up -d --build --no-deps \
-  worker api pipeline frontend
+  worker api pipeline frontend ingress
 docker compose exec -T worker python scripts/worker_healthcheck.py
 ```
 
@@ -67,6 +67,25 @@ What `scripts/dev_up.sh` does:
 - bootstraps the shared local model volume
 - initializes the DB schema
 - runs a small smoke check (`/health`)
+
+Public frontend traffic enters through Caddy on `http://localhost:3000`.
+Next.js is internal-only in base Compose. Caddy replaces caller-supplied
+`X-Forwarded-For`; the frontend validates one client IP and forwards it with
+the server-side API key. The API limiter trusts that identity only when the
+deployment key matches and otherwise uses the direct peer.
+
+Verify the ingress contract after Docker or proxy changes:
+
+```bash
+docker compose -f docker-compose.yml -f docker-compose.dev.yml up -d --build \
+  ingress frontend api
+curl -fsS http://localhost:3000/
+docker compose ps ingress frontend api
+./scripts/verify_caddy_forwarded_for.sh
+```
+
+The final command sends a spoofed forwarding header through the pinned Caddy
+image and fails unless Caddy replaces it with the direct client address.
 
 What it does *not* do:
 - scrape any city data (no crawler runs)
@@ -1249,7 +1268,7 @@ docker compose -f docker-compose.yml -f docker-compose.dev.yml up -d --build \
   postgres redis meilisearch tika semantic semantic-worker
 docker compose --env-file .env --env-file env/profiles/m5_mlx_conservative.env \
   -f docker-compose.yml -f docker-compose.dev.yml up -d --build --no-deps \
-  worker api pipeline frontend
+  worker api pipeline frontend ingress
 docker compose exec -T worker python scripts/worker_healthcheck.py
 ```
 
@@ -1263,7 +1282,7 @@ docker compose -f docker-compose.yml -f docker-compose.dev.yml up -d --build \
   postgres redis meilisearch tika semantic semantic-worker
 docker compose --env-file .env --env-file env/profiles/m5_mlx_balanced.env \
   -f docker-compose.yml -f docker-compose.dev.yml up -d --build --no-deps \
-  worker api pipeline frontend
+  worker api pipeline frontend ingress
 docker compose exec -T worker python scripts/worker_healthcheck.py
 ```
 
@@ -1271,14 +1290,14 @@ M5 conservative baseline:
 ```bash
 docker compose --env-file .env --env-file env/profiles/m5_conservative.env \
   -f docker-compose.yml -f docker-compose.dev.yml up -d --build \
-  inference worker api pipeline frontend
+  inference worker api pipeline frontend ingress
 ```
 
 Desktop balanced:
 ```bash
 docker compose --env-file .env --env-file env/profiles/desktop_balanced.env \
   -f docker-compose.yml -f docker-compose.dev.yml up -d --build \
-  inference worker api pipeline frontend
+  inference worker api pipeline frontend ingress
 ```
 
 Interpretation rules:

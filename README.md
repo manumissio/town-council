@@ -32,7 +32,7 @@ This project ingests agendas/minutes, extracts text, indexes search content, and
 ```bash
 test -f .env || cp .env.example .env
 docker compose -f docker-compose.yml -f docker-compose.dev.yml up -d --build \
-  postgres redis meilisearch tika inference semantic semantic-worker api worker enrichment-worker monitor frontend
+  postgres redis meilisearch tika inference semantic semantic-worker api worker enrichment-worker monitor frontend ingress
 bash ./scripts/bootstrap_local_models.sh
 docker compose -f docker-compose.yml -f docker-compose.dev.yml run --rm \
   pipeline python db_init.py
@@ -229,13 +229,13 @@ docker compose -f docker-compose.yml -f docker-compose.dev.yml up -d --build \
   postgres redis meilisearch tika semantic semantic-worker
 docker compose --env-file .env --env-file env/profiles/m5_mlx_conservative.env \
   -f docker-compose.yml -f docker-compose.dev.yml up -d --build --no-deps \
-  worker api pipeline frontend
+  worker api pipeline frontend ingress
 docker compose --env-file .env --env-file env/profiles/m5_conservative.env \
   -f docker-compose.yml -f docker-compose.dev.yml up -d --build \
-  inference worker api pipeline frontend
+  inference worker api pipeline frontend ingress
 docker compose --env-file .env --env-file env/profiles/desktop_balanced.env \
   -f docker-compose.yml -f docker-compose.dev.yml up -d --build \
-  inference worker api pipeline frontend
+  inference worker api pipeline frontend ingress
 ```
 
 Model policy:
