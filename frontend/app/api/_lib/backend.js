@@ -91,7 +91,11 @@ function getExternalRequestOrigin(request) {
 }
 
 function isNonSameOriginMutation(request, method) {
-  if (method !== MUTATION_METHOD && request?.method !== MUTATION_METHOD) {
+  const requestMethod = request?.method;
+  if (requestMethod !== undefined && requestMethod !== method) {
+    return true;
+  }
+  if (method !== MUTATION_METHOD) {
     return false;
   }
 

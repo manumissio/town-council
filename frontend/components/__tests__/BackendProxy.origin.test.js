@@ -220,10 +220,11 @@ test("POST without its request fails before backend access", async () => {
     TypeError,
   );
 });
-test("cross-site POST cannot bypass the guard through proxy method metadata", async () => {
+test("request and proxy method mismatches fail closed", async () => {
+  await assertBlocked(makePostRequest(), "GET");
   await assertBlocked(
-    makePostRequest({ "Sec-Fetch-Site": "cross-site" }),
-    "GET",
+    new Request(`${FRONTEND_ORIGIN}/api/summarize/42`, { method: "GET" }),
+    "POST",
   );
 });
 

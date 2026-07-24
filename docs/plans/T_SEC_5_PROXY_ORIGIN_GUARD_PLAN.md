@@ -59,8 +59,8 @@ blocked on G3.
    `X-Forwarded-Proto` value after the edge proxy overwrites it, and the
    request URL as fallback; it never trusts `X-Forwarded-Host`.
 5. Require each existing POST route to pass its incoming request to
-   `proxyBackendJson` and keep method metadata aligned. The guard activates
-   when either method is POST, so a wiring mismatch fails closed.
+   `proxyBackendJson` and keep method metadata aligned. The guard rejects a
+   method disagreement before applying POST origin policy.
 6. Return a JSON 403 before reading the API key or calling the backend when
    `Sec-Fetch-Site` is `cross-site` or `same-site`, or when a present `Origin`
    differs from that external target origin. Town Council defines no trusted
