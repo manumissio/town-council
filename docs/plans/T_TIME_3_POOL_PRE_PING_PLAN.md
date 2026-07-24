@@ -1,7 +1,9 @@
 # T-TIME-3: Enable PostgreSQL Pool Pre-Ping
 
-`artifact_contract: ce-unified-plan/v1`  
-`artifact_readiness: implementation-ready`  
+`artifact_contract: ce-unified-plan/v1`
+
+`artifact_readiness: implementation-ready`
+
 `execution: code`
 
 ## 1. Context & Alignment
@@ -169,8 +171,7 @@ Final verification:
 ./.venv/bin/mypy
 PYTHONPATH=. .venv/bin/pytest -q tests/test_database.py
 PYTHONPATH=. .venv/bin/pytest -q tests/test_docs_links.py
-COVERAGE_FILE=/private/tmp/tc-t-time-3-coverage \
-  PYTHONPATH=. .venv/bin/python -m pytest -q \
+PYTHONPATH=. .venv/bin/python -m pytest -q \
   --cov \
   --cov-config=.coveragerc \
   --cov-report=term-missing:skip-covered \
