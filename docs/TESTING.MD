@@ -5,9 +5,8 @@ API" (`docs/ADR.md`, decision gate G3). `AGENTS.md` `<code_quality>` states
 the principle — tests assert observable behavior, not private implementation
 details — and this document says how to do that in this repository.
 
-Status: initial version, effective with the G3 ADR. During remediation
-Phase 2, tests are actively migrated to these rules; new tests must follow
-them immediately.
+Status: effective. During remediation Phase 2, tests are actively migrated to
+these rules; new tests must follow them immediately.
 
 ## The core rule
 

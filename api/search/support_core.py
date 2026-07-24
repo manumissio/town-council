@@ -10,7 +10,7 @@ from pipeline.meilisearch_credentials import DEVELOPMENT_APP_ENV, resolve_meilis
 MEILI_HOST = env_raw("MEILI_HOST", "http://meilisearch:7700")
 APP_ENV = env_lower("APP_ENV", DEVELOPMENT_APP_ENV)
 MEILI_SEARCH_KEY = env_raw("MEILI_SEARCH_KEY", "")
-# G3 defers facade removal; the legacy export now carries reader privilege only.
+# The legacy export preserves reader-only credential compatibility for runtime callers.
 MEILI_MASTER_KEY = resolve_meilisearch_reader_key(
     APP_ENV,
     MEILI_SEARCH_KEY,
