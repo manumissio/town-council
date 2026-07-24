@@ -1,6 +1,6 @@
 # Town Council Remediation Plan (Codex Multi-Agent)
 
-version: 3.5
+version: 3.7
 generated: 2026-07-23
 source: Four-pass external code review (security, architecture, smells, process)
 source_artifact: [Town Council architecture review](../reviews/architecture-review-2026-07-19.html)
@@ -10,6 +10,10 @@ remains in force; where this plan is stricter, this plan wins for these tasks.
 
 ## Changelog
 
+- **v3.7:** Closes T-SEC-3 and T-SEC-3C after synchronizing the canonical
+  Meilisearch reader-key checklist with the merged, green implementation.
+- **v3.6:** Marks merged T-CRAWL-1 complete and registers T-SEC-3C to
+  synchronize the canonical security checklist before closing T-SEC-3.
 - **v3.5:** Records T-SEC-3 as implemented but not closed because its canonical
   `SECURITY.md` checklist item remains open. A separate owned documentation
   change must synchronize that checklist before T-SEC-3 returns to complete.
@@ -83,9 +87,7 @@ remains in force; where this plan is stricter, this plan wins for these tasks.
 
 | State | Tasks |
 |---|---|
-| **Complete** | T-CI-0, T-CI-1, T-CI-1A, T-CI-2, T-CI-2A, T-CI-3, T-CI-4, T-CI-5, T-SEC-1, T-SEC-2 |
-| **In progress** | T-CRAWL-1 |
-| **Implementation merged; closure pending** | T-SEC-3 |
+| **Complete** | T-CI-0, T-CI-1, T-CI-1A, T-CI-2, T-CI-2A, T-CI-3, T-CI-4, T-CI-5, T-SEC-1, T-SEC-2, T-SEC-3, T-SEC-3C, T-CRAWL-1 |
 | **Partially landed; acceptance incomplete** | T-GOV-4, T-GOV-5, T-GOV-6 |
 | **Pending** | T-SEC-4..6, T-TIME-1..3, T-CRAWL-2, T-DA-1, T-DB-1, T-DC-1, T-DD-1, T-DE-1, T-PLAT-1..4, T-GOV-1..3 |
 
@@ -466,7 +468,7 @@ in `AGENTS.md`, `docs/TESTING.MD`, and
 
 ### T-SEC-3: API and semantic readers use a scoped Meilisearch search key
 - priority: P1
-- status: implementation merged; closure pending canonical security checklist synchronization
+- status: complete
 - implementation_plan: `docs/plans/T_SEC_3_MEILISEARCH_SEARCH_KEY_PLAN.md`
 - files_owned: docs/plans/T_SEC_3_MEILISEARCH_SEARCH_KEY_PLAN.md,
   docs/plans/TOWN_COUNCIL_REMEDIATION_PLAN.md,
@@ -503,6 +505,21 @@ in `AGENTS.md`, `docs/TESTING.MD`, and
 - verify: Follow the Full T-SEC-3 plan, including credential tests, resolved
   Compose contracts, live v1.6 permission smoke, API/semantic/indexer suites,
   Ruff, Mypy, docs links, and the complete Python suite.
+
+### T-SEC-3C: Synchronize the Meilisearch security checklist
+- priority: P1
+- status: complete
+- implementation_plan: `docs/plans/T_SEC_3_CHECKLIST_CLOSURE_PLAN.md`
+- files_owned: docs/plans/T_SEC_3_CHECKLIST_CLOSURE_PLAN.md,
+  docs/plans/TOWN_COUNCIL_REMEDIATION_PLAN.md, SECURITY.md
+- do: Verify the merged T-SEC-3 evidence, check its canonical `SECURITY.md`
+  item, and return T-SEC-3 to complete without reopening runtime code.
+- accept: The security checklist and remediation status agree; merged
+  T-CRAWL-1 is recorded complete; no unrelated checklist item changes.
+- forbidden: Runtime security changes, policy expansion, or edits outside the
+  three owned files.
+- verify: Docs links, targeted contradiction checks, clean diff, current-head
+  review, and green PR checks.
 
 ### T-SEC-4: Real client identity through the proxy; per-client rate limits
 - priority: P0
@@ -579,7 +596,7 @@ in `AGENTS.md`, `docs/TESTING.MD`, and
 
 ### T-CRAWL-1: Honest crawler identity
 - priority: P1
-- status: in-progress
+- status: complete
 - implementation_plan: `docs/plans/T_CRAWL_1_HONEST_CRAWLER_IDENTITY_PLAN.md`
 - files_owned: docs/plans/T_CRAWL_1_HONEST_CRAWLER_IDENTITY_PLAN.md,
   docs/plans/TOWN_COUNCIL_REMEDIATION_PLAN.md,
