@@ -36,10 +36,13 @@ engineering decisions is `reachable`).
    therefore depends on forwarding real client identity
    `[remediation: T-SEC-4]`, and any "operator only" action requires auth at
    the proxy, not just the key (decision G2, currently open).
-3. API -> backing stores (Postgres, Redis, Meilisearch, inference): compose
+3. API and semantic service -> backing stores (Postgres, Redis, Meilisearch,
+   inference): compose
    network only. No host port publication in the base compose file
-   `[remediation: T-SEC-1]`. The API read path uses a scoped Meilisearch
-   search key, never the master key `[remediation: T-SEC-3]`.
+   `[remediation: T-SEC-1]`. API and semantic Meilisearch readers use
+   `MEILI_SEARCH_KEY`, scoped to `search` and `stats.get` on `documents`; only
+   writer and administration services receive `MEILI_MASTER_KEY`
+   `[remediation: T-SEC-3]`.
 4. Crawler -> municipal portals: outbound only. Honest identifying
    user agent, `ROBOTSTXT_OBEY=True`, per-domain delay
    `[remediation: T-CRAWL-1]`.
@@ -57,13 +60,24 @@ engineering decisions is `reachable`).
   characters without leading or trailing whitespace so HTTP header parsing
   cannot change the authenticated value `[remediation: T-SEC-2]`. Extend the
   same pattern to any future secret.
+- API and semantic startup rejects a missing, development-fallback, or
+  transport-unsafe `MEILI_SEARCH_KEY` outside development. The fake reader
+  fallback is development-only. Operators must verify the candidate key's
+  exact action and index scope before restarting either reader.
+- Base Compose runs Meilisearch in production mode and requires a master key;
+  the development overlay is the only checked-in path that selects
+  Meilisearch development mode.
 - No secret in a `NEXT_PUBLIC_*` variable, ever. These ship to browser
   bundles.
 - Secrets enter via environment/.env only; `.env` is gitignored. No secrets
   in compose files beyond dev-only fallbacks, and dev fallbacks must be
   obviously fake (`dev_secret_key_change_me` style).
+- Base reader services do not bind-mount the repository, and Docker build
+  context excludes local `.env` variants. The development overlay may restore
+  targeted source-directory mounts for local iteration, never the repository
+  root.
 - Key inventory: `API_AUTH_KEY` (frontend->API), `MEILI_MASTER_KEY`
-  (pipeline writes + admin), `MEILI_SEARCH_KEY` (API reads,
+  (pipeline/worker writes + admin), `MEILI_SEARCH_KEY` (API and semantic reads,
   `[remediation: T-SEC-3]`), `POSTGRES_PASSWORD`, `REDIS_PASSWORD`,
   Grafana admin credentials.
 
@@ -72,7 +86,7 @@ engineering decisions is `reachable`).
 - [x] Base compose publishes only `api:8000` and `frontend:3000` (T-SEC-1)
 - [ ] Non-default values for every key in the inventory above
 - [x] API aborts on default key outside dev (T-SEC-2)
-- [ ] Meilisearch search key configured for the API (T-SEC-3)
+- [ ] Meilisearch search key enforced for API and semantic readers (T-SEC-3)
 - [ ] Client IP forwarded from proxy; limiter keys on it with trusted-proxy
       allowlist (T-SEC-4)
 - [ ] Origin/Sec-Fetch-Site check on proxy mutation routes (T-SEC-5)

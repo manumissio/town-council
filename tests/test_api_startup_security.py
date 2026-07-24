@@ -7,7 +7,8 @@ from fastapi import Depends, FastAPI
 from fastapi.testclient import TestClient
 
 from api import app_setup
-from api.search import semantic_support
+from api.search import semantic_support, support_core
+from pipeline.meilisearch_credentials import DEVELOPMENT_MEILI_SEARCH_KEY
 
 
 DEFAULT_KEY_WARNING = "SECURITY WARNING: You are using the default API Key."
@@ -16,6 +17,9 @@ HEADER_UNSAFE_KEY_MESSAGE = (
     "API_AUTH_KEY must contain printable ASCII characters without leading or trailing whitespace."
 )
 CONFIGURED_API_KEY = "Configured Production Key_123"
+CONFIGURED_MEILI_SEARCH_KEY = "Configured Search Key_123"
+MEILI_FALLBACK_WARNING = "Meilisearch reader is using the development fallback key"
+MASTER_KEY_SENTINEL = "master-key-must-not-appear-in-logs"
 
 
 class _HealthySemanticResponse:
@@ -102,6 +106,8 @@ def test_non_dev_startup_accepts_configured_api_key(
 ) -> None:
     monkeypatch.setenv("APP_ENV", "prod")
     monkeypatch.setenv("API_AUTH_KEY", CONFIGURED_API_KEY)
+    monkeypatch.setattr(support_core, "MEILI_SEARCH_KEY", CONFIGURED_MEILI_SEARCH_KEY)
+    monkeypatch.setattr(support_core, "MEILI_MASTER_KEY", CONFIGURED_MEILI_SEARCH_KEY)
     monkeypatch.setenv("STARTUP_PURGE_DERIVED", "false")
     monkeypatch.setattr(semantic_support.httpx, "get", _healthy_semantic_get)
     application = FastAPI(lifespan=app_setup.lifespan)
@@ -117,6 +123,28 @@ def test_non_dev_startup_accepts_configured_api_key(
 
     assert exact_key_response.status_code == 200
     assert changed_key_response.status_code == 401
+
+
+def test_api_dev_startup_warns_with_development_search_key(
+    monkeypatch: pytest.MonkeyPatch,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    monkeypatch.setenv("APP_ENV", "dev")
+    monkeypatch.setenv("API_AUTH_KEY", CONFIGURED_API_KEY)
+    monkeypatch.setenv("MEILI_MASTER_KEY", MASTER_KEY_SENTINEL)
+    monkeypatch.setattr(support_core, "MEILI_SEARCH_KEY", DEVELOPMENT_MEILI_SEARCH_KEY)
+    monkeypatch.setattr(support_core, "MEILI_MASTER_KEY", DEVELOPMENT_MEILI_SEARCH_KEY)
+    monkeypatch.setenv("STARTUP_PURGE_DERIVED", "false")
+    monkeypatch.setattr(semantic_support.httpx, "get", _healthy_semantic_get)
+    application = FastAPI(lifespan=app_setup.lifespan)
+
+    with caplog.at_level(logging.WARNING, logger="town-council-api"):
+        with TestClient(application):
+            pass
+
+    assert MEILI_FALLBACK_WARNING in caplog.text
+    assert DEVELOPMENT_MEILI_SEARCH_KEY not in caplog.text
+    assert MASTER_KEY_SENTINEL not in caplog.text
 
 
 def test_h11_removes_edge_whitespace_but_preserves_internal_api_key_space() -> None:

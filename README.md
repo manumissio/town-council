@@ -30,9 +30,12 @@ This project ingests agendas/minutes, extracts text, indexes search content, and
 
 ### 2) Start stack and initialize DB
 ```bash
-docker compose up -d --build postgres redis meilisearch tika inference semantic semantic-worker api worker enrichment-worker monitor frontend
+test -f .env || cp .env.example .env
+docker compose -f docker-compose.yml -f docker-compose.dev.yml up -d --build \
+  postgres redis meilisearch tika inference semantic semantic-worker api worker enrichment-worker monitor frontend
 bash ./scripts/bootstrap_local_models.sh
-docker compose run --rm pipeline python db_init.py
+docker compose -f docker-compose.yml -f docker-compose.dev.yml run --rm \
+  pipeline python db_init.py
 ```
 
 Optional helper (same steps, fewer flags to remember):
@@ -45,6 +48,11 @@ What `scripts/dev_up.sh` does:
 - bootstraps the shared local model volume
 - initializes the DB schema
 - runs a small smoke check (`/health`)
+
+Local development may use the fake Meilisearch reader fallback. Any reachable
+deployment must configure a scoped read `MEILI_SEARCH_KEY` for the API and
+semantic service and replace the example master key; create and verify it with the
+[scoped-key runbook](docs/OPERATIONS.md#meilisearch-reader-key-operations).
 
 What it does *not* do:
 - scrape any city data (no crawler runs)
@@ -217,10 +225,17 @@ Runtime profile commands:
 mlx_lm.server --model mlx-community/gemma-3-text-4b-it-4bit --host 127.0.0.1 --port 8080
 
 # terminal 2
-docker compose up -d --build postgres redis meilisearch tika semantic semantic-worker
-docker compose --env-file env/profiles/m5_mlx_conservative.env up -d --build --no-deps worker api pipeline frontend
-docker compose --env-file env/profiles/m5_conservative.env up -d --build inference worker api pipeline frontend
-docker compose --env-file env/profiles/desktop_balanced.env up -d --build inference worker api pipeline frontend
+docker compose -f docker-compose.yml -f docker-compose.dev.yml up -d --build \
+  postgres redis meilisearch tika semantic semantic-worker
+docker compose --env-file .env --env-file env/profiles/m5_mlx_conservative.env \
+  -f docker-compose.yml -f docker-compose.dev.yml up -d --build --no-deps \
+  worker api pipeline frontend
+docker compose --env-file .env --env-file env/profiles/m5_conservative.env \
+  -f docker-compose.yml -f docker-compose.dev.yml up -d --build \
+  inference worker api pipeline frontend
+docker compose --env-file .env --env-file env/profiles/desktop_balanced.env \
+  -f docker-compose.yml -f docker-compose.dev.yml up -d --build \
+  inference worker api pipeline frontend
 ```
 
 Model policy:

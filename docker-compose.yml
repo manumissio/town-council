@@ -49,6 +49,8 @@ services:
       - PYTHONUNBUFFERED=1
       - PYTHONPATH=/app
       - DATABASE_URL=${DATABASE_URL:-postgresql://town_council:secure_dev_password@postgres:5432/town_council_db}
+      - MEILI_HOST=${MEILI_HOST:-http://meilisearch:7700}
+      - MEILI_MASTER_KEY=${MEILI_MASTER_KEY:?MEILI_MASTER_KEY must be set}
       - REDIS_HOST=redis
       - REDIS_PASSWORD=${REDIS_PASSWORD:-secure_redis_password}
       - CELERY_BROKER_URL=redis://:${REDIS_PASSWORD:-secure_redis_password}@redis:6379/0
@@ -109,6 +111,8 @@ services:
       - PYTHONUNBUFFERED=1
       - PYTHONPATH=/app
       - DATABASE_URL=${DATABASE_URL:-postgresql://town_council:secure_dev_password@postgres:5432/town_council_db}
+      - MEILI_HOST=${MEILI_HOST:-http://meilisearch:7700}
+      - MEILI_MASTER_KEY=${MEILI_MASTER_KEY:?MEILI_MASTER_KEY must be set}
       - REDIS_HOST=redis
       - REDIS_PASSWORD=${REDIS_PASSWORD:-secure_redis_password}
       - CELERY_BROKER_URL=redis://:${REDIS_PASSWORD:-secure_redis_password}@redis:6379/0
@@ -206,7 +210,7 @@ services:
       - PYTHONPATH=/app
       - DATABASE_URL=${DATABASE_URL:-postgresql://town_council:secure_dev_password@postgres:5432/town_council_db}
       - MEILI_HOST=${MEILI_HOST:-http://meilisearch:7700}
-      - MEILI_MASTER_KEY=${MEILI_MASTER_KEY:-masterKey}
+      - MEILI_MASTER_KEY=${MEILI_MASTER_KEY:?MEILI_MASTER_KEY must be set}
       - REDIS_HOST=redis
       - REDIS_PASSWORD=${REDIS_PASSWORD:-secure_redis_password}
       - CELERY_BROKER_URL=redis://:${REDIS_PASSWORD:-secure_redis_password}@redis:6379/0
@@ -271,7 +275,7 @@ services:
       - PYTHONPATH=/app
       - DATABASE_URL=${DATABASE_URL:-postgresql://town_council:secure_dev_password@postgres:5432/town_council_db}
       - MEILI_HOST=${MEILI_HOST:-http://meilisearch:7700}
-      - MEILI_MASTER_KEY=${MEILI_MASTER_KEY:-masterKey}
+      - MEILI_MASTER_KEY=${MEILI_MASTER_KEY:?MEILI_MASTER_KEY must be set}
       - REDIS_HOST=redis
       - REDIS_PASSWORD=${REDIS_PASSWORD:-secure_redis_password}
       - CELERY_BROKER_URL=redis://:${REDIS_PASSWORD:-secure_redis_password}@redis:6379/0
@@ -394,7 +398,8 @@ services:
   meilisearch:
     image: getmeili/meilisearch:v1.6
     environment:
-      - MEILI_MASTER_KEY=${MEILI_MASTER_KEY:-masterKey}
+      - MEILI_ENV=production
+      - MEILI_MASTER_KEY=${MEILI_MASTER_KEY:?MEILI_MASTER_KEY must be set}
     volumes:
       - meili_data:/meili_data
 
@@ -404,7 +409,6 @@ services:
       target: python-semantic
     image: town-council-python-semantic
     volumes:
-      - .:/app
       - data:/app/data
       - models_data:/models
     working_dir: /app/semantic_service
@@ -412,9 +416,10 @@ services:
     environment:
       - PYTHONUNBUFFERED=1
       - PYTHONPATH=/app
+      - APP_ENV=${APP_ENV:-production}
       - DATABASE_URL=${DATABASE_URL:-postgresql://town_council:secure_dev_password@postgres:5432/town_council_db}
       - MEILI_HOST=${MEILI_HOST:-http://meilisearch:7700}
-      - MEILI_MASTER_KEY=${MEILI_MASTER_KEY:-masterKey}
+      - MEILI_SEARCH_KEY=${MEILI_SEARCH_KEY:-}
       - SEMANTIC_ENABLED=${SEMANTIC_ENABLED:-false}
       - SEMANTIC_BACKEND=${SEMANTIC_BACKEND:-faiss}
       - SEMANTIC_MODEL_NAME=${SEMANTIC_MODEL_NAME:-all-MiniLM-L6-v2}
@@ -461,7 +466,6 @@ services:
       target: python-api
     image: town-council-python-api
     volumes:
-      - .:/app
       - data:/app/data
       - models_data:/models
     working_dir: /app/api
@@ -470,7 +474,7 @@ services:
       - "8000:8000"
     environment:
       - MEILI_HOST=${MEILI_HOST:-http://meilisearch:7700}
-      - MEILI_MASTER_KEY=${MEILI_MASTER_KEY:-masterKey}
+      - MEILI_SEARCH_KEY=${MEILI_SEARCH_KEY:-}
       - DATABASE_URL=${DATABASE_URL:-postgresql://town_council:secure_dev_password@postgres:5432/town_council_db}
       - REDIS_HOST=redis
       - REDIS_PASSWORD=${REDIS_PASSWORD:-secure_redis_password}
@@ -479,7 +483,7 @@ services:
       - PYTHONPATH=/app
       - API_AUTH_KEY=${API_AUTH_KEY:-dev_secret_key_change_me}
       - ALLOWED_ORIGINS=${ALLOWED_ORIGINS:-http://localhost:3000}
-      - APP_ENV=${APP_ENV:-dev}
+      - APP_ENV=${APP_ENV:-production}
       - STARTUP_PURGE_DERIVED=${STARTUP_PURGE_DERIVED:-false}
       - FEATURE_TRENDS_DASHBOARD=${FEATURE_TRENDS_DASHBOARD:-false}
       - SEMANTIC_SERVICE_URL=${SEMANTIC_SERVICE_URL:-http://semantic:8010}

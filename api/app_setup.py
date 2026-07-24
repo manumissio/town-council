@@ -13,6 +13,10 @@ from sqlalchemy.orm import sessionmaker
 
 from pipeline.config import SEMANTIC_ENABLED
 from pipeline.config_env import env_lower, env_raw
+from pipeline.meilisearch_credentials import (
+    DEVELOPMENT_MEILI_SEARCH_KEY,
+    MEILI_SEARCH_KEY_FALLBACK_WARNING,
+)
 from pipeline.models import db_connect
 from pipeline.startup_purge import run_startup_purge_if_enabled
 
@@ -108,6 +112,10 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         raise RuntimeError(HEADER_UNSAFE_API_AUTH_KEY_MESSAGE)
     if api_auth_key == DEFAULT_API_AUTH_KEY:
         logger.critical("SECURITY WARNING: You are using the default API Key. Please set API_AUTH_KEY in production.")
+    from api.search import support_core
+
+    if support_core.MEILI_MASTER_KEY == DEVELOPMENT_MEILI_SEARCH_KEY:
+        logger.warning(MEILI_SEARCH_KEY_FALLBACK_WARNING)
     initialize_database()
     if not is_db_ready():
         logger.warning("database_session_factory=unavailable")

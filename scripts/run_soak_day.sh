@@ -9,6 +9,8 @@ API_KEY="${API_KEY:-dev_secret_key_change_me}"
 WAIT_SECONDS="${WAIT_SECONDS:-2}"
 HEALTH_TIMEOUT_SECONDS="${HEALTH_TIMEOUT_SECONDS:-60}"
 TASK_MAX_WAIT_SECONDS="${TASK_MAX_WAIT_SECONDS:-900}"
+DEVELOPMENT_MEILI_MASTER_KEY="masterKey"
+COMPOSE=(docker compose -f docker-compose.yml -f docker-compose.dev.yml)
 
 usage() {
   echo "usage: $0 --run-id <id> --catalog-file <path> [--output-dir <path>] [--api-url <url>] [--api-key <key>] [--task-max-wait-seconds <n>]"
@@ -112,7 +114,10 @@ if ! health_ok; then
   PREFLIGHT_RECOVERY_ATTEMPTED="true"
   # Prefer a fast, no-build recovery path for scheduled soak runs.
   # Full dev_up rebuilds are slower and increase false stack_offline failures.
-  if docker compose up -d inference worker api pipeline frontend >"$PREFLIGHT_RECOVERY_LOG" 2>&1; then
+  if [[ ! -f .env && -z "${MEILI_MASTER_KEY:-}" ]]; then
+    export MEILI_MASTER_KEY="$DEVELOPMENT_MEILI_MASTER_KEY"
+  fi
+  if STARTUP_PURGE_DERIVED=false "${COMPOSE[@]}" up -d inference worker api pipeline frontend >"$PREFLIGHT_RECOVERY_LOG" 2>&1; then
     PREFLIGHT_RECOVERY_RESULT="docker_compose_succeeded"
   else
     PREFLIGHT_RECOVERY_RESULT="docker_compose_failed"
@@ -126,7 +131,7 @@ if ! health_ok; then
   fi
   if ! health_ok; then
     preflight_status="stack_offline"
-    docker compose ps >"$PREFLIGHT_COMPOSE_PS_LOG" 2>&1 || true
+    "${COMPOSE[@]}" ps >"$PREFLIGHT_COMPOSE_PS_LOG" 2>&1 || true
     python3 - <<'PY' "$RUN_ID" "$API_URL" "$preflight_status" "$DAY_SUMMARY_JSON" "$PREFLIGHT_RECOVERY_ATTEMPTED" "$PREFLIGHT_RECOVERY_RESULT"
 import json
 import sys
