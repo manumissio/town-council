@@ -59,8 +59,14 @@ No fake or mock is used.
 ```bash
 gh pr view 123 --json state,mergedAt,statusCheckRollup
 PYTHONPATH=. .venv/bin/pytest -q tests/test_docs_links.py
-grep -n "Meilisearch search key enforced" SECURITY.md
-grep -nE "T-SEC-3|T-CRAWL-1" docs/plans/TOWN_COUNCIL_REMEDIATION_PLAN.md
+grep -Fx -- \
+  "- [x] Meilisearch search key enforced for API and semantic readers (T-SEC-3)" \
+  SECURITY.md
+for task_id in T-SEC-3 T-SEC-3C T-CRAWL-1; do
+  sed -n "/^### ${task_id}:/,/^### /p" \
+    docs/plans/TOWN_COUNCIL_REMEDIATION_PLAN.md |
+    grep -Fx -- "- status: complete"
+done
 git diff --check
 git status --short
 ```
