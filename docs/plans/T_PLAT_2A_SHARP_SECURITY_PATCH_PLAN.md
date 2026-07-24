@@ -48,8 +48,8 @@ data, test-seam policy, or migration tooling.
 
 **e) Step-by-step approach.**
 
-1. Add a Node test that requires Next.js to remain 16.2.11, forbids Sharp as a
-   direct or development dependency, and requires both the nested override and
+1. Add a Node test that requires Next.js to remain 16.2.11, forbids Sharp in
+   every root dependency section, and requires both the nested override and
    lockfile to select Sharp 0.35.3.
 2. Run the new test and capture its expected failure against Sharp 0.34.5.
 3. Extend the existing `overrides` object in `frontend/package.json` with a
@@ -153,7 +153,7 @@ planning text; npm generates the lockfile delta.
 **q) Edge and failure scenarios.**
 
 1. The manifest lacks the nested Sharp override.
-2. Sharp is added as a direct or development dependency.
+2. Sharp is added to any root dependency section.
 3. The lockfile still resolves vulnerable Sharp 0.34.5.
 4. Updating Sharp changes Next.js away from 16.2.11.
 5. Manifest and lockfile disagree, causing `npm ci` to fail.
