@@ -2138,6 +2138,9 @@ G3_REMOVAL_OBJECT_MODIFIER_PATTERN = r"(?:a|an|existing|legacy|temporary|that|th
 G3_MUST_PRECEDE_ACTION_PATTERN = (
     r"must\s+(?:land|be\s+(?:accepted|completed?|resolved))\s+before"
 )
+G3_PREREQUISITE_SUBJECT_PATTERN = (
+    r"(?:(?:contributors?|maintainers?|they|we|you)\s+)?"
+)
 G3_ORDERED_PREREQUISITE_ACTION_PATTERN = (
     rf"(?:{G3_MUST_PRECEDE_ACTION_PATTERN}|must\s+wait\s+(?:for|until))"
 )
@@ -2230,8 +2233,10 @@ G3_NONASSERTIVE_POLICY_CONTEXT = re.compile(
     re.IGNORECASE,
 )
 G3_HISTORICAL_POLICY_CONTEXT = re.compile(
-    r"(?:^\s*(?:historically|previously|formerly|in\s+the\s+past)\b"
-    r"|\bG3\b(?:\s+[a-z][\w'-]*){0,3}\s+once(?!\s+again\b))",
+    r"(?:^\s*(?:(?:historically|previously|formerly|in\s+the\s+past)\b|"
+    r"(?:the\s+)?(?:old|superseded)\b)"
+    r"|\bG3\b(?:\s+[a-z][\w'-]*){0,3}\s+once(?!\s+again\b)"
+    r"|\bG3\b(?:\s+[a-z][\w'-]*){0,3}\s+used\s+to\b)",
     re.IGNORECASE,
 )
 G3_ACTIVE_POLICY_CONTEXT = re.compile(
@@ -2243,6 +2248,7 @@ G3_ACTIVE_POLICY_CONTEXT = re.compile(
 G3_ORDERED_PREREQUISITE_POLICY = re.compile(
     rf"(?:\bG3\b\s+(?:{REMEDIATION_TASK_REFERENCE.pattern}\s+)?"
     rf"{G3_MUST_PRECEDE_ACTION_PATTERN}\s+"
+    rf"{G3_PREREQUISITE_SUBJECT_PATTERN}"
     rf"(?:{G3_REMOVAL_OBJECT_MODIFIER_PATTERN}\s+){{0,2}}"
     rf"{G3_DEFERRED_WORK.pattern}|"
     rf"{G3_DEFERRED_WORK.pattern}\s+must\s+wait\s+(?:for|until)\s+\bG3\b)",
@@ -3041,6 +3047,9 @@ def test_g3_deferral_scan_groups_wrapped_comment_blocks(tmp_path: Path):
         "# G3 blocks are listed in the report.",
         "# G3 preserves runtime API compatibility.",
         "# G3 preserves the historical ADR about facade removal.",
+        "# The old ADR says G3 blocks facade removal.",
+        "# The superseded decision says G3 preserves the test seam.",
+        "# G3 used to block facade removal.",
         "# Facade removal is not blocked by G3.",
         "# Facade removal is not being blocked by G3.",
         "# G3 is pending for historical reference; facade removal is no longer blocked.",
@@ -3115,6 +3124,7 @@ def test_g3_deferral_scan_groups_wrapped_comment_blocks(tmp_path: Path):
         "# Facade removal must land before G3.",
         "# G3 must wait for facade removal.",
         "# G3 must be accepted before facade removal documentation can proceed.",
+        "# G3 must land before we update facade documentation.",
         "# G3 must be accepted before the test facade status can be removed.",
         "# G3 is satisfied; T-SEC-4 must land before facade removal.",
         "# G3 does not prohibit facade removal.",
@@ -3188,6 +3198,7 @@ def test_g3_deferral_scan_allows_non_deferral_policy(accepted_policy: str):
         "# G3 and\n# T-SEC-4 must land before facade removal.",
         "# Both G3 and T-SEC-4 must land before facade removal.",
         "# Historically, G3 required the test facade to remain, but G3 still blocks facade removal.",
+        "# The old ADR says G3 blocks facade removal, but G3 still preserves the test facade.",
         "# Historically, G3 means the facade cannot be removed, but G3 still blocks facade removal.",
         "# Historically, G3 required the test facade to remain, and G3 still blocks facade removal.",
         "# Previously G3 blocked facade removal; G3 still preserves the test seam.",
@@ -3263,6 +3274,7 @@ def test_g3_deferral_scan_allows_non_deferral_policy(accepted_policy: str):
         "# G3 is a blocker for facade removal.",
         "# G3 blocks cleanup of the facade.",
         "# G3 must land before facade removal.",
+        "# G3 must land before we remove the facade.",
         "# G3 must be accepted before facade removal.",
         "# G3 must be complete before facade removal.",
         "# G3 must be completed before test seam cleanup.",
