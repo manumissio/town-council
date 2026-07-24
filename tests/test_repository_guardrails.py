@@ -2158,6 +2158,21 @@ G3_REJECTED_KEEP_HOLD_ACTION = re.compile(
     rf"{G3_NEGATION_GAP}\s+{G3_KEEP_HOLD_ACTION_PATTERN}\b",
     re.IGNORECASE,
 )
+G3_REQUIREMENT_MODIFIER_PATTERN = r"(?:a|an|continued|existing|temporary|the)"
+G3_REQUIREMENT_POLICY = re.compile(
+    r"\brequir(?:e|es|ed|ing)\s+"
+    rf"(?:{G3_REQUIREMENT_MODIFIER_PATTERN}\s+){{0,3}}"
+    rf"(?:preserv(?:ation|ing)\s+of\s+"
+    rf"(?:{G3_REQUIREMENT_MODIFIER_PATTERN}\s+){{0,3}})?"
+    rf"{G3_DEFERRED_WORK.pattern}(?=\s*{G3_KEEP_HOLD_TAIL_PATTERN})",
+    re.IGNORECASE,
+)
+G3_NEGATED_REQUIREMENT_POLICY = re.compile(
+    r"\b(?:no\s+longer|never|cannot|can't|does\s+not|doesn't|is\s+not|isn't|"
+    r"not|without)(?!\s+(?:only|just|merely)\b)"
+    rf"{G3_NEGATION_GAP}\s+requir(?:e|es|ed|ing)\b",
+    re.IGNORECASE,
+)
 G3_POLICY_SENTENCE_BOUNDARY = re.compile(r"\.(?=\s|$)")
 G3_POLICY_CLAUSE_BOUNDARY = re.compile(
     r"(;|,|\b(?:and|but|however|while|yet|so|therefore|thus|hence|then)\b)",
@@ -2252,6 +2267,10 @@ def _g3_clause_defers_work(policy_clause: str) -> bool:
             or G3_BLOCKER_POLICY.search(policy_clause)
             or negated_permission
             or _g3_keep_hold_defers_work(policy_clause)
+            or (
+                G3_REQUIREMENT_POLICY.search(policy_clause)
+                and not G3_NEGATED_REQUIREMENT_POLICY.search(policy_clause)
+            )
             or (
                 G3_PREREQUISITE_POLICY.search(policy_clause)
                 and not G3_NEGATED_PREREQUISITE_POLICY.search(policy_clause)
@@ -2608,6 +2627,9 @@ def test_g3_deferral_scan_groups_wrapped_comment_blocks(tmp_path: Path):
         "# G3 is satisfied, so nothing blocks facade removal.",
         "# None of the facade removals are blocked by G3.",
         "# None of the test seams remain blocked by G3.",
+        "# G3 no longer requires preservation of the test facade.",
+        "# G3 requires the test facade documentation.",
+        "# G3 requires the test seam status.",
     ),
 )
 def test_g3_deferral_scan_allows_non_deferral_policy(accepted_policy: str):
@@ -2656,6 +2678,9 @@ def test_g3_deferral_scan_allows_non_deferral_policy(accepted_policy: str):
         "# G3 delays facade removal.",
         "# G3 postpones test seam cleanup.",
         "# Nothing but G3 blocks facade removal.",
+        "# G3 remains unresolved, requiring preservation of the test facade.",
+        "# G3 requires continued preservation of the test facade.",
+        "# G3 requires temporary preservation of the test seam.",
     ),
 )
 def test_g3_deferral_scan_detects_positive_policy_after_other_negation(
