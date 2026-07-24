@@ -1,7 +1,7 @@
 # T-SEC-6: Small Security Closures
 
 `artifact_contract: ce-unified-plan/v1`
-`artifact_readiness: implementation-ready`
+`artifact_readiness: complete`
 `execution: code`
 
 ## 1. Context & Alignment
@@ -243,8 +243,9 @@ passed. Ruff passed; Mypy passed 68 files; API/reader-key tests passed 69;
 guardrail/docs tests passed 388; telemetry/topic/query tests passed 46; the
 complete Python suite passed 1,476 tests. Pre-commit review found one P2 in
 the S105 explanation ratchet; the test now requires each exact explanation,
-and rereview found no remaining P1/P2. PR CI and post-merge closure remain
-`NOT VERIFIED`.
+and rereview found no remaining P1/P2. PR #138 passed Frontend Tests, Python
+Guardrails, and CodeQL; Codex found no major issues on `d6ddc00`; the PR
+merged as `1805acd`. The post-merge closure test passed before delivery.
 
 **z) Deviations.** Expected: ownership expands from four to eleven files;
 `/stats` remains public under G2 but is minimized; ten current S105 false

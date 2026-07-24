@@ -2919,14 +2919,19 @@ def test_t_sec_6_closures_are_scoped():
         assert source.count("# noqa: S105") == expected_explanations
         assert source.count(expected_explanation) == expected_explanations
 
-    assert "| **In progress** | T-SEC-6 |" in remediation_ledger
-    assert "- status: in progress" in _required_markdown_section(
+    assert "T-SEC-6" in _required_markdown_section(
+        remediation_ledger,
+        "| **Complete** |",
+        "\n| **Partially landed; acceptance incomplete** |",
+    )
+    assert "| **In progress** | T-SEC-6 |" not in remediation_ledger
+    assert "- status: complete and verified 2026-07-24 (PR #138)" in _required_markdown_section(
         remediation_ledger,
         "### T-SEC-6: Small closures",
         "\n### T-TIME-1:",
     )
-    assert "`artifact_readiness: implementation-ready`" in implementation_plan
-    assert "- [ ] `/stats` gated or minimized; CORS without `allow_credentials`" in security_policy
+    assert "`artifact_readiness: complete`" in implementation_plan
+    assert "- [x] `/stats` gated or minimized; CORS without `allow_credentials`" in security_policy
 
 
 def test_t_sec_4a_is_complete_after_g2_policy_record_merged():
