@@ -1,6 +1,6 @@
 # Town Council Remediation Plan (Codex Multi-Agent)
 
-version: 3.12
+version: 3.13
 generated: 2026-07-23
 source: Four-pass external code review (security, architecture, smells, process)
 source_artifact: [Town Council architecture review](../reviews/architecture-review-2026-07-19.html)
@@ -10,6 +10,8 @@ remains in force; where this plan is stricter, this plan wins for these tasks.
 
 ## Changelog
 
+- **v3.13:** Activates T-SEC-5 with a Full implementation plan and expands
+  ownership to its executable frontend test and canonical security checklist.
 - **v3.12:** Marks T-PLAT-2A complete after PR #128 merged with required
   checks green, its final review found no unresolved P1/P2 issues, and
   Dependabot alert 106 closed as fixed.
@@ -102,9 +104,9 @@ remains in force; where this plan is stricter, this plan wins for these tasks.
 | State | Tasks |
 |---|---|
 | **Complete** | T-CI-0, T-CI-1, T-CI-1A, T-CI-2, T-CI-2A, T-CI-3, T-CI-4, T-CI-5, T-SEC-1, T-SEC-2, T-SEC-3, T-SEC-3C, T-TIME-3, T-CRAWL-1, T-CRAWL-2, T-PLAT-2A |
-| **In progress** | None |
+| **In progress** | T-SEC-5 |
 | **Partially landed; acceptance incomplete** | T-GOV-4, T-GOV-5, T-GOV-6 |
-| **Pending** | T-SEC-4..6, T-TIME-1..2, T-DA-1, T-DB-1, T-DC-1, T-DD-1, T-DE-1, T-PLAT-1, T-PLAT-2, T-PLAT-3, T-PLAT-4, T-GOV-1..3 |
+| **Pending** | T-SEC-4, T-SEC-6, T-TIME-1..2, T-DA-1, T-DB-1, T-DC-1, T-DD-1, T-DE-1, T-PLAT-1, T-PLAT-2, T-PLAT-3, T-PLAT-4, T-GOV-1..3 |
 
 ---
 
@@ -552,13 +554,20 @@ in `AGENTS.md`, `docs/TESTING.MD`, and
 
 ### T-SEC-5: CSRF/origin check on proxy mutation routes
 - priority: P1
-- files_owned: frontend/app/api/** (route handlers + _lib)
+- status: in progress
+- implementation_plan: `docs/plans/T_SEC_5_PROXY_ORIGIN_GUARD_PLAN.md`
+- files_owned: docs/plans/T_SEC_5_PROXY_ORIGIN_GUARD_PLAN.md,
+  docs/plans/TOWN_COUNCIL_REMEDIATION_PLAN.md, SECURITY.md,
+  frontend/app/api/**,
+  frontend/components/__tests__/BackendProxy.origin.test.js
 - do: In proxyBackendJson (or a small shared check), reject POSTs whose
-  Origin/Sec-Fetch-Site indicate cross-site with 403. Same-origin and
-  server-side calls pass.
+  Origin/Sec-Fetch-Site indicate a non-same-origin browser request with 403.
+  Same-origin and non-browser calls pass.
 - accept: Cross-origin POST to /api/summarize/* returns 403; app UX
-  unchanged; jest test added.
-- verify: `npm test` green.
+  unchanged; `node:test` coverage added.
+- verify: Follow the Full T-SEC-5 plan, including tests-first evidence,
+  frontend tests and build, Python frontend contracts, full-suite
+  verification, independent review, and diff checks.
 
 ### T-SEC-6: Small closures
 - priority: P2
