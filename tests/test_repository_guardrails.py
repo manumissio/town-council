@@ -2119,7 +2119,8 @@ G3_DEFERRAL_ACTION = re.compile(
     re.IGNORECASE,
 )
 G3_LEGACY_SEAM_OBJECT_PATTERN = (
-    r"(?:(?:compatibility|monkeypatch|test)\s+(?:re-exports?|wrappers?)|"
+    r"(?:(?:compatibility|monkeypatch)\s+(?:re-exports?|wrappers?)|"
+    r"test(?:-only|\s+only)?\s+(?:re-exports?|wrappers?)|"
     r"(?:monkeypatch\s+)?compatibility\s+shims?|"
     r"(?:bidirectional(?:ly)?\s+)?synchronized\s+globals?|"
     r"injectable(?:-|\s+)callables?(?:\s+(?:parameters?|seams?))?)"
@@ -3191,6 +3192,7 @@ def test_g3_deferral_scan_allows_non_deferral_policy(accepted_policy: str):
         "# Facade removal is explicitly prohibited by G3.",
         "# G3 remains pending, so preserve the monkeypatch compatibility shim.",
         "# G3 preserves the test re-export until Phase 2.",
+        "# G3 still blocks removal of test-only re-exports.",
         "# G3 blocks removal of the test wrapper.",
         "# G3 preserves synchronized globals.",
         "# G3 delays removal of injectable callables.",
