@@ -1,6 +1,6 @@
 # Town Council Remediation Plan (Codex Multi-Agent)
 
-version: 3.14
+version: 3.16
 generated: 2026-07-24
 source: Four-pass external code review (security, architecture, smells, process)
 source_artifact: [Town Council architecture review](../reviews/architecture-review-2026-07-19.html)
@@ -10,6 +10,13 @@ remains in force; where this plan is stricter, this plan wins for these tasks.
 
 ## Changelog
 
+- **v3.16:** Records the operator-approved G2 policy: account-free summarize,
+  segment, extract, and topic-generation actions remain available through the
+  public Next.js proxy, direct calls to protected AI mutation endpoints remain
+  key-protected, and T-SEC-4 owns the pending per-client limiting control.
+- **v3.15:** Activates T-SEC-4A to record the operator-approved G2
+  visitor-access policy independently from T-SEC-5 closure and T-SEC-4
+  runtime implementation.
 - **v3.14:** Marks T-SEC-5 complete after PR #130 merged with all required
   checks green, its P2 review finding resolved, and final Codex review clean.
 - **v3.13:** Activates T-SEC-5 with a Full implementation plan and expands
@@ -106,7 +113,7 @@ remains in force; where this plan is stricter, this plan wins for these tasks.
 | State | Tasks |
 |---|---|
 | **Complete** | T-CI-0, T-CI-1, T-CI-1A, T-CI-2, T-CI-2A, T-CI-3, T-CI-4, T-CI-5, T-SEC-1, T-SEC-2, T-SEC-3, T-SEC-3C, T-SEC-5, T-TIME-3, T-CRAWL-1, T-CRAWL-2, T-PLAT-2A |
-| **In progress** | None |
+| **In progress** | T-SEC-4A |
 | **Partially landed; acceptance incomplete** | T-GOV-4, T-GOV-5, T-GOV-6 |
 | **Pending** | T-SEC-4, T-SEC-6, T-TIME-1..2, T-DA-1, T-DB-1, T-DC-1, T-DD-1, T-DE-1, T-PLAT-1, T-PLAT-2, T-PLAT-3, T-PLAT-4, T-GOV-1..3 |
 
@@ -141,10 +148,14 @@ remains in force; where this plan is stricter, this plan wins for these tasks.
 - G1 deployment_posture: Is any instance ever network-reachable beyond
   localhost? Default assumption for this plan: YES (harden accordingly).
   Affects severity of SEC lane; does not block it.
-- G2 protected_action_policy: Are AI task endpoints (summarize/segment/
-  extract/topics) "any visitor" or "operator only"? Default: any visitor,
-  with per-client rate limits (T-SEC-4). If "operator only", add auth to the
-  Next proxy in a follow-up task (out of scope here).
+- G2 protected_action_policy: **Approved 2026-07-24.** AI task endpoints
+  (summarize/segment/extract/topics) remain available to visitors through the
+  public Next.js proxy with per-client rate limits. Direct calls to these
+  protected AI mutation endpoints remain deployment-key protected; public read
+  and task-status routes remain public. T-SEC-4 is authorized; operator-only
+  proxy authentication is not approved. Rationale: preserve account-free
+  public access to civic record analysis and use client-scoped limiting, rather
+  than end-user identity, as the abuse control.
 - G3 test_seam_adr: Ratify ADR "Test patch points are not a public API"
   (T-GOV-1). BLOCKS all Phase 2 tasks.
 - G4 pii_policy: Ratify ADR on person-entity minimization for non-officials
@@ -540,8 +551,28 @@ in `AGENTS.md`, `docs/TESTING.MD`, and
 - verify: Docs links, targeted contradiction checks, clean diff, current-head
   review, and green PR checks.
 
+### T-SEC-4A: Record the approved G2 visitor-access policy
+- priority: P0
+- status: in progress
+- decision_gate: G2 operator approval received 2026-07-24; durable record
+  pending this task
+- implementation_plan: `docs/plans/T_SEC_4A_G2_VISITOR_ACCESS_POLICY_PLAN.md`
+- files_owned: docs/plans/T_SEC_4A_G2_VISITOR_ACCESS_POLICY_PLAN.md,
+  docs/plans/TOWN_COUNCIL_REMEDIATION_PLAN.md, SECURITY.md,
+  tests/test_repository_guardrails.py
+- do: Record the approved visitor-access policy, its rationale, the interim
+  accepted risk, and its dependency on T-SEC-4 without changing runtime code.
+- accept: `SECURITY.md` and the remediation ledger agree; policy tests prevent
+  status/risk drift; T-SEC-4 remains pending.
+- forbidden: Runtime changes, operator-auth implementation, G3 content, or
+  edits outside `files_owned`.
+- verify: Follow the Full T-SEC-4A plan, including tests-first evidence,
+  guardrail and docs verification, the complete Python suite, independent
+  review, and decided CI.
+
 ### T-SEC-4: Real client identity through the proxy; per-client rate limits
 - priority: P0
+- decision_gate: G2 approved 2026-07-24
 - files_owned: frontend/app/api/_lib/backend.js, api/app_setup.py
 - do: (a) backend.js forwards `X-Forwarded-For` (append client IP from
   request) on proxied calls. (b) app_setup limiter key_func: trust XFF only
@@ -957,7 +988,8 @@ its owned files reports and halts rather than widening scope.
 
 - Splitting frontend/components/ResultCard.js (needs a design pass, not a
   mechanical one; schedule after T-CI-2 provides a harness).
-- "Operator-only" auth on the Next proxy (pending G2).
+- "Operator-only" auth on the Next proxy (not approved by G2; requires a
+  future policy change).
 - Retiring generational strata (search_routes/search_read/api-search;
   migrate_v* files) beyond what Phase 2 tasks name.
 - env-access consolidation into config_env (low value until Phase 2 lands).
