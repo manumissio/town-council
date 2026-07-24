@@ -2899,7 +2899,8 @@ def test_t_sec_4a_is_complete_after_g2_policy_record_merged():
     t_sec_4a_states = [
         row.split("|")[1].strip().strip("*")
         for row in status_rows
-        if "T-SEC-4A" in {task.strip() for task in row.split("|")[2].split(",")}
+        for task in row.split("|")[2].split(",")
+        if task.strip() == "T-SEC-4A"
     ]
     normalized_t_sec_4a_entry = " ".join(t_sec_4a_entry.lower().split())
 
