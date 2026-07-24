@@ -2117,8 +2117,11 @@ G3_REMOVAL_OBJECT_PATTERN = (
     rf"{G3_LEGACY_SEAM_OBJECT_PATTERN})"
 )
 G3_REMOVAL_OBJECT_MODIFIER_PATTERN = r"(?:a|an|existing|legacy|temporary|that|the|this)"
+G3_MUST_PRECEDE_ACTION_PATTERN = (
+    r"must\s+(?:land|be\s+(?:accepted|completed?|resolved))\s+before"
+)
 G3_ORDERED_PREREQUISITE_ACTION_PATTERN = (
-    r"(?:must\s+land\s+before|must\s+wait\s+(?:for|until))"
+    rf"(?:{G3_MUST_PRECEDE_ACTION_PATTERN}|must\s+wait\s+(?:for|until))"
 )
 G3_PROHIBITION_ACTION_PATTERN = (
     r"(?:prohibit(?:s|ed|ing)?|forbid(?:s|ding)?|forbade|forbidden)"
@@ -2131,8 +2134,12 @@ G3_PROHIBITION_REJECTION_PATTERN = (
     rf"{G3_PROHIBITION_EMPHASIS_PATTERN}{G3_PROHIBITION_ACTION_PATTERN}"
     rf"(?:(?:\s+[a-z0-9-]+){{0,4}}\s+from)?)"
 )
+G3_CONTROLLED_WORK_CONTINUATION_PATTERN = (
+    r"can\s+(?:proceed|be\s+(?:cleaned\s+up|deleted|removed))"
+)
 G3_CONTROLLED_WORK_TAIL_PATTERN = (
-    r"(?:$|\b(?:because|pending|unless|until|while)\b|"
+    rf"(?:$|\b{G3_CONTROLLED_WORK_CONTINUATION_PATTERN}\b|"
+    r"\b(?:because|pending|unless|until|while)\b|"
     rf"\b{G3_ORDERED_PREREQUISITE_ACTION_PATTERN}\b|"
     rf"\b(?:are|is|remain(?:s)?|was|were)\s+"
     rf"{G3_PROHIBITION_EMPHASIS_PATTERN}"
@@ -2161,7 +2168,9 @@ G3_DEFERRED_WORK = re.compile(
     re.IGNORECASE,
 )
 G3_ORDERED_PREREQUISITE_POLICY = re.compile(
-    rf"(?:\bG3\b\s+must\s+land\s+before\s+{G3_DEFERRED_WORK.pattern}|"
+    rf"(?:\bG3\b\s+{G3_MUST_PRECEDE_ACTION_PATTERN}\s+"
+    rf"(?:{G3_REMOVAL_OBJECT_MODIFIER_PATTERN}\s+){{0,2}}"
+    rf"{G3_DEFERRED_WORK.pattern}|"
     rf"{G3_DEFERRED_WORK.pattern}\s+must\s+wait\s+(?:for|until)\s+\bG3\b)",
     re.IGNORECASE,
 )
@@ -2784,6 +2793,8 @@ def test_g3_deferral_scan_groups_wrapped_comment_blocks(tmp_path: Path):
         "# Facade removal must not wait for G3.",
         "# Facade removal must land before G3.",
         "# G3 must wait for facade removal.",
+        "# G3 must be accepted before facade removal documentation can proceed.",
+        "# G3 must be accepted before the test facade status can be removed.",
         "# G3 is satisfied; T-SEC-4 must land before facade removal.",
         "# G3 does not prohibit facade removal.",
         "# G3 no longer forbids facade removal.",
@@ -2857,6 +2868,12 @@ def test_g3_deferral_scan_allows_non_deferral_policy(accepted_policy: str):
         "# G3 is a blocker for facade removal.",
         "# G3 blocks cleanup of the facade.",
         "# G3 must land before facade removal.",
+        "# G3 must be accepted before facade removal.",
+        "# G3 must be complete before facade removal.",
+        "# G3 must be completed before test seam cleanup.",
+        "# G3 must be resolved before removing the test facade.",
+        "# G3 must be accepted before facade removal can proceed.",
+        "# G3 must be accepted before the test facade can be removed.",
         "# Facade removal must wait for G3.",
         "# G3 prohibits facade removal.",
         "# G3 forbids facade removal.",
