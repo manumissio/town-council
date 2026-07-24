@@ -131,6 +131,7 @@ def test_db_connect_uses_postgresql_pooling(monkeypatch, mocker):
         max_overflow=20,
         pool_timeout=30,
         pool_recycle=1800,
+        pool_pre_ping=True,
     )
 
 
