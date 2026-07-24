@@ -1,6 +1,6 @@
 # Town Council Remediation Plan (Codex Multi-Agent)
 
-version: 3.16
+version: 3.17
 generated: 2026-07-24
 source: Four-pass external code review (security, architecture, smells, process)
 source_artifact: [Town Council architecture review](../reviews/architecture-review-2026-07-19.html)
@@ -10,6 +10,10 @@ remains in force; where this plan is stricter, this plan wins for these tasks.
 
 ## Changelog
 
+- **v3.17:** Records operator approval of G3 and activates T-GOV-1 with
+  six-file ownership for the Accepted ADR, effective testing policy, policy
+  guardrails, remediation state, and one stale source comment. Phase 2 remains
+  blocked until the T-GOV-1 ADR merges.
 - **v3.16:** Records the operator-approved G2 policy: account-free summarize,
   segment, extract, and topic-generation actions remain available through the
   public Next.js proxy, direct calls to protected AI mutation endpoints remain
@@ -112,10 +116,10 @@ remains in force; where this plan is stricter, this plan wins for these tasks.
 
 | State | Tasks |
 |---|---|
-| **Complete** | T-CI-0, T-CI-1, T-CI-1A, T-CI-2, T-CI-2A, T-CI-3, T-CI-4, T-CI-5, T-SEC-1, T-SEC-2, T-SEC-3, T-SEC-3C, T-SEC-5, T-TIME-3, T-CRAWL-1, T-CRAWL-2, T-PLAT-2A |
-| **In progress** | T-SEC-4A |
+| **Complete** | T-CI-0, T-CI-1, T-CI-1A, T-CI-2, T-CI-2A, T-CI-3, T-CI-4, T-CI-5, T-SEC-1, T-SEC-2, T-SEC-3, T-SEC-3C, T-SEC-4A, T-SEC-5, T-TIME-3, T-CRAWL-1, T-CRAWL-2, T-PLAT-2A |
+| **In progress** | T-GOV-1 |
 | **Partially landed; acceptance incomplete** | T-GOV-4, T-GOV-5, T-GOV-6 |
-| **Pending** | T-SEC-4, T-SEC-6, T-TIME-1..2, T-DA-1, T-DB-1, T-DC-1, T-DD-1, T-DE-1, T-PLAT-1, T-PLAT-2, T-PLAT-3, T-PLAT-4, T-GOV-1..3 |
+| **Pending** | T-SEC-4, T-SEC-6, T-TIME-1..2, T-DA-1, T-DB-1, T-DC-1, T-DD-1, T-DE-1, T-PLAT-1, T-PLAT-2, T-PLAT-3, T-PLAT-4, T-GOV-2..3 |
 
 ---
 
@@ -156,8 +160,10 @@ remains in force; where this plan is stricter, this plan wins for these tasks.
   proxy authentication is not approved. Rationale: preserve account-free
   public access to civic record analysis and use client-scoped limiting, rather
   than end-user identity, as the abuse control.
-- G3 test_seam_adr: Ratify ADR "Test patch points are not a public API"
-  (T-GOV-1). BLOCKS all Phase 2 tasks.
+- G3 test_seam_adr: **Approved 2026-07-24 for T-GOV-1 implementation.**
+  Tests patch implementation modules or fake at approved architectural
+  boundaries; historical test patch targets are not public API. Phase 2
+  remains blocked until the Accepted T-GOV-1 ADR merges.
 - G4 pii_policy: Ratify ADR on person-entity minimization for non-officials
   (T-GOV-2). BLOCKS nothing in this plan, but blocks City Coverage Expansion.
 - G5 migration_tooling: Alembic adoption approved? Default: yes (T-PLAT-1).
@@ -864,13 +870,31 @@ files (GED-5 grant).
 
 ### T-GOV-1: ADR — "Test patch points are not a public API" (gate G3)
 - priority: P0 (unblocks Phase 2)
-- files_owned: docs/ADR.md
-- do: Draft entry per existing ADR format: decision (tests patch
-  implementation modules or fake at boundaries: DB session, Celery, LLM
-  provider, Meilisearch client), rationale (cites the facade/sync findings),
-  affected boundaries (tests/, all facade families), consequence (Phase 2
-  deletions authorized). Users ratifies before merge.
-- accept: ADR entry merged with Status: Accepted.
+- status: in progress; operator approved G3 on 2026-07-24
+- implementation_plan:
+  `docs/plans/T_GOV_1_TEST_PATCH_POINTS_ADR_PLAN.md`
+- files_owned: api/search/support_core.py (comment only), docs/ADR.md,
+  docs/TESTING.MD, docs/plans/T_GOV_1_TEST_PATCH_POINTS_ADR_PLAN.md,
+  docs/plans/TOWN_COUNCIL_REMEDIATION_PLAN.md,
+  tests/test_repository_guardrails.py
+- do: Add an Accepted entry per the existing ADR format. Tests patch
+  implementation modules or fake at the boundaries in docs/TESTING.MD.
+  Explicitly supersede prior statements only to the extent that they preserve
+  test-only patch targets; retain mixed runtime, import, CLI, API,
+  task-identity, and operational contracts without rewriting historical ADR
+  entries. Activate the testing policy, remove the stale live G3 deferral
+  comment, and enforce the decision with repository guardrails.
+- coordination: T-GOV-6 remains partially landed after this task because its
+  README Documentation Map links remain missing and are outside T-GOV-1
+  ownership.
+- accept: Accepted ADR merged; testing policy effective; no live source treats
+  G3 as a facade deferral; Phase 2 G3 blocker removed; runtime behavior and
+  public contracts unchanged.
+- forbidden: Facade removal, runtime/import/API changes, historical ADR
+  rewrites, new fake boundaries, or edits outside `files_owned`.
+- verify: Follow the Full T-GOV-1 implementation plan; Ruff, Mypy, repository
+  guardrails, docs links, Meilisearch key-security tests, and the complete
+  Python suite pass.
 
 ### T-GOV-2: ADR — Person-entity minimization & takedown (gate G4)
 - priority: P1
