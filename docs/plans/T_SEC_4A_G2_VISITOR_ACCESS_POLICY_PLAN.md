@@ -244,6 +244,12 @@ green. The durable G2 record now exists in `SECURITY.md`, the remediation
 ledger, and repository guardrail tests. A closure-only follow-up must correct
 the stale task status without reopening policy or runtime work.
 
+This addendum supersedes the branch, tests-first baseline, implementation
+steps, delivery commits, rollback, self-audit, and documentation edits in
+Sections 1-7 above. Those sections remain the historical execution record for
+PR #133. Their ownership, security analysis, and no-runtime-change constraints
+still apply.
+
 ### Closure Scope
 
 1. Add the status expectation first and confirm it fails while T-SEC-4A remains
@@ -267,3 +273,18 @@ git diff --check
 
 No `SECURITY.md`, runtime, API, schema, environment, or dependency change is
 authorized by this addendum.
+
+### Closure Rollback
+
+Revert only the closure commit. Do not revert PR #133: its G2 policy remains
+approved and durable. Rerun the closure verification commands after the
+revert. No migration, data repair, configuration restore, or external-state
+cleanup is required.
+
+### Closure Self-Audit
+
+Before delivery, verify T-SEC-4A appears exactly once in the status table,
+under Complete; its task entry contains one completed status and no pending
+durable-record wording; T-SEC-4 remains pending; and no file outside the
+existing four-file ownership set changed. Report every command outcome,
+review finding, commit, PR, unresolved thread, and CI state.
