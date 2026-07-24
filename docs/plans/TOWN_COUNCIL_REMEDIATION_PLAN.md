@@ -1,6 +1,6 @@
 # Town Council Remediation Plan (Codex Multi-Agent)
 
-version: 3.26
+version: 3.27
 generated: 2026-07-24
 source: Four-pass external code review (security, architecture, smells, process)
 source_artifact: [Town Council architecture review](../reviews/architecture-review-2026-07-19.html)
@@ -10,6 +10,10 @@ remains in force; where this plan is stricter, this plan wins for these tasks.
 
 ## Changelog
 
+- **v3.27:** Activates T-GOV-5 closure for the rewritten engineering
+  guardrails policy. Expands ownership to its Full plan, durable completion
+  guardrail, and ledger state while preserving the pending T-GOV-3 structural
+  transition.
 - **v3.26:** Marks T-GOV-4 complete after auditing policy commit `453c386`,
   correcting two testing-policy path references, and adding a durable
   completion guardrail.
@@ -148,7 +152,8 @@ remains in force; where this plan is stricter, this plan wins for these tasks.
 | State | Tasks |
 |---|---|
 | **Complete** | T-CI-0, T-CI-1, T-CI-1A, T-CI-2, T-CI-2A, T-CI-3, T-CI-4, T-CI-5, T-SEC-1, T-SEC-2, T-SEC-3, T-SEC-3C, T-SEC-4, T-SEC-4A, T-SEC-5, T-SEC-6, T-TIME-3, T-CRAWL-1, T-CRAWL-2, T-PLAT-2A, T-GOV-1, T-GOV-4 |
-| **Partially landed; acceptance incomplete** | T-GOV-5, T-GOV-6 |
+| **In progress** | T-GOV-5 |
+| **Partially landed; acceptance incomplete** | T-GOV-6 |
 | **Pending** | T-TIME-1..2, T-DA-1, T-DB-1, T-DC-1, T-DD-1, T-DE-1, T-PLAT-1, T-PLAT-2, T-PLAT-3, T-PLAT-4, T-GOV-2..3 |
 
 ---
@@ -1010,19 +1015,26 @@ files (GED-5 grant).
 
 ### T-GOV-5: Land the rewritten ENGINEERING_GUARDRAILS.md
 - priority: P1
+- status: in progress
+- implementation_plan:
+  `docs/plans/T_GOV_5_ENGINEERING_GUARDRAILS_CLOSURE_PLAN.md`
 - depends_on: T-CI-4 (formatter scope in ruff-format.toml); coordinates with
   T-GOV-3 (structural rules).
-- files_owned: docs/ENGINEERING_GUARDRAILS.md
+- files_owned: docs/ENGINEERING_GUARDRAILS.md,
+  docs/plans/T_GOV_5_ENGINEERING_GUARDRAILS_CLOSURE_PLAN.md,
+  docs/plans/TOWN_COUNCIL_REMEDIATION_PLAN.md,
+  tests/test_repository_guardrails.py
 - coordination: T-CI-0's narrow broad-handler structural-policy correction lands
   first. T-GOV-5 must carry the corrected policy into the rewritten document and
   must not restore final-statement or `sys.exit()` authorization.
-- do: Merge the provided draft (drafts/docs/ENGINEERING_GUARDRAILS.md) in
-  the same PR as T-CI-4 or immediately after. Reconcile [transition]
-  markers: T-CI-4 marker removed when the `ruff-format.toml` scope is live;
-  T-GOV-3
-  markers removed as each structural rule gains enforcement. The typed
-  subtree list must be confirmed present in mypy.ini before deleting the
-  doc enumeration (it already is — verify, don't assume).
+- do: Close the rewrite that landed in historical commit `c4a4a27` after
+  independently verifying current acceptance. Record that the original draft
+  is unavailable for exact identity comparison and that the rewrite landed
+  before T-CI-4 rather than alongside it. Reconcile [transition] markers:
+  retain T-GOV-3 markers until each structural rule gains enforcement; do not
+  restore a T-CI-4 marker now that `ruff-format.toml` scope is live. Confirm
+  the typed subtree remains in `mypy.ini` and C901 remains selected with
+  `max-complexity = 10`; do not duplicate either scope in prose.
 - forbidden: Reintroducing any file enumeration; deleting the boundary-
   handler or exception-process prose.
 - accept: No file-set enumerations remain in the doc; every scope statement
