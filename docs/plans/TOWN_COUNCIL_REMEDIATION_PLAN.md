@@ -1,6 +1,6 @@
 # Town Council Remediation Plan (Codex Multi-Agent)
 
-version: 3.10
+version: 3.11
 generated: 2026-07-23
 source: Four-pass external code review (security, architecture, smells, process)
 source_artifact: [Town Council architecture review](../reviews/architecture-review-2026-07-19.html)
@@ -10,6 +10,9 @@ remains in force; where this plan is stricter, this plan wins for these tasks.
 
 ## Changelog
 
+- **v3.11:** Marks merged T-TIME-3 complete and activates urgent T-PLAT-2A
+  to pin Next.js's transitive Sharp runtime to patched version 0.35.3 for
+  Dependabot alert 106.
 - **v3.10:** Marks merged T-CRAWL-2 complete and activates T-TIME-3 with
   tests-first ownership for PostgreSQL checkout pre-ping and its Full
   implementation plan.
@@ -95,10 +98,10 @@ remains in force; where this plan is stricter, this plan wins for these tasks.
 
 | State | Tasks |
 |---|---|
-| **Complete** | T-CI-0, T-CI-1, T-CI-1A, T-CI-2, T-CI-2A, T-CI-3, T-CI-4, T-CI-5, T-SEC-1, T-SEC-2, T-SEC-3, T-SEC-3C, T-CRAWL-1, T-CRAWL-2 |
-| **In progress** | T-TIME-3 |
+| **Complete** | T-CI-0, T-CI-1, T-CI-1A, T-CI-2, T-CI-2A, T-CI-3, T-CI-4, T-CI-5, T-SEC-1, T-SEC-2, T-SEC-3, T-SEC-3C, T-TIME-3, T-CRAWL-1, T-CRAWL-2 |
+| **In progress** | T-PLAT-2A |
 | **Partially landed; acceptance incomplete** | T-GOV-4, T-GOV-5, T-GOV-6 |
-| **Pending** | T-SEC-4..6, T-TIME-1..2, T-DA-1, T-DB-1, T-DC-1, T-DD-1, T-DE-1, T-PLAT-1..4, T-GOV-1..3 |
+| **Pending** | T-SEC-4..6, T-TIME-1..2, T-DA-1, T-DB-1, T-DC-1, T-DD-1, T-DE-1, T-PLAT-1..4 excluding T-PLAT-2A, T-GOV-1..3 |
 
 ---
 
@@ -599,7 +602,7 @@ in `AGENTS.md`, `docs/TESTING.MD`, and
 
 ### T-TIME-3: pool_pre_ping
 - priority: P2
-- status: in progress
+- status: complete and verified 2026-07-23 (PR #127)
 - implementation_plan: `docs/plans/T_TIME_3_POOL_PRE_PING_PLAN.md`
 - files_owned: docs/plans/T_TIME_3_POOL_PRE_PING_PLAN.md,
   docs/plans/TOWN_COUNCIL_REMEDIATION_PLAN.md,
@@ -760,6 +763,28 @@ files (GED-5 grant).
 - accept: Fresh DB via alembic == create_all schema (diff empty);
   OPERATIONS documents upgrade/downgrade.
 - verify: Schema diff script output empty; suite green.
+
+### T-PLAT-2A: Patch Next.js's transitive Sharp runtime
+- priority: P0 (urgent dependency security patch)
+- status: in progress
+- implementation_plan: `docs/plans/T_PLAT_2A_SHARP_SECURITY_PATCH_PLAN.md`
+- files_owned: docs/plans/T_PLAT_2A_SHARP_SECURITY_PATCH_PLAN.md,
+  docs/plans/TOWN_COUNCIL_REMEDIATION_PLAN.md, frontend/package.json,
+  frontend/package-lock.json,
+  frontend/components/__tests__/SharpDependency.security.test.js
+- do: Pin Sharp 0.35.3 only beneath Next.js through npm's nested override,
+  regenerate the lockfile without lifecycle scripts, then verify a clean
+  install, native module load, frontend tests, production build, and
+  high-severity audit.
+- accept: Next.js remains 16.2.11; the manifest and lockfile select Sharp
+  0.35.3; `npm ci`, the native Sharp smoke, frontend tests, production build,
+  and `npm audit --omit=dev --audit-level=high` pass; Dependabot alert 106
+  closes after merge.
+- forbidden: `npm audit fix --force`, a Next.js downgrade, a direct Sharp
+  application dependency, audit suppression, or unrelated dependency churn.
+- verify: Follow the Full T-PLAT-2A plan, including tests-first red evidence,
+  lockfile-only generation, clean install, native and Docker build smokes,
+  frontend tests, audit, docs links, independent review, and diff checks.
 
 ### T-PLAT-2: Dependency hygiene
 - priority: P2
