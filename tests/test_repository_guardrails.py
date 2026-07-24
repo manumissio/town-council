@@ -2367,7 +2367,7 @@ def _comment_block_defers_g3(comment_block: str) -> bool:
     for policy_sentence in G3_POLICY_SENTENCE_BOUNDARY.split(normalized_comment):
         sentence_has_g3 = bool(G3_REFERENCE.search(policy_sentence))
         if sentence_has_g3:
-            has_g3_context = True
+            has_g3_context = bool(G3_UNRESOLVED_POLICY.search(policy_sentence))
         scoped_sentence = policy_sentence
         if has_g3_context and not sentence_has_g3:
             scoped_sentence = f"G3 {policy_sentence}"
@@ -2695,6 +2695,7 @@ def test_g3_deferral_scan_groups_wrapped_comment_blocks(tmp_path: Path):
         "# G3 defers deleting the test seam status.",
         "# G3 is not a blocker for facade removal.",
         "# G3 blocks cleanup of the facade documentation.",
+        "# G3 is satisfied. T-SEC-4 blocks facade removal until its work lands.",
     ),
 )
 def test_g3_deferral_scan_allows_non_deferral_policy(accepted_policy: str):
