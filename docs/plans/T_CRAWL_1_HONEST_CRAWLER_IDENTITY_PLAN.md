@@ -19,7 +19,7 @@ all crawler output contracts.
   planning, tests first, and complete verification.
 - `SECURITY.md`: no listed trust boundary changes, but outbound identity must
   not disclose a secret.
-- `docs/TESTING.md`: tests assert settings exposed by the crawler module without
+- `docs/TESTING.MD`: tests assert settings exposed by the crawler module without
   adding a runtime seam.
 - `docs/ENGINEERING_GUARDRAILS.md`: Ruff owns repository lint scope; no
   exception may be added.
@@ -233,6 +233,8 @@ cached the outer namespace package and broke older spider imports. CI then
 showed that the CLI subprocess inherited Coverage.py's subprocess patch and
 reinterpreted relative `source = .` from the crawler directory, corrupting the
 parent coverage aggregate. The final test therefore uses `runpy.run_path`; the
-Scrapy CLI remains a separate smoke check. Any additional file, crawler
+Scrapy CLI remains a separate smoke check. Current-head review also showed that
+T-SEC-3's canonical security checklist remained open, so this task records its
+merged implementation without declaring closure. Any additional file, crawler
 setting change beyond `USER_AGENT`, network crawl, skipped test, unresolved
 P1/P2, or unrun required check is a blocker.
