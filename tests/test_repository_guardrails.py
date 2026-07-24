@@ -2131,6 +2131,19 @@ G3_NOUN_ACTION_CONTINUATION = re.compile(
     r"^\s+(?:are|is|was|were|exist|exists|listed|documented)\b",
     re.IGNORECASE,
 )
+G3_PERMISSIVE_ACTION_PATTERN = (
+    r"(?:permit(?:s|ted|ting)?|allow(?:s|ed|ing)?|enabl(?:e|es|ed|ing))"
+)
+G3_PERMISSIVE_ACTION = re.compile(
+    rf"\b{G3_PERMISSIVE_ACTION_PATTERN}\b",
+    re.IGNORECASE,
+)
+G3_NEGATED_PERMISSIVE_ACTION = re.compile(
+    r"\b(?:no\s+longer|never|cannot|can't|does\s+not|doesn't|is\s+not|isn't|"
+    r"not|without)(?!\s+(?:only|just|merely)\b)"
+    rf"{G3_NEGATION_GAP}\s+{G3_PERMISSIVE_ACTION_PATTERN}\b",
+    re.IGNORECASE,
+)
 G3_BLOCKER_POLICY = re.compile(r"\bG3\b\s+remains\s+a\s+blocker\b", re.IGNORECASE)
 G3_PREREQUISITE_POLICY = re.compile(
     r"\bG3\b.{0,40}\b(?:is|remains)\s+(?:a\s+)?prerequisite\b",
@@ -2173,12 +2186,19 @@ def _has_positive_g3_deferred_work(policy_clause: str) -> bool:
 
 
 def _g3_clause_defers_work(policy_clause: str) -> bool:
+    negated_permission = G3_NEGATED_PERMISSIVE_ACTION.search(policy_clause)
+    has_deferred_work = (
+        G3_DEFERRED_WORK.search(policy_clause)
+        if negated_permission
+        else _has_positive_g3_deferred_work(policy_clause)
+    )
     return bool(
         G3_REFERENCE.search(policy_clause)
-        and _has_positive_g3_deferred_work(policy_clause)
+        and has_deferred_work
         and (
             _positive_g3_deferral_action(policy_clause)
             or G3_BLOCKER_POLICY.search(policy_clause)
+            or negated_permission
             or (
                 G3_PREREQUISITE_POLICY.search(policy_clause)
                 and not G3_NEGATED_PREREQUISITE_POLICY.search(policy_clause)
@@ -2195,6 +2215,11 @@ def _g3_sentence_defers_work(policy_sentence: str) -> bool:
     for part_index in range(0, len(policy_parts), 2):
         policy_clause = policy_parts[part_index]
         if preceding_boundary and preceding_boundary != "and":
+            inherited_deferral_action = None
+        if (
+            G3_PERMISSIVE_ACTION.search(policy_clause)
+            and not G3_NEGATED_PERMISSIVE_ACTION.search(policy_clause)
+        ):
             inherited_deferral_action = None
         clause_has_g3 = bool(G3_REFERENCE.search(policy_clause))
         if clause_has_g3:
@@ -2222,10 +2247,17 @@ def _g3_sentence_defers_work(policy_sentence: str) -> bool:
 
 def _comment_block_defers_g3(comment_block: str) -> bool:
     normalized_comment = " ".join(comment_block.replace("#", " ").split())
-    return any(
-        _g3_sentence_defers_work(policy_sentence)
-        for policy_sentence in G3_POLICY_SENTENCE_BOUNDARY.split(normalized_comment)
-    )
+    has_g3_context = False
+    for policy_sentence in G3_POLICY_SENTENCE_BOUNDARY.split(normalized_comment):
+        sentence_has_g3 = bool(G3_REFERENCE.search(policy_sentence))
+        if sentence_has_g3:
+            has_g3_context = True
+        scoped_sentence = policy_sentence
+        if has_g3_context and not sentence_has_g3:
+            scoped_sentence = f"G3 {policy_sentence}"
+        if _g3_sentence_defers_work(scoped_sentence):
+            return True
+    return False
 
 
 G2_OPEN_POLICY = re.compile(
@@ -2506,6 +2538,7 @@ def test_g3_deferral_scan_groups_wrapped_comment_blocks(tmp_path: Path):
         "# G3 no longer remains a prerequisite for facade removal.",
         "# G3 no longer is a prerequisite for facade removal.",
         "# G3 is no longer a prerequisite for facade removal.",
+        "# G3 preserves runtime compatibility and permits test facade removal.",
     ),
 )
 def test_g3_deferral_scan_allows_non_deferral_policy(accepted_policy: str):
@@ -2539,6 +2572,9 @@ def test_g3_deferral_scan_allows_non_deferral_policy(accepted_policy: str):
         "# Until G3 is resolved, retain the test seam.",
         "# G3 remains a prerequisite for facade removal.",
         "# G3 is not resolved so remains a prerequisite for facade removal.",
+        "# G3 is unresolved. # Facade removal remains blocked.",
+        "# G3 does not permit facade removal.",
+        "# G3 does not allow the test seam.",
     ),
 )
 def test_g3_deferral_scan_detects_positive_policy_after_other_negation(
