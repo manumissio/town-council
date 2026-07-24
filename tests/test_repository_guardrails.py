@@ -2228,7 +2228,10 @@ G3_NEGATED_PERMISSIVE_ACTION = re.compile(
     rf"{G3_NEGATION_GAP}\s+{G3_PERMISSIVE_ACTION_PATTERN}\b",
     re.IGNORECASE,
 )
-G3_BLOCKER_POLICY = re.compile(r"\bG3\b\s+remains\s+a\s+blocker\b", re.IGNORECASE)
+G3_BLOCKER_POLICY = re.compile(
+    r"\bG3\b\s+(?:is|remains)\s+a\s+blocker\b",
+    re.IGNORECASE,
+)
 G3_PREREQUISITE_POLICY = re.compile(
     r"\bG3\b.{0,40}\b(?:is|remains)\s+(?:a\s+)?prerequisite\b",
     re.IGNORECASE,
@@ -2690,6 +2693,7 @@ def test_g3_deferral_scan_groups_wrapped_comment_blocks(tmp_path: Path):
         "# G3 blocks removal of the facade documentation.",
         "# Until G3 lands, do not remove this facade documentation.",
         "# G3 defers deleting the test seam status.",
+        "# G3 is not a blocker for facade removal.",
     ),
 )
 def test_g3_deferral_scan_allows_non_deferral_policy(accepted_policy: str):
@@ -2744,6 +2748,7 @@ def test_g3_deferral_scan_allows_non_deferral_policy(accepted_policy: str):
         "# G3 still blocks removal of the facade.",
         "# G3 defers removing the facade.",
         "# Until G3 lands, do not remove this facade.",
+        "# G3 is a blocker for facade removal.",
     ),
 )
 def test_g3_deferral_scan_detects_positive_policy_after_other_negation(
