@@ -632,7 +632,7 @@ in `AGENTS.md`, `docs/TESTING.MD`, and
 
 ### T-CRAWL-2: Fold fork-style spiders onto the template layer
 - priority: P1
-- status: in progress
+- status: complete
 - implementation_plan: `docs/plans/T_CRAWL_2_TEMPLATE_REFACTOR_PLAN.md`
 - files_owned: docs/plans/T_CRAWL_2_TEMPLATE_REFACTOR_PLAN.md,
   docs/plans/TOWN_COUNCIL_REMEDIATION_PLAN.md, ruff.toml,
