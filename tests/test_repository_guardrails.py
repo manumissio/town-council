@@ -2268,6 +2268,11 @@ def test_test_patch_points_policy_has_accepted_adr_and_effective_runbook():
     complete_row = next(
         line for line in remediation_ledger.splitlines() if line.startswith("| **Complete** |")
     )
+    in_progress_row = next(
+        line
+        for line in remediation_ledger.splitlines()
+        if line.startswith("| **In progress** |")
+    )
     partial_row = next(
         line
         for line in remediation_ledger.splitlines()
@@ -2298,6 +2303,8 @@ def test_test_patch_points_policy_has_accepted_adr_and_effective_runbook():
     )
     assert "T-GOV-1" in complete_row
     assert "T-GOV-1" not in pending_row
+    assert "T-SEC-4A" not in complete_row
+    assert "T-SEC-4A" in in_progress_row
     assert "T-GOV-6" in partial_row
     assert (
         "remains partially landed until its three canonical documents are linked from the README "
