@@ -3,9 +3,9 @@
 Town Council uses a layered guardrail system to reduce low-signal code smells
 before they land in `master`.
 
-Status: this revision lands alongside remediation task T-GOV-3 (structural
-rules replace per-file line lists). Sections marked `[transition]` state which
-task activates them.
+Status: active. Config-owned lint, formatter, typing, coverage, smell-test,
+and CI scopes are live, including the C901 complexity ceiling. The structural
+rules header retains `[transition: T-GOV-3]` until its remaining rules land.
 
 ## Single-source rule for scopes
 
@@ -41,7 +41,7 @@ CI runs the static checks, fast-fail test subset, and complete Python suite
 under the `.coveragerc` production scope and coverage floor on every pull
 request and master push. The fast-fail subset provides earlier diagnostics;
 the coverage-enabled complete suite remains the Python merge gate (see
-`docs/TESTING.md`).
+`docs/TESTING.MD`).
 
 Run that gate locally when changing coverage policy:
 
@@ -72,11 +72,10 @@ worse than the length it removed. The replacement rules measure the thing we
 actually care about — cohesion and dependency direction — and files may be as
 long as their content is cohesive.
 
-1. Complexity ceiling: no function above radon grade C (CC > 10) in `api/`
-   or `pipeline/` without a documented exception. Enforcement mechanism and
-   rule selection are recorded in `ruff.toml` / the guardrail test when
-   adopted; per `AGENTS.md`, do not claim complexity enforcement before the
-   config selects it.
+1. Complexity ceiling: Ruff selects C901 across its configured repository
+   scope with `max-complexity = 10`. Existing offenders require narrow,
+   path-specific exceptions in `ruff.toml`; remove those exceptions when
+   current lint and guardrail checks prove them stale.
 2. Import direction: helper modules must not import their facade/route
    module. Generalized from the `semantic_service` rule to every
    facade+helpers family registered in the guardrail test constants.
