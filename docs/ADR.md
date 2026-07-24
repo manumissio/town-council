@@ -8,6 +8,50 @@ Use each entry to record:
 - the affected boundary or contract
 - links to the canonical docs that carry the ongoing operational or architecture detail
 
+## 2026-07-24: Test patch points are not a public API
+
+- Status: Accepted
+- Decision:
+  - Tests patch implementation modules where names are looked up or fake at
+    the approved architectural boundaries in `docs/TESTING.MD`.
+  - A test-only patch target is not a public API and does not require a
+    re-export, wrapper, synchronized global, injectable callable, or dependency
+    rebinding in production code.
+  - This decision supersedes earlier Accepted statements only to the extent that
+    they preserve a test-only patch target. Historical entries remain unchanged
+    as records of the decisions in force at that time.
+  - Runtime, import, CLI, API, task-identity, and operational contracts remain active
+    unless a separately owned remediation task changes them with behavior tests
+    and explicit compatibility reporting.
+  - Phase 2 tasks may delete test-only compatibility seams within their owned
+    facade families and must repoint affected tests in the same change.
+- Why:
+  - Test compatibility had become an accidental architecture constraint,
+    producing duplicated state, bidirectional synchronization, dependency
+    rebinding, and wrappers that obscured the real implementation owner.
+  - Preserving observable runtime contracts while moving tests to real
+    architectural boundaries allows focused de-facading without broad or
+    speculative breakage.
+- Affected boundaries:
+  - `tests/` follows the patch-target and approved-fake rules in
+    `docs/TESTING.MD`.
+  - Facade families remain runtime-compatible until their named remediation
+    tasks explicitly change them.
+  - T-DA-1, T-DB-1, T-DC-1, T-DD-1, and T-DE-1 are no longer blocked by G3;
+    their individual sequencing, ownership, and verification contracts still
+    apply.
+- Consequences:
+  - Production code is not modified solely to preserve a historical monkeypatch
+    path.
+  - Removing a test-only seam requires updating tests to patch the
+    implementation module or an approved fake boundary.
+  - This ADR does not authorize unowned facade removal or changes to runtime,
+    public import, API, CLI, Celery, inference, or operational behavior.
+- Canonical references:
+  - [docs/TESTING.MD](TESTING.MD)
+  - [AGENTS.md](../AGENTS.md)
+  - [Town Council remediation plan](plans/TOWN_COUNCIL_REMEDIATION_PLAN.md)
+
 ## 2026-05-17: Retire legacy runtime profiles behind a lifecycle manifest
 
 - Status: Accepted

@@ -2062,6 +2062,17 @@ OPERATOR_AUTH_APPROVAL_POLICY = re.compile(
     r"\boperator(?:-only)?(?: proxy)? authentication\s+(?:is\s+)?(?:approved|pending)\b",
     re.IGNORECASE,
 )
+G3_UNRESOLVED_POLICY = re.compile(
+    r"(?:\bg3\b\s+(?:is|remains)\s+(?:open|pending|unresolved)\b"
+    r"|\bg3\b\s*(?:status\s*)?:\s*(?:open|pending|unresolved)\b"
+    r"|\b(?:open|pending|unresolved)\s+g3\b)",
+    re.IGNORECASE,
+)
+PHASE_2_G3_BLOCKER_POLICY = re.compile(
+    r"(?:\bphase 2\b.{0,40}\bblock\w*\b.{0,20}\bg3\b"
+    r"|\bg3\b.{0,40}\bblock\w*\b.{0,20}\bphase 2\b)",
+    re.IGNORECASE,
+)
 
 
 def _g2_policy_has_contradiction(g2_policy: str) -> bool:
@@ -2168,3 +2179,102 @@ def test_g2_accepted_risk_is_bounded_without_overclaiming_t_sec_4():
         in accepted_risk
     )
     assert "- [ ] Client IP forwarded from proxy" in security_policy
+
+
+def test_test_patch_points_policy_has_accepted_adr_and_effective_runbook():
+    architecture_decisions = (ROOT / "docs" / "ADR.md").read_text(encoding="utf-8")
+    testing_policy = (ROOT / "docs" / "TESTING.MD").read_text(encoding="utf-8")
+    remediation_ledger = (
+        ROOT / "docs" / "plans" / "TOWN_COUNCIL_REMEDIATION_PLAN.md"
+    ).read_text(encoding="utf-8")
+    test_patch_point_decision = _required_markdown_section(
+        architecture_decisions,
+        "## 2026-07-24: Test patch points are not a public API",
+        "\n## 2026-05-17:",
+    )
+    g3_entry = _required_markdown_section(
+        remediation_ledger,
+        "- G3 test_seam_adr:",
+        "\n- G4 pii_policy:",
+    )
+    t_gov_1_entry = _required_markdown_section(
+        remediation_ledger,
+        '### T-GOV-1: ADR — "Test patch points are not a public API" (gate G3)',
+        "\n### T-GOV-2:",
+    )
+    t_gov_6_entry = _required_markdown_section(
+        remediation_ledger,
+        "### T-GOV-6: Introduce SECURITY.md, docs/TESTING.md, docs/DATA_GOVERNANCE.md",
+        "\n---\n\n## 7. EXECUTION ORDER SUMMARY",
+    )
+    phase_2_policy = _required_markdown_section(
+        remediation_ledger,
+        "## 5. PHASE 2 — DEDUPLICATION & DE-FACADING",
+        "\n### T-DA-1:",
+    )
+    complete_row = next(
+        line for line in remediation_ledger.splitlines() if line.startswith("| **Complete** |")
+    )
+    partial_row = next(
+        line
+        for line in remediation_ledger.splitlines()
+        if line.startswith("| **Partially landed; acceptance incomplete** |")
+    )
+    pending_row = next(
+        line for line in remediation_ledger.splitlines() if line.startswith("| **Pending** |")
+    )
+
+    assert "- Status: Accepted" in test_patch_point_decision
+    assert test_patch_point_decision.count("- Status:") == 1
+    assert "only to the extent that" in test_patch_point_decision
+    assert "test-only patch target" in test_patch_point_decision
+    assert "Runtime, import, CLI, API, task-identity, and operational contracts remain active" in (
+        test_patch_point_decision
+    )
+    assert "docs/TESTING.MD" in test_patch_point_decision
+    assert "Status: effective." in testing_policy
+    assert testing_policy.count("Status:") == 1
+    assert "effective with the G3 ADR" not in testing_policy
+    assert "**Satisfied 2026-07-24.**" in g3_entry
+    assert "status: complete and verified 2026-07-24" in t_gov_1_entry
+    assert t_gov_1_entry.count("- status:") == 1
+    assert not re.search(
+        r"\bstatus:\s*(?:draft|proposed|pending|in progress|incomplete)\b",
+        f"{test_patch_point_decision} {testing_policy} {t_gov_1_entry}",
+        re.IGNORECASE,
+    )
+    assert "T-GOV-1" in complete_row
+    assert "T-GOV-1" not in pending_row
+    assert "T-GOV-6" in partial_row
+    assert (
+        "remains partially landed until its three canonical documents are linked from the README "
+        "Documentation Map"
+        in t_gov_6_entry
+    )
+    assert "## 5. PHASE 2 — DEDUPLICATION & DE-FACADING\n" in remediation_ledger
+    assert "PHASE 2 — DEDUPLICATION & DE-FACADING (blocked by G3)" not in remediation_ledger
+    active_g3_policy = (
+        f"{test_patch_point_decision} {testing_policy} {g3_entry} "
+        f"{t_gov_1_entry} {phase_2_policy}"
+    )
+    assert not G3_UNRESOLVED_POLICY.search(active_g3_policy)
+    assert not PHASE_2_G3_BLOCKER_POLICY.search(active_g3_policy)
+
+
+def test_live_python_does_not_treat_g3_as_a_facade_deferral():
+    live_g3_references = []
+
+    for source_path in _broad_exception_scan_files():
+        relative_source_path = source_path.relative_to(ROOT)
+        if relative_source_path.parts[0] in {"archive", "tests"}:
+            continue
+        for line_number, source_line in enumerate(
+            source_path.read_text(encoding="utf-8").splitlines(),
+            start=1,
+        ):
+            if re.search(r"\bG3\b", source_line, re.IGNORECASE):
+                live_g3_references.append(
+                    f"{relative_source_path}:{line_number}: {source_line.strip()}"
+                )
+
+    assert live_g3_references == []
