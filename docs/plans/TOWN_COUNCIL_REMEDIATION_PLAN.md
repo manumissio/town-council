@@ -184,7 +184,7 @@ remains in force; where this plan is stricter, this plan wins for these tasks.
 | TIME      | agent-time | pipeline/model_base.py, model_civic.py, model_events.py, model_records.py, model_runtime.py, models.py, db_migrate.py, migrate_v10.py (new), pipeline/summary_freshness.py (verify-only) |
 | CRAWL     | agent-crawl| council_crawler/**                                          |
 | DEDUP-A   | agent-da   | pipeline/metrics.py, pipeline/metrics_redis_backend.py, tests/test_*metrics* |
-| DEDUP-B   | agent-db   | pipeline/summary_backfill*.py, tests/test_*backfill*        |
+| DEDUP-B   | agent-db   | pipeline/summary_backfill*.py, pipeline/task_facade_helpers.py, pipeline/tasks.py, tests/test_*backfill*, tests/test_pipeline_batching.py, tests/test_run_pipeline_orchestration.py, tests/test_staged_hydrate_cities.py, tests/test_tasks_agenda_summary_format.py |
 | DEDUP-C   | agent-dc   | api/main.py, api/app_setup.py, tests/conftest.py, tests/test_*api* (Phase 2 only) |
 | DEDUP-D   | agent-dd   | scripts/flush_city_pipeline_state.py, scripts/reset_city_verification_state.py, scripts/*_healthcheck.py, tests for same |
 | DEDUP-E   | agent-de   | pipeline/http_inference_provider.py, pipeline/inprocess_inference_provider.py, pipeline/inference_provider_contract.py, tests for same |

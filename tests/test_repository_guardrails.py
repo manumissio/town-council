@@ -2594,6 +2594,9 @@ def test_test_patch_points_policy_has_accepted_adr_and_effective_runbook():
         "### T-DB-1: Collapse the summary_backfill facade",
         "\n### T-DC-1:",
     )
+    dedup_b_row = next(
+        line for line in remediation_ledger.splitlines() if line.startswith("| DEDUP-B")
+    )
     complete_row = next(
         line for line in remediation_ledger.splitlines() if line.startswith("| **Complete** |")
     )
@@ -2661,6 +2664,7 @@ def test_test_patch_points_policy_has_accepted_adr_and_effective_runbook():
         "tests/test_tasks_agenda_summary_format.py",
     ):
         assert owned_path in t_db_1_entry
+        assert owned_path in dedup_b_row
 
 
 def test_live_python_does_not_treat_g3_as_a_facade_deferral():
