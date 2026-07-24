@@ -2104,9 +2104,16 @@ G3_DEFERRAL_ACTION = re.compile(
     rf"\b{G3_DEFERRAL_ACTION_PATTERN}\b",
     re.IGNORECASE,
 )
+G3_LEGACY_SEAM_OBJECT_PATTERN = (
+    r"(?:(?:compatibility|monkeypatch|test)\s+(?:re-exports?|wrappers?)|"
+    r"(?:monkeypatch\s+)?compatibility\s+shims?|"
+    r"(?:bidirectional(?:ly)?\s+)?synchronized\s+globals?|"
+    r"injectable(?:-|\s+)callables?(?:\s+(?:parameters?|seams?))?)"
+)
 G3_REMOVAL_OBJECT_PATTERN = (
     r"(?:facades?|test\s+(?:facades?|seams?)|"
-    r"(?:test(?:-only|\s+only)?\s+)?patch\s+(?:points?|targets?))"
+    r"(?:test(?:-only|\s+only)?\s+)?patch\s+(?:points?|targets?)|"
+    rf"{G3_LEGACY_SEAM_OBJECT_PATTERN})"
 )
 G3_REMOVAL_OBJECT_MODIFIER_PATTERN = r"(?:a|an|existing|legacy|temporary|that|the|this)"
 G3_ORDERED_PREREQUISITE_ACTION_PATTERN = (
@@ -2143,7 +2150,8 @@ G3_REMOVAL_FIRST_WORK_PATTERN = (
 G3_DIRECT_DEFERRED_WORK_PATTERN = (
     r"(?:facade\s+(?:removals?|cleanups?)|"
     r"test\s+(?:facades?|seams?)(?:\s+(?:removals?|cleanups?))?|"
-    r"test(?:-only|\s+only)?\s+patch\s+(?:points?|targets?)|patch\s+targets?)"
+    r"test(?:-only|\s+only)?\s+patch\s+(?:points?|targets?)|patch\s+targets?|"
+    rf"{G3_LEGACY_SEAM_OBJECT_PATTERN})"
     rf"(?=\s*{G3_CONTROLLED_WORK_TAIL_PATTERN})"
 )
 G3_DEFERRED_WORK = re.compile(
@@ -2752,6 +2760,9 @@ def test_g3_deferral_scan_groups_wrapped_comment_blocks(tmp_path: Path):
         "# G3 prohibits blocking facade removal.",
         "# G3 forbids keeping the test facade.",
         "# G3 prohibits T-SEC-4 from blocking facade removal.",
+        "# G3 preserves the HTTP response wrapper.",
+        "# G3 blocks removal of the crawler request wrapper.",
+        "# G3 preserves the public API re-export.",
     ),
 )
 def test_g3_deferral_scan_allows_non_deferral_policy(accepted_policy: str):
@@ -2819,6 +2830,11 @@ def test_g3_deferral_scan_allows_non_deferral_policy(accepted_policy: str):
         "# Facade removal is still prohibited by G3.",
         "# G3 currently prohibits facade removal.",
         "# Facade removal is explicitly prohibited by G3.",
+        "# G3 remains pending, so preserve the monkeypatch compatibility shim.",
+        "# G3 preserves the test re-export until Phase 2.",
+        "# G3 blocks removal of the test wrapper.",
+        "# G3 preserves synchronized globals.",
+        "# G3 delays removal of injectable callables.",
     ),
 )
 def test_g3_deferral_scan_detects_positive_policy_after_other_negation(
