@@ -1,6 +1,6 @@
 # Town Council Remediation Plan (Codex Multi-Agent)
 
-version: 3.15
+version: 3.16
 generated: 2026-07-24
 source: Four-pass external code review (security, architecture, smells, process)
 source_artifact: [Town Council architecture review](../reviews/architecture-review-2026-07-19.html)
@@ -10,6 +10,8 @@ remains in force; where this plan is stricter, this plan wins for these tasks.
 
 ## Changelog
 
+- **v3.16:** Synchronizes the approved G2 visitor-access policy with canonical
+  `SECURITY.md`; T-SEC-4 remains the delivery task for per-client rate limits.
 - **v3.15:** Records operator approval of G2 and G3: AI task endpoints remain
   visitor-accessible with per-client rate limits, and the test-seam ADR
   decision is ratified for an Accepted T-GOV-1 record.

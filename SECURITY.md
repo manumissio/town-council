@@ -38,10 +38,11 @@ engineering decisions is `reachable`).
 2. Frontend server -> API: the proxy injects `X-API-Key` server-side
    (`frontend/app/api/_lib/backend.js`). Consequence: the API key does NOT
    authenticate end users; it only authenticates the frontend deployment.
-   Every proxied route is effectively public. Per-client rate limiting
-   therefore depends on forwarding real client identity
-   `[remediation: T-SEC-4]`, and any "operator only" action requires auth at
-   the proxy, not just the key (decision G2, currently open).
+   Every proxied route is effectively public. Decision G2, approved
+   2026-07-24, keeps AI task endpoints available to any visitor with
+   per-client rate limits. That control depends on forwarding real client
+   identity `[remediation: T-SEC-4]`. Any future "operator only" action would
+   require a new policy decision and auth at the proxy, not just the key.
 3. API and semantic service -> backing stores (Postgres, Redis, Meilisearch,
    inference): compose
    network only. No host port publication in the base compose file
