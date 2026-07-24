@@ -2081,7 +2081,7 @@ def _python_comment_blocks(source_path: Path) -> list[tuple[int, str]]:
                 line_number,
                 column,
                 is_full_line,
-                f"{previous_text} {comment_text}",
+                f"{previous_text}\n{comment_text}",
             )
         else:
             grouped_comments.append(
@@ -2096,6 +2096,11 @@ def _python_comment_blocks(source_path: Path) -> list[tuple[int, str]]:
 
 G3_REFERENCE = re.compile(r"\bG3\b", re.IGNORECASE)
 REMEDIATION_TASK_REFERENCE = re.compile(r"\bT-[A-Z]+-\d+[A-Z]?\b", re.IGNORECASE)
+REMEDIATION_TASK_LINE_REFERENCE = re.compile(
+    r"^\s*(?:(?:[-*+]|\d+\.)\s+)?T-[A-Z]+-\d+[A-Z]?\b",
+    re.IGNORECASE,
+)
+G3_COORDINATED_SUBJECT = re.compile(r"^\s*(?:both\s+)?G3\s*$", re.IGNORECASE)
 G3_DEFERRAL_ACTION_PATTERN = (
     r"(?:defer(?:s|red|ring)?|block(?:s|ed|ing)?|preserv(?:e|es|ed|ing)|"
     r"prevent(?:s|ed|ing)?|retain(?:s|ed)?|retaining|delay(?:s|ed|ing)?|"
@@ -2111,10 +2116,13 @@ G3_LEGACY_SEAM_OBJECT_PATTERN = (
     r"(?:bidirectional(?:ly)?\s+)?synchronized\s+globals?|"
     r"injectable(?:-|\s+)callables?(?:\s+(?:parameters?|seams?))?)"
 )
-G3_REMOVAL_OBJECT_PATTERN = (
-    r"(?:facades?|test\s+(?:facades?|seams?)|"
+G3_TEST_ONLY_OBJECT_PATTERN = (
+    r"(?:test\s+(?:facades?|seams?)|"
     r"(?:test(?:-only|\s+only)?\s+)?patch\s+(?:points?|targets?)|"
     rf"{G3_LEGACY_SEAM_OBJECT_PATTERN})"
+)
+G3_REMOVAL_OBJECT_PATTERN = (
+    rf"(?:facades?|{G3_TEST_ONLY_OBJECT_PATTERN})"
 )
 G3_REMOVAL_OBJECT_MODIFIER_PATTERN = r"(?:a|an|existing|legacy|temporary|that|the|this)"
 G3_MUST_PRECEDE_ACTION_PATTERN = (
@@ -2180,6 +2188,7 @@ G3_PERMISSIVE_ACTION_PATTERN = (
 G3_KEEP_HOLD_ACTION_PATTERN = r"(?:keep(?:s|ing)?|kept|hold(?:s|ing)?|held)"
 G3_REQUIREMENT_ACTION_PATTERN = r"requir(?:e|es|ed|ing)"
 G3_REQUIREMENT_MODIFIER_PATTERN = r"(?:a|an|continued|existing|temporary|the)"
+G3_RUNTIME_FACADE_PREFIX_PATTERN = r"(?:(?:public|runtime)\s+facades?\s+and\s+)?"
 G3_CONTRASTIVE_DEFERRED_WORK = re.compile(
     rf"\b(?:instead\s+of|rather\s+than)\s+"
     rf"(?:(?:{G3_DEFERRAL_ACTION_PATTERN}|{G3_PERMISSIVE_ACTION_PATTERN}|"
@@ -2280,10 +2289,24 @@ G3_REQUIREMENT_POLICY = re.compile(
     rf"{G3_DEFERRED_WORK.pattern}(?=\s*{G3_CONTROLLED_WORK_TAIL_PATTERN})",
     re.IGNORECASE,
 )
+G3_SUBJECT_FIRST_REQUIREMENT_POLICY = re.compile(
+    rf"\b{G3_REQUIREMENT_ACTION_PATTERN}\s+"
+    rf"(?:{G3_REQUIREMENT_MODIFIER_PATTERN}\s+){{0,3}}"
+    rf"{G3_RUNTIME_FACADE_PREFIX_PATTERN}"
+    rf"{G3_TEST_ONLY_OBJECT_PATTERN}\s+to\s+remain(?:\s+in\s+place)?"
+    rf"(?=\s*{G3_CONTROLLED_WORK_TAIL_PATTERN})",
+    re.IGNORECASE,
+)
 G3_NEGATED_REQUIREMENT_POLICY = re.compile(
     r"\b(?:no\s+longer|never|cannot|can't|does\s+not|doesn't|is\s+not|isn't|"
     r"not|without)(?!\s+(?:only|just|merely)\b)"
     rf"{G3_NEGATION_GAP}\s+requir(?:e|es|ed|ing)\b",
+    re.IGNORECASE,
+)
+G3_SUBJECT_NEGATED_REQUIREMENT_POLICY = re.compile(
+    rf"(?:\bno\s+G3\b(?:\s+[a-z-]+){{0,3}}|"
+    rf"\bneither\s+G3\s+nor\s+{REMEDIATION_TASK_REFERENCE.pattern})\s+"
+    rf"{G3_REQUIREMENT_ACTION_PATTERN}\b",
     re.IGNORECASE,
 )
 G3_TEMPORAL_REFERENCE_POLICY = re.compile(
@@ -2409,11 +2432,18 @@ def _g3_clause_defers_work(policy_clause: str) -> bool:
     if G3_NONASSERTIVE_POLICY_CONTEXT.search(policy_clause):
         return False
     negated_permission = G3_NEGATED_PERMISSIVE_ACTION.search(policy_clause)
-    has_deferred_work = (
-        G3_DEFERRED_WORK.search(policy_clause)
-        if negated_permission
-        else _has_positive_g3_deferred_work(policy_clause)
+    subject_first_requirement = G3_SUBJECT_FIRST_REQUIREMENT_POLICY.search(
+        policy_clause
     )
+    if negated_permission:
+        has_deferred_work = subject_first_requirement or G3_DEFERRED_WORK.search(
+            policy_clause
+        )
+    else:
+        has_deferred_work = (
+            subject_first_requirement
+            or _has_positive_g3_deferred_work(policy_clause)
+        )
     return bool(
         G3_REFERENCE.search(policy_clause)
         and has_deferred_work
@@ -2423,8 +2453,14 @@ def _g3_clause_defers_work(policy_clause: str) -> bool:
             or negated_permission
             or _g3_keep_hold_defers_work(policy_clause)
             or (
-                G3_REQUIREMENT_POLICY.search(policy_clause)
-                and not G3_NEGATED_REQUIREMENT_POLICY.search(policy_clause)
+                (
+                    G3_REQUIREMENT_POLICY.search(policy_clause)
+                    or subject_first_requirement
+                )
+                and not (
+                    G3_NEGATED_REQUIREMENT_POLICY.search(policy_clause)
+                    or G3_SUBJECT_NEGATED_REQUIREMENT_POLICY.search(policy_clause)
+                )
             )
             or (
                 G3_PREREQUISITE_POLICY.search(policy_clause)
@@ -2441,12 +2477,18 @@ def _g3_clause_defers_work(policy_clause: str) -> bool:
 
 
 def _g3_sentence_defers_work(policy_sentence: str) -> bool:
-    if (
-        not REMEDIATION_TASK_REFERENCE.search(policy_sentence)
-        and G3_REFERENCE.search(policy_sentence)
-        and _g3_keep_hold_defers_work(policy_sentence)
-    ):
-        return True
+    sentence_has_other_task = bool(
+        REMEDIATION_TASK_REFERENCE.search(policy_sentence)
+    )
+    if not sentence_has_other_task and G3_REFERENCE.search(policy_sentence):
+        if _g3_keep_hold_defers_work(policy_sentence):
+            return True
+        if (
+            G3_SUBJECT_FIRST_REQUIREMENT_POLICY.search(policy_sentence)
+            and not G3_NEGATED_REQUIREMENT_POLICY.search(policy_sentence)
+            and not G3_SUBJECT_NEGATED_REQUIREMENT_POLICY.search(policy_sentence)
+        ):
+            return True
     has_g3_context = False
     inherited_deferral_action: str | None = None
     inherited_removal_guard = False
@@ -2468,7 +2510,9 @@ def _g3_sentence_defers_work(policy_sentence: str) -> bool:
         coordinates_g3_subject = bool(
             part_index >= 2
             and preceding_boundary == "and"
-            and G3_REFERENCE.fullmatch(policy_parts[part_index - 2].strip())
+            and G3_COORDINATED_SUBJECT.fullmatch(
+                policy_parts[part_index - 2].strip()
+            )
         )
         coordinates_g3_prerequisite = bool(
             preceding_boundary == "and"
@@ -2523,7 +2567,19 @@ def _g3_sentence_defers_work(policy_sentence: str) -> bool:
 
 
 def _comment_block_defers_g3(comment_block: str) -> bool:
-    normalized_comment = " ".join(comment_block.replace("#", " ").split())
+    normalized_comment = ""
+    previous_comment_line = ""
+    for raw_comment_line in comment_block.splitlines():
+        comment_line = " ".join(raw_comment_line.replace("#", " ").split())
+        separator = " "
+        if (
+            normalized_comment
+            and REMEDIATION_TASK_LINE_REFERENCE.match(comment_line)
+            and not re.search(r"\b(?:and|or)\s*$", previous_comment_line, re.IGNORECASE)
+        ):
+            separator = ". "
+        normalized_comment = f"{normalized_comment}{separator}{comment_line}".strip()
+        previous_comment_line = comment_line
     has_g3_context = False
     for policy_sentence in G3_POLICY_SENTENCE_BOUNDARY.split(normalized_comment):
         sentence_has_g3 = bool(G3_REFERENCE.search(policy_sentence))
@@ -2818,7 +2874,7 @@ def test_g3_deferral_scan_groups_wrapped_comment_blocks(tmp_path: Path):
     comment_blocks = _python_comment_blocks(wrapped_policy)
 
     assert comment_blocks == [
-        (1, "# G3 still # blocks facade removal."),
+        (1, "# G3 still\n# blocks facade removal."),
         (4, "# An unrelated comment."),
     ]
     assert _comment_block_defers_g3(comment_blocks[0][1])
@@ -2858,6 +2914,7 @@ def test_g3_deferral_scan_groups_wrapped_comment_blocks(tmp_path: Path):
         "# G3 is not expected to block facade removal.",
         "# G3 proceeds without blocking facade removal.",
         "# G3 preserves the public facade.",
+        "# G3 requires the public facade to remain.",
         "# G3 preserves facade runtime compatibility.",
         "# G3 blocks cache removal.",
         "# G3 blocks temporary-file removal.",
@@ -2878,6 +2935,9 @@ def test_g3_deferral_scan_groups_wrapped_comment_blocks(tmp_path: Path):
         "# None of the facade removals are blocked by G3.",
         "# None of the test seams remain blocked by G3.",
         "# G3 no longer requires preservation of the test facade.",
+        "# G3 does not require the test facade to remain.",
+        "# No G3 policy requires the test facade to remain.",
+        "# Neither G3 nor T-SEC-4 requires the test facade to remain.",
         "# G3 requires the test facade documentation.",
         "# G3 requires the test seam status.",
         "# G3 allows removing the public facade.",
@@ -2893,6 +2953,8 @@ def test_g3_deferral_scan_groups_wrapped_comment_blocks(tmp_path: Path):
         "# G3 blocks migration and T-SEC-4 blocks facade removal.",
         "# G3 is accepted, but T-SEC-4 keeps the test facade until its work lands.",
         "# G3 is accepted, but T-SEC-4 is pending, so do not remove the test facade until T-SEC-4 lands.",
+        "# G3 is satisfied\n# T-SEC-4 blocks facade removal until its work lands.",
+        "# G3 is satisfied\n# - T-SEC-4 blocks facade removal until its work lands.",
         "# G3 need not land before facade removal.",
         "# Facade removal must not wait for G3.",
         "# Facade removal must land before G3.",
@@ -2950,6 +3012,9 @@ def test_g3_deferral_scan_allows_non_deferral_policy(accepted_policy: str):
         "# G3 and T-SEC-4 block facade removal.",
         "# G3 and T-SEC-4 preserve the test seam.",
         "# G3 and T-SEC-4 keep the test facade until Phase 2.",
+        "# G3 and\n# T-SEC-4 block facade removal.",
+        "# Both G3 and T-SEC-4 block facade removal.",
+        "# Both G3 and\n# T-SEC-4 block facade removal.",
         "# G3 preserves runtime compatibility and the test facade.",
         "# G3 remains pending; therefore preserve the test facade.",
         "# G3 blockers are blocking facade removal.",
@@ -3006,6 +3071,8 @@ def test_g3_deferral_scan_allows_non_deferral_policy(accepted_policy: str):
         "# G3 remains unresolved, requiring preservation of the test facade.",
         "# G3 requires continued preservation of the test facade.",
         "# G3 requires temporary preservation of the test seam.",
+        "# G3 requires the test facade to remain.",
+        "# G3 requires the public facade and test facade to remain.",
         "# G3 still blocks removal of the facade.",
         "# G3 defers removing the facade.",
         "# Until G3 lands, do not remove this facade.",
