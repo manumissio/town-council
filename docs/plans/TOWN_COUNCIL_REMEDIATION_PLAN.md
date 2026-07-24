@@ -1,6 +1,6 @@
 # Town Council Remediation Plan (Codex Multi-Agent)
 
-version: 3.11
+version: 3.12
 generated: 2026-07-23
 source: Four-pass external code review (security, architecture, smells, process)
 source_artifact: [Town Council architecture review](../reviews/architecture-review-2026-07-19.html)
@@ -10,6 +10,9 @@ remains in force; where this plan is stricter, this plan wins for these tasks.
 
 ## Changelog
 
+- **v3.12:** Marks T-PLAT-2A complete after PR #128 merged with required
+  checks green, its final review found no unresolved P1/P2 issues, and
+  Dependabot alert 106 closed as fixed.
 - **v3.11:** Marks merged T-TIME-3 complete and activates urgent T-PLAT-2A
   to pin Next.js's transitive Sharp runtime to patched version 0.35.3 for
   Dependabot alert 106.
@@ -98,10 +101,10 @@ remains in force; where this plan is stricter, this plan wins for these tasks.
 
 | State | Tasks |
 |---|---|
-| **Complete** | T-CI-0, T-CI-1, T-CI-1A, T-CI-2, T-CI-2A, T-CI-3, T-CI-4, T-CI-5, T-SEC-1, T-SEC-2, T-SEC-3, T-SEC-3C, T-TIME-3, T-CRAWL-1, T-CRAWL-2 |
-| **In progress** | T-PLAT-2A |
+| **Complete** | T-CI-0, T-CI-1, T-CI-1A, T-CI-2, T-CI-2A, T-CI-3, T-CI-4, T-CI-5, T-SEC-1, T-SEC-2, T-SEC-3, T-SEC-3C, T-TIME-3, T-CRAWL-1, T-CRAWL-2, T-PLAT-2A |
+| **In progress** | None |
 | **Partially landed; acceptance incomplete** | T-GOV-4, T-GOV-5, T-GOV-6 |
-| **Pending** | T-SEC-4..6, T-TIME-1..2, T-DA-1, T-DB-1, T-DC-1, T-DD-1, T-DE-1, T-PLAT-1..4 excluding T-PLAT-2A, T-GOV-1..3 |
+| **Pending** | T-SEC-4..6, T-TIME-1..2, T-DA-1, T-DB-1, T-DC-1, T-DD-1, T-DE-1, T-PLAT-1, T-PLAT-2, T-PLAT-3, T-PLAT-4, T-GOV-1..3 |
 
 ---
 
@@ -766,7 +769,7 @@ files (GED-5 grant).
 
 ### T-PLAT-2A: Patch Next.js's transitive Sharp runtime
 - priority: P0 (urgent dependency security patch)
-- status: in progress
+- status: complete and verified 2026-07-23 (PR #128; Dependabot alert 106 fixed)
 - implementation_plan: `docs/plans/T_PLAT_2A_SHARP_SECURITY_PATCH_PLAN.md`
 - files_owned: docs/plans/T_PLAT_2A_SHARP_SECURITY_PATCH_PLAN.md,
   docs/plans/TOWN_COUNCIL_REMEDIATION_PLAN.md, frontend/package.json,
