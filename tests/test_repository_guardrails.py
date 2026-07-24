@@ -2097,14 +2097,15 @@ def _python_comment_blocks(source_path: Path) -> list[tuple[int, str]]:
 G3_REFERENCE = re.compile(r"\bG3\b", re.IGNORECASE)
 G3_DEFERRAL_ACTION_PATTERN = (
     r"(?:defer(?:s|red|ring)?|block(?:s|ed|ing)?|preserv(?:e|es|ed|ing)|"
-    r"prevent(?:s|ed|ing)?|retain(?:s|ed)?|retaining)"
+    r"prevent(?:s|ed|ing)?|retain(?:s|ed)?|retaining|delay(?:s|ed|ing)?|"
+    r"postpon(?:e|es|ed|ing))"
 )
 G3_DEFERRAL_ACTION = re.compile(
     rf"\b{G3_DEFERRAL_ACTION_PATTERN}\b",
     re.IGNORECASE,
 )
 G3_DEFERRED_WORK = re.compile(
-    r"(?:facade\s+(?:removal|cleanup)|test\s+(?:facades?|seams?)|"
+    r"(?:facade\s+(?:removals?|cleanups?)|test\s+(?:facades?|seams?)|"
     r"test(?:-only|\s+only)?\s+patch\s+(?:points?|targets?)|patch\s+targets?|"
     r"deduplicat\w*|de-fac\w*)",
     re.IGNORECASE,
@@ -2118,9 +2119,15 @@ G3_NEGATED_DEFERRED_WORK = re.compile(
     re.IGNORECASE,
 )
 G3_NEGATED_DEFERRAL_ACTION = re.compile(
-    r"\b(?:no\s+longer|never|cannot|can't|does\s+not|doesn't|is\s+not|isn't|"
-    r"not|without)(?!\s+(?:only|just|merely)\b)"
+    r"\b(?:(?:nothing|nobody|none)(?!\s+(?:but|other\s+than)\b)|"
+    r"(?:no\s+longer|never|cannot|can't|does\s+not|doesn't|is\s+not|isn't|"
+    r"not|without)(?!\s+(?:only|just|merely)\b))"
     rf"{G3_NEGATION_GAP}\s+{G3_DEFERRAL_ACTION_PATTERN}\b",
+    re.IGNORECASE,
+)
+G3_NEGATED_SUBJECT_DEFERRAL_ACTION = re.compile(
+    rf"\bnone\s+of\s+(?:the\s+)?{G3_DEFERRED_WORK.pattern}\s+"
+    rf"(?:are|is|remain(?:s)?|was|were)\s+{G3_DEFERRAL_ACTION_PATTERN}\b",
     re.IGNORECASE,
 )
 G3_KEEP_HOLD_ACTION_PATTERN = r"(?:keep(?:s|ing)?|kept|hold(?:s|ing)?|held)"
@@ -2188,6 +2195,11 @@ def _positive_g3_deferral_action(policy_clause: str) -> str | None:
     negated_action_spans = [
         negated_action.span()
         for negated_action in G3_NEGATED_DEFERRAL_ACTION.finditer(policy_clause)
+    ] + [
+        negated_action.span()
+        for negated_action in G3_NEGATED_SUBJECT_DEFERRAL_ACTION.finditer(
+            policy_clause
+        )
     ]
     for deferral_action in G3_DEFERRAL_ACTION.finditer(policy_clause):
         if any(
@@ -2593,6 +2605,9 @@ def test_g3_deferral_scan_groups_wrapped_comment_blocks(tmp_path: Path):
         "# The G3 hold note documents facade removal progress.",
         "# Avoid keeping the test facade until G3 is resolved.",
         "# Stop keeping the test seam until G3 is resolved.",
+        "# G3 is satisfied, so nothing blocks facade removal.",
+        "# None of the facade removals are blocked by G3.",
+        "# None of the test seams remain blocked by G3.",
     ),
 )
 def test_g3_deferral_scan_allows_non_deferral_policy(accepted_policy: str):
@@ -2638,6 +2653,9 @@ def test_g3_deferral_scan_allows_non_deferral_policy(accepted_policy: str):
         "# Keep these test patch points until G3 is resolved.",
         "# Keep the test facades until G3 is resolved.",
         "# Keep the test facade while G3 remains unresolved.",
+        "# G3 delays facade removal.",
+        "# G3 postpones test seam cleanup.",
+        "# Nothing but G3 blocks facade removal.",
     ),
 )
 def test_g3_deferral_scan_detects_positive_policy_after_other_negation(
