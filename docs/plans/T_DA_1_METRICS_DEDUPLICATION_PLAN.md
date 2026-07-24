@@ -37,6 +37,7 @@ exclusive ownership to:
 - `docs/plans/T_DA_1_METRICS_DEDUPLICATION_PLAN.md`
 - `docs/plans/TOWN_COUNCIL_REMEDIATION_PLAN.md`
 - `pipeline/metrics.py`
+- `pipeline/metrics_provider_collector.py`
 - `pipeline/metrics_redis_backend.py`
 - `pipeline/metrics_provider_recorders.py`
 - `pipeline/metrics_task_recorders.py`
@@ -70,25 +71,30 @@ decision.
    `metrics_redis_backend`. This preserves the operational
    `pipeline.metrics.RedisProviderMetricsCollector` interface used by worker
    metrics collection while binding it to the single implementation.
-7. Make both recorder modules use `metrics_definitions` directly. Provider
+7. Give the provider collector a side-effect-free `describe()` path backed by
+   one metric-construction helper, so registration never calls Redis. Decompose
+   `collect()` into focused population helpers while preserving output.
+8. Make both recorder modules use `metrics_definitions` directly. Provider
    recorders call `metrics_redis_backend` directly and drop injected Redis
    callable parameters; both modules delete their dynamic facade lookups.
-8. Repoint Redis tests to `pipeline.metrics_redis_backend` and replace facade
+9. Repoint Redis tests to `pipeline.metrics_redis_backend` and replace facade
    metric patches with before/after assertions on exported Prometheus samples.
-9. Add a line-level S105 suppression to `REDIS_PASSWORD_ENV` explaining that
+10. Add a line-level S105 suppression to `REDIS_PASSWORD_ENV` explaining that
    it is an environment-variable identifier, not a credential. Remove the
    now-stale Ruff per-file S105 entry.
-10. Run focused metrics, lint-ratchet, security, docs, and complete-suite
+11. Run focused metrics, lint-ratchet, security, docs, and complete-suite
     verification.
-11. Obtain a fresh pre-commit review, resolve every eligible P1/P2, and rerun
+12. Obtain a fresh pre-commit review, resolve every eligible P1/P2, and rerun
     affected verification.
-12. Mark T-DA-1 complete, commit atomically, push one PR, request Codex
+13. Mark T-DA-1 complete, commit atomically, push one PR, request Codex
     review, resolve feedback, and merge only after required checks pass.
 
-No new production function, class, wrapper, registry, reset hook, state
-container, or compatibility shim is introduced.
+The only new production methods/helpers are `describe()`, one metric factory,
+and one focused population helper in the collector. No new class, wrapper,
+registry, reset hook, state container, or compatibility shim is introduced.
 
-**f) Reuse audit.** Reuse the canonical backend and `metrics_definitions`.
+**f) Reuse audit.** Reuse the canonical backend and `metrics_definitions`;
+one collector metric factory serves both `describe()` and `collect()`.
 `pipeline.metrics` remains the public recorder, Celery-signal, and collector
 registration module. Duplicate implementations and test seams are deleted.
 
@@ -131,7 +137,9 @@ preserving local Prometheus metrics.
 **n) Antipattern scan, plan pass.**
 
 - A1/H1: installed redis-py 5.0.1 signatures for `ping`, `incrby`, `hincrby`,
-  and `hincrbyfloat` were inspected locally; no new dependency call is added.
+  and `hincrbyfloat` were inspected locally. Upstream tag v0.19.0, matching
+  the repository pin, confirms `CollectorRegistry` prefers `describe()` and
+  otherwise calls `collect()` when auto-description is enabled.
 - B1/F1: the existing backend is reused; no adapter or state abstraction is
   introduced.
 - B2/C1: copied state, sync functions, duplicate writes, and duplicate
@@ -140,7 +148,7 @@ preserving local Prometheus metrics.
   lookups are deleted.
 - D1-D3: tests preserve observable Redis, Prometheus, and HTTP outcomes; one
   structural test enforces the task's explicit single-owner acceptance.
-- E1-E3: only the eleven owned files change; no formatting sweep is permitted.
+- E1-E3: only the twelve owned files change; no formatting sweep is permitted.
 - A2-A4, B3, F2, H2-H4: no planned violations.
 
 **o) Ratchet interaction.** Remove one Ruff selector:
@@ -152,13 +160,15 @@ changes.
 **p) Dead code and duplication audit.** Delete four facade globals, two sync
 functions, three Redis writes, three accessors, one collector subclass, two
 dynamic facade lookups, three callable aliases, injected callable parameters,
-and unused imports. Expected production delta is strongly negative.
+and unused imports. The collector gains only the registration-safe descriptor
+path and focused population helpers. Expected production delta remains negative.
 
 ## 5. Testing
 
 **q) Edge cases and failure scenarios.**
 
-1. Importing `pipeline.metrics` must not connect to Redis.
+1. Importing `pipeline.metrics` must not connect to Redis; registration uses
+   `describe()` rather than `collect()`.
 2. The backend remains the only owner of Redis client, init, warning, and
    health state.
 3. Provider recorders update local Prometheus metrics and canonical Redis
@@ -186,7 +196,7 @@ and unused imports. Expected production delta is strongly negative.
 | Fresh-interpreter import test and single-owner test | 1, 2, 10 |
 | Backend initialization and parameterized write-failure tests | 3-5 |
 | Updated provider Redis aggregation tests | 3, 8, 9, 12 |
-| Updated worker collector tests | 2, 6-8, 10 |
+| Collector describe/collect name-parity and worker collector tests | 1, 2, 6-8, 10 |
 | Updated metrics API degradation test | 6 |
 | Updated task and provider Prometheus output tests | 3, 12 |
 | Existing `tests/*metrics*.py` suite | 3-12 |
@@ -216,6 +226,9 @@ git switch master
 git merge --ff-only origin/master
 git switch -c codex/t-da-1-collapse-metrics-twins
 
+gh api \
+  'repos/prometheus/client_python/contents/prometheus_client/registry.py?ref=v0.19.0' \
+  --jq .content | base64 --decode | sed -n '20,75p'
 .venv/bin/python - <<'PY'
 import inspect
 import redis
@@ -288,7 +301,7 @@ file-wide S105 exception.
 **x) Antipattern scan, diff pass.** Re-run A-F/H. Reject copied Redis state,
 sync functions, facade-private patches, dynamic facade lookup, new adapters,
 reset hooks, callable parameters, registration drift, widened Ruff exceptions,
-or edits outside the eleven owned files.
+or edits outside the twelve owned files.
 
 **y) Evidence.** Report every command from 6u with PASS or FAIL, including
 baseline evidence, tests-first red result, exact deletion grep, planning and

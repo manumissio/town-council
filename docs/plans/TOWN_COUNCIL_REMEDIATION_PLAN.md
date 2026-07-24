@@ -806,14 +806,16 @@ files (GED-5 grant).
 - implementation_plan: `docs/plans/T_DA_1_METRICS_DEDUPLICATION_PLAN.md`
 - files_owned: docs/plans/T_DA_1_METRICS_DEDUPLICATION_PLAN.md,
   docs/plans/TOWN_COUNCIL_REMEDIATION_PLAN.md, pipeline/metrics.py,
-  pipeline/metrics_redis_backend.py, pipeline/metrics_provider_recorders.py,
-  pipeline/metrics_task_recorders.py, ruff.toml, tests/test_metrics_api.py,
+  pipeline/metrics_provider_collector.py, pipeline/metrics_redis_backend.py,
+  pipeline/metrics_provider_recorders.py, pipeline/metrics_task_recorders.py,
+  ruff.toml, tests/test_metrics_api.py,
   tests/test_provider_metrics_prefork_redis_aggregation.py,
   tests/test_task_metrics.py, tests/test_worker_metrics_exporter_provider_series.py
 - do: Single source of truth for the redis client state machine and
   `_redis_incr/_redis_hincrby/_redis_hincrbyfloat` (keep them in
   metrics_redis_backend). Provider recorders import and call that backend;
-  metrics.py keeps the public collector binding. Delete the facade's duplicate
+  metrics.py keeps the public collector binding, and collector registration
+  describes names without reading Redis. Delete the facade's duplicate
   implementations, BOTH `_sync_redis_*` functions, duplicated module globals,
   dynamic metric lookups, and injected Redis callables.
 - accept: One implementation of each function repo-wide; zero
