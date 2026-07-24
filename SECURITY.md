@@ -27,8 +27,14 @@ engineering decisions is `reachable`).
 ## Trust boundaries
 
 1. Internet -> Frontend (Next.js): untrusted browsers. CSP (nonce +
-   strict-dynamic), security headers, and origin checks on mutation routes
-   `[remediation: T-SEC-5]` apply here.
+   strict-dynamic), security headers, and same-origin checks on mutation
+   routes apply here. The mutation guard rejects `same-site` and `cross-site`
+   Fetch Metadata plus mismatched `Origin` values; requests with neither
+   browser signal remain compatible for non-browser callers
+   `[remediation: T-SEC-5]`.
+   Reverse proxies must preserve the public `Host` header and overwrite any
+   incoming `X-Forwarded-Proto`; the guard deliberately ignores
+   `X-Forwarded-Host`.
 2. Frontend server -> API: the proxy injects `X-API-Key` server-side
    (`frontend/app/api/_lib/backend.js`). Consequence: the API key does NOT
    authenticate end users; it only authenticates the frontend deployment.
@@ -89,7 +95,7 @@ engineering decisions is `reachable`).
 - [x] Meilisearch search key enforced for API and semantic readers (T-SEC-3)
 - [ ] Client IP forwarded from proxy; limiter keys on it with trusted-proxy
       allowlist (T-SEC-4)
-- [ ] Origin/Sec-Fetch-Site check on proxy mutation routes (T-SEC-5)
+- [x] Origin/Sec-Fetch-Site check on proxy mutation routes (T-SEC-5)
 - [ ] `NEXT_CSP_ENFORCE=true` after a report-only soak
 - [ ] `/stats` gated or minimized; CORS without `allow_credentials`
       (T-SEC-6)
