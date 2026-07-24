@@ -2103,8 +2103,8 @@ G3_DEFERRAL_ACTION = re.compile(
     re.IGNORECASE,
 )
 G3_DEFERRED_WORK = re.compile(
-    r"(?:facade(?:\s+(?:removal|cleanup))?|test\s+(?:facade|seam)|patch\s+target|"
-    r"deduplicat\w*|de-fac\w*|removal)",
+    r"(?:facade\s+(?:removal|cleanup)|test\s+(?:facade|seam)|patch\s+target|"
+    r"deduplicat\w*|de-fac\w*)",
     re.IGNORECASE,
 )
 G3_NEGATION_GAP = (
@@ -2121,7 +2121,7 @@ G3_NEGATED_DEFERRAL_ACTION = re.compile(
     rf"{G3_NEGATION_GAP}\s+{G3_DEFERRAL_ACTION_PATTERN}\b",
     re.IGNORECASE,
 )
-G3_POLICY_SENTENCE_BOUNDARY = re.compile(r"\.")
+G3_POLICY_SENTENCE_BOUNDARY = re.compile(r"\.(?=\s|$)")
 G3_POLICY_CLAUSE_BOUNDARY = re.compile(
     r"(;|,|\b(?:and|but|however|while|yet)\b)",
     re.IGNORECASE,
@@ -2486,6 +2486,10 @@ def test_g3_deferral_scan_groups_wrapped_comment_blocks(tmp_path: Path):
         "# G3 preserves no test facade.",
         "# G3 is not expected to block facade removal.",
         "# G3 proceeds without blocking facade removal.",
+        "# G3 preserves the public facade.",
+        "# G3 preserves facade runtime compatibility.",
+        "# G3 blocks cache removal.",
+        "# G3 blocks temporary-file removal.",
     ),
 )
 def test_g3_deferral_scan_allows_non_deferral_policy(accepted_policy: str):
@@ -2506,6 +2510,7 @@ def test_g3_deferral_scan_allows_non_deferral_policy(accepted_policy: str):
         "# G3 blockers are blocking facade removal.",
         "# G3 blocks are blocking facade removal.",
         "# G3 blocks are preserving the test facade.",
+        "# G3 blocks api.main facade removal.",
         "# G3 blocks not only facade removal but also the test seam.",
         "# G3 not only blocks facade removal but also preserves the test seam.",
         "# G3 is not resolved, so preserve the test facade.",
