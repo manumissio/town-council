@@ -251,8 +251,9 @@ No migration or data repair is required.
 
 **w) Docs sync.** Update `SECURITY.md` trust boundaries, checklist, and accepted
 risk; `docs/OPERATIONS.md` startup, ingress, verification, and rollback;
-remediation status and changelog; this plan. README, ADR, testing policy,
-architecture map, API contract, and data-governance docs remain unchanged.
+README and `env/profiles/README.md` startup commands; remediation status and
+changelog; this plan. ADR, testing policy, architecture map, API contract, and
+data-governance docs remain unchanged.
 
 ## 7. Delivery Self-Audit
 
