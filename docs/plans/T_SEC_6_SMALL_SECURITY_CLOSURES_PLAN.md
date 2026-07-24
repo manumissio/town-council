@@ -246,6 +246,9 @@ the S105 explanation ratchet; the test now requires each exact explanation,
 and rereview found no remaining P1/P2. PR #138 passed Frontend Tests, Python
 Guardrails, and CodeQL; Codex found no major issues on `d6ddc00`; the PR
 merged as `1805acd`. The post-merge closure test passed before delivery.
+Closure review found one P2 because the task-table assertion did not reject
+duplicate states; one shared parser now requires T-SEC-4, T-SEC-4A, and
+T-SEC-6 to each have exactly one completed state.
 
 **z) Deviations.** Expected: ownership expands from four to eleven files;
 `/stats` remains public under G2 but is minimized; ten current S105 false
