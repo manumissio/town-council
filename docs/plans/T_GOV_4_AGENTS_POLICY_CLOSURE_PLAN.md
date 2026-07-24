@@ -1,7 +1,7 @@
 # T-GOV-4: Close the Revised AGENTS Policy Task
 
 `artifact_contract: ce-unified-plan/v1`
-`artifact_readiness: implementation-ready`
+`artifact_readiness: complete`
 `execution: code`
 
 ## 1. Context & Alignment
@@ -220,10 +220,18 @@ active `AGENTS.md` policy.
 policy rewrite, duplicated task-state parser, weakened guardrail, unrelated
 formatting, invented evidence, or change outside the four owned paths.
 
-**y) Evidence.** Record the tests-first red result, commit `453c386`
-verification, Ruff, Mypy, guardrail, docs-link, and complete-suite outcomes,
-independent review findings, commits, PR URL, unresolved-thread count, and
-final CI state. Anything unrun is `NOT VERIFIED`.
+**y) Evidence.** Tests-first closure verification failed as expected because
+T-GOV-4 was still In progress. The historical diff audit found 12 hunks, all
+within the enumerated `project_identity`, hierarchy, antipattern,
+action-permission, security-sensitive-path, verification-matrix, completion,
+docs-sync, and maintenance sections; commit `453c386` changed no other file.
+The two wrong-case testing-policy links were the only current `AGENTS.md`
+deficit. Planning review found three P2s and rereview found none. Ruff passed;
+Mypy passed 68 files; repository guardrail and docs-link tests passed 389;
+the complete Python suite passed 1,477; and `git diff --check` passed.
+Pre-commit review found three P2s in assertion scope and evidence reporting;
+the fixes passed targeted verification and rereview found no remaining P1/P2.
+Commit, PR, unresolved-thread, and CI evidence is `NOT VERIFIED`.
 
 **z) Deviations.** Expected authorized changes: ownership expands from one
 file to four closure paths, two testing-policy links receive case-only

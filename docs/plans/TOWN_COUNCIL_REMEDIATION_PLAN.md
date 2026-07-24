@@ -1,6 +1,6 @@
 # Town Council Remediation Plan (Codex Multi-Agent)
 
-version: 3.25
+version: 3.26
 generated: 2026-07-24
 source: Four-pass external code review (security, architecture, smells, process)
 source_artifact: [Town Council architecture review](../reviews/architecture-review-2026-07-19.html)
@@ -10,6 +10,9 @@ remains in force; where this plan is stricter, this plan wins for these tasks.
 
 ## Changelog
 
+- **v3.26:** Marks T-GOV-4 complete after auditing policy commit `453c386`,
+  correcting two testing-policy path references, and adding a durable
+  completion guardrail.
 - **v3.25:** Activates the T-GOV-4 closure audit for the revised `AGENTS.md`
   policy that landed in commit `453c386`; adds plan, ledger, guardrail, and
   two testing-policy path-casing corrections without re-authoring policy.
@@ -144,8 +147,7 @@ remains in force; where this plan is stricter, this plan wins for these tasks.
 
 | State | Tasks |
 |---|---|
-| **Complete** | T-CI-0, T-CI-1, T-CI-1A, T-CI-2, T-CI-2A, T-CI-3, T-CI-4, T-CI-5, T-SEC-1, T-SEC-2, T-SEC-3, T-SEC-3C, T-SEC-4, T-SEC-4A, T-SEC-5, T-SEC-6, T-TIME-3, T-CRAWL-1, T-CRAWL-2, T-PLAT-2A, T-GOV-1 |
-| **In progress** | T-GOV-4 |
+| **Complete** | T-CI-0, T-CI-1, T-CI-1A, T-CI-2, T-CI-2A, T-CI-3, T-CI-4, T-CI-5, T-SEC-1, T-SEC-2, T-SEC-3, T-SEC-3C, T-SEC-4, T-SEC-4A, T-SEC-5, T-SEC-6, T-TIME-3, T-CRAWL-1, T-CRAWL-2, T-PLAT-2A, T-GOV-1, T-GOV-4 |
 | **Partially landed; acceptance incomplete** | T-GOV-5, T-GOV-6 |
 | **Pending** | T-TIME-1..2, T-DA-1, T-DB-1, T-DC-1, T-DD-1, T-DE-1, T-PLAT-1, T-PLAT-2, T-PLAT-3, T-PLAT-4, T-GOV-2..3 |
 
@@ -985,7 +987,7 @@ files (GED-5 grant).
 
 ### T-GOV-4: Land the revised AGENTS.md
 - priority: P1
-- status: in progress
+- status: complete and verified 2026-07-24
 - implementation_plan: `docs/plans/T_GOV_4_AGENTS_POLICY_CLOSURE_PLAN.md`
 - files_owned: AGENTS.md (two `docs/TESTING.md` casing corrections only),
   docs/plans/T_GOV_4_AGENTS_POLICY_CLOSURE_PLAN.md,
