@@ -86,7 +86,7 @@ engineering decisions is `reachable`).
 - [x] Base compose publishes only `api:8000` and `frontend:3000` (T-SEC-1)
 - [ ] Non-default values for every key in the inventory above
 - [x] API aborts on default key outside dev (T-SEC-2)
-- [ ] Meilisearch search key enforced for API and semantic readers (T-SEC-3)
+- [x] Meilisearch search key enforced for API and semantic readers (T-SEC-3)
 - [ ] Client IP forwarded from proxy; limiter keys on it with trusted-proxy
       allowlist (T-SEC-4)
 - [ ] Origin/Sec-Fetch-Site check on proxy mutation routes (T-SEC-5)
