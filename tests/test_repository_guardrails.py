@@ -2407,9 +2407,17 @@ G3_NEGATED_PREREQUISITE_POLICY = re.compile(
     r"\bG3\b.{0,40}\b(?:no\s+longer|not|never)\b.{0,30}\bprerequisite\b",
     re.IGNORECASE,
 )
+G3_POLICY_RECORD_BRIDGE = re.compile(
+    r"\b(?:adr|decision|documentation|history|note|record|report|status)\b",
+    re.IGNORECASE,
+)
+G3_PASSIVE_ACTION_BRIDGE = re.compile(
+    r"^\s+(?:are|is|remain(?:s)?|was|were)\s+$",
+    re.IGNORECASE,
+)
 
 
-def _positive_g3_deferral_action(policy_clause: str) -> str | None:
+def _positive_g3_deferral_action(policy_clause: str) -> re.Match[str] | None:
     negated_action_spans = [
         negated_action.span()
         for negated_action in G3_NEGATED_DEFERRAL_ACTION.finditer(policy_clause)
@@ -2432,11 +2440,13 @@ def _positive_g3_deferral_action(policy_clause: str) -> str | None:
             policy_clause[deferral_action.end() :]
         ):
             continue
-        return deferral_action.group(0)
+        return deferral_action
     return None
 
 
-def _has_positive_g3_deferred_work(policy_clause: str) -> bool:
+def _positive_g3_deferred_work_matches(
+    policy_clause: str,
+) -> list[re.Match[str]]:
     negated_work_spans = [
         negated_work.span()
         for negated_work in G3_NEGATED_DEFERRED_WORK.finditer(policy_clause)
@@ -2444,10 +2454,34 @@ def _has_positive_g3_deferred_work(policy_clause: str) -> bool:
         contrastive_work.span()
         for contrastive_work in G3_CONTRASTIVE_DEFERRED_WORK.finditer(policy_clause)
     ]
-    return any(
-        not any(start <= deferred_work.start() < end for start, end in negated_work_spans)
+    return [
+        deferred_work
         for deferred_work in G3_DEFERRED_WORK.finditer(policy_clause)
-    )
+        if not any(
+            start <= deferred_work.start() < end
+            for start, end in negated_work_spans
+        )
+    ]
+
+
+def _g3_deferral_action_governs_work(
+    policy_clause: str,
+    deferral_action: re.Match[str],
+) -> bool:
+    for deferred_work in _positive_g3_deferred_work_matches(policy_clause):
+        if deferred_work.start() >= deferral_action.end():
+            action_bridge = policy_clause[
+                deferral_action.end() : deferred_work.start()
+            ]
+            if not G3_POLICY_RECORD_BRIDGE.search(action_bridge):
+                return True
+        if deferral_action.start() >= deferred_work.end() and (
+            G3_PASSIVE_ACTION_BRIDGE.fullmatch(
+                policy_clause[deferred_work.end() : deferral_action.start()]
+            )
+        ):
+            return True
+    return False
 
 
 def _g3_keep_hold_defers_work(policy_text: str) -> bool:
@@ -2481,6 +2515,14 @@ def _g3_clause_defers_work(policy_clause: str) -> bool:
     subject_first_requirement = G3_SUBJECT_FIRST_REQUIREMENT_POLICY.search(
         policy_clause
     )
+    positive_deferral_action = _positive_g3_deferral_action(policy_clause)
+    action_defers_work = bool(
+        positive_deferral_action
+        and _g3_deferral_action_governs_work(
+            policy_clause,
+            positive_deferral_action,
+        )
+    )
     qualified_facade_temporal = G3_QUALIFIED_FACADE_TEMPORAL_POLICY.search(
         policy_clause
     )
@@ -2494,13 +2536,13 @@ def _g3_clause_defers_work(policy_clause: str) -> bool:
         has_deferred_work = (
             subject_first_requirement
             or qualified_facade_temporal
-            or _has_positive_g3_deferred_work(policy_clause)
+            or bool(_positive_g3_deferred_work_matches(policy_clause))
         )
     return bool(
         G3_REFERENCE.search(policy_clause)
         and has_deferred_work
         and (
-            _positive_g3_deferral_action(policy_clause)
+            action_defers_work
             or G3_BLOCKER_POLICY.search(policy_clause)
             or negated_permission
             or _g3_keep_hold_defers_work(policy_clause)
@@ -2612,7 +2654,7 @@ def _g3_sentence_defers_work(policy_sentence: str) -> bool:
             )
         positive_deferral_action = _positive_g3_deferral_action(policy_clause)
         if positive_deferral_action:
-            inherited_deferral_action = positive_deferral_action
+            inherited_deferral_action = positive_deferral_action.group(0)
         elif G3_DEFERRAL_ACTION.search(policy_clause):
             inherited_deferral_action = None
         inherited_policy = ""
@@ -2992,6 +3034,7 @@ def test_g3_deferral_scan_groups_wrapped_comment_blocks(tmp_path: Path):
         "# G3 no longer blocks facade removal while preserving the runtime API.",
         "# G3 blocks are listed in the report.",
         "# G3 preserves runtime API compatibility.",
+        "# G3 preserves the historical ADR about facade removal.",
         "# Facade removal is not blocked by G3.",
         "# Facade removal is not being blocked by G3.",
         "# G3 is pending for historical reference; facade removal is no longer blocked.",
