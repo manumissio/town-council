@@ -1,8 +1,9 @@
 # T-SEC-4: Trusted Client Identity and Per-Client Rate Limits
 
 `artifact_contract: ce-unified-plan/v1`
-`artifact_readiness: implementation-ready`
+`artifact_readiness: complete`
 `execution: code`
+`delivery: PR #136 merged as 2cbaf7e5ae27673f0fc9b5fd61f415d2a59d2f26 on 2026-07-24`
 
 ## 1. Context & Alignment
 
@@ -264,6 +265,13 @@ unrelated formatting, and edits outside owned paths.
 counts, image/config validation, runtime smoke, planning and pre-commit review
 findings, commits, PR, unresolved threads, and final CI state. Mark unrun work
 `NOT VERIFIED`.
+
+Delivery evidence: implementation commit `0f1332a23d` merged through PR #136
+as `2cbaf7e5ae27673f0fc9b5fd61f415d2a59d2f26`. Local Ruff, Mypy, frontend,
+Python, Compose, Caddy configuration, spoof replacement, and runtime smoke
+verification passed. GitHub Frontend Tests, Python Guardrails, and CodeQL were
+green. The final Codex review found no major issues, and the PR had no review
+comments or unresolved threads.
 
 **z) Deviations.** Expected: Caddy ingress, expanded ownership, explicit
 deployment-key trust instead of unstable CIDR trust, Uvicorn raw-peer

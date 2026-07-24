@@ -2801,7 +2801,7 @@ def test_g2_policy_contradiction_detection_covers_equivalent_wording(
 @pytest.mark.parametrize(
     "approved_policy",
     (
-        "G2 is approved; T-SEC-4 remains pending.",
+        "G2 is approved; T-SEC-4 is complete.",
         "G2 is not open.",
         "Operator-only proxy authentication is not approved.",
     ),
@@ -2812,7 +2812,7 @@ def test_g2_policy_contradiction_detection_allows_approved_wording(
     assert not _g2_policy_has_contradiction(approved_policy)
 
 
-def test_g2_visitor_access_policy_is_aligned_between_security_and_remediation_ledger():
+def test_g2_visitor_access_policy_is_aligned_after_t_sec_4_delivery():
     security_policy = (ROOT / "SECURITY.md").read_text(encoding="utf-8")
     remediation_ledger = (
         ROOT / "docs" / "plans" / "TOWN_COUNCIL_REMEDIATION_PLAN.md"
@@ -2832,18 +2832,17 @@ def test_g2_visitor_access_policy_is_aligned_between_security_and_remediation_le
         "### T-SEC-4: Real client identity through the proxy; per-client rate limits",
         "\n### T-SEC-5:",
     )
-    pending_row = next(
-        line for line in remediation_ledger.splitlines() if line.startswith("| **Pending** |")
-    )
-    in_progress_row = next(
+    status_rows = [
         line
         for line in remediation_ledger.splitlines()
-        if line.startswith("| **In progress** |")
-    )
-    pending_tasks = {task.strip() for task in pending_row.split("|")[2].split(",")}
-    in_progress_tasks = {
-        task.strip() for task in in_progress_row.split("|")[2].split(",")
-    }
+        if line.startswith("| **") and " |" in line
+    ]
+    t_sec_4_states = [
+        row.split("|")[1].strip().strip("*")
+        for row in status_rows
+        for task in row.split("|")[2].split(",")
+        if task.strip() == "T-SEC-4"
+    ]
 
     assert "Decision G2, approved 2026-07-24" in frontend_api_boundary
     assert (
@@ -2860,19 +2859,19 @@ def test_g2_visitor_access_policy_is_aligned_between_security_and_remediation_le
     assert "**Approved 2026-07-24.**" in g2_entry
     assert "(summarize/segment/extract/topics)" in g2_entry
     assert "public Next.js proxy" in g2_entry
-    assert "T-SEC-4 is authorized" in g2_entry
+    assert "T-SEC-4 is complete" in g2_entry
     assert "operator-only proxy authentication is not approved" in g2_entry
     assert "per-client rate limits" in frontend_api_boundary.lower()
     assert "per-client rate limits" in g2_entry.lower()
     assert "decision_gate: G2 approved 2026-07-24" in t_sec_4_entry
-    assert "status: in progress" in t_sec_4_entry
-    assert "T-SEC-4" in in_progress_tasks
-    assert "T-SEC-4" not in pending_tasks
+    assert "status: complete and verified 2026-07-24 (PR #136)" in t_sec_4_entry
+    assert t_sec_4_entry.count("- status:") == 1
+    assert t_sec_4_states == ["Complete"]
     canonical_g2_policy = f"{frontend_api_boundary} {g2_entry}".lower()
     assert not _g2_policy_has_contradiction(canonical_g2_policy)
 
 
-def test_g2_deployment_key_trust_is_bounded_after_t_sec_4_starts():
+def test_g2_deployment_key_trust_is_bounded_after_t_sec_4_delivery():
     security_policy = (ROOT / "SECURITY.md").read_text(encoding="utf-8")
     accepted_risk = _required_markdown_section(
         security_policy,
