@@ -37,6 +37,7 @@ def db_connect_with(create_engine_callable: CreateEngineCallable) -> Engine:
             max_overflow=POSTGRESQL_MAX_OVERFLOW,
             pool_timeout=POSTGRESQL_POOL_TIMEOUT,
             pool_recycle=POSTGRESQL_POOL_RECYCLE_SECONDS,
+            pool_pre_ping=True,
         )
     if database_url:
         return create_engine_callable(database_url)
