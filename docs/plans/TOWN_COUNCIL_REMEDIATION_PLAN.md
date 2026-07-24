@@ -1,6 +1,6 @@
 # Town Council Remediation Plan (Codex Multi-Agent)
 
-version: 3.14
+version: 3.15
 generated: 2026-07-24
 source: Four-pass external code review (security, architecture, smells, process)
 source_artifact: [Town Council architecture review](../reviews/architecture-review-2026-07-19.html)
@@ -10,6 +10,9 @@ remains in force; where this plan is stricter, this plan wins for these tasks.
 
 ## Changelog
 
+- **v3.15:** Records operator approval of G2 and G3: AI task endpoints remain
+  visitor-accessible with per-client rate limits, and the test-seam ADR
+  decision is ratified for an Accepted T-GOV-1 record.
 - **v3.14:** Marks T-SEC-5 complete after PR #130 merged with all required
   checks green, its P2 review finding resolved, and final Codex review clean.
 - **v3.13:** Activates T-SEC-5 with a Full implementation plan and expands
@@ -141,12 +144,13 @@ remains in force; where this plan is stricter, this plan wins for these tasks.
 - G1 deployment_posture: Is any instance ever network-reachable beyond
   localhost? Default assumption for this plan: YES (harden accordingly).
   Affects severity of SEC lane; does not block it.
-- G2 protected_action_policy: Are AI task endpoints (summarize/segment/
-  extract/topics) "any visitor" or "operator only"? Default: any visitor,
-  with per-client rate limits (T-SEC-4). If "operator only", add auth to the
-  Next proxy in a follow-up task (out of scope here).
-- G3 test_seam_adr: Ratify ADR "Test patch points are not a public API"
-  (T-GOV-1). BLOCKS all Phase 2 tasks.
+- G2 protected_action_policy: **Approved 2026-07-24.** AI task endpoints
+  (summarize/segment/extract/topics) remain available to any visitor with
+  per-client rate limits. T-SEC-4 is authorized; operator-only proxy
+  authentication is not part of the approved policy.
+- G3 test_seam_adr: **Approved 2026-07-24.** Ratify "Test patch points are not
+  a public API." T-GOV-1 must record the decision as an Accepted ADR before
+  Phase 2 implementation begins.
 - G4 pii_policy: Ratify ADR on person-entity minimization for non-officials
   (T-GOV-2). BLOCKS nothing in this plan, but blocks City Coverage Expansion.
 - G5 migration_tooling: Alembic adoption approved? Default: yes (T-PLAT-1).
@@ -542,6 +546,7 @@ in `AGENTS.md`, `docs/TESTING.MD`, and
 
 ### T-SEC-4: Real client identity through the proxy; per-client rate limits
 - priority: P0
+- decision_gate: G2 approved 2026-07-24
 - files_owned: frontend/app/api/_lib/backend.js, api/app_setup.py
 - do: (a) backend.js forwards `X-Forwarded-For` (append client IP from
   request) on proxied calls. (b) app_setup limiter key_func: trust XFF only
@@ -689,7 +694,7 @@ in `AGENTS.md`, `docs/TESTING.MD`, and
 
 ---
 
-## 5. PHASE 2 — DEDUPLICATION & DE-FACADING (blocked by G3)
+## 5. PHASE 2 — DEDUPLICATION & DE-FACADING (starts after T-GOV-1)
 
 Shared directive for all Phase 2 tasks: when a test patches a facade symbol,
 repoint the test at the implementation module. Delete the facade seam. Never
@@ -833,12 +838,13 @@ files (GED-5 grant).
 
 ### T-GOV-1: ADR — "Test patch points are not a public API" (gate G3)
 - priority: P0 (unblocks Phase 2)
+- decision_gate: G3 approved 2026-07-24
 - files_owned: docs/ADR.md
-- do: Draft entry per existing ADR format: decision (tests patch
+- do: Record the approved entry per existing ADR format: decision (tests patch
   implementation modules or fake at boundaries: DB session, Celery, LLM
   provider, Meilisearch client), rationale (cites the facade/sync findings),
   affected boundaries (tests/, all facade families), consequence (Phase 2
-  deletions authorized). Users ratifies before merge.
+  deletions authorized).
 - accept: ADR entry merged with Status: Accepted.
 
 ### T-GOV-2: ADR — Person-entity minimization & takedown (gate G4)
@@ -943,7 +949,7 @@ files (GED-5 grant).
 Phase 0: agent-ci  [T-CI-0, then T-CI-5 (allowlist snapshot freshness), then T-CI-1 .. T-CI-4]
 Docs-0:  agent-gov [T-GOV-6: SECURITY.md] + [T-GOV-4: AGENTS.md]   (with/just after Phase 0)
 Phase 1: agent-sec [T-SEC-1..6] || agent-time [T-TIME-1..3] || agent-crawl [T-CRAWL-1..2]
-Gate:    G3 ratified (T-GOV-1 + docs/TESTING.md via T-GOV-6)
+Gate:    T-GOV-1 ADR merged with Status: Accepted (G3 approved)
 Phase 2: agent-da || agent-db || agent-dd || agent-de ; then agent-dc (exclusive on api/*)
 Phase 3: agent-plat [T-PLAT-1..4] || agent-gov [T-GOV-2, T-GOV-3 + T-GOV-5]
 Anytime: T-GOV-6 DATA_GOVERNANCE.md (Section 3 pending G4)
@@ -957,7 +963,8 @@ its owned files reports and halts rather than widening scope.
 
 - Splitting frontend/components/ResultCard.js (needs a design pass, not a
   mechanical one; schedule after T-CI-2 provides a harness).
-- "Operator-only" auth on the Next proxy (pending G2).
+- "Operator-only" auth on the Next proxy (not approved by G2; requires a
+  future policy change).
 - Retiring generational strata (search_routes/search_read/api-search;
   migrate_v* files) beyond what Phase 2 tasks name.
 - env-access consolidation into config_env (low value until Phase 2 lands).
