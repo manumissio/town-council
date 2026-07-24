@@ -6,6 +6,7 @@ import os
 from unittest.mock import MagicMock
 from kombu.exceptions import OperationalError
 from meilisearch.errors import MeilisearchCommunicationError, MeilisearchError, MeilisearchTimeoutError
+from meilisearch.models.index import IndexStats
 
 # Add the project root to the path so we can import from api/main.py
 sys.path.append(os.path.join(os.path.dirname(__file__), '..'))
@@ -34,6 +35,63 @@ def test_app_uses_lifespan_startup():
     from api.main import app as api_app
 
     assert api_app.router.lifespan_context is not None
+
+
+def test_cors_preflight_omits_credentials_for_allowed_origin():
+    response = client.options(
+        "/stats",
+        headers={
+            "Origin": "http://localhost:3000",
+            "Access-Control-Request-Method": "GET",
+        },
+    )
+
+    assert response.status_code == 200
+    assert response.headers["access-control-allow-origin"] == "http://localhost:3000"
+    assert "access-control-allow-credentials" not in response.headers
+
+
+def test_cors_preflight_rejects_disallowed_origin():
+    response = client.options(
+        "/stats",
+        headers={
+            "Origin": "https://attacker.example",
+            "Access-Control-Request-Method": "GET",
+        },
+    )
+
+    assert response.status_code == 400
+    assert "access-control-allow-origin" not in response.headers
+    assert "access-control-allow-credentials" not in response.headers
+
+
+def test_stats_response_is_minimized(mocker):
+    search_index = mocker.Mock()
+    search_index.get_stats.return_value = IndexStats(
+        {
+            "numberOfDocuments": 42,
+            "isIndexing": True,
+            "fieldDistribution": {"content": 42},
+        }
+    )
+    mocker.patch("api.search.support_core.client.index", return_value=search_index)
+
+    response = client.get("/stats")
+
+    assert response.status_code == 200
+    assert response.json() == {"number_of_documents": 42}
+
+
+def test_stats_failure_returns_503(mocker):
+    search_index = mocker.Mock()
+    search_index.get_stats.side_effect = RuntimeError("search unavailable")
+    mocker.patch("api.search.support_core.client.index", return_value=search_index)
+
+    response = client.get("/stats")
+
+    assert response.status_code == 503
+    assert response.json() == {"detail": "Search engine unreachable"}
+
 
 def test_metadata_endpoint(mocker):
     """Test the /metadata endpoint correctly parses search engine facets."""

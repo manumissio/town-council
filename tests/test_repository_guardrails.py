@@ -2887,6 +2887,48 @@ def test_g2_deployment_key_trust_is_bounded_after_t_sec_4_delivery():
     assert "Visitor-accessible AI actions before T-SEC-4" not in security_policy
 
 
+def test_t_sec_6_closures_are_scoped():
+    environment_example = (ROOT / ".env.example").read_text(encoding="utf-8")
+    remediation_ledger = (
+        ROOT / "docs" / "plans" / "TOWN_COUNCIL_REMEDIATION_PLAN.md"
+    ).read_text(encoding="utf-8")
+    security_policy = (ROOT / "SECURITY.md").read_text(encoding="utf-8")
+    implementation_plan = (
+        ROOT / "docs" / "plans" / "T_SEC_6_SMALL_SECURITY_CLOSURES_PLAN.md"
+    ).read_text(encoding="utf-8")
+    ignore_entries = _ruff_per_file_ignore_entries()
+    s105_explanations = {
+        "pipeline/provider_telemetry.py": (
+            7,
+            "# noqa: S105 - Telemetry field label, not a secret.",
+        ),
+        "pipeline/topic_generation_contracts.py": (
+            3,
+            "# noqa: S105 - Parsing rule, not a secret.",
+        ),
+    }
+
+    assert "NEXT_PUBLIC_API_AUTH_KEY" not in environment_example
+    for relative_path, (
+        expected_explanations,
+        expected_explanation,
+    ) in s105_explanations.items():
+        source = (ROOT / relative_path).read_text(encoding="utf-8")
+        assert "S105" not in ignore_entries.get(relative_path, set())
+        assert "# ruff: noqa" not in source
+        assert source.count("# noqa: S105") == expected_explanations
+        assert source.count(expected_explanation) == expected_explanations
+
+    assert "| **In progress** | T-SEC-6 |" in remediation_ledger
+    assert "- status: in progress" in _required_markdown_section(
+        remediation_ledger,
+        "### T-SEC-6: Small closures",
+        "\n### T-TIME-1:",
+    )
+    assert "`artifact_readiness: implementation-ready`" in implementation_plan
+    assert "- [ ] `/stats` gated or minimized; CORS without `allow_credentials`" in security_policy
+
+
 def test_t_sec_4a_is_complete_after_g2_policy_record_merged():
     remediation_ledger = (
         ROOT / "docs" / "plans" / "TOWN_COUNCIL_REMEDIATION_PLAN.md"

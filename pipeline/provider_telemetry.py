@@ -15,13 +15,13 @@ from pipeline.inference_provider_contract import (
 
 TokenMetrics = dict[str, float | int | None]
 
-TOKEN_METRIC_PROMPT_TOKENS = "prompt_tokens"
-TOKEN_METRIC_COMPLETION_TOKENS = "completion_tokens"
-TOKEN_METRIC_TOTAL_TOKENS = "total_tokens"
-TOKEN_METRIC_PROMPT_EVAL_DURATION_MS = "prompt_eval_duration_ms"
-TOKEN_METRIC_EVAL_DURATION_MS = "eval_duration_ms"
-TOKEN_METRIC_TTFT_MS = "ttft_ms"
-TOKEN_METRIC_TOKENS_PER_SEC = "tokens_per_sec"
+TOKEN_METRIC_PROMPT_TOKENS = "prompt_tokens"  # noqa: S105 - Telemetry field label, not a secret.
+TOKEN_METRIC_COMPLETION_TOKENS = "completion_tokens"  # noqa: S105 - Telemetry field label, not a secret.
+TOKEN_METRIC_TOTAL_TOKENS = "total_tokens"  # noqa: S105 - Telemetry field label, not a secret.
+TOKEN_METRIC_PROMPT_EVAL_DURATION_MS = "prompt_eval_duration_ms"  # noqa: S105 - Telemetry field label, not a secret.
+TOKEN_METRIC_EVAL_DURATION_MS = "eval_duration_ms"  # noqa: S105 - Telemetry field label, not a secret.
+TOKEN_METRIC_TTFT_MS = "ttft_ms"  # noqa: S105 - Telemetry field label, not a secret.
+TOKEN_METRIC_TOKENS_PER_SEC = "tokens_per_sec"  # noqa: S105 - Telemetry field label, not a secret.
 OPENAI_USAGE_FIELD = "usage"
 OPENAI_PROMPT_TOKENS_FIELD = "prompt_tokens"
 OPENAI_COMPLETION_TOKENS_FIELD = "completion_tokens"

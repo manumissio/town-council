@@ -1,6 +1,6 @@
 # Town Council Remediation Plan (Codex Multi-Agent)
 
-version: 3.22
+version: 3.23
 generated: 2026-07-24
 source: Four-pass external code review (security, architecture, smells, process)
 source_artifact: [Town Council architecture review](../reviews/architecture-review-2026-07-19.html)
@@ -10,6 +10,9 @@ remains in force; where this plan is stricter, this plan wins for these tasks.
 
 ## Changelog
 
+- **v3.23:** Activates T-SEC-6 with tests-first ownership for public stats
+  minimization, credential-free CORS, stale public-key guidance removal, and
+  exact line-level S105 explanations.
 - **v3.22:** Marks T-SEC-4 complete after PR #136 merged as `2cbaf7e` with
   Frontend Tests, Python Guardrails, and CodeQL green. Codex found no major
   issues on implementation commit `0f1332a`. Caddy is now the sole public
@@ -135,8 +138,9 @@ remains in force; where this plan is stricter, this plan wins for these tasks.
 | State | Tasks |
 |---|---|
 | **Complete** | T-CI-0, T-CI-1, T-CI-1A, T-CI-2, T-CI-2A, T-CI-3, T-CI-4, T-CI-5, T-SEC-1, T-SEC-2, T-SEC-3, T-SEC-3C, T-SEC-4, T-SEC-4A, T-SEC-5, T-TIME-3, T-CRAWL-1, T-CRAWL-2, T-PLAT-2A, T-GOV-1 |
+| **In progress** | T-SEC-6 |
 | **Partially landed; acceptance incomplete** | T-GOV-4, T-GOV-5, T-GOV-6 |
-| **Pending** | T-SEC-6, T-TIME-1..2, T-DA-1, T-DB-1, T-DC-1, T-DD-1, T-DE-1, T-PLAT-1, T-PLAT-2, T-PLAT-3, T-PLAT-4, T-GOV-2..3 |
+| **Pending** | T-TIME-1..2, T-DA-1, T-DB-1, T-DC-1, T-DD-1, T-DE-1, T-PLAT-1, T-PLAT-2, T-PLAT-3, T-PLAT-4, T-GOV-2..3 |
 
 ---
 
@@ -644,8 +648,16 @@ in `AGENTS.md`, `docs/TESTING.MD`, and
 
 ### T-SEC-6: Small closures
 - priority: P2
-- files_owned: .env.example, api/main.py (named sections only),
-  pipeline/provider_telemetry.py, pipeline/topic_generation_contracts.py
+- status: in progress
+- implementation_plan: `docs/plans/T_SEC_6_SMALL_SECURITY_CLOSURES_PLAN.md`
+- files_owned: .env.example, api/main.py (CORS and `/stats` only),
+  pipeline/provider_telemetry.py (metric-key constants only),
+  pipeline/topic_generation_contracts.py (token-pattern constants only),
+  ruff.toml (two owned S105 selectors only), tests/test_api.py,
+  tests/test_meilisearch_key_security.py, tests/test_repository_guardrails.py,
+  SECURITY.md (T-SEC-6 checklist only),
+  docs/plans/T_SEC_6_SMALL_SECURITY_CLOSURES_PLAN.md,
+  docs/plans/TOWN_COUNCIL_REMEDIATION_PLAN.md
 - do: (a) Delete NEXT_PUBLIC_API_AUTH_KEY from .env.example. (b) Remove
   `allow_credentials=True` from CORS. (c) Gate `/stats` behind
   verify_api_key or reduce payload to counts only. (d) Resolve the S105
