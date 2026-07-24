@@ -1,6 +1,6 @@
 # Town Council Remediation Plan (Codex Multi-Agent)
 
-version: 3.9
+version: 3.10
 generated: 2026-07-23
 source: Four-pass external code review (security, architecture, smells, process)
 source_artifact: [Town Council architecture review](../reviews/architecture-review-2026-07-19.html)
@@ -10,6 +10,9 @@ remains in force; where this plan is stricter, this plan wins for these tasks.
 
 ## Changelog
 
+- **v3.10:** Marks merged T-CRAWL-2 complete and activates T-TIME-3 with
+  tests-first ownership for PostgreSQL checkout pre-ping and its Full
+  implementation plan.
 - **v3.9:** Expands T-CRAWL-2 ownership to the repository guardrail contract
   after removing crawler BLE001 exceptions exposed its exact inventory as
   stale.
@@ -92,10 +95,10 @@ remains in force; where this plan is stricter, this plan wins for these tasks.
 
 | State | Tasks |
 |---|---|
-| **Complete** | T-CI-0, T-CI-1, T-CI-1A, T-CI-2, T-CI-2A, T-CI-3, T-CI-4, T-CI-5, T-SEC-1, T-SEC-2, T-SEC-3, T-SEC-3C, T-CRAWL-1 |
-| **In progress** | T-CRAWL-2 |
+| **Complete** | T-CI-0, T-CI-1, T-CI-1A, T-CI-2, T-CI-2A, T-CI-3, T-CI-4, T-CI-5, T-SEC-1, T-SEC-2, T-SEC-3, T-SEC-3C, T-CRAWL-1, T-CRAWL-2 |
+| **In progress** | T-TIME-3 |
 | **Partially landed; acceptance incomplete** | T-GOV-4, T-GOV-5, T-GOV-6 |
-| **Pending** | T-SEC-4..6, T-TIME-1..3, T-DA-1, T-DB-1, T-DC-1, T-DD-1, T-DE-1, T-PLAT-1..4, T-GOV-1..3 |
+| **Pending** | T-SEC-4..6, T-TIME-1..2, T-DA-1, T-DB-1, T-DC-1, T-DD-1, T-DE-1, T-PLAT-1..4, T-GOV-1..3 |
 
 ---
 
@@ -596,9 +599,20 @@ in `AGENTS.md`, `docs/TESTING.MD`, and
 
 ### T-TIME-3: pool_pre_ping
 - priority: P2
-- files_owned: pipeline/model_runtime.py
-- do: Add `pool_pre_ping=True` to create_engine kwargs.
-- verify: Suite green.
+- status: in progress
+- implementation_plan: `docs/plans/T_TIME_3_POOL_PRE_PING_PLAN.md`
+- files_owned: docs/plans/T_TIME_3_POOL_PRE_PING_PLAN.md,
+  docs/plans/TOWN_COUNCIL_REMEDIATION_PLAN.md,
+  pipeline/model_runtime.py, tests/test_database.py
+- do: Add `pool_pre_ping=True` only to the PostgreSQL `create_engine` kwargs.
+  Preserve explicit SQLite and missing-URL behavior.
+- accept: PostgreSQL checkout performs one liveness query and replaces stale
+  pooled connections before use; existing pool settings remain unchanged;
+  SQLite receives no PostgreSQL pool arguments. Pre-ping does not recover a
+  disconnect during an active transaction.
+- verify: Follow the Full T-TIME-3 plan: tests-first red evidence, Ruff,
+  Mypy, database tests, docs links, the complete coverage-enabled Python
+  suite, independent review, and `git diff --check`.
 
 ### T-CRAWL-1: Honest crawler identity
 - priority: P1
