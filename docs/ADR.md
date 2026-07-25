@@ -29,6 +29,11 @@ Use each entry to record:
 - Affected boundaries:
   - T-PLAT-1 owns Alembic setup, baseline parity, and operator documentation.
   - T-TIME-2 owns the final numbered migration before the baseline.
+  - The existing `run_migrations()` pipeline contract remains the canonical
+    entrypoint and hands off to Alembic after the frozen legacy chain.
+  - Existing databases must match current schema before baseline stamping;
+    `pipeline/db_migrate.py` must abort adoption on drift before it stamps the
+    baseline. Operator docs must not prescribe unguarded stamping.
   - No migration or schema change occurs from this decision record alone.
 - Canonical references:
   - [Town Council remediation plan](plans/TOWN_COUNCIL_REMEDIATION_PLAN.md)

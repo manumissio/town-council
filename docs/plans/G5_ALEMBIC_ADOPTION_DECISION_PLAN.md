@@ -42,7 +42,7 @@ TIME migration work; it does not rewrite T-TIME-2 into an Alembic revision.
 4. Add an Accepted ADR that preserves the current migration chain as frozen
    history after the baseline and assigns post-baseline migrations to Alembic.
 5. Expand T-PLAT-1 ownership for root configuration, the pinned dependency,
-   and schema-parity tests.
+   canonical migration handoff, legacy parity repair, and schema-parity tests.
 6. Run docs-link and contradiction checks.
 7. Obtain an independent pre-commit review and resolve all eligible P1/P2
    findings.
@@ -95,12 +95,18 @@ change is one plan and short decision updates.
 4. T-PLAT-1 is incorrectly marked complete.
 5. ADR and remediation plan disagree.
 6. Added links are broken.
+7. Canonical `run_pipeline.py` migration flow bypasses Alembic after adoption.
+8. An existing database is stamped despite schema drift from current models.
+9. T-TIME-2 cannot wire v10 into the focused migration runner within ownership.
 
 **r) Tests.**
 
 - Docs-link test covers scenario 6.
-- Separate positive and negative `rg` checks cover scenarios 1-5.
+- Separate positive and negative `rg` checks cover scenarios 1-5 and 7.
 - Manual diff review confirms T-PLAT-1 remains pending.
+- T-PLAT-1 contract tests must cover scenario 8 with both fresh and
+  legacy-migrated database paths.
+- Ownership checks cover scenario 9.
 
 **s) Fakes and mocks.** None.
 
@@ -121,6 +127,18 @@ rg -n "Migration order is T-TIME-1, T-TIME-2, then T-PLAT-1" \
 rg -n "files_owned: alembic/\\*\\* \\(new\\), alembic.ini \\(new\\)" \
   docs/plans/TOWN_COUNCIL_REMEDIATION_PLAN.md
 rg -n "\\| PLAT.*alembic.ini.*pipeline/db_migrate.py.*docs/OPERATIONS.md.*tests/test_alembic_migrations.py" \
+  docs/plans/TOWN_COUNCIL_REMEDIATION_PLAN.md
+rg -n "canonical migration entrypoint" \
+  docs/plans/TOWN_COUNCIL_REMEDIATION_PLAN.md
+rg -n "alembic upgrade head" docs/plans/TOWN_COUNCIL_REMEDIATION_PLAN.md
+rg -n "existing database" docs/plans/TOWN_COUNCIL_REMEDIATION_PLAN.md
+rg -n "schema diff is empty" \
+  docs/plans/TOWN_COUNCIL_REMEDIATION_PLAN.md
+rg -n "pipeline/db_migration_runner.py" \
+  docs/plans/TOWN_COUNCIL_REMEDIATION_PLAN.md
+rg -n "only supported existing-database adoption" \
+  docs/plans/TOWN_COUNCIL_REMEDIATION_PLAN.md
+rg -n "do not instruct operators to run an unguarded" \
   docs/plans/TOWN_COUNCIL_REMEDIATION_PLAN.md
 rg -n "Adopt Alembic for schema migrations" docs/ADR.md
 rg -n "T-TIME-1 updates timezone-aware model" docs/ADR.md

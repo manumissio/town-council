@@ -13,7 +13,9 @@ remains in force; where this plan is stricter, this plan wins for these tasks.
 - **v3.33:** Records operator approval of G5 and fixes migration sequencing:
   T-TIME-1 updates model declarations, T-TIME-2 converts existing databases
   through the final numbered migration, and T-PLAT-1 then establishes the
-  Alembic baseline. Implementation remains pending.
+  Alembic baseline. The baseline task must preserve the canonical pipeline
+  entrypoint and prove legacy-schema parity before stamping. Implementation
+  remains pending.
 - **v3.32:** Marks T-DA-1 complete after removing duplicated Redis state,
   facade synchronization, dynamic metric lookups, and injected write
   callables. One collector now owns each provider series, preserves local
@@ -238,14 +240,14 @@ remains in force; where this plan is stricter, this plan wins for these tasks.
 |-----------|-----------|------------------------------------------------------------|
 | CI        | agent-ci   | .github/workflows/**, ruff.toml, ruff-format.toml (new), .pre-commit-config.yaml, .coveragerc, frontend/package.json, frontend/jest.config.* (new) |
 | SEC       | agent-sec  | docker-compose.yml, docker-compose.dev.yml, .dockerignore, .env.example, api/app_setup.py, api/main.py (CORS+/stats sections only), api/search/support_core.py, pipeline/meilisearch_credentials.py, semantic_service/main.py, frontend/app/api/** |
-| TIME      | agent-time | pipeline/model_base.py, model_civic.py, model_events.py, model_records.py, model_runtime.py, models.py, db_migrate.py, migrate_v10.py (new), pipeline/summary_freshness.py (verify-only) |
+| TIME      | agent-time | pipeline/model_base.py, model_civic.py, model_events.py, model_records.py, model_runtime.py, models.py, db_migrate.py, db_migration_runner.py, migrate_v10.py (new), pipeline/summary_freshness.py (verify-only) |
 | CRAWL     | agent-crawl| council_crawler/**                                          |
 | DEDUP-A   | agent-da   | pipeline/metrics.py, pipeline/metrics_redis_backend.py, tests/test_*metrics* |
 | DEDUP-B   | agent-db   | pipeline/summary_backfill*.py, pipeline/task_facade_helpers.py, pipeline/tasks.py, tests/test_*backfill*, tests/test_pipeline_batching.py, tests/test_run_pipeline_orchestration.py, tests/test_staged_hydrate_cities.py, tests/test_tasks_agenda_summary_format.py |
 | DEDUP-C   | agent-dc   | api/main.py, api/app_setup.py, tests/conftest.py, tests/test_*api* (Phase 2 only) |
 | DEDUP-D   | agent-dd   | scripts/flush_city_pipeline_state.py, scripts/reset_city_verification_state.py, scripts/*_healthcheck.py, tests for same |
 | DEDUP-E   | agent-de   | pipeline/http_inference_provider.py, pipeline/inprocess_inference_provider.py, pipeline/inference_provider_contract.py, tests for same |
-| PLAT      | agent-plat | alembic/** (new), alembic.ini (new), pipeline/requirements*.txt, pipeline/db_migrate.py (T-PLAT-1 only, after TIME), api/requirements.txt, semantic_service/requirements.txt, constraints.txt (new), .github/dependabot.yml (new), docs/OPERATIONS.md (migration and backup sections only), tests/test_alembic_migrations.py (new), api/cache.py |
+| PLAT      | agent-plat | alembic/** (new), alembic.ini (new), pipeline/requirements*.txt, pipeline/db_migrate.py (T-PLAT-1 only, after TIME), pipeline/db_migration_columns.py (T-PLAT-1 legacy parity only), api/requirements.txt, semantic_service/requirements.txt, constraints.txt (new), .github/dependabot.yml (new), docs/OPERATIONS.md (migration and backup sections only), tests/test_alembic_migrations.py (new), api/cache.py |
 | GOV       | agent-gov  | docs/ADR.md, docs/ENGINEERING_GUARDRAILS.md, AGENTS.md, SECURITY.md (new), docs/TESTING.md (new), docs/DATA_GOVERNANCE.md (new), tests/test_repository_guardrails.py (Phase 3 only) |
 
 Sequencing rule: SEC and DEDUP-C both own api/app_setup.py + api/main.py —
@@ -729,7 +731,8 @@ in `AGENTS.md`, `docs/TESTING.MD`, and
 
 ### T-TIME-2: Migration for timestamp columns
 - priority: P1
-- files_owned: pipeline/migrate_v10.py (new), pipeline/db_migrate.py
+- files_owned: pipeline/migrate_v10.py (new), pipeline/db_migrate.py,
+  pipeline/db_migration_runner.py
 - do: Additive migration converting existing columns to timestamptz
   (`ALTER ... TYPE timestamptz USING <col> AT TIME ZONE 'UTC'`). Wire into
   run_migrations after v9. This is the final numbered migration before the
@@ -914,14 +917,25 @@ files (GED-5 grant).
 - status: approved; implementation pending
 - decision_record: `docs/plans/G5_ALEMBIC_ADOPTION_DECISION_PLAN.md`
 - files_owned: alembic/** (new), alembic.ini (new),
-  pipeline/requirements.txt, pipeline/db_migrate.py (deprecation note),
+  pipeline/requirements.txt, pipeline/db_migrate.py (Alembic handoff),
+  pipeline/db_migration_columns.py (legacy parity repair only),
   docs/OPERATIONS.md (migration section), tests/test_alembic_migrations.py
   (new)
 - do: `alembic init`; autogenerate a baseline revision from current models
-  (post T-TIME-1); stamp existing dev DBs; document the workflow. Keep
-  migrate_v* chain readable but frozen (no v11+).
-- accept: Fresh DB via alembic == create_all schema (diff empty);
-  OPERATIONS documents upgrade/downgrade.
+  after T-TIME-2. Keep `pipeline.run_pipeline` on its existing
+  `run_migrations()` call; make that canonical migration entrypoint run the
+  frozen legacy chain when needed and then `alembic upgrade head`.
+  `pipeline/db_migrate.py` owns the only supported existing-database adoption
+  path: run the legacy chain through v10, repair the known missing-index drift
+  in the existing column-migration owner, compare schema, abort on drift,
+  stamp the baseline, then upgrade to head. Keep migrate_v* readable but
+  frozen (no v11+). Document fresh, existing, upgrade, and downgrade workflows;
+  do not instruct operators to run an unguarded `alembic stamp`.
+- accept: Fresh DB via Alembic equals `create_all` schema; an existing database
+  migrated through v10 has an empty schema diff before baseline stamping;
+  stamping aborts on nonempty drift; the canonical pipeline migration call
+  applies post-baseline Alembic revisions; OPERATIONS documents
+  upgrade/downgrade.
 - verify: Schema diff script output empty; suite green.
 
 ### T-PLAT-2A: Patch Next.js's transitive Sharp runtime
