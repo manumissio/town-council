@@ -1,6 +1,6 @@
 # Town Council Remediation Plan (Codex Multi-Agent)
 
-version: 3.40
+version: 3.41
 generated: 2026-07-24
 source: Four-pass external code review (security, architecture, smells, process)
 source_artifact: [Town Council architecture review](../reviews/architecture-review-2026-07-19.html)
@@ -10,6 +10,8 @@ remains in force; where this plan is stricter, this plan wins for these tasks.
 
 ## Changelog
 
+- **v3.41:** Prevents T-PLAT-1 and T-GOV-3 from running concurrently while
+  both own focused changes in `tests/test_repository_guardrails.py`.
 - **v3.40:** Requires T-PLAT-1 to inventory and encode schema objects created
   only by legacy raw SQL, preventing baseline autogeneration from omitting
   indexes that current model metadata does not declare.
@@ -287,6 +289,9 @@ T-CI-3 receives a narrow temporary coordination grant for coverage scope
 references, verification commands, merge-gate prose, and transition markers
 in `AGENTS.md`, `docs/TESTING.MD`, and
 `docs/ENGINEERING_GUARDRAILS.md`; later GOV work retains all other ownership.
+T-PLAT-1 and T-GOV-3 MUST NOT run concurrently because both own focused
+changes in `tests/test_repository_guardrails.py`; whichever starts second
+must wait for the first PR to merge and rebase on `master`.
 
 ---
 
@@ -938,6 +943,7 @@ files (GED-5 grant).
 ### T-PLAT-1: Alembic baseline (gate G5)
 - priority: P1
 - status: approved; implementation pending
+- must_not_run_concurrently_with: T-GOV-3
 - decision_record: `docs/plans/G5_ALEMBIC_ADOPTION_DECISION_PLAN.md`
 - files_owned: alembic/** (new), alembic.ini (new),
   pipeline/requirements.txt, pipeline/db_init.py (fresh-DB handoff),

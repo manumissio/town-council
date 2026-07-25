@@ -115,6 +115,7 @@ change is one plan and short decision updates.
 16. Pipeline or city-contributor docs omit the migrate-before-seed contract.
 17. The canonical architecture map still describes only numbered migrations.
 18. Baseline autogeneration omits objects created only by legacy raw SQL.
+19. T-PLAT-1 and T-GOV-3 concurrently edit the shared guardrail contract.
 
 **r) Tests.**
 
@@ -137,6 +138,7 @@ change is one plan and short decision updates.
 - Architecture-map ownership and content checks cover scenario 17.
 - Legacy-object inventory and fresh-versus-v10 PostgreSQL parity tests cover
   scenario 18, including HNSW and lineage timestamp indexes.
+- Explicit task sequencing covers scenario 19.
 
 **s) Fakes and mocks.** None.
 
@@ -170,6 +172,8 @@ rg -n "pipeline/migrate_v8.py.*migration_pgvector_semantic_embeddings.py.*python
 rg -n "ARCHITECTURE.md \\(T-PLAT-1 migration map only\\)" \
   docs/plans/TOWN_COUNCIL_REMEDIATION_PLAN.md
 rg -n "ix_semantic_embedding_hnsw|ix_catalog_lineage_updated_at" \
+  docs/plans/TOWN_COUNCIL_REMEDIATION_PLAN.md
+rg -n "T-PLAT-1 and T-GOV-3 MUST NOT run concurrently" \
   docs/plans/TOWN_COUNCIL_REMEDIATION_PLAN.md
 rg -n "alembic upgrade head" docs/plans/TOWN_COUNCIL_REMEDIATION_PLAN.md
 rg -n "existing database" docs/plans/TOWN_COUNCIL_REMEDIATION_PLAN.md
