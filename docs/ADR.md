@@ -8,6 +8,39 @@ Use each entry to record:
 - the affected boundary or contract
 - links to the canonical docs that carry the ongoing operational or architecture detail
 
+## 2026-07-25: Summary backfill runner is the hydration operation owner
+
+- Status: Accepted
+- Decision:
+  - `pipeline/summary_backfill_runner.py` owns summary hydration selection,
+    deterministic agenda batching, per-catalog generation, progress, and count
+    orchestration.
+  - Runtime callers import the runner directly; profiling selection imports
+    `summary_backfill_queries` directly.
+  - T-DB-1 deletes `pipeline/summary_backfill.py`, task-facade hydration
+    wrappers, globals-based dependency lookup, and dependency-callable
+    parameters from the backfill runner.
+  - Maintenance fallback and staged-hydration callable chains remain separate
+    debt assigned to T-DB-1B.
+- Why:
+  - Four forwarding layers and a duplicate fifteen-parameter signature
+    obscured ownership and preserved historical monkeypatch targets.
+  - Direct operation imports retain operator and pipeline behavior while tests
+    use approved database, inference, Meilisearch, and Celery boundaries.
+- Affected boundaries:
+  - Public backfill options, result counts, progress events, fallback policy,
+    canonical pipeline settings, staged hydration, profiling selection, and
+    CLI output remain unchanged.
+  - The synchronous maintenance path owns session rollback and closure without
+    routing through a Celery task facade.
+  - This decision supersedes earlier compatibility-facade statements for
+    `pipeline/summary_backfill.py` and summary hydration exports from
+    `pipeline.tasks`.
+- Canonical references:
+  - [Testing policy](TESTING.MD)
+  - [T-DB-1 implementation plan](plans/T_DB_1_SUMMARY_BACKFILL_FACADE_PLAN.md)
+  - [Town Council remediation plan](plans/TOWN_COUNCIL_REMEDIATION_PLAN.md)
+
 ## 2026-07-25: Summary generation has one direct operation owner
 
 - Status: Accepted

@@ -1,6 +1,6 @@
 # Town Council Remediation Plan (Codex Multi-Agent)
 
-version: 3.43
+version: 3.44
 generated: 2026-07-25
 source: Four-pass external code review (security, architecture, smells, process)
 source_artifact: [Town Council architecture review](../reviews/architecture-review-2026-07-19.html)
@@ -10,6 +10,10 @@ remains in force; where this plan is stricter, this plan wins for these tasks.
 
 ## Changelog
 
+- **v3.44:** Activates T-DB-1 with expanded ownership for every tracked
+  runtime caller, structural guardrails, and ADR sync. Registers T-DB-1B for
+  the separate maintenance-fallback and staged-hydration callable chains found
+  during independent planning review.
 - **v3.43:** Completes T-DB-1A. Summary generation now has one direct
   operation owner, lower modules import domain implementations directly, and
   tests use approved runtime boundaries instead of facade service injection.
@@ -207,9 +211,9 @@ remains in force; where this plan is stricter, this plan wins for these tasks.
 | State | Tasks |
 |---|---|
 | **Complete** | T-CI-0, T-CI-1, T-CI-1A, T-CI-2, T-CI-2A, T-CI-3, T-CI-4, T-CI-5, T-SEC-1, T-SEC-2, T-SEC-3, T-SEC-3C, T-SEC-4, T-SEC-4A, T-SEC-5, T-SEC-6, T-TIME-3, T-CRAWL-1, T-CRAWL-2, T-PLAT-2A, T-GOV-1, T-GOV-4, T-GOV-5, T-DA-1, T-DB-1A |
-| **In progress** | None |
+| **In progress** | T-DB-1 |
 | **Partially landed; acceptance incomplete** | T-GOV-6 |
-| **Pending** | T-TIME-1..2, T-DB-1, T-DC-1, T-DD-1, T-DE-1, T-PLAT-1, T-PLAT-2, T-PLAT-3, T-PLAT-4, T-GOV-2..3 |
+| **Pending** | T-TIME-1..2, T-DB-1B, T-DC-1, T-DD-1, T-DE-1, T-PLAT-1, T-PLAT-2, T-PLAT-3, T-PLAT-4, T-GOV-2..3 |
 
 ---
 
@@ -273,7 +277,7 @@ remains in force; where this plan is stricter, this plan wins for these tasks.
 | TIME      | agent-time | pipeline/model_base.py, model_civic.py, model_events.py, model_records.py, model_runtime.py, models.py, db_migrate.py, db_migration_runner.py, migrate_v10.py (new), tests/test_migrate_v10.py (new), tests/test_db_migrate.py (T-TIME-2 v10 ordering only), pipeline/summary_freshness.py (verify-only) |
 | CRAWL     | agent-crawl| council_crawler/**                                          |
 | DEDUP-A   | agent-da   | pipeline/metrics.py, pipeline/metrics_redis_backend.py, tests/test_*metrics* |
-| DEDUP-B   | agent-db   | pipeline/summary_backfill*.py, pipeline/task_summary_generation*.py, pipeline/task_summary_empty_agenda.py, pipeline/task_summary_side_effects.py, pipeline/task_facade_helpers.py, pipeline/tasks.py, tests/test_*backfill*, tests/test_summary_generation_operation.py (new), tests/test_agenda_summary_payload_budget.py, tests/test_summary_blocking.py, tests/test_task_provider_retry_semantics.py, tests/test_async_flow.py, tests/test_task_facade_cleanup.py, tests/test_repository_guardrails.py (T-DB-1A only), tests/test_pipeline_batching.py, tests/test_run_pipeline_orchestration.py, tests/test_staged_hydrate_cities.py, tests/test_tasks_agenda_summary_format.py |
+| DEDUP-B   | agent-db   | pipeline/summary_backfill*.py, pipeline/task_summary_generation*.py, pipeline/task_summary_empty_agenda.py, pipeline/task_summary_side_effects.py, pipeline/task_facade_helpers.py, pipeline/tasks.py, pipeline/run_pipeline.py (T-DB-1 only), pipeline/backlog_maintenance.py (T-DB-1B only), pipeline/agenda_summary_maintenance.py (T-DB-1B only), pipeline/agenda_summary_fallback.py (T-DB-1B only), pipeline/non_agenda_summary_fallback.py (T-DB-1B only), pipeline/agenda_summary_batch.py (T-DB-1B only), scripts/backfill_summaries.py, scripts/staged_hydrate_cities.py, scripts/profile_pipeline_selection.py, scripts/staged_hydration_runner.py (T-DB-1B only), tests/test_*backfill*, tests/test_summary_generation_operation.py (new), tests/test_agenda_summary_payload_budget.py, tests/test_summary_blocking.py, tests/test_task_provider_retry_semantics.py, tests/test_async_flow.py, tests/test_task_facade_cleanup.py, tests/test_repository_guardrails.py (T-DB tasks only), tests/test_pipeline_batching.py, tests/test_run_pipeline_orchestration.py, tests/test_staged_hydrate_cities.py, tests/test_tasks_agenda_summary_format.py, tests/test_profile_pipeline_cli.py |
 | DEDUP-C   | agent-dc   | api/main.py, api/app_setup.py, tests/conftest.py, tests/test_*api* (Phase 2 only) |
 | DEDUP-D   | agent-dd   | scripts/flush_city_pipeline_state.py, scripts/reset_city_verification_state.py, scripts/*_healthcheck.py, tests for same |
 | DEDUP-E   | agent-de   | pipeline/http_inference_provider.py, pipeline/inprocess_inference_provider.py, pipeline/inference_provider_contract.py, tests for same |
@@ -932,18 +936,66 @@ files (GED-5 grant).
 
 ### T-DB-1: Collapse the summary_backfill facade
 - priority: P1
-- files_owned: pipeline/summary_backfill*.py, pipeline/task_facade_helpers.py,
-  pipeline/tasks.py, tests/test_*backfill*, tests/test_pipeline_batching.py,
-  tests/test_run_pipeline_orchestration.py, tests/test_staged_hydrate_cities.py,
-  tests/test_tasks_agenda_summary_format.py
-- do: Callers import run_summary_hydration_backfill from
-  summary_backfill_runner directly (or keep summary_backfill.py as a pure
-  one-line re-import, no signature duplication, no conditional **splats).
-  Remove injectable-callable params. Repoint tests at implementation modules
-  and fake only the approved DB session factory or inference provider boundary.
-- accept: <= 8 params on the public signature; no injectable-callable params;
-  no conditional dict-splat forwarding; backfill tests green.
-- verify: Full suite green.
+- status: in progress
+- implementation_plan:
+  `docs/plans/T_DB_1_SUMMARY_BACKFILL_FACADE_PLAN.md`
+- files_owned: docs/plans/T_DB_1_SUMMARY_BACKFILL_FACADE_PLAN.md,
+  docs/plans/TOWN_COUNCIL_REMEDIATION_PLAN.md, docs/ADR.md,
+  pipeline/summary_backfill.py (delete),
+  pipeline/summary_backfill_dispatch.py,
+  pipeline/summary_backfill_logging.py,
+  pipeline/summary_backfill_progress.py,
+  pipeline/summary_backfill_queries.py,
+  pipeline/summary_backfill_runner.py, pipeline/task_facade_helpers.py,
+  pipeline/tasks.py, pipeline/run_pipeline.py, scripts/backfill_summaries.py,
+  scripts/staged_hydrate_cities.py, scripts/profile_pipeline_selection.py,
+  tests/test_backfill_summaries.py, tests/test_pipeline_batching.py,
+  tests/test_run_pipeline_orchestration.py,
+  tests/test_staged_hydrate_cities.py,
+  tests/test_tasks_agenda_summary_format.py,
+  tests/test_profile_pipeline_cli.py, tests/test_repository_guardrails.py,
+  tests/test_task_facade_cleanup.py
+- do: Delete `summary_backfill.py`. Make `summary_backfill_runner.py` the
+  direct operation owner with seven public options and no injected dependency
+  parameters. Move every tracked runtime caller to the runner or query owner.
+  Delete task-facade selectors, mapping, dispatch, globals wiring, and
+  forwarding. Repoint tests to implementation modules and approved database,
+  provider, Meilisearch, and Celery boundaries.
+- preserve: Eligibility/order, city and manifest filtering, deterministic
+  agenda-first handling, non-agenda provider fallback, low-signal blocking,
+  session rollback/closure, counts, timings, progress cadence, canonical
+  pipeline settings, staged hydration, profiling selection, and CLI output.
+- accept: `summary_backfill.py` is absent; no tracked caller imports summary
+  hydration from `pipeline.tasks`; public runner has at most eight parameters
+  and no dependency-callable parameter; no conditional splat forwarding or
+  lower-to-facade import remains; focused and complete suites pass.
+- forbidden: Rewriting downstream maintenance-fallback or staged-hydration
+  callable chains, preserving compatibility aliases, new fake boundaries, or
+  edits outside `files_owned`.
+- verify: Follow the Full T-DB-1 plan; Ruff, Mypy, backfill, orchestration,
+  provider, guardrail, docs-link, and complete Python suites pass.
+
+### T-DB-1B: Remove maintenance fallback callable injection
+- priority: P1
+- status: pending; plan required after T-DB-1
+- must_merge_after: T-DB-1
+- files_owned: pipeline/backlog_maintenance.py,
+  pipeline/agenda_summary_maintenance.py, pipeline/agenda_summary_fallback.py,
+  pipeline/non_agenda_summary_fallback.py, pipeline/agenda_summary_batch.py,
+  scripts/staged_hydration_runner.py, scripts/staged_hydrate_cities.py,
+  affected maintenance/fallback/staged-hydration tests,
+  tests/test_repository_guardrails.py
+- do: Replace remaining generation, deterministic-summary, session, reindex,
+  embed, and staged-summary callable threading with direct operation ownership
+  and approved runtime boundaries. Delete superseded callable paths in the
+  same PR.
+- accept: No maintenance fallback or staged hydration production signature
+  accepts dependency callables; tests fake only approved boundaries; behavior,
+  progress, fallback, and side-effect contracts remain unchanged.
+- forbidden: Runtime default, fallback policy, timeout policy, or soak
+  comparability changes.
+- verify: Full implementation plan, applicable verification rows, and complete
+  Python suite.
 
 ### T-DC-1: Remove the api.main <-> app_setup sync machinery
 - priority: P1
@@ -1258,7 +1310,7 @@ Phase 0: agent-ci  [T-CI-0, then T-CI-5 (allowlist snapshot freshness), then T-C
 Docs-0:  agent-gov [T-GOV-6: SECURITY.md] + [T-GOV-4: AGENTS.md]   (with/just after Phase 0)
 Phase 1: agent-sec [T-SEC-1..6] || agent-time [T-TIME-1..3] || agent-crawl [T-CRAWL-1..2]
 Gate:    G3 satisfied (T-GOV-1 Accepted ADR + active docs/TESTING.MD)
-Phase 2: agent-da || agent-db [T-DB-1A, then T-DB-1] || agent-dd || agent-de ;
+Phase 2: agent-da || agent-db [T-DB-1A, then T-DB-1, then T-DB-1B] || agent-dd || agent-de ;
          then agent-dc (exclusive on api/*)
 Phase 3: agent-plat [T-PLAT-1 after T-TIME-1 and T-TIME-2, then T-PLAT-2..4]
          || agent-gov [T-GOV-2, T-GOV-3 + T-GOV-5]
