@@ -1,6 +1,6 @@
 # Town Council Remediation Plan (Codex Multi-Agent)
 
-version: 3.32
+version: 3.41
 generated: 2026-07-24
 source: Four-pass external code review (security, architecture, smells, process)
 source_artifact: [Town Council architecture review](../reviews/architecture-review-2026-07-19.html)
@@ -10,6 +10,35 @@ remains in force; where this plan is stricter, this plan wins for these tasks.
 
 ## Changelog
 
+- **v3.41:** Prevents T-PLAT-1 and T-GOV-3 from running concurrently while
+  both own focused changes in `tests/test_repository_guardrails.py`.
+- **v3.40:** Requires T-PLAT-1 to inventory and encode schema objects created
+  only by legacy raw SQL, preventing baseline autogeneration from omitting
+  indexes that current model metadata does not declare.
+- **v3.39:** Adds the canonical `ARCHITECTURE.md` migration map to T-PLAT-1
+  ownership so Alembic adoption cannot leave the system map on the retired
+  numbered-only design.
+- **v3.38:** Closes three T-PLAT-1 implementation gaps: frozen v8 metadata for
+  delayed adopters, mandatory PostgreSQL migration CI, and synchronized
+  pipeline and city-contributor migration guidance.
+- **v3.37:** Gives T-TIME-2 ownership of focused v10 migration and ordering
+  tests so the final numbered migration cannot land unverified before the
+  Alembic baseline.
+- **v3.36:** Adds `seed_places.py` and `promote_stage.py` plus their affected
+  tests to T-PLAT-1 ownership. Operational entrypoints may no longer call
+  `create_tables()` outside the Alembic migration path.
+- **v3.35:** Routes T-PLAT-1 through the canonical fresh-database contributor
+  workflow by adding `pipeline/db_init.py`, `scripts/dev_up.sh`, README setup
+  guidance, and their contract tests to task ownership.
+- **v3.34:** Adds `tests/test_db_migrate.py` to T-PLAT-1 ownership so Alembic
+  adoption can replace obsolete legacy-runner assertions without preserving
+  compatibility seams solely for tests.
+- **v3.33:** Records operator approval of G5 and fixes migration sequencing:
+  T-TIME-1 updates model declarations, T-TIME-2 converts existing databases
+  through the final numbered migration, and T-PLAT-1 then establishes the
+  Alembic baseline. The baseline task must preserve the canonical pipeline
+  entrypoint and prove legacy-schema parity before stamping. Implementation
+  remains pending.
 - **v3.32:** Marks T-DA-1 complete after removing duplicated Redis state,
   facade synchronization, dynamic metric lookups, and injected write
   callables. One collector now owns each provider series, preserves local
@@ -221,8 +250,10 @@ remains in force; where this plan is stricter, this plan wins for these tasks.
   ownership.
 - G4 pii_policy: Ratify ADR on person-entity minimization for non-officials
   (T-GOV-2). BLOCKS nothing in this plan, but blocks City Coverage Expansion.
-- G5 migration_tooling: Alembic adoption approved? Default: yes (T-PLAT-1).
-  If no, T-TIME-2 ships via the existing migrate_v10 chain unchanged.
+- G5 migration_tooling: **Approved 2026-07-24.** Adopt Alembic through
+  T-PLAT-1 after T-TIME-1 and T-TIME-2. Freeze the readable `migrate_v*`
+  chain after the baseline; author all later schema changes as Alembic
+  revisions.
 
 ---
 
@@ -232,19 +263,20 @@ remains in force; where this plan is stricter, this plan wins for these tasks.
 |-----------|-----------|------------------------------------------------------------|
 | CI        | agent-ci   | .github/workflows/**, ruff.toml, ruff-format.toml (new), .pre-commit-config.yaml, .coveragerc, frontend/package.json, frontend/jest.config.* (new) |
 | SEC       | agent-sec  | docker-compose.yml, docker-compose.dev.yml, .dockerignore, .env.example, api/app_setup.py, api/main.py (CORS+/stats sections only), api/search/support_core.py, pipeline/meilisearch_credentials.py, semantic_service/main.py, frontend/app/api/** |
-| TIME      | agent-time | pipeline/model_base.py, model_civic.py, model_events.py, model_records.py, model_runtime.py, models.py, db_migrate.py, migrate_v10.py (new), pipeline/summary_freshness.py (verify-only) |
+| TIME      | agent-time | pipeline/model_base.py, model_civic.py, model_events.py, model_records.py, model_runtime.py, models.py, db_migrate.py, db_migration_runner.py, migrate_v10.py (new), tests/test_migrate_v10.py (new), tests/test_db_migrate.py (T-TIME-2 v10 ordering only), pipeline/summary_freshness.py (verify-only) |
 | CRAWL     | agent-crawl| council_crawler/**                                          |
 | DEDUP-A   | agent-da   | pipeline/metrics.py, pipeline/metrics_redis_backend.py, tests/test_*metrics* |
 | DEDUP-B   | agent-db   | pipeline/summary_backfill*.py, pipeline/task_facade_helpers.py, pipeline/tasks.py, tests/test_*backfill*, tests/test_pipeline_batching.py, tests/test_run_pipeline_orchestration.py, tests/test_staged_hydrate_cities.py, tests/test_tasks_agenda_summary_format.py |
 | DEDUP-C   | agent-dc   | api/main.py, api/app_setup.py, tests/conftest.py, tests/test_*api* (Phase 2 only) |
 | DEDUP-D   | agent-dd   | scripts/flush_city_pipeline_state.py, scripts/reset_city_verification_state.py, scripts/*_healthcheck.py, tests for same |
 | DEDUP-E   | agent-de   | pipeline/http_inference_provider.py, pipeline/inprocess_inference_provider.py, pipeline/inference_provider_contract.py, tests for same |
-| PLAT      | agent-plat | alembic/** (new), pipeline/requirements*.txt, api/requirements.txt, semantic_service/requirements.txt, constraints.txt (new), .github/dependabot.yml (new), docs/OPERATIONS.md (backup section only), api/cache.py |
+| PLAT      | agent-plat | alembic/** (new), alembic.ini (new), pipeline/requirements*.txt, pipeline/db_init.py (T-PLAT-1 only), pipeline/db_migrate.py (T-PLAT-1 only, after TIME), pipeline/db_migration_columns.py (T-PLAT-1 legacy parity only), pipeline/migrate_v8.py (T-PLAT-1 frozen metadata only), pipeline/migration_pgvector_semantic_embeddings.py (T-PLAT-1 frozen metadata only), pipeline/seed_places.py (T-PLAT-1 schema handoff only), pipeline/promote_stage.py (T-PLAT-1 schema handoff only), scripts/dev_up.sh (T-PLAT-1 only), README.md (T-PLAT-1 setup section only), ARCHITECTURE.md (T-PLAT-1 migration map only), api/requirements.txt, semantic_service/requirements.txt, constraints.txt (new), .github/dependabot.yml (new), .github/workflows/python-guardrails.yml (T-PLAT-1 PostgreSQL migration service/step only), docs/OPERATIONS.md (migration and backup sections only), docs/PIPELINE.md (T-PLAT-1 migration section only), docs/CONTRIBUTING_CITIES.md (T-PLAT-1 seed prerequisite only), tests/test_alembic_migrations.py (new), tests/test_db_init.py (T-PLAT-1 only), tests/test_db_migrate.py (T-PLAT-1 only), tests/test_docker_build_contracts.py (T-PLAT-1 fresh-DB contract only), tests/test_migrate_v8_pgvector_order.py (T-PLAT-1 only), tests/test_seed_places.py (T-PLAT-1 schema handoff only), tests/test_seed_places_includes_cupertino.py (T-PLAT-1 schema handoff only), tests/test_database.py (T-PLAT-1 promotion schema handoff only), tests/test_pipeline_idempotency.py (T-PLAT-1 promotion schema handoff only), tests/test_pipeline_integration.py (T-PLAT-1 promotion schema handoff only), tests/test_repository_guardrails.py (T-PLAT-1 migration CI contract only), tests/test_run_pipeline_orchestration.py (T-PLAT-1 migration-prelude contract only), api/cache.py |
 | GOV       | agent-gov  | docs/ADR.md, docs/ENGINEERING_GUARDRAILS.md, AGENTS.md, SECURITY.md (new), docs/TESTING.md (new), docs/DATA_GOVERNANCE.md (new), tests/test_repository_guardrails.py (Phase 3 only) |
 
 Sequencing rule: SEC and DEDUP-C both own api/app_setup.py + api/main.py —
 they are in different phases and MUST NOT run concurrently. TIME owns
-model files; PLAT's Alembic baseline runs AFTER TIME merges. T-CI-0 temporarily
+model files. Migration order is T-TIME-1, T-TIME-2, then T-PLAT-1; other TIME
+and PLAT work may run independently when ownership permits. T-CI-0 temporarily
 coordinates `docs/ENGINEERING_GUARDRAILS.md` with T-GOV-3 and T-GOV-5 for the
 narrow broad-handler policy correction described below; the GOV lane retains
 ownership of the later redesign and rewrite. T-CI-5 temporarily coordinates
@@ -257,6 +289,9 @@ T-CI-3 receives a narrow temporary coordination grant for coverage scope
 references, verification commands, merge-gate prose, and transition markers
 in `AGENTS.md`, `docs/TESTING.MD`, and
 `docs/ENGINEERING_GUARDRAILS.md`; later GOV work retains all other ownership.
+T-PLAT-1 and T-GOV-3 MUST NOT run concurrently because both own focused
+changes in `tests/test_repository_guardrails.py`; whichever starts second
+must wait for the first PR to merge and rebase on `master`.
 
 ---
 
@@ -716,18 +751,22 @@ in `AGENTS.md`, `docs/TESTING.MD`, and
   calls only — column defaults reference callables, so also add a
   guardrail-test assertion that model files contain no naive default
   callables; suite green.
-- depends_on: T-TIME-2 for existing DBs.
+- sequencing: May merge before T-TIME-2, but must not deploy against an
+  existing database until T-TIME-2 has converted its timestamp columns.
 - verify: grep + full suite.
 
 ### T-TIME-2: Migration for timestamp columns
 - priority: P1
-- files_owned: pipeline/migrate_v10.py (new), pipeline/db_migrate.py
+- files_owned: pipeline/migrate_v10.py (new), pipeline/db_migrate.py,
+  pipeline/db_migration_runner.py, tests/test_migrate_v10.py (new),
+  tests/test_db_migrate.py (v10 ordering only)
 - do: Additive migration converting existing columns to timestamptz
   (`ALTER ... TYPE timestamptz USING <col> AT TIME ZONE 'UTC'`). Wire into
-  run_migrations after v9. If G5=yes and T-PLAT-1 has merged first, author
-  as an Alembic revision instead.
-- accept: Migration idempotent (safe re-run); documented in db_migrate
-  docstring.
+  run_migrations after v9. This is the final numbered migration before the
+  T-PLAT-1 Alembic baseline.
+- accept: Migration idempotent (safe re-run); focused tests prove v10 runs
+  after v9, reruns safely, and leaves the final numbered version at v10;
+  documented in db_migrate docstring.
 - verify: Run against a dev DB snapshot; suite green.
 
 ### T-TIME-3: pool_pre_ping
@@ -903,13 +942,72 @@ files (GED-5 grant).
 
 ### T-PLAT-1: Alembic baseline (gate G5)
 - priority: P1
-- files_owned: alembic/** (new), pipeline/db_migrate.py (deprecation note),
-  docs/OPERATIONS.md (migration section)
+- status: approved; implementation pending
+- must_not_run_concurrently_with: T-GOV-3
+- decision_record: `docs/plans/G5_ALEMBIC_ADOPTION_DECISION_PLAN.md`
+- files_owned: alembic/** (new), alembic.ini (new),
+  pipeline/requirements.txt, pipeline/db_init.py (fresh-DB handoff),
+  pipeline/db_migrate.py (Alembic handoff),
+  pipeline/db_migration_columns.py (legacy parity repair only),
+  pipeline/migrate_v8.py and
+  pipeline/migration_pgvector_semantic_embeddings.py (frozen metadata only),
+  pipeline/seed_places.py (schema handoff only),
+  pipeline/promote_stage.py (schema handoff only),
+  scripts/dev_up.sh, README.md (setup section), ARCHITECTURE.md (migration
+  map), docs/OPERATIONS.md and docs/PIPELINE.md (migration sections),
+  docs/CONTRIBUTING_CITIES.md (seed prerequisite),
+  .github/workflows/python-guardrails.yml
+  (PostgreSQL migration service/step only),
+  tests/test_alembic_migrations.py (new),
+  tests/test_db_init.py, tests/test_db_migrate.py,
+  tests/test_docker_build_contracts.py (fresh-DB contract only),
+  tests/test_migrate_v8_pgvector_order.py,
+  tests/test_seed_places.py and tests/test_seed_places_includes_cupertino.py
+  (schema handoff only), tests/test_database.py,
+  tests/test_pipeline_idempotency.py, and tests/test_pipeline_integration.py
+  (promotion schema handoff only),
+  tests/test_repository_guardrails.py (migration CI contract only),
+  tests/test_run_pipeline_orchestration.py (migration-prelude contract only)
 - do: `alembic init`; autogenerate a baseline revision from current models
-  (post T-TIME-1); stamp existing dev DBs; document the workflow. Keep
-  migrate_v* chain readable but frozen (no v11+).
-- accept: Fresh DB via alembic == create_all schema (diff empty);
-  OPERATIONS documents upgrade/downgrade.
+  after T-TIME-2, then reconcile it against an explicit inventory of every
+  schema object created by the frozen legacy migrations. This inventory must
+  include legacy-only objects absent from model metadata, including
+  `ix_semantic_embedding_hnsw` and `ix_catalog_lineage_updated_at`.
+  Preserve the existing `python db_migrate.py` subprocess in
+  `pipeline.run_pipeline`; make `db_migrate.migrate()` delegate through the
+  frozen legacy runner when needed and then run `alembic upgrade head`.
+  Make `pipeline/db_init.py`, `scripts/dev_up.sh`, and README setup use the
+  same migration entrypoint so fresh contributor databases are Alembic-owned
+  immediately instead of being created through `Base.metadata.create_all()`.
+  Remove implicit schema creation from `seed_places.py` and
+  `promote_stage.py`; operators must migrate before seeding or promotion.
+  `pipeline/db_migrate.py` owns the only supported existing-database adoption
+  path: run the legacy chain through v10, repair the known missing-index drift
+  in the existing column-migration owner, compare against the frozen baseline
+  schema, abort on drift, stamp the baseline, then upgrade to head. Delayed
+  adopters use that same frozen comparison even when newer revisions exist.
+  Replace v8's mutable `Base.metadata.create_all()` dependency with frozen
+  baseline metadata so later models cannot mutate delayed adopters before the
+  parity check.
+  Baseline upgrade creates the pgvector extension before baseline table DDL.
+  Keep migrate_v* readable but frozen (no v11+). Document fresh, existing,
+  delayed-adoption, upgrade, and downgrade workflows; do not instruct operators
+  to run an unguarded `alembic stamp`. The baseline is the downgrade floor:
+  its downgrade must fail before any DDL, while later revisions may downgrade
+  only as far as the baseline.
+- accept: Fresh extension-free PostgreSQL via Alembic creates pgvector before
+  vector columns, contains every inventoried legacy-only object, and equals
+  the frozen baseline schema; an existing database migrated through v10 has
+  an empty object-level diff against that baseline before stamping; a delayed
+  adopter stamps only after baseline parity and then
+  reaches head; stamping aborts on nonempty baseline drift; the canonical
+  `python db_migrate.py` subprocess remains unchanged and applies
+  post-baseline revisions; attempting to downgrade below the baseline exits
+  nonzero without changing schema or representative data; OPERATIONS documents
+  the baseline floor and supported workflows. Python Guardrails runs fresh,
+  existing, delayed-adoption, upgrade, and downgrade tests against an isolated
+  pgvector PostgreSQL service without optional skips. ARCHITECTURE maps
+  Alembic as the authoritative post-baseline migration graph.
 - verify: Schema diff script output empty; suite green.
 
 ### T-PLAT-2A: Patch Next.js's transitive Sharp runtime
@@ -1113,7 +1211,8 @@ Docs-0:  agent-gov [T-GOV-6: SECURITY.md] + [T-GOV-4: AGENTS.md]   (with/just af
 Phase 1: agent-sec [T-SEC-1..6] || agent-time [T-TIME-1..3] || agent-crawl [T-CRAWL-1..2]
 Gate:    G3 satisfied (T-GOV-1 Accepted ADR + active docs/TESTING.MD)
 Phase 2: agent-da || agent-db || agent-dd || agent-de ; then agent-dc (exclusive on api/*)
-Phase 3: agent-plat [T-PLAT-1..4] || agent-gov [T-GOV-2, T-GOV-3 + T-GOV-5]
+Phase 3: agent-plat [T-PLAT-1 after T-TIME-1 and T-TIME-2, then T-PLAT-2..4]
+         || agent-gov [T-GOV-2, T-GOV-3 + T-GOV-5]
 Anytime: T-GOV-6 DATA_GOVERNANCE.md (Section 3 pending G4)
 ```
 
