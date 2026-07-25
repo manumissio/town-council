@@ -1,6 +1,6 @@
 # Town Council Remediation Plan (Codex Multi-Agent)
 
-version: 3.33
+version: 3.34
 generated: 2026-07-24
 source: Four-pass external code review (security, architecture, smells, process)
 source_artifact: [Town Council architecture review](../reviews/architecture-review-2026-07-19.html)
@@ -10,6 +10,9 @@ remains in force; where this plan is stricter, this plan wins for these tasks.
 
 ## Changelog
 
+- **v3.34:** Adds `tests/test_db_migrate.py` to T-PLAT-1 ownership so Alembic
+  adoption can replace obsolete legacy-runner assertions without preserving
+  compatibility seams solely for tests.
 - **v3.33:** Records operator approval of G5 and fixes migration sequencing:
   T-TIME-1 updates model declarations, T-TIME-2 converts existing databases
   through the final numbered migration, and T-PLAT-1 then establishes the
@@ -247,7 +250,7 @@ remains in force; where this plan is stricter, this plan wins for these tasks.
 | DEDUP-C   | agent-dc   | api/main.py, api/app_setup.py, tests/conftest.py, tests/test_*api* (Phase 2 only) |
 | DEDUP-D   | agent-dd   | scripts/flush_city_pipeline_state.py, scripts/reset_city_verification_state.py, scripts/*_healthcheck.py, tests for same |
 | DEDUP-E   | agent-de   | pipeline/http_inference_provider.py, pipeline/inprocess_inference_provider.py, pipeline/inference_provider_contract.py, tests for same |
-| PLAT      | agent-plat | alembic/** (new), alembic.ini (new), pipeline/requirements*.txt, pipeline/db_migrate.py (T-PLAT-1 only, after TIME), pipeline/db_migration_columns.py (T-PLAT-1 legacy parity only), api/requirements.txt, semantic_service/requirements.txt, constraints.txt (new), .github/dependabot.yml (new), docs/OPERATIONS.md (migration and backup sections only), tests/test_alembic_migrations.py (new), tests/test_run_pipeline_orchestration.py (T-PLAT-1 migration-prelude contract only), api/cache.py |
+| PLAT      | agent-plat | alembic/** (new), alembic.ini (new), pipeline/requirements*.txt, pipeline/db_migrate.py (T-PLAT-1 only, after TIME), pipeline/db_migration_columns.py (T-PLAT-1 legacy parity only), api/requirements.txt, semantic_service/requirements.txt, constraints.txt (new), .github/dependabot.yml (new), docs/OPERATIONS.md (migration and backup sections only), tests/test_alembic_migrations.py (new), tests/test_db_migrate.py (T-PLAT-1 only), tests/test_run_pipeline_orchestration.py (T-PLAT-1 migration-prelude contract only), api/cache.py |
 | GOV       | agent-gov  | docs/ADR.md, docs/ENGINEERING_GUARDRAILS.md, AGENTS.md, SECURITY.md (new), docs/TESTING.md (new), docs/DATA_GOVERNANCE.md (new), tests/test_repository_guardrails.py (Phase 3 only) |
 
 Sequencing rule: SEC and DEDUP-C both own api/app_setup.py + api/main.py —
@@ -920,8 +923,8 @@ files (GED-5 grant).
   pipeline/requirements.txt, pipeline/db_migrate.py (Alembic handoff),
   pipeline/db_migration_columns.py (legacy parity repair only),
   docs/OPERATIONS.md (migration section), tests/test_alembic_migrations.py
-  (new), tests/test_run_pipeline_orchestration.py (migration-prelude contract
-  only)
+  (new), tests/test_db_migrate.py, tests/test_run_pipeline_orchestration.py
+  (migration-prelude contract only)
 - do: `alembic init`; autogenerate a baseline revision from current models
   after T-TIME-2. Preserve the existing `python db_migrate.py` subprocess in
   `pipeline.run_pipeline`; make `db_migrate.migrate()` delegate through the

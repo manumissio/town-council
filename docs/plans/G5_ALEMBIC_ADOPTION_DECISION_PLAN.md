@@ -42,7 +42,8 @@ TIME migration work; it does not rewrite T-TIME-2 into an Alembic revision.
 4. Add an Accepted ADR that preserves the current migration chain as frozen
    history after the baseline and assigns post-baseline migrations to Alembic.
 5. Expand T-PLAT-1 ownership for root configuration, the pinned dependency,
-   canonical migration handoff, legacy parity repair, and schema-parity tests.
+   canonical migration handoff, legacy parity repair, affected legacy-runner
+   tests, and schema-parity tests.
 6. Run docs-link and contradiction checks.
 7. Obtain an independent pre-commit review and resolve all eligible P1/P2
    findings.
@@ -140,7 +141,7 @@ rg -n "Migration order is T-TIME-1, T-TIME-2, then T-PLAT-1" \
   docs/plans/TOWN_COUNCIL_REMEDIATION_PLAN.md
 rg -n "files_owned: alembic/\\*\\* \\(new\\), alembic.ini \\(new\\)" \
   docs/plans/TOWN_COUNCIL_REMEDIATION_PLAN.md
-rg -n "\\| PLAT.*alembic.ini.*pipeline/db_migrate.py.*docs/OPERATIONS.md.*tests/test_alembic_migrations.py" \
+rg -n "\\| PLAT.*alembic.ini.*pipeline/db_migrate.py.*docs/OPERATIONS.md.*tests/test_alembic_migrations.py.*tests/test_db_migrate.py" \
   docs/plans/TOWN_COUNCIL_REMEDIATION_PLAN.md
 rg -n "alembic upgrade head" docs/plans/TOWN_COUNCIL_REMEDIATION_PLAN.md
 rg -n "existing database" docs/plans/TOWN_COUNCIL_REMEDIATION_PLAN.md
