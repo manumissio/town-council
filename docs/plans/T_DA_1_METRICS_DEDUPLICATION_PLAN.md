@@ -1,7 +1,7 @@
 # T-DA-1: Collapse the Metrics Redis Twins
 
 `artifact_contract: ce-unified-plan/v1`
-`artifact_readiness: implementation-ready`
+`artifact_readiness: complete`
 `execution: code`
 
 ## 1. Context & Alignment
@@ -100,8 +100,9 @@ decision.
     review, resolve feedback, and merge only after required checks pass.
 
 The only new production methods/helpers are `describe()`, one metric factory,
-and one focused population helper in the collector. No new class, wrapper,
-registry, reset hook, state container, or compatibility shim is introduced.
+one focused aggregate population helper, and one local fallback helper in the
+collector. No new class, wrapper, registry, reset hook, state container, or
+compatibility shim is introduced.
 
 **f) Reuse audit.** Reuse the canonical backend and `metrics_definitions`;
 one collector metric factory serves both `describe()` and `collect()`.
@@ -183,8 +184,8 @@ path and focused population helpers. Expected production delta remains negative.
 **q) Edge cases and failure scenarios.**
 
 1. Importing `pipeline.metrics` must not connect to Redis; registration uses
-   `describe()` rather than `collect()` and claims only the unique backend
-   gauge.
+   `describe()` rather than `collect()` and claims all collector-owned metric
+   families.
 2. The backend remains the only owner of Redis client, init, warning, and
    health state.
 3. Provider recorders update local Prometheus metrics and canonical Redis
@@ -330,6 +331,15 @@ or edits outside the thirteen owned files.
 baseline evidence, tests-first red result, exact deletion grep, planning and
 pre-commit review findings, commit hashes, PR URL, unresolved-thread count,
 and final CI state.
+
+Implementation-head evidence: the original focused suite failed 4 tests,
+confirming import-time Redis initialization and duplicated facade state.
+Successive pre-commit reviews found one registration-collision P1, one
+duplicate-series P1, two degraded-export/metadata findings, and two malformed
+key/plan-drift P2s. Each received a focused red regression before correction;
+final rereview found no remaining P1/P2. Ruff, isolated S105, formatter, Mypy,
+76 metrics tests, 388 repository guardrail tests, 2 docs-link tests, and the
+complete 1,489-test Python suite pass locally.
 
 **z) Deviations.** Expected result is none. Any additional changed path,
 metric contract change, new retry, changed warning policy, new test seam,

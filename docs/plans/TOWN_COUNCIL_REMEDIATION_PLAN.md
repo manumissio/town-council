@@ -1,6 +1,6 @@
 # Town Council Remediation Plan (Codex Multi-Agent)
 
-version: 3.31
+version: 3.32
 generated: 2026-07-24
 source: Four-pass external code review (security, architecture, smells, process)
 source_artifact: [Town Council architecture review](../reviews/architecture-review-2026-07-19.html)
@@ -10,6 +10,10 @@ remains in force; where this plan is stricter, this plan wins for these tasks.
 
 ## Changelog
 
+- **v3.32:** Marks T-DA-1 complete after removing duplicated Redis state,
+  facade synchronization, dynamic metric lookups, and injected write
+  callables. One collector now owns each provider series, preserves local
+  fallback during Redis degradation, and emits canonical metadata.
 - **v3.31:** Preserves provider telemetry during T-DA-1 Redis degradation.
   The sole registry-owning collector exports healthy Redis aggregates and
   falls back to existing process-local instruments for unavailable, read-error,
@@ -166,8 +170,8 @@ remains in force; where this plan is stricter, this plan wins for these tasks.
 
 | State | Tasks |
 |---|---|
-| **Complete** | T-CI-0, T-CI-1, T-CI-1A, T-CI-2, T-CI-2A, T-CI-3, T-CI-4, T-CI-5, T-SEC-1, T-SEC-2, T-SEC-3, T-SEC-3C, T-SEC-4, T-SEC-4A, T-SEC-5, T-SEC-6, T-TIME-3, T-CRAWL-1, T-CRAWL-2, T-PLAT-2A, T-GOV-1, T-GOV-4, T-GOV-5 |
-| **In progress** | T-DA-1 |
+| **Complete** | T-CI-0, T-CI-1, T-CI-1A, T-CI-2, T-CI-2A, T-CI-3, T-CI-4, T-CI-5, T-SEC-1, T-SEC-2, T-SEC-3, T-SEC-3C, T-SEC-4, T-SEC-4A, T-SEC-5, T-SEC-6, T-TIME-3, T-CRAWL-1, T-CRAWL-2, T-PLAT-2A, T-GOV-1, T-GOV-4, T-GOV-5, T-DA-1 |
+| **In progress** | None |
 | **Partially landed; acceptance incomplete** | T-GOV-6 |
 | **Pending** | T-TIME-1..2, T-DB-1, T-DC-1, T-DD-1, T-DE-1, T-PLAT-1, T-PLAT-2, T-PLAT-3, T-PLAT-4, T-GOV-2..3 |
 
@@ -810,7 +814,7 @@ files (GED-5 grant).
 
 ### T-DA-1: Collapse the metrics twins
 - priority: P1
-- status: in progress
+- status: complete and verified 2026-07-24
 - implementation_plan: `docs/plans/T_DA_1_METRICS_DEDUPLICATION_PLAN.md`
 - files_owned: docs/plans/T_DA_1_METRICS_DEDUPLICATION_PLAN.md,
   docs/plans/TOWN_COUNCIL_REMEDIATION_PLAN.md, pipeline/metrics.py,
