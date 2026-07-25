@@ -8,6 +8,32 @@ Use each entry to record:
 - the affected boundary or contract
 - links to the canonical docs that carry the ongoing operational or architecture detail
 
+## 2026-07-24: Adopt Alembic for schema migrations
+
+- Status: Accepted
+- Decision:
+  - Adopt Alembic as the schema-migration system through remediation task
+    T-PLAT-1.
+  - Apply migration work in this order: T-TIME-1 updates timezone-aware model
+    declarations, T-TIME-2 converts existing databases through the final
+    numbered migration, and T-PLAT-1 establishes the Alembic baseline.
+  - Keep the current `migrate_v*` chain readable but frozen after the baseline;
+    use Alembic for every later schema change.
+- Why:
+  - One revision graph gives future schema changes explicit upgrade and
+    downgrade contracts.
+  - Establishing the baseline after model and existing-database correction
+    avoids encoding known timestamp debt as the intended schema.
+  - A single ordered sequence preserves the current phase contract and removes
+    the prior conditional wording between T-PLAT-1 and T-TIME-2.
+- Affected boundaries:
+  - T-PLAT-1 owns Alembic setup, baseline parity, and operator documentation.
+  - T-TIME-2 owns the final numbered migration before the baseline.
+  - No migration or schema change occurs from this decision record alone.
+- Canonical references:
+  - [Town Council remediation plan](plans/TOWN_COUNCIL_REMEDIATION_PLAN.md)
+  - [G5 decision plan](plans/G5_ALEMBIC_ADOPTION_DECISION_PLAN.md)
+
 ## 2026-07-24: Test patch points are not a public API
 
 - Status: Accepted
