@@ -1,6 +1,6 @@
 # Town Council Remediation Plan (Codex Multi-Agent)
 
-version: 3.30
+version: 3.31
 generated: 2026-07-24
 source: Four-pass external code review (security, architecture, smells, process)
 source_artifact: [Town Council architecture review](../reviews/architecture-review-2026-07-19.html)
@@ -10,6 +10,10 @@ remains in force; where this plan is stricter, this plan wins for these tasks.
 
 ## Changelog
 
+- **v3.31:** Preserves provider telemetry during T-DA-1 Redis degradation.
+  The sole registry-owning collector exports healthy Redis aggregates and
+  falls back to existing process-local instruments for unavailable, read-error,
+  and write-error states. Counter metadata must remain canonical.
 - **v3.30:** Expands T-DA-1 ownership to provider metric registration after
   pre-commit review exposed duplicate local and Redis-backed Prometheus series.
   The Redis collector becomes the sole registry owner for mirrored provider
@@ -822,14 +826,17 @@ files (GED-5 grant).
   metrics.py keeps the public collector binding, and collector registration
   describes names without reading Redis. Redis-mirrored provider instruments
   do not self-register; the collector is their sole registry owner, while
-  provider request duration remains locally registered. Delete the facade's
-  duplicate implementations, BOTH `_sync_redis_*` functions, duplicated
-  module globals, dynamic metric lookups, and injected Redis callables.
+  provider request duration remains locally registered. The collector exports
+  Redis aggregates while healthy and process-local instruments while degraded,
+  with canonical counter metadata. Delete the facade's duplicate
+  implementations, BOTH `_sync_redis_*` functions, duplicated module globals,
+  dynamic metric lookups, and injected Redis callables.
 - accept: One implementation of each function repo-wide; zero
   `_sync_redis_*` symbols; the S105 ruff.toml entry for
   metrics_redis_backend.py is resolved and removed (env-source the default
   or noqa-with-justification; ratchet from T-CI-5); each provider series has
-  one registry owner; metrics tests green after repointing patches.
+  one registry owner; degraded scrapes retain process-local provider series;
+  metrics tests green after repointing patches.
 - verify: grep for sync fns returns nothing; full suite green.
 
 ### T-DB-1: Collapse the summary_backfill facade

@@ -76,11 +76,14 @@ decision.
    `metrics_definitions` unregistered local instruments. Keep provider request
    duration registered because it is not mirrored into Redis. This gives each
    exported provider series one registry owner while preserving recorder calls.
+   When Redis is unavailable or degraded, the collector yields those local
+   instruments so process-local telemetry remains available.
 8. Give the provider collector a side-effect-free `describe()` path backed by
    one metric-construction helper. Describe all Redis-backed names now owned by
-   the collector so registration never calls Redis and scrape output contains
-   one copy of each provider series. Decompose `collect()` into focused
-   population helpers.
+   the collector using canonical counter family names, so registration never
+   calls Redis, metadata stays valid, and scrape output contains one copy of
+   each provider series. Decompose `collect()` into focused aggregate and local
+   fallback helpers.
 9. Make both recorder modules use `metrics_definitions` directly. Provider
    recorders call `metrics_redis_backend` directly and drop injected Redis
    callable parameters; both modules delete their dynamic facade lookups.
@@ -109,8 +112,9 @@ registration module. Duplicate implementations and test seams are deleted.
 Redis key formats, label escaping, `tc_provider_*` exports, Celery signal
 registration, and `pipeline.metrics.RedisProviderMetricsCollector` remain
 unchanged. Redis-mirrored local instruments stop self-registering so the Redis
-collector is the sole registry owner; provider request duration remains a
-local registered histogram. Redis state remains process-local; Redis atomic
+collector is the sole registry owner; it exports Redis aggregates when healthy
+and process-local instruments when degraded. Provider request duration remains
+a local registered histogram. Redis state remains process-local; Redis atomic
 increments remain the cross-process aggregation mechanism.
 
 **h) Schema/migration impact.** None.
@@ -203,6 +207,10 @@ path and focused population helpers. Expected production delta remains negative.
 13. A generated registry scrape contains one copy of each provider series;
     Redis-backed provider names belong to the collector, while request duration
     remains locally registered.
+14. Redis unavailable, read failure, or write failure yields the backend-down
+    gauge plus process-local provider series rather than dropping telemetry.
+15. Provider counter `HELP`, `TYPE`, and sample names agree without
+    `_total_total` metadata.
 
 **r) Tests.**
 
@@ -211,7 +219,7 @@ path and focused population helpers. Expected production delta remains negative.
 | Fresh-interpreter import test and single-owner test | 1, 2, 10 |
 | Backend initialization and parameterized write-failure tests | 3-5 |
 | Updated provider Redis aggregation tests | 3, 8, 9, 12 |
-| Collector descriptor-ownership, registry-collision, scrape-uniqueness, and worker collector tests | 1, 2, 6-8, 10, 13 |
+| Collector descriptor-ownership, registry-collision, scrape-uniqueness, metadata, fallback, and worker collector tests | 1, 2, 4-8, 10, 13-15 |
 | Updated metrics API degradation test | 6 |
 | Updated task and provider Prometheus output tests | 3, 12 |
 | Existing `tests/*metrics*.py` suite | 3-12 |
