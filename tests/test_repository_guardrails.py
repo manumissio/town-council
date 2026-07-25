@@ -534,6 +534,50 @@ def _broad_exception_scan_files() -> list[Path]:
     return sorted(Path(checked_path).resolve() for checked_path in checked_files.splitlines() if checked_path.endswith(".py"))
 
 
+def test_summary_generation_uses_direct_operation_boundaries() -> None:
+    summary_module_paths = (
+        ROOT / "pipeline/task_summary_generation.py",
+        ROOT / "pipeline/task_summary_generation_contracts.py",
+        ROOT / "pipeline/task_summary_generation_flow.py",
+        ROOT / "pipeline/task_summary_generation_persistence.py",
+        ROOT / "pipeline/task_summary_empty_agenda.py",
+        ROOT / "pipeline/task_summary_side_effects.py",
+    )
+    combined_source = "\n".join(
+        summary_module_path.read_text(encoding="utf-8")
+        for summary_module_path in summary_module_paths
+    )
+    task_facade_source = (ROOT / "pipeline/task_facade_helpers.py").read_text(
+        encoding="utf-8"
+    )
+    tasks_source = (ROOT / "pipeline/tasks.py").read_text(encoding="utf-8")
+
+    assert "SummaryGenerationTaskServices" not in combined_source
+    assert "run_generate_summary_task_family" not in combined_source
+    assert "backlog_maintenance" not in combined_source
+    assert "agenda_summary_maintenance" not in combined_source
+    assert "summary_generation_task_services" not in task_facade_source
+    assert "run_generate_summary_task_family" not in task_facade_source
+    assert "_summary_generation_task_services" not in tasks_source
+    assert "_run_generate_summary_task_family" not in tasks_source
+
+    lower_module_paths = summary_module_paths[1:]
+    forbidden_imports = {
+        str(summary_module_path.relative_to(ROOT)): _forbidden_imports(
+            summary_module_path,
+            {
+                "pipeline.tasks",
+                "pipeline.task_summary_generation",
+            },
+        )
+        for summary_module_path in lower_module_paths
+    }
+    assert forbidden_imports == {
+        str(summary_module_path.relative_to(ROOT)): []
+        for summary_module_path in lower_module_paths
+    }
+
+
 def _python_module_paths(prefix: str) -> list[Path]:
     return sorted(
         path

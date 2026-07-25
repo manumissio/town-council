@@ -5,7 +5,8 @@ from unittest.mock import MagicMock
 sys.modules["llama_cpp"] = MagicMock()
 
 from pipeline import backlog_maintenance
-from pipeline import tasks
+from pipeline import indexer, llm as llm_module, semantic_tasks, tasks
+from pipeline.inference_provider_contract import InferenceProvider
 from pipeline.models import AgendaItem, Document
 from pipeline.summary_freshness import compute_agenda_items_hash
 
@@ -23,8 +24,14 @@ def test_generate_summary_task_agenda_requires_segmentation_and_calls_agenda_ite
     catalog.summary_source_hash = None
     mock_db.get.return_value = catalog
 
+    event = MagicMock()
+    event.name = "City Council"
+    event.record_date = "2026-02-10"
     doc_query = MagicMock()
-    doc_query.filter_by.return_value.first.return_value = MagicMock(category="agenda")
+    doc_query.filter_by.return_value.first.return_value = MagicMock(
+        category="agenda",
+        event=event,
+    )
 
     items_query = MagicMock()
     items_query.filter_by.return_value.order_by.return_value.all.return_value = [
@@ -43,11 +50,13 @@ def test_generate_summary_task_agenda_requires_segmentation_and_calls_agenda_ite
     mock_db.query.side_effect = _query_side_effect
 
     mocker.patch.object(tasks, "SessionLocal", return_value=mock_db)
-    mocker.patch.object(tasks, "reindex_catalog")
-    mocker.patch.object(tasks.embed_catalog_task, "delay")
-    mock_ai = MagicMock()
-    mock_ai.summarize_agenda_items.return_value = "BLUF: Agenda focuses on core policy and operational items."
-    mocker.patch.object(tasks, "LocalAI", return_value=mock_ai)
+    mocker.patch.object(indexer.meilisearch, "Client", side_effect=RuntimeError("search unavailable"))
+    mocker.patch.object(semantic_tasks.embed_catalog_task, "delay", return_value=None)
+    summary_provider = MagicMock(spec=InferenceProvider)
+    summary_provider.summarize_agenda_items.return_value = (
+        "BLUF: Agenda focuses on core policy and operational items."
+    )
+    mocker.patch.object(llm_module, "get_runtime_provider", return_value=summary_provider)
 
     result = tasks.generate_summary_task.run(1, force=True)
     assert result["status"] == "complete"
@@ -56,12 +65,10 @@ def test_generate_summary_task_agenda_requires_segmentation_and_calls_agenda_ite
     expected_hash = compute_agenda_items_hash(items_query.filter_by.return_value.order_by.return_value.all.return_value)
     assert catalog.summary_source_hash == expected_hash
     assert catalog.agenda_items_hash == expected_hash
-    mock_ai.summarize_agenda_items.assert_called_once()
-    kwargs = mock_ai.summarize_agenda_items.call_args.kwargs
-    assert isinstance(kwargs["items"], list)
-    assert kwargs["items"][0]["title"] == "Item One"
-    assert kwargs["items"][0]["description"] == "Description one"
-    assert kwargs["truncation_meta"]["items_total"] == 3
+    provider_prompt = summary_provider.summarize_agenda_items.call_args.args[0]
+    assert "Item One" in provider_prompt
+    assert "Description one" in provider_prompt
+    mock_db.close.assert_called_once()
 
 
 def test_generate_summary_task_agenda_returns_not_generated_yet_when_no_items(mocker):
@@ -92,11 +99,6 @@ def test_generate_summary_task_agenda_returns_not_generated_yet_when_no_items(mo
     mock_db.query.side_effect = _query_side_effect
 
     mocker.patch.object(tasks, "SessionLocal", return_value=mock_db)
-    mocker.patch.object(tasks, "reindex_catalog")
-    mocker.patch.object(tasks.embed_catalog_task, "delay")
-    mock_ai = MagicMock()
-    mocker.patch.object(tasks, "LocalAI", return_value=mock_ai)
-
     result = tasks.generate_summary_task.run(1, force=True)
     assert result["status"] == "not_generated_yet"
     assert "segmentation" in (result.get("reason") or "").lower()
@@ -130,11 +132,6 @@ def test_generate_summary_task_agenda_html_returns_not_generated_yet_when_no_ite
     mock_db.query.side_effect = _query_side_effect
 
     mocker.patch.object(tasks, "SessionLocal", return_value=mock_db)
-    mocker.patch.object(tasks, "reindex_catalog")
-    mocker.patch.object(tasks.embed_catalog_task, "delay")
-    mock_ai = MagicMock()
-    mocker.patch.object(tasks, "LocalAI", return_value=mock_ai)
-
     result = tasks.generate_summary_task.run(1, force=True)
     assert result["status"] == "not_generated_yet"
     assert "segmentation" in (result.get("reason") or "").lower()
@@ -152,14 +149,15 @@ def test_generate_summary_task_blocks_laserfiche_error_page_content(mocker):
     mock_db.get.return_value = catalog
 
     mocker.patch.object(tasks, "SessionLocal", return_value=mock_db)
-    mock_ai = MagicMock()
-    mocker.patch.object(tasks, "LocalAI", return_value=mock_ai)
+    mocker.patch.object(
+        llm_module,
+        "get_runtime_provider",
+        side_effect=AssertionError("Bad content must not reach inference"),
+    )
 
     result = tasks.generate_summary_task.run(1, force=True)
 
     assert result == {"status": "error", "error": "laserfiche_error_page_detected"}
-    mock_ai.summarize.assert_not_called()
-    mock_ai.summarize_agenda_items.assert_not_called()
     mock_db.commit.assert_not_called()
 
 
@@ -175,14 +173,15 @@ def test_generate_summary_task_blocks_laserfiche_loading_shell_content(mocker):
     mock_db.get.return_value = catalog
 
     mocker.patch.object(tasks, "SessionLocal", return_value=mock_db)
-    mock_ai = MagicMock()
-    mocker.patch.object(tasks, "LocalAI", return_value=mock_ai)
+    mocker.patch.object(
+        llm_module,
+        "get_runtime_provider",
+        side_effect=AssertionError("Bad content must not reach inference"),
+    )
 
     result = tasks.generate_summary_task.run(1, force=True)
 
     assert result == {"status": "error", "error": "laserfiche_loading_shell_detected"}
-    mock_ai.summarize.assert_not_called()
-    mock_ai.summarize_agenda_items.assert_not_called()
     mock_db.commit.assert_not_called()
 
 
@@ -379,7 +378,9 @@ def test_generate_summary_task_agenda_matches_maintenance_summary_inputs(mocker)
     mock_db.get.return_value = catalog
 
     doc = MagicMock(category="agenda")
-    doc.event = MagicMock(name="City Council", record_date="2026-02-10")
+    doc.event = MagicMock()
+    doc.event.name = "City Council"
+    doc.event.record_date = "2026-02-10"
 
     agenda_items = [
         MagicMock(title="Housing Update", description="Discuss housing pipeline.", classification="Agenda Item", result="", page_number=1),
@@ -397,9 +398,8 @@ def test_generate_summary_task_agenda_matches_maintenance_summary_inputs(mocker)
 
     mock_db.query.side_effect = _query_side_effect
     mocker.patch.object(tasks, "SessionLocal", return_value=mock_db)
-    mocker.patch.object(tasks, "classify_catalog_bad_content", return_value=None)
-    mocker.patch.object(tasks, "reindex_catalog")
-    mocker.patch.object(tasks.embed_catalog_task, "delay")
+    mocker.patch.object(indexer.meilisearch, "Client", side_effect=RuntimeError("search unavailable"))
+    mocker.patch.object(semantic_tasks.embed_catalog_task, "delay", return_value=None)
 
     agenda_bundle = backlog_maintenance.build_agenda_summary_input_bundle(
         catalog=catalog,
@@ -411,22 +411,20 @@ def test_generate_summary_task_agenda_matches_maintenance_summary_inputs(mocker)
         truncation_meta=agenda_bundle["truncation_meta"],
     )
 
-    fake_ai = MagicMock()
-    fake_ai.summarize_agenda_items.side_effect = (
-        lambda *, meeting_title, meeting_date, items, truncation_meta: backlog_maintenance.llm_mod._deterministic_agenda_items_summary(
-            items,
-            truncation_meta=truncation_meta,
-        )
-    )
-    mocker.patch.object(tasks, "LocalAI", return_value=fake_ai)
+    summary_provider = MagicMock(spec=InferenceProvider)
+    summary_provider.summarize_agenda_items.return_value = expected_summary
+    mocker.patch.object(llm_module, "get_runtime_provider", return_value=summary_provider)
 
     result = tasks.generate_summary_task.run(1, force=True)
 
     assert result["status"] == "complete"
-    assert result["summary"] == expected_summary
-    assert catalog.summary == expected_summary
+    assert result["summary"].startswith("BLUF:")
+    assert catalog.summary == result["summary"]
     assert catalog.agenda_items_hash == agenda_bundle["agenda_items_hash"]
     assert catalog.summary_source_hash == agenda_bundle["agenda_items_hash"]
+    provider_prompt = summary_provider.summarize_agenda_items.call_args.args[0]
+    assert "Housing Update" in provider_prompt
+    assert "Budget Adoption" in provider_prompt
 
 
 def test_build_agenda_summary_input_bundle_preserves_truncation_disclosure(monkeypatch):

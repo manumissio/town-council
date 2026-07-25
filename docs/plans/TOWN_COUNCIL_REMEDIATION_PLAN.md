@@ -1,7 +1,7 @@
 # Town Council Remediation Plan (Codex Multi-Agent)
 
-version: 3.41
-generated: 2026-07-24
+version: 3.43
+generated: 2026-07-25
 source: Four-pass external code review (security, architecture, smells, process)
 source_artifact: [Town Council architecture review](../reviews/architecture-review-2026-07-19.html)
 orchestrator_contract: Codex instantiates one agent per lane. Agents run in
@@ -10,6 +10,13 @@ remains in force; where this plan is stricter, this plan wins for these tasks.
 
 ## Changelog
 
+- **v3.43:** Completes T-DB-1A. Summary generation now has one direct
+  operation owner, lower modules import domain implementations directly, and
+  tests use approved runtime boundaries instead of facade service injection.
+- **v3.42:** Adds T-DB-1A before the broader backfill cleanup. The focused
+  task removes summary-generation callable service injection and globals-based
+  facade forwarding while preserving the registered Celery task and approved
+  runtime boundaries.
 - **v3.41:** Prevents T-PLAT-1 and T-GOV-3 from running concurrently while
   both own focused changes in `tests/test_repository_guardrails.py`.
 - **v3.40:** Requires T-PLAT-1 to inventory and encode schema objects created
@@ -199,7 +206,7 @@ remains in force; where this plan is stricter, this plan wins for these tasks.
 
 | State | Tasks |
 |---|---|
-| **Complete** | T-CI-0, T-CI-1, T-CI-1A, T-CI-2, T-CI-2A, T-CI-3, T-CI-4, T-CI-5, T-SEC-1, T-SEC-2, T-SEC-3, T-SEC-3C, T-SEC-4, T-SEC-4A, T-SEC-5, T-SEC-6, T-TIME-3, T-CRAWL-1, T-CRAWL-2, T-PLAT-2A, T-GOV-1, T-GOV-4, T-GOV-5, T-DA-1 |
+| **Complete** | T-CI-0, T-CI-1, T-CI-1A, T-CI-2, T-CI-2A, T-CI-3, T-CI-4, T-CI-5, T-SEC-1, T-SEC-2, T-SEC-3, T-SEC-3C, T-SEC-4, T-SEC-4A, T-SEC-5, T-SEC-6, T-TIME-3, T-CRAWL-1, T-CRAWL-2, T-PLAT-2A, T-GOV-1, T-GOV-4, T-GOV-5, T-DA-1, T-DB-1A |
 | **In progress** | None |
 | **Partially landed; acceptance incomplete** | T-GOV-6 |
 | **Pending** | T-TIME-1..2, T-DB-1, T-DC-1, T-DD-1, T-DE-1, T-PLAT-1, T-PLAT-2, T-PLAT-3, T-PLAT-4, T-GOV-2..3 |
@@ -266,7 +273,7 @@ remains in force; where this plan is stricter, this plan wins for these tasks.
 | TIME      | agent-time | pipeline/model_base.py, model_civic.py, model_events.py, model_records.py, model_runtime.py, models.py, db_migrate.py, db_migration_runner.py, migrate_v10.py (new), tests/test_migrate_v10.py (new), tests/test_db_migrate.py (T-TIME-2 v10 ordering only), pipeline/summary_freshness.py (verify-only) |
 | CRAWL     | agent-crawl| council_crawler/**                                          |
 | DEDUP-A   | agent-da   | pipeline/metrics.py, pipeline/metrics_redis_backend.py, tests/test_*metrics* |
-| DEDUP-B   | agent-db   | pipeline/summary_backfill*.py, pipeline/task_facade_helpers.py, pipeline/tasks.py, tests/test_*backfill*, tests/test_pipeline_batching.py, tests/test_run_pipeline_orchestration.py, tests/test_staged_hydrate_cities.py, tests/test_tasks_agenda_summary_format.py |
+| DEDUP-B   | agent-db   | pipeline/summary_backfill*.py, pipeline/task_summary_generation*.py, pipeline/task_summary_empty_agenda.py, pipeline/task_summary_side_effects.py, pipeline/task_facade_helpers.py, pipeline/tasks.py, tests/test_*backfill*, tests/test_summary_generation_operation.py (new), tests/test_agenda_summary_payload_budget.py, tests/test_summary_blocking.py, tests/test_task_provider_retry_semantics.py, tests/test_async_flow.py, tests/test_task_facade_cleanup.py, tests/test_repository_guardrails.py (T-DB-1A only), tests/test_pipeline_batching.py, tests/test_run_pipeline_orchestration.py, tests/test_staged_hydrate_cities.py, tests/test_tasks_agenda_summary_format.py |
 | DEDUP-C   | agent-dc   | api/main.py, api/app_setup.py, tests/conftest.py, tests/test_*api* (Phase 2 only) |
 | DEDUP-D   | agent-dd   | scripts/flush_city_pipeline_state.py, scripts/reset_city_verification_state.py, scripts/*_healthcheck.py, tests for same |
 | DEDUP-E   | agent-de   | pipeline/http_inference_provider.py, pipeline/inprocess_inference_provider.py, pipeline/inference_provider_contract.py, tests for same |
@@ -882,6 +889,47 @@ files (GED-5 grant).
   metrics tests green after repointing patches.
 - verify: grep for sync fns returns nothing; full suite green.
 
+### T-DB-1A: Make summary generation a direct operation
+- priority: P1
+- status: complete and verified 2026-07-25
+- implementation_plan:
+  `docs/plans/T_DB_1A_SUMMARY_GENERATION_OPERATION_PLAN.md`
+- must_merge_before: T-DB-1
+- files_owned: docs/plans/T_DB_1A_SUMMARY_GENERATION_OPERATION_PLAN.md,
+  docs/plans/TOWN_COUNCIL_REMEDIATION_PLAN.md, docs/ADR.md,
+  pipeline/task_summary_generation.py,
+  pipeline/task_summary_generation_contracts.py,
+  pipeline/task_summary_generation_flow.py,
+  pipeline/task_summary_generation_persistence.py,
+  pipeline/task_summary_empty_agenda.py,
+  pipeline/task_summary_side_effects.py, pipeline/task_facade_helpers.py,
+  pipeline/tasks.py, tests/test_summary_generation_operation.py (new),
+  tests/test_agenda_summary_payload_budget.py, tests/test_summary_blocking.py,
+  tests/test_task_provider_retry_semantics.py,
+  tests/test_tasks_agenda_summary_format.py, tests/test_async_flow.py,
+  tests/test_task_facade_cleanup.py, tests/test_repository_guardrails.py
+- do: Make `pipeline/task_summary_generation.py` own the direct summary
+  operation as `generate_catalog_summary`. Delete
+  `SummaryGenerationTaskServices`, `run_generate_summary_task_family`,
+  summary-only `globals()` wiring, and summary forwarding in
+  `task_facade_helpers.py`. Lower modules import real domain implementations,
+  including `agenda_summary_inputs.build_agenda_summary_input_bundle` and
+  `agenda_summary_batch.persist_agenda_summary`, and never import the task
+  facade, operation owner, `backlog_maintenance`, or
+  `agenda_summary_maintenance`.
+- preserve: Celery task name, bind/max-retry/countdown settings, arguments,
+  task-session lifecycle, rollback/retry behavior, summary result payloads,
+  hash persistence, grounding, and best-effort reindex/embed outcomes.
+- accept: No summary callable service bag, summary globals lookup, injectable
+  callable, old end-to-end runner, facade re-export, or lower-to-facade import
+  remains. Tests use only the approved DB, Celery, inference, and Meilisearch
+  boundaries and explicitly preserve task identity, retry countdown, rollback,
+  and session closure.
+- forbidden: Backfill facade cleanup, API task dispatch changes, new fake
+  boundaries, compatibility aliases, or edits outside `files_owned`.
+- verify: Follow the Full T-DB-1A plan; Ruff, Mypy, summary/task/provider
+  suites, repository guardrails, docs links, and complete Python suite pass.
+
 ### T-DB-1: Collapse the summary_backfill facade
 - priority: P1
 - files_owned: pipeline/summary_backfill*.py, pipeline/task_facade_helpers.py,
@@ -1210,7 +1258,8 @@ Phase 0: agent-ci  [T-CI-0, then T-CI-5 (allowlist snapshot freshness), then T-C
 Docs-0:  agent-gov [T-GOV-6: SECURITY.md] + [T-GOV-4: AGENTS.md]   (with/just after Phase 0)
 Phase 1: agent-sec [T-SEC-1..6] || agent-time [T-TIME-1..3] || agent-crawl [T-CRAWL-1..2]
 Gate:    G3 satisfied (T-GOV-1 Accepted ADR + active docs/TESTING.MD)
-Phase 2: agent-da || agent-db || agent-dd || agent-de ; then agent-dc (exclusive on api/*)
+Phase 2: agent-da || agent-db [T-DB-1A, then T-DB-1] || agent-dd || agent-de ;
+         then agent-dc (exclusive on api/*)
 Phase 3: agent-plat [T-PLAT-1 after T-TIME-1 and T-TIME-2, then T-PLAT-2..4]
          || agent-gov [T-GOV-2, T-GOV-3 + T-GOV-5]
 Anytime: T-GOV-6 DATA_GOVERNANCE.md (Section 3 pending G4)

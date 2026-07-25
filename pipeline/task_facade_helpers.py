@@ -15,11 +15,6 @@ from pipeline.task_agenda_segmentation import (
     run_post_segmentation_vote_extraction as run_post_segmentation_vote_extraction_impl,
     run_segment_agenda_task_family as run_segment_agenda_task_family_impl,
 )
-from pipeline.task_summary_generation import (
-    SummaryGenerationTaskServices,
-    run_generate_summary_task_family as run_generate_summary_task_family_impl,
-    run_summary_generation_side_effects as run_summary_generation_side_effects_impl,
-)
 from pipeline.task_text_extraction import run_extract_text_task_family as run_extract_text_task_family_impl
 from pipeline.task_vote_extraction import run_extract_votes_task_family as run_extract_votes_task_family_impl
 
@@ -119,33 +114,6 @@ def agenda_segmentation_task_services(facade: Mapping[str, Any]) -> AgendaSegmen
     )
 
 
-def summary_generation_task_services(facade: Mapping[str, Any]) -> SummaryGenerationTaskServices:
-    return SummaryGenerationTaskServices(
-        local_ai_factory=facade["LocalAI"],
-        classify_catalog_bad_content=facade["classify_catalog_bad_content"],
-        compute_content_hash=facade["compute_content_hash"],
-        normalize_summary_doc_kind=facade["normalize_summary_doc_kind"],
-        analyze_source_text=facade["analyze_source_text"],
-        is_source_summarizable=facade["is_source_summarizable"],
-        build_low_signal_message=facade["build_low_signal_message"],
-        build_agenda_summary_input_bundle=facade["build_agenda_summary_input_bundle"],
-        is_summary_fresh=facade["is_summary_fresh"],
-        compute_summary_source_hash=facade["compute_summary_source_hash"],
-        postprocess_extracted_text=facade["postprocess_extracted_text"],
-        is_summary_grounded=facade["is_summary_grounded"],
-        persist_agenda_summary=facade["persist_agenda_summary"],
-        reindex_catalog=facade["reindex_catalog"],
-        embed_catalog=facade["embed_catalog_task"].delay,
-    )
-
-
-def run_summary_generation_side_effects(facade: Mapping[str, Any], catalog_id: int) -> dict[str, int]:
-    return run_summary_generation_side_effects_impl(
-        catalog_id,
-        services=summary_generation_task_services(facade),
-    )
-
-
 def record_agenda_segmentation_status(
     catalog: Any,
     *,
@@ -196,19 +164,4 @@ def run_segment_agenda_task_family(
         catalog_id,
         local_ai=local_ai,
         services=agenda_segmentation_task_services(facade),
-    )
-
-
-def run_generate_summary_task_family(
-    facade: Mapping[str, Any],
-    db: Any,
-    catalog_id: int,
-    *,
-    force: bool,
-) -> dict[str, Any]:
-    return run_generate_summary_task_family_impl(
-        db,
-        catalog_id,
-        force=force,
-        services=summary_generation_task_services(facade),
     )

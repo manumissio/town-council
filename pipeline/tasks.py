@@ -5,13 +5,12 @@ from sqlalchemy.exc import SQLAlchemyError
 
 from pipeline import metrics as _worker_metrics  # noqa: F401
 from pipeline import task_facade_helpers
+from pipeline import task_summary_generation
 from pipeline.agenda_service import persist_agenda_items
 from pipeline.agenda_resolver import has_viable_structured_agenda_source, resolve_agenda_items
 from pipeline.backlog_maintenance import (
-    build_agenda_summary_input_bundle,
     build_deterministic_agenda_summary_payloads,
     build_deterministic_non_agenda_summary_payload,
-    persist_agenda_summary,
     summarize_catalog_with_maintenance_mode,
 )
 from pipeline.celery_app import app
@@ -22,8 +21,6 @@ from pipeline.config import (
     LOCAL_AI_REQUIRE_SOLO_POOL,
     TIKA_MIN_EXTRACTED_CHARS_FOR_NO_OCR,
 )
-from pipeline.content_hash import compute_content_hash
-from pipeline.document_kinds import normalize_summary_doc_kind
 from pipeline.extraction_service import reextract_catalog_content
 from pipeline.indexer import reindex_catalog
 from pipeline.laserfiche_error_pages import classify_catalog_bad_content
@@ -33,25 +30,20 @@ from pipeline.lineage_task_support import run_lineage_recompute
 from pipeline.models import Document
 from pipeline.semantic_tasks import embed_catalog_task
 from pipeline.startup_purge import run_startup_purge_if_enabled
-from pipeline.summary_freshness import compute_summary_source_hash, is_summary_fresh
-from pipeline.summary_quality import analyze_source_text, build_low_signal_message, is_source_summarizable, is_summary_grounded
 from pipeline.task_agenda_titles import _extract_agenda_titles_from_text as _extract_agenda_titles_from_text
 from pipeline.task_runtime import logger, task_session
 from pipeline.task_startup import (
     get_celery_pool_from_argv as get_celery_pool_from_argv_impl,
     run_startup_purge_on_worker_ready as run_startup_purge_on_worker_ready_impl,
 )
-from pipeline.text_cleaning import postprocess_extracted_text
 from pipeline.vote_extractor import run_vote_extraction_for_catalog
 
 _TASK_FACADE_DEPENDENCIES = (
-    build_agenda_summary_input_bundle, build_deterministic_agenda_summary_payloads,
-    build_deterministic_non_agenda_summary_payload, persist_agenda_summary,
+    build_deterministic_agenda_summary_payloads,
+    build_deterministic_non_agenda_summary_payload,
     summarize_catalog_with_maintenance_mode, classify_catalog_bad_content, persist_agenda_items,
     has_viable_structured_agenda_source, resolve_agenda_items, TIKA_MIN_EXTRACTED_CHARS_FOR_NO_OCR,
-    ENABLE_VOTE_EXTRACTION, reextract_catalog_content, reindex_catalog, compute_content_hash,
-    normalize_summary_doc_kind, compute_summary_source_hash, is_summary_fresh, analyze_source_text,
-    build_low_signal_message, is_source_summarizable, is_summary_grounded, postprocess_extracted_text,
+    ENABLE_VOTE_EXTRACTION, reextract_catalog_content, reindex_catalog,
     run_vote_extraction_for_catalog, embed_catalog_task, Document,
 )
 
@@ -127,14 +119,6 @@ def _agenda_segmentation_task_services():
     return task_facade_helpers.agenda_segmentation_task_services(globals())
 
 
-def _summary_generation_task_services():
-    return task_facade_helpers.summary_generation_task_services(globals())
-
-
-def _run_summary_generation_side_effects(catalog_id: int) -> dict[str, int]:
-    return task_facade_helpers.run_summary_generation_side_effects(globals(), catalog_id)
-
-
 def _record_agenda_segmentation_status(catalog, *, status: str, item_count: int, error_message: str | None) -> None:
     task_facade_helpers.record_agenda_segmentation_status(
         catalog, status=status, item_count=item_count, error_message=error_message
@@ -155,16 +139,12 @@ def _run_segment_agenda_task_family(db, catalog_id: int, *, local_ai: LocalAI) -
     return task_facade_helpers.run_segment_agenda_task_family(globals(), db, catalog_id, local_ai=local_ai)
 
 
-def _run_generate_summary_task_family(db, catalog_id: int, *, force: bool) -> dict[str, Any]:
-    return task_facade_helpers.run_generate_summary_task_family(globals(), db, catalog_id, force=force)
-
-
 @app.task(bind=True, max_retries=3)
 def generate_summary_task(self, catalog_id: int, force: bool = False):
     db = SessionLocal()
     try:
         logger.info(f"Starting summarization for Catalog ID {catalog_id}")
-        result = _run_generate_summary_task_family(db, catalog_id, force=force)
+        result = task_summary_generation.generate_catalog_summary(db, catalog_id, force=force)
         if result.get("status") == "complete":
             logger.info(f"Summarization complete for Catalog ID {catalog_id}")
         return result

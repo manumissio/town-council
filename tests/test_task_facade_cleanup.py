@@ -68,21 +68,3 @@ def test_summary_helper_uses_injected_task_facade_patch_seam():
         123,
         force=False,
     )
-
-
-def test_pipeline_tasks_summary_services_use_pipeline_tasks_patch_seams(monkeypatch):
-    import pipeline.tasks as tasks
-
-    fake_local_ai = MagicMock(name="fake_local_ai")
-    fake_reindex = MagicMock(name="fake_reindex")
-    fake_embed_task = MagicMock()
-
-    monkeypatch.setattr(tasks, "LocalAI", fake_local_ai)
-    monkeypatch.setattr(tasks, "reindex_catalog", fake_reindex)
-    monkeypatch.setattr(tasks, "embed_catalog_task", fake_embed_task)
-
-    services = tasks._summary_generation_task_services()
-
-    assert services.local_ai_factory is fake_local_ai
-    assert services.reindex_catalog is fake_reindex
-    assert services.embed_catalog is fake_embed_task.delay
