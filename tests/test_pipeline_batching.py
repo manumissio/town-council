@@ -13,15 +13,19 @@ from sqlalchemy.orm import sessionmaker
 
 from pipeline.run_pipeline import process_document_chunk
 from pipeline.agenda_service import persist_agenda_items
-from pipeline.tasks import select_catalog_ids_for_summary_hydration, run_summary_hydration_backfill
 from pipeline.agenda_summary_batch import build_deterministic_agenda_summary_payloads
 from pipeline.agenda_summary_empty import EMPTY_AGENDA_SUMMARY_TEXT
+from pipeline.inference_provider_contract import InferenceProvider
+from pipeline.local_ai_runtime import LocalAIConfigError
+from pipeline.llm_provider import ProviderResponseError
 from pipeline.non_agenda_summary_fallback import (
     NON_AGENDA_FALLBACK_COMPLETION_MODE,
     NON_AGENDA_FALLBACK_NOTE,
     NON_AGENDA_FALLBACK_NOTE_PREFIX,
     build_deterministic_non_agenda_summary_payload,
 )
+from pipeline.summary_backfill_queries import select_catalog_ids_for_summary_hydration
+from pipeline.summary_backfill_runner import run_summary_hydration_backfill
 from pipeline.agenda_worker import select_catalog_ids_for_agenda_segmentation
 from pipeline.table_worker import select_catalog_ids_for_table_extraction
 from pipeline.models import Base, Catalog, Document, AgendaItem, Event, Place
@@ -653,106 +657,182 @@ def test_select_catalog_ids_for_agenda_segmentation_excludes_empty_terminal_stat
     assert empty_catalog.id not in selected
 
 
-def test_run_summary_hydration_backfill_counts_outcomes(mocker):
-    mock_db = MagicMock()
-    mock_db.close.return_value = None
-    mocker.patch("pipeline.tasks.SessionLocal", return_value=mock_db)
-    mocker.patch("pipeline.tasks.select_catalog_ids_for_summary_hydration", return_value=[1, 2, 3])
-    mocker.patch("pipeline.tasks._summary_doc_kind_map", return_value={1: "agenda", 2: "agenda", 3: "minutes"})
-    batch_spy = mocker.patch(
-        "pipeline.tasks.build_deterministic_agenda_summary_payloads",
-        return_value={
-            "results": {
-                1: {"status": "complete", "completion_mode": "agenda_deterministic", "changed": True},
-                2: {"status": "blocked_low_signal", "changed": False},
-            },
-            "changed_catalog_ids": [1],
-            "reindex_summary": {
-                "catalogs_considered": 1,
-                "catalogs_reindexed": 1,
-                "catalogs_failed": 0,
-                "failed_catalog_ids": [],
-            },
-            "embed_summary": {
-                "catalogs_considered": 1,
-                "embed_enqueued": 1,
-                "embed_dispatch_failed": 0,
-                "failed_catalog_ids": [],
-            },
-            "agenda_summary_timings": {
-                "agenda_summary_bundle_build_ms": 11,
-                "agenda_summary_render_ms": 22,
-                "agenda_summary_persist_ms": 33,
-                "agenda_summary_reindex_ms": 44,
-                "agenda_summary_embed_dispatch_ms": 55,
-            },
-        },
-    )
-    summarize_spy = mocker.patch(
-        "pipeline.tasks.summarize_catalog_with_maintenance_mode",
-        return_value={
-            "status": "complete",
-            "completion_mode": "llm",
-            "changed": True,
-            "reindexed": 1,
-            "embed_enqueued": 1,
-        },
+def test_run_summary_hydration_backfill_counts_agenda_and_minutes_outcomes(
+    batching_db,
+    mocker,
+):
+    from pipeline import (
+        indexer,
+        llm as llm_module,
+        semantic_tasks,
+        task_runtime,
     )
 
-    counts = run_summary_hydration_backfill()
+    db, event, place = batching_db
+    agenda_catalog = _add_catalog(
+        db,
+        event,
+        place,
+        category="agenda",
+        content=(
+            "City council agenda includes housing policy, budget review, public safety, "
+            "transportation priorities, and committee recommendations."
+        ),
+    )
+    db.add(
+        AgendaItem(
+            catalog_id=agenda_catalog.id,
+            event_id=event.id,
+            order=1,
+            title="Approve the housing budget",
+            description="Review housing funding and authorize the proposed budget.",
+            classification="Action",
+            page_number=1,
+        )
+    )
+    _add_catalog(
+        db,
+        event,
+        place,
+        category="minutes",
+        content=(
+            "Council discussed housing funding, reviewed the annual budget, and approved "
+            "transportation priorities after public comment and staff recommendations."
+        ),
+    )
+    db.commit()
 
-    assert counts["selected"] == 3
-    assert counts["complete"] == 2
+    session_factory = sessionmaker(bind=db.get_bind())
+    mocker.patch.object(task_runtime, "_session_factory", session_factory)
+    mocker.patch.object(indexer.meilisearch, "Client", side_effect=RuntimeError("search unavailable"))
+    mocker.patch.object(semantic_tasks.embed_catalog_task, "delay", return_value=None)
+    summary_provider = MagicMock(spec=InferenceProvider)
+    summary_provider.summarize_text.return_value = (
+        "BLUF: Council reviewed housing funding and the annual budget.\n"
+        "- Council approved transportation priorities.\n"
+        "- Public comment preceded staff recommendations."
+    )
+    llm_module.LocalAI._instance = None
+    mocker.patch.object(llm_module, "get_runtime_provider", return_value=summary_provider)
+
+    counts = run_summary_hydration_backfill(force=True)
+
+    assert counts["selected"] == 2
+    assert counts["complete"] == 2, counts
     assert counts["changed_catalogs"] == 2
-    assert counts["blocked_low_signal"] == 1
+    assert counts["blocked_low_signal"] == 0
     assert counts["agenda_deterministic_complete"] == 1
     assert counts["llm_complete"] == 1
     assert counts["deterministic_fallback_complete"] == 0
-    assert counts["reindexed"] == 2
-    assert counts["reindex_failed"] == 0
+    assert counts["reindexed"] == 0
+    assert counts["reindex_failed"] == 2
     assert counts["embed_enqueued"] == 2
     assert counts["embed_dispatch_failed"] == 0
-    assert counts["agenda_summary_bundle_build_ms"] == 11
-    assert counts["agenda_summary_render_ms"] == 22
-    assert counts["agenda_summary_persist_ms"] == 33
-    assert counts["agenda_summary_reindex_ms"] == 44
-    assert counts["agenda_summary_embed_dispatch_ms"] == 55
-    batch_spy.assert_called_once()
-    summarize_spy.assert_called_once()
 
 
-def test_run_summary_hydration_backfill_uses_non_agenda_fallback_builder(mocker):
-    mock_db = MagicMock()
-    mock_db.close.return_value = None
-    mocker.patch("pipeline.tasks.SessionLocal", return_value=mock_db)
-    mocker.patch("pipeline.tasks.select_catalog_ids_for_summary_hydration", return_value=[3])
-    mocker.patch("pipeline.tasks._summary_doc_kind_map", return_value={3: "minutes"})
-    agenda_builder_spy = mocker.patch("pipeline.tasks.build_deterministic_agenda_summary_payloads")
-    non_agenda_builder_spy = mocker.patch(
-        "pipeline.tasks.build_deterministic_non_agenda_summary_payload",
-        return_value={
-            "status": "complete",
-            "completion_mode": NON_AGENDA_FALLBACK_COMPLETION_MODE,
-            "changed": True,
-        },
+def test_run_summary_hydration_backfill_uses_non_agenda_fallback_builder(
+    batching_db,
+    mocker,
+):
+    from pipeline import (
+        indexer,
+        llm as llm_module,
+        semantic_tasks,
+        task_runtime,
     )
 
-    def _summarize_with_fallback(catalog_id, *, deterministic_summary_callable, **kwargs):
-        _ = kwargs
-        return deterministic_summary_callable(catalog_id)
-
-    mocker.patch(
-        "pipeline.tasks.summarize_catalog_with_maintenance_mode",
-        side_effect=_summarize_with_fallback,
+    db, event, place = batching_db
+    minutes_catalog = _add_catalog(
+        db,
+        event,
+        place,
+        category="minutes",
+        content=(
+            "Council reviewed housing policy, budget amendments, transportation priorities, "
+            "public safety updates, and committee recommendations after public comment."
+        ),
     )
+    db.commit()
 
-    counts = run_summary_hydration_backfill(summary_fallback_mode="deterministic")
+    session_factory = sessionmaker(bind=db.get_bind())
+    mocker.patch.object(task_runtime, "_session_factory", session_factory)
+    mocker.patch.object(indexer.meilisearch, "Client", side_effect=RuntimeError("search unavailable"))
+    mocker.patch.object(semantic_tasks.embed_catalog_task, "delay", return_value=None)
+    summary_provider = MagicMock(spec=InferenceProvider)
+    summary_provider.summarize_text.side_effect = ProviderResponseError(
+        "Empty response payload"
+    )
+    llm_module.LocalAI._instance = None
+    mocker.patch.object(llm_module, "get_runtime_provider", return_value=summary_provider)
+
+    counts = run_summary_hydration_backfill(
+        force=True,
+        summary_fallback_mode="deterministic",
+    )
 
     assert counts["selected"] == 1
-    assert counts["complete"] == 1
+    assert counts["complete"] == 1, counts
     assert counts["deterministic_fallback_complete"] == 1
-    agenda_builder_spy.assert_not_called()
-    non_agenda_builder_spy.assert_called_once()
+    db.expire_all()
+    refreshed_catalog = db.get(Catalog, minutes_catalog.id)
+    assert refreshed_catalog.summary.startswith("BLUF:")
+    assert refreshed_catalog.summary_source_hash == refreshed_catalog.content_hash
+
+
+def test_run_summary_hydration_backfill_reports_local_ai_configuration_errors(
+    batching_db,
+    caplog,
+    mocker,
+):
+    from pipeline import llm as llm_module, task_runtime
+
+    db, event, place = batching_db
+    minutes_catalog = _add_catalog(
+        db,
+        event,
+        place,
+        category="minutes",
+        content=(
+            "Council reviewed housing policy, budget amendments, transportation priorities, "
+            "public safety updates, and committee recommendations after public comment."
+        ),
+    )
+    db.commit()
+
+    session_maker = sessionmaker(bind=db.get_bind())
+    opened_sessions = []
+
+    def tracked_session_factory():
+        session = session_maker()
+        session.rollback = MagicMock(wraps=session.rollback)
+        session.close = MagicMock(wraps=session.close)
+        opened_sessions.append(session)
+        return session
+
+    mocker.patch.object(task_runtime, "_session_factory", tracked_session_factory)
+    llm_module.LocalAI._instance = None
+    mocker.patch.object(
+        llm_module,
+        "get_runtime_provider",
+        side_effect=LocalAIConfigError("invalid local AI runtime"),
+    )
+
+    with caplog.at_level("CRITICAL", logger="celery-worker"):
+        counts = run_summary_hydration_backfill(
+            force=True,
+            summary_fallback_mode="deterministic",
+        )
+
+    assert counts["selected"] == 1
+    assert counts["complete"] == 0
+    assert counts["error"] == 1
+    assert counts["deterministic_fallback_complete"] == 0
+    assert sum(session.rollback.call_count for session in opened_sessions) == 1
+    assert all(session.close.call_count == 1 for session in opened_sessions)
+    assert f"catalog_id={minutes_catalog.id}" in caplog.text
+    assert "invalid local AI runtime" in caplog.text
+    db.expire_all()
+    assert db.get(Catalog, minutes_catalog.id).summary is None
 
 
 def test_non_agenda_fallback_persists_content_hash_and_side_effects(batching_db):

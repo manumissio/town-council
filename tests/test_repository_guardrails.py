@@ -462,7 +462,6 @@ SUMMARY_TEXT_CLEANUP_MODULES = (
     "pipeline/summary_quality.py",
     "pipeline/summary_source_quality.py",
     "pipeline/summary_grounding.py",
-    "pipeline/summary_backfill.py",
     "pipeline/summary_backfill_queries.py",
     "pipeline/summary_backfill_dispatch.py",
     "pipeline/summary_backfill_runner.py",
@@ -2058,6 +2057,95 @@ def test_summary_backfill_progress_helper_does_not_import_facades():
     assert forbidden_imports == []
 
 
+def test_summary_backfill_runner_is_the_direct_operation_boundary() -> None:
+    deleted_facade = ROOT / "pipeline" / "summary_backfill.py"
+    runner_path = ROOT / "pipeline" / "summary_backfill_runner.py"
+    runner_tree = ast.parse(
+        runner_path.read_text(encoding="utf-8"),
+        filename=str(runner_path.relative_to(ROOT)),
+    )
+    public_runner = next(
+        node
+        for node in runner_tree.body
+        if isinstance(node, ast.FunctionDef)
+        and node.name == "run_summary_hydration_backfill"
+    )
+    public_parameters = [
+        *public_runner.args.posonlyargs,
+        *public_runner.args.args,
+        *public_runner.args.kwonlyargs,
+    ]
+
+    assert not deleted_facade.exists()
+    assert len(public_parameters) <= 8
+    assert [
+        parameter.arg
+        for parameter in public_parameters
+        if parameter.arg.endswith("_callable")
+    ] == []
+
+    caller_paths = (
+        ROOT / "pipeline/run_pipeline.py",
+        ROOT / "scripts/backfill_summaries.py",
+        ROOT / "scripts/staged_hydrate_cities.py",
+        ROOT / "scripts/profile_pipeline_selection.py",
+    )
+    forbidden_caller_imports = {
+        str(caller_path.relative_to(ROOT)): _forbidden_imports(
+            caller_path,
+            {
+                "pipeline.tasks",
+                "pipeline.summary_backfill",
+            },
+        )
+        for caller_path in caller_paths
+    }
+    assert forbidden_caller_imports == {
+        str(caller_path.relative_to(ROOT)): []
+        for caller_path in caller_paths
+    }
+
+    backfill_module_paths = tuple(
+        ROOT / "pipeline" / module_name
+        for module_name in (
+            "summary_backfill_dispatch.py",
+            "summary_backfill_logging.py",
+            "summary_backfill_progress.py",
+            "summary_backfill_queries.py",
+            "summary_backfill_runner.py",
+        )
+    )
+    forbidden_backfill_imports = {
+        str(module_path.relative_to(ROOT)): _forbidden_imports(
+            module_path,
+            {
+                "pipeline.summary_backfill",
+                "pipeline.task_facade_helpers",
+                "pipeline.tasks",
+            },
+        )
+        for module_path in backfill_module_paths
+    }
+    assert forbidden_backfill_imports == {
+        str(module_path.relative_to(ROOT)): []
+        for module_path in backfill_module_paths
+    }
+
+    task_facade_source = (ROOT / "pipeline/task_facade_helpers.py").read_text(
+        encoding="utf-8"
+    )
+    tasks_source = (ROOT / "pipeline/tasks.py").read_text(encoding="utf-8")
+    for obsolete_name in (
+        "_summary_doc_kind_subquery",
+        "select_catalog_ids_for_summary_hydration",
+        "_summary_doc_kind_map",
+        "_enqueue_embed_catalogs",
+        "run_summary_hydration_backfill",
+    ):
+        assert obsolete_name not in task_facade_source
+        assert obsolete_name not in tasks_source
+
+
 def test_vote_extraction_cleanup_modules_stay_under_size_target():
     oversized_modules = [
         module_path
@@ -3029,7 +3117,7 @@ def test_test_patch_points_policy_has_accepted_adr_and_effective_runbook():
     t_db_1_entry = _required_markdown_section(
         remediation_ledger,
         "### T-DB-1: Collapse the summary_backfill facade",
-        "\n### T-DC-1:",
+        "\n### T-DB-1B:",
     )
     dedup_b_row = next(
         line for line in remediation_ledger.splitlines() if line.startswith("| DEDUP-B")
@@ -3083,8 +3171,8 @@ def test_test_patch_points_policy_has_accepted_adr_and_effective_runbook():
     assert not PHASE_2_G3_BLOCKER_POLICY.search(active_g3_policy)
     assert "Reduce injectable-callable" not in t_db_1_entry
     assert "summary callable" not in t_db_1_entry
-    assert "no injectable-callable params" in t_db_1_entry
-    assert "inference provider" in t_db_1_entry
+    assert "no dependency-callable parameter" in t_db_1_entry
+    assert "provider, Meilisearch, and Celery boundaries" in t_db_1_entry
     for owned_path in (
         "pipeline/task_facade_helpers.py",
         "pipeline/tasks.py",

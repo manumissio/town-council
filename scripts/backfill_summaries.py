@@ -5,8 +5,8 @@ import argparse
 import json
 import time
 
+from pipeline import summary_backfill_runner
 from pipeline.maintenance_run_status import MaintenanceRunStatus
-from pipeline.tasks import run_summary_hydration_backfill
 from scripts.operator_cli import positive_int as _positive_int
 from scripts.operator_cli import safe_run_id as _safe_run_id
 
@@ -71,7 +71,7 @@ def main() -> int:
     counts: dict[str, int] | None = None
     failure_message: str | None = None
     try:
-        counts = run_summary_hydration_backfill(
+        counts = summary_backfill_runner.run_summary_hydration_backfill(
             force=args.force,
             limit=args.limit,
             city=args.city,

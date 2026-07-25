@@ -3,11 +3,99 @@ import json
 import sys
 from pathlib import Path
 
+from sqlalchemy.orm import sessionmaker
+
+from pipeline import indexer, llm as llm_module, semantic_tasks, task_runtime
+from pipeline.models import Catalog, Document, Event, Place
+
 
 spec = importlib.util.spec_from_file_location("staged_hydrate_cities", Path("scripts/staged_hydrate_cities.py"))
 mod = importlib.util.module_from_spec(spec)
 sys.modules[spec.name] = mod
 spec.loader.exec_module(mod)
+
+
+class _SummaryProvider:
+    def health_check(self):
+        return True
+
+    def extract_agenda(self, prompt, *, temperature, max_tokens):
+        raise AssertionError("Agenda extraction is outside staged summary hydration")
+
+    def summarize_agenda_items(self, prompt, *, temperature, max_tokens):
+        return "BLUF: Council discussed housing budget and public safety priorities."
+
+    def summarize_text(self, prompt, *, temperature, max_tokens):
+        return "BLUF: Council discussed housing budget and public safety priorities."
+
+    def generate_topics(self, prompt, *, temperature, max_tokens):
+        raise AssertionError("Topic generation is outside staged summary hydration")
+
+    def generate_json(self, prompt, *, max_tokens):
+        raise AssertionError("JSON generation is outside staged summary hydration")
+
+
+def _install_summary_boundaries(mocker, shared_engine) -> None:
+    mocker.patch.object(llm_module.LocalAI, "_instance", None)
+    mocker.patch.object(
+        task_runtime,
+        "task_session",
+        side_effect=sessionmaker(bind=shared_engine),
+    )
+    mocker.patch.object(
+        llm_module,
+        "get_runtime_provider",
+        return_value=_SummaryProvider(),
+    )
+    mocker.patch.object(
+        indexer.meilisearch,
+        "Client",
+        side_effect=RuntimeError("search unavailable"),
+    )
+    mocker.patch.object(semantic_tasks.embed_catalog_task, "delay", return_value=None)
+
+
+def _seed_minutes_catalogs(db_session, *, city: str, catalog_count: int) -> None:
+    place = Place(
+        name=city,
+        state="CA",
+        ocd_division_id=f"ocd-division/country:us/state:ca/place:{city}",
+        crawler_name=city,
+    )
+    db_session.add(place)
+    db_session.flush()
+    event = Event(
+        place_id=place.id,
+        ocd_division_id=place.ocd_division_id,
+        name=f"{city.title()} Council",
+        source=city,
+    )
+    db_session.add(event)
+    db_session.flush()
+    for catalog_index in range(catalog_count):
+        catalog_key = f"{city}-{catalog_index}"
+        catalog = Catalog(
+            url=f"https://example.test/{catalog_key}",
+            url_hash=catalog_key,
+            location=f"/tmp/{catalog_key}.pdf",
+            filename=f"{catalog_key}.pdf",
+            content=(
+                "Council discussed housing budget public safety transportation "
+                "priorities and committee recommendations during the meeting."
+            ),
+        )
+        db_session.add(catalog)
+        db_session.flush()
+        db_session.add(
+            Document(
+                place_id=place.id,
+                event_id=event.id,
+                catalog_id=catalog.id,
+                category="minutes",
+                url=f"https://example.test/{catalog_key}",
+            )
+        )
+    db_session.commit()
 
 
 def _snapshot(
@@ -31,7 +119,15 @@ def _snapshot(
     }
 
 
-def test_staged_hydrate_cities_uses_default_city_order_and_emits_deltas(mocker, capsys):
+def test_staged_hydrate_cities_uses_default_city_order_and_emits_deltas(
+    mocker,
+    capsys,
+    db_session,
+    shared_engine,
+):
+    for city in ("hayward", "sunnyvale", "berkeley", "cupertino", "san_mateo"):
+        _seed_minutes_catalogs(db_session, city=city, catalog_count=1)
+    _install_summary_boundaries(mocker, shared_engine)
     mocker.patch.object(
         mod,
         "_snapshot_dict",
@@ -69,7 +165,6 @@ def test_staged_hydrate_cities_uses_default_city_order_and_emits_deltas(mocker, 
             "last_catalog_id": kwargs.get("resume_after_id"),
         },
     )
-    summary_spy = mocker.patch.object(mod, "run_summary_hydration_backfill", side_effect=lambda **kwargs: {"selected": 1, "complete": 1, "cached": 0, "stale": 0, "blocked_low_signal": 0, "blocked_ungrounded": 0, "not_generated_yet": 0, "error": 0, "other": 0, "llm_complete": 1, "deterministic_fallback_complete": 0})
     mocker.patch.object(sys, "argv", ["staged_hydrate_cities.py"])
 
     exit_code = mod.main()
@@ -84,12 +179,20 @@ def test_staged_hydrate_cities_uses_default_city_order_and_emits_deltas(mocker, 
     assert "city: hayward" in captured.out
     assert "city: san_mateo" in captured.out
     assert [call.args[0] for call in segment_spy.call_args_list] == ["hayward", "sunnyvale", "berkeley", "cupertino", "san_mateo"]
-    assert [call.kwargs["city"] for call in summary_spy.call_args_list] == ["hayward", "sunnyvale", "berkeley", "cupertino", "san_mateo"]
+    db_session.expire_all()
+    assert db_session.query(Catalog).filter(Catalog.summary.isnot(None)).count() == 5
     assert all(call.kwargs["emit_progress"] is True for call in segment_spy.call_args_list)
     assert all(call.kwargs["chunk_index"] == 1 for call in segment_spy.call_args_list)
 
 
-def test_staged_hydrate_cities_json_mode(mocker, capsys):
+def test_staged_hydrate_cities_json_mode(
+    mocker,
+    capsys,
+    db_session,
+    shared_engine,
+):
+    _seed_minutes_catalogs(db_session, city="berkeley", catalog_count=1)
+    _install_summary_boundaries(mocker, shared_engine)
     mocker.patch.object(mod, "_snapshot_dict", side_effect=[
         _snapshot(missing_summary_total=1, catalogs_with_summary=0, agenda_missing_summary_total=1, agenda_missing_summary_with_items=0, agenda_missing_summary_without_items=1, non_agenda_missing_summary_total=0, agenda_unresolved_segmentation_status_counts={"<null>": 1}),
         _snapshot(missing_summary_total=0, catalogs_with_summary=1, agenda_missing_summary_total=0, agenda_missing_summary_with_items=0, agenda_missing_summary_without_items=0, non_agenda_missing_summary_total=0, agenda_unresolved_segmentation_status_counts={"<null>": 0}),
@@ -115,7 +218,6 @@ def test_staged_hydrate_cities_json_mode(mocker, capsys):
             "last_catalog_id": None,
         },
     )
-    mocker.patch.object(mod, "run_summary_hydration_backfill", return_value={"selected": 1, "complete": 1, "cached": 0, "stale": 0, "blocked_low_signal": 0, "blocked_ungrounded": 0, "not_generated_yet": 0, "error": 0, "other": 0, "llm_complete": 1, "deterministic_fallback_complete": 0})
     mocker.patch.object(sys, "argv", ["staged_hydrate_cities.py", "--city", "berkeley", "--json"])
 
     exit_code = mod.main()
@@ -124,6 +226,7 @@ def test_staged_hydrate_cities_json_mode(mocker, capsys):
     assert exit_code == 0
     assert payload["cities"][0]["city"] == "berkeley"
     assert payload["cities"][0]["chunks"][0]["chunk_index"] == 1
+    assert payload["cities"][0]["summary"]["complete"] == 1
     segment_spy.assert_called_once_with(
         "berkeley",
         limit=None,
@@ -201,7 +304,14 @@ def test_run_segment_city_preserves_emit_progress_patch_seam(mocker):
     assert any("segmentation_catalog_finish" in message for message in emitted_messages)
 
 
-def test_staged_hydrate_cities_runs_multiple_chunks_and_bounds_summary(mocker, capsys):
+def test_staged_hydrate_cities_runs_multiple_chunks_and_bounds_summary(
+    mocker,
+    capsys,
+    db_session,
+    shared_engine,
+):
+    _seed_minutes_catalogs(db_session, city="berkeley", catalog_count=10)
+    _install_summary_boundaries(mocker, shared_engine)
     mocker.patch.object(
         mod,
         "_snapshot_dict",
@@ -219,14 +329,6 @@ def test_staged_hydrate_cities_runs_multiple_chunks_and_bounds_summary(mocker, c
             {"city": "berkeley", "catalog_count": 0, "complete": 0, "empty": 0, "failed": 0, "timed_out": 0, "other": 0, "timeout_fallbacks": 0, "empty_response_fallbacks": 0, "llm_attempted": 0, "llm_skipped_heuristic_first": 0, "heuristic_complete": 0, "llm_timeout_then_fallback": 0, "resume_after_id": 20, "last_catalog_id": 20},
         ],
     )
-    summary_spy = mocker.patch.object(
-        mod,
-        "run_summary_hydration_backfill",
-        side_effect=[
-            {"selected": 5, "complete": 2, "cached": 0, "stale": 0, "blocked_low_signal": 0, "blocked_ungrounded": 0, "not_generated_yet": 0, "error": 0, "other": 0, "llm_complete": 2, "deterministic_fallback_complete": 0},
-            {"selected": 5, "complete": 1, "cached": 0, "stale": 0, "blocked_low_signal": 0, "blocked_ungrounded": 0, "not_generated_yet": 0, "error": 0, "other": 0, "llm_complete": 0, "deterministic_fallback_complete": 1},
-        ],
-    )
     mocker.patch.object(sys, "argv", ["staged_hydrate_cities.py", "--city", "berkeley", "--segment-limit", "2", "--summary-limit", "5", "--json"])
 
     exit_code = mod.main()
@@ -235,12 +337,11 @@ def test_staged_hydrate_cities_runs_multiple_chunks_and_bounds_summary(mocker, c
     assert exit_code == 0
     assert payload["cities"][0]["segmentation"]["catalog_count"] == 2
     assert payload["cities"][0]["summary"]["selected"] == 10
-    assert payload["cities"][0]["summary"]["deterministic_fallback_complete"] == 1
+    assert payload["cities"][0]["summary"]["complete"] == 10
     assert payload["cities"][0]["segmentation"]["llm_skipped_heuristic_first"] == 1
     assert [chunk["chunk_index"] for chunk in payload["cities"][0]["chunks"]] == [1, 2]
     assert segment_spy.call_args_list[0].kwargs["resume_after_id"] is None
     assert segment_spy.call_args_list[1].kwargs["resume_after_id"] == 20
-    assert all(call.kwargs["limit"] == 5 for call in summary_spy.call_args_list)
 
 
 def test_staged_hydrate_cities_repeat_until_idle_repeats_then_stops(mocker, capsys):
@@ -410,7 +511,7 @@ def test_delta_includes_unresolved_segmentation_status_counts():
     assert delta["agenda_unresolved_segmentation_status_counts"] == {"<null>": -2, "complete": 1, "empty": 1}
 
 
-def test_run_once_preserves_facade_patch_seams(mocker):
+def test_run_once_preserves_entrypoint_output_contract(mocker):
     before_snapshot = _snapshot(
         missing_summary_total=0,
         catalogs_with_summary=1,
@@ -452,17 +553,17 @@ def test_run_once_preserves_facade_patch_seams(mocker):
     )
     emit_spy = mocker.patch.object(mod, "_emit_progress")
     mocker.patch.object(mod, "_empty_summary_counts", return_value={"selected": 0, "custom_empty": 1})
-    mocker.patch.object(mod, "_merge_counts", return_value={"selected": 0, "merged_by_facade": 1})
+    mocker.patch.object(mod, "_merge_counts", return_value={"selected": 0, "merged_by_entrypoint": 1})
     mocker.patch.object(mod, "_delta", return_value={"patched_delta": 1})
 
     payload = mod._run_once(mod._build_parser().parse_args(["--city", "berkeley", "--json"]))
 
-    assert payload["cities"][0]["summary"] == {"selected": 0, "merged_by_facade": 1}
+    assert payload["cities"][0]["summary"] == {"selected": 0, "merged_by_entrypoint": 1}
     assert payload["cities"][0]["delta"] == {"patched_delta": 1}
     emit_spy.assert_any_call(False, "[berkeley] city_start")
 
 
-def test_staged_hydrate_cities_facade_exports_patch_seams():
+def test_staged_hydrate_cities_exports_entrypoint_contract():
     expected_names = [
         "_emit_progress",
         "_empty_summary_counts",
@@ -472,7 +573,6 @@ def test_staged_hydrate_cities_facade_exports_patch_seams():
         "_delta",
         "_build_parser",
         "_run_once",
-        "run_summary_hydration_backfill",
         "time",
     ]
 

@@ -112,7 +112,7 @@ def test_main_runs_steps_in_expected_order(mocker):
         side_effect=lambda **kwargs: calls.append("agenda"),
     )
     summary_spy = mocker.patch(
-        "pipeline.tasks.run_summary_hydration_backfill",
+        "pipeline.summary_backfill_runner.run_summary_hydration_backfill",
         side_effect=lambda **kwargs: calls.append("summary"),
     )
 
@@ -157,7 +157,7 @@ def test_main_skips_non_gating_steps_in_onboarding_fast_profile(mocker):
         side_effect=lambda **kwargs: calls.append("agenda"),
     )
     summary_spy = mocker.patch(
-        "pipeline.tasks.run_summary_hydration_backfill",
+        "pipeline.summary_backfill_runner.run_summary_hydration_backfill",
         side_effect=lambda **kwargs: calls.append("summary"),
     )
 

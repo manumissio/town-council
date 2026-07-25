@@ -2,10 +2,10 @@ from __future__ import annotations
 
 from sqlalchemy.orm import sessionmaker
 
+from pipeline import summary_backfill_queries
 from pipeline.agenda_worker import select_catalog_ids_for_agenda_segmentation
 from pipeline.models import Catalog, Document, Event, db_connect
 from pipeline.run_pipeline import select_catalog_ids_for_processing
-from pipeline.tasks import select_catalog_ids_for_summary_hydration
 
 
 def _selected_city_catalog_ids(db, city: str) -> set[int]:
@@ -44,7 +44,13 @@ def select_triage_catalog_ids(limit: int, city: str | None) -> list[int]:
         if len(candidates) < limit:
             add_all(select_catalog_ids_for_agenda_segmentation(db, limit=limit * 2))
         if len(candidates) < limit:
-            add_all(select_catalog_ids_for_summary_hydration(db, limit=limit * 2, city=city))
+            add_all(
+                summary_backfill_queries.select_catalog_ids_for_summary_hydration(
+                    db,
+                    limit=limit * 2,
+                    city=city,
+                )
+            )
         if len(candidates) < limit:
             fallback_query = (
                 db.query(Catalog.id)
