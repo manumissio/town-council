@@ -2,11 +2,13 @@ from __future__ import annotations
 
 import argparse
 import json
+import time
 from typing import Any
 
 from scripts.hydration_counts import rate_per_second
 from scripts.hydration_output import emit_stage_timing
 from scripts.hydration_repaired_selectors import selector_mode
+from scripts.hydration_repaired_summary import run_summary_city
 
 
 def run_cli(
@@ -15,22 +17,26 @@ def run_cli(
     maintenance_run_status_cls,
     run_extract_city,
     run_segment_city,
-    run_summary_city,
-    time_module,
 ) -> int:
     emit_progress = not args.json
     run_status = _build_run_status(args, maintenance_run_status_cls)
     if emit_progress:
         print(f"[{args.city}] run_status run_id={run_status.run_id} artifact_dir={run_status.paths.run_dir}", flush=True)
     status_callback = _status_callback(run_status)
-    started = time_module.perf_counter()
+    started = time.perf_counter()
     status = "failed"
     payload: dict[str, Any] | None = None
     failure_message: str | None = None
     try:
-        payload = _run_repaired_stages(args, emit_progress, status_callback, run_extract_city, run_segment_city, run_summary_city, time_module)
+        payload = _run_repaired_stages(
+            args,
+            emit_progress,
+            status_callback,
+            run_extract_city,
+            run_segment_city,
+        )
         status = "completed"
-        _record_success(run_status, payload, time_module.perf_counter() - started)
+        _record_success(run_status, payload, time.perf_counter() - started)
         _emit_success(args, payload)
         return 0
     except Exception as exc:
@@ -38,7 +44,13 @@ def run_cli(
         raise
     finally:
         if status != "completed":
-            _record_failure(run_status, args, payload, failure_message, time_module.perf_counter() - started)
+            _record_failure(
+                run_status,
+                args,
+                payload,
+                failure_message,
+                time.perf_counter() - started,
+            )
 
 
 def _run_repaired_stages(
@@ -47,10 +59,8 @@ def _run_repaired_stages(
     status_callback,
     run_extract_city,
     run_segment_city,
-    run_summary_city,
-    time_module,
 ) -> dict[str, Any]:
-    extract_started = time_module.perf_counter()
+    extract_started = time.perf_counter()
     extract_counts, extracted_catalog_ids = run_extract_city(
         args.city,
         limit=args.limit,
@@ -61,10 +71,10 @@ def _run_repaired_stages(
         workers=args.extract_workers,
         status_callback=status_callback,
     )
-    extract_elapsed = time_module.perf_counter() - extract_started
+    extract_elapsed = time.perf_counter() - extract_started
     if emit_progress:
         emit_stage_timing(args.city, "extract", extract_counts, extract_elapsed)
-    segment_started = time_module.perf_counter()
+    segment_started = time.perf_counter()
     segment_counts = run_segment_city(
         args.city,
         limit=args.limit,
@@ -78,10 +88,10 @@ def _run_repaired_stages(
         segment_mode=args.segment_mode,
         status_callback=status_callback,
     )
-    segment_elapsed = time_module.perf_counter() - segment_started
+    segment_elapsed = time.perf_counter() - segment_started
     if emit_progress:
         emit_stage_timing(args.city, "segment", segment_counts, segment_elapsed)
-    summary_started = time_module.perf_counter()
+    summary_started = time.perf_counter()
     summary_counts = run_summary_city(
         args.city,
         limit=args.limit,
@@ -94,7 +104,7 @@ def _run_repaired_stages(
         summary_fallback_mode=args.summary_fallback_mode,
         status_callback=status_callback,
     )
-    summary_elapsed = time_module.perf_counter() - summary_started
+    summary_elapsed = time.perf_counter() - summary_started
     if emit_progress:
         emit_stage_timing(args.city, "summary", summary_counts, summary_elapsed)
     return _build_payload(args, extract_counts, segment_counts, summary_counts, extract_elapsed, segment_elapsed, summary_elapsed)
