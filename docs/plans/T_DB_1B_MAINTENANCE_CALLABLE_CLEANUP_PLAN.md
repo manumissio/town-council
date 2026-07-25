@@ -416,10 +416,40 @@ patches in tests, lower-to-facade imports, unrelated formatting, weakened
 assertions, added broad exceptions, type suppression, or edits outside the
 owned files.
 
-**y) Evidence.** Report PASS/FAIL for every command in section 6u, including
-tests-first red evidence, planning-review findings, simplification findings,
-pre-commit subagent findings, applied fixes, commit hashes, PR URL, unresolved
-thread count, and final CI state. Mark anything unrun `NOT VERIFIED`.
+**y) Evidence.**
+
+- `NOT VERIFIED`: The raw tests-first red output was not retained in the
+  delivery record. Final behavior and structural coverage passed, but this
+  missing artifact must not be represented as fresh red-phase evidence.
+- `PASS`: Independent planning review after scope corrections found no
+  remaining P1/P2 issue.
+- `NOT VERIFIED`: No separate simplification report was retained.
+- `PASS`: Initial pre-commit review found three P2 issues: configuration
+  errors could enter provider fallback, two runtime modules were absent from
+  the structural scan, and a test mutated `LocalAI._instance` directly. Commit
+  `606162b` corrected all three; a fresh review found no P1/P2 issue.
+- `PASS`: `./.venv/bin/ruff check .`
+- `PASS`: `./.venv/bin/pre-commit run ruff --all-files`
+- `PASS`: `./.venv/bin/mypy` checked 68 source files.
+- `PASS`: The combined targeted T-DB-1B command passed 95 tests, including
+  maintenance, staged/repaired hydration, orchestration, and provider
+  contracts.
+- `PASS`: Repository guardrails and docs links passed 393 tests.
+- `PASS`: `PYTHONPATH=. .venv/bin/pytest -q` passed 1,486 tests.
+- `PASS`: `git diff --check`
+- `PASS`: Remote review found one P1 against mock call-count assertions.
+  Commit `e5412af` replaced them with persisted outcomes and captured boundary
+  payloads; a fresh independent review and Codex re-review found no P1/P2.
+- `PASS`: PR
+  [#146](https://github.com/manumissio/town-council/pull/146) merged as
+  `9132864` with zero unresolved review threads.
+- `PASS`: Python Guardrails, Frontend Tests, and all CodeQL jobs passed on
+  commit `e5412af`.
+- `NOT VERIFIED`: Live PostgreSQL, Meilisearch, Celery, and inference-provider
+  smoke tests were not run. Approved boundary tests and CI are the completion
+  evidence for this behavior-preserving refactor.
+- Commits: `047739b`, `c2273c8`, `57d2f7f`, `716bf99`, `606162b`, and
+  `e5412af`.
 
 **z) Deviations.** The authorized ledger deviation is expansion from the
 original nine named files plus unspecified tests to the exact twenty-eight-file
