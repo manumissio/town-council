@@ -1,6 +1,6 @@
 # Town Council Remediation Plan (Codex Multi-Agent)
 
-version: 3.29
+version: 3.30
 generated: 2026-07-24
 source: Four-pass external code review (security, architecture, smells, process)
 source_artifact: [Town Council architecture review](../reviews/architecture-review-2026-07-19.html)
@@ -10,6 +10,10 @@ remains in force; where this plan is stricter, this plan wins for these tasks.
 
 ## Changelog
 
+- **v3.30:** Expands T-DA-1 ownership to provider metric registration after
+  pre-commit review exposed duplicate local and Redis-backed Prometheus series.
+  The Redis collector becomes the sole registry owner for mirrored provider
+  metrics; request duration remains locally registered.
 - **v3.29:** Activates T-DA-1 with tests-first ownership for a single Redis
   metrics state owner, direct backend test patches, and removal of the stale
   metrics S105 exception.
@@ -806,6 +810,7 @@ files (GED-5 grant).
 - implementation_plan: `docs/plans/T_DA_1_METRICS_DEDUPLICATION_PLAN.md`
 - files_owned: docs/plans/T_DA_1_METRICS_DEDUPLICATION_PLAN.md,
   docs/plans/TOWN_COUNCIL_REMEDIATION_PLAN.md, pipeline/metrics.py,
+  pipeline/metrics_definitions.py,
   pipeline/metrics_provider_collector.py, pipeline/metrics_redis_backend.py,
   pipeline/metrics_provider_recorders.py, pipeline/metrics_task_recorders.py,
   ruff.toml, tests/test_metrics_api.py,
@@ -815,14 +820,16 @@ files (GED-5 grant).
   `_redis_incr/_redis_hincrby/_redis_hincrbyfloat` (keep them in
   metrics_redis_backend). Provider recorders import and call that backend;
   metrics.py keeps the public collector binding, and collector registration
-  describes names without reading Redis. Delete the facade's duplicate
-  implementations, BOTH `_sync_redis_*` functions, duplicated module globals,
-  dynamic metric lookups, and injected Redis callables.
+  describes names without reading Redis. Redis-mirrored provider instruments
+  do not self-register; the collector is their sole registry owner, while
+  provider request duration remains locally registered. Delete the facade's
+  duplicate implementations, BOTH `_sync_redis_*` functions, duplicated
+  module globals, dynamic metric lookups, and injected Redis callables.
 - accept: One implementation of each function repo-wide; zero
   `_sync_redis_*` symbols; the S105 ruff.toml entry for
   metrics_redis_backend.py is resolved and removed (env-source the default
-  or noqa-with-justification; ratchet from T-CI-5); metrics tests green
-  after repointing patches.
+  or noqa-with-justification; ratchet from T-CI-5); each provider series has
+  one registry owner; metrics tests green after repointing patches.
 - verify: grep for sync fns returns nothing; full suite green.
 
 ### T-DB-1: Collapse the summary_backfill facade

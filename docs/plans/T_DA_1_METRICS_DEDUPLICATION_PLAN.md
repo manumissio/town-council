@@ -37,6 +37,7 @@ exclusive ownership to:
 - `docs/plans/T_DA_1_METRICS_DEDUPLICATION_PLAN.md`
 - `docs/plans/TOWN_COUNCIL_REMEDIATION_PLAN.md`
 - `pipeline/metrics.py`
+- `pipeline/metrics_definitions.py`, provider metric registration only
 - `pipeline/metrics_provider_collector.py`
 - `pipeline/metrics_redis_backend.py`
 - `pipeline/metrics_provider_recorders.py`
@@ -71,22 +72,28 @@ decision.
    `metrics_redis_backend`. This preserves the operational
    `pipeline.metrics.RedisProviderMetricsCollector` interface used by worker
    metrics collection while binding it to the single implementation.
-7. Give the provider collector a side-effect-free `describe()` path backed by
-   one metric-construction helper, so registration never calls Redis. Decompose
-   `collect()` into focused population helpers while preserving output.
-8. Make both recorder modules use `metrics_definitions` directly. Provider
+7. Make the seven Redis-mirrored provider metric instruments in
+   `metrics_definitions` unregistered local instruments. Keep provider request
+   duration registered because it is not mirrored into Redis. This gives each
+   exported provider series one registry owner while preserving recorder calls.
+8. Give the provider collector a side-effect-free `describe()` path backed by
+   one metric-construction helper. Describe all Redis-backed names now owned by
+   the collector so registration never calls Redis and scrape output contains
+   one copy of each provider series. Decompose `collect()` into focused
+   population helpers.
+9. Make both recorder modules use `metrics_definitions` directly. Provider
    recorders call `metrics_redis_backend` directly and drop injected Redis
    callable parameters; both modules delete their dynamic facade lookups.
-9. Repoint Redis tests to `pipeline.metrics_redis_backend` and replace facade
+10. Repoint Redis tests to `pipeline.metrics_redis_backend` and replace facade
    metric patches with before/after assertions on exported Prometheus samples.
-10. Add a line-level S105 suppression to `REDIS_PASSWORD_ENV` explaining that
+11. Add a line-level S105 suppression to `REDIS_PASSWORD_ENV` explaining that
    it is an environment-variable identifier, not a credential. Remove the
    now-stale Ruff per-file S105 entry.
-11. Run focused metrics, lint-ratchet, security, docs, and complete-suite
+12. Run focused metrics, lint-ratchet, security, docs, and complete-suite
     verification.
-12. Obtain a fresh pre-commit review, resolve every eligible P1/P2, and rerun
+13. Obtain a fresh pre-commit review, resolve every eligible P1/P2, and rerun
     affected verification.
-13. Mark T-DA-1 complete, commit atomically, push one PR, request Codex
+14. Mark T-DA-1 complete, commit atomically, push one PR, request Codex
     review, resolve feedback, and merge only after required checks pass.
 
 The only new production methods/helpers are `describe()`, one metric factory,
@@ -101,8 +108,10 @@ registration module. Duplicate implementations and test seams are deleted.
 **g) Data contracts.** Public metric recorder names, Prometheus metric names,
 Redis key formats, label escaping, `tc_provider_*` exports, Celery signal
 registration, and `pipeline.metrics.RedisProviderMetricsCollector` remain
-unchanged. Redis state remains process-local; Redis atomic increments remain
-the cross-process aggregation mechanism.
+unchanged. Redis-mirrored local instruments stop self-registering so the Redis
+collector is the sole registry owner; provider request duration remains a
+local registered histogram. Redis state remains process-local; Redis atomic
+increments remain the cross-process aggregation mechanism.
 
 **h) Schema/migration impact.** None.
 
@@ -139,7 +148,9 @@ preserving local Prometheus metrics.
 - A1/H1: installed redis-py 5.0.1 signatures for `ping`, `incrby`, `hincrby`,
   and `hincrbyfloat` were inspected locally. Upstream tag v0.19.0, matching
   the repository pin, confirms `CollectorRegistry` prefers `describe()` and
-  otherwise calls `collect()` when auto-description is enabled.
+  otherwise calls `collect()` when auto-description is enabled. Context7 and
+  the pinned constructor source confirm `registry=None` skips default
+  registration while preserving metric instrumentation methods.
 - B1/F1: the existing backend is reused; no adapter or state abstraction is
   introduced.
 - B2/C1: copied state, sync functions, duplicate writes, and duplicate
@@ -148,7 +159,7 @@ preserving local Prometheus metrics.
   lookups are deleted.
 - D1-D3: tests preserve observable Redis, Prometheus, and HTTP outcomes; one
   structural test enforces the task's explicit single-owner acceptance.
-- E1-E3: only the twelve owned files change; no formatting sweep is permitted.
+- E1-E3: only the thirteen owned files change; no formatting sweep is permitted.
 - A2-A4, B3, F2, H2-H4: no planned violations.
 
 **o) Ratchet interaction.** Remove one Ruff selector:
@@ -168,7 +179,8 @@ path and focused population helpers. Expected production delta remains negative.
 **q) Edge cases and failure scenarios.**
 
 1. Importing `pipeline.metrics` must not connect to Redis; registration uses
-   `describe()` rather than `collect()`.
+   `describe()` rather than `collect()` and claims only the unique backend
+   gauge.
 2. The backend remains the only owner of Redis client, init, warning, and
    health state.
 3. Provider recorders update local Prometheus metrics and canonical Redis
@@ -188,6 +200,9 @@ path and focused population helpers. Expected production delta remains negative.
     explained environment-variable-name line.
 12. Task and provider Prometheus recorders use canonical metric definitions
     without facade lookup or injected callables.
+13. A generated registry scrape contains one copy of each provider series;
+    Redis-backed provider names belong to the collector, while request duration
+    remains locally registered.
 
 **r) Tests.**
 
@@ -196,7 +211,7 @@ path and focused population helpers. Expected production delta remains negative.
 | Fresh-interpreter import test and single-owner test | 1, 2, 10 |
 | Backend initialization and parameterized write-failure tests | 3-5 |
 | Updated provider Redis aggregation tests | 3, 8, 9, 12 |
-| Collector describe/collect name-parity and worker collector tests | 1, 2, 6-8, 10 |
+| Collector descriptor-ownership, registry-collision, scrape-uniqueness, and worker collector tests | 1, 2, 6-8, 10, 13 |
 | Updated metrics API degradation test | 6 |
 | Updated task and provider Prometheus output tests | 3, 12 |
 | Existing `tests/*metrics*.py` suite | 3-12 |
@@ -301,7 +316,7 @@ file-wide S105 exception.
 **x) Antipattern scan, diff pass.** Re-run A-F/H. Reject copied Redis state,
 sync functions, facade-private patches, dynamic facade lookup, new adapters,
 reset hooks, callable parameters, registration drift, widened Ruff exceptions,
-or edits outside the twelve owned files.
+or edits outside the thirteen owned files.
 
 **y) Evidence.** Report every command from 6u with PASS or FAIL, including
 baseline evidence, tests-first red result, exact deletion grep, planning and
