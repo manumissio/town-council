@@ -3,17 +3,15 @@ from prometheus_client import generate_latest
 from pipeline import metrics
 
 
-class _FakeMetric:
-    def __init__(self):
-        self.labels_seen = []
-        self.observed = []
-
-    def labels(self, **labels):
-        self.labels_seen.append(labels)
-        return self
-
-    def observe(self, value):
-        self.observed.append(value)
+def _metric_sample_value(metric, sample_name: str, expected_labels: dict[str, str]) -> float:
+    for collected_metric in metric.collect():
+        for sample in collected_metric.samples:
+            if sample.name == sample_name and all(
+                sample.labels.get(label_name) == label_value
+                for label_name, label_value in expected_labels.items()
+            ):
+                return float(sample.value)
+    return 0.0
 
 
 def test_worker_task_metrics_helpers_exist_and_export():
@@ -34,14 +32,27 @@ def test_worker_task_metrics_helpers_exist_and_export():
     assert "tc_celery_task_retries_total" in payload
 
 
-def test_task_recorder_uses_metrics_facade_patch(monkeypatch):
-    fake_queue_wait = _FakeMetric()
-    monkeypatch.setattr(metrics, "TASK_QUEUE_WAIT_SECONDS", fake_queue_wait)
+def test_task_recorder_exports_queue_wait_sample():
+    labels = {
+        "task_name": "pipeline.tasks.generate_summary_task",
+        "queue": "celery",
+    }
+    count_before = _metric_sample_value(
+        metrics.TASK_QUEUE_WAIT_SECONDS,
+        "tc_task_queue_wait_seconds_count",
+        labels,
+    )
 
     metrics.record_task_queue_wait("pipeline.tasks.generate_summary_task", "celery", 1.25)
 
-    assert fake_queue_wait.labels_seen == [{"task_name": "pipeline.tasks.generate_summary_task", "queue": "celery"}]
-    assert fake_queue_wait.observed == [1.25]
+    assert (
+        _metric_sample_value(
+            metrics.TASK_QUEUE_WAIT_SECONDS,
+            "tc_task_queue_wait_seconds_count",
+            labels,
+        )
+        == count_before + 1
+    )
 
 
 def test_task_failure_clears_timing_context(monkeypatch):

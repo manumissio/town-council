@@ -18,7 +18,7 @@ else:
 
 REDIS_HOST_ENV: Final = "REDIS_HOST"
 REDIS_PORT_ENV: Final = "REDIS_PORT"
-REDIS_PASSWORD_ENV: Final = "REDIS_PASSWORD"
+REDIS_PASSWORD_ENV: Final = "REDIS_PASSWORD"  # noqa: S105 - Environment variable identifier, not a credential.
 DEFAULT_REDIS_HOST: Final = "redis"
 DEFAULT_REDIS_PORT: Final = "6379"
 REDIS_DB: Final = 0
