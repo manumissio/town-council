@@ -15,7 +15,6 @@ def run_segment_city(
     segment_mode: str = "normal",
     agenda_timeout_seconds: int | None = None,
     emit_progress_enabled: bool = False,
-    emit_progress_callable=emit_progress,
     chunk_index: int | None = None,
 ) -> dict[str, Any]:
     from scripts import segment_city_corpus
@@ -29,16 +28,24 @@ def run_segment_city(
     resolved_workers = segment_city_corpus._catalog_worker_count(workers)
     total_catalogs = len(selected_catalog_ids)
     running_counts = empty_segment_counts()
-    _emit_segment_start(city, chunk_index, total_catalogs, timeout_seconds, resolved_workers, resume_after_id, emit_progress_enabled, emit_progress_callable)
-    _emit_worker_clamp(city, workers, resolved_workers, emit_progress_enabled, emit_progress_callable)
+    _emit_segment_start(
+        city,
+        chunk_index,
+        total_catalogs,
+        timeout_seconds,
+        resolved_workers,
+        resume_after_id,
+        emit_progress_enabled,
+    )
+    _emit_worker_clamp(city, workers, resolved_workers, emit_progress_enabled)
 
     def _progress(city_name: str, index: int, total: int, catalog_id: int, outcome: str, duration_seconds: float) -> None:
-        emit_progress_callable(
+        emit_progress(
             emit_progress_enabled,
             f"[{city_name}] segmentation_catalog_start chunk={chunk_index or 1} index={index}/{total} catalog_id={catalog_id}",
         )
         running_counts[outcome] += 1
-        emit_progress_callable(
+        emit_progress(
             emit_progress_enabled,
             "[{city}] segmentation_catalog_finish chunk={chunk} index={index}/{total_catalogs} catalog_id={catalog_id} "
             "outcome={outcome} duration_seconds={duration:.2f} running_counts={counts}".format(
@@ -86,18 +93,22 @@ def _emit_segment_start(
     workers: int,
     resume_after_id: int | None,
     emit_progress_enabled: bool,
-    emit_progress_callable,
 ) -> None:
-    emit_progress_callable(
+    emit_progress(
         emit_progress_enabled,
         f"[{city}] segmentation_start chunk={chunk_index or 1} catalog_count={total_catalogs} "
         f"timeout_seconds={timeout_seconds} workers={workers} resume_after_id={resume_after_id}",
     )
 
 
-def _emit_worker_clamp(city: str, requested_workers: int | None, resolved_workers: int, emit_progress_enabled: bool, emit_progress_callable) -> None:
+def _emit_worker_clamp(
+    city: str,
+    requested_workers: int | None,
+    resolved_workers: int,
+    emit_progress_enabled: bool,
+) -> None:
     if requested_workers is not None and resolved_workers != requested_workers:
-        emit_progress_callable(
+        emit_progress(
             emit_progress_enabled,
             f"[{city}] segmentation_workers_clamped requested={requested_workers} effective={resolved_workers}",
         )
