@@ -37,6 +37,11 @@ def _parse_iso_utc(value: str) -> datetime:
     return datetime.strptime(value, ISO_FMT).replace(tzinfo=UTC)
 
 
+def _format_iso_utc(value: datetime) -> str:
+    aware_value = value if value.tzinfo is not None else value.replace(tzinfo=UTC)
+    return aware_value.astimezone(UTC).strftime(ISO_FMT)
+
+
 def _ocd_division_id_for_city(city: str) -> str:
     return f"ocd-division/country:us/state:ca/place:{city}"
 
@@ -145,7 +150,7 @@ def capture_city_verification_baseline(city: str) -> dict[str, str | int | None]
             "baseline_max_record_date": baseline.baseline_max_record_date.isoformat()
             if baseline.baseline_max_record_date
             else None,
-            "baseline_max_scraped_datetime": baseline.baseline_max_scraped_datetime.strftime(ISO_FMT)
+            "baseline_max_scraped_datetime": _format_iso_utc(baseline.baseline_max_scraped_datetime)
             if baseline.baseline_max_scraped_datetime
             else None,
         }
@@ -165,7 +170,7 @@ def _remaining_anchor_summary(session, city: str) -> dict[str, str | int | None]
     return {
         "remaining_event_count": int(remaining_event_count or 0),
         "remaining_max_record_date": max_record_date.isoformat() if max_record_date else None,
-        "remaining_max_scraped_datetime": max_scraped_datetime.strftime(ISO_FMT) if max_scraped_datetime else None,
+        "remaining_max_scraped_datetime": _format_iso_utc(max_scraped_datetime) if max_scraped_datetime else None,
     }
 
 

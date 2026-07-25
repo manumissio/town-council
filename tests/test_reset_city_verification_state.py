@@ -2,7 +2,8 @@ from __future__ import annotations
 
 import importlib.util
 import sys
-from datetime import UTC, date, datetime, timedelta
+from contextlib import contextmanager
+from datetime import UTC, date, datetime, timedelta, timezone
 from pathlib import Path
 
 import pytest
@@ -38,6 +39,35 @@ def test_verification_reset_parser_returns_aware_utc():
 
     assert parsed_at == datetime(2026, 3, 15, 13, 21, 9, tzinfo=UTC)
     assert parsed_at.utcoffset() == timedelta(0)
+
+
+def test_verification_artifacts_normalize_offset_timestamps_to_utc(monkeypatch, mocker):
+    offset_timestamp = datetime(
+        2026,
+        7,
+        25,
+        5,
+        30,
+        tzinfo=timezone(timedelta(hours=-7)),
+    )
+    session = mocker.MagicMock()
+    session.query.return_value.filter.return_value.one.return_value = (
+        date(2026, 7, 25),
+        offset_timestamp,
+        1,
+    )
+
+    @contextmanager
+    def verification_session():
+        yield session
+
+    monkeypatch.setattr(reset_module, "db_session", verification_session)
+
+    baseline = reset_module.capture_city_verification_baseline("sunnyvale")
+    remaining = reset_module._remaining_anchor_summary(session, "sunnyvale")
+
+    assert baseline["baseline_max_scraped_datetime"] == "2026-07-25T12:30:00Z"
+    assert remaining["remaining_max_scraped_datetime"] == "2026-07-25T12:30:00Z"
 
 
 def test_reset_city_verification_state_dry_run_preserves_rows(tmp_path, monkeypatch):
