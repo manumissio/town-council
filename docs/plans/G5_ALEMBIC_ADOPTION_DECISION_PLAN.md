@@ -114,6 +114,7 @@ change is one plan and short decision updates.
     optional in CI.
 16. Pipeline or city-contributor docs omit the migrate-before-seed contract.
 17. The canonical architecture map still describes only numbered migrations.
+18. Baseline autogeneration omits objects created only by legacy raw SQL.
 
 **r) Tests.**
 
@@ -134,6 +135,8 @@ change is one plan and short decision updates.
   with an isolated pgvector PostgreSQL service and no optional skips.
 - Explicit documentation ownership and link checks cover scenario 16.
 - Architecture-map ownership and content checks cover scenario 17.
+- Legacy-object inventory and fresh-versus-v10 PostgreSQL parity tests cover
+  scenario 18, including HNSW and lineage timestamp indexes.
 
 **s) Fakes and mocks.** None.
 
@@ -165,6 +168,8 @@ rg -n "pipeline/seed_places.py.*pipeline/promote_stage.py.*tests/test_seed_place
 rg -n "pipeline/migrate_v8.py.*migration_pgvector_semantic_embeddings.py.*python-guardrails.yml.*docs/PIPELINE.md.*docs/CONTRIBUTING_CITIES.md" \
   docs/plans/TOWN_COUNCIL_REMEDIATION_PLAN.md
 rg -n "ARCHITECTURE.md \\(T-PLAT-1 migration map only\\)" \
+  docs/plans/TOWN_COUNCIL_REMEDIATION_PLAN.md
+rg -n "ix_semantic_embedding_hnsw|ix_catalog_lineage_updated_at" \
   docs/plans/TOWN_COUNCIL_REMEDIATION_PLAN.md
 rg -n "alembic upgrade head" docs/plans/TOWN_COUNCIL_REMEDIATION_PLAN.md
 rg -n "existing database" docs/plans/TOWN_COUNCIL_REMEDIATION_PLAN.md

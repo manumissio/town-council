@@ -1,6 +1,6 @@
 # Town Council Remediation Plan (Codex Multi-Agent)
 
-version: 3.39
+version: 3.40
 generated: 2026-07-24
 source: Four-pass external code review (security, architecture, smells, process)
 source_artifact: [Town Council architecture review](../reviews/architecture-review-2026-07-19.html)
@@ -10,6 +10,9 @@ remains in force; where this plan is stricter, this plan wins for these tasks.
 
 ## Changelog
 
+- **v3.40:** Requires T-PLAT-1 to inventory and encode schema objects created
+  only by legacy raw SQL, preventing baseline autogeneration from omitting
+  indexes that current model metadata does not declare.
 - **v3.39:** Adds the canonical `ARCHITECTURE.md` migration map to T-PLAT-1
   ownership so Alembic adoption cannot leave the system map on the retired
   numbered-only design.
@@ -960,7 +963,11 @@ files (GED-5 grant).
   tests/test_repository_guardrails.py (migration CI contract only),
   tests/test_run_pipeline_orchestration.py (migration-prelude contract only)
 - do: `alembic init`; autogenerate a baseline revision from current models
-  after T-TIME-2. Preserve the existing `python db_migrate.py` subprocess in
+  after T-TIME-2, then reconcile it against an explicit inventory of every
+  schema object created by the frozen legacy migrations. This inventory must
+  include legacy-only objects absent from model metadata, including
+  `ix_semantic_embedding_hnsw` and `ix_catalog_lineage_updated_at`.
+  Preserve the existing `python db_migrate.py` subprocess in
   `pipeline.run_pipeline`; make `db_migrate.migrate()` delegate through the
   frozen legacy runner when needed and then run `alembic upgrade head`.
   Make `pipeline/db_init.py`, `scripts/dev_up.sh`, and README setup use the
@@ -983,9 +990,10 @@ files (GED-5 grant).
   its downgrade must fail before any DDL, while later revisions may downgrade
   only as far as the baseline.
 - accept: Fresh extension-free PostgreSQL via Alembic creates pgvector before
-  vector columns and equals the frozen baseline schema; an existing database
-  migrated through v10 has an empty diff against that baseline before
-  stamping; a delayed adopter stamps only after baseline parity and then
+  vector columns, contains every inventoried legacy-only object, and equals
+  the frozen baseline schema; an existing database migrated through v10 has
+  an empty object-level diff against that baseline before stamping; a delayed
+  adopter stamps only after baseline parity and then
   reaches head; stamping aborts on nonempty baseline drift; the canonical
   `python db_migrate.py` subprocess remains unchanged and applies
   post-baseline revisions; attempting to downgrade below the baseline exits
