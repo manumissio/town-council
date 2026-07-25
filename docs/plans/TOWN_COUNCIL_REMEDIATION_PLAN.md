@@ -1,6 +1,6 @@
 # Town Council Remediation Plan (Codex Multi-Agent)
 
-version: 3.49
+version: 3.50
 generated: 2026-07-25
 source: Four-pass external code review (security, architecture, smells, process)
 source_artifact: [Town Council architecture review](../reviews/architecture-review-2026-07-19.html)
@@ -10,6 +10,13 @@ remains in force; where this plan is stricter, this plan wins for these tasks.
 
 ## Changelog
 
+- **v3.50:** Activates T-TIME-1 and T-TIME-2 as one operator-approved
+  coordinated PR because model-only or schema-only deployment is unsafe.
+  Defines ten generated timestamps with server defaults, preserves three
+  nullable lifecycle markers without defaults, makes v10 mandatory and
+  fail-fast, and requires PostgreSQL CI evidence. Temporary coordination
+  grants cover the exact CI, CRAWL, DEDUP-C, DEDUP-D, PLAT, and GOV paths in
+  the shared Full plan.
 - **v3.49:** Completes T-DB-1B. PR #146 removed maintenance fallback callable
   injection and the superseded summary facades, passed the complete local and
   CI suites, resolved its review finding, and merged as `9132864`. The
@@ -234,9 +241,9 @@ remains in force; where this plan is stricter, this plan wins for these tasks.
 | State | Tasks |
 |---|---|
 | **Complete** | T-CI-0, T-CI-1, T-CI-1A, T-CI-2, T-CI-2A, T-CI-3, T-CI-4, T-CI-5, T-SEC-1, T-SEC-2, T-SEC-3, T-SEC-3C, T-SEC-4, T-SEC-4A, T-SEC-5, T-SEC-6, T-TIME-3, T-CRAWL-1, T-CRAWL-2, T-PLAT-2A, T-GOV-1, T-GOV-4, T-GOV-5, T-DA-1, T-DB-1A, T-DB-1, T-DB-1B |
-| **In progress** | None |
+| **In progress** | T-TIME-1 + T-TIME-2 |
 | **Partially landed; acceptance incomplete** | T-GOV-6 |
-| **Pending** | T-TIME-1..2, T-DC-1, T-DD-1, T-DE-1, T-PLAT-1, T-PLAT-2, T-PLAT-3, T-PLAT-4, T-GOV-2..3 |
+| **Pending** | T-DC-1, T-DD-1, T-DE-1, T-PLAT-1, T-PLAT-2, T-PLAT-3, T-PLAT-4, T-GOV-2..3 |
 
 ---
 
@@ -308,9 +315,16 @@ remains in force; where this plan is stricter, this plan wins for these tasks.
 | GOV       | agent-gov  | docs/ADR.md, docs/ENGINEERING_GUARDRAILS.md, AGENTS.md, SECURITY.md (new), docs/TESTING.md (new), docs/DATA_GOVERNANCE.md (new), tests/test_repository_guardrails.py (Phase 3 only) |
 
 Sequencing rule: SEC and DEDUP-C both own api/app_setup.py + api/main.py —
-they are in different phases and MUST NOT run concurrently. TIME owns
-model files. Migration order is T-TIME-1, T-TIME-2, then T-PLAT-1; other TIME
-and PLAT work may run independently when ownership permits. T-CI-0 temporarily
+they are in different phases and MUST NOT run concurrently. TIME owns model
+files. T-TIME-1 and T-TIME-2 execute in one coordinated PR, then T-PLAT-1 may
+establish the Alembic baseline. Their task-level ownership in
+`docs/plans/T_TIME_1_2_TIMEZONE_MIGRATION_PLAN.md` is authoritative for this
+PR and grants narrow coordination over CI's PostgreSQL service and DTZ
+ratchet, CRAWL's duplicate stage models, DEDUP-C's API timestamp contracts,
+DEDUP-D's two verification scripts, PLAT's migration runbook, and GOV's
+accepted ADR wording. No task sharing those files may run concurrently.
+Other TIME and PLAT work may run independently when ownership permits.
+T-CI-0 temporarily
 coordinates `docs/ENGINEERING_GUARDRAILS.md` with T-GOV-3 and T-GOV-5 for the
 narrow broad-handler policy correction described below; the GOV lane retains
 ownership of the later redesign and rewrite. T-CI-5 temporarily coordinates
@@ -773,35 +787,38 @@ must wait for the first PR to merge and rebase on `master`.
 
 ### T-TIME-1: One clock — timezone-aware timestamps everywhere
 - priority: P1
-- files_owned: pipeline/model_civic.py, model_events.py, model_records.py
-- do: All DateTime columns become `DateTime(timezone=True)` with
-  `server_default=func.now()` (and `onupdate=func.now()` where present).
-  Remove `datetime.now` / `utcnow` column defaults. Audit
-  summary_freshness.py comparisons for naive/aware mixing (report only;
-  fix in this task only if a comparison breaks).
-- accept: No `datetime.datetime.now`/`utcnow` defaults remain in model
-  files; the DTZ per-file-ignore entries in ruff.toml for the api/pipeline
-  files this task fixes are REMOVED (ratchet from T-CI-5); note DTZ flags
-  calls only — column defaults reference callables, so also add a
-  guardrail-test assertion that model files contain no naive default
-  callables; suite green.
-- sequencing: May merge before T-TIME-2, but must not deploy against an
-  existing database until T-TIME-2 has converted its timestamp columns.
-- verify: grep + full suite.
+- status: coordinated implementation in progress with T-TIME-2
+- implementation_plan: `docs/plans/T_TIME_1_2_TIMEZONE_MIGRATION_PLAN.md`
+- files_owned: exact shared twenty-seven-file set in the implementation plan
+- do: Make all thirteen model timestamps timezone-aware. Give the ten
+  generated timestamps `server_default=func.now()` and preserve
+  `SemanticEmbedding.updated_at` update behavior. Keep extraction,
+  lineage, and agenda-segmentation attempted timestamps nullable without
+  defaults because null means not attempted. Remove owned UTC-stripping
+  consumer paths and exactly four stale DTZ007 ignores.
+- accept: Metadata, fresh PostgreSQL DDL, UTC consumers, guardrail ratchets,
+  and the complete suite pass. No naive model default or owned timezone
+  stripping remains.
+- sequencing: Must merge and deploy in the same PR/release as T-TIME-2.
+- verify: Follow the shared Full plan.
 
 ### T-TIME-2: Migration for timestamp columns
 - priority: P1
-- files_owned: pipeline/migrate_v10.py (new), pipeline/db_migrate.py,
-  pipeline/db_migration_runner.py, tests/test_migrate_v10.py (new),
-  tests/test_db_migrate.py (v10 ordering only)
-- do: Additive migration converting existing columns to timestamptz
-  (`ALTER ... TYPE timestamptz USING <col> AT TIME ZONE 'UTC'`). Wire into
-  run_migrations after v9. This is the final numbered migration before the
-  T-PLAT-1 Alembic baseline.
-- accept: Migration idempotent (safe re-run); focused tests prove v10 runs
-  after v9, reruns safely, and leaves the final numbered version at v10;
-  documented in db_migrate docstring.
-- verify: Run against a dev DB snapshot; suite green.
+- status: coordinated implementation in progress with T-TIME-1
+- implementation_plan: `docs/plans/T_TIME_1_2_TIMEZONE_MIGRATION_PLAN.md`
+- files_owned: exact shared twenty-seven-file set in the implementation plan
+- do: Add mandatory v10 conversion using
+  `ALTER ... TYPE timestamptz USING <column> AT TIME ZONE 'UTC'`. Enforce
+  the ten generated defaults and three lifecycle no-default contracts in one
+  transaction. Call v10 after the best-effort v8/v9 runner but do not route it
+  through that error-swallowing boundary.
+- accept: PostgreSQL tests prove UTC instant preservation, non-UTC reads,
+  mixed-schema convergence, idempotency, rollback on drift, physical
+  defaults, and fail-fast ordering. CI provides mandatory pgvector PostgreSQL
+  evidence; operator docs require sampling, backup, and a maintenance window.
+- sequencing: Must merge and deploy in the same PR/release as T-TIME-1.
+  T-PLAT-1 follows this final numbered migration.
+- verify: Follow the shared Full plan.
 
 ### T-TIME-3: pool_pre_ping
 - priority: P2
@@ -1364,7 +1381,7 @@ files (GED-5 grant).
 ```
 Phase 0: agent-ci  [T-CI-0, then T-CI-5 (allowlist snapshot freshness), then T-CI-1 .. T-CI-4]
 Docs-0:  agent-gov [T-GOV-6: SECURITY.md] + [T-GOV-4: AGENTS.md]   (with/just after Phase 0)
-Phase 1: agent-sec [T-SEC-1..6] || agent-time [T-TIME-1..3] || agent-crawl [T-CRAWL-1..2]
+Phase 1: agent-sec [T-SEC-1..6] || agent-time [T-TIME-1 + T-TIME-2 coordinated, T-TIME-3] || agent-crawl [T-CRAWL-1..2]
 Gate:    G3 satisfied (T-GOV-1 Accepted ADR + active docs/TESTING.MD)
 Phase 2: agent-da || agent-db [T-DB-1A, then T-DB-1, then T-DB-1B] || agent-dd || agent-de ;
          then agent-dc (exclusive on api/*)
@@ -1373,7 +1390,9 @@ Phase 3: agent-plat [T-PLAT-1 after T-TIME-1 and T-TIME-2, then T-PLAT-2..4]
 Anytime: T-GOV-6 DATA_GOVERNANCE.md (Section 3 pending G4)
 ```
 
-Merge policy: one task = one PR; PR title = task id; every PR body includes
+Merge policy: one task = one PR, except operator-approved T-TIME-1 +
+T-TIME-2, whose model and schema halves must ship together. PR title = task
+id(s); every PR body includes
 the GED-6 report. Any agent that cannot satisfy acceptance criteria within
 its owned files reports and halts rather than widening scope.
 

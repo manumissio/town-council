@@ -113,9 +113,10 @@ Use each entry to record:
 - Decision:
   - Adopt Alembic as the schema-migration system through remediation task
     T-PLAT-1.
-  - Apply migration work in this order: T-TIME-1 updates timezone-aware model
-    declarations, T-TIME-2 converts existing databases through the final
-    numbered migration, and T-PLAT-1 establishes the Alembic baseline.
+  - Apply migration work in this order: one coordinated T-TIME-1 + T-TIME-2
+    PR updates timezone-aware model declarations and converts existing
+    databases through the final numbered migration, then T-PLAT-1 establishes
+    the Alembic baseline.
   - Keep the current `migrate_v*` chain readable but frozen after the baseline;
     use Alembic for every later schema change.
 - Why:
@@ -128,6 +129,10 @@ Use each entry to record:
 - Affected boundaries:
   - T-PLAT-1 owns Alembic setup, baseline parity, and operator documentation.
   - T-TIME-2 owns the final numbered migration before the baseline.
+  - T-TIME-1 and T-TIME-2 ship together because either the model declarations
+    or database conversion alone would leave an unsafe intermediate release.
+    Generated timestamps receive server defaults; lifecycle-attempt timestamps
+    remain nullable without defaults so null retains its domain meaning.
   - The existing `python db_migrate.py` subprocess remains the canonical
     pipeline contract. Its `migrate()` function delegates through the frozen
     legacy runner when needed and then hands off to Alembic.
