@@ -1,6 +1,6 @@
 # Town Council Remediation Plan (Codex Multi-Agent)
 
-version: 3.36
+version: 3.37
 generated: 2026-07-24
 source: Four-pass external code review (security, architecture, smells, process)
 source_artifact: [Town Council architecture review](../reviews/architecture-review-2026-07-19.html)
@@ -10,6 +10,9 @@ remains in force; where this plan is stricter, this plan wins for these tasks.
 
 ## Changelog
 
+- **v3.37:** Gives T-TIME-2 ownership of focused v10 migration and ordering
+  tests so the final numbered migration cannot land unverified before the
+  Alembic baseline.
 - **v3.36:** Adds `seed_places.py` and `promote_stage.py` plus their affected
   tests to T-PLAT-1 ownership. Operational entrypoints may no longer call
   `create_tables()` outside the Alembic migration path.
@@ -249,7 +252,7 @@ remains in force; where this plan is stricter, this plan wins for these tasks.
 |-----------|-----------|------------------------------------------------------------|
 | CI        | agent-ci   | .github/workflows/**, ruff.toml, ruff-format.toml (new), .pre-commit-config.yaml, .coveragerc, frontend/package.json, frontend/jest.config.* (new) |
 | SEC       | agent-sec  | docker-compose.yml, docker-compose.dev.yml, .dockerignore, .env.example, api/app_setup.py, api/main.py (CORS+/stats sections only), api/search/support_core.py, pipeline/meilisearch_credentials.py, semantic_service/main.py, frontend/app/api/** |
-| TIME      | agent-time | pipeline/model_base.py, model_civic.py, model_events.py, model_records.py, model_runtime.py, models.py, db_migrate.py, db_migration_runner.py, migrate_v10.py (new), pipeline/summary_freshness.py (verify-only) |
+| TIME      | agent-time | pipeline/model_base.py, model_civic.py, model_events.py, model_records.py, model_runtime.py, models.py, db_migrate.py, db_migration_runner.py, migrate_v10.py (new), tests/test_migrate_v10.py (new), tests/test_db_migrate.py (T-TIME-2 v10 ordering only), pipeline/summary_freshness.py (verify-only) |
 | CRAWL     | agent-crawl| council_crawler/**                                          |
 | DEDUP-A   | agent-da   | pipeline/metrics.py, pipeline/metrics_redis_backend.py, tests/test_*metrics* |
 | DEDUP-B   | agent-db   | pipeline/summary_backfill*.py, pipeline/task_facade_helpers.py, pipeline/tasks.py, tests/test_*backfill*, tests/test_pipeline_batching.py, tests/test_run_pipeline_orchestration.py, tests/test_staged_hydrate_cities.py, tests/test_tasks_agenda_summary_format.py |
@@ -741,13 +744,15 @@ in `AGENTS.md`, `docs/TESTING.MD`, and
 ### T-TIME-2: Migration for timestamp columns
 - priority: P1
 - files_owned: pipeline/migrate_v10.py (new), pipeline/db_migrate.py,
-  pipeline/db_migration_runner.py
+  pipeline/db_migration_runner.py, tests/test_migrate_v10.py (new),
+  tests/test_db_migrate.py (v10 ordering only)
 - do: Additive migration converting existing columns to timestamptz
   (`ALTER ... TYPE timestamptz USING <col> AT TIME ZONE 'UTC'`). Wire into
   run_migrations after v9. This is the final numbered migration before the
   T-PLAT-1 Alembic baseline.
-- accept: Migration idempotent (safe re-run); documented in db_migrate
-  docstring.
+- accept: Migration idempotent (safe re-run); focused tests prove v10 runs
+  after v9, reruns safely, and leaves the final numbered version at v10;
+  documented in db_migrate docstring.
 - verify: Run against a dev DB snapshot; suite green.
 
 ### T-TIME-3: pool_pre_ping

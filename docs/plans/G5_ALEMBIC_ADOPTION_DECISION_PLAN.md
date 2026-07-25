@@ -95,7 +95,7 @@ change is one plan and short decision updates.
 3. Sequencing places T-PLAT-1 before the TIME migration work.
 4. T-PLAT-1 is incorrectly marked complete.
 5. ADR and remediation plan disagree.
-6. Added links are broken.
+6. Local links added by the G5 decision records are broken.
 7. Canonical `run_pipeline.py` migration flow bypasses Alembic after adoption.
 8. An existing database is stamped despite drift from the frozen baseline
    schema.
@@ -111,7 +111,8 @@ change is one plan and short decision updates.
 
 **r) Tests.**
 
-- Docs-link test covers scenario 6.
+- Explicit filesystem checks cover every local link added by the G5 decision
+  records in scenario 6. The existing docs-link test does not scan these files.
 - Separate positive and negative `rg` checks cover scenarios 1-5 and 7.
 - Manual diff review confirms T-PLAT-1 remains pending.
 - T-PLAT-1 contract tests must cover scenario 8 with both fresh and
@@ -133,6 +134,9 @@ change is one plan and short decision updates.
 
 ```bash
 PYTHONPATH=. .venv/bin/pytest -q tests/test_docs_links.py
+test -f docs/plans/TOWN_COUNCIL_REMEDIATION_PLAN.md
+test -f docs/plans/G5_ALEMBIC_ADOPTION_DECISION_PLAN.md
+test -f docs/reviews/architecture-review-2026-07-19.html
 rg -n "G5 migration_tooling: \\*\\*Approved 2026-07-24" \
   docs/plans/TOWN_COUNCIL_REMEDIATION_PLAN.md
 rg -n "status: approved; implementation pending" \
