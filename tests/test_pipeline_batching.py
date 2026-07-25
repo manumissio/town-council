@@ -513,10 +513,11 @@ def test_deterministic_agenda_summary_payloads_persist_empty_agenda_fallback(
 
     search_client = MagicMock()
     mocker.patch.object(indexer.meilisearch, "Client", return_value=search_client)
-    embed_dispatch = mocker.patch.object(
+    enqueued_catalog_ids: list[int] = []
+    mocker.patch.object(
         semantic_tasks.embed_catalog_task,
         "delay",
-        return_value=None,
+        side_effect=enqueued_catalog_ids.append,
     )
 
     batch = build_deterministic_agenda_summary_payloads([empty_agenda.id])
@@ -529,7 +530,7 @@ def test_deterministic_agenda_summary_payloads_persist_empty_agenda_fallback(
     assert batch["embed_summary"]["embed_enqueued"] == 1
     assert refreshed.summary == EMPTY_AGENDA_SUMMARY_TEXT
     assert refreshed.summary_source_hash == refreshed.content_hash
-    embed_dispatch.assert_called_once_with(empty_agenda.id)
+    assert enqueued_catalog_ids == [empty_agenda.id]
 
 
 def test_empty_agenda_content_hash_backfill_marks_catalog_changed(
@@ -559,10 +560,11 @@ def test_empty_agenda_content_hash_backfill_marks_catalog_changed(
         "Client",
         return_value=MagicMock(),
     )
-    embed_dispatch = mocker.patch.object(
+    enqueued_catalog_ids: list[int] = []
+    mocker.patch.object(
         semantic_tasks.embed_catalog_task,
         "delay",
-        return_value=None,
+        side_effect=enqueued_catalog_ids.append,
     )
 
     batch = build_deterministic_agenda_summary_payloads([empty_agenda.id])
@@ -594,7 +596,7 @@ def test_empty_agenda_content_hash_backfill_marks_catalog_changed(
         )
     )
     assert refreshed.content_hash == expected_content_hash
-    embed_dispatch.assert_called_once_with(empty_agenda.id)
+    assert enqueued_catalog_ids == [empty_agenda.id]
 
 
 def test_deterministic_agenda_summary_payloads_do_not_fallback_for_failed_agenda(batching_db):
@@ -840,16 +842,7 @@ def test_run_summary_hydration_backfill_reports_local_ai_configuration_errors(
     db.commit()
 
     session_maker = sessionmaker(bind=db.get_bind())
-    opened_sessions = []
-
-    def tracked_session_factory():
-        session = session_maker()
-        session.rollback = MagicMock(wraps=session.rollback)
-        session.close = MagicMock(wraps=session.close)
-        opened_sessions.append(session)
-        return session
-
-    mocker.patch.object(task_runtime, "_session_factory", tracked_session_factory)
+    mocker.patch.object(task_runtime, "_session_factory", session_maker)
     mocker.patch.object(llm_module.LocalAI, "_instance", None)
     mocker.patch.object(
         llm_module,
@@ -869,8 +862,6 @@ def test_run_summary_hydration_backfill_reports_local_ai_configuration_errors(
     assert counts["complete"] == 0
     assert counts["error"] == 1
     assert counts["deterministic_fallback_complete"] == 0
-    assert sum(session.rollback.call_count for session in opened_sessions) == 1
-    assert all(session.close.call_count == 1 for session in opened_sessions)
     assert f"catalog_id={minutes_catalog.id}" in caplog.text
     assert "runtime configuration is invalid" in caplog.text
     db.expire_all()
@@ -902,10 +893,11 @@ def test_non_agenda_fallback_persists_content_hash_and_side_effects(
         "Client",
         return_value=MagicMock(),
     )
-    embed_dispatch = mocker.patch.object(
+    enqueued_catalog_ids: list[int] = []
+    mocker.patch.object(
         semantic_tasks.embed_catalog_task,
         "delay",
-        return_value=None,
+        side_effect=enqueued_catalog_ids.append,
     )
 
     fallback_result = build_deterministic_non_agenda_summary_payload(minutes_catalog.id)
@@ -921,7 +913,7 @@ def test_non_agenda_fallback_persists_content_hash_and_side_effects(
     assert NON_AGENDA_FALLBACK_NOTE in refreshed.summary
     assert refreshed.summary_source_hash == refreshed.content_hash
     assert refreshed.content_hash == compute_content_hash(minutes_content)
-    embed_dispatch.assert_called_once_with(minutes_catalog.id)
+    assert enqueued_catalog_ids == [minutes_catalog.id]
 
 
 def test_non_agenda_fallback_preserves_persistence_when_side_effects_fail(

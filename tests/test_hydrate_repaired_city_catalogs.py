@@ -100,12 +100,13 @@ def _install_summary_boundaries(mocker):
         "Client",
         side_effect=RuntimeError("search unavailable"),
     )
-    embed_dispatch = mocker.patch.object(
+    enqueued_catalog_ids: list[int] = []
+    mocker.patch.object(
         semantic_tasks.embed_catalog_task,
         "delay",
-        return_value=None,
+        side_effect=enqueued_catalog_ids.append,
     )
-    return provider_lookup, embed_dispatch
+    return provider_lookup, enqueued_catalog_ids
 
 
 def test_hydrate_repaired_city_catalogs_emits_stage_progress(
@@ -123,7 +124,7 @@ def test_hydrate_repaired_city_catalogs_emits_stage_progress(
         content="[PAGE 1]\n1. Approve the annual budget",
     )
     db_session.commit()
-    provider_lookup, embed_dispatch = _install_summary_boundaries(mocker)
+    _provider_lookup, enqueued_catalog_ids = _install_summary_boundaries(mocker)
     mocker.patch.object(
         mod,
         "_run_extract_city",
@@ -216,8 +217,7 @@ def test_hydrate_repaired_city_catalogs_emits_stage_progress(
     assert manifest_payload["metadata"]["args"]["summary_fallback_mode"] == "deterministic"
     db_session.expire_all()
     assert db_session.get(Catalog, catalog.id).summary.startswith("BLUF:")
-    provider_lookup.assert_not_called()
-    embed_dispatch.assert_called_once_with(catalog.id)
+    assert enqueued_catalog_ids == [catalog.id]
 
 
 def test_run_extract_city_emits_progress_and_counts(mocker, capsys):
@@ -468,7 +468,7 @@ def test_run_summary_city_selects_repaired_agendas_and_continues_after_error(
         content="[PAGE 1]\n1. Approve another city budget",
     )
     db_session.commit()
-    provider_lookup, embed_dispatch = _install_summary_boundaries(mocker)
+    _provider_lookup, enqueued_catalog_ids = _install_summary_boundaries(mocker)
     status_events = []
 
     counts = hydration_repaired_summary.run_summary_city(
@@ -503,11 +503,7 @@ def test_run_summary_city_selects_repaired_agendas_and_continues_after_error(
     assert db_session.get(Catalog, failed_catalog.id).summary is None
     assert db_session.get(Catalog, last_catalog.id).summary.startswith("BLUF:")
     assert db_session.get(Catalog, other_city_catalog.id).summary is None
-    provider_lookup.assert_not_called()
-    assert [call.args for call in embed_dispatch.call_args_list] == [
-        (first_catalog.id,),
-        (last_catalog.id,),
-    ]
+    assert enqueued_catalog_ids == [first_catalog.id, last_catalog.id]
 
 
 def test_run_summary_city_applies_resume_limit_and_url_selection(

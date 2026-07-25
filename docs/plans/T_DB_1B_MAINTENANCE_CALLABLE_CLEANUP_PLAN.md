@@ -385,6 +385,7 @@ Delivery uses focused commits:
 3. `refactor(maintenance): make staged hydration operations direct`
 4. `refactor(maintenance): make summary fallback operations direct`
 5. `fix(maintenance): close direct hydration contract gaps`
+6. `test(maintenance): assert observable boundary effects`
 
 Push `codex/t-db-1b-remove-maintenance-callables`, open one PR titled
 `T-DB-1B: Remove maintenance fallback callable injection`, request Codex
@@ -426,9 +427,9 @@ set above. The operator approved the final two-file expansion after independent
 review found the canonical owner maps still named the deleted modules. T-DB-1B
 also receives a temporary exclusive coordination grant for these files over
 the DEDUP-B, GOV, and affected PLAT documentation subsections. Implementation
-landed as five focused commits rather than the initially proposed two because
+landed as six focused commits rather than the initially proposed two because
 parallel work separated repaired hydration, staged hydration, fallback
-ownership, and final contract/review closure. No history was rewritten. Any
-other changed file, runtime default change, fallback-policy
+ownership, final contract closure, and the remote-review test correction. No
+history was rewritten. Any other changed file, runtime default change, fallback-policy
 change, timeout-policy change, soak-comparability change, skipped review,
 unresolved P1/P2, or unrun required check is a blocker.

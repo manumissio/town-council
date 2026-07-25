@@ -74,14 +74,17 @@ def _seed_catalog(
 def _install_successful_side_effect_boundaries(mocker):
     meili_client = MagicMock()
     documents_index = MagicMock()
+    indexed_document_batches: list[list[dict[str, object]]] = []
+    documents_index.add_documents.side_effect = indexed_document_batches.append
     meili_client.index.return_value = documents_index
     mocker.patch.object(indexer.meilisearch, "Client", return_value=meili_client)
-    embed_dispatch = mocker.patch.object(
+    enqueued_catalog_ids: list[int] = []
+    mocker.patch.object(
         semantic_tasks.embed_catalog_task,
         "delay",
-        return_value=None,
+        side_effect=enqueued_catalog_ids.append,
     )
-    return documents_index, embed_dispatch
+    return indexed_document_batches, enqueued_catalog_ids
 
 
 def test_segment_catalog_marks_laserfiche_error_content_failed(db_session):
@@ -191,15 +194,15 @@ def test_agenda_batch_runs_side_effects_only_for_changed_catalogs(
         location="/tmp/agenda-1.html",
         with_agenda_item=True,
     )
-    documents_index, embed_dispatch = _install_successful_side_effect_boundaries(
-        mocker
+    indexed_document_batches, enqueued_catalog_ids = (
+        _install_successful_side_effect_boundaries(mocker)
     )
     first_summary = agenda_summary_batch.build_deterministic_agenda_summary_payload(
         first_catalog.id
     )
     assert first_summary["status"] == "complete"
-    documents_index.reset_mock()
-    embed_dispatch.reset_mock()
+    indexed_document_batches.clear()
+    enqueued_catalog_ids.clear()
 
     second_catalog, _event = _seed_catalog(
         db_session,
@@ -226,11 +229,11 @@ def test_agenda_batch_runs_side_effects_only_for_changed_catalogs(
         "embed_dispatch_failed": 0,
         "failed_catalog_ids": [],
     }
-    indexed_documents = documents_index.add_documents.call_args.args[0]
+    indexed_documents = indexed_document_batches[0]
     assert {document["catalog_id"] for document in indexed_documents} == {
         second_catalog.id
     }
-    embed_dispatch.assert_called_once_with(second_catalog.id)
+    assert enqueued_catalog_ids == [second_catalog.id]
 
 
 def test_agenda_batch_reports_side_effect_failures_after_persistence(

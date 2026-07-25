@@ -289,7 +289,12 @@ def test_repeat_until_idle_runs_again_then_stops(
 ):
     _seed_catalogs(db_session, city="berkeley", catalog_count=1)
     _install_summary_boundaries(mocker, shared_engine)
-    sleep_spy = mocker.patch.object(staged_hydration_runner.time, "sleep")
+    sleep_durations: list[float] = []
+    mocker.patch.object(
+        staged_hydration_runner.time,
+        "sleep",
+        side_effect=sleep_durations.append,
+    )
     mocker.patch.object(
         sys,
         "argv",
@@ -312,7 +317,7 @@ def test_repeat_until_idle_runs_again_then_stops(
     assert payload["runs"][0]["any_work_done"] is True
     assert payload["runs"][1]["any_work_done"] is False
     assert payload["cities"][0]["summary"]["selected"] == 0
-    sleep_spy.assert_called_once_with(1)
+    assert sleep_durations == [1]
 
 
 def test_real_child_process_preserves_resume_and_multi_chunk_progress(tmp_path):

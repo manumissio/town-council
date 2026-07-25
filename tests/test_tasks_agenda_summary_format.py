@@ -103,14 +103,17 @@ def _install_summary_boundaries(mocker, db_session, summary_provider):
     )
     meili_client = MagicMock()
     documents_index = MagicMock()
+    indexed_document_batches: list[list[dict[str, object]]] = []
+    documents_index.add_documents.side_effect = indexed_document_batches.append
     meili_client.index.return_value = documents_index
     mocker.patch.object(indexer.meilisearch, "Client", return_value=meili_client)
-    embed_dispatch = mocker.patch.object(
+    enqueued_catalog_ids: list[int] = []
+    mocker.patch.object(
         semantic_tasks.embed_catalog_task,
         "delay",
-        return_value=None,
+        side_effect=enqueued_catalog_ids.append,
     )
-    return documents_index, embed_dispatch
+    return indexed_document_batches, enqueued_catalog_ids
 
 
 def _minutes_content() -> str:
@@ -146,12 +149,24 @@ def test_agenda_summary_generation_uses_structured_items_and_persists_hashes(
         ],
     )
     summary_provider = MagicMock(spec=InferenceProvider)
-    summary_provider.summarize_agenda_items.return_value = (
+    provider_prompts: list[str] = []
+    provider_summary = (
         "BLUF: Council reviewed housing funding and transportation priorities.\n"
         "- Council authorized the proposed housing budget.\n"
         "- Transportation priorities followed public comment."
     )
-    _documents_index, embed_dispatch = _install_summary_boundaries(
+
+    def summarize_agenda_items(
+        prompt: str,
+        *,
+        temperature: float,
+        max_tokens: int,
+    ) -> str:
+        provider_prompts.append(prompt)
+        return provider_summary
+
+    summary_provider.summarize_agenda_items.side_effect = summarize_agenda_items
+    _indexed_document_batches, enqueued_catalog_ids = _install_summary_boundaries(
         mocker,
         db_session,
         summary_provider,
@@ -174,10 +189,10 @@ def test_agenda_summary_generation_uses_structured_items_and_persists_hashes(
     assert summary_result["summary"].startswith("BLUF:")
     assert catalog.summary_source_hash == expected_hash
     assert catalog.agenda_items_hash == expected_hash
-    provider_prompt = summary_provider.summarize_agenda_items.call_args.args[0]
+    provider_prompt = provider_prompts[0]
     assert "Housing Update" in provider_prompt
     assert "Transportation Plan" in provider_prompt
-    embed_dispatch.assert_called_once_with(catalog.id)
+    assert enqueued_catalog_ids == [catalog.id]
 
 
 @pytest.mark.parametrize("category", ["agenda", "agenda_html"])
@@ -260,7 +275,13 @@ def test_maintenance_agenda_summary_is_deterministic_and_runs_side_effects(
         ],
     )
     summary_provider = MagicMock(spec=InferenceProvider)
-    documents_index, embed_dispatch = _install_summary_boundaries(
+    summary_provider.summarize_agenda_items.side_effect = AssertionError(
+        "Deterministic agenda maintenance must not invoke inference"
+    )
+    summary_provider.summarize_text.side_effect = AssertionError(
+        "Deterministic agenda maintenance must not invoke inference"
+    )
+    indexed_document_batches, enqueued_catalog_ids = _install_summary_boundaries(
         mocker,
         db_session,
         summary_provider,
@@ -277,10 +298,13 @@ def test_maintenance_agenda_summary_is_deterministic_and_runs_side_effects(
     refreshed = db_session.get(Catalog, catalog.id)
     assert refreshed.summary.startswith("BLUF:")
     assert refreshed.summary_source_hash == refreshed.agenda_items_hash
-    assert documents_index.add_documents.called
-    embed_dispatch.assert_called_once_with(catalog.id)
-    summary_provider.summarize_agenda_items.assert_not_called()
-    summary_provider.summarize_text.assert_not_called()
+    indexed_catalog_ids = {
+        document["catalog_id"]
+        for indexed_documents in indexed_document_batches
+        for document in indexed_documents
+    }
+    assert indexed_catalog_ids == {catalog.id}
+    assert enqueued_catalog_ids == [catalog.id]
 
 
 def test_maintenance_minutes_summary_uses_provider_and_persists_freshness(
@@ -293,12 +317,24 @@ def test_maintenance_minutes_summary_uses_provider_and_persists_freshness(
         content=_minutes_content(),
     )
     summary_provider = MagicMock(spec=InferenceProvider)
-    summary_provider.summarize_text.return_value = (
+    provider_prompts: list[str] = []
+    provider_summary = (
         "BLUF: Council reviewed housing funding and the annual budget.\n"
         "- Members approved transportation priorities.\n"
         "- Public comment preceded staff recommendations."
     )
-    _documents_index, embed_dispatch = _install_summary_boundaries(
+
+    def summarize_text(
+        prompt: str,
+        *,
+        temperature: float,
+        max_tokens: int,
+    ) -> str:
+        provider_prompts.append(prompt)
+        return provider_summary
+
+    summary_provider.summarize_text.side_effect = summarize_text
+    _indexed_document_batches, enqueued_catalog_ids = _install_summary_boundaries(
         mocker,
         db_session,
         summary_provider,
@@ -316,8 +352,8 @@ def test_maintenance_minutes_summary_uses_provider_and_persists_freshness(
     refreshed = db_session.get(Catalog, catalog.id)
     assert refreshed.summary.startswith("BLUF:")
     assert refreshed.summary_source_hash == refreshed.content_hash
-    assert summary_provider.summarize_text.called
-    embed_dispatch.assert_called_once_with(catalog.id)
+    assert "Council reviewed housing funding" in provider_prompts[0]
+    assert enqueued_catalog_ids == [catalog.id]
 
 
 @pytest.mark.parametrize(
@@ -346,7 +382,7 @@ def test_maintenance_minutes_uses_deterministic_fallback_for_provider_failures(
     )
     summary_provider = MagicMock(spec=InferenceProvider)
     summary_provider.summarize_text.side_effect = provider_error
-    _documents_index, embed_dispatch = _install_summary_boundaries(
+    _indexed_document_batches, enqueued_catalog_ids = _install_summary_boundaries(
         mocker,
         db_session,
         summary_provider,
@@ -366,7 +402,7 @@ def test_maintenance_minutes_uses_deterministic_fallback_for_provider_failures(
     db_session.expire_all()
     refreshed = db_session.get(Catalog, catalog.id)
     assert refreshed.summary_source_hash == refreshed.content_hash
-    embed_dispatch.assert_called_once_with(catalog.id)
+    assert enqueued_catalog_ids == [catalog.id]
 
 
 def test_maintenance_minutes_keeps_provider_error_when_fallback_is_disabled(
@@ -382,7 +418,7 @@ def test_maintenance_minutes_keeps_provider_error_when_fallback_is_disabled(
     summary_provider.summarize_text.side_effect = ProviderResponseError(
         "Empty response payload"
     )
-    documents_index, embed_dispatch = _install_summary_boundaries(
+    indexed_document_batches, enqueued_catalog_ids = _install_summary_boundaries(
         mocker,
         db_session,
         summary_provider,
@@ -398,8 +434,8 @@ def test_maintenance_minutes_keeps_provider_error_when_fallback_is_disabled(
     assert "AI Summarization returned None" in summary_result["error"]
     db_session.expire_all()
     assert db_session.get(Catalog, catalog.id).summary is None
-    documents_index.add_documents.assert_not_called()
-    embed_dispatch.assert_not_called()
+    assert indexed_document_batches == []
+    assert enqueued_catalog_ids == []
 
 
 def test_maintenance_minutes_does_not_fallback_for_low_signal_content(
@@ -412,7 +448,10 @@ def test_maintenance_minutes_does_not_fallback_for_low_signal_content(
         content="Minutes",
     )
     summary_provider = MagicMock(spec=InferenceProvider)
-    documents_index, embed_dispatch = _install_summary_boundaries(
+    summary_provider.summarize_text.side_effect = AssertionError(
+        "Low-signal content must not invoke inference"
+    )
+    indexed_document_batches, enqueued_catalog_ids = _install_summary_boundaries(
         mocker,
         db_session,
         summary_provider,
@@ -427,9 +466,8 @@ def test_maintenance_minutes_does_not_fallback_for_low_signal_content(
     assert summary_result["status"] == "blocked_low_signal"
     db_session.expire_all()
     assert db_session.get(Catalog, catalog.id).summary is None
-    summary_provider.summarize_text.assert_not_called()
-    documents_index.add_documents.assert_not_called()
-    embed_dispatch.assert_not_called()
+    assert indexed_document_batches == []
+    assert enqueued_catalog_ids == []
 
 
 def test_summary_fallback_event_capture_counts_non_agenda_empty_response():
@@ -456,7 +494,13 @@ def test_maintenance_agenda_summary_returns_bad_content_error_without_provider(
         location="/tmp/agenda.html",
     )
     summary_provider = MagicMock(spec=InferenceProvider)
-    documents_index, embed_dispatch = _install_summary_boundaries(
+    summary_provider.summarize_agenda_items.side_effect = AssertionError(
+        "Bad agenda content must not invoke inference"
+    )
+    summary_provider.summarize_text.side_effect = AssertionError(
+        "Bad agenda content must not invoke inference"
+    )
+    indexed_document_batches, enqueued_catalog_ids = _install_summary_boundaries(
         mocker,
         db_session,
         summary_provider,
@@ -471,10 +515,8 @@ def test_maintenance_agenda_summary_returns_bad_content_error_without_provider(
         "status": "error",
         "error": "laserfiche_error_page_detected",
     }
-    summary_provider.summarize_agenda_items.assert_not_called()
-    summary_provider.summarize_text.assert_not_called()
-    documents_index.add_documents.assert_not_called()
-    embed_dispatch.assert_not_called()
+    assert indexed_document_batches == []
+    assert enqueued_catalog_ids == []
 
 
 def test_agenda_summary_input_bundle_preserves_truncation_disclosure():

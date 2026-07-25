@@ -1,6 +1,6 @@
 # Town Council Remediation Plan (Codex Multi-Agent)
 
-version: 3.47
+version: 3.48
 generated: 2026-07-25
 source: Four-pass external code review (security, architecture, smells, process)
 source_artifact: [Town Council architecture review](../reviews/architecture-review-2026-07-19.html)
@@ -10,6 +10,10 @@ remains in force; where this plan is stricter, this plan wins for these tasks.
 
 ## Changelog
 
+- **v3.48:** Resolves the T-DB-1B remote review P1 by replacing newly added
+  mock call-count assertions with observable fake-boundary state and persisted
+  outcomes. Existing historical tests outside this migration remain deferred
+  to their owning remediation tasks.
 - **v3.47:** Expands T-DB-1B ownership to the agenda-summary maintenance owner
   maps in `ARCHITECTURE.md` and `docs/PIPELINE.md`. Independent review found
   both canonical maps still named the facade and callback adapter deleted by
