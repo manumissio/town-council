@@ -98,6 +98,8 @@ change is one plan and short decision updates.
 7. Canonical `run_pipeline.py` migration flow bypasses Alembic after adoption.
 8. An existing database is stamped despite schema drift from current models.
 9. T-TIME-2 cannot wire v10 into the focused migration runner within ownership.
+10. Downgrading below a stamped baseline runs destructive baseline DDL against
+    pre-existing tables.
 
 **r) Tests.**
 
@@ -107,6 +109,8 @@ change is one plan and short decision updates.
 - T-PLAT-1 contract tests must cover scenario 8 with both fresh and
   legacy-migrated database paths.
 - Ownership checks cover scenario 9.
+- A cross-baseline downgrade test covers scenario 10 and asserts schema and
+  representative data remain unchanged.
 
 **s) Fakes and mocks.** None.
 
@@ -139,6 +143,8 @@ rg -n "pipeline/db_migration_runner.py" \
 rg -n "only supported existing-database adoption" \
   docs/plans/TOWN_COUNCIL_REMEDIATION_PLAN.md
 rg -n "do not instruct operators to run an unguarded" \
+  docs/plans/TOWN_COUNCIL_REMEDIATION_PLAN.md
+rg -n "downgrade floor" \
   docs/plans/TOWN_COUNCIL_REMEDIATION_PLAN.md
 rg -n "Adopt Alembic for schema migrations" docs/ADR.md
 rg -n "T-TIME-1 updates timezone-aware model" docs/ADR.md

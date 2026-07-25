@@ -930,12 +930,16 @@ files (GED-5 grant).
   in the existing column-migration owner, compare schema, abort on drift,
   stamp the baseline, then upgrade to head. Keep migrate_v* readable but
   frozen (no v11+). Document fresh, existing, upgrade, and downgrade workflows;
-  do not instruct operators to run an unguarded `alembic stamp`.
+  do not instruct operators to run an unguarded `alembic stamp`. The baseline
+  is the downgrade floor: its downgrade must fail before any DDL, while later
+  revisions may downgrade only as far as the baseline.
 - accept: Fresh DB via Alembic equals `create_all` schema; an existing database
   migrated through v10 has an empty schema diff before baseline stamping;
   stamping aborts on nonempty drift; the canonical pipeline migration call
-  applies post-baseline Alembic revisions; OPERATIONS documents
-  upgrade/downgrade.
+  applies post-baseline Alembic revisions; attempting to downgrade below the
+  baseline exits nonzero without changing schema or representative data;
+  OPERATIONS documents the baseline floor and supported upgrade/downgrade
+  range.
 - verify: Schema diff script output empty; suite green.
 
 ### T-PLAT-2A: Patch Next.js's transitive Sharp runtime

@@ -34,6 +34,9 @@ Use each entry to record:
   - Existing databases must match current schema before baseline stamping;
     `pipeline/db_migrate.py` must abort adoption on drift before it stamps the
     baseline. Operator docs must not prescribe unguarded stamping.
+  - The baseline is the downgrade floor. Its downgrade path must fail before
+    DDL so a stamped existing database cannot lose pre-existing tables or data.
+    Post-baseline revisions may downgrade only to the baseline.
   - No migration or schema change occurs from this decision record alone.
 - Canonical references:
   - [Town Council remediation plan](plans/TOWN_COUNCIL_REMEDIATION_PLAN.md)
