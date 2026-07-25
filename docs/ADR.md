@@ -8,6 +8,36 @@ Use each entry to record:
 - the affected boundary or contract
 - links to the canonical docs that carry the ongoing operational or architecture detail
 
+## 2026-07-25: Summary generation has one direct operation owner
+
+- Status: Accepted
+- Decision:
+  - `pipeline/task_summary_generation.py` owns the catalog summary-generation
+    operation used by the Celery task.
+  - Summary preparation, persistence, empty-agenda handling, and best-effort
+    side effects remain focused lower modules with direct imports to real
+    domain boundaries.
+  - Agenda summary input and persistence resolve directly through
+    `agenda_summary_inputs` and `agenda_summary_batch`, not maintenance
+    facades.
+  - `SummaryGenerationTaskServices`, globals-based service construction, and
+    summary-only facade forwarding are removed by T-DB-1A.
+- Why:
+  - Passing domain behavior as fifteen callables obscured ownership and made
+    historical monkeypatch targets an application dependency.
+  - Direct imports preserve the same runtime behavior while tests fake only
+    the approved database, Celery, inference, and Meilisearch boundaries.
+- Affected boundaries:
+  - The registered `pipeline.tasks.generate_summary_task` name, arguments,
+    retries, transaction behavior, and result payload remain unchanged.
+  - Lower summary modules do not import `pipeline.tasks` or the operation
+    owner.
+  - T-DB-1A must merge before the separate T-DB-1 summary-backfill cleanup.
+- Canonical references:
+  - [Testing policy](TESTING.MD)
+  - [T-DB-1A implementation plan](plans/T_DB_1A_SUMMARY_GENERATION_OPERATION_PLAN.md)
+  - [Town Council remediation plan](plans/TOWN_COUNCIL_REMEDIATION_PLAN.md)
+
 ## 2026-07-24: Adopt Alembic for schema migrations
 
 - Status: Accepted
