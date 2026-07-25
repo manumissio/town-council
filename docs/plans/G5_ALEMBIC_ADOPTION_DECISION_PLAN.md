@@ -43,7 +43,7 @@ TIME migration work; it does not rewrite T-TIME-2 into an Alembic revision.
    history after the baseline and assigns post-baseline migrations to Alembic.
 5. Expand T-PLAT-1 ownership for root configuration, the pinned dependency,
    canonical existing- and fresh-database handoffs, legacy parity repair,
-   affected setup and runner tests, and schema-parity tests.
+   affected setup, seed, promotion, and runner tests, and schema-parity tests.
 6. Run docs-link and contradiction checks.
 7. Obtain an independent pre-commit review and resolve all eligible P1/P2
    findings.
@@ -144,6 +144,8 @@ rg -n "files_owned: alembic/\\*\\* \\(new\\), alembic.ini \\(new\\)" \
 rg -n "\\| PLAT.*alembic.ini.*pipeline/db_migrate.py.*docs/OPERATIONS.md.*tests/test_alembic_migrations.py.*tests/test_db_migrate.py" \
   docs/plans/TOWN_COUNCIL_REMEDIATION_PLAN.md
 rg -n "pipeline/db_init.py.*scripts/dev_up.sh.*README.md.*tests/test_db_init.py.*tests/test_docker_build_contracts.py" \
+  docs/plans/TOWN_COUNCIL_REMEDIATION_PLAN.md
+rg -n "pipeline/seed_places.py.*pipeline/promote_stage.py.*tests/test_seed_places.py.*tests/test_pipeline_idempotency.py" \
   docs/plans/TOWN_COUNCIL_REMEDIATION_PLAN.md
 rg -n "alembic upgrade head" docs/plans/TOWN_COUNCIL_REMEDIATION_PLAN.md
 rg -n "existing database" docs/plans/TOWN_COUNCIL_REMEDIATION_PLAN.md
