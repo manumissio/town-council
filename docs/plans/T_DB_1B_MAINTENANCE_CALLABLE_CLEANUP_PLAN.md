@@ -1,7 +1,7 @@
 # T-DB-1B: Remove Maintenance Fallback Callable Injection
 
 `artifact_contract: ce-unified-plan/v1`
-`artifact_readiness: implementation-ready`
+`artifact_readiness: complete`
 `execution: code`
 
 ## 1. Context & Alignment
