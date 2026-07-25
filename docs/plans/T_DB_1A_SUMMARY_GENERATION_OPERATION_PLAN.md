@@ -187,7 +187,9 @@ summary service bag and facade forwarding.
 `SummaryGenerationTaskServices`, `summary_generation_task_services`,
 `run_generate_summary_task_family`, summary-only forwarding functions, their
 imports, and summary-only entries in `_TASK_FACADE_DEPENDENCIES`. Reuse all
-real domain implementations. Expected production delta is negative.
+real domain implementations. Retain the `tasks.embed_catalog_task` import
+because a repair script consumes it as a runtime contract, not a test seam.
+Expected production delta is negative.
 
 ## 5. Testing
 
@@ -216,8 +218,8 @@ real domain implementations. Expected production delta is negative.
     summary facade forwarding survives.
 17. Empty catalog content returns `{"error": "No content to summarize"}`
     without inference or persistence.
-18. A missing `Document` keeps the current normalized `unknown` document kind
-    behavior.
+18. A missing `Document` remains summarizable through the existing non-agenda
+    path instead of becoming a document-not-found error.
 
 **r) Tests added or updated.**
 

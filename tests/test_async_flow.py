@@ -14,7 +14,8 @@ sys.modules["redis"] = MagicMock()
 # We will patch the tasks dynamically.
 
 from api.main import app, get_db
-from pipeline import tasks
+from pipeline import llm as llm_module, tasks
+from pipeline.inference_provider_contract import InferenceProvider
 
 client = TestClient(app)
 VALID_KEY = "dev_secret_key_change_me"
@@ -253,9 +254,9 @@ def test_generate_summary_retries_when_ai_returns_none(mocker):
     mock_db.get.return_value = mock_catalog
 
     mocker.patch.object(tasks, "SessionLocal", return_value=mock_db)
-    mock_ai = MagicMock()
-    mock_ai.summarize.return_value = None
-    mocker.patch.object(tasks, "LocalAI", return_value=mock_ai)
+    summary_provider = MagicMock(spec=InferenceProvider)
+    summary_provider.summarize_text.return_value = None
+    mocker.patch.object(llm_module, "get_runtime_provider", return_value=summary_provider)
 
     retry_exc = RuntimeError("retry-called")
     retry_mock = mocker.patch.object(tasks.generate_summary_task, "retry", side_effect=retry_exc)
@@ -264,7 +265,9 @@ def test_generate_summary_retries_when_ai_returns_none(mocker):
         tasks.generate_summary_task.run(1)
 
     retry_mock.assert_called_once()
+    assert retry_mock.call_args.kwargs["countdown"] == 60
     mock_db.rollback.assert_called_once()
+    mock_db.close.assert_called_once()
 
 
 def test_summarize_requires_api_key(mocker):

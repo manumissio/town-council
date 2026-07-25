@@ -7,7 +7,9 @@ import pytest
 sys.modules["llama_cpp"] = MagicMock()
 
 from pipeline import llm as llm_mod
+from pipeline import indexer
 from pipeline import enrichment_tasks
+from pipeline import semantic_tasks
 from pipeline import tasks
 from pipeline.llm_provider import ProviderResponseError, ProviderTimeoutError
 from pipeline.models import AgendaItem, Document
@@ -61,13 +63,11 @@ def _mock_agenda_summary_db():
 def test_generate_summary_task_uses_deterministic_fallback_for_provider_response_errors(mocker):
     mock_db = _mock_agenda_summary_db()
     mocker.patch.object(tasks, "SessionLocal", return_value=mock_db)
-    mocker.patch.object(tasks, "reindex_catalog", lambda _catalog_id: None)
-    mocker.patch.object(tasks.embed_catalog_task, "delay", return_value=None)
+    mocker.patch.object(indexer.meilisearch, "Client", side_effect=RuntimeError("search unavailable"))
+    mocker.patch.object(semantic_tasks.embed_catalog_task, "delay", return_value=None)
 
     llm_mod.LocalAI._instance = None
-    ai = llm_mod.LocalAI()
-    mocker.patch.object(ai, "_get_provider", return_value=_AgendaResponseErrorProvider())
-    mocker.patch.object(tasks, "LocalAI", return_value=ai)
+    mocker.patch.object(llm_mod, "get_runtime_provider", return_value=_AgendaResponseErrorProvider())
 
     retry_mock = mocker.patch.object(tasks.generate_summary_task, "retry")
     result = tasks.generate_summary_task.run(1, force=True)
@@ -80,13 +80,11 @@ def test_generate_summary_task_uses_deterministic_fallback_for_provider_response
 def test_generate_summary_task_retries_for_provider_timeout_errors(mocker):
     mock_db = _mock_agenda_summary_db()
     mocker.patch.object(tasks, "SessionLocal", return_value=mock_db)
-    mocker.patch.object(tasks, "reindex_catalog", lambda _catalog_id: None)
-    mocker.patch.object(tasks.embed_catalog_task, "delay", return_value=None)
+    mocker.patch.object(indexer.meilisearch, "Client", side_effect=RuntimeError("search unavailable"))
+    mocker.patch.object(semantic_tasks.embed_catalog_task, "delay", return_value=None)
 
     llm_mod.LocalAI._instance = None
-    ai = llm_mod.LocalAI()
-    mocker.patch.object(ai, "_get_provider", return_value=_AgendaTimeoutProvider())
-    mocker.patch.object(tasks, "LocalAI", return_value=ai)
+    mocker.patch.object(llm_mod, "get_runtime_provider", return_value=_AgendaTimeoutProvider())
 
     retry_exc = RuntimeError("retry-called")
     retry_mock = mocker.patch.object(tasks.generate_summary_task, "retry", side_effect=retry_exc)
@@ -95,7 +93,9 @@ def test_generate_summary_task_retries_for_provider_timeout_errors(mocker):
         tasks.generate_summary_task.run(1, force=True)
 
     retry_mock.assert_called_once()
+    assert retry_mock.call_args.kwargs["countdown"] == 60
     mock_db.rollback.assert_called_once()
+    mock_db.close.assert_called_once()
 
 
 def test_generate_topics_task_retries_on_transient_generation_errors(mocker):

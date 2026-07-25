@@ -3,7 +3,8 @@ from unittest.mock import MagicMock
 
 sys.modules["llama_cpp"] = MagicMock()
 
-from pipeline import tasks
+from pipeline import indexer, llm as llm_module, semantic_tasks, tasks
+from pipeline.inference_provider_contract import InferenceProvider
 
 
 def test_generate_summary_task_blocks_low_signal_input(mocker):
@@ -22,13 +23,10 @@ def test_generate_summary_task_blocks_low_signal_input(mocker):
     mock_db.query.return_value = mock_doc_query
 
     mocker.patch.object(tasks, "SessionLocal", return_value=mock_db)
-    mock_ai = MagicMock()
-    mocker.patch.object(tasks, "LocalAI", return_value=mock_ai)
 
     result = tasks.generate_summary_task.run(1, force=True)
     assert result["status"] == "blocked_low_signal"
     assert "Not enough extracted text" in result["reason"]
-    mock_ai.summarize.assert_not_called()
     mock_db.commit.assert_not_called()
 
 
@@ -50,11 +48,11 @@ def test_generate_summary_task_keeps_success_when_reindex_and_embed_dispatch_fai
     mock_db.query.return_value = mock_doc_query
 
     mocker.patch.object(tasks, "SessionLocal", return_value=mock_db)
-    mock_ai = MagicMock()
-    mock_ai.summarize.return_value = "BLUF: Council advanced budget and housing work."
-    mocker.patch.object(tasks, "LocalAI", return_value=mock_ai)
-    mocker.patch.object(tasks, "reindex_catalog", side_effect=RuntimeError("search unavailable"))
-    mocker.patch.object(tasks.embed_catalog_task, "delay", side_effect=RuntimeError("broker unavailable"))
+    summary_provider = MagicMock(spec=InferenceProvider)
+    summary_provider.summarize_text.return_value = "BLUF: Council advanced budget and housing work."
+    mocker.patch.object(llm_module, "get_runtime_provider", return_value=summary_provider)
+    mocker.patch.object(indexer.meilisearch, "Client", side_effect=RuntimeError("search unavailable"))
+    mocker.patch.object(semantic_tasks.embed_catalog_task, "delay", side_effect=RuntimeError("broker unavailable"))
 
     result = tasks.generate_summary_task.run(1, force=True)
 
