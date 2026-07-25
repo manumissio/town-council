@@ -247,7 +247,7 @@ remains in force; where this plan is stricter, this plan wins for these tasks.
 | DEDUP-C   | agent-dc   | api/main.py, api/app_setup.py, tests/conftest.py, tests/test_*api* (Phase 2 only) |
 | DEDUP-D   | agent-dd   | scripts/flush_city_pipeline_state.py, scripts/reset_city_verification_state.py, scripts/*_healthcheck.py, tests for same |
 | DEDUP-E   | agent-de   | pipeline/http_inference_provider.py, pipeline/inprocess_inference_provider.py, pipeline/inference_provider_contract.py, tests for same |
-| PLAT      | agent-plat | alembic/** (new), alembic.ini (new), pipeline/requirements*.txt, pipeline/db_migrate.py (T-PLAT-1 only, after TIME), pipeline/db_migration_columns.py (T-PLAT-1 legacy parity only), api/requirements.txt, semantic_service/requirements.txt, constraints.txt (new), .github/dependabot.yml (new), docs/OPERATIONS.md (migration and backup sections only), tests/test_alembic_migrations.py (new), api/cache.py |
+| PLAT      | agent-plat | alembic/** (new), alembic.ini (new), pipeline/requirements*.txt, pipeline/db_migrate.py (T-PLAT-1 only, after TIME), pipeline/db_migration_columns.py (T-PLAT-1 legacy parity only), api/requirements.txt, semantic_service/requirements.txt, constraints.txt (new), .github/dependabot.yml (new), docs/OPERATIONS.md (migration and backup sections only), tests/test_alembic_migrations.py (new), tests/test_run_pipeline_orchestration.py (T-PLAT-1 migration-prelude contract only), api/cache.py |
 | GOV       | agent-gov  | docs/ADR.md, docs/ENGINEERING_GUARDRAILS.md, AGENTS.md, SECURITY.md (new), docs/TESTING.md (new), docs/DATA_GOVERNANCE.md (new), tests/test_repository_guardrails.py (Phase 3 only) |
 
 Sequencing rule: SEC and DEDUP-C both own api/app_setup.py + api/main.py —
@@ -920,26 +920,32 @@ files (GED-5 grant).
   pipeline/requirements.txt, pipeline/db_migrate.py (Alembic handoff),
   pipeline/db_migration_columns.py (legacy parity repair only),
   docs/OPERATIONS.md (migration section), tests/test_alembic_migrations.py
-  (new)
+  (new), tests/test_run_pipeline_orchestration.py (migration-prelude contract
+  only)
 - do: `alembic init`; autogenerate a baseline revision from current models
-  after T-TIME-2. Keep `pipeline.run_pipeline` on its existing
-  `run_migrations()` call; make that canonical migration entrypoint run the
-  frozen legacy chain when needed and then `alembic upgrade head`.
+  after T-TIME-2. Preserve the existing `python db_migrate.py` subprocess in
+  `pipeline.run_pipeline`; make `db_migrate.migrate()` delegate through the
+  frozen legacy runner when needed and then run `alembic upgrade head`.
   `pipeline/db_migrate.py` owns the only supported existing-database adoption
   path: run the legacy chain through v10, repair the known missing-index drift
-  in the existing column-migration owner, compare schema, abort on drift,
-  stamp the baseline, then upgrade to head. Keep migrate_v* readable but
-  frozen (no v11+). Document fresh, existing, upgrade, and downgrade workflows;
-  do not instruct operators to run an unguarded `alembic stamp`. The baseline
-  is the downgrade floor: its downgrade must fail before any DDL, while later
-  revisions may downgrade only as far as the baseline.
-- accept: Fresh DB via Alembic equals `create_all` schema; an existing database
-  migrated through v10 has an empty schema diff before baseline stamping;
-  stamping aborts on nonempty drift; the canonical pipeline migration call
-  applies post-baseline Alembic revisions; attempting to downgrade below the
-  baseline exits nonzero without changing schema or representative data;
-  OPERATIONS documents the baseline floor and supported upgrade/downgrade
-  range.
+  in the existing column-migration owner, compare against the frozen baseline
+  schema, abort on drift, stamp the baseline, then upgrade to head. Delayed
+  adopters use that same frozen comparison even when newer revisions exist.
+  Baseline upgrade creates the pgvector extension before baseline table DDL.
+  Keep migrate_v* readable but frozen (no v11+). Document fresh, existing,
+  delayed-adoption, upgrade, and downgrade workflows; do not instruct operators
+  to run an unguarded `alembic stamp`. The baseline is the downgrade floor:
+  its downgrade must fail before any DDL, while later revisions may downgrade
+  only as far as the baseline.
+- accept: Fresh extension-free PostgreSQL via Alembic creates pgvector before
+  vector columns and equals the frozen baseline schema; an existing database
+  migrated through v10 has an empty diff against that baseline before
+  stamping; a delayed adopter stamps only after baseline parity and then
+  reaches head; stamping aborts on nonempty baseline drift; the canonical
+  `python db_migrate.py` subprocess remains unchanged and applies
+  post-baseline revisions; attempting to downgrade below the baseline exits
+  nonzero without changing schema or representative data; OPERATIONS documents
+  the baseline floor and supported workflows.
 - verify: Schema diff script output empty; suite green.
 
 ### T-PLAT-2A: Patch Next.js's transitive Sharp runtime

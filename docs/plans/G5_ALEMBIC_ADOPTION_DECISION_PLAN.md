@@ -96,10 +96,17 @@ change is one plan and short decision updates.
 5. ADR and remediation plan disagree.
 6. Added links are broken.
 7. Canonical `run_pipeline.py` migration flow bypasses Alembic after adoption.
-8. An existing database is stamped despite schema drift from current models.
+8. An existing database is stamped despite drift from the frozen baseline
+   schema.
 9. T-TIME-2 cannot wire v10 into the focused migration runner within ownership.
 10. Downgrading below a stamped baseline runs destructive baseline DDL against
     pre-existing tables.
+11. A delayed adopter is compared with newer models instead of the immutable
+    baseline schema and cannot reach post-baseline upgrades.
+12. A fresh PostgreSQL database lacks the pgvector extension when baseline
+    table DDL creates vector columns.
+13. Planning preserves an internal helper instead of the actual
+    `python db_migrate.py` pipeline subprocess contract.
 
 **r) Tests.**
 
@@ -111,6 +118,9 @@ change is one plan and short decision updates.
 - Ownership checks cover scenario 9.
 - A cross-baseline downgrade test covers scenario 10 and asserts schema and
   representative data remain unchanged.
+- Fresh, immediate-adoption, and delayed-adoption PostgreSQL tests cover
+  scenarios 11 and 12.
+- Pipeline orchestration contract tests cover scenario 13.
 
 **s) Fakes and mocks.** None.
 
@@ -132,20 +142,26 @@ rg -n "files_owned: alembic/\\*\\* \\(new\\), alembic.ini \\(new\\)" \
   docs/plans/TOWN_COUNCIL_REMEDIATION_PLAN.md
 rg -n "\\| PLAT.*alembic.ini.*pipeline/db_migrate.py.*docs/OPERATIONS.md.*tests/test_alembic_migrations.py" \
   docs/plans/TOWN_COUNCIL_REMEDIATION_PLAN.md
-rg -n "canonical migration entrypoint" \
-  docs/plans/TOWN_COUNCIL_REMEDIATION_PLAN.md
 rg -n "alembic upgrade head" docs/plans/TOWN_COUNCIL_REMEDIATION_PLAN.md
 rg -n "existing database" docs/plans/TOWN_COUNCIL_REMEDIATION_PLAN.md
-rg -n "schema diff is empty" \
-  docs/plans/TOWN_COUNCIL_REMEDIATION_PLAN.md
 rg -n "pipeline/db_migration_runner.py" \
   docs/plans/TOWN_COUNCIL_REMEDIATION_PLAN.md
 rg -n "only supported existing-database adoption" \
   docs/plans/TOWN_COUNCIL_REMEDIATION_PLAN.md
-rg -n "do not instruct operators to run an unguarded" \
+rg -n "unguarded" \
   docs/plans/TOWN_COUNCIL_REMEDIATION_PLAN.md
 rg -n "downgrade floor" \
   docs/plans/TOWN_COUNCIL_REMEDIATION_PLAN.md
+rg -n "frozen baseline schema" \
+  docs/plans/TOWN_COUNCIL_REMEDIATION_PLAN.md
+rg -n "adopters use that same frozen comparison" \
+  docs/plans/TOWN_COUNCIL_REMEDIATION_PLAN.md
+rg -n "stamping aborts on nonempty baseline drift" \
+  docs/plans/TOWN_COUNCIL_REMEDIATION_PLAN.md
+rg -n "pgvector extension before baseline table DDL" \
+  docs/plans/TOWN_COUNCIL_REMEDIATION_PLAN.md
+rg -n "python db_migrate.py" \
+  docs/plans/TOWN_COUNCIL_REMEDIATION_PLAN.md docs/ADR.md
 rg -n "Adopt Alembic for schema migrations" docs/ADR.md
 rg -n "T-TIME-1 updates timezone-aware model" docs/ADR.md
 rg -n "T-TIME-2 converts existing databases" docs/ADR.md

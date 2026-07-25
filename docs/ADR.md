@@ -29,11 +29,16 @@ Use each entry to record:
 - Affected boundaries:
   - T-PLAT-1 owns Alembic setup, baseline parity, and operator documentation.
   - T-TIME-2 owns the final numbered migration before the baseline.
-  - The existing `run_migrations()` pipeline contract remains the canonical
-    entrypoint and hands off to Alembic after the frozen legacy chain.
-  - Existing databases must match current schema before baseline stamping;
-    `pipeline/db_migrate.py` must abort adoption on drift before it stamps the
-    baseline. Operator docs must not prescribe unguarded stamping.
+  - The existing `python db_migrate.py` subprocess remains the canonical
+    pipeline contract. Its `migrate()` function delegates through the frozen
+    legacy runner when needed and then hands off to Alembic.
+  - Existing databases must match the frozen baseline schema before baseline
+    stamping; delayed adopters use that same comparison even after newer
+    revisions exist. `pipeline/db_migrate.py` must abort adoption on drift
+    before it stamps the baseline. Operator docs must not prescribe unguarded
+    stamping.
+  - Fresh PostgreSQL upgrades create the pgvector extension before baseline
+    table DDL creates vector columns.
   - The baseline is the downgrade floor. Its downgrade path must fail before
     DDL so a stamped existing database cannot lose pre-existing tables or data.
     Post-baseline revisions may downgrade only to the baseline.
