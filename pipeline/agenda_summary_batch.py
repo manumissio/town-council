@@ -2,10 +2,9 @@ from __future__ import annotations
 
 from collections import defaultdict
 from time import perf_counter
-from typing import Any, Callable
+from typing import Any
 
 from pipeline import llm as llm_mod
-from pipeline.agenda_summary_callbacks import empty_callback_summary, time_embed_callback, time_reindex_callback
 from pipeline.agenda_summary_contracts import (
     AGENDA_SUMMARY_BUNDLE_BUILD_MS,
     AGENDA_SUMMARY_CATALOG_NOT_FOUND_ERROR,
@@ -16,6 +15,11 @@ from pipeline.agenda_summary_contracts import (
     elapsed_millis,
     empty_agenda_summary_timings,
     rounded_agenda_summary_timings,
+)
+from pipeline.agenda_summary_side_effects import (
+    empty_side_effect_summary,
+    run_agenda_summary_embed_dispatch,
+    run_agenda_summary_reindex,
 )
 from pipeline.agenda_summary_empty import (
     EMPTY_AGENDA_COMPLETION_MODE,
@@ -34,21 +38,8 @@ from pipeline.summary_freshness import compute_summary_source_hash
 
 def build_deterministic_agenda_summary_payload(
     catalog_id: int,
-    *,
-    reindex_callback: Callable[[int], Any] | None = None,
-    embed_callback: Callable[[int], Any] | None = None,
-    build_payloads_callable: Callable[..., AgendaSummaryPayload] | None = None,
 ) -> AgendaSummaryPayload:
-    batch_builder = build_payloads_callable or build_deterministic_agenda_summary_payloads
-    batch = batch_builder(
-        [catalog_id],
-        reindex_callback=(
-            (lambda catalog_ids: reindex_callback(catalog_id)) if reindex_callback is not None else None
-        ),
-        embed_callback=(
-            (lambda catalog_ids: embed_callback(catalog_id)) if embed_callback is not None else None
-        ),
-    )
+    batch = build_deterministic_agenda_summary_payloads([catalog_id])
     return batch["results"].get(
         catalog_id,
         {"status": "error", "error": AGENDA_SUMMARY_CATALOG_NOT_FOUND_ERROR},
@@ -58,18 +49,15 @@ def build_deterministic_agenda_summary_payload(
 def build_deterministic_agenda_summary_payloads(
     catalog_ids: list[int],
     *,
-    reindex_callback: Callable[[list[int]], Any] | None = None,
-    embed_callback: Callable[[list[int]], Any] | None = None,
     max_input_chars: int = AGENDA_SUMMARY_MAX_INPUT_CHARS,
     min_reserved_output_chars: int = AGENDA_SUMMARY_MIN_RESERVED_OUTPUT_CHARS,
-    session_factory: Callable[[], Any] = db_session,
 ) -> AgendaSummaryPayload:
     ordered_catalog_ids = [int(catalog_id) for catalog_id in catalog_ids]
     if not ordered_catalog_ids:
         return _empty_batch_payload()
 
     agenda_summary_timings = empty_agenda_summary_timings()
-    with session_factory() as session:
+    with db_session() as session:
         catalogs, documents_by_catalog_id, agenda_items_by_catalog_id = _load_agenda_summary_records(
             session,
             ordered_catalog_ids,
@@ -90,8 +78,14 @@ def build_deterministic_agenda_summary_payloads(
     return {
         "results": results,
         "changed_catalog_ids": changed_catalog_ids,
-        "reindex_summary": time_reindex_callback(agenda_summary_timings, changed_catalog_ids, reindex_callback),
-        "embed_summary": time_embed_callback(agenda_summary_timings, changed_catalog_ids, embed_callback),
+        "reindex_summary": run_agenda_summary_reindex(
+            agenda_summary_timings,
+            changed_catalog_ids,
+        ),
+        "embed_summary": run_agenda_summary_embed_dispatch(
+            agenda_summary_timings,
+            changed_catalog_ids,
+        ),
         "agenda_summary_timings": rounded_agenda_summary_timings(agenda_summary_timings),
     }
 
@@ -134,12 +128,12 @@ def _empty_batch_payload() -> AgendaSummaryPayload:
     return {
         "results": {},
         "changed_catalog_ids": [],
-        "reindex_summary": empty_callback_summary(
+        "reindex_summary": empty_side_effect_summary(
             catalogs_considered_key="catalogs_considered",
             success_key="catalogs_reindexed",
             failure_key="catalogs_failed",
         ),
-        "embed_summary": empty_callback_summary(
+        "embed_summary": empty_side_effect_summary(
             catalogs_considered_key="catalogs_considered",
             success_key="embed_enqueued",
             failure_key="embed_dispatch_failed",

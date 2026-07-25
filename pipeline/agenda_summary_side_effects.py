@@ -1,8 +1,8 @@
 from __future__ import annotations
 
 from time import perf_counter
-from typing import Any, Callable
 
+from pipeline import indexer
 from pipeline.agenda_summary_contracts import (
     AGENDA_SUMMARY_EMBED_DISPATCH_ERRORS,
     AGENDA_SUMMARY_EMBED_DISPATCH_MS,
@@ -11,9 +11,10 @@ from pipeline.agenda_summary_contracts import (
     AgendaSummaryPayload,
     elapsed_millis,
 )
+from pipeline.summary_backfill_dispatch import enqueue_embed_catalogs
 
 
-def empty_callback_summary(
+def empty_side_effect_summary(
     *,
     catalogs_considered_key: str,
     success_key: str,
@@ -27,32 +28,30 @@ def empty_callback_summary(
     }
 
 
-def time_reindex_callback(
+def run_agenda_summary_reindex(
     agenda_summary_timings: dict[str, float],
     changed_catalog_ids: list[int],
-    reindex_callback: Callable[[list[int]], Any] | None,
 ) -> AgendaSummaryPayload:
-    reindex_summary = empty_callback_summary(
+    reindex_summary = empty_side_effect_summary(
         catalogs_considered_key="catalogs_considered",
         success_key="catalogs_reindexed",
         failure_key="catalogs_failed",
     )
-    if not changed_catalog_ids or reindex_callback is None:
+    if not changed_catalog_ids:
         return reindex_summary
 
     started_at = perf_counter()
     try:
-        payload = reindex_callback(changed_catalog_ids)
-        if isinstance(payload, dict):
-            reindex_summary = {
-                "catalogs_considered": int(payload.get("catalogs_considered") or len(changed_catalog_ids)),
-                "catalogs_reindexed": int(payload.get("catalogs_reindexed") or 0),
-                "catalogs_failed": int(payload.get("catalogs_failed") or 0),
-                "failed_catalog_ids": list(payload.get("failed_catalog_ids") or []),
-            }
+        payload = indexer.reindex_catalogs(changed_catalog_ids)
+        reindex_summary = _normalize_side_effect_summary(
+            payload,
+            changed_catalog_ids,
+            success_key="catalogs_reindexed",
+            failure_key="catalogs_failed",
+        )
     except AGENDA_SUMMARY_REINDEX_ERRORS as error:
-        # Summary write already committed; report maintenance failure without rollback.
-        reindex_summary = _failed_callback_summary(
+        # Summary writes are already durable, so maintenance reports this failure.
+        reindex_summary = _failed_side_effect_summary(
             changed_catalog_ids,
             failure_key="catalogs_failed",
             success_key="catalogs_reindexed",
@@ -63,32 +62,30 @@ def time_reindex_callback(
     return reindex_summary
 
 
-def time_embed_callback(
+def run_agenda_summary_embed_dispatch(
     agenda_summary_timings: dict[str, float],
     changed_catalog_ids: list[int],
-    embed_callback: Callable[[list[int]], Any] | None,
 ) -> AgendaSummaryPayload:
-    embed_summary = empty_callback_summary(
+    embed_summary = empty_side_effect_summary(
         catalogs_considered_key="catalogs_considered",
         success_key="embed_enqueued",
         failure_key="embed_dispatch_failed",
     )
-    if not changed_catalog_ids or embed_callback is None:
+    if not changed_catalog_ids:
         return embed_summary
 
     started_at = perf_counter()
     try:
-        payload = embed_callback(changed_catalog_ids)
-        if isinstance(payload, dict):
-            embed_summary = {
-                "catalogs_considered": int(payload.get("catalogs_considered") or len(changed_catalog_ids)),
-                "embed_enqueued": int(payload.get("embed_enqueued") or 0),
-                "embed_dispatch_failed": int(payload.get("embed_dispatch_failed") or 0),
-                "failed_catalog_ids": list(payload.get("failed_catalog_ids") or []),
-            }
+        payload = enqueue_embed_catalogs(changed_catalog_ids)
+        embed_summary = _normalize_side_effect_summary(
+            payload,
+            changed_catalog_ids,
+            success_key="embed_enqueued",
+            failure_key="embed_dispatch_failed",
+        )
     except AGENDA_SUMMARY_EMBED_DISPATCH_ERRORS as error:
-        # Embedding is post-commit; failed dispatch should not downgrade summary durability.
-        embed_summary = _failed_callback_summary(
+        # Embedding is post-commit and must not downgrade summary durability.
+        embed_summary = _failed_side_effect_summary(
             changed_catalog_ids,
             failure_key="embed_dispatch_failed",
             success_key="embed_enqueued",
@@ -99,7 +96,24 @@ def time_embed_callback(
     return embed_summary
 
 
-def _failed_callback_summary(
+def _normalize_side_effect_summary(
+    payload: dict[str, object],
+    changed_catalog_ids: list[int],
+    *,
+    success_key: str,
+    failure_key: str,
+) -> AgendaSummaryPayload:
+    return {
+        "catalogs_considered": int(
+            payload.get("catalogs_considered") or len(changed_catalog_ids)
+        ),
+        success_key: int(payload.get(success_key) or 0),
+        failure_key: int(payload.get(failure_key) or 0),
+        "failed_catalog_ids": list(payload.get("failed_catalog_ids") or []),
+    }
+
+
+def _failed_side_effect_summary(
     changed_catalog_ids: list[int],
     *,
     failure_key: str,
