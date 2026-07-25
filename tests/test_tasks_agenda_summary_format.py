@@ -185,35 +185,6 @@ def test_generate_summary_task_blocks_laserfiche_loading_shell_content(mocker):
     mock_db.commit.assert_not_called()
 
 
-def test_run_summary_hydration_backfill_uses_deterministic_fallback_for_provider_errors(mocker):
-    mock_db = MagicMock()
-    mock_db.close.return_value = None
-    mocker.patch.object(tasks, "SessionLocal", return_value=mock_db)
-    mocker.patch.object(tasks, "select_catalog_ids_for_summary_hydration", return_value=[101, 102])
-
-    summarize_spy = mocker.patch.object(
-        tasks,
-        "summarize_catalog_with_maintenance_mode",
-        side_effect=[
-            {"status": "complete", "completion_mode": "llm"},
-            {"status": "complete", "completion_mode": "deterministic_fallback"},
-        ],
-    )
-
-    counts = tasks.run_summary_hydration_backfill(
-        city="san_mateo",
-        limit=2,
-        summary_timeout_seconds=90,
-        summary_fallback_mode="deterministic",
-    )
-
-    assert counts["selected"] == 2
-    assert counts["complete"] == 2
-    assert counts["llm_complete"] == 1
-    assert counts["deterministic_fallback_complete"] == 1
-    assert summarize_spy.call_count == 2
-
-
 def test_summarize_catalog_with_maintenance_mode_prefers_deterministic_for_agenda(mocker):
     mock_session = MagicMock()
     mock_session.__enter__.return_value = mock_session

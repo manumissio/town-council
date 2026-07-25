@@ -211,8 +211,8 @@ def _run_ingest_prelude_steps() -> None:
 def _run_generation_backfill_steps() -> None:
     from functools import partial
 
+    from pipeline import summary_backfill_runner
     from pipeline.agenda_worker import run_agenda_segmentation_backfill
-    from pipeline.tasks import run_summary_hydration_backfill
 
     # Agenda summaries depend on structured agenda items, so segmentation must
     # run before summary hydration in the canonical batch pipeline.
@@ -229,7 +229,7 @@ def _run_generation_backfill_steps() -> None:
     run_callable_step(
         "Summary Hydration",
         partial(
-            run_summary_hydration_backfill,
+            summary_backfill_runner.run_summary_hydration_backfill,
             summary_timeout_seconds=SUMMARY_HYDRATION_MAINTENANCE_TIMEOUT_SECONDS,
             summary_fallback_mode="deterministic",
         ),

@@ -5,6 +5,22 @@ from unittest.mock import MagicMock
 sys.modules["llama_cpp"] = MagicMock()
 
 
+def test_summary_backfill_operation_is_not_exported_through_task_facades():
+    from pipeline import task_facade_helpers, tasks
+
+    obsolete_exports = (
+        "_summary_doc_kind_subquery",
+        "select_catalog_ids_for_summary_hydration",
+        "_summary_doc_kind_map",
+        "_enqueue_embed_catalogs",
+        "run_summary_hydration_backfill",
+    )
+
+    for obsolete_export in obsolete_exports:
+        assert not hasattr(task_facade_helpers, obsolete_export)
+        assert not hasattr(tasks, obsolete_export)
+
+
 def test_api_task_routes_reexports_dispatch_facade():
     from api import task_dispatch, task_routes
 

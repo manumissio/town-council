@@ -1,13 +1,6 @@
 from collections.abc import Mapping
-from typing import Any, Callable
+from typing import Any
 
-from pipeline.summary_backfill import (
-    _enqueue_embed_catalogs as _enqueue_embed_catalogs_impl,
-    _summary_doc_kind_map as _summary_doc_kind_map_impl,
-    _summary_doc_kind_subquery as _summary_doc_kind_subquery_impl,
-    run_summary_hydration_backfill as run_summary_hydration_backfill_impl,
-    select_catalog_ids_for_summary_hydration as select_catalog_ids_for_summary_hydration_impl,
-)
 from pipeline.task_agenda_segmentation import (
     AgendaSegmentationTaskServices,
     persist_agenda_segmentation_failure_status as persist_agenda_segmentation_failure_status_impl,
@@ -17,51 +10,6 @@ from pipeline.task_agenda_segmentation import (
 )
 from pipeline.task_text_extraction import run_extract_text_task_family as run_extract_text_task_family_impl
 from pipeline.task_vote_extraction import run_extract_votes_task_family as run_extract_votes_task_family_impl
-
-
-def _summary_doc_kind_subquery(db: Any) -> Any:
-    return _summary_doc_kind_subquery_impl(db)
-
-
-def select_catalog_ids_for_summary_hydration(db: Any, limit: int | None = None, city: str | None = None) -> list[int]:
-    return select_catalog_ids_for_summary_hydration_impl(db, limit=limit, city=city)
-
-
-def _summary_doc_kind_map(db: Any, catalog_ids: list[int]) -> dict[int, str]:
-    return _summary_doc_kind_map_impl(db, catalog_ids)
-
-
-def _enqueue_embed_catalogs(catalog_ids: list[int]) -> dict[str, object]:
-    return _enqueue_embed_catalogs_impl(catalog_ids)
-
-
-def run_summary_hydration_backfill(
-    facade: Mapping[str, Any],
-    *,
-    force: bool,
-    limit: int | None,
-    city: str | None,
-    summary_timeout_seconds: int | None,
-    summary_fallback_mode: str,
-    progress_callback: Callable[[dict[str, Any]], None] | None,
-    progress_every: int,
-) -> dict[str, int]:
-    return run_summary_hydration_backfill_impl(
-        force=force,
-        limit=limit,
-        city=city,
-        summary_timeout_seconds=summary_timeout_seconds,
-        summary_fallback_mode=summary_fallback_mode,
-        progress_callback=progress_callback,
-        progress_every=progress_every,
-        generate_summary_callable=lambda catalog_id: facade["generate_summary_task"].run(catalog_id, force=force),
-        session_factory=facade["SessionLocal"],
-        select_catalog_ids_callable=facade["select_catalog_ids_for_summary_hydration"],
-        summary_doc_kind_map_callable=facade["_summary_doc_kind_map"],
-        agenda_summary_batch_builder=facade["build_deterministic_agenda_summary_payloads"],
-        non_agenda_summary_builder=facade["build_deterministic_non_agenda_summary_payload"],
-        summarize_catalog_callable=facade["summarize_catalog_with_maintenance_mode"],
-    )
 
 
 def run_extract_text_task_family(

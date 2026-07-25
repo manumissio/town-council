@@ -1,4 +1,4 @@
-from typing import Any, Callable
+from typing import Any
 
 from celery.signals import worker_ready
 from sqlalchemy.exc import SQLAlchemyError
@@ -8,11 +8,6 @@ from pipeline import task_facade_helpers
 from pipeline import task_summary_generation
 from pipeline.agenda_service import persist_agenda_items
 from pipeline.agenda_resolver import has_viable_structured_agenda_source, resolve_agenda_items
-from pipeline.backlog_maintenance import (
-    build_deterministic_agenda_summary_payloads,
-    build_deterministic_non_agenda_summary_payload,
-    summarize_catalog_with_maintenance_mode,
-)
 from pipeline.celery_app import app
 from pipeline.config import (
     LOCAL_AI_ALLOW_MULTIPROCESS,
@@ -39,9 +34,7 @@ from pipeline.task_startup import (
 from pipeline.vote_extractor import run_vote_extraction_for_catalog
 
 _TASK_FACADE_DEPENDENCIES = (
-    build_deterministic_agenda_summary_payloads,
-    build_deterministic_non_agenda_summary_payload,
-    summarize_catalog_with_maintenance_mode, classify_catalog_bad_content, persist_agenda_items,
+    classify_catalog_bad_content, persist_agenda_items,
     has_viable_structured_agenda_source, resolve_agenda_items, TIKA_MIN_EXTRACTED_CHARS_FOR_NO_OCR,
     ENABLE_VOTE_EXTRACTION, reextract_catalog_content, reindex_catalog,
     run_vote_extraction_for_catalog, embed_catalog_task, Document,
@@ -50,44 +43,6 @@ _TASK_FACADE_DEPENDENCIES = (
 
 def SessionLocal():
     return task_session()
-
-
-def _summary_doc_kind_subquery(db):
-    return task_facade_helpers._summary_doc_kind_subquery(db)
-
-
-def select_catalog_ids_for_summary_hydration(db, limit: int | None = None, city: str | None = None) -> list[int]:
-    return task_facade_helpers.select_catalog_ids_for_summary_hydration(db, limit=limit, city=city)
-
-
-def _summary_doc_kind_map(db, catalog_ids: list[int]) -> dict[int, str]:
-    return task_facade_helpers._summary_doc_kind_map(db, catalog_ids)
-
-
-def _enqueue_embed_catalogs(catalog_ids: list[int]) -> dict[str, object]:
-    return task_facade_helpers._enqueue_embed_catalogs(catalog_ids)
-
-
-def run_summary_hydration_backfill(
-    force: bool = False,
-    limit: int | None = None,
-    city: str | None = None,
-    *,
-    summary_timeout_seconds: int | None = None,
-    summary_fallback_mode: str = "none",
-    progress_callback: Callable[[dict[str, Any]], None] | None = None,
-    progress_every: int = 25,
-) -> dict[str, int]:
-    return task_facade_helpers.run_summary_hydration_backfill(
-        globals(),
-        force=force,
-        limit=limit,
-        city=city,
-        summary_timeout_seconds=summary_timeout_seconds,
-        summary_fallback_mode=summary_fallback_mode,
-        progress_callback=progress_callback,
-        progress_every=progress_every,
-    )
 
 
 def _get_celery_pool_from_argv(argv: list[str]) -> str | None:

@@ -5,10 +5,10 @@ import argparse
 import time
 from typing import Any
 
+from pipeline import summary_backfill_runner
 from pipeline.city_scope import ordered_hydration_cities
 from pipeline.db_session import db_session
 from pipeline.summary_hydration_diagnostics import build_summary_hydration_snapshot
-from pipeline.tasks import run_summary_hydration_backfill
 from scripts.hydration_counts import empty_staged_summary_counts, merge_counts
 from scripts.hydration_output import emit_progress
 from scripts.operator_cli import nonnegative_int as _nonnegative_int
@@ -87,7 +87,7 @@ def _run_once(args: argparse.Namespace) -> dict[str, Any]:
         ordered_hydration_cities=ordered_hydration_cities,
         snapshot_callable=_snapshot_dict,
         segment_callable=_run_segment_city,
-        summary_backfill_callable=run_summary_hydration_backfill,
+        summary_backfill_callable=summary_backfill_runner.run_summary_hydration_backfill,
         emit_progress_callable=_emit_progress,
         empty_summary_counts_callable=_empty_summary_counts,
         merge_counts_callable=_merge_counts,
