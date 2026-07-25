@@ -108,6 +108,11 @@ change is one plan and short decision updates.
     table DDL creates vector columns.
 13. Planning preserves an internal helper instead of the actual
     `python db_migrate.py` pipeline subprocess contract.
+14. Legacy v8 reads newer mutable model metadata before delayed-adoption
+    baseline comparison.
+15. PostgreSQL-specific migration acceptance runs only against SQLite or is
+    optional in CI.
+16. Pipeline or city-contributor docs omit the migrate-before-seed contract.
 
 **r) Tests.**
 
@@ -123,6 +128,10 @@ change is one plan and short decision updates.
 - Fresh, immediate-adoption, and delayed-adoption PostgreSQL tests cover
   scenarios 11 and 12.
 - Pipeline orchestration contract tests cover scenario 13.
+- Frozen-metadata v8 tests cover scenario 14.
+- Python Guardrails workflow and guardrail contract tests cover scenario 15
+  with an isolated pgvector PostgreSQL service and no optional skips.
+- Explicit documentation ownership and link checks cover scenario 16.
 
 **s) Fakes and mocks.** None.
 
@@ -150,6 +159,8 @@ rg -n "\\| PLAT.*alembic.ini.*pipeline/db_migrate.py.*docs/OPERATIONS.md.*tests/
 rg -n "pipeline/db_init.py.*scripts/dev_up.sh.*README.md.*tests/test_db_init.py.*tests/test_docker_build_contracts.py" \
   docs/plans/TOWN_COUNCIL_REMEDIATION_PLAN.md
 rg -n "pipeline/seed_places.py.*pipeline/promote_stage.py.*tests/test_seed_places.py.*tests/test_pipeline_idempotency.py" \
+  docs/plans/TOWN_COUNCIL_REMEDIATION_PLAN.md
+rg -n "pipeline/migrate_v8.py.*migration_pgvector_semantic_embeddings.py.*python-guardrails.yml.*docs/PIPELINE.md.*docs/CONTRIBUTING_CITIES.md" \
   docs/plans/TOWN_COUNCIL_REMEDIATION_PLAN.md
 rg -n "alembic upgrade head" docs/plans/TOWN_COUNCIL_REMEDIATION_PLAN.md
 rg -n "existing database" docs/plans/TOWN_COUNCIL_REMEDIATION_PLAN.md
