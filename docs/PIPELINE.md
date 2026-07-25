@@ -326,7 +326,7 @@ Use these files as primary references:
 - Inference policy: `pipeline/llm.py` facade plus focused `pipeline/local_ai_*` helpers
 - Agenda extraction: `pipeline/agenda_extraction.py` facade plus `pipeline/agenda_extraction_*` implementation modules
 - Runtime agenda summaries: `pipeline/agenda_summary.py` facade plus `pipeline/agenda_summary_items.py`, `pipeline/agenda_summary_scaffold.py`, `pipeline/agenda_summary_prompting.py`, `pipeline/agenda_summary_rendering.py`, `pipeline/agenda_summary_counters.py`, and `pipeline/agenda_summary_pipeline.py`
-- Agenda-summary maintenance: `pipeline/agenda_summary_maintenance.py` facade plus `pipeline/agenda_summary_contracts.py`, `pipeline/agenda_summary_inputs.py`, `pipeline/agenda_summary_callbacks.py`, `pipeline/agenda_summary_batch.py`, and `pipeline/agenda_summary_fallback.py`
+- Agenda-summary maintenance: `pipeline/agenda_summary_fallback.py` routes maintenance requests; `pipeline/agenda_summary_contracts.py` and `pipeline/agenda_summary_inputs.py` own contracts and inputs; `pipeline/agenda_summary_batch.py` and `pipeline/non_agenda_summary_fallback.py` own deterministic writes; `pipeline/agenda_summary_side_effects.py` owns post-commit effects
 - Provider facade: `pipeline/llm_provider.py`
 - Provider transport + typed errors: `pipeline/http_inference_provider.py` facade plus focused `pipeline/http_inference_*` helpers, `pipeline/inprocess_inference_provider.py`, `pipeline/inference_provider_contract.py`
 - Extraction freshness/hash: `pipeline/extraction_service.py`, `pipeline/content_hash.py`

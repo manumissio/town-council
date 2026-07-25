@@ -97,7 +97,7 @@ def _run_repaired_stages(
         limit=args.limit,
         resume_after_id=args.resume_after_id,
         url_substring=args.url_substring,
-        emit_progress=emit_progress,
+        emit_progress_enabled=emit_progress,
         progress_every=args.progress_every,
         catalog_ids=extracted_catalog_ids,
         summary_timeout_seconds=args.summary_timeout_seconds,

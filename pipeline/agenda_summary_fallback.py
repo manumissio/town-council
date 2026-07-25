@@ -33,6 +33,8 @@ def summarize_catalog_with_optional_fallback(
     with agenda_segmentation_maintenance.capture_summary_fallback_events() as fallback_events:
         try:
             result = _generate_catalog_summary(catalog_id, force=force) or {}
+        except LocalAIConfigError as config_error:
+            return {"status": "error", "error": str(config_error)}
         except AGENDA_SUMMARY_CALLABLE_ERRORS as error:
             result = {"status": "error", "error": str(error)}
 
@@ -99,7 +101,7 @@ def _generate_catalog_summary(
             config_error,
         )
         db.rollback()
-        return {"status": "error", "error": str(config_error)}
+        raise
     except (SQLAlchemyError, RuntimeError, ValueError):
         db.rollback()
         raise

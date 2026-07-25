@@ -1,18 +1,24 @@
-import importlib.util
 import json
+import os
+import subprocess
 import sys
 from pathlib import Path
 
+from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 
 from pipeline import indexer, llm as llm_module, semantic_tasks, task_runtime
-from pipeline.models import Catalog, Document, Event, Place
+from pipeline.agenda_segmentation_maintenance import HeuristicOnlyLocalAI
+from pipeline.models import AgendaItem, Base, Catalog, Document, Event, Place
+from pipeline.summary_freshness import compute_agenda_items_hash
+from scripts import staged_hydrate_cities, staged_hydration_runner
 
 
-spec = importlib.util.spec_from_file_location("staged_hydrate_cities", Path("scripts/staged_hydrate_cities.py"))
-mod = importlib.util.module_from_spec(spec)
-sys.modules[spec.name] = mod
-spec.loader.exec_module(mod)
+DEFAULT_CITIES = ("hayward", "sunnyvale", "berkeley", "cupertino", "san_mateo")
+STRUCTURED_AGENDA = "\n\n".join(
+    f"{agenda_order}. Agenda topic {agenda_order}\nStaff recommends discussing community priority {agenda_order}."
+    for agenda_order in range(1, 9)
+)
 
 
 class _SummaryProvider:
@@ -20,33 +26,25 @@ class _SummaryProvider:
         return True
 
     def extract_agenda(self, prompt, *, temperature, max_tokens):
-        raise AssertionError("Agenda extraction is outside staged summary hydration")
+        raise AssertionError("Agenda extraction is outside these summary-only cases")
 
     def summarize_agenda_items(self, prompt, *, temperature, max_tokens):
-        return "BLUF: Council discussed housing budget and public safety priorities."
+        return "BLUF: Council discussed housing, budget, and public safety priorities."
 
     def summarize_text(self, prompt, *, temperature, max_tokens):
-        return "BLUF: Council discussed housing budget and public safety priorities."
+        return "BLUF: Council discussed housing, budget, and public safety priorities."
 
     def generate_topics(self, prompt, *, temperature, max_tokens):
-        raise AssertionError("Topic generation is outside staged summary hydration")
+        raise AssertionError("Topic generation is outside staged hydration")
 
     def generate_json(self, prompt, *, max_tokens):
-        raise AssertionError("JSON generation is outside staged summary hydration")
+        raise AssertionError("JSON generation is outside staged hydration")
 
 
 def _install_summary_boundaries(mocker, shared_engine) -> None:
     mocker.patch.object(llm_module.LocalAI, "_instance", None)
-    mocker.patch.object(
-        task_runtime,
-        "task_session",
-        side_effect=sessionmaker(bind=shared_engine),
-    )
-    mocker.patch.object(
-        llm_module,
-        "get_runtime_provider",
-        return_value=_SummaryProvider(),
-    )
+    mocker.patch.object(task_runtime, "_session_factory", sessionmaker(bind=shared_engine))
+    mocker.patch.object(llm_module, "get_runtime_provider", return_value=_SummaryProvider())
     mocker.patch.object(
         indexer.meilisearch,
         "Client",
@@ -55,23 +53,31 @@ def _install_summary_boundaries(mocker, shared_engine) -> None:
     mocker.patch.object(semantic_tasks.embed_catalog_task, "delay", return_value=None)
 
 
-def _seed_minutes_catalogs(db_session, *, city: str, catalog_count: int) -> None:
+def _seed_catalogs(
+    session,
+    *,
+    city: str,
+    catalog_count: int,
+    category: str = "minutes",
+    content: str | None = None,
+) -> list[Catalog]:
     place = Place(
         name=city,
         state="CA",
         ocd_division_id=f"ocd-division/country:us/state:ca/place:{city}",
         crawler_name=city,
     )
-    db_session.add(place)
-    db_session.flush()
+    session.add(place)
+    session.flush()
     event = Event(
         place_id=place.id,
         ocd_division_id=place.ocd_division_id,
         name=f"{city.title()} Council",
         source=city,
     )
-    db_session.add(event)
-    db_session.flush()
+    session.add(event)
+    session.flush()
+    catalogs = []
     for catalog_index in range(catalog_count):
         catalog_key = f"{city}-{catalog_index}"
         catalog = Catalog(
@@ -79,35 +85,38 @@ def _seed_minutes_catalogs(db_session, *, city: str, catalog_count: int) -> None
             url_hash=catalog_key,
             location=f"/tmp/{catalog_key}.pdf",
             filename=f"{catalog_key}.pdf",
-            content=(
+            content=content
+            or (
                 "Council discussed housing budget public safety transportation "
                 "priorities and committee recommendations during the meeting."
             ),
         )
-        db_session.add(catalog)
-        db_session.flush()
-        db_session.add(
+        session.add(catalog)
+        session.flush()
+        session.add(
             Document(
                 place_id=place.id,
                 event_id=event.id,
                 catalog_id=catalog.id,
-                category="minutes",
-                url=f"https://example.test/{catalog_key}",
+                category=category,
+                url=catalog.url,
             )
         )
-    db_session.commit()
+        catalogs.append(catalog)
+    session.commit()
+    return catalogs
 
 
 def _snapshot(
     *,
-    missing_summary_total,
-    catalogs_with_summary,
-    agenda_missing_summary_total,
-    agenda_missing_summary_with_items,
-    agenda_missing_summary_without_items,
-    non_agenda_missing_summary_total,
-    agenda_unresolved_segmentation_status_counts=None,
-):
+    missing_summary_total: int,
+    catalogs_with_summary: int,
+    agenda_missing_summary_total: int,
+    agenda_missing_summary_with_items: int,
+    agenda_missing_summary_without_items: int,
+    non_agenda_missing_summary_total: int,
+    agenda_unresolved_segmentation_status_counts: dict[str, int] | None = None,
+) -> dict[str, object]:
     return {
         "missing_summary_total": missing_summary_total,
         "catalogs_with_summary": catalogs_with_summary,
@@ -115,296 +124,85 @@ def _snapshot(
         "agenda_missing_summary_with_items": agenda_missing_summary_with_items,
         "agenda_missing_summary_without_items": agenda_missing_summary_without_items,
         "non_agenda_missing_summary_total": non_agenda_missing_summary_total,
-        "agenda_unresolved_segmentation_status_counts": agenda_unresolved_segmentation_status_counts or {"<null>": 0},
+        "agenda_unresolved_segmentation_status_counts": (
+            agenda_unresolved_segmentation_status_counts or {"<null>": 0}
+        ),
     }
 
 
-def test_staged_hydrate_cities_uses_default_city_order_and_emits_deltas(
+def _seed_file_agenda_database(database_path: Path) -> tuple[str, list[int]]:
+    database_url = f"sqlite:///{database_path}"
+    engine = create_engine(database_url)
+    Base.metadata.create_all(engine)
+    session_factory = sessionmaker(bind=engine)
+    with session_factory() as session:
+        catalogs = _seed_catalogs(
+            session,
+            city="berkeley",
+            catalog_count=3,
+            category="agenda",
+            content=STRUCTURED_AGENDA,
+        )
+        extracted_items = HeuristicOnlyLocalAI().extract_agenda(STRUCTURED_AGENDA)
+        for catalog in catalogs:
+            agenda_items = [
+                AgendaItem(
+                    ocd_id=f"ocd-agenda-item/{catalog.id}-{agenda_item['order']}",
+                    event_id=catalog.document.event_id,
+                    catalog_id=catalog.id,
+                    order=agenda_item["order"],
+                    title=agenda_item["title"],
+                    description=agenda_item.get("description"),
+                )
+                for agenda_item in extracted_items
+            ]
+            session.add_all(agenda_items)
+            session.flush()
+            agenda_items_hash = compute_agenda_items_hash(agenda_items)
+            catalog.agenda_items_hash = agenda_items_hash
+            catalog.summary = "Existing deterministic summary."
+            catalog.summary_source_hash = agenda_items_hash
+        session.commit()
+        catalog_ids = [catalog.id for catalog in catalogs]
+    engine.dispose()
+    return database_url, catalog_ids
+
+
+def test_staged_hydration_uses_default_city_order_and_reports_progress(
     mocker,
     capsys,
     db_session,
     shared_engine,
 ):
-    for city in ("hayward", "sunnyvale", "berkeley", "cupertino", "san_mateo"):
-        _seed_minutes_catalogs(db_session, city=city, catalog_count=1)
+    for city in DEFAULT_CITIES:
+        _seed_catalogs(db_session, city=city, catalog_count=1)
     _install_summary_boundaries(mocker, shared_engine)
-    mocker.patch.object(
-        mod,
-        "_snapshot_dict",
-        side_effect=[
-            _snapshot(missing_summary_total=5, catalogs_with_summary=0, agenda_missing_summary_total=5, agenda_missing_summary_with_items=0, agenda_missing_summary_without_items=5, non_agenda_missing_summary_total=0, agenda_unresolved_segmentation_status_counts={"<null>": 5}),
-            _snapshot(missing_summary_total=3, catalogs_with_summary=2, agenda_missing_summary_total=3, agenda_missing_summary_with_items=0, agenda_missing_summary_without_items=3, non_agenda_missing_summary_total=0, agenda_unresolved_segmentation_status_counts={"<null>": 3}),
-            _snapshot(missing_summary_total=2, catalogs_with_summary=1, agenda_missing_summary_total=0, agenda_missing_summary_with_items=0, agenda_missing_summary_without_items=0, non_agenda_missing_summary_total=2, agenda_unresolved_segmentation_status_counts={"<null>": 0}),
-            _snapshot(missing_summary_total=1, catalogs_with_summary=2, agenda_missing_summary_total=0, agenda_missing_summary_with_items=0, agenda_missing_summary_without_items=0, non_agenda_missing_summary_total=1, agenda_unresolved_segmentation_status_counts={"<null>": 0}),
-            _snapshot(missing_summary_total=10, catalogs_with_summary=0, agenda_missing_summary_total=9, agenda_missing_summary_with_items=0, agenda_missing_summary_without_items=9, non_agenda_missing_summary_total=1, agenda_unresolved_segmentation_status_counts={"<null>": 9}),
-            _snapshot(missing_summary_total=9, catalogs_with_summary=1, agenda_missing_summary_total=8, agenda_missing_summary_with_items=0, agenda_missing_summary_without_items=8, non_agenda_missing_summary_total=1, agenda_unresolved_segmentation_status_counts={"<null>": 8}),
-            _snapshot(missing_summary_total=20, catalogs_with_summary=0, agenda_missing_summary_total=20, agenda_missing_summary_with_items=0, agenda_missing_summary_without_items=20, non_agenda_missing_summary_total=0, agenda_unresolved_segmentation_status_counts={"<null>": 20}),
-            _snapshot(missing_summary_total=18, catalogs_with_summary=2, agenda_missing_summary_total=18, agenda_missing_summary_with_items=0, agenda_missing_summary_without_items=18, non_agenda_missing_summary_total=0, agenda_unresolved_segmentation_status_counts={"<null>": 18}),
-            _snapshot(missing_summary_total=100, catalogs_with_summary=0, agenda_missing_summary_total=100, agenda_missing_summary_with_items=0, agenda_missing_summary_without_items=100, non_agenda_missing_summary_total=0, agenda_unresolved_segmentation_status_counts={"<null>": 100}),
-            _snapshot(missing_summary_total=95, catalogs_with_summary=5, agenda_missing_summary_total=95, agenda_missing_summary_with_items=0, agenda_missing_summary_without_items=95, non_agenda_missing_summary_total=0, agenda_unresolved_segmentation_status_counts={"<null>": 95}),
-        ],
-    )
-    segment_spy = mocker.patch.object(
-        mod,
-        "_run_segment_city",
-        side_effect=lambda city, **kwargs: {
-            "city": city,
-            "catalog_count": 0,
-            "complete": 0,
-            "empty": 0,
-            "failed": 0,
-            "timed_out": 0,
-            "other": 0,
-            "timeout_fallbacks": 0,
-            "empty_response_fallbacks": 0,
-            "llm_attempted": 0,
-            "llm_skipped_heuristic_first": 0,
-            "heuristic_complete": 0,
-            "llm_timeout_then_fallback": 0,
-            "resume_after_id": kwargs.get("resume_after_id"),
-            "last_catalog_id": kwargs.get("resume_after_id"),
-        },
-    )
     mocker.patch.object(sys, "argv", ["staged_hydrate_cities.py"])
 
-    exit_code = mod.main()
+    exit_code = staged_hydrate_cities.main()
 
-    captured = capsys.readouterr()
+    output = capsys.readouterr().out
     assert exit_code == 0
-    assert "[hayward] city_start" in captured.out
-    assert "[hayward] before_snapshot" in captured.out
-    assert "[hayward] summary_start chunk=1" in captured.out
-    assert "[hayward] chunk_finish chunk=1" in captured.out
-    assert "[hayward] city_finish" in captured.out
-    assert "city: hayward" in captured.out
-    assert "city: san_mateo" in captured.out
-    assert [call.args[0] for call in segment_spy.call_args_list] == ["hayward", "sunnyvale", "berkeley", "cupertino", "san_mateo"]
+    assert [output.index(f"city: {city}") for city in DEFAULT_CITIES] == sorted(
+        output.index(f"city: {city}") for city in DEFAULT_CITIES
+    )
+    assert "[hayward] summary_start chunk=1" in output
+    assert "[hayward] chunk_finish chunk=1" in output
+    assert "[hayward] city_finish" in output
+    assert "'catalogs_with_summary': 1" in output
+    assert "'missing_summary_total': -1" in output
     db_session.expire_all()
     assert db_session.query(Catalog).filter(Catalog.summary.isnot(None)).count() == 5
-    assert all(call.kwargs["emit_progress"] is True for call in segment_spy.call_args_list)
-    assert all(call.kwargs["chunk_index"] == 1 for call in segment_spy.call_args_list)
 
 
-def test_staged_hydrate_cities_json_mode(
+def test_staged_hydration_json_mode_preserves_cli_controls(
     mocker,
     capsys,
     db_session,
     shared_engine,
 ):
-    _seed_minutes_catalogs(db_session, city="berkeley", catalog_count=1)
+    _seed_catalogs(db_session, city="berkeley", catalog_count=1)
     _install_summary_boundaries(mocker, shared_engine)
-    mocker.patch.object(mod, "_snapshot_dict", side_effect=[
-        _snapshot(missing_summary_total=1, catalogs_with_summary=0, agenda_missing_summary_total=1, agenda_missing_summary_with_items=0, agenda_missing_summary_without_items=1, non_agenda_missing_summary_total=0, agenda_unresolved_segmentation_status_counts={"<null>": 1}),
-        _snapshot(missing_summary_total=0, catalogs_with_summary=1, agenda_missing_summary_total=0, agenda_missing_summary_with_items=0, agenda_missing_summary_without_items=0, non_agenda_missing_summary_total=0, agenda_unresolved_segmentation_status_counts={"<null>": 0}),
-    ])
-    segment_spy = mocker.patch.object(
-        mod,
-        "_run_segment_city",
-        return_value={
-            "city": "berkeley",
-            "catalog_count": 0,
-            "complete": 0,
-            "empty": 0,
-            "failed": 0,
-            "timed_out": 0,
-            "other": 0,
-            "timeout_fallbacks": 0,
-            "empty_response_fallbacks": 0,
-            "llm_attempted": 0,
-            "llm_skipped_heuristic_first": 0,
-            "heuristic_complete": 0,
-            "llm_timeout_then_fallback": 0,
-            "resume_after_id": None,
-            "last_catalog_id": None,
-        },
-    )
-    mocker.patch.object(sys, "argv", ["staged_hydrate_cities.py", "--city", "berkeley", "--json"])
-
-    exit_code = mod.main()
-
-    payload = json.loads(capsys.readouterr().out)
-    assert exit_code == 0
-    assert payload["cities"][0]["city"] == "berkeley"
-    assert payload["cities"][0]["chunks"][0]["chunk_index"] == 1
-    assert payload["cities"][0]["summary"]["complete"] == 1
-    segment_spy.assert_called_once_with(
-        "berkeley",
-        limit=None,
-        resume_after_id=None,
-        workers=None,
-        segment_mode="normal",
-        agenda_timeout_seconds=None,
-        emit_progress=False,
-        chunk_index=1,
-    )
-
-
-def test_run_segment_city_emits_catalog_progress_when_enabled(mocker, capsys):
-    fake_segment_module = mocker.Mock()
-    fake_segment_module._catalog_ids_for_city.return_value = [101, 102]
-    fake_segment_module._prioritized_catalog_ids.return_value = [101, 102]
-    fake_segment_module._catalog_timeout_seconds.return_value = 7
-    fake_segment_module._catalog_worker_count.return_value = 2
-
-    def _segment_catalog_batch(city, catalog_ids, *, timeout_seconds, workers, progress_callback, **_kwargs):
-        progress_callback(city, 1, 2, 101, "complete", 1.25)
-        progress_callback(city, 2, 2, 102, "failed", 2.5)
-        return {"city": city, "catalog_count": 2, "complete": 1, "empty": 0, "failed": 1, "timed_out": 0}
-
-    fake_segment_module._segment_catalog_batch.side_effect = _segment_catalog_batch
-    mocker.patch.dict(sys.modules, {"scripts.segment_city_corpus": fake_segment_module})
-
-    result = mod._run_segment_city("berkeley", emit_progress=True, chunk_index=1)
-
-    captured = capsys.readouterr()
-    assert result == {
-        "city": "berkeley",
-        "catalog_count": 2,
-        "complete": 1,
-        "empty": 0,
-        "failed": 1,
-        "timed_out": 0,
-        "other": 0,
-        "timeout_fallbacks": 0,
-        "empty_response_fallbacks": 0,
-        "llm_attempted": 0,
-        "llm_skipped_heuristic_first": 0,
-        "heuristic_complete": 0,
-        "llm_timeout_then_fallback": 0,
-        "resume_after_id": None,
-        "last_catalog_id": 102,
-    }
-    assert "[berkeley] segmentation_start chunk=1 catalog_count=2 timeout_seconds=7 workers=2 resume_after_id=None" in captured.out
-    assert "[berkeley] segmentation_catalog_start chunk=1 index=1/2 catalog_id=101" in captured.out
-    assert "outcome=complete duration_seconds=1.25" in captured.out
-    assert "[berkeley] segmentation_catalog_start chunk=1 index=2/2 catalog_id=102" in captured.out
-    assert "outcome=failed duration_seconds=2.50" in captured.out
-
-
-def test_run_segment_city_preserves_emit_progress_patch_seam(mocker):
-    fake_segment_module = mocker.Mock()
-    fake_segment_module._catalog_ids_for_city.return_value = [101]
-    fake_segment_module._prioritized_catalog_ids.return_value = [101]
-    fake_segment_module._catalog_timeout_seconds.return_value = 7
-    fake_segment_module._catalog_worker_count.return_value = 1
-
-    def _segment_catalog_batch(city, catalog_ids, *, progress_callback, **_kwargs):
-        progress_callback(city, 1, 1, catalog_ids[0], "complete", 1.0)
-        return {"city": city, "catalog_count": 1, "complete": 1}
-
-    fake_segment_module._segment_catalog_batch.side_effect = _segment_catalog_batch
-    mocker.patch.dict(sys.modules, {"scripts.segment_city_corpus": fake_segment_module})
-    emit_spy = mocker.patch.object(mod, "_emit_progress")
-
-    mod._run_segment_city("berkeley", emit_progress=True)
-
-    emitted_messages = [call.args[1] for call in emit_spy.call_args_list]
-    assert any("segmentation_start" in message for message in emitted_messages)
-    assert any("segmentation_catalog_start" in message for message in emitted_messages)
-    assert any("segmentation_catalog_finish" in message for message in emitted_messages)
-
-
-def test_staged_hydrate_cities_runs_multiple_chunks_and_bounds_summary(
-    mocker,
-    capsys,
-    db_session,
-    shared_engine,
-):
-    _seed_minutes_catalogs(db_session, city="berkeley", catalog_count=10)
-    _install_summary_boundaries(mocker, shared_engine)
-    mocker.patch.object(
-        mod,
-        "_snapshot_dict",
-        side_effect=[
-            _snapshot(missing_summary_total=10, catalogs_with_summary=0, agenda_missing_summary_total=10, agenda_missing_summary_with_items=0, agenda_missing_summary_without_items=10, non_agenda_missing_summary_total=0, agenda_unresolved_segmentation_status_counts={"<null>": 10}),
-            _snapshot(missing_summary_total=8, catalogs_with_summary=2, agenda_missing_summary_total=8, agenda_missing_summary_with_items=0, agenda_missing_summary_without_items=8, non_agenda_missing_summary_total=0, agenda_unresolved_segmentation_status_counts={"<null>": 8}),
-            _snapshot(missing_summary_total=7, catalogs_with_summary=3, agenda_missing_summary_total=7, agenda_missing_summary_with_items=0, agenda_missing_summary_without_items=7, non_agenda_missing_summary_total=0, agenda_unresolved_segmentation_status_counts={"<null>": 7}),
-        ],
-    )
-    segment_spy = mocker.patch.object(
-        mod,
-        "_run_segment_city",
-        side_effect=[
-            {"city": "berkeley", "catalog_count": 2, "complete": 2, "empty": 0, "failed": 0, "timed_out": 0, "other": 0, "timeout_fallbacks": 1, "empty_response_fallbacks": 0, "llm_attempted": 1, "llm_skipped_heuristic_first": 1, "heuristic_complete": 1, "llm_timeout_then_fallback": 1, "resume_after_id": None, "last_catalog_id": 20},
-            {"city": "berkeley", "catalog_count": 0, "complete": 0, "empty": 0, "failed": 0, "timed_out": 0, "other": 0, "timeout_fallbacks": 0, "empty_response_fallbacks": 0, "llm_attempted": 0, "llm_skipped_heuristic_first": 0, "heuristic_complete": 0, "llm_timeout_then_fallback": 0, "resume_after_id": 20, "last_catalog_id": 20},
-        ],
-    )
-    mocker.patch.object(sys, "argv", ["staged_hydrate_cities.py", "--city", "berkeley", "--segment-limit", "2", "--summary-limit", "5", "--json"])
-
-    exit_code = mod.main()
-
-    payload = json.loads(capsys.readouterr().out)
-    assert exit_code == 0
-    assert payload["cities"][0]["segmentation"]["catalog_count"] == 2
-    assert payload["cities"][0]["summary"]["selected"] == 10
-    assert payload["cities"][0]["summary"]["complete"] == 10
-    assert payload["cities"][0]["segmentation"]["llm_skipped_heuristic_first"] == 1
-    assert [chunk["chunk_index"] for chunk in payload["cities"][0]["chunks"]] == [1, 2]
-    assert segment_spy.call_args_list[0].kwargs["resume_after_id"] is None
-    assert segment_spy.call_args_list[1].kwargs["resume_after_id"] == 20
-
-
-def test_staged_hydrate_cities_repeat_until_idle_repeats_then_stops(mocker, capsys):
-    run_payloads = [
-        {
-            "cities": [
-                {
-                    "city": "berkeley",
-                    "before": _snapshot(
-                        missing_summary_total=3,
-                        catalogs_with_summary=0,
-                        agenda_missing_summary_total=3,
-                        agenda_missing_summary_with_items=0,
-                        agenda_missing_summary_without_items=3,
-                        non_agenda_missing_summary_total=0,
-                    ),
-                    "chunks": [],
-                    "segmentation": {"catalog_count": 50},
-                    "summary": {"selected": 50},
-                    "after": _snapshot(
-                        missing_summary_total=1,
-                        catalogs_with_summary=2,
-                        agenda_missing_summary_total=1,
-                        agenda_missing_summary_with_items=0,
-                        agenda_missing_summary_without_items=1,
-                        non_agenda_missing_summary_total=0,
-                    ),
-                    "delta": {"missing_summary_total": -2},
-                }
-            ],
-            "any_work_done": True,
-        },
-        {
-            "cities": [
-                {
-                    "city": "berkeley",
-                    "before": _snapshot(
-                        missing_summary_total=1,
-                        catalogs_with_summary=2,
-                        agenda_missing_summary_total=1,
-                        agenda_missing_summary_with_items=0,
-                        agenda_missing_summary_without_items=1,
-                        non_agenda_missing_summary_total=0,
-                    ),
-                    "chunks": [],
-                    "segmentation": {"catalog_count": 0},
-                    "summary": {"selected": 0},
-                    "after": _snapshot(
-                        missing_summary_total=1,
-                        catalogs_with_summary=2,
-                        agenda_missing_summary_total=1,
-                        agenda_missing_summary_with_items=0,
-                        agenda_missing_summary_without_items=1,
-                        non_agenda_missing_summary_total=0,
-                    ),
-                    "delta": {"missing_summary_total": 0},
-                }
-            ],
-            "any_work_done": False,
-        },
-    ]
-    run_once = mocker.patch.object(mod, "_run_once", side_effect=run_payloads)
-    sleep_spy = mocker.patch.object(mod.time, "sleep")
     mocker.patch.object(
         sys,
         "argv",
@@ -412,81 +210,45 @@ def test_staged_hydrate_cities_repeat_until_idle_repeats_then_stops(mocker, caps
             "staged_hydrate_cities.py",
             "--city",
             "berkeley",
-            "--max-chunks",
-            "50",
-            "--repeat-until-idle",
-            "--sleep-seconds",
+            "--limit",
+            "2",
+            "--segment-limit",
+            "1",
+            "--summary-limit",
+            "1",
+            "--segment-workers",
+            "1",
+            "--segment-mode",
+            "maintenance",
+            "--agenda-timeout-seconds",
+            "10",
+            "--summary-timeout-seconds",
+            "20",
+            "--summary-fallback-mode",
+            "deterministic",
+            "--resume-after-id",
             "0",
+            "--max-chunks",
+            "1",
+            "--force",
+            "--json",
         ],
     )
 
-    exit_code = mod.main()
-
-    captured = capsys.readouterr()
-    assert exit_code == 0
-    assert run_once.call_count == 2
-    assert "[loop] run_start run=1 max_chunks=50 sleep_seconds=0" in captured.out
-    assert "[loop] run_start run=2 max_chunks=50 sleep_seconds=0" in captured.out
-    assert "[loop] idle_stop run=2" in captured.out
-    assert "runs: 2" in captured.out
-    sleep_spy.assert_not_called()
-
-
-def test_staged_hydrate_cities_repeat_until_idle_json_includes_runs(mocker, capsys):
-    mocker.patch.object(
-        mod,
-        "_run_once",
-        side_effect=[
-            {"cities": [{"city": "berkeley", "before": {}, "chunks": [], "segmentation": {"catalog_count": 1}, "summary": {"selected": 0}, "after": {}, "delta": {}}], "any_work_done": True},
-            {"cities": [{"city": "berkeley", "before": {}, "chunks": [], "segmentation": {"catalog_count": 0}, "summary": {"selected": 0}, "after": {}, "delta": {}}], "any_work_done": False},
-        ],
-    )
-    mocker.patch.object(mod.time, "sleep")
-    mocker.patch.object(
-        sys,
-        "argv",
-        ["staged_hydrate_cities.py", "--city", "berkeley", "--repeat-until-idle", "--sleep-seconds", "0", "--json"],
-    )
-
-    exit_code = mod.main()
+    exit_code = staged_hydrate_cities.main()
 
     payload = json.loads(capsys.readouterr().out)
+    city_payload = payload["cities"][0]
     assert exit_code == 0
-    assert len(payload["runs"]) == 2
-    assert payload["cities"][0]["segmentation"]["catalog_count"] == 0
+    assert city_payload["city"] == "berkeley"
+    assert [chunk["chunk_index"] for chunk in city_payload["chunks"]] == [1]
+    assert city_payload["summary"]["selected"] == 1
+    assert city_payload["summary"]["complete"] == 1
+    assert city_payload["delta"]["missing_summary_total"] == -1
 
 
-def test_main_repeat_until_idle_preserves_emit_progress_patch_seam(mocker):
-    snapshot_payload = _snapshot(
-        missing_summary_total=0,
-        catalogs_with_summary=1,
-        agenda_missing_summary_total=0,
-        agenda_missing_summary_with_items=0,
-        agenda_missing_summary_without_items=0,
-        non_agenda_missing_summary_total=0,
-    )
-    mocker.patch.object(
-        mod,
-        "_run_once",
-        side_effect=[
-            {"cities": [{"city": "berkeley", "before": snapshot_payload, "chunks": [], "segmentation": {"catalog_count": 1}, "summary": {"selected": 0}, "after": snapshot_payload, "delta": {}}], "any_work_done": True},
-            {"cities": [{"city": "berkeley", "before": snapshot_payload, "chunks": [], "segmentation": {"catalog_count": 0}, "summary": {"selected": 0}, "after": snapshot_payload, "delta": {}}], "any_work_done": False},
-        ],
-    )
-    mocker.patch.object(mod.time, "sleep")
-    mocker.patch.object(sys, "argv", ["staged_hydrate_cities.py", "--city", "berkeley", "--repeat-until-idle", "--sleep-seconds", "0"])
-    emit_spy = mocker.patch.object(mod, "_emit_progress")
-
-    exit_code = mod.main()
-
-    emitted_messages = [call.args[1] for call in emit_spy.call_args_list]
-    assert exit_code == 0
-    assert "[loop] run_start run=1 max_chunks=None sleep_seconds=0" in emitted_messages
-    assert "[loop] idle_stop run=2" in emitted_messages
-
-
-def test_delta_includes_unresolved_segmentation_status_counts():
-    delta = mod._delta(
+def test_hydration_delta_includes_unresolved_segmentation_status_counts():
+    delta = staged_hydration_runner.hydration_delta(
         _snapshot(
             missing_summary_total=10,
             catalogs_with_summary=1,
@@ -503,83 +265,115 @@ def test_delta_includes_unresolved_segmentation_status_counts():
             agenda_missing_summary_with_items=3,
             agenda_missing_summary_without_items=5,
             non_agenda_missing_summary_total=0,
-            agenda_unresolved_segmentation_status_counts={"<null>": 5, "empty": 2, "complete": 1},
+            agenda_unresolved_segmentation_status_counts={
+                "<null>": 5,
+                "empty": 2,
+                "complete": 1,
+            },
         ),
     )
 
     assert delta["catalogs_with_summary"] == 2
-    assert delta["agenda_unresolved_segmentation_status_counts"] == {"<null>": -2, "complete": 1, "empty": 1}
+    assert delta["agenda_unresolved_segmentation_status_counts"] == {
+        "<null>": -2,
+        "complete": 1,
+        "empty": 1,
+    }
 
 
-def test_run_once_preserves_entrypoint_output_contract(mocker):
-    before_snapshot = _snapshot(
-        missing_summary_total=0,
-        catalogs_with_summary=1,
-        agenda_missing_summary_total=0,
-        agenda_missing_summary_with_items=0,
-        agenda_missing_summary_without_items=0,
-        non_agenda_missing_summary_total=0,
-    )
-    after_snapshot = _snapshot(
-        missing_summary_total=0,
-        catalogs_with_summary=1,
-        agenda_missing_summary_total=0,
-        agenda_missing_summary_with_items=0,
-        agenda_missing_summary_without_items=0,
-        non_agenda_missing_summary_total=0,
-    )
-    mocker.patch.object(mod, "ordered_hydration_cities", return_value=["berkeley"])
-    mocker.patch.object(mod, "_snapshot_dict", side_effect=[before_snapshot, after_snapshot])
+def test_repeat_until_idle_runs_again_then_stops(
+    mocker,
+    capsys,
+    db_session,
+    shared_engine,
+):
+    _seed_catalogs(db_session, city="berkeley", catalog_count=1)
+    _install_summary_boundaries(mocker, shared_engine)
+    sleep_spy = mocker.patch.object(staged_hydration_runner.time, "sleep")
     mocker.patch.object(
-        mod,
-        "_run_segment_city",
-        return_value={
-            "city": "berkeley",
-            "catalog_count": 0,
-            "complete": 0,
-            "empty": 0,
-            "failed": 0,
-            "timed_out": 0,
-            "other": 0,
-            "timeout_fallbacks": 0,
-            "empty_response_fallbacks": 0,
-            "llm_attempted": 0,
-            "llm_skipped_heuristic_first": 0,
-            "heuristic_complete": 0,
-            "llm_timeout_then_fallback": 0,
-            "resume_after_id": None,
-            "last_catalog_id": None,
-        },
+        sys,
+        "argv",
+        [
+            "staged_hydrate_cities.py",
+            "--city",
+            "berkeley",
+            "--repeat-until-idle",
+            "--sleep-seconds",
+            "1",
+            "--json",
+        ],
     )
-    emit_spy = mocker.patch.object(mod, "_emit_progress")
-    mocker.patch.object(mod, "_empty_summary_counts", return_value={"selected": 0, "custom_empty": 1})
-    mocker.patch.object(mod, "_merge_counts", return_value={"selected": 0, "merged_by_entrypoint": 1})
-    mocker.patch.object(mod, "_delta", return_value={"patched_delta": 1})
 
-    payload = mod._run_once(mod._build_parser().parse_args(["--city", "berkeley", "--json"]))
+    exit_code = staged_hydrate_cities.main()
 
-    assert payload["cities"][0]["summary"] == {"selected": 0, "merged_by_entrypoint": 1}
-    assert payload["cities"][0]["delta"] == {"patched_delta": 1}
-    emit_spy.assert_any_call(False, "[berkeley] city_start")
-
-
-def test_staged_hydrate_cities_exports_entrypoint_contract():
-    expected_names = [
-        "_emit_progress",
-        "_empty_summary_counts",
-        "_merge_counts",
-        "_run_segment_city",
-        "_snapshot_dict",
-        "_delta",
-        "_build_parser",
-        "_run_once",
-        "time",
-    ]
-
-    assert all(hasattr(mod, name) for name in expected_names)
+    payload = json.loads(capsys.readouterr().out)
+    assert exit_code == 0
+    assert len(payload["runs"]) == 2
+    assert payload["runs"][0]["any_work_done"] is True
+    assert payload["runs"][1]["any_work_done"] is False
+    assert payload["cities"][0]["summary"]["selected"] == 0
+    sleep_spy.assert_called_once_with(1)
 
 
-def test_staged_hydration_implementation_modules_do_not_import_facade():
+def test_real_child_process_preserves_resume_and_multi_chunk_progress(tmp_path):
+    database_url, catalog_ids = _seed_file_agenda_database(tmp_path / "staged-hydration.db")
+    child_environment = os.environ.copy()
+    child_environment.update(
+        {
+            "DATABASE_URL": database_url,
+            "CELERY_BROKER_URL": "memory://",
+            "MEILI_HOST": "http://127.0.0.1:1",
+        }
+    )
+
+    completed = subprocess.run(
+        [
+            sys.executable,
+            "scripts/staged_hydrate_cities.py",
+            "--city",
+            "berkeley",
+            "--segment-limit",
+            "1",
+            "--segment-workers",
+            "1",
+            "--segment-mode",
+            "maintenance",
+            "--resume-after-id",
+            str(catalog_ids[0]),
+            "--max-chunks",
+            "2",
+        ],
+        check=True,
+        capture_output=True,
+        cwd=Path.cwd(),
+        env=child_environment,
+        text=True,
+        timeout=60,
+    )
+
+    assert f"segmentation_start chunk=1 catalog_count=1" in completed.stdout
+    assert f"resume_after_id={catalog_ids[0]}" in completed.stdout
+    assert "segmentation_catalog_finish chunk=1 index=1/1" in completed.stdout
+    assert f"segmentation_start chunk=2 catalog_count=1" in completed.stdout
+    assert f"resume_after_id={catalog_ids[1]}" in completed.stdout
+    assert "chunks: 2" in completed.stdout
+    assert "'catalog_count': 2" in completed.stdout
+
+    engine = create_engine(database_url)
+    with sessionmaker(bind=engine)() as session:
+        statuses = {
+            catalog.id: catalog.agenda_segmentation_status
+            for catalog in session.query(Catalog).order_by(Catalog.id)
+        }
+    engine.dispose()
+    assert statuses == {
+        catalog_ids[0]: None,
+        catalog_ids[1]: "complete",
+        catalog_ids[2]: "complete",
+    }
+
+
+def test_staged_hydration_implementation_modules_do_not_import_entrypoint():
     module_paths = [
         Path("scripts/hydration_counts.py"),
         Path("scripts/hydration_output.py"),

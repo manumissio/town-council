@@ -1,5 +1,3 @@
-from contextlib import nullcontext
-
 import pytest
 from unittest.mock import MagicMock
 import sys
@@ -14,6 +12,13 @@ from sqlalchemy.orm import sessionmaker
 from pipeline.run_pipeline import process_document_chunk
 from pipeline.agenda_service import persist_agenda_items
 from pipeline.agenda_summary_batch import build_deterministic_agenda_summary_payloads
+from pipeline.agenda_summary_contracts import (
+    AGENDA_SUMMARY_BUNDLE_BUILD_MS,
+    AGENDA_SUMMARY_EMBED_DISPATCH_MS,
+    AGENDA_SUMMARY_PERSIST_MS,
+    AGENDA_SUMMARY_REINDEX_MS,
+    AGENDA_SUMMARY_RENDER_MS,
+)
 from pipeline.agenda_summary_empty import EMPTY_AGENDA_SUMMARY_TEXT
 from pipeline.inference_provider_contract import InferenceProvider
 from pipeline.local_ai_runtime import LocalAIConfigError
@@ -230,10 +235,14 @@ def test_process_entity_chunk_backfills_missing_entities_source_hash_without_rer
 
 
 @pytest.fixture
-def batching_db():
+def batching_db(monkeypatch):
+    from pipeline import db_session as db_session_module, task_runtime
+
     engine = create_engine("sqlite:///:memory:")
     Base.metadata.create_all(engine)
     Session = sessionmaker(bind=engine)
+    monkeypatch.setattr(db_session_module, "_SessionLocal", Session)
+    monkeypatch.setattr(task_runtime, "_session_factory", Session)
     db = Session()
 
     place = Place(
@@ -252,6 +261,7 @@ def batching_db():
     yield db, event, place
 
     db.close()
+    engine.dispose()
 
 
 def _add_catalog(
@@ -481,7 +491,12 @@ def test_select_catalog_ids_for_summary_hydration_reselects_empty_agenda_after_i
     assert empty_agenda_with_items.id in selected
 
 
-def test_deterministic_agenda_summary_payloads_persist_empty_agenda_fallback(batching_db):
+def test_deterministic_agenda_summary_payloads_persist_empty_agenda_fallback(
+    batching_db,
+    mocker,
+):
+    from pipeline import indexer, semantic_tasks
+
     db, event, place = batching_db
     empty_agenda = _add_catalog(
         db,
@@ -496,19 +511,33 @@ def test_deterministic_agenda_summary_payloads_persist_empty_agenda_fallback(bat
     )
     db.commit()
 
-    batch = build_deterministic_agenda_summary_payloads(
-        [empty_agenda.id],
-        session_factory=lambda: nullcontext(db),
+    search_client = MagicMock()
+    mocker.patch.object(indexer.meilisearch, "Client", return_value=search_client)
+    embed_dispatch = mocker.patch.object(
+        semantic_tasks.embed_catalog_task,
+        "delay",
+        return_value=None,
     )
 
+    batch = build_deterministic_agenda_summary_payloads([empty_agenda.id])
+
+    db.expire_all()
     refreshed = db.get(Catalog, empty_agenda.id)
     assert batch["results"][empty_agenda.id]["status"] == "complete"
     assert batch["results"][empty_agenda.id]["completion_mode"] == "agenda_empty_deterministic"
+    assert batch["reindex_summary"]["catalogs_reindexed"] == 1
+    assert batch["embed_summary"]["embed_enqueued"] == 1
     assert refreshed.summary == EMPTY_AGENDA_SUMMARY_TEXT
     assert refreshed.summary_source_hash == refreshed.content_hash
+    embed_dispatch.assert_called_once_with(empty_agenda.id)
 
 
-def test_empty_agenda_content_hash_backfill_marks_catalog_changed(batching_db):
+def test_empty_agenda_content_hash_backfill_marks_catalog_changed(
+    batching_db,
+    mocker,
+):
+    from pipeline import indexer, semantic_tasks
+
     db, event, place = batching_db
     content = "agenda text"
     expected_content_hash = compute_content_hash(content)
@@ -524,34 +553,48 @@ def test_empty_agenda_content_hash_backfill_marks_catalog_changed(batching_db):
         segmentation_status="empty",
     )
     db.commit()
-    reindexed_catalog_ids: list[int] = []
-    embedded_catalog_ids: list[int] = []
 
-    batch = build_deterministic_agenda_summary_payloads(
-        [empty_agenda.id],
-        session_factory=lambda: nullcontext(db),
-        reindex_callback=lambda catalog_ids: reindexed_catalog_ids.extend(catalog_ids)
-        or {
-            "catalogs_considered": len(catalog_ids),
-            "catalogs_reindexed": len(catalog_ids),
-            "catalogs_failed": 0,
-            "failed_catalog_ids": [],
-        },
-        embed_callback=lambda catalog_ids: embedded_catalog_ids.extend(catalog_ids)
-        or {
-            "catalogs_considered": len(catalog_ids),
-            "embed_enqueued": len(catalog_ids),
-            "embed_dispatch_failed": 0,
-            "failed_catalog_ids": [],
-        },
+    mocker.patch.object(
+        indexer.meilisearch,
+        "Client",
+        return_value=MagicMock(),
+    )
+    embed_dispatch = mocker.patch.object(
+        semantic_tasks.embed_catalog_task,
+        "delay",
+        return_value=None,
     )
 
+    batch = build_deterministic_agenda_summary_payloads([empty_agenda.id])
+
+    db.expire_all()
     refreshed = db.get(Catalog, empty_agenda.id)
     assert batch["results"][empty_agenda.id]["changed"] is True
     assert batch["changed_catalog_ids"] == [empty_agenda.id]
-    assert reindexed_catalog_ids == [empty_agenda.id]
-    assert embedded_catalog_ids == [empty_agenda.id]
+    assert batch["reindex_summary"] == {
+        "catalogs_considered": 1,
+        "catalogs_reindexed": 1,
+        "catalogs_failed": 0,
+        "failed_catalog_ids": [],
+    }
+    assert batch["embed_summary"] == {
+        "catalogs_considered": 1,
+        "embed_enqueued": 1,
+        "embed_dispatch_failed": 0,
+        "failed_catalog_ids": [],
+    }
+    assert all(
+        batch["agenda_summary_timings"][timing_key] >= 0
+        for timing_key in (
+            AGENDA_SUMMARY_BUNDLE_BUILD_MS,
+            AGENDA_SUMMARY_RENDER_MS,
+            AGENDA_SUMMARY_PERSIST_MS,
+            AGENDA_SUMMARY_REINDEX_MS,
+            AGENDA_SUMMARY_EMBED_DISPATCH_MS,
+        )
+    )
     assert refreshed.content_hash == expected_content_hash
+    embed_dispatch.assert_called_once_with(empty_agenda.id)
 
 
 def test_deterministic_agenda_summary_payloads_do_not_fallback_for_failed_agenda(batching_db):
@@ -567,10 +610,7 @@ def test_deterministic_agenda_summary_payloads_do_not_fallback_for_failed_agenda
     )
     db.commit()
 
-    batch = build_deterministic_agenda_summary_payloads(
-        [failed_agenda.id],
-        session_factory=lambda: nullcontext(db),
-    )
+    batch = build_deterministic_agenda_summary_payloads([failed_agenda.id])
 
     assert batch["results"][failed_agenda.id]["status"] == "not_generated_yet"
     assert db.get(Catalog, failed_agenda.id).summary is None
@@ -712,7 +752,7 @@ def test_run_summary_hydration_backfill_counts_agenda_and_minutes_outcomes(
         "- Council approved transportation priorities.\n"
         "- Public comment preceded staff recommendations."
     )
-    llm_module.LocalAI._instance = None
+    mocker.patch.object(llm_module.LocalAI, "_instance", None)
     mocker.patch.object(llm_module, "get_runtime_provider", return_value=summary_provider)
 
     counts = run_summary_hydration_backfill(force=True)
@@ -762,7 +802,7 @@ def test_run_summary_hydration_backfill_uses_non_agenda_fallback_builder(
     summary_provider.summarize_text.side_effect = ProviderResponseError(
         "Empty response payload"
     )
-    llm_module.LocalAI._instance = None
+    mocker.patch.object(llm_module.LocalAI, "_instance", None)
     mocker.patch.object(llm_module, "get_runtime_provider", return_value=summary_provider)
 
     counts = run_summary_hydration_backfill(
@@ -810,11 +850,13 @@ def test_run_summary_hydration_backfill_reports_local_ai_configuration_errors(
         return session
 
     mocker.patch.object(task_runtime, "_session_factory", tracked_session_factory)
-    llm_module.LocalAI._instance = None
+    mocker.patch.object(llm_module.LocalAI, "_instance", None)
     mocker.patch.object(
         llm_module,
         "get_runtime_provider",
-        side_effect=LocalAIConfigError("invalid local AI runtime"),
+        side_effect=LocalAIConfigError(
+            "local AI provider unavailable because runtime configuration is invalid"
+        ),
     )
 
     with caplog.at_level("CRITICAL", logger="celery-worker"):
@@ -830,12 +872,17 @@ def test_run_summary_hydration_backfill_reports_local_ai_configuration_errors(
     assert sum(session.rollback.call_count for session in opened_sessions) == 1
     assert all(session.close.call_count == 1 for session in opened_sessions)
     assert f"catalog_id={minutes_catalog.id}" in caplog.text
-    assert "invalid local AI runtime" in caplog.text
+    assert "runtime configuration is invalid" in caplog.text
     db.expire_all()
     assert db.get(Catalog, minutes_catalog.id).summary is None
 
 
-def test_non_agenda_fallback_persists_content_hash_and_side_effects(batching_db):
+def test_non_agenda_fallback_persists_content_hash_and_side_effects(
+    batching_db,
+    mocker,
+):
+    from pipeline import indexer, semantic_tasks
+
     db, event, place = batching_db
     minutes_content = (
         "The council approved the consent calendar and reviewed transportation funding. "
@@ -850,14 +897,18 @@ def test_non_agenda_fallback_persists_content_hash_and_side_effects(batching_db)
     )
     db.commit()
 
-    reindexed_catalog_ids = []
-    embedded_catalog_ids = []
-    fallback_result = build_deterministic_non_agenda_summary_payload(
-        minutes_catalog.id,
-        reindex_callback=reindexed_catalog_ids.append,
-        embed_callback=embedded_catalog_ids.append,
-        session_factory=lambda: nullcontext(db),
+    mocker.patch.object(
+        indexer.meilisearch,
+        "Client",
+        return_value=MagicMock(),
     )
+    embed_dispatch = mocker.patch.object(
+        semantic_tasks.embed_catalog_task,
+        "delay",
+        return_value=None,
+    )
+
+    fallback_result = build_deterministic_non_agenda_summary_payload(minutes_catalog.id)
 
     db.expire_all()
     refreshed = db.get(Catalog, minutes_catalog.id)
@@ -870,11 +921,61 @@ def test_non_agenda_fallback_persists_content_hash_and_side_effects(batching_db)
     assert NON_AGENDA_FALLBACK_NOTE in refreshed.summary
     assert refreshed.summary_source_hash == refreshed.content_hash
     assert refreshed.content_hash == compute_content_hash(minutes_content)
-    assert reindexed_catalog_ids == [minutes_catalog.id]
-    assert embedded_catalog_ids == [minutes_catalog.id]
+    embed_dispatch.assert_called_once_with(minutes_catalog.id)
 
 
-def test_non_agenda_fallback_records_timeout_reason(batching_db):
+def test_non_agenda_fallback_preserves_persistence_when_side_effects_fail(
+    batching_db,
+    mocker,
+):
+    from pipeline import indexer, semantic_tasks
+
+    db, event, place = batching_db
+    minutes_catalog = _add_catalog(
+        db,
+        event,
+        place,
+        category="minutes",
+        content=(
+            "Council reviewed housing policy, budget amendments, transportation priorities, "
+            "public safety updates, and committee recommendations after public comment."
+        ),
+    )
+    db.commit()
+
+    mocker.patch.object(
+        indexer.meilisearch,
+        "Client",
+        side_effect=RuntimeError("search unavailable"),
+    )
+    mocker.patch.object(
+        semantic_tasks.embed_catalog_task,
+        "delay",
+        side_effect=RuntimeError("broker unavailable"),
+    )
+
+    fallback_result = build_deterministic_non_agenda_summary_payload(
+        minutes_catalog.id
+    )
+
+    db.expire_all()
+    refreshed = db.get(Catalog, minutes_catalog.id)
+    assert fallback_result["status"] == "complete"
+    assert fallback_result["changed"] is True
+    assert fallback_result["reindexed"] == 0
+    assert fallback_result["reindex_failed"] == 1
+    assert fallback_result["embed_enqueued"] == 0
+    assert fallback_result["embed_dispatch_failed"] == 1
+    assert refreshed.summary.startswith("BLUF:")
+    assert refreshed.summary_source_hash == refreshed.content_hash
+
+
+def test_non_agenda_fallback_records_timeout_reason(
+    batching_db,
+    mocker,
+):
+    from pipeline import indexer, semantic_tasks
+
     db, event, place = batching_db
     minutes_catalog = _add_catalog(
         db,
@@ -888,9 +989,19 @@ def test_non_agenda_fallback_records_timeout_reason(batching_db):
     )
     db.commit()
 
+    mocker.patch.object(
+        indexer.meilisearch,
+        "Client",
+        return_value=MagicMock(),
+    )
+    mocker.patch.object(
+        semantic_tasks.embed_catalog_task,
+        "delay",
+        return_value=None,
+    )
+
     fallback_result = build_deterministic_non_agenda_summary_payload(
         minutes_catalog.id,
-        session_factory=lambda: nullcontext(db),
         fallback_reason="timeout",
     )
 
@@ -907,8 +1018,7 @@ def test_non_agenda_fallback_preserves_low_signal_block(batching_db):
     db.commit()
 
     fallback_result = build_deterministic_non_agenda_summary_payload(
-        low_signal_catalog.id,
-        session_factory=lambda: nullcontext(db),
+        low_signal_catalog.id
     )
 
     db.expire_all()
@@ -932,8 +1042,7 @@ def test_non_agenda_fallback_rejects_unknown_document_kind(batching_db):
     db.commit()
 
     fallback_result = build_deterministic_non_agenda_summary_payload(
-        unknown_catalog.id,
-        session_factory=lambda: nullcontext(db),
+        unknown_catalog.id
     )
 
     db.expire_all()
@@ -946,13 +1055,6 @@ def test_non_agenda_fallback_rejects_unknown_document_kind(batching_db):
 
 
 def test_summary_backfill_progress_helpers_preserve_counts_and_empty_payload():
-    from pipeline.backlog_maintenance import (
-        AGENDA_SUMMARY_BUNDLE_BUILD_MS,
-        AGENDA_SUMMARY_EMBED_DISPATCH_MS,
-        AGENDA_SUMMARY_PERSIST_MS,
-        AGENDA_SUMMARY_REINDEX_MS,
-        AGENDA_SUMMARY_RENDER_MS,
-    )
     from pipeline.summary_backfill_progress import (
         add_agenda_batch_counts,
         finish_empty_summary_backfill,

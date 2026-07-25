@@ -1,409 +1,271 @@
 import sys
-from contextlib import contextmanager
 from unittest.mock import MagicMock
-
-from sqlalchemy import create_engine
-from sqlalchemy.exc import SQLAlchemyError
-from sqlalchemy.orm import sessionmaker
 
 sys.modules["llama_cpp"] = MagicMock()
 
-from pipeline import agenda_segmentation_maintenance as segmentation_mod
-from pipeline import agenda_summary_maintenance as summary_mod
+from pipeline import agenda_segmentation_maintenance
 from pipeline import agenda_summary_batch
-from pipeline import agenda_summary_inputs
-from pipeline import backlog_maintenance as mod
-from pipeline.models import AgendaItem, Base, Catalog, Document, Event, Place
+from pipeline import indexer, semantic_tasks
+from pipeline.models import AgendaItem, Catalog, Document, Event, Place
 
 
-def _session_fixture(mocker):
-    engine = create_engine("sqlite:///:memory:")
-    Base.metadata.create_all(engine)
-    Session = sessionmaker(bind=engine)
-
-    @contextmanager
-    def fake_db_session():
-        session = Session()
-        try:
-            yield session
-        finally:
-            session.close()
-
-    mocker.patch.object(mod, "db_session", fake_db_session)
-    return Session
-
-
-def test_agenda_summary_maintenance_facade_preserves_public_exports():
-    public_names = (
-        "AGENDA_SUMMARY_READY_STATUS",
-        "AGENDA_SUMMARY_SEGMENTATION_REQUIRED_REASON",
-        "AGENDA_SUMMARY_BLOCKED_LOW_SIGNAL_REASON",
-        "AGENDA_SUMMARY_CATALOG_NOT_FOUND_ERROR",
-        "AGENDA_SUMMARY_DOCUMENT_NOT_FOUND_ERROR",
-        "AGENDA_SUMMARY_TIMING_KEYS",
-        "build_agenda_summary_input_bundle",
-        "build_deterministic_agenda_summary_payload",
-        "build_deterministic_agenda_summary_payloads",
-        "persist_agenda_summary",
-        "summarize_catalog_with_optional_fallback",
-        "summarize_catalog_with_maintenance_mode",
-    )
-
-    assert all(hasattr(summary_mod, public_name) for public_name in public_names)
-    assert summary_mod.build_agenda_summary_input_bundle is agenda_summary_inputs.build_agenda_summary_input_bundle
-    assert summary_mod.build_deterministic_agenda_summary_payloads is (
-        agenda_summary_batch.build_deterministic_agenda_summary_payloads
-    )
-
-
-def test_agenda_summary_inputs_use_runtime_drop_policy_directly(monkeypatch):
-    drop_calls = []
-
-    def fake_should_drop(item_text, *, min_substantive_desc_chars):
-        drop_calls.append((item_text, min_substantive_desc_chars))
-        return True
-
-    monkeypatch.setattr(agenda_summary_inputs, "should_drop_from_agenda_summary", fake_should_drop)
-    agenda_item = MagicMock(
-        title="Consent Calendar",
-        description="Routine notice",
-        classification="Agenda Item",
-        result="",
-        page_number=1,
-    )
-
-    summary_item = agenda_summary_inputs._agenda_summary_item_payload(agenda_item)
-
-    assert summary_item is None
-    assert drop_calls == [("Consent Calendar - Routine notice", agenda_summary_inputs.AGENDA_MIN_SUBSTANTIVE_DESC_CHARS)]
-
-
-def test_agenda_summary_maintenance_single_payload_uses_facade_batch_builder(mocker):
-    batch_spy = mocker.patch.object(
-        summary_mod,
-        "build_deterministic_agenda_summary_payloads",
-        return_value={
-            "results": {101: {"status": "complete", "summary": "facade summary"}},
-            "changed_catalog_ids": [101],
-        },
-    )
-
-    payload = summary_mod.build_deterministic_agenda_summary_payload(101)
-
-    assert payload == {"status": "complete", "summary": "facade summary"}
-    batch_spy.assert_called_once()
-
-
-def test_agenda_summary_maintenance_mode_uses_facade_optional_fallback(mocker):
-    mock_session = MagicMock()
-    mock_session.__enter__.return_value = mock_session
-    mock_session.__exit__.return_value = False
-    mock_session.query.return_value.filter_by.return_value.first.return_value = MagicMock(category="minutes")
-    fallback_spy = mocker.patch.object(
-        summary_mod,
-        "summarize_catalog_with_optional_fallback",
-        return_value={"status": "complete", "completion_mode": "llm"},
-    )
-
-    result = summary_mod.summarize_catalog_with_maintenance_mode(
-        202,
-        generate_summary_callable=MagicMock(),
-        deterministic_summary_callable=MagicMock(),
-        session_factory=lambda: mock_session,
-    )
-
-    assert result["completion_mode"] == "llm"
-    fallback_spy.assert_called_once()
-
-
-def test_segment_catalog_with_mode_marks_laserfiche_error_content_failed(mocker):
-    Session = _session_fixture(mocker)
-    session = Session()
+def _seed_catalog(
+    db_session,
+    *,
+    content: str,
+    url: str,
+    location: str,
+    with_agenda_item: bool = False,
+) -> tuple[Catalog, Event]:
+    place_number = db_session.query(Place).count() + 1
     place = Place(
         name="San Mateo",
         state="CA",
-        ocd_division_id="ocd-division/country:us/state:ca/place:san_mateo",
-        crawler_name="san_mateo",
-    )
-    session.add(place)
-    session.flush()
-    event = Event(place_id=place.id, ocd_division_id=place.ocd_division_id, source="san_mateo", name="Agenda")
-    session.add(event)
-    session.flush()
-    catalog = Catalog(
-        url_hash="hash-1",
-        location="/tmp/agenda.html",
-        url="https://portal.laserfiche.com/Portal/DocView.aspx?id=1",
-        content=(
-            "The system has encountered an error and could not complete your request. "
-            "If the problem persists, please contact the site administrator."
+        ocd_division_id=(
+            "ocd-division/country:us/state:ca/place:"
+            f"san_mateo_{place_number}"
         ),
-    )
-    session.add(catalog)
-    session.flush()
-    session.add(Document(place_id=place.id, event_id=event.id, catalog_id=catalog.id, category="agenda", url=catalog.url))
-    session.commit()
-    catalog_id = catalog.id
-    session.close()
-
-    result = mod.segment_catalog_with_mode(catalog_id, segment_mode="maintenance")
-
-    assert result["status"] == "failed"
-    assert result["error"] == "laserfiche_error_page_detected"
-
-    check = Session()
-    refreshed = check.get(Catalog, catalog_id)
-    assert refreshed.agenda_segmentation_status == "failed"
-    assert refreshed.agenda_segmentation_error == "laserfiche_error_page_detected"
-    assert refreshed.agenda_segmentation_item_count == 0
-    check.close()
-
-
-def test_build_deterministic_agenda_summary_payload_blocks_laserfiche_error_content(mocker):
-    Session = _session_fixture(mocker)
-    session = Session()
-    catalog = Catalog(
-        url_hash="hash-2",
-        location="/tmp/agenda.html",
-        url="https://portal.laserfiche.com/Portal/DocView.aspx?id=2",
-        content=(
-            "The system has encountered an error and could not complete your request. "
-            "If the problem persists, please contact the site administrator."
-        ),
-    )
-    session.add(catalog)
-    session.commit()
-    catalog_id = catalog.id
-    session.close()
-
-    result = mod.build_deterministic_agenda_summary_payload(catalog_id)
-
-    assert result == {"status": "error", "error": "laserfiche_error_page_detected"}
-
-
-def test_segment_catalog_with_mode_marks_laserfiche_loading_shell_failed(mocker):
-    Session = _session_fixture(mocker)
-    session = Session()
-    place = Place(
-        name="San Mateo",
-        state="CA",
-        ocd_division_id="ocd-division/country:us/state:ca/place:san_mateo",
         crawler_name="san_mateo",
     )
-    session.add(place)
-    session.flush()
-    event = Event(place_id=place.id, ocd_division_id=place.ocd_division_id, source="san_mateo", name="Agenda")
-    session.add(event)
-    session.flush()
+    db_session.add(place)
+    db_session.flush()
+    event = Event(
+        place_id=place.id,
+        ocd_division_id=place.ocd_division_id,
+        source="san_mateo",
+        name="City Council",
+    )
+    db_session.add(event)
+    db_session.flush()
     catalog = Catalog(
-        url_hash="hash-3",
-        location="/tmp/agenda.html",
-        url="https://portal.laserfiche.com/Portal/DocView.aspx?id=3",
-        content="[PAGE 1] Loading... The URL can be used to link to this page Your browser does not support the video tag.",
+        url_hash=f"catalog-{db_session.query(Catalog).count()}",
+        location=location,
+        url=url,
+        content=content,
+        agenda_segmentation_status="complete" if with_agenda_item else None,
     )
-    session.add(catalog)
-    session.flush()
-    session.add(Document(place_id=place.id, event_id=event.id, catalog_id=catalog.id, category="agenda", url=catalog.url))
-    session.commit()
-    catalog_id = catalog.id
-    session.close()
-
-    result = mod.segment_catalog_with_mode(catalog_id, segment_mode="maintenance")
-
-    assert result["status"] == "failed"
-    assert result["error"] == "laserfiche_loading_shell_detected"
-
-
-def test_segment_catalog_with_mode_marks_single_item_staff_report_failed(mocker):
-    Session = _session_fixture(mocker)
-    session = Session()
-    place = Place(
-        name="San Mateo",
-        state="CA",
-        ocd_division_id="ocd-division/country:us/state:ca/place:san_mateo",
-        crawler_name="san_mateo",
+    db_session.add(catalog)
+    db_session.flush()
+    db_session.add(
+        Document(
+            place_id=place.id,
+            event_id=event.id,
+            catalog_id=catalog.id,
+            category="agenda",
+            url=url,
+        )
     )
-    session.add(place)
-    session.flush()
-    event = Event(place_id=place.id, ocd_division_id=place.ocd_division_id, source="san_mateo", name="Agenda")
-    session.add(event)
-    session.flush()
-    catalog = Catalog(
-        url_hash="hash-4",
-        location="/tmp/agenda.pdf",
-        url="https://portal.laserfiche.com/Portal/ElectronicFile.aspx?docid=4",
-        content=(
-            "CITY OF SAN MATEO\nAgenda Report\nAgenda Number: 8\nSection Name: NEW BUSINESS\n"
-            "TO: City Council\nFROM: Alex Khojikian, City Manager\n"
-            "SUBJECT: Boards and Commissions Vacancy Process\n"
-            "RECOMMENDATION: Approve the revised vacancy process."
-        ),
-    )
-    session.add(catalog)
-    session.flush()
-    doc = Document(place_id=place.id, event_id=event.id, catalog_id=catalog.id, category="agenda", url=catalog.url)
-    doc.event = event
-    session.add(doc)
-    session.commit()
-    catalog_id = catalog.id
-    session.close()
-
-    mocker.patch.object(mod, "has_viable_structured_agenda_source", return_value=False)
-
-    result = mod.segment_catalog_with_mode(catalog_id, segment_mode="maintenance")
-
-    assert result["status"] == "failed"
-    assert result["error"] == "single_item_staff_report_detected"
-
-    check = Session()
-    refreshed = check.get(Catalog, catalog_id)
-    assert refreshed.agenda_segmentation_status == "failed"
-    assert refreshed.agenda_segmentation_error == "single_item_staff_report_detected"
-    assert refreshed.agenda_segmentation_item_count == 0
-    check.close()
-
-
-def test_build_deterministic_agenda_summary_payloads_batches_callbacks_only_for_changed_catalogs(mocker):
-    Session = _session_fixture(mocker)
-    session = Session()
-    place = Place(
-        name="San Mateo",
-        state="CA",
-        ocd_division_id="ocd-division/country:us/state:ca/place:san_mateo",
-        crawler_name="san_mateo",
-    )
-    session.add(place)
-    session.flush()
-    event = Event(place_id=place.id, ocd_division_id=place.ocd_division_id, source="san_mateo", name="Agenda")
-    session.add(event)
-    session.flush()
-
-    first_catalog = Catalog(
-        url_hash="hash-5",
-        location="/tmp/agenda-1.html",
-        url="https://example.com/agenda-1",
-        content="Agenda with housing discussion and public comment.",
-    )
-    second_catalog = Catalog(
-        url_hash="hash-6",
-        location="/tmp/agenda-2.html",
-        url="https://example.com/agenda-2",
-        content="Agenda with budget discussion and final reading.",
-    )
-    session.add_all([first_catalog, second_catalog])
-    session.flush()
-    session.add_all(
-        [
-            Document(place_id=place.id, event_id=event.id, catalog_id=first_catalog.id, category="agenda", url=first_catalog.url),
-            Document(place_id=place.id, event_id=event.id, catalog_id=second_catalog.id, category="agenda", url=second_catalog.url),
-            AgendaItem(catalog_id=first_catalog.id, event_id=event.id, order=1, title="Housing Update", description="Discuss housing pipeline.", page_number=1),
-            AgendaItem(catalog_id=second_catalog.id, event_id=event.id, order=1, title="Budget Adoption", description="Adopt the annual budget.", page_number=1),
-        ]
-    )
-    session.commit()
-
-    seeded = mod.build_deterministic_agenda_summary_payload(first_catalog.id)
-    assert seeded["status"] == "complete"
-
-    reindex_spy = MagicMock(return_value={"catalogs_considered": 1, "catalogs_reindexed": 1, "catalogs_failed": 0, "failed_catalog_ids": []})
-    embed_spy = MagicMock(return_value={"catalogs_considered": 1, "embed_enqueued": 1, "embed_dispatch_failed": 0, "failed_catalog_ids": []})
-
-    result = mod.build_deterministic_agenda_summary_payloads(
-        [first_catalog.id, second_catalog.id],
-        reindex_callback=reindex_spy,
-        embed_callback=embed_spy,
-    )
-
-    assert result["changed_catalog_ids"] == [second_catalog.id]
-    reindex_spy.assert_called_once_with([second_catalog.id])
-    embed_spy.assert_called_once_with([second_catalog.id])
-
-
-def test_build_deterministic_agenda_summary_payloads_reports_callback_failures_after_commit(mocker):
-    Session = _session_fixture(mocker)
-    session = Session()
-    place = Place(
-        name="San Mateo",
-        state="CA",
-        ocd_division_id="ocd-division/country:us/state:ca/place:san_mateo",
-        crawler_name="san_mateo",
-    )
-    session.add(place)
-    session.flush()
-    event = Event(place_id=place.id, ocd_division_id=place.ocd_division_id, source="san_mateo", name="Agenda")
-    session.add(event)
-    session.flush()
-    catalog = Catalog(
-        url_hash="hash-7",
-        location="/tmp/agenda-7.html",
-        url="https://example.com/agenda-7",
-        content="Agenda with transportation discussion and public comment.",
-    )
-    session.add(catalog)
-    session.flush()
-    session.add_all(
-        [
-            Document(place_id=place.id, event_id=event.id, catalog_id=catalog.id, category="agenda", url=catalog.url),
+    if with_agenda_item:
+        db_session.add(
             AgendaItem(
                 catalog_id=catalog.id,
                 event_id=event.id,
                 order=1,
-                title="Transportation Update",
-                description="Discuss signal timing improvements.",
+                title="Housing Update",
+                description="Discuss housing funding and authorize the proposed budget.",
+                classification="Action",
                 page_number=1,
-            ),
-        ]
+            )
+        )
+    db_session.commit()
+    return catalog, event
+
+
+def _install_successful_side_effect_boundaries(mocker):
+    meili_client = MagicMock()
+    documents_index = MagicMock()
+    meili_client.index.return_value = documents_index
+    mocker.patch.object(indexer.meilisearch, "Client", return_value=meili_client)
+    embed_dispatch = mocker.patch.object(
+        semantic_tasks.embed_catalog_task,
+        "delay",
+        return_value=None,
     )
-    session.commit()
-    catalog_id = catalog.id
-    session.close()
+    return documents_index, embed_dispatch
 
-    agenda_summary_batch = mod.build_deterministic_agenda_summary_payloads(
-        [catalog_id],
-        reindex_callback=MagicMock(side_effect=RuntimeError("search unavailable")),
-        embed_callback=MagicMock(side_effect=RuntimeError("broker unavailable")),
+
+def test_segment_catalog_marks_laserfiche_error_content_failed(db_session):
+    catalog, _event = _seed_catalog(
+        db_session,
+        content=(
+            "The system has encountered an error and could not complete your request. "
+            "If the problem persists, please contact the site administrator."
+        ),
+        url="https://portal.laserfiche.com/Portal/DocView.aspx?id=1",
+        location="/tmp/agenda.html",
     )
 
-    assert agenda_summary_batch["results"][catalog_id]["status"] == "complete"
-    assert agenda_summary_batch["changed_catalog_ids"] == [catalog_id]
-    assert agenda_summary_batch["reindex_summary"]["catalogs_failed"] == 1
-    assert agenda_summary_batch["reindex_summary"]["failed_catalog_ids"] == [catalog_id]
-    assert agenda_summary_batch["embed_summary"]["embed_dispatch_failed"] == 1
-    assert agenda_summary_batch["embed_summary"]["failed_catalog_ids"] == [catalog_id]
+    segmentation_result = agenda_segmentation_maintenance.segment_catalog_with_mode(
+        catalog.id,
+        segment_mode="maintenance",
+    )
 
-    check = Session()
-    refreshed = check.get(Catalog, catalog_id)
+    assert segmentation_result["status"] == "failed"
+    assert segmentation_result["error"] == "laserfiche_error_page_detected"
+    db_session.expire_all()
+    refreshed = db_session.get(Catalog, catalog.id)
+    assert refreshed.agenda_segmentation_status == "failed"
+    assert refreshed.agenda_segmentation_error == "laserfiche_error_page_detected"
+    assert refreshed.agenda_segmentation_item_count == 0
+
+
+def test_agenda_summary_rejects_laserfiche_error_content(db_session):
+    catalog, _event = _seed_catalog(
+        db_session,
+        content=(
+            "The system has encountered an error and could not complete your request. "
+            "If the problem persists, please contact the site administrator."
+        ),
+        url="https://portal.laserfiche.com/Portal/DocView.aspx?id=2",
+        location="/tmp/agenda.html",
+    )
+
+    summary_result = agenda_summary_batch.build_deterministic_agenda_summary_payload(
+        catalog.id
+    )
+
+    assert summary_result == {
+        "status": "error",
+        "error": "laserfiche_error_page_detected",
+    }
+    db_session.expire_all()
+    assert db_session.get(Catalog, catalog.id).summary is None
+
+
+def test_segment_catalog_marks_laserfiche_loading_shell_failed(db_session):
+    catalog, _event = _seed_catalog(
+        db_session,
+        content=(
+            "[PAGE 1] Loading... The URL can be used to link to this page "
+            "Your browser does not support the video tag."
+        ),
+        url="https://portal.laserfiche.com/Portal/DocView.aspx?id=3",
+        location="/tmp/agenda.html",
+    )
+
+    segmentation_result = agenda_segmentation_maintenance.segment_catalog_with_mode(
+        catalog.id,
+        segment_mode="maintenance",
+    )
+
+    assert segmentation_result["status"] == "failed"
+    assert segmentation_result["error"] == "laserfiche_loading_shell_detected"
+
+
+def test_segment_catalog_marks_single_item_staff_report_failed(db_session):
+    catalog, _event = _seed_catalog(
+        db_session,
+        content=(
+            "CITY OF SAN MATEO\nAgenda Report\nAgenda Number: 8\n"
+            "Section Name: NEW BUSINESS\nTO: City Council\n"
+            "FROM: Alex Khojikian, City Manager\n"
+            "SUBJECT: Boards and Commissions Vacancy Process\n"
+            "RECOMMENDATION: Approve the revised vacancy process."
+        ),
+        url="https://portal.laserfiche.com/Portal/ElectronicFile.aspx?docid=4",
+        location="/tmp/agenda.pdf",
+    )
+
+    segmentation_result = agenda_segmentation_maintenance.segment_catalog_with_mode(
+        catalog.id,
+        segment_mode="maintenance",
+    )
+
+    assert segmentation_result["status"] == "failed"
+    assert segmentation_result["error"] == "single_item_staff_report_detected"
+    db_session.expire_all()
+    refreshed = db_session.get(Catalog, catalog.id)
+    assert refreshed.agenda_segmentation_status == "failed"
+    assert refreshed.agenda_segmentation_error == "single_item_staff_report_detected"
+    assert refreshed.agenda_segmentation_item_count == 0
+
+
+def test_agenda_batch_runs_side_effects_only_for_changed_catalogs(
+    db_session,
+    mocker,
+):
+    first_catalog, _event = _seed_catalog(
+        db_session,
+        content="Agenda with housing discussion and public comment.",
+        url="https://example.com/agenda-1",
+        location="/tmp/agenda-1.html",
+        with_agenda_item=True,
+    )
+    documents_index, embed_dispatch = _install_successful_side_effect_boundaries(
+        mocker
+    )
+    first_summary = agenda_summary_batch.build_deterministic_agenda_summary_payload(
+        first_catalog.id
+    )
+    assert first_summary["status"] == "complete"
+    documents_index.reset_mock()
+    embed_dispatch.reset_mock()
+
+    second_catalog, _event = _seed_catalog(
+        db_session,
+        content="Agenda with budget discussion and final reading.",
+        url="https://example.com/agenda-2",
+        location="/tmp/agenda-2.html",
+        with_agenda_item=True,
+    )
+
+    agenda_batch = agenda_summary_batch.build_deterministic_agenda_summary_payloads(
+        [first_catalog.id, second_catalog.id]
+    )
+
+    assert agenda_batch["changed_catalog_ids"] == [second_catalog.id]
+    assert agenda_batch["reindex_summary"] == {
+        "catalogs_considered": 1,
+        "catalogs_reindexed": 1,
+        "catalogs_failed": 0,
+        "failed_catalog_ids": [],
+    }
+    assert agenda_batch["embed_summary"] == {
+        "catalogs_considered": 1,
+        "embed_enqueued": 1,
+        "embed_dispatch_failed": 0,
+        "failed_catalog_ids": [],
+    }
+    indexed_documents = documents_index.add_documents.call_args.args[0]
+    assert {document["catalog_id"] for document in indexed_documents} == {
+        second_catalog.id
+    }
+    embed_dispatch.assert_called_once_with(second_catalog.id)
+
+
+def test_agenda_batch_reports_side_effect_failures_after_persistence(
+    db_session,
+    mocker,
+):
+    catalog, _event = _seed_catalog(
+        db_session,
+        content="Agenda with transportation discussion and public comment.",
+        url="https://example.com/agenda-3",
+        location="/tmp/agenda-3.html",
+        with_agenda_item=True,
+    )
+    mocker.patch.object(
+        indexer.meilisearch,
+        "Client",
+        side_effect=RuntimeError("search unavailable"),
+    )
+    mocker.patch.object(
+        semantic_tasks.embed_catalog_task,
+        "delay",
+        side_effect=RuntimeError("broker unavailable"),
+    )
+
+    agenda_batch = agenda_summary_batch.build_deterministic_agenda_summary_payloads(
+        [catalog.id]
+    )
+
+    assert agenda_batch["results"][catalog.id]["status"] == "complete"
+    assert agenda_batch["changed_catalog_ids"] == [catalog.id]
+    assert agenda_batch["reindex_summary"]["catalogs_failed"] == 1
+    assert agenda_batch["reindex_summary"]["failed_catalog_ids"] == [catalog.id]
+    assert agenda_batch["embed_summary"]["embed_dispatch_failed"] == 1
+    assert agenda_batch["embed_summary"]["failed_catalog_ids"] == [catalog.id]
+    db_session.expire_all()
+    refreshed = db_session.get(Catalog, catalog.id)
     assert refreshed.summary
     assert refreshed.summary_source_hash
-    check.close()
-
-
-def test_segment_catalog_with_mode_reports_sqlalchemy_failure_persist_error(mocker, caplog):
-    catalog = MagicMock(id=404, content="Agenda content with enough structure to attempt segmentation.")
-    document = MagicMock(event_id=909, category="agenda")
-    session = MagicMock()
-    session.__enter__.return_value = session
-    session.__exit__.return_value = False
-    session.get.return_value = catalog
-    session.query.return_value.filter_by.return_value.first.return_value = document
-    session.commit.side_effect = SQLAlchemyError("write failed")
-
-    mocker.patch.object(segmentation_mod, "resolve_agenda_items", side_effect=SQLAlchemyError("read failed"))
-    mocker.patch.object(segmentation_mod, "classify_catalog_bad_content", return_value=None)
-
-    with caplog.at_level("WARNING"):
-        segmentation_result = segmentation_mod.segment_catalog_with_mode(
-            404,
-            session_factory=lambda: session,
-            has_viable_structured_source=lambda _session, _catalog, _document: True,
-        )
-
-    assert segmentation_result == {
-        "status": "failed",
-        "llm_attempted": 0,
-        "llm_skipped_heuristic_first": 0,
-        "heuristic_complete": 0,
-        "source_used": None,
-        "error": "read failed",
-    }
-    assert "agenda_segmentation.failure_persist_failed catalog_id=404" in caplog.text

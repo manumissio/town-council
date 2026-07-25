@@ -8,6 +8,42 @@ Use each entry to record:
 - the affected boundary or contract
 - links to the canonical docs that carry the ongoing operational or architecture detail
 
+## 2026-07-25: Maintenance hydration operations own runtime dependencies
+
+- Status: Accepted
+- Decision:
+  - `pipeline/agenda_summary_fallback.py` owns maintenance summary routing,
+    direct generation, provider-failure classification, and deterministic
+    fallback selection.
+  - Agenda and non-agenda deterministic writers own their database and
+    post-commit side-effect boundaries.
+  - Staged and repaired summary hydration runners import their operations
+    directly instead of accepting dependency callables.
+  - T-DB-1B deletes the agenda summary maintenance facade, callback adapter,
+    summary exports from `backlog_maintenance`, and staged/repaired summary
+    forwarding wrappers.
+- Why:
+  - Callable dependency bags hid operation ownership and made test patch
+    targets part of production signatures.
+  - Direct runtime boundaries preserve the same fallback, persistence,
+    progress, and operator contracts while tests substitute only approved
+    database, inference, Meilisearch, Celery, clock, and filesystem
+    boundaries.
+- Affected boundaries:
+  - Summary fallback mode, timeout policy, provider-failure reasons,
+    completion modes, count/timing payloads, staged chunk behavior, CLI flags,
+    and JSON/progress output remain unchanged.
+  - Existing staged segmentation delegation through `segment_city_corpus`
+    remains outside this decision.
+  - This decision supersedes earlier compatibility-facade statements for
+    `pipeline/agenda_summary_maintenance.py`, agenda summary exports from
+    `pipeline/backlog_maintenance.py`, and staged/repaired summary dependency
+    injection.
+- Canonical references:
+  - [Testing policy](TESTING.MD)
+  - [T-DB-1B implementation plan](plans/T_DB_1B_MAINTENANCE_CALLABLE_CLEANUP_PLAN.md)
+  - [Town Council remediation plan](plans/TOWN_COUNCIL_REMEDIATION_PLAN.md)
+
 ## 2026-07-25: Summary backfill runner is the hydration operation owner
 
 - Status: Accepted

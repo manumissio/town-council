@@ -198,10 +198,12 @@ Primary owners:
   `pipeline/agenda_text_normalization.py`, `pipeline/agenda_text_noise.py`,
   `pipeline/agenda_text_noise_patterns.py`, `pipeline/agenda_item_acceptance.py`,
   `pipeline/agenda_item_dedupe.py`, and `pipeline/agenda_end_markers.py`
-- `pipeline/agenda_summary_maintenance.py` facade plus focused maintenance modules:
-  `pipeline/agenda_summary_contracts.py`, `pipeline/agenda_summary_inputs.py`,
-  `pipeline/agenda_summary_callbacks.py`, `pipeline/agenda_summary_batch.py`,
-  and `pipeline/agenda_summary_fallback.py`
+- Agenda-summary maintenance routing: `pipeline/agenda_summary_fallback.py`,
+  with contracts and inputs in `pipeline/agenda_summary_contracts.py` and
+  `pipeline/agenda_summary_inputs.py`, deterministic writers in
+  `pipeline/agenda_summary_batch.py` and
+  `pipeline/non_agenda_summary_fallback.py`, and post-commit effects in
+  `pipeline/agenda_summary_side_effects.py`
 - `pipeline/agenda_resolver.py` facade plus focused resolver modules:
   `pipeline/agenda_resolver_contracts.py`, `pipeline/agenda_resolver_quality.py`,
   `pipeline/agenda_resolver_legistar_policy.py`, `pipeline/agenda_resolver_html.py`,

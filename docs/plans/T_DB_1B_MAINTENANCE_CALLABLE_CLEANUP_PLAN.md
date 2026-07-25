@@ -38,6 +38,8 @@ selection, fallback policy, counts, progress, persistence, and side effects.
 - `docs/plans/T_DB_1B_MAINTENANCE_CALLABLE_CLEANUP_PLAN.md`
 - `docs/plans/TOWN_COUNCIL_REMEDIATION_PLAN.md`
 - `docs/ADR.md`
+- `ARCHITECTURE.md` (agenda-summary maintenance owner map only)
+- `docs/PIPELINE.md` (agenda-summary maintenance owner map only)
 - `pipeline/agenda_summary_batch.py`
 - `pipeline/agenda_summary_callbacks.py` (delete)
 - `pipeline/agenda_summary_fallback.py`
@@ -139,7 +141,10 @@ G2, and G4 are unaffected. No open gate blocks T-DB-1B.
     `_callable`, no `session_factory`, and no `time_module`.
 14. Add a dated ADR entry superseding prior compatibility-facade decisions
     only for maintenance summary and staged hydration.
-15. Run required verification, simplify the diff, obtain fresh subagent
+15. Update the canonical architecture and pipeline owner maps so they name the
+    direct maintenance router, deterministic writers, and side-effect owner
+    rather than the deleted facade and callback adapter.
+16. Run required verification, simplify the diff, obtain fresh subagent
     pre-commit review, fix every eligible P1/P2, and deliver one PR.
 
 Import direction:
@@ -373,10 +378,13 @@ git diff --check
 git status --short
 ```
 
-Delivery uses two commits:
+Delivery uses focused commits:
 
 1. `docs(remediation): authorize T-DB-1B callable cleanup`
-2. `refactor(maintenance): remove dependency callable seams`
+2. `refactor(maintenance): make repaired summary hydration direct`
+3. `refactor(maintenance): make staged hydration operations direct`
+4. `refactor(maintenance): make summary fallback operations direct`
+5. `fix(maintenance): close direct hydration contract gaps`
 
 Push `codex/t-db-1b-remove-maintenance-callables`, open one PR titled
 `T-DB-1B: Remove maintenance fallback callable injection`, request Codex
@@ -394,8 +402,10 @@ knowingly restores compatibility facades and callable injection.
 - New T-DB-1B implementation plan.
 - `docs/ADR.md`: accepted direct maintenance/staged operation ownership and
   superseded facade decisions.
-- README, architecture review, operations, performance, testing policy,
-  security, data governance, and API contracts: no changes.
+- `ARCHITECTURE.md` and `docs/PIPELINE.md`: replace deleted maintenance module
+  names in their active owner maps.
+- README, historical architecture review, operations, performance, testing
+  policy, security, data governance, and API contracts: no changes.
 
 ## 7. Delivery Self-Audit
 
@@ -411,9 +421,14 @@ pre-commit subagent findings, applied fixes, commit hashes, PR URL, unresolved
 thread count, and final CI state. Mark anything unrun `NOT VERIFIED`.
 
 **z) Deviations.** The authorized ledger deviation is expansion from the
-original nine named files plus unspecified tests to the exact twenty-six-file
-set above. T-DB-1B also receives a temporary exclusive coordination grant for
-these files over the DEDUP-B and GOV lane rows. Any other changed file,
-runtime default change, fallback-policy
+original nine named files plus unspecified tests to the exact twenty-eight-file
+set above. The operator approved the final two-file expansion after independent
+review found the canonical owner maps still named the deleted modules. T-DB-1B
+also receives a temporary exclusive coordination grant for these files over
+the DEDUP-B, GOV, and affected PLAT documentation subsections. Implementation
+landed as five focused commits rather than the initially proposed two because
+parallel work separated repaired hydration, staged hydration, fallback
+ownership, and final contract/review closure. No history was rewritten. Any
+other changed file, runtime default change, fallback-policy
 change, timeout-policy change, soak-comparability change, skipped review,
 unresolved P1/P2, or unrun required check is a blocker.
