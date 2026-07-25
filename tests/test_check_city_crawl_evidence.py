@@ -1,7 +1,14 @@
-from datetime import datetime
+from datetime import UTC, datetime
 
 from pipeline.models import EventStage, UrlStage
 from scripts import check_city_crawl_evidence as mod
+
+
+def test_crawl_evidence_parser_returns_aware_utc():
+    parsed_at = mod._parse_iso_utc("2026-03-15T02:14:23Z")
+
+    assert parsed_at == datetime(2026, 3, 15, 2, 14, 23, tzinfo=UTC)
+    assert parsed_at.utcoffset().total_seconds() == 0
 
 
 def test_collect_crawl_evidence_includes_rows_in_end_second(db_session):

@@ -1,0 +1,166 @@
+from __future__ import annotations
+
+from dataclasses import dataclass
+
+from sqlalchemy import text
+from sqlalchemy.engine import Connection
+
+from pipeline.models import db_connect
+
+
+POSTGRESQL_DIALECT = "postgresql"
+NAIVE_TIMESTAMP_TYPE = "timestamp without time zone"
+AWARE_TIMESTAMP_TYPE = "timestamp with time zone"
+UTC_TIME_ZONE = "UTC"
+GENERATED_DEFAULTS = {"now()", "current_timestamp"}
+
+
+@dataclass(frozen=True, slots=True)
+class TimestampColumnSpec:
+    table_name: str
+    column_name: str
+    has_server_default: bool
+
+
+class TimestampMigrationError(RuntimeError):
+    """The stored timestamp schema cannot be migrated safely."""
+
+
+TIMESTAMP_COLUMNS = (
+    TimestampColumnSpec("person", "created_at", True),
+    TimestampColumnSpec("data_issue", "created_at", True),
+    TimestampColumnSpec("url_stage", "created_at", True),
+    TimestampColumnSpec("event_stage", "scraped_datetime", True),
+    TimestampColumnSpec("event", "scraped_datetime", True),
+    TimestampColumnSpec("url_stage_hist", "created_at", True),
+    TimestampColumnSpec("semantic_embedding", "updated_at", True),
+    TimestampColumnSpec("catalog", "extraction_attempted_at", False),
+    TimestampColumnSpec("catalog", "lineage_updated_at", False),
+    TimestampColumnSpec("catalog", "agenda_segmentation_attempted_at", False),
+    TimestampColumnSpec("catalog", "created_at", True),
+    TimestampColumnSpec("catalog", "uploaded_at", True),
+    TimestampColumnSpec("document", "created_at", True),
+)
+
+
+def _read_timestamp_contract(
+    connection: Connection,
+    timestamp_spec: TimestampColumnSpec,
+) -> tuple[str, str | None]:
+    timestamp_row = connection.execute(
+        text(
+            """
+            SELECT data_type, column_default
+            FROM information_schema.columns
+            WHERE table_schema = current_schema()
+              AND table_name = :table_name
+              AND column_name = :column_name
+            """
+        ),
+        {
+            "table_name": timestamp_spec.table_name,
+            "column_name": timestamp_spec.column_name,
+        },
+    ).one_or_none()
+    if timestamp_row is None:
+        raise TimestampMigrationError(
+            f"Missing timestamp column: {timestamp_spec.table_name}.{timestamp_spec.column_name}"
+        )
+
+    timestamp_type, timestamp_default = timestamp_row
+    if not isinstance(timestamp_type, str):
+        raise TimestampMigrationError(
+            f"Invalid timestamp metadata: {timestamp_spec.table_name}.{timestamp_spec.column_name}"
+        )
+    if timestamp_type not in {NAIVE_TIMESTAMP_TYPE, AWARE_TIMESTAMP_TYPE}:
+        raise TimestampMigrationError(
+            f"Unsupported timestamp type for {timestamp_spec.table_name}."
+            f"{timestamp_spec.column_name}: {timestamp_type}"
+        )
+    if timestamp_default is not None and not isinstance(timestamp_default, str):
+        raise TimestampMigrationError(
+            f"Invalid timestamp default: {timestamp_spec.table_name}.{timestamp_spec.column_name}"
+        )
+    return timestamp_type, timestamp_default
+
+
+def _drop_timestamp_default(connection: Connection, timestamp_spec: TimestampColumnSpec) -> None:
+    connection.execute(
+        text(
+            f'ALTER TABLE "{timestamp_spec.table_name}" '
+            f'ALTER COLUMN "{timestamp_spec.column_name}" DROP DEFAULT'
+        )
+    )
+
+
+def _convert_timestamp_to_utc(connection: Connection, timestamp_spec: TimestampColumnSpec) -> None:
+    connection.execute(
+        text(
+            f'ALTER TABLE "{timestamp_spec.table_name}" '
+            f'ALTER COLUMN "{timestamp_spec.column_name}" TYPE TIMESTAMP WITH TIME ZONE '
+            f'USING "{timestamp_spec.column_name}" AT TIME ZONE \'{UTC_TIME_ZONE}\''
+        )
+    )
+
+
+def _restore_generated_default(connection: Connection, timestamp_spec: TimestampColumnSpec) -> None:
+    if not timestamp_spec.has_server_default:
+        return
+    connection.execute(
+        text(
+            f'ALTER TABLE "{timestamp_spec.table_name}" '
+            f'ALTER COLUMN "{timestamp_spec.column_name}" SET DEFAULT now()'
+        )
+    )
+
+
+def _migrate_timestamp_column(
+    connection: Connection,
+    timestamp_spec: TimestampColumnSpec,
+    timestamp_contract: tuple[str, str | None],
+) -> bool:
+    timestamp_type, timestamp_default = timestamp_contract
+    default_matches = (
+        timestamp_default is not None
+        and timestamp_default.lower() in GENERATED_DEFAULTS
+        and timestamp_spec.has_server_default
+    ) or (timestamp_default is None and not timestamp_spec.has_server_default)
+    if timestamp_type == AWARE_TIMESTAMP_TYPE and default_matches:
+        return False
+
+    _drop_timestamp_default(connection, timestamp_spec)
+    if timestamp_type == NAIVE_TIMESTAMP_TYPE:
+        _convert_timestamp_to_utc(connection, timestamp_spec)
+    _restore_generated_default(connection, timestamp_spec)
+    return timestamp_type == NAIVE_TIMESTAMP_TYPE
+
+
+def _analyze_changed_tables(connection: Connection, changed_tables: set[str]) -> None:
+    for table_name in sorted(changed_tables):
+        connection.execute(text(f'ANALYZE "{table_name}"'))
+
+
+def migrate() -> None:
+    engine = db_connect()
+    if engine.dialect.name != POSTGRESQL_DIALECT:
+        return
+
+    with engine.begin() as connection:
+        timestamp_contracts = {
+            timestamp_spec: _read_timestamp_contract(connection, timestamp_spec)
+            for timestamp_spec in TIMESTAMP_COLUMNS
+        }
+        changed_tables = {
+            timestamp_spec.table_name
+            for timestamp_spec in TIMESTAMP_COLUMNS
+            if _migrate_timestamp_column(
+                connection,
+                timestamp_spec,
+                timestamp_contracts[timestamp_spec],
+            )
+        }
+        _analyze_changed_tables(connection, changed_tables)
+
+
+if __name__ == "__main__":
+    migrate()

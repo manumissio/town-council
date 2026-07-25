@@ -18,6 +18,7 @@ from sqlalchemy.engine import Connection
 
 from pipeline import migrate_v8
 from pipeline import migrate_v9
+from pipeline import migrate_v10
 from pipeline.db_migration_columns import add_column_if_missing, postgres_column_exists
 from pipeline.db_migration_runner import run_migrations
 from pipeline.models import db_connect
@@ -40,6 +41,7 @@ def migrate() -> None:
         migrate_v9_module=migrate_v9,
         logger=logger,
     )
+    migrate_v10.migrate()
 
 
 if __name__ == "__main__":

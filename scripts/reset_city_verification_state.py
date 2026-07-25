@@ -4,7 +4,7 @@ from __future__ import annotations
 import argparse
 import json
 from dataclasses import dataclass
-from datetime import date, datetime, timezone
+from datetime import UTC, date, datetime
 
 from sqlalchemy import and_, func, or_
 from sqlalchemy.orm import selectinload
@@ -34,8 +34,7 @@ class VerificationBaseline:
 
 
 def _parse_iso_utc(value: str) -> datetime:
-    dt = datetime.strptime(value, ISO_FMT)
-    return dt.replace(tzinfo=timezone.utc).replace(tzinfo=None)
+    return datetime.strptime(value, ISO_FMT).replace(tzinfo=UTC)
 
 
 def _ocd_division_id_for_city(city: str) -> str:

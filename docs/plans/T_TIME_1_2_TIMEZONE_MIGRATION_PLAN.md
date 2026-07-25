@@ -1,7 +1,7 @@
 # T-TIME-1 + T-TIME-2: Make Stored Timestamps UTC-Aware
 
-`artifact_contract: ce-unified-plan/v1`  
-`artifact_readiness: implementation-ready`  
+`artifact_contract: ce-unified-plan/v1`
+`artifact_readiness: implementation-ready`
 `execution: code`
 
 ## 1. Context & Alignment
@@ -62,6 +62,7 @@ lane change. Its exact `files_owned` set is:
 - `tests/test_check_city_crawl_evidence.py`
 - `tests/test_reset_city_verification_state.py`
 - `tests/test_api.py`
+- `tests/test_run_pipeline_onboarding.py`
 
 The task receives narrow coordination grants from CI for the PostgreSQL
 service and DTZ ratchet, CRAWL for its duplicate stage-table declarations,
@@ -310,6 +311,8 @@ database. The PR's Python Guardrails result is mandatory PostgreSQL evidence.
 
 ```bash
 BACKUP_PATH="<BACKUP_PATH>/town_council_pre_v10.dump"
+docker compose -f docker-compose.yml -f docker-compose.dev.yml stop
+docker compose -f docker-compose.yml -f docker-compose.dev.yml up -d postgres
 docker compose exec -T postgres pg_dump \
   -U town_council -d town_council_db -Fc > "$BACKUP_PATH"
 docker compose exec -T postgres pg_restore --list < "$BACKUP_PATH" >/dev/null
@@ -361,6 +364,26 @@ thread count, and final CI state. Current preflight evidence: PostgreSQL 15
 container is running with `Etc/UTC`, but the local database has no application
 tables, so historical UTC-wall-clock validity is `NOT VERIFIED`.
 
+Local delivery evidence on 2026-07-25:
+
+- PASS, tests-first red: the initial contract run produced 39 expected failures,
+  466 passes, and 6 PostgreSQL skips; v10 ordering separately produced 2
+  expected failures before implementation.
+- PASS: `./.venv/bin/ruff check .`,
+  `./.venv/bin/pre-commit run ruff --all-files`, and `./.venv/bin/mypy`.
+- PASS: focused timestamp, migration, guardrail, and docs tests produced 436
+  passes and 6 local PostgreSQL skips.
+- PASS: the coverage-enabled suite produced 1,531 passes, 6 local PostgreSQL
+  skips, and 82.83% coverage against the 71% floor.
+- PASS: isolated PostgreSQL 15 smokes proved UTC-instant preservation, physical
+  defaults, no-DDL reruns, and validation of all metadata before DDL.
+- PASS: independent pre-commit review initially found two P1 and two P2
+  findings. The backup now follows writer shutdown, migration uses `--no-deps`,
+  metadata validation precedes DDL, and diff whitespace is clean. Re-review
+  found no remaining P1/P2.
+- NOT VERIFIED: historical UTC wall-clock validity on a populated deployment
+  and the mandatory CI PostgreSQL run.
+
 **z) Deviations.** Authorized deviations are combining T-TIME-1/T-TIME-2 and
 the narrow CI, CRAWL, DEDUP-C, DEDUP-D, PLAT, and GOV coordination grants.
 Independent planning review added crawler model parity, mandatory local
@@ -368,3 +391,10 @@ PostgreSQL commands, current G5 checks, RFC 3339 API coverage, and executable
 backup/restore steps. Any other changed path, schema object, dependency,
 environment default, skipped review, unresolved P1/P2, or unrun required gate
 is a blocker.
+
+One procedural deviation occurred during review repair: the validation-before-
+DDL regression assertion and implementation correction were applied in the
+same focused patch rather than running the new assertion red first. The defect
+had already been reproduced by the independent reviewer; focused tests,
+isolated PostgreSQL evidence, the complete suite, and independent re-review
+then passed.

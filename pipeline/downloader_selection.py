@@ -1,6 +1,6 @@
 import logging
 import os
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 from pipeline.models import UrlStage
 
@@ -9,12 +9,12 @@ logger = logging.getLogger(__name__)
 ISO_FMT = "%Y-%m-%dT%H:%M:%SZ"
 
 
-def _parse_onboarding_started_at(raw_value: str | None):
+def _parse_onboarding_started_at(raw_value: str | None) -> datetime | None:
     value = str(raw_value or "").strip()
     if not value:
         return None
     try:
-        return datetime.strptime(value, ISO_FMT).replace(tzinfo=timezone.utc).replace(tzinfo=None)
+        return datetime.strptime(value, ISO_FMT).replace(tzinfo=UTC)
     except ValueError:
         logger.warning("downloader_onboarding_scope invalid_started_at=%r", value)
         return None

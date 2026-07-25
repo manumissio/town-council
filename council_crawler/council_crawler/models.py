@@ -1,7 +1,5 @@
-import datetime
-
 from sqlalchemy import create_engine
-from sqlalchemy import Column, Boolean, String, Integer, Date, DateTime
+from sqlalchemy import Column, Boolean, String, Integer, Date, DateTime, func
 from sqlalchemy.orm import DeclarativeBase
 from council_crawler import settings
 
@@ -61,7 +59,7 @@ class UrlStage(Base):
     url = Column(String)
     url_hash = Column(String)
     category = Column(String) # "agenda" or "minutes"
-    created_at = Column(DateTime, default=datetime.datetime.now)
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
 
 
 class EventStage(Base):
@@ -74,9 +72,8 @@ class EventStage(Base):
     id = Column(Integer, primary_key=True)
     ocd_division_id = Column(String)
     name = Column(String) # e.g. "City Council Regular Meeting"
-    scraped_datetime = Column(DateTime, default=datetime.datetime.now)
+    scraped_datetime = Column(DateTime(timezone=True), server_default=func.now())
     record_date = Column(Date) # Date of the meeting
     source = Column(String)
     source_url = Column(String)
     meeting_type = Column(String)
-

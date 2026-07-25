@@ -789,7 +789,7 @@ must wait for the first PR to merge and rebase on `master`.
 - priority: P1
 - status: coordinated implementation in progress with T-TIME-2
 - implementation_plan: `docs/plans/T_TIME_1_2_TIMEZONE_MIGRATION_PLAN.md`
-- files_owned: exact shared twenty-seven-file set in the implementation plan
+- files_owned: exact shared twenty-eight-file set in the implementation plan
 - do: Make all thirteen model timestamps timezone-aware. Give the ten
   generated timestamps `server_default=func.now()` and preserve
   `SemanticEmbedding.updated_at` update behavior. Keep extraction,
@@ -806,7 +806,7 @@ must wait for the first PR to merge and rebase on `master`.
 - priority: P1
 - status: coordinated implementation in progress with T-TIME-1
 - implementation_plan: `docs/plans/T_TIME_1_2_TIMEZONE_MIGRATION_PLAN.md`
-- files_owned: exact shared twenty-seven-file set in the implementation plan
+- files_owned: exact shared twenty-eight-file set in the implementation plan
 - do: Add mandatory v10 conversion using
   `ALTER ... TYPE timestamptz USING <column> AT TIME ZONE 'UTC'`. Enforce
   the ten generated defaults and three lifecycle no-default contracts in one
