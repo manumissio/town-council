@@ -1,4 +1,4 @@
-from pipeline.backlog_maintenance import (
+from pipeline.agenda_summary_contracts import (
     AGENDA_SUMMARY_BUNDLE_BUILD_MS,
     AGENDA_SUMMARY_EMBED_DISPATCH_MS,
     AGENDA_SUMMARY_PERSIST_MS,

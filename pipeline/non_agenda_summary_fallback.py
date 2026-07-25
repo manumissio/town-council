@@ -2,10 +2,10 @@ from __future__ import annotations
 
 import logging
 import re
-from collections.abc import Callable
 from dataclasses import dataclass
 from typing import Any
 
+from pipeline import indexer, semantic_tasks
 from pipeline.agenda_summary_contracts import AGENDA_SUMMARY_EMBED_DISPATCH_ERRORS
 from pipeline.content_hash import compute_content_hash
 from pipeline.db_session import db_session
@@ -77,12 +77,9 @@ def _format_non_agenda_fallback_summary(
 def build_deterministic_non_agenda_summary_payload(
     catalog_id: int,
     *,
-    reindex_callback: Callable[[int], Any] | None = None,
-    embed_callback: Callable[[int], Any] | None = None,
-    session_factory: Callable[[], Any] = db_session,
     fallback_reason: str = NON_AGENDA_FALLBACK_REASON,
 ) -> dict[str, Any]:
-    with session_factory() as session:
+    with db_session() as session:
         persistence = _build_and_persist_non_agenda_fallback(
             session,
             catalog_id,
@@ -98,11 +95,7 @@ def build_deterministic_non_agenda_summary_payload(
         fallback_reason,
         "deterministic",
     )
-    side_effects = _run_fallback_side_effects(
-        catalog_id,
-        reindex_callback=reindex_callback,
-        embed_callback=embed_callback,
-    )
+    side_effects = _run_fallback_side_effects(catalog_id)
     return {
         "status": SUMMARY_COMPLETE_STATUS,
         "summary": persistence.summary,
@@ -219,12 +212,9 @@ def _persist_non_agenda_fallback_summary(
 
 def _run_fallback_side_effects(
     catalog_id: int,
-    *,
-    reindex_callback: Callable[[int], Any] | None,
-    embed_callback: Callable[[int], Any] | None,
 ) -> dict[str, int]:
-    reindexed, reindex_failed = _run_reindex_callback(reindex_callback, catalog_id)
-    embed_enqueued, embed_dispatch_failed = _run_embed_callback(embed_callback, catalog_id)
+    reindexed, reindex_failed = _run_reindex(catalog_id)
+    embed_enqueued, embed_dispatch_failed = _run_embed_dispatch(catalog_id)
     return {
         "reindexed": reindexed,
         "reindex_failed": reindex_failed,
@@ -233,22 +223,18 @@ def _run_fallback_side_effects(
     }
 
 
-def _run_reindex_callback(callback: Callable[[int], Any] | None, catalog_id: int) -> tuple[int, int]:
-    if callback is None:
-        return 0, 0
+def _run_reindex(catalog_id: int) -> tuple[int, int]:
     try:
-        callback(catalog_id)
+        indexer.reindex_catalog(catalog_id)
         return 1, 0
     except REINDEX_FAILURE_EXCEPTIONS as reindex_error:
         logger.warning("non_agenda_summary_fallback.reindex_failed catalog_id=%s error=%s", catalog_id, reindex_error)
         return 0, 1
 
 
-def _run_embed_callback(callback: Callable[[int], Any] | None, catalog_id: int) -> tuple[int, int]:
-    if callback is None:
-        return 0, 0
+def _run_embed_dispatch(catalog_id: int) -> tuple[int, int]:
     try:
-        callback(catalog_id)
+        semantic_tasks.embed_catalog_task.delay(catalog_id)
         return 1, 0
     except AGENDA_SUMMARY_EMBED_DISPATCH_ERRORS as dispatch_error:
         logger.warning(

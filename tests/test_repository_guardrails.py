@@ -244,12 +244,12 @@ AGENDA_QA_CLEANUP_MODULES = (
     "pipeline/agenda_qa.py",
 )
 AGENDA_SUMMARY_MAINTENANCE_CLEANUP_MODULES = (
-    "pipeline/agenda_summary_maintenance.py",
     "pipeline/agenda_summary_contracts.py",
     "pipeline/agenda_summary_inputs.py",
-    "pipeline/agenda_summary_callbacks.py",
     "pipeline/agenda_summary_batch.py",
     "pipeline/agenda_summary_fallback.py",
+    "pipeline/agenda_summary_side_effects.py",
+    "pipeline/non_agenda_summary_fallback.py",
 )
 AGENDA_SUMMARY_RUNTIME_CLEANUP_MODULES = (
     "pipeline/agenda_summary.py",
@@ -2144,6 +2144,98 @@ def test_summary_backfill_runner_is_the_direct_operation_boundary() -> None:
     ):
         assert obsolete_name not in task_facade_source
         assert obsolete_name not in tasks_source
+
+
+def test_maintenance_summary_and_staged_hydration_own_runtime_dependencies() -> None:
+    deleted_modules = (
+        ROOT / "pipeline/agenda_summary_callbacks.py",
+        ROOT / "pipeline/agenda_summary_maintenance.py",
+    )
+    assert [str(module_path.relative_to(ROOT)) for module_path in deleted_modules if module_path.exists()] == []
+
+    operation_paths = tuple(
+        ROOT / module_path
+        for module_path in (
+            "pipeline/agenda_summary_batch.py",
+            "pipeline/agenda_summary_fallback.py",
+            "pipeline/agenda_summary_side_effects.py",
+            "pipeline/non_agenda_summary_fallback.py",
+            "pipeline/summary_backfill_runner.py",
+            "scripts/hydration_repaired_runner.py",
+            "scripts/hydration_repaired_summary.py",
+            "scripts/staged_hydrate_cities.py",
+            "scripts/staged_hydration_output.py",
+            "scripts/staged_hydration_runner.py",
+            "scripts/staged_hydration_segment.py",
+        )
+    )
+    forbidden_parameter_names = {"session_factory", "time_module"}
+    dependency_parameters: dict[str, list[str]] = {}
+    for operation_path in operation_paths:
+        operation_tree = ast.parse(
+            operation_path.read_text(encoding="utf-8"),
+            filename=str(operation_path.relative_to(ROOT)),
+        )
+        dependency_parameters[str(operation_path.relative_to(ROOT))] = [
+            parameter.arg
+            for function_node in ast.walk(operation_tree)
+            if isinstance(function_node, ast.FunctionDef)
+            for parameter in (
+                *function_node.args.posonlyargs,
+                *function_node.args.args,
+                *function_node.args.kwonlyargs,
+            )
+            if parameter.arg.endswith("_callable")
+            or parameter.arg in forbidden_parameter_names
+        ]
+    assert dependency_parameters == {
+        str(operation_path.relative_to(ROOT)): []
+        for operation_path in operation_paths
+    }
+
+    summary_operation_paths = (
+        ROOT / "pipeline/agenda_summary_batch.py",
+        ROOT / "pipeline/agenda_summary_fallback.py",
+        ROOT / "pipeline/non_agenda_summary_fallback.py",
+        ROOT / "pipeline/summary_backfill_runner.py",
+        ROOT / "scripts/hydration_repaired_summary.py",
+    )
+    forbidden_summary_imports = {
+        str(operation_path.relative_to(ROOT)): _forbidden_imports(
+            operation_path,
+            {
+                "pipeline.agenda_summary_maintenance",
+                "pipeline.backlog_maintenance",
+                "pipeline.tasks",
+            },
+        )
+        for operation_path in summary_operation_paths
+    }
+    assert forbidden_summary_imports == {
+        str(operation_path.relative_to(ROOT)): []
+        for operation_path in summary_operation_paths
+    }
+
+    backlog_source = (ROOT / "pipeline/backlog_maintenance.py").read_text(
+        encoding="utf-8"
+    )
+    for removed_summary_name in (
+        "build_agenda_summary_input_bundle",
+        "build_deterministic_agenda_summary_payload",
+        "build_deterministic_non_agenda_summary_payload",
+        "persist_agenda_summary",
+        "summarize_catalog_with_maintenance_mode",
+        "summarize_catalog_with_optional_fallback",
+    ):
+        assert removed_summary_name not in backlog_source
+
+    for canonical_map_path in (
+        ROOT / "ARCHITECTURE.md",
+        ROOT / "docs/PIPELINE.md",
+    ):
+        canonical_map_source = canonical_map_path.read_text(encoding="utf-8")
+        assert "pipeline/agenda_summary_maintenance.py" not in canonical_map_source
+        assert "pipeline/agenda_summary_callbacks.py" not in canonical_map_source
 
 
 def test_vote_extraction_cleanup_modules_stay_under_size_target():

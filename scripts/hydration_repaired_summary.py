@@ -2,31 +2,27 @@ from __future__ import annotations
 
 from typing import Any
 
+from pipeline.agenda_segmentation_maintenance import summary_timeout_override
+from pipeline.agenda_summary_fallback import summarize_catalog_with_maintenance_mode
+from pipeline.city_scope import source_aliases_for_city
+from pipeline.db_session import db_session
 from scripts.hydration_counts import ProgressCallback, empty_repaired_summary_counts
 from scripts.hydration_output import emit_progress
-from scripts.hydration_repaired_selectors import selector_mode
+from scripts.hydration_repaired_selectors import (
+    select_summary_catalog_ids,
+    selector_mode,
+)
 
 
 def summarize_one_catalog(
     catalog_id: int,
     *,
-    summarize_catalog_with_maintenance_mode,
-    build_deterministic_agenda_summary_payload,
-    generate_summary_task,
-    embed_catalog_task,
-    reindex_catalog,
     summary_fallback_mode: str = "none",
 ) -> dict[str, Any]:
     try:
         return summarize_catalog_with_maintenance_mode(
             catalog_id,
             summary_fallback_mode=summary_fallback_mode,
-            generate_summary_callable=lambda target_catalog_id: generate_summary_task.run(target_catalog_id, force=False),
-            deterministic_summary_callable=lambda target_catalog_id: build_deterministic_agenda_summary_payload(
-                target_catalog_id,
-                reindex_callback=reindex_catalog,
-                embed_callback=lambda summary_catalog_id: embed_catalog_task.delay(summary_catalog_id),
-            ),
         )
     except Exception as exc:
         return {"status": "error", "error": str(exc)}
@@ -40,16 +36,15 @@ def run_summary_city(
     url_substring: str | None,
     emit_progress_enabled: bool,
     progress_every: int,
-    select_summary_catalog_ids,
-    summarize_one_catalog,
-    summary_timeout_override,
     catalog_ids: list[int] | None = None,
     summary_timeout_seconds: int | None = None,
     summary_fallback_mode: str = "none",
     status_callback: ProgressCallback | None = None,
 ) -> dict[str, int]:
     selected_catalog_ids = select_summary_catalog_ids(
-        city,
+        db_session=db_session,
+        source_aliases_for_city=source_aliases_for_city,
+        city=city,
         limit=limit,
         resume_after_id=resume_after_id,
         catalog_ids=catalog_ids,
@@ -60,7 +55,10 @@ def run_summary_city(
     _emit_summary_start(city, counts, limit, resume_after_id, url_substring, emit_progress_enabled, status_callback)
     with summary_timeout_override(summary_timeout_seconds):
         for index, catalog_id in enumerate(selected_catalog_ids, start=1):
-            summary_result = summarize_one_catalog(catalog_id, summary_fallback_mode=summary_fallback_mode)
+            summary_result = summarize_one_catalog(
+                catalog_id,
+                summary_fallback_mode=summary_fallback_mode,
+            )
             status = str(summary_result.get("status") or "other")
             _record_summary_result(counts, status, summary_result)
             _emit_summary_progress(city, index, selected_catalog_ids, catalog_id, status, summary_result, counts, emit_progress_enabled, progress_every, status_callback)

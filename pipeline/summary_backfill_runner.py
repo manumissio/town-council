@@ -1,24 +1,16 @@
 from __future__ import annotations
 
-from collections.abc import Callable, Iterator
-from contextlib import contextmanager
+from collections.abc import Callable
 from dataclasses import dataclass
-from functools import partial
 from typing import Any
 
 from pipeline import (
     agenda_segmentation_maintenance,
     agenda_summary_batch,
     agenda_summary_fallback,
-    indexer,
-    non_agenda_summary_fallback,
-    semantic_tasks,
     summary_backfill_queries,
     task_runtime,
-    task_summary_generation,
 )
-from pipeline.local_ai_runtime import LocalAIConfigError
-from pipeline.summary_backfill_dispatch import enqueue_embed_catalogs
 from pipeline.summary_backfill_logging import log_backfill_counts
 from pipeline.summary_backfill_progress import (
     add_agenda_batch_counts,
@@ -28,8 +20,6 @@ from pipeline.summary_backfill_progress import (
     initial_summary_backfill_counts,
     record_summary_result_counts,
 )
-from sqlalchemy.exc import SQLAlchemyError
-from sqlalchemy.orm import Session
 
 
 @dataclass(frozen=True)
@@ -42,15 +32,6 @@ class SummaryBackfillLoopContext:
     summary_fallback_mode: str
     progress_callback: Callable[[dict[str, Any]], None] | None
     progress_every: int
-
-
-@contextmanager
-def _summary_backfill_session() -> Iterator[Session]:
-    session = task_runtime.task_session()
-    try:
-        yield session
-    finally:
-        session.close()
 
 
 def run_summary_hydration_backfill(
@@ -142,9 +123,6 @@ def _run_agenda_batch(
         return {}
     agenda_batch = agenda_summary_batch.build_deterministic_agenda_summary_payloads(
         agenda_catalog_ids,
-        reindex_callback=indexer.reindex_catalogs,
-        embed_callback=enqueue_embed_catalogs,
-        session_factory=_summary_backfill_session,
     )
     add_agenda_batch_counts(counts, agenda_batch)
     return dict(agenda_batch.get("results") or {})
@@ -160,16 +138,8 @@ def _run_backfill_loop(context: SummaryBackfillLoopContext) -> None:
             else:
                 summary_result = agenda_summary_fallback.summarize_catalog_with_maintenance_mode(
                     catalog_id,
+                    force=context.force,
                     summary_fallback_mode=context.summary_fallback_mode,
-                    generate_summary_callable=partial(
-                        _generate_catalog_summary,
-                        force=context.force,
-                    ),
-                    deterministic_summary_callable=_build_non_agenda_fallback,
-                    capture_summary_fallback_events_factory=(
-                        agenda_segmentation_maintenance.capture_summary_fallback_events
-                    ),
-                    session_factory=_summary_backfill_session,
                 )
             record_summary_result_counts(context.counts, summary_result)
             emit_summary_progress(
@@ -181,43 +151,3 @@ def _run_backfill_loop(context: SummaryBackfillLoopContext) -> None:
                 progress_callback=context.progress_callback,
                 progress_every=context.progress_every,
             )
-
-
-def _build_non_agenda_fallback(
-    catalog_id: int,
-    fallback_reason: str = "empty_response",
-) -> dict[str, Any]:
-    return non_agenda_summary_fallback.build_deterministic_non_agenda_summary_payload(
-        catalog_id,
-        reindex_callback=indexer.reindex_catalog,
-        embed_callback=semantic_tasks.embed_catalog_task.delay,
-        session_factory=_summary_backfill_session,
-        fallback_reason=fallback_reason,
-    )
-
-
-def _generate_catalog_summary(
-    catalog_id: int,
-    *,
-    force: bool,
-) -> dict[str, Any]:
-    db: Session = task_runtime.task_session()
-    try:
-        return task_summary_generation.generate_catalog_summary(
-            db,
-            catalog_id,
-            force=force,
-        )
-    except LocalAIConfigError as config_error:
-        task_runtime.logger.critical(
-            "LocalAI misconfiguration catalog_id=%s error=%s",
-            catalog_id,
-            config_error,
-        )
-        db.rollback()
-        return {"status": "error", "error": str(config_error)}
-    except (SQLAlchemyError, RuntimeError, ValueError):
-        db.rollback()
-        raise
-    finally:
-        db.close()

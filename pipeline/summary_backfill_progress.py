@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from collections.abc import Callable, Mapping
 
-from pipeline.backlog_maintenance import (
+from pipeline.agenda_summary_contracts import (
     AGENDA_SUMMARY_BUNDLE_BUILD_MS,
     AGENDA_SUMMARY_EMBED_DISPATCH_MS,
     AGENDA_SUMMARY_PERSIST_MS,
