@@ -1,6 +1,6 @@
 # Town Council Remediation Plan (Codex Multi-Agent)
 
-version: 3.48
+version: 3.49
 generated: 2026-07-25
 source: Four-pass external code review (security, architecture, smells, process)
 source_artifact: [Town Council architecture review](../reviews/architecture-review-2026-07-19.html)
@@ -10,6 +10,10 @@ remains in force; where this plan is stricter, this plan wins for these tasks.
 
 ## Changelog
 
+- **v3.49:** Completes T-DB-1B. PR #146 removed maintenance fallback callable
+  injection and the superseded summary facades, passed the complete local and
+  CI suites, resolved its review finding, and merged as `9132864`. The
+  temporary twenty-eight-file coordination grant is released.
 - **v3.48:** Resolves the T-DB-1B remote review P1 by replacing newly added
   mock call-count assertions with observable fake-boundary state and persisted
   outcomes. Existing historical tests outside this migration remain deferred
@@ -229,8 +233,8 @@ remains in force; where this plan is stricter, this plan wins for these tasks.
 
 | State | Tasks |
 |---|---|
-| **Complete** | T-CI-0, T-CI-1, T-CI-1A, T-CI-2, T-CI-2A, T-CI-3, T-CI-4, T-CI-5, T-SEC-1, T-SEC-2, T-SEC-3, T-SEC-3C, T-SEC-4, T-SEC-4A, T-SEC-5, T-SEC-6, T-TIME-3, T-CRAWL-1, T-CRAWL-2, T-PLAT-2A, T-GOV-1, T-GOV-4, T-GOV-5, T-DA-1, T-DB-1A, T-DB-1 |
-| **In progress** | T-DB-1B |
+| **Complete** | T-CI-0, T-CI-1, T-CI-1A, T-CI-2, T-CI-2A, T-CI-3, T-CI-4, T-CI-5, T-SEC-1, T-SEC-2, T-SEC-3, T-SEC-3C, T-SEC-4, T-SEC-4A, T-SEC-5, T-SEC-6, T-TIME-3, T-CRAWL-1, T-CRAWL-2, T-PLAT-2A, T-GOV-1, T-GOV-4, T-GOV-5, T-DA-1, T-DB-1A, T-DB-1, T-DB-1B |
+| **In progress** | None |
 | **Partially landed; acceptance incomplete** | T-GOV-6 |
 | **Pending** | T-TIME-1..2, T-DC-1, T-DD-1, T-DE-1, T-PLAT-1, T-PLAT-2, T-PLAT-3, T-PLAT-4, T-GOV-2..3 |
 
@@ -996,13 +1000,13 @@ files (GED-5 grant).
 
 ### T-DB-1B: Remove maintenance fallback callable injection
 - priority: P1
-- status: in progress; implementation authorized 2026-07-25
+- status: complete and verified 2026-07-25 (PR #146)
 - must_merge_after: T-DB-1
 - must_not_run_concurrently_with: agent-gov or any task touching the owned
   repaired/staged hydration scripts
-- coordination_grant: The exact task-level `files_owned` list is temporarily
-  authoritative over the broader DEDUP-B and GOV lane rows until T-DB-1B
-  merges.
+- coordination_grant: Released after PR #146 merged. The exact task-level
+  `files_owned` list was authoritative over the broader DEDUP-B and GOV lane
+  rows during implementation.
 - implementation_plan:
   `docs/plans/T_DB_1B_MAINTENANCE_CALLABLE_CLEANUP_PLAN.md`
 - files_owned:
