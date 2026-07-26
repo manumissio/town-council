@@ -1,6 +1,6 @@
 # Town Council Remediation Plan (Codex Multi-Agent)
 
-version: 3.53
+version: 3.54
 generated: 2026-07-26
 source: Four-pass external code review (security, architecture, smells, process)
 source_artifact: [Town Council architecture review](../reviews/architecture-review-2026-07-19.html)
@@ -10,6 +10,13 @@ remains in force; where this plan is stricter, this plan wins for these tasks.
 
 ## Changelog
 
+- **v3.54:** Marks T-PLAT-1 and T-PLAT-1A complete after PRs #150 and #151
+  merged with required checks green and the late migration-outcome review
+  thread resolved. Activates T-PLAT-2B before broader dependency hygiene to
+  patch four open pypdf advisories, including two high-severity findings,
+  without mixing audit or constraints work into the urgent pin update. The
+  task also broadens malformed-PDF handling to pypdf's documented base
+  exception and removes the obsolete table-worker BLE001 allowance.
 - **v3.53:** Registers T-PLAT-1A after a late PR #150 review finding showed
   that direct migration commands discard the INFO outcome used to decide
   whether derived embeddings need rehydration. T-PLAT-1 remains implemented
@@ -256,9 +263,8 @@ remains in force; where this plan is stricter, this plan wins for these tasks.
 
 | State | Tasks |
 |---|---|
-| **Complete** | T-CI-0, T-CI-1, T-CI-1A, T-CI-2, T-CI-2A, T-CI-3, T-CI-4, T-CI-5, T-SEC-1, T-SEC-2, T-SEC-3, T-SEC-3C, T-SEC-4, T-SEC-4A, T-SEC-5, T-SEC-6, T-TIME-1, T-TIME-2, T-TIME-3, T-CRAWL-1, T-CRAWL-2, T-PLAT-2A, T-GOV-1, T-GOV-4, T-GOV-5, T-DA-1, T-DB-1A, T-DB-1, T-DB-1B |
-| **In progress** | T-PLAT-1A |
-| **Implemented; acceptance incomplete** | T-PLAT-1 |
+| **Complete** | T-CI-0, T-CI-1, T-CI-1A, T-CI-2, T-CI-2A, T-CI-3, T-CI-4, T-CI-5, T-SEC-1, T-SEC-2, T-SEC-3, T-SEC-3C, T-SEC-4, T-SEC-4A, T-SEC-5, T-SEC-6, T-TIME-1, T-TIME-2, T-TIME-3, T-CRAWL-1, T-CRAWL-2, T-PLAT-1, T-PLAT-1A, T-PLAT-2A, T-GOV-1, T-GOV-4, T-GOV-5, T-DA-1, T-DB-1A, T-DB-1, T-DB-1B |
+| **In progress** | T-PLAT-2B |
 | **Partially landed; acceptance incomplete** | T-GOV-6 |
 | **Pending** | T-DC-1, T-DD-1, T-DE-1, T-PLAT-2, T-PLAT-3, T-PLAT-4, T-GOV-2..3 |
 
@@ -1135,7 +1141,7 @@ files (GED-5 grant).
 
 ### T-PLAT-1: Alembic baseline (gate G5)
 - priority: P1
-- status: implemented in PR #150; acceptance incomplete pending T-PLAT-1A
+- status: complete and verified 2026-07-26 (PRs #150 and #151)
 - must_not_run_concurrently_with: T-GOV-3
 - decision_record: `docs/plans/G5_ALEMBIC_ADOPTION_DECISION_PLAN.md`
 - implementation_plan: `docs/plans/T_PLAT_1_ALEMBIC_BASELINE_PLAN.md`
@@ -1230,7 +1236,7 @@ files (GED-5 grant).
 
 ### T-PLAT-1A: Make migration outcomes visible
 - priority: P1 (PR #150 closure)
-- status: in progress
+- status: complete and verified 2026-07-26 (PR #151)
 - depends_on: T-PLAT-1 implementation
 - implementation_plan:
   `docs/plans/T_PLAT_1A_MIGRATION_OUTCOME_VISIBILITY_PLAN.md`
@@ -1273,6 +1279,36 @@ files (GED-5 grant).
 - verify: Follow the Full T-PLAT-2A plan, including tests-first red evidence,
   lockfile-only generation, clean install, native and Docker build smokes,
   frontend tests, audit, docs links, independent review, and diff checks.
+
+### T-PLAT-2B: Patch pypdf batch parsing
+- priority: P0 (urgent dependency security patch)
+- status: in progress
+- depends_on: T-PLAT-1A closure
+- implementation_plan:
+  `docs/plans/T_PLAT_2B_PYPDF_SECURITY_PATCH_PLAN.md`
+- files_owned: docs/plans/T_PLAT_2B_PYPDF_SECURITY_PATCH_PLAN.md,
+  docs/plans/TOWN_COUNCIL_REMEDIATION_PLAN.md,
+  pipeline/requirements-batch.txt, pipeline/table_worker.py, ruff.toml,
+  tests/test_docker_build_contracts.py, tests/test_repository_guardrails.py,
+  tests/test_table_worker.py
+- do: Replace the vulnerable `pypdf==6.13.3` batch-only pin with
+  `pypdf==6.14.2`, the first release that closes all four open repository
+  advisories. Catch pypdf's documented `PyPdfError` base at both table-parser
+  boundaries because patched malformed inputs now raise `PdfReadError` and
+  `LimitReachedError`. Narrow the optional import fallback to `ImportError`
+  and remove the resulting stale table-worker BLE001 allowance.
+- accept: The batch manifest has exactly one pypdf pin at 6.14.2; the core
+  worker manifest still excludes pypdf; the batch image imports
+  `pypdf.errors.PyPdfError`; malformed pypdf failures persist `tables=[]`
+  instead of aborting the batch; the stale BLE001 allowance is removed; the
+  complete Python suite remains green; alerts 116-119 report `fixed` after
+  merge.
+- forbidden: Broad constraints, audit workflow, parser logic, Camelot,
+  unrelated dependency changes, or a compatibility alias for
+  `PdfStreamError`.
+- verify: Follow the Full T-PLAT-2B plan, including tests-first pin evidence,
+  published-wheel import verification, dependency and table-worker contracts,
+  complete suite, independent review, and post-merge Dependabot readback.
 
 ### T-PLAT-2: Dependency hygiene
 - priority: P2
@@ -1455,7 +1491,7 @@ Gate:    G3 satisfied (T-GOV-1 Accepted ADR + active docs/TESTING.MD)
 Phase 2: agent-da || agent-db [T-DB-1A, then T-DB-1, then T-DB-1B] || agent-dd || agent-de ;
          then agent-dc (exclusive on api/*)
 Phase 3: agent-plat [T-PLAT-1 after T-TIME-1 and T-TIME-2, T-PLAT-1A
-         closure, then T-PLAT-2..4]
+         closure, T-PLAT-2B security patch, then T-PLAT-2..4]
          || agent-gov [T-GOV-2, T-GOV-3 + T-GOV-5]
 Anytime: T-GOV-6 DATA_GOVERNANCE.md (Section 3 pending G4)
 ```
