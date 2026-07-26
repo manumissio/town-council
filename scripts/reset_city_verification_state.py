@@ -10,19 +10,11 @@ from sqlalchemy import and_, func, or_
 from sqlalchemy.orm import selectinload
 
 from pipeline.db_session import db_session
-from pipeline.models import Catalog, DataIssue, Document, Event
+from pipeline.models import Event
+from scripts import city_state_mutation
 
 
 ISO_FMT = "%Y-%m-%dT%H:%M:%SZ"
-
-
-@dataclass(frozen=True)
-class RewindCounts:
-    event_ids: list[int]
-    document_ids: list[int]
-    catalog_ids: list[int]
-    unreferenced_catalog_ids: list[int]
-    data_issue_ids: list[int]
 
 
 @dataclass(frozen=True)
@@ -42,55 +34,12 @@ def _format_iso_utc(value: datetime) -> str:
     return aware_value.astimezone(UTC).strftime(ISO_FMT)
 
 
-def _ocd_division_id_for_city(city: str) -> str:
-    return f"ocd-division/country:us/state:ca/place:{city}"
-
-
-def _rewind_counts_from_events(session, events: list[Event]) -> RewindCounts:
-    event_ids = [event.id for event in events]
-    document_ids = [document.id for event in events for document in event.documents]
-    catalog_ids = sorted({document.catalog_id for event in events for document in event.documents if document.catalog_id is not None})
-    data_issue_ids = [row[0] for row in session.query(DataIssue.id).filter(DataIssue.event_id.in_(event_ids)).all()] if event_ids else []
-
-    unreferenced_catalog_ids: list[int] = []
-    if catalog_ids:
-        # Catalog rows may survive document deletion in the DB, so only remove
-        # catalogs whose entire reference set belongs to the rewound city window.
-        ref_counts = {
-            row.catalog_id: row.ref_count
-            for row in (
-                session.query(Document.catalog_id, func.count(Document.id).label("ref_count"))
-                .filter(Document.catalog_id.in_(catalog_ids))
-                .group_by(Document.catalog_id)
-                .all()
-            )
-        }
-        targeted_counts = {
-            row.catalog_id: row.ref_count
-            for row in (
-                session.query(Document.catalog_id, func.count(Document.id).label("ref_count"))
-                .filter(Document.id.in_(document_ids))
-                .group_by(Document.catalog_id)
-                .all()
-            )
-        }
-        unreferenced_catalog_ids = sorted(
-            catalog_id
-            for catalog_id in catalog_ids
-            if ref_counts.get(catalog_id, 0) == targeted_counts.get(catalog_id, 0)
-        )
-
-    return RewindCounts(
-        event_ids=event_ids,
-        document_ids=document_ids,
-        catalog_ids=catalog_ids,
-        unreferenced_catalog_ids=unreferenced_catalog_ids,
-        data_issue_ids=data_issue_ids,
-    )
-
-
-def _collect_rewind_counts(session, city: str, since_dt: datetime) -> RewindCounts:
-    ocd_division_id = _ocd_division_id_for_city(city)
+def _collect_rewind_counts(
+    session,
+    city: str,
+    since_dt: datetime,
+) -> city_state_mutation.CityEventGraphMutation:
+    ocd_division_id = city_state_mutation.city_ocd_division_id(city)
     events = (
         session.query(Event)
         .options(selectinload(Event.documents))
@@ -100,7 +49,7 @@ def _collect_rewind_counts(session, city: str, since_dt: datetime) -> RewindCoun
         )
         .all()
     )
-    return _rewind_counts_from_events(session, events)
+    return city_state_mutation.collect_event_graph_mutation(session, events)
 
 
 def _collect_anchor_rewind_counts(
@@ -108,8 +57,8 @@ def _collect_anchor_rewind_counts(
     city: str,
     since_dt: datetime,
     baseline_record_date: date | None,
-) -> RewindCounts:
-    ocd_division_id = _ocd_division_id_for_city(city)
+) -> city_state_mutation.CityEventGraphMutation:
+    ocd_division_id = city_state_mutation.city_ocd_division_id(city)
     query = session.query(Event).options(selectinload(Event.documents)).filter(Event.ocd_division_id == ocd_division_id)
     if baseline_record_date is None:
         events = query.filter(Event.scraped_datetime >= since_dt).all()
@@ -123,12 +72,12 @@ def _collect_anchor_rewind_counts(
                 ),
             )
         ).all()
-    return _rewind_counts_from_events(session, events)
+    return city_state_mutation.collect_event_graph_mutation(session, events)
 
 
 def capture_city_verification_baseline(city: str) -> dict[str, str | int | None]:
     with db_session() as session:
-        ocd_division_id = _ocd_division_id_for_city(city)
+        ocd_division_id = city_state_mutation.city_ocd_division_id(city)
         max_record_date, max_scraped_datetime, event_count = (
             session.query(
                 func.max(Event.record_date),
@@ -157,7 +106,7 @@ def capture_city_verification_baseline(city: str) -> dict[str, str | int | None]
 
 
 def _remaining_anchor_summary(session, city: str) -> dict[str, str | int | None]:
-    ocd_division_id = _ocd_division_id_for_city(city)
+    ocd_division_id = city_state_mutation.city_ocd_division_id(city)
     max_record_date, max_scraped_datetime, remaining_event_count = (
         session.query(
             func.max(Event.record_date),
@@ -202,24 +151,7 @@ def reset_city_verification_state(
         }
 
         if not dry_run:
-            if counts.data_issue_ids:
-                session.query(DataIssue).filter(DataIssue.id.in_(counts.data_issue_ids)).delete(
-                    synchronize_session=False
-                )
-
-            if counts.event_ids:
-                for event in (
-                    session.query(Event)
-                    .options(selectinload(Event.documents))
-                    .filter(Event.id.in_(counts.event_ids))
-                    .all()
-                ):
-                    session.delete(event)
-
-            if counts.unreferenced_catalog_ids:
-                for catalog in session.query(Catalog).filter(Catalog.id.in_(counts.unreferenced_catalog_ids)).all():
-                    session.delete(catalog)
-
+            city_state_mutation.delete_event_graph(session, counts)
             session.commit()
 
         summary.update(_remaining_anchor_summary(session, city))
