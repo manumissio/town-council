@@ -1,7 +1,7 @@
 # T-DC-1: Give API Startup One State Owner
 
-`artifact_contract: ce-unified-plan/v1`  
-`artifact_readiness: implementation-ready`  
+`artifact_contract: ce-unified-plan/v1`
+`artifact_readiness: implementation-ready`
 `execution: code`
 
 ## 1. Context & Alignment
