@@ -230,9 +230,11 @@ PYTHONPATH=. .venv/bin/pytest -q \
   tests/test_docker_health_contracts.py \
   tests/test_docker_build_contracts.py
 
+docker compose --profile batch-tools build pipeline-batch semantic worker
 docker compose up -d \
   redis postgres inference worker enrichment-worker semantic-worker
-docker compose exec -T worker python scripts/worker_healthcheck.py
+docker compose exec -T -e LOCAL_AI_BACKEND=disabled \
+  worker python scripts/worker_healthcheck.py
 docker compose exec -T enrichment-worker \
   python scripts/enrichment_worker_healthcheck.py
 docker compose exec -T semantic-worker \
