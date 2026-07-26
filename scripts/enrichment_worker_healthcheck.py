@@ -4,11 +4,17 @@ from __future__ import annotations
 import os
 import subprocess
 import sys
+from pathlib import Path
 
 import worker_health_probes
 
+PROJECT_ROOT = Path(__file__).resolve().parent.parent
+
 
 def main() -> int:
+    if str(PROJECT_ROOT) not in sys.path:
+        sys.path.insert(0, str(PROJECT_ROOT))
+
     failures = worker_health_probes.probe_broker_and_database(
         worker_health_probes.socket_target_from_url((os.getenv("CELERY_BROKER_URL") or "").strip()),
         worker_health_probes.socket_target_from_url((os.getenv("DATABASE_URL") or "").strip()),

@@ -39,3 +39,4 @@ def test_role_healthcheck_runs_without_pythonpath_and_aggregates_missing_targets
     assert "redis broker target is not configured" in healthcheck.stderr
     assert "postgres target is not configured" in healthcheck.stderr
     assert "redis broker probe failed:" not in healthcheck.stderr
+    assert "task registration probe failed:" not in healthcheck.stderr

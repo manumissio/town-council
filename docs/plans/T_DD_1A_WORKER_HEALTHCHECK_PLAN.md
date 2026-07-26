@@ -64,8 +64,9 @@ comparability remain unchanged.
    - printing all collected failures and returning the CLI exit code.
 5. Have all three CLIs import the module, not copied symbols. This keeps tests
    on the implementation owner and avoids bound-name patch seams.
-6. Keep all environment reads and role policy in each CLI, including the
-   primary worker's `REDIS_HOST` fallback.
+6. Add the repository root inside each role CLI's `main()` for direct project
+   imports. Keep environment reads and role policy local, including the primary
+   worker's `REDIS_HOST` fallback.
 7. Keep primary-worker metrics and inference HTTP/model probes in
    `worker_healthcheck.py`.
 8. Keep enrichment task registration and `sklearn`/`spacy`/`pytextrank`
