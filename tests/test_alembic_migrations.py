@@ -5,6 +5,8 @@ from contextlib import contextmanager
 import importlib
 import os
 from pathlib import Path
+import subprocess
+import sys
 import time
 from types import ModuleType
 from uuid import uuid4
@@ -355,6 +357,53 @@ def test_current_unversioned_schema_is_repaired_and_adopted() -> None:
         assert migration_outcome.status == "adopted"
         assert _current_revision(database_engine) == BASELINE_REVISION
         assert _reference_schema_names(database_engine) == set()
+
+
+def test_direct_migration_cli_reports_retired_catalog_vectors() -> None:
+    migration_module = _migration_module()
+    with _isolated_postgres_database() as database_engine:
+        migration_module.migrate_database(database_engine)
+        with database_engine.begin() as connection:
+            connection.execute(text("DROP TABLE alembic_version"))
+            connection.execute(
+                text("ALTER TABLE catalog ADD COLUMN semantic_embedding VECTOR(384)")
+            )
+            connection.execute(
+                text(
+                    """
+                    INSERT INTO catalog (url_hash, semantic_embedding)
+                    VALUES (
+                        'retired-vector-sentinel',
+                        array_fill(0.5, ARRAY[384])::vector
+                    )
+                    """
+                )
+            )
+
+        cli_environment = os.environ.copy()
+        cli_environment["DATABASE_URL"] = database_engine.url.render_as_string(
+            hide_password=False
+        )
+        cli_environment["PYTHONPATH"] = str(ROOT)
+        completed_cli = subprocess.run(
+            [sys.executable, str(ROOT / "pipeline" / "db_migrate.py")],
+            cwd=ROOT,
+            env=cli_environment,
+            check=False,
+            capture_output=True,
+            text=True,
+        )
+
+        assert completed_cli.returncode == 0
+        assert "database_migration_complete" in completed_cli.stderr
+        assert "status=adopted" in completed_cli.stderr
+        assert f"revision={BASELINE_REVISION}" in completed_cli.stderr
+        assert "retired_catalog_vector_count=1" in completed_cli.stderr
+        assert _current_revision(database_engine) == BASELINE_REVISION
+        assert not any(
+            column["name"] == "semantic_embedding"
+            for column in inspect(database_engine).get_columns("catalog")
+        )
 
 
 def test_unversioned_drift_aborts_without_stamp_or_data_loss() -> None:

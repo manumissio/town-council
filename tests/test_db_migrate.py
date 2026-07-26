@@ -1,9 +1,13 @@
 from collections.abc import Callable
 import logging
+import os
 from pathlib import Path
+import subprocess
+import sys
 
 import pytest
 
+from pipeline import db_migrate
 from pipeline import db_migration_runner
 from pipeline.db_migration_backfills import run_core_backfills
 from pipeline.db_migration_columns import (
@@ -45,8 +49,87 @@ class _FakeConn:
         return _ScalarResult(None)
 
 
+class _DisposableMigrationEngine:
+    def __init__(self, dialect_name: str | None = "sqlite") -> None:
+        self._dialect_name = dialect_name
+        self.disposed = False
+        self.dialect = self
+
+    @property
+    def name(self) -> str:
+        if self._dialect_name is None:
+            raise RuntimeError("migration failed")
+        return self._dialect_name
+
+    def dispose(self) -> None:
+        self.disposed = True
+
+
 def _sql_calls(conn: _FakeConn) -> list[str]:
     return [sql.lower() for sql, _ in conn.calls]
+
+
+def test_direct_migration_cli_reports_no_op_outcome() -> None:
+    cli_source = """
+from pathlib import Path
+import runpy
+
+from pipeline import models
+
+
+class Engine:
+    class Dialect:
+        name = "sqlite"
+
+    dialect = Dialect()
+
+    def dispose(self) -> None:
+        pass
+
+
+models.db_connect = Engine
+runpy.run_path(Path("pipeline/db_migrate.py"), run_name="__main__")
+"""
+    cli_environment = os.environ.copy()
+    cli_environment["PYTHONPATH"] = str(Path.cwd())
+
+    completed_cli = subprocess.run(
+        [sys.executable, "-c", cli_source],
+        cwd=Path.cwd(),
+        env=cli_environment,
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+
+    assert completed_cli.returncode == 0
+    assert "database_migration_complete" in completed_cli.stderr
+    assert "status=not_applicable" in completed_cli.stderr
+    assert "revision=None" in completed_cli.stderr
+    assert "retired_catalog_vector_count=0" in completed_cli.stderr
+
+
+def test_migration_facade_disposes_engine_after_success(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    migration_engine = _DisposableMigrationEngine()
+    monkeypatch.setattr(db_migrate, "db_connect", lambda: migration_engine)
+
+    db_migrate.migrate()
+
+    assert migration_engine.disposed
+
+
+def test_migration_facade_disposes_engine_after_failure(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    migration_engine = _DisposableMigrationEngine(dialect_name=None)
+    monkeypatch.setattr(db_migrate, "db_connect", lambda: migration_engine)
+
+    with pytest.raises(RuntimeError, match="migration failed"):
+        db_migrate.migrate()
+
+    assert migration_engine.disposed
 
 
 def test_core_migrations_add_legacy_columns_and_backfill_values() -> None:
