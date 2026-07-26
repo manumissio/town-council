@@ -91,6 +91,9 @@ uniquely named temporary validation database.
     `template0`, restore with error/owner/ACL controls, run migrations and
     schema parity, inspect core row counts, then restart with
     `STARTUP_PURGE_DERIVED=false`.
+    Document migration rollback separately: select the previous application
+    release before running its migration, parity, and reindex commands against
+    the restored pre-migration backup.
 13. Add one focused typed helper to existing `indexer_meilisearch.py`: delete
     every document and wait for the documented asynchronous task to succeed.
     Add a second focused helper that waits until no `documents` index task is
@@ -282,6 +285,8 @@ concise runbook/ledger text.
 18. A batch submission fails before Meilisearch accepts the asynchronous task:
     the PostgreSQL corpus count still includes those rows, so final count
     verification blocks restart.
+19. Failed schema release: selecting the rollback release before migration and
+    parity prevents the failed current migration from being reapplied.
 
 **r) Tests added or updated.**
 
@@ -293,6 +298,7 @@ concise runbook/ledger text.
 | `test_backup_script_refuses_existing_destination` | 4 |
 | `test_backup_script_uses_private_atomic_validated_archive` | 5-8 |
 | `test_backup_runbook_covers_restore_cadence_and_startup_purge` | 9-13 |
+| `test_migration_rollback_selects_previous_release_before_schema_tools` | 19 |
 | `test_full_reindex_replaces_existing_meilisearch_documents` | 15 |
 | `test_full_reindex_stops_when_meilisearch_clear_fails` | 16 |
 | `test_full_reindex_uses_maintenance_timeout_for_document_clear` | 17 |

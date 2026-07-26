@@ -120,7 +120,51 @@ record and any derived rows present when the dump starts.
 To validate an archive without touching the active database, restore into a
 new, uniquely named database created from `template0`, inspect
 `alembic_version` and representative row counts, then drop only that validation
-database.
+database:
+
+```bash
+set -euo pipefail
+BACKUP_PATH="<BACKUP_PATH>/town_council_restore_drill.dump"
+docker compose -f docker-compose.yml -f docker-compose.dev.yml up -d postgres
+POSTGRES_USER="$(docker compose exec -T postgres printenv POSTGRES_USER)"
+RESTORE_DB="town_council_restore_check_$(.venv/bin/python -c \
+  'import secrets; print(secrets.token_hex(8))')"
+RESTORE_DB_CREATED=false
+
+cleanup_restore_drill() {
+  if [[ "$RESTORE_DB_CREATED" == "true" ]]; then
+    docker compose exec -T postgres dropdb \
+      -U "$POSTGRES_USER" --maintenance-db=postgres \
+      --force --if-exists "$RESTORE_DB" >/dev/null
+    RESTORE_DB_CREATED=false
+  fi
+}
+trap cleanup_restore_drill EXIT
+
+docker compose exec -T postgres pg_restore --list < "$BACKUP_PATH" >/dev/null
+if docker compose exec -T postgres createdb \
+  -U "$POSTGRES_USER" -T template0 "$RESTORE_DB"; then
+  RESTORE_DB_CREATED=true
+else
+  exit 1
+fi
+docker compose exec -T postgres pg_restore \
+  -U "$POSTGRES_USER" -d "$RESTORE_DB" \
+  --exit-on-error --no-owner --no-privileges < "$BACKUP_PATH"
+docker compose exec -T postgres psql \
+  -U "$POSTGRES_USER" -d "$RESTORE_DB" \
+  -c "select version_num from alembic_version;
+      select 'catalog' as relation, count(*) from catalog
+      union all
+      select 'event' as relation, count(*) from event
+      order by relation"
+cleanup_restore_drill
+trap - EXIT
+```
+
+Record the archive identifier, Alembic revision, and row counts as restore-drill
+evidence. The high-entropy database name and ownership flag keep cleanup from
+dropping the active database or a database the drill did not create.
 
 For full recovery, stop every Compose writer plus schedulers or manual commands
 running outside this project. Validate the archive before dropping the target:
@@ -269,8 +313,24 @@ Confirm `embed_dispatch_failed=0`, then monitor the semantic worker until the
 queued tasks finish. Embeddings are derived data; the migration transaction
 preserves source catalog, document, event, agenda, and civic records.
 
-Rollback follows the routine replacement-restore procedure above while writers
-remain stopped, then repeats schema parity before restart.
+##### Roll back a failed schema release
+
+Keep all writers stopped. Select the exact application release that was active
+when the pre-migration backup was created **before running `db_migrate.py` or
+schema parity against the restored database**:
+
+```bash
+ROLLBACK_REF="<PREVIOUS_RELEASE_REF>"
+git switch --detach "$ROLLBACK_REF"
+```
+
+For image-based deployment, select the equivalent previous image tag instead
+of changing the checkout. With the previous release active, follow the routine
+replacement-restore procedure above, including external search rebuilds. Its
+`db_migrate.py`, schema-parity check, and reindex commands must all come from
+the rollback release. Do not run `db_migrate.py` from the failed release: it
+would upgrade the restored backup to the schema being rolled back. Restart
+only the previous application release after every recovery check passes.
 
 #### Historical timezone migration v10
 
@@ -326,12 +386,13 @@ Every migrated timestamp must report `timestamp with time zone`. Generated
 timestamps have a `now()` default; lifecycle-attempt timestamps intentionally
 have no default so null continues to mean not attempted.
 
-Rollback uses the verified preflight backup and the routine replacement-restore
-procedure above. Keep all writers stopped, then repeat the timestamp-column
-query before restart.
+Rollback uses the failed-schema-release procedure above and the verified
+preflight backup. Keep all writers stopped, select the previous application
+release first, restore the backup, then repeat the timestamp-column query
+before restarting that previous release.
 
 Do not reverse-convert a database that accepted post-migration writes. Restore
-the backup, then revert the application release.
+the backup through the rollback release instead.
 
 Why the explicit model bootstrap exists:
 - local model downloads no longer happen during Docker image builds

@@ -102,8 +102,27 @@ def test_backup_runbook_documents_recovery_contract() -> None:
     assert "encrypted" in recovery_guidance
     assert "template0" in recovery_guidance
     assert "--exit-on-error" in recovery_guidance
+    assert "RESTORE_DB_CREATED=false" in recovery_guidance
+    assert "trap cleanup_restore_drill EXIT" in recovery_guidance
+    assert "createdb" in recovery_guidance
+    assert "pg_restore" in recovery_guidance
+    assert "dropdb" in recovery_guidance
     assert "select 'catalog' as relation" in recovery_guidance
     assert "select 'event' as relation" in recovery_guidance
     assert "STARTUP_PURGE_DERIVED=false" in recovery_guidance
     assert "reindex_only.py --replace-all" in recovery_guidance
     assert "reindex_semantic.py" in recovery_guidance
+    assert recovery_guidance.index("createdb") < recovery_guidance.index(
+        "RESTORE_DB_CREATED=true"
+    )
+
+
+def test_migration_rollback_selects_previous_release_before_schema_tools() -> None:
+    operations = OPERATIONS_RUNBOOK.read_text(encoding="utf-8")
+    rollback_start = operations.index("##### Roll back a failed schema release")
+    historical_migration_start = operations.index("#### Historical timezone migration v10")
+    rollback_guidance = operations[rollback_start:historical_migration_start]
+
+    assert 'git switch --detach "$ROLLBACK_REF"' in rollback_guidance
+    assert "before running `db_migrate.py`" in rollback_guidance
+    assert "Do not run `db_migrate.py` from the failed release" in rollback_guidance
