@@ -116,6 +116,20 @@ def test_backup_runbook_documents_recovery_contract() -> None:
         "RESTORE_DB_CREATED=true"
     )
 
+    full_recovery_guidance = recovery_guidance[
+        recovery_guidance.index("For full recovery") :
+    ]
+    writers_stopped = full_recovery_guidance.index(
+        "docker compose -f docker-compose.yml -f docker-compose.dev.yml stop"
+    )
+    postgres_started = full_recovery_guidance.index(
+        "docker compose -f docker-compose.yml -f docker-compose.dev.yml up -d postgres"
+    )
+    postgres_environment_read = full_recovery_guidance.index(
+        'POSTGRES_USER="$(docker compose exec -T postgres printenv POSTGRES_USER)"'
+    )
+    assert writers_stopped < postgres_started < postgres_environment_read
+
 
 def test_migration_rollback_selects_previous_release_before_schema_tools() -> None:
     operations = OPERATIONS_RUNBOOK.read_text(encoding="utf-8")

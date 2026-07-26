@@ -171,12 +171,12 @@ running outside this project. Validate the archive before dropping the target:
 
 ```bash
 BACKUP_PATH="<BACKUP_PATH>/town_council_recovery.dump"
-POSTGRES_USER="$(docker compose exec -T postgres printenv POSTGRES_USER)"
-POSTGRES_DB="$(docker compose exec -T postgres printenv POSTGRES_DB)"
 
-docker compose exec -T postgres pg_restore --list < "$BACKUP_PATH" >/dev/null
 docker compose -f docker-compose.yml -f docker-compose.dev.yml stop
 docker compose -f docker-compose.yml -f docker-compose.dev.yml up -d postgres
+POSTGRES_USER="$(docker compose exec -T postgres printenv POSTGRES_USER)"
+POSTGRES_DB="$(docker compose exec -T postgres printenv POSTGRES_DB)"
+docker compose exec -T postgres pg_restore --list < "$BACKUP_PATH" >/dev/null
 docker compose exec -T postgres dropdb \
   -U "$POSTGRES_USER" --maintenance-db=postgres --force --if-exists "$POSTGRES_DB"
 docker compose exec -T postgres createdb \

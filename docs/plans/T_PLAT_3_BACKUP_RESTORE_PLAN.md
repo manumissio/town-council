@@ -291,6 +291,8 @@ concise runbook/ledger text.
     parity prevents the failed current migration from being reapplied.
 20. Meilisearch stops responding during recovery: every maintenance request
     times out before control returns to the task or idle deadline.
+21. Recovery begins while the stack is stopped: stop remains safe, PostgreSQL
+    starts before any `docker compose exec`, and configuration reads succeed.
 
 **r) Tests added or updated.**
 
@@ -301,7 +303,7 @@ concise runbook/ledger text.
 | `test_backup_script_prints_help_without_docker` | 1, 2 |
 | `test_backup_script_refuses_existing_destination` | 4 |
 | `test_backup_script_uses_private_atomic_validated_archive` | 5-8 |
-| `test_backup_runbook_covers_restore_cadence_and_startup_purge` | 9-13 |
+| `test_backup_runbook_covers_restore_cadence_and_startup_purge` | 9-13, 21 |
 | `test_migration_rollback_selects_previous_release_before_schema_tools` | 19 |
 | `test_full_reindex_replaces_existing_meilisearch_documents` | 15 |
 | `test_full_reindex_stops_when_meilisearch_clear_fails` | 16 |
