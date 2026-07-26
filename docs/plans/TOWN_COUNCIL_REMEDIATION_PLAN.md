@@ -1,6 +1,6 @@
 # Town Council Remediation Plan (Codex Multi-Agent)
 
-version: 3.52
+version: 3.53
 generated: 2026-07-26
 source: Four-pass external code review (security, architecture, smells, process)
 source_artifact: [Town Council architecture review](../reviews/architecture-review-2026-07-19.html)
@@ -10,6 +10,11 @@ remains in force; where this plan is stricter, this plan wins for these tasks.
 
 ## Changelog
 
+- **v3.53:** Registers T-PLAT-1A after a late PR #150 review finding showed
+  that direct migration commands discard the INFO outcome used to decide
+  whether derived embeddings need rehydration. T-PLAT-1 remains implemented
+  but acceptance-incomplete until the CLI makes that outcome visible. Broader
+  dependency work remains pending.
 - **v3.52:** Grants T-PLAT-1 narrow ownership of `ruff.toml` to remove the
   stale `pipeline/db_migration_runner.py` BLE001 selector after the strict
   legacy runner eliminated its broad handler. No Ruff rule, source scope, or
@@ -252,7 +257,8 @@ remains in force; where this plan is stricter, this plan wins for these tasks.
 | State | Tasks |
 |---|---|
 | **Complete** | T-CI-0, T-CI-1, T-CI-1A, T-CI-2, T-CI-2A, T-CI-3, T-CI-4, T-CI-5, T-SEC-1, T-SEC-2, T-SEC-3, T-SEC-3C, T-SEC-4, T-SEC-4A, T-SEC-5, T-SEC-6, T-TIME-1, T-TIME-2, T-TIME-3, T-CRAWL-1, T-CRAWL-2, T-PLAT-2A, T-GOV-1, T-GOV-4, T-GOV-5, T-DA-1, T-DB-1A, T-DB-1, T-DB-1B |
-| **In progress** | T-PLAT-1 |
+| **In progress** | T-PLAT-1A |
+| **Implemented; acceptance incomplete** | T-PLAT-1 |
 | **Partially landed; acceptance incomplete** | T-GOV-6 |
 | **Pending** | T-DC-1, T-DD-1, T-DE-1, T-PLAT-2, T-PLAT-3, T-PLAT-4, T-GOV-2..3 |
 
@@ -1129,7 +1135,7 @@ files (GED-5 grant).
 
 ### T-PLAT-1: Alembic baseline (gate G5)
 - priority: P1
-- status: in progress
+- status: implemented in PR #150; acceptance incomplete pending T-PLAT-1A
 - must_not_run_concurrently_with: T-GOV-3
 - decision_record: `docs/plans/G5_ALEMBIC_ADOPTION_DECISION_PLAN.md`
 - implementation_plan: `docs/plans/T_PLAT_1_ALEMBIC_BASELINE_PLAN.md`
@@ -1221,6 +1227,30 @@ files (GED-5 grant).
   pgvector PostgreSQL service without optional skips. ARCHITECTURE maps
   Alembic as the authoritative post-baseline migration graph.
 - verify: Schema diff script output empty; suite green.
+
+### T-PLAT-1A: Make migration outcomes visible
+- priority: P1 (PR #150 closure)
+- status: in progress
+- depends_on: T-PLAT-1 implementation
+- implementation_plan:
+  `docs/plans/T_PLAT_1A_MIGRATION_OUTCOME_VISIBILITY_PLAN.md`
+- files_owned: docs/plans/T_PLAT_1A_MIGRATION_OUTCOME_VISIBILITY_PLAN.md,
+  docs/plans/TOWN_COUNCIL_REMEDIATION_PLAN.md, pipeline/db_migrate.py,
+  tests/test_db_migrate.py, tests/test_alembic_migrations.py
+- do: Configure INFO logging only at the `db_migrate.py` CLI boundary and
+  preserve the import-safe `migrate()` operation. Make direct commands display
+  migration status, revision, and `retired_catalog_vector_count` so operators
+  can follow the existing embedding-rehydration procedure.
+- accept: Direct CLI execution exits successfully and writes the structured
+  migration outcome to stderr, including a zero or nonzero retired-vector
+  count; importing the module has no logging side effect; migration and
+  disposal behavior remain unchanged.
+- forbidden: Printing from the migration implementation, configuring logging
+  at import time, changing the migration result contract, swallowing failures,
+  or editing outside the five owned files.
+- verify: Follow the Full T-PLAT-1A plan, including tests-first subprocess
+  evidence, migration and docs contracts, full suite, independent review, and
+  CI.
 
 ### T-PLAT-2A: Patch Next.js's transitive Sharp runtime
 - priority: P0 (urgent dependency security patch)
@@ -1424,7 +1454,8 @@ Phase 1: agent-sec [T-SEC-1..6] || agent-time [T-TIME-1 + T-TIME-2 coordinated, 
 Gate:    G3 satisfied (T-GOV-1 Accepted ADR + active docs/TESTING.MD)
 Phase 2: agent-da || agent-db [T-DB-1A, then T-DB-1, then T-DB-1B] || agent-dd || agent-de ;
          then agent-dc (exclusive on api/*)
-Phase 3: agent-plat [T-PLAT-1 after T-TIME-1 and T-TIME-2, then T-PLAT-2..4]
+Phase 3: agent-plat [T-PLAT-1 after T-TIME-1 and T-TIME-2, T-PLAT-1A
+         closure, then T-PLAT-2..4]
          || agent-gov [T-GOV-2, T-GOV-3 + T-GOV-5]
 Anytime: T-GOV-6 DATA_GOVERNANCE.md (Section 3 pending G4)
 ```
