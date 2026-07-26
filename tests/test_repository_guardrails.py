@@ -600,12 +600,38 @@ def _is_source_line_count(node: ast.AST) -> bool:
     )
 
 
+def _assigned_source_line_count_names(function_node: ast.FunctionDef) -> set[str]:
+    assigned_names: set[str] = set()
+    for node in ast.walk(function_node):
+        if isinstance(node, ast.Assign) and _is_source_line_count(node.value):
+            assigned_names.update(
+                target.id
+                for target in node.targets
+                if isinstance(target, ast.Name)
+            )
+        elif isinstance(node, ast.AnnAssign) and _is_source_line_count(node.value):
+            if isinstance(node.target, ast.Name):
+                assigned_names.add(node.target.id)
+    return assigned_names
+
+
 def _test_enforces_source_line_limit(node: ast.stmt) -> bool:
     if not isinstance(node, ast.FunctionDef) or not node.name.startswith("test_"):
         return False
+    line_count_names = _assigned_source_line_count_names(node)
     return any(
         isinstance(candidate, ast.Compare)
-        and any(_is_source_line_count(descendant) for descendant in ast.walk(candidate))
+        and (
+            any(
+                _is_source_line_count(descendant)
+                for descendant in ast.walk(candidate)
+            )
+            or any(
+                isinstance(descendant, ast.Name)
+                and descendant.id in line_count_names
+                for descendant in ast.walk(candidate)
+            )
+        )
         for candidate in ast.walk(node)
     )
 
@@ -1608,7 +1634,7 @@ def test_structural_guardrails_do_not_restore_file_length_inventories():
     }
 
 
-def test_file_length_policy_scan_detects_named_limits_without_flagging_reads(
+def test_file_length_policy_scan_detects_assigned_limits_without_false_positives(
     tmp_path: Path,
 ):
     policy_module = tmp_path / "policy_module.py"
@@ -1617,6 +1643,9 @@ def test_file_length_policy_scan_detects_named_limits_without_flagging_reads(
         "MAX_SOURCE_LINES = 300\n"
         "def test_source_policy():\n"
         "    assert MAX_SOURCE_LINES >= len(Path('example.py').read_text().splitlines())\n"
+        "def test_assigned_source_policy():\n"
+        "    source_line_count = len(Path('example.py').read_text().splitlines())\n"
+        "    assert source_line_count <= MAX_SOURCE_LINES\n"
         "def test_source_read():\n"
         "    source_lines = Path('example.py').read_text().splitlines()\n"
         "    assert source_lines\n"
@@ -1627,7 +1656,7 @@ def test_file_length_policy_scan_detects_named_limits_without_flagging_reads(
 
     assert _file_length_policy_nodes(policy_module) == (
         ["RENAMED_CLEANUP_MODULES"],
-        ["test_source_policy"],
+        ["test_assigned_source_policy", "test_source_policy"],
     )
 
 

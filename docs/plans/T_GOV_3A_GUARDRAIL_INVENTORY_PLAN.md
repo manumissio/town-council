@@ -193,7 +193,7 @@ instead of predicting the whole-PR net delta.
 | Test | Scenarios |
 |---|---|
 | New `test_structural_guardrails_do_not_restore_file_length_inventories` | 1, 2 |
-| New detector characterization for named thresholds and non-policy reads | 1, 2 |
+| New detector characterization for direct/assigned limits and non-policy reads | 1, 2 |
 | Consolidated `test_registered_helpers_do_not_import_facades` | 3, 5 |
 | Extended `test_facade_import_guardrail_detects_relative_imports` | 4, 6 |
 | Existing direct-operation boundary tests | 7 |
