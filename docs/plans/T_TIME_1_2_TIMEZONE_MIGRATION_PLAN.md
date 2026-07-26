@@ -385,6 +385,9 @@ Local delivery evidence on 2026-07-25:
   Verification artifacts now normalize to UTC before adding `Z`, and the
   duplicate crawler source-text guardrail was removed in favor of the existing
   mapped-column contract test.
+- PASS: a later review found one DDL-construction P1. V10 now uses SQLAlchemy
+  `DDL` with dialect-quoted identifier context instead of interpolated
+  `text(...)`; a focused guardrail and PostgreSQL smoke cover the correction.
 - NOT VERIFIED: historical UTC wall-clock validity on a populated deployment
   and the mandatory CI PostgreSQL run.
 

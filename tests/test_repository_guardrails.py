@@ -887,6 +887,58 @@ def test_timezone_migration_retires_only_the_owned_dtz007_exceptions():
     assert all("DTZ007" not in ignore_entries.get(relative_path, set()) for relative_path in RETIRED_DTZ007_PATHS)
 
 
+def test_timezone_migration_uses_only_literal_direct_sqlalchemy_text_calls():
+    migration_source = (ROOT / "pipeline" / "migrate_v10.py").read_text(
+        encoding="utf-8"
+    )
+    migration_tree = ast.parse(migration_source)
+    sqlalchemy_imports = {
+        (alias.name, None, alias.asname)
+        for node in ast.walk(migration_tree)
+        if isinstance(node, ast.Import)
+        for alias in node.names
+        if alias.name == "sqlalchemy" or alias.name.startswith("sqlalchemy.")
+    } | {
+        (node.module, alias.name, alias.asname)
+        for node in ast.walk(migration_tree)
+        if isinstance(node, ast.ImportFrom)
+        and node.module
+        and (node.module == "sqlalchemy" or node.module.startswith("sqlalchemy."))
+        for alias in node.names
+    }
+    text_calls = [
+        node
+        for node in ast.walk(migration_tree)
+        if isinstance(node, ast.Call)
+        and isinstance(node.func, ast.Name)
+        and node.func.id == "text"
+    ]
+    text_name_references = [
+        node
+        for node in ast.walk(migration_tree)
+        if isinstance(node, ast.Name)
+        and isinstance(node.ctx, ast.Load)
+        and node.id == "text"
+    ]
+
+    assert sqlalchemy_imports == {
+        ("sqlalchemy", "DDL", None),
+        ("sqlalchemy", "text", None),
+        ("sqlalchemy.engine", "Connection", None),
+    }
+    assert text_calls
+    assert {id(reference) for reference in text_name_references} == {
+        id(text_call.func) for text_call in text_calls
+    }
+    assert all(
+        len(text_call.args) == 1
+        and not text_call.keywords
+        and isinstance(text_call.args[0], ast.Constant)
+        and isinstance(text_call.args[0].value, str)
+        for text_call in text_calls
+    )
+
+
 def test_ruff_entrypoints_use_config_owned_repository_scope():
     repository_command = "ruff check ."
     legacy_command = "ruff check api pipeline scripts tests"

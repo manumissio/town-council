@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-from sqlalchemy import text
+from sqlalchemy import DDL, text
 from sqlalchemy.engine import Connection
 
 from pipeline.models import db_connect
@@ -11,8 +11,21 @@ from pipeline.models import db_connect
 POSTGRESQL_DIALECT = "postgresql"
 NAIVE_TIMESTAMP_TYPE = "timestamp without time zone"
 AWARE_TIMESTAMP_TYPE = "timestamp with time zone"
-UTC_TIME_ZONE = "UTC"
 GENERATED_DEFAULTS = {"now()", "current_timestamp"}
+DROP_DEFAULT_DDL = (
+    "ALTER TABLE %(table_identifier)s "
+    "ALTER COLUMN %(column_identifier)s DROP DEFAULT"
+)
+CONVERT_TO_UTC_DDL = (
+    "ALTER TABLE %(table_identifier)s "
+    "ALTER COLUMN %(column_identifier)s TYPE TIMESTAMP WITH TIME ZONE "
+    "USING %(column_identifier)s AT TIME ZONE 'UTC'"
+)
+RESTORE_DEFAULT_DDL = (
+    "ALTER TABLE %(table_identifier)s "
+    "ALTER COLUMN %(column_identifier)s SET DEFAULT now()"
+)
+ANALYZE_TABLE_DDL = "ANALYZE %(table_identifier)s"
 
 
 @dataclass(frozen=True, slots=True)
@@ -84,34 +97,41 @@ def _read_timestamp_contract(
     return timestamp_type, timestamp_default
 
 
-def _drop_timestamp_default(connection: Connection, timestamp_spec: TimestampColumnSpec) -> None:
-    connection.execute(
-        text(
-            f'ALTER TABLE "{timestamp_spec.table_name}" '
-            f'ALTER COLUMN "{timestamp_spec.column_name}" DROP DEFAULT'
-        )
-    )
+def _execute_timestamp_ddl(
+    connection: Connection,
+    timestamp_spec: TimestampColumnSpec,
+    ddl_statement: str,
+) -> None:
+    identifier_preparer = connection.dialect.identifier_preparer
+    ddl_context = {
+        "table_identifier": identifier_preparer.quote_identifier(
+            timestamp_spec.table_name
+        ),
+        "column_identifier": identifier_preparer.quote_identifier(
+            timestamp_spec.column_name
+        ),
+    }
+    connection.execute(DDL(ddl_statement, context=ddl_context))
 
 
-def _convert_timestamp_to_utc(connection: Connection, timestamp_spec: TimestampColumnSpec) -> None:
-    connection.execute(
-        text(
-            f'ALTER TABLE "{timestamp_spec.table_name}" '
-            f'ALTER COLUMN "{timestamp_spec.column_name}" TYPE TIMESTAMP WITH TIME ZONE '
-            f'USING "{timestamp_spec.column_name}" AT TIME ZONE \'{UTC_TIME_ZONE}\''
-        )
-    )
+def _drop_timestamp_default(
+    connection: Connection,
+    timestamp_spec: TimestampColumnSpec,
+) -> None:
+    _execute_timestamp_ddl(connection, timestamp_spec, DROP_DEFAULT_DDL)
+
+
+def _convert_timestamp_to_utc(
+    connection: Connection,
+    timestamp_spec: TimestampColumnSpec,
+) -> None:
+    _execute_timestamp_ddl(connection, timestamp_spec, CONVERT_TO_UTC_DDL)
 
 
 def _restore_generated_default(connection: Connection, timestamp_spec: TimestampColumnSpec) -> None:
     if not timestamp_spec.has_server_default:
         return
-    connection.execute(
-        text(
-            f'ALTER TABLE "{timestamp_spec.table_name}" '
-            f'ALTER COLUMN "{timestamp_spec.column_name}" SET DEFAULT now()'
-        )
-    )
+    _execute_timestamp_ddl(connection, timestamp_spec, RESTORE_DEFAULT_DDL)
 
 
 def _migrate_timestamp_column(
@@ -136,8 +156,18 @@ def _migrate_timestamp_column(
 
 
 def _analyze_changed_tables(connection: Connection, changed_tables: set[str]) -> None:
+    identifier_preparer = connection.dialect.identifier_preparer
     for table_name in sorted(changed_tables):
-        connection.execute(text(f'ANALYZE "{table_name}"'))
+        connection.execute(
+            DDL(
+                ANALYZE_TABLE_DDL,
+                context={
+                    "table_identifier": identifier_preparer.quote_identifier(
+                        table_name
+                    )
+                },
+            )
+        )
 
 
 def migrate() -> None:
