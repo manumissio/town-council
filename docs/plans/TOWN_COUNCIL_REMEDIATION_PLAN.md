@@ -1,6 +1,6 @@
 # Town Council Remediation Plan (Codex Multi-Agent)
 
-version: 3.54
+version: 3.56
 generated: 2026-07-26
 source: Four-pass external code review (security, architecture, smells, process)
 source_artifact: [Town Council architecture review](../reviews/architecture-review-2026-07-19.html)
@@ -10,6 +10,16 @@ remains in force; where this plan is stricter, this plan wins for these tasks.
 
 ## Changelog
 
+- **v3.56:** Expands T-DD-1A ownership with exact-path role CLI parity tests
+  after pre-commit review found that direct script execution and role failure
+  aggregation were not durably covered. All three CLIs must work without
+  `PYTHONPATH`; real role containers remain the success-path evidence.
+- **v3.55:** Marks T-PLAT-2B complete after PR #152 merged and Dependabot
+  alerts 116 through 119 closed as fixed. Splits the inaccurate T-DD-1 task
+  into T-DD-1A worker-healthcheck consolidation and T-DD-1B city-state
+  mutation analysis. Activates T-DD-1A with exact ownership for all three
+  worker healthcheck CLIs, a focused shared probe owner, parity tests, Docker
+  contracts, and its Full implementation plan.
 - **v3.54:** Marks T-PLAT-1 and T-PLAT-1A complete after PRs #150 and #151
   merged with required checks green and the late migration-outcome review
   thread resolved. Activates T-PLAT-2B before broader dependency hygiene to
@@ -263,10 +273,10 @@ remains in force; where this plan is stricter, this plan wins for these tasks.
 
 | State | Tasks |
 |---|---|
-| **Complete** | T-CI-0, T-CI-1, T-CI-1A, T-CI-2, T-CI-2A, T-CI-3, T-CI-4, T-CI-5, T-SEC-1, T-SEC-2, T-SEC-3, T-SEC-3C, T-SEC-4, T-SEC-4A, T-SEC-5, T-SEC-6, T-TIME-1, T-TIME-2, T-TIME-3, T-CRAWL-1, T-CRAWL-2, T-PLAT-1, T-PLAT-1A, T-PLAT-2A, T-GOV-1, T-GOV-4, T-GOV-5, T-DA-1, T-DB-1A, T-DB-1, T-DB-1B |
-| **In progress** | T-PLAT-2B |
+| **Complete** | T-CI-0, T-CI-1, T-CI-1A, T-CI-2, T-CI-2A, T-CI-3, T-CI-4, T-CI-5, T-SEC-1, T-SEC-2, T-SEC-3, T-SEC-3C, T-SEC-4, T-SEC-4A, T-SEC-5, T-SEC-6, T-TIME-1, T-TIME-2, T-TIME-3, T-CRAWL-1, T-CRAWL-2, T-PLAT-1, T-PLAT-1A, T-PLAT-2A, T-PLAT-2B, T-GOV-1, T-GOV-4, T-GOV-5, T-DA-1, T-DB-1A, T-DB-1, T-DB-1B |
+| **In progress** | T-DD-1A |
 | **Partially landed; acceptance incomplete** | T-GOV-6 |
-| **Pending** | T-DC-1, T-DD-1, T-DE-1, T-PLAT-2, T-PLAT-3, T-PLAT-4, T-GOV-2..3 |
+| **Pending** | T-DC-1, T-DD-1B, T-DE-1, T-PLAT-2, T-PLAT-3, T-PLAT-4, T-GOV-2..3 |
 
 ---
 
@@ -332,7 +342,7 @@ remains in force; where this plan is stricter, this plan wins for these tasks.
 | DEDUP-A   | agent-da   | pipeline/metrics.py, pipeline/metrics_redis_backend.py, tests/test_*metrics* |
 | DEDUP-B   | agent-db   | pipeline/summary_backfill*.py, pipeline/task_summary_generation*.py, pipeline/task_summary_empty_agenda.py, pipeline/task_summary_side_effects.py, pipeline/task_facade_helpers.py, pipeline/tasks.py, pipeline/run_pipeline.py (T-DB-1 only), pipeline/backlog_maintenance.py (T-DB-1B only), pipeline/agenda_summary_maintenance.py (T-DB-1B only), pipeline/agenda_summary_fallback.py (T-DB-1B only), pipeline/non_agenda_summary_fallback.py (T-DB-1B only), pipeline/agenda_summary_batch.py (T-DB-1B only), scripts/backfill_summaries.py, scripts/staged_hydrate_cities.py, scripts/profile_pipeline_selection.py, scripts/staged_hydration_runner.py (T-DB-1B only), ARCHITECTURE.md and docs/PIPELINE.md (T-DB-1B agenda-summary maintenance map only), tests/test_*backfill*, tests/test_summary_generation_operation.py (new), tests/test_agenda_summary_payload_budget.py, tests/test_summary_blocking.py, tests/test_task_provider_retry_semantics.py, tests/test_async_flow.py, tests/test_task_facade_cleanup.py, tests/test_repository_guardrails.py (T-DB tasks only), tests/test_pipeline_batching.py, tests/test_run_pipeline_orchestration.py, tests/test_staged_hydrate_cities.py, tests/test_tasks_agenda_summary_format.py, tests/test_profile_pipeline_cli.py |
 | DEDUP-C   | agent-dc   | api/main.py, api/app_setup.py, tests/conftest.py, tests/test_*api* (Phase 2 only) |
-| DEDUP-D   | agent-dd   | scripts/flush_city_pipeline_state.py, scripts/reset_city_verification_state.py, scripts/*_healthcheck.py, tests for same |
+| DEDUP-D   | agent-dd   | scripts/flush_city_pipeline_state.py, scripts/reset_city_verification_state.py, scripts/worker_health_probes.py, scripts/*_healthcheck.py, tests for same |
 | DEDUP-E   | agent-de   | pipeline/http_inference_provider.py, pipeline/inprocess_inference_provider.py, pipeline/inference_provider_contract.py, tests for same |
 | PLAT      | agent-plat | alembic/** (new), alembic.ini (new), pipeline/requirements*.txt, pipeline/db_init.py (T-PLAT-1 only), pipeline/db_migrate.py (T-PLAT-1 only, after TIME), pipeline/db_migration_alembic.py (new, T-PLAT-1 only), pipeline/db_migration_backfills.py (T-PLAT-1 shared transaction only), pipeline/db_migration_runner.py (T-PLAT-1 strict legacy path only), pipeline/db_schema_contracts.py (new, T-PLAT-1 only), pipeline/db_migration_columns.py (T-PLAT-1 legacy parity only), pipeline/migrate_v8.py (T-PLAT-1 frozen transaction adapter only), pipeline/migration_pgvector_semantic_embeddings.py (T-PLAT-1 frozen metadata only), pipeline/migrate_v9.py and pipeline/migration_catalog_lineage_columns.py (T-PLAT-1 shared transaction only), pipeline/migrate_v10.py (T-PLAT-1 shared transaction only), pipeline/seed_places.py (T-PLAT-1 schema handoff only), pipeline/promote_stage.py (T-PLAT-1 schema handoff only), scripts/check_schema_parity.py (new, T-PLAT-1 only), scripts/dev_up.sh (T-PLAT-1 only), README.md (T-PLAT-1 setup section only), ARCHITECTURE.md (T-PLAT-1 migration map only), api/requirements.txt, semantic_service/requirements.txt, constraints.txt (new), .github/dependabot.yml (new), .github/workflows/python-guardrails.yml (T-PLAT-1 PostgreSQL migration service/step only), ruff.toml (T-PLAT-1 stale db_migration_runner.py BLE001 selector removal only), docs/OPERATIONS.md (migration and backup sections only), docs/PIPELINE.md (T-PLAT-1 migration section only), docs/CONTRIBUTING_CITIES.md (T-PLAT-1 seed prerequisite only), docs/plans/T_PLAT_1_ALEMBIC_BASELINE_PLAN.md (new), docs/plans/G5_ALEMBIC_ADOPTION_DECISION_PLAN.md (T-PLAT-1 status only), docs/plans/TOWN_COUNCIL_REMEDIATION_PLAN.md (T-PLAT-1 only), tests/test_alembic_migrations.py (new), tests/test_db_init.py (T-PLAT-1 only), tests/test_db_migrate.py (T-PLAT-1 only), tests/test_docker_build_contracts.py (T-PLAT-1 fresh-DB contract only), tests/test_migrate_v8_pgvector_order.py (T-PLAT-1 only), tests/test_migrate_v9.py (T-PLAT-1 only), tests/test_migrate_v10.py (T-PLAT-1 only), tests/test_seed_places.py (T-PLAT-1 schema handoff only), tests/test_seed_places_includes_cupertino.py (T-PLAT-1 schema handoff only), tests/test_database.py (T-PLAT-1 promotion schema handoff only), tests/test_pipeline_idempotency.py (T-PLAT-1 promotion schema handoff only), tests/test_pipeline_integration.py (T-PLAT-1 promotion schema handoff only), tests/test_repository_guardrails.py (T-PLAT-1 migration CI and BLE001 ratchet only), tests/test_run_pipeline_orchestration.py (T-PLAT-1 migration-prelude contract only), api/cache.py |
 | GOV       | agent-gov  | docs/ADR.md, docs/ENGINEERING_GUARDRAILS.md, AGENTS.md, SECURITY.md (new), docs/TESTING.md (new), docs/DATA_GOVERNANCE.md (new), tests/test_repository_guardrails.py (Phase 3 only) |
@@ -1112,15 +1122,40 @@ files (GED-5 grant).
 - risk: Highest-touch task in the plan. Land as one PR; do not interleave.
 - verify: Full suite + a manual `uvicorn api.main:app` boot smoke.
 
-### T-DD-1: Consolidate twin scripts
+### T-DD-1A: Consolidate worker health probes
 - priority: P2
-- files_owned: per lane table (flush/reset city state, worker healthchecks)
-- do: Extract the 26-window shared core of flush_city_pipeline_state /
-  reset_city_verification_state into one shared helper module in scripts/;
-  same for the two healthchecks. CLIs keep identical names, flags, output.
-- accept: Duplicate-window count between each pair ~0; CLI contract
-  unchanged (capture before/after --help and a dry-run output).
-- verify: Suite green; manual dry-run parity.
+- status: in progress
+- implementation_plan: `docs/plans/T_DD_1A_WORKER_HEALTHCHECK_PLAN.md`
+- files_owned: the plan and ledger; `scripts/worker_health_probes.py`;
+  `scripts/worker_healthcheck.py`;
+  `scripts/enrichment_worker_healthcheck.py`;
+  `scripts/semantic_worker_healthcheck.py`;
+  `tests/test_worker_health_probes.py`;
+  `tests/test_worker_healthcheck.py`;
+  `tests/test_role_worker_healthchecks.py`;
+  `tests/test_docker_health_contracts.py`
+- do: Move shared URL/TCP, Redis/PostgreSQL, failure aggregation, and reporting
+  behavior into one implementation owner. Preserve all three CLI filenames,
+  role-specific probes, labels, defaults, timeouts, and exit behavior.
+- accept: No healthcheck CLI imports private helpers from another CLI; the
+  shared module never imports a CLI; all three role contracts and Compose
+  entrypoints remain unchanged; no BLE001 selector is added or widened.
+- verify: Follow the Full T-DD-1A plan; targeted healthcheck and Docker
+  contracts, Ruff, Mypy, docs links, and the complete Python suite pass.
+
+### T-DD-1B: Evaluate city-state mutation consolidation
+- priority: P2
+- status: pending after T-DD-1A
+- files_owned: `scripts/flush_city_pipeline_state.py`,
+  `scripts/reset_city_verification_state.py`, and focused tests to be named in
+  a separate Full plan
+- do: Characterize the exact shared event-graph deletion invariant before
+  extracting code. Preserve each command's distinct stage-row behavior,
+  defaults, temporal selection, output, and dry-run contract.
+- accept: Consolidate only proven identical mutation policy; do not force
+  shallow reuse when semantics differ.
+- verify: Separate tests-first Full plan, CLI parity, targeted tests, and the
+  complete suite.
 
 ### T-DE-1: Shared provider retry/telemetry
 - priority: P2

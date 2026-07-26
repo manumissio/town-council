@@ -6,25 +6,19 @@ import sys
 import tempfile
 from pathlib import Path
 
-from scripts.worker_healthcheck import _probe_tcp, _socket_target_from_url
+import worker_health_probes
+
+PROJECT_ROOT = Path(__file__).resolve().parent.parent
 
 
 def main() -> int:
-    failures: list[str] = []
+    if str(PROJECT_ROOT) not in sys.path:
+        sys.path.insert(0, str(PROJECT_ROOT))
 
-    broker_failure = _probe_tcp(
-        *_socket_target_from_url((os.getenv("CELERY_BROKER_URL") or "").strip()),
-        label="redis broker",
+    failures = worker_health_probes.probe_broker_and_database(
+        worker_health_probes.socket_target_from_url((os.getenv("CELERY_BROKER_URL") or "").strip()),
+        worker_health_probes.socket_target_from_url((os.getenv("DATABASE_URL") or "").strip()),
     )
-    if broker_failure:
-        failures.append(broker_failure)
-
-    database_failure = _probe_tcp(
-        *_socket_target_from_url((os.getenv("DATABASE_URL") or "").strip()),
-        label="postgres",
-    )
-    if database_failure:
-        failures.append(database_failure)
 
     try:
         import torch  # noqa: F401
@@ -50,11 +44,7 @@ def main() -> int:
     except Exception as exc:
         failures.append(f"semantic artifact directory probe failed: {exc}")
 
-    if failures:
-        for failure in failures:
-            print(failure, file=sys.stderr)
-        return 1
-    return 0
+    return worker_health_probes.healthcheck_exit_code(failures)
 
 
 if __name__ == "__main__":
