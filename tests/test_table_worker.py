@@ -80,6 +80,7 @@ def test_process_single_pdf_handles_indexerror_as_broken_pdf(mocker):
     assert result == 1
     assert record.tables == []
     assert camelot.read_pdf.call_count == 2
+    session.commit.assert_called_once()
 
 
 def test_process_single_pdf_handles_pypdf_error_as_broken_pdf(mocker):
