@@ -183,6 +183,34 @@ def test_full_reindex_uses_maintenance_timeout_for_document_clear(mocker):
     assert replacement_client.deletion_poll_interval_ms == 250
 
 
+def test_full_reindex_uses_one_bounded_maintenance_client(mocker):
+    replacement_client = ReplacementClient("succeeded")
+    maintenance_request_timeouts = []
+
+    def create_replacement_client(
+        meilisearch_host,
+        meilisearch_key,
+        timeout=None,
+    ):
+        maintenance_request_timeouts.append(timeout)
+        return replacement_client
+
+    @contextmanager
+    def fake_db_session():
+        yield _empty_index_session()
+
+    mocker.patch.object(indexer, "db_session", fake_db_session)
+    mocker.patch.object(
+        indexer.meilisearch,
+        "Client",
+        side_effect=create_replacement_client,
+    )
+
+    indexer.replace_documents_index()
+
+    assert maintenance_request_timeouts == [30]
+
+
 def test_full_reindex_stops_when_meilisearch_clear_fails(mocker):
     replacement_client = ReplacementClient("failed")
     mocker.patch.object(indexer.meilisearch, "Client", return_value=replacement_client)

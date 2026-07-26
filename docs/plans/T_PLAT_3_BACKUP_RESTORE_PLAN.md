@@ -107,7 +107,9 @@ uniquely named temporary validation database.
     `replace_documents_index()`. The operation waits for the rebuild queue and
     verifies the live index settings before comparing the final Meilisearch
     document count with the PostgreSQL corpus count returned by
-    `index_documents()`.
+    `index_documents()`. Every maintenance request uses one client with a
+    30-second HTTP timeout so the five-minute task and idle waits cannot block
+    inside an unbounded request.
 15. Require the recovery runbook to rebuild Meilisearch with `--replace-all`
     before accepting traffic. When `SEMANTIC_BACKEND=faiss`, rebuild FAISS
     artifacts from the restored database too. Pgvector embeddings are restored
@@ -287,6 +289,8 @@ concise runbook/ledger text.
     verification blocks restart.
 19. Failed schema release: selecting the rollback release before migration and
     parity prevents the failed current migration from being reapplied.
+20. Meilisearch stops responding during recovery: every maintenance request
+    times out before control returns to the task or idle deadline.
 
 **r) Tests added or updated.**
 
@@ -305,6 +309,7 @@ concise runbook/ledger text.
 | `test_full_reindex_rejects_missing_index_settings` | 17 |
 | `test_full_reindex_rejects_document_count_mismatch` | 17 |
 | `test_indexer_reports_agenda_source_count_after_batch_attempt` | 18 |
+| `test_full_reindex_uses_one_bounded_maintenance_client` | 20 |
 | `test_backup_runbook_rebuilds_external_search_state` | 15-18 |
 | Real dev-stack backup and temporary restore drill | 5-13 |
 | Existing docs-link suite | Runbook and plan links |

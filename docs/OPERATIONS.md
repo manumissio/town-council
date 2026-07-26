@@ -215,12 +215,13 @@ docker compose -f docker-compose.yml -f docker-compose.dev.yml run \
   --rm --no-deps semantic python ../pipeline/reindex_semantic.py
 ```
 
-`--replace-all` waits up to five minutes for the Meilisearch deletion and
-rebuild queue, then verifies the index settings and compares the indexed
-document count with the restored PostgreSQL corpus. Any deletion failure,
-timeout, settings mismatch, or count mismatch blocks restart. After schema
-parity, row-count inspection, and required search rebuilds pass, restart
-without the development purge:
+`--replace-all` bounds every Meilisearch HTTP request at 30 seconds and uses
+separate five-minute waits for deletion and rebuild-queue completion. It then
+verifies the index settings and compares the indexed document count with the
+restored PostgreSQL corpus. Any deletion failure, request or queue timeout,
+settings mismatch, or count mismatch blocks restart. After schema parity,
+row-count inspection, and required search rebuilds pass, restart without the
+development purge:
 
 ```bash
 STARTUP_PURGE_DERIVED=false docker compose \
