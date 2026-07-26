@@ -1,11 +1,18 @@
 from __future__ import annotations
 
-from pipeline.migration_pgvector_semantic_embeddings import Base as Base, db_connect as db_connect
-from pipeline.migration_pgvector_semantic_embeddings import migrate as migrate_impl
+from sqlalchemy.engine import Connection
+
+from pipeline.migration_pgvector_semantic_embeddings import migrate as migrate_connection
+from pipeline.models import db_connect
 
 
-def migrate() -> None:
-    migrate_impl(db_connect_callable=db_connect, model_metadata=Base.metadata)
+def migrate(connection: Connection | None = None) -> int:
+    if connection is not None:
+        return migrate_connection(connection)
+
+    engine = db_connect()
+    with engine.begin() as owned_connection:
+        return migrate_connection(owned_connection)
 
 
 if __name__ == "__main__":

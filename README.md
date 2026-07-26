@@ -31,22 +31,14 @@ This project ingests agendas/minutes, extracts text, indexes search content, and
 ### 2) Start stack and initialize DB
 ```bash
 test -f .env || cp .env.example .env
-docker compose -f docker-compose.yml -f docker-compose.dev.yml up -d --build \
-  postgres redis meilisearch tika inference semantic semantic-worker api worker enrichment-worker monitor frontend ingress
-bash ./scripts/bootstrap_local_models.sh
-docker compose -f docker-compose.yml -f docker-compose.dev.yml run --rm \
-  pipeline python db_init.py
-```
-
-Optional helper (same steps, fewer flags to remember):
-```bash
 bash ./scripts/dev_up.sh
 ```
 
 What `scripts/dev_up.sh` does:
-- starts the core Docker Compose stack (with `--build`)
+- starts PostgreSQL and waits for it to accept connections
+- runs the canonical database migration entrypoint
 - bootstraps the shared local model volume
-- initializes the DB schema
+- starts the remaining Docker Compose stack (with `--build`)
 - runs a small smoke check (`/health`)
 
 Local development may use the fake Meilisearch reader fallback. Any reachable

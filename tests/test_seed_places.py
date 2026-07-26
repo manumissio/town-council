@@ -1,6 +1,6 @@
-import io
-
-from sqlalchemy import create_engine
+import pytest
+from sqlalchemy import create_engine, event
+from sqlalchemy.exc import OperationalError
 from sqlalchemy.orm import sessionmaker
 
 from pipeline.models import Base, Place
@@ -13,7 +13,7 @@ def _engine():
     return engine
 
 
-def test_seed_places_inserts_and_updates_rows(mocker):
+def test_seed_places_inserts_and_updates_rows(mocker, tmp_path):
     engine = _engine()
     Session = sessionmaker(bind=engine)
     session = Session()
@@ -35,10 +35,10 @@ def test_seed_places_inserts_and_updates_rows(mocker):
         "Newville,CA,us,Newville City,ocd-division/country:us/state:ca/place:newville,https://newville.example.com,granicus\n"
     )
 
+    city_metadata_path = tmp_path / "cities.csv"
+    city_metadata_path.write_text(csv_text, encoding="utf-8")
     mocker.patch("pipeline.seed_places.db_connect", return_value=engine)
-    mocker.patch("pipeline.seed_places.create_tables")
-    mocker.patch("pipeline.seed_places.os.path.exists", return_value=True)
-    mocker.patch("builtins.open", return_value=io.StringIO(csv_text))
+    mocker.patch("pipeline.seed_places.CITY_METADATA_PATH", city_metadata_path)
 
     seed_places()
 
@@ -52,24 +52,47 @@ def test_seed_places_inserts_and_updates_rows(mocker):
     engine.dispose()
 
 
-def test_seed_places_rolls_back_on_commit_error(mocker):
+def test_seed_places_rolls_back_on_commit_error(mocker, tmp_path):
     fake_session = mocker.MagicMock()
     fake_session.commit.side_effect = ValueError("bad csv")
     fake_session.query.return_value.filter.return_value.first.return_value = None
+    rollback_observed = False
+
+    def record_rollback() -> None:
+        nonlocal rollback_observed
+        rollback_observed = True
 
     mocker.patch("pipeline.seed_places.db_connect", return_value=object())
-    mocker.patch("pipeline.seed_places.create_tables")
     mocker.patch("pipeline.seed_places.sessionmaker", return_value=lambda: fake_session)
-    mocker.patch("pipeline.seed_places.os.path.exists", return_value=True)
-    mocker.patch(
-        "builtins.open",
-        return_value=io.StringIO(
-            "city,state,country,display_name,ocd_division_id,city_council_url,hosting_services\n"
-            "Bad,CA,us,Bad City,ocd-division/country:us/state:ca/place:bad,https://bad.example.com,host\n"
-        ),
+    fake_session.rollback.side_effect = record_rollback
+    city_metadata_path = tmp_path / "cities.csv"
+    city_metadata_path.write_text(
+        "city,state,country,display_name,ocd_division_id,city_council_url,hosting_services\n"
+        "Bad,CA,us,Bad City,ocd-division/country:us/state:ca/place:bad,https://bad.example.com,host\n",
+        encoding="utf-8",
     )
+    mocker.patch("pipeline.seed_places.CITY_METADATA_PATH", city_metadata_path)
 
-    seed_places()
+    with pytest.raises(ValueError, match="bad csv"):
+        seed_places()
 
-    fake_session.rollback.assert_called_once()
-    fake_session.close.assert_called_once()
+    assert rollback_observed is True
+
+
+def test_seed_places_fails_on_unmigrated_schema(mocker, caplog):
+    engine = create_engine("sqlite:///:memory:")
+    rollback_observed = False
+
+    def record_rollback(_connection) -> None:
+        nonlocal rollback_observed
+        rollback_observed = True
+
+    event.listen(engine, "rollback", record_rollback)
+    mocker.patch("pipeline.seed_places.db_connect", return_value=engine)
+
+    with pytest.raises(OperationalError):
+        seed_places()
+
+    assert rollback_observed is True
+    assert "Error during seeding" in caplog.text
+    engine.dispose()

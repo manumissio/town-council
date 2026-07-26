@@ -1,38 +1,37 @@
 from __future__ import annotations
 
 import logging
-from collections.abc import Callable
-from types import ModuleType
+from dataclasses import dataclass
 
-from sqlalchemy.engine import Engine
+from sqlalchemy.engine import Connection
 
 from pipeline.db_migration_backfills import run_core_backfills
-from pipeline.db_migration_columns import apply_core_column_migrations
+from pipeline.db_migration_columns import (
+    apply_core_column_migrations,
+    apply_core_constraint_repairs,
+)
+from pipeline.migrate_v10 import migrate as migrate_v10
+from pipeline.migrate_v8 import migrate as migrate_v8
+from pipeline.migrate_v9 import migrate as migrate_v9
 
 
-DbConnectCallable = Callable[[], Engine]
+@dataclass(frozen=True, slots=True)
+class LegacyMigrationReport:
+    retired_catalog_vector_count: int
 
 
 def run_migrations(
-    *,
-    db_connect_callable: DbConnectCallable,
-    migrate_v8_module: ModuleType,
-    migrate_v9_module: ModuleType,
+    connection: Connection,
     logger: logging.Logger,
-) -> None:
-    engine = db_connect_callable()
-    with engine.begin() as conn:
-        if engine.dialect.name != "postgresql":
-            return
-        apply_core_column_migrations(conn, logger)
-        run_core_backfills(conn)
-
-    _run_submigration(migrate_v8_module, "migrate_v8", logger)
-    _run_submigration(migrate_v9_module, "migrate_v9", logger)
-
-
-def _run_submigration(migration_module: ModuleType, migration_label: str, logger: logging.Logger) -> None:
-    try:
-        migration_module.migrate()
-    except Exception as exc:
-        logger.warning("%s skipped: %s", migration_label, exc)
+) -> LegacyMigrationReport:
+    if connection.dialect.name != "postgresql":
+        return LegacyMigrationReport(retired_catalog_vector_count=0)
+    apply_core_column_migrations(connection, logger)
+    run_core_backfills(connection)
+    apply_core_constraint_repairs(connection)
+    retired_catalog_vector_count = migrate_v8(connection)
+    migrate_v9(connection)
+    migrate_v10(connection)
+    return LegacyMigrationReport(
+        retired_catalog_vector_count=retired_catalog_vector_count,
+    )

@@ -23,9 +23,8 @@ silently choose between Alembic and the existing `migrate_v*` chain.
 - `docs/plans/TOWN_COUNCIL_REMEDIATION_PLAN.md`
 - `docs/ADR.md`
 
-T-PLAT-1 remains pending and owns Alembic implementation. Coordinated
-T-TIME-1 + T-TIME-2 implementation is in progress and owns the final numbered
-timezone-column migration.
+T-TIME-1 and T-TIME-2 are complete after PR #148. T-PLAT-1 is active and owns
+Alembic implementation from the final numbered timezone-column migration.
 
 **d) Decision-gate check.** G5 is satisfied by explicit operator approval.
 G1-G4 remain unchanged. This record authorizes T-PLAT-1 after the existing
@@ -36,10 +35,10 @@ TIME migration work; it does not rewrite T-TIME-2 into an Alembic revision.
 **e) Step-by-step approach.**
 
 1. Record G5 as approved with date and rationale.
-2. Preserve the migration sequence: one coordinated T-TIME-1 + T-TIME-2 PR
-   updates model declarations and existing databases through
-   `migrate_v10.py`, then T-PLAT-1 establishes the Alembic baseline.
-3. Mark T-PLAT-1 as approved and pending, not complete.
+2. Preserve the migration sequence: the merged coordinated T-TIME-1 +
+   T-TIME-2 PR updated model declarations and existing databases through
+   `migrate_v10.py`; T-PLAT-1 now establishes the Alembic baseline.
+3. Mark T-PLAT-1 active, not complete.
 4. Add an Accepted ADR that preserves the current migration chain as frozen
    history after the baseline and assigns post-baseline migrations to Alembic.
 5. Expand T-PLAT-1 ownership for root configuration, the pinned dependency,
@@ -123,7 +122,7 @@ change is one plan and short decision updates.
 - Explicit filesystem checks cover every local link added by the G5 decision
   records in scenario 6. The existing docs-link test does not scan these files.
 - Separate positive and negative `rg` checks cover scenarios 1-5 and 7.
-- Manual diff review confirms T-PLAT-1 remains pending.
+- Manual diff review confirms T-PLAT-1 is active but not complete.
 - T-PLAT-1 contract tests must cover scenario 8 with both fresh and
   legacy-migrated database paths.
 - Ownership checks cover scenario 9.
@@ -156,7 +155,7 @@ test -f docs/plans/G5_ALEMBIC_ADOPTION_DECISION_PLAN.md
 test -f docs/reviews/architecture-review-2026-07-19.html
 rg -n "G5 migration_tooling: \\*\\*Approved 2026-07-24" \
   docs/plans/TOWN_COUNCIL_REMEDIATION_PLAN.md
-rg -n "status: approved; implementation pending" \
+rg -n "status: in progress" \
   docs/plans/TOWN_COUNCIL_REMEDIATION_PLAN.md
 rg -n "T-TIME-1 and T-TIME-2 execute in one coordinated PR" \
   docs/plans/TOWN_COUNCIL_REMEDIATION_PLAN.md
@@ -216,8 +215,8 @@ or external-state remediation is required.
 - Remediation plan: gate, sequence, task status, and changelog.
 - ADR: accepted migration-tooling decision.
 - Architecture review: unchanged historical artifact.
-- Operations: T-TIME-1 + T-TIME-2 owns v10 preflight and rollback; T-PLAT-1
-  later owns Alembic adoption and backup-policy sections.
+- Operations: the merged T-TIME-1 + T-TIME-2 work owns v10 preflight and
+  rollback; active T-PLAT-1 owns Alembic adoption and backup-policy sections.
 
 ## 7. Delivery Self-Audit
 

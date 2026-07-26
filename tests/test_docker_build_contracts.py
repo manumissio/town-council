@@ -266,9 +266,9 @@ def test_dev_helper_requires_local_environment_file() -> None:
     assert "Create it from .env.example" in dev_helper
     assert "COMPOSE=(docker compose -f docker-compose.yml -f docker-compose.dev.yml)" in dev_helper
     assert "monitor frontend ingress)" in dev_helper
-    assert dev_helper.count('"${COMPOSE[@]}"') == 3
-    assert "monitor frontend ingress" in readme
-    assert "monitor frontend ingress" in operations
+    assert dev_helper.count('"${COMPOSE[@]}"') == 5
+    assert "bash ./scripts/dev_up.sh" in readme
+    assert "bash ./scripts/dev_up.sh" in operations
     assert "worker api pipeline frontend ingress" in profile_readme
 
 
@@ -317,19 +317,46 @@ def test_dockerfile_defines_split_python_targets():
     assert "semantic_cpu_constraints.txt" in source
 
 
-def test_dev_up_bootstraps_models_before_db_init():
+def test_dev_up_migrates_before_starting_schema_consumers():
     source = Path("scripts/dev_up.sh").read_text(encoding="utf-8")
+    prerequisite_command = (
+        '"${COMPOSE[@]}" up -d --build "${MIGRATION_PREREQUISITES[@]}"'
+    )
+    migration_command = (
+        '"${COMPOSE[@]}" run --rm --build --no-deps pipeline python db_migrate.py'
+    )
+    readiness_command = '"${COMPOSE[@]}" exec -T postgres pg_isready'
+    consumer_command = '"${COMPOSE[@]}" up -d --build "${CORE_SERVICES[@]}"'
 
-    assert '"${COMPOSE[@]}" up -d --build "${CORE_SERVICES[@]}"' in source
+    assert "MIGRATION_PREREQUISITES=(postgres)" in source
+    assert "POSTGRES_READY_ATTEMPTS=30" in source
+    assert "POSTGRES_READY_DELAY_SECONDS=1" in source
+    assert prerequisite_command in source
+    assert readiness_command in source
+    assert migration_command in source
+    assert consumer_command in source
     assert "semantic" in source
     assert "semantic-worker" in source
     assert "enrichment-worker" in source
     assert "monitor" in source
     assert " nlp" not in source
     assert "bash ./scripts/bootstrap_local_models.sh" in source
-    assert source.index("bash ./scripts/bootstrap_local_models.sh") < source.index(
-        '"${COMPOSE[@]}" run --rm pipeline python db_init.py'
+    assert "python db_init.py" not in source
+    assert source.index(prerequisite_command) < source.index(readiness_command)
+    assert source.index(readiness_command) < source.index(migration_command)
+    assert source.index(migration_command) < source.index(
+        "bash ./scripts/bootstrap_local_models.sh"
     )
+    assert source.index("bash ./scripts/bootstrap_local_models.sh") < source.index(
+        consumer_command
+    )
+
+
+def test_migration_runbook_uses_container_absolute_parity_script():
+    operations = Path("docs/OPERATIONS.md").read_text(encoding="utf-8")
+
+    assert "pipeline python /app/scripts/check_schema_parity.py" in operations
+    assert "pipeline python scripts/check_schema_parity.py" not in operations
 
 
 def test_compose_maps_worker_family_to_live_and_batch_images():

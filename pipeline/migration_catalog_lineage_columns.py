@@ -1,67 +1,44 @@
 from __future__ import annotations
 
-from collections.abc import Callable
-
 from sqlalchemy import text
-from sqlalchemy.engine import Connection, Engine
+from sqlalchemy.engine import Connection
 
-from pipeline.models import db_connect
-
-
-DbConnectCallable = Callable[[], Engine]
-ColumnExistsCallable = Callable[[Connection, str, str], bool]
+from pipeline.db_migration_columns import ColumnMigration, postgres_column_exists
 
 
-def column_exists(conn: Connection, table: str, column: str) -> bool:
-    return (
-        conn.execute(
-            text(
-                """
-                SELECT 1
-                FROM information_schema.columns
-                WHERE table_schema = 'public'
-                  AND table_name = :table
-                  AND column_name = :column
-                LIMIT 1
-                """
-            ),
-            {"table": table, "column": column},
-        ).scalar()
-        is not None
-    )
+POSTGRESQL_DIALECT = "postgresql"
+LINEAGE_COLUMN_MIGRATIONS = (
+    ColumnMigration(
+        "catalog",
+        "lineage_id",
+        "ALTER TABLE catalog ADD COLUMN lineage_id VARCHAR(64)",
+        "CREATE INDEX IF NOT EXISTS ix_catalog_lineage_id ON catalog (lineage_id)",
+    ),
+    ColumnMigration(
+        "catalog",
+        "lineage_confidence",
+        "ALTER TABLE catalog ADD COLUMN lineage_confidence DOUBLE PRECISION",
+        "CREATE INDEX IF NOT EXISTS ix_catalog_lineage_confidence ON catalog (lineage_confidence)",
+    ),
+    ColumnMigration(
+        "catalog",
+        "lineage_updated_at",
+        "ALTER TABLE catalog ADD COLUMN lineage_updated_at TIMESTAMP",
+        "CREATE INDEX IF NOT EXISTS ix_catalog_lineage_updated_at ON catalog (lineage_updated_at)",
+    ),
+)
 
 
-def migrate(
-    *,
-    db_connect_callable: DbConnectCallable = db_connect,
-    column_exists_callable: ColumnExistsCallable = column_exists,
-) -> None:
-    engine = db_connect_callable()
-    if engine.dialect.name != "postgresql":
+def migrate(connection: Connection) -> None:
+    if connection.dialect.name != POSTGRESQL_DIALECT:
         return
 
-    with engine.begin() as conn:
-        _add_lineage_column(conn, "lineage_id", "VARCHAR(64)", "ix_catalog_lineage_id", column_exists_callable)
-        _add_lineage_column(
-            conn,
-            "lineage_confidence",
-            "DOUBLE PRECISION",
-            "ix_catalog_lineage_confidence",
-            column_exists_callable,
-        )
-        _add_lineage_column(
-            conn, "lineage_updated_at", "TIMESTAMP", "ix_catalog_lineage_updated_at", column_exists_callable
-        )
-
-
-def _add_lineage_column(
-    conn: Connection,
-    column: str,
-    column_type: str,
-    index_name: str,
-    column_exists_callable: ColumnExistsCallable,
-) -> None:
-    if column_exists_callable(conn, "catalog", column):
-        return
-    conn.execute(text(f"ALTER TABLE catalog ADD COLUMN {column} {column_type}"))
-    conn.execute(text(f"CREATE INDEX IF NOT EXISTS {index_name} ON catalog ({column})"))
+    for column_migration in LINEAGE_COLUMN_MIGRATIONS:
+        if not postgres_column_exists(
+            connection,
+            column_migration.table,
+            column_migration.column,
+        ):
+            connection.execute(text(column_migration.ddl))
+        if column_migration.index_sql:
+            connection.execute(text(column_migration.index_sql))

@@ -92,7 +92,6 @@ APPROVED_BROAD_EXCEPTION_PATHS = {
     "pipeline/agenda_legistar.py",
     "pipeline/agenda_worker.py",
     "pipeline/check_faiss_runtime.py",
-    "pipeline/db_migration_runner.py",
     "pipeline/diagnose_search_sort.py",
     "pipeline/diagnose_semantic_search.py",
     "pipeline/indexer.py",
@@ -1110,6 +1109,27 @@ def test_python_guardrails_provide_mandatory_pgvector_postgres():
     }
     assert postgres_service["ports"] == ["5432:5432"]
     assert "pg_isready" in postgres_service["options"]
+
+
+def test_python_guardrails_run_migration_acceptance_before_full_suite():
+    workflow_text = (
+        ROOT / ".github" / "workflows" / "python-guardrails.yml"
+    ).read_text(encoding="utf-8")
+    migration_step = (
+        "      - name: Run PostgreSQL migration acceptance\n"
+        "        run: PYTHONPATH=. python -m pytest -q "
+        "tests/test_alembic_migrations.py"
+    )
+    full_suite_marker = "      - name: Run full Python test suite\n"
+
+    assert workflow_text.count(migration_step) == 1
+    assert workflow_text.index(migration_step) < workflow_text.index(full_suite_marker)
+    migration_step_body = workflow_text.partition(migration_step)[2].partition(
+        "\n      - name:"
+    )[0]
+    assert "continue-on-error:" not in migration_step_body
+    assert "if:" not in migration_step_body
+
 
 def test_coverage_configuration_measures_repository_production_python():
     coverage_config = configparser.ConfigParser()

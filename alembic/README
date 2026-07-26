@@ -1,0 +1,5 @@
+Town Council Alembic revisions.
+
+Use pipeline/db_migrate.py for fresh databases, existing database adoption,
+and upgrades. Do not run an unguarded alembic stamp. See docs/OPERATIONS.md
+for backup, parity, rollback, and derived-vector rehydration procedures.
