@@ -18,9 +18,12 @@ from pipeline.indexer_documents import (
 )
 from pipeline.indexer_meilisearch import (
     _apply_index_settings,
+    _clear_documents_index,
     _delete_documents_by_filter,
     _flush_batch,
     _task_uid,
+    _verify_documents_index_settings,
+    _wait_for_documents_index_idle,
 )
 from pipeline.models import AgendaItem, Catalog, Document, Event, Membership, Organization, Place
 
@@ -115,7 +118,7 @@ def _catalog_agenda_item_rows(session, catalog_id: int):
     )
 
 
-def index_documents():
+def index_documents() -> int:
     """
     Sync processed meetings and agenda items into Meilisearch.
     """
@@ -126,11 +129,13 @@ def index_documents():
     with db_session() as session:
         documents_batch = []
         count = 0
+        source_document_count = 0
         indexed_meeting_docs = 0
         truncated_meeting_docs = 0
 
         print("Step 1: Indexing Full Meeting Documents...")
         for doc, catalog, event, place, organization in _document_rows(session):
+            source_document_count += 1
             _, is_content_truncated, _, _ = _truncate_content_for_index(catalog.content)
             indexed_meeting_docs += 1
             if is_content_truncated:
@@ -150,6 +155,7 @@ def index_documents():
 
         print("Step 2: Indexing Individual Agenda Items...")
         for item, event, place, organization in _agenda_item_rows(session):
+            source_document_count += 1
             documents_batch.append(_build_agenda_item_search_doc(item, event, place, organization))
             if len(documents_batch) >= MEILISEARCH_BATCH_SIZE:
                 count = _flush_batch(index, documents_batch, count, "agenda item")
@@ -158,6 +164,23 @@ def index_documents():
         count = _flush_batch(index, documents_batch, count, "agenda item")
 
     print(f"Indexing complete. Total records indexed: {count}")
+    return source_document_count
+
+
+def replace_documents_index() -> None:
+    """Replace search state from PostgreSQL and reject incomplete rebuilds."""
+    client = meilisearch.Client(MEILI_HOST, MEILI_MASTER_KEY)
+    index = _ensure_documents_index(client, apply_settings=False)
+    _clear_documents_index(client, index)
+    expected_document_count = index_documents()
+    _wait_for_documents_index_idle(client)
+    _verify_documents_index_settings(index)
+    actual_document_count = int(index.get_stats().number_of_documents)
+    if actual_document_count != expected_document_count:
+        raise RuntimeError(
+            "Meilisearch replacement count mismatch "
+            f"expected={expected_document_count} actual={actual_document_count}"
+        )
 
 
 def reindex_catalog(catalog_id: int) -> dict:

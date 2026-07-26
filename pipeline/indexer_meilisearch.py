@@ -1,8 +1,108 @@
 import logging
+import time
 
+from meilisearch import Client
 from meilisearch.errors import MeilisearchError
+from meilisearch.index import Index
 
 logger = logging.getLogger("indexer")
+
+DOCUMENTS_INDEX_UID = "documents"
+INDEX_IDLE_TIMEOUT_SECONDS = 300.0
+INDEX_IDLE_POLL_SECONDS = 0.25
+INDEX_TASK_TIMEOUT_MS = 300_000
+INDEX_TASK_POLL_INTERVAL_MS = 250
+FILTERABLE_ATTRIBUTES = (
+    "city",
+    "meeting_type",
+    "meeting_category",
+    "organization",
+    "people",
+    "date",
+    "organizations",
+    "result_type",
+    "topics",
+    "lineage_id",
+    "catalog_id",
+)
+SORTABLE_ATTRIBUTES = ("date",)
+SEARCHABLE_ATTRIBUTES = (
+    "content",
+    "event_name",
+    "title",
+    "description",
+    "filename",
+    "summary",
+    "organizations",
+    "locations",
+    "meeting_category",
+    "organization",
+    "people",
+)
+RANKING_RULES = ("sort", "words", "typo", "proximity", "attribute", "exactness")
+
+
+def _clear_documents_index(client: Client, index: Index) -> None:
+    """Remove the old corpus before a recovery rebuild can publish new rows."""
+    deletion_task = index.delete_all_documents()
+    completed_task = client.wait_for_task(
+        deletion_task.task_uid,
+        timeout_in_ms=INDEX_TASK_TIMEOUT_MS,
+        interval_in_ms=INDEX_TASK_POLL_INTERVAL_MS,
+    )
+    if completed_task.status != "succeeded":
+        raise RuntimeError(
+            "Meilisearch document deletion failed "
+            f"status={completed_task.status}"
+        )
+
+
+def _wait_for_documents_index_idle(client: Client) -> None:
+    """Keep recovery traffic stopped until every documents-index task finishes."""
+    deadline = time.monotonic() + INDEX_IDLE_TIMEOUT_SECONDS
+    while time.monotonic() < deadline:
+        pending_tasks = client.get_tasks(
+            {
+                "statuses": ["enqueued", "processing"],
+                "indexUids": [DOCUMENTS_INDEX_UID],
+            }
+        )
+        if not pending_tasks.results:
+            return
+        time.sleep(INDEX_IDLE_POLL_SECONDS)
+    raise TimeoutError("Meilisearch documents index did not become idle")
+
+
+def _verify_documents_index_settings(index: Index) -> None:
+    """Reject a recovery rebuild that lacks the search contract users rely on."""
+    documents_index_settings = (
+        (
+            "filterable_attributes",
+            list(FILTERABLE_ATTRIBUTES),
+            index.get_filterable_attributes(),
+        ),
+        (
+            "sortable_attributes",
+            list(SORTABLE_ATTRIBUTES),
+            index.get_sortable_attributes(),
+        ),
+        (
+            "searchable_attributes",
+            list(SEARCHABLE_ATTRIBUTES),
+            index.get_searchable_attributes(),
+        ),
+        ("ranking_rules", list(RANKING_RULES), index.get_ranking_rules()),
+    )
+    setting_mismatches = [
+        f"{setting_name}=expected:{expected_value!r},actual:{actual_value!r}"
+        for setting_name, expected_value, actual_value in documents_index_settings
+        if actual_value != expected_value
+    ]
+    if setting_mismatches:
+        raise RuntimeError(
+            "Meilisearch replacement settings mismatch "
+            + "; ".join(setting_mismatches)
+        )
 
 
 def _flush_batch(index, documents_batch, count, label):
@@ -40,7 +140,7 @@ def _delete_documents_by_filter(index, filter_expr: str):
     raise RuntimeError("Meilisearch client does not support filtered document deletion")
 
 
-def _apply_index_settings(client, index) -> None:
+def _apply_index_settings(client: Client, index: Index) -> None:
     """
     Apply Meilisearch index settings and wait for completion.
 
@@ -52,45 +152,19 @@ def _apply_index_settings(client, index) -> None:
 
     task_ids.append(
         _task_uid(
-            index.update_filterable_attributes(
-                [
-                    "city",
-                    "meeting_type",
-                    "meeting_category",
-                    "organization",
-                    "people",
-                    "date",
-                    "organizations",
-                    "result_type",
-                    "topics",
-                    "lineage_id",
-                    "catalog_id",
-                ]
-            )
+            index.update_filterable_attributes(list(FILTERABLE_ATTRIBUTES))
         )
     )
-    task_ids.append(_task_uid(index.update_sortable_attributes(["date"])))
+    task_ids.append(
+        _task_uid(index.update_sortable_attributes(list(SORTABLE_ATTRIBUTES)))
+    )
     task_ids.append(
         _task_uid(
-            index.update_searchable_attributes(
-                [
-                    "content",
-                    "event_name",
-                    "title",
-                    "description",
-                    "filename",
-                    "summary",
-                    "organizations",
-                    "locations",
-                    "meeting_category",
-                    "organization",
-                    "people",
-                ]
-            )
+            index.update_searchable_attributes(list(SEARCHABLE_ATTRIBUTES))
         )
     )
     task_ids.append(
-        _task_uid(index.update_ranking_rules(["sort", "words", "typo", "proximity", "attribute", "exactness"]))
+        _task_uid(index.update_ranking_rules(list(RANKING_RULES)))
     )
 
     for uid in [task_id for task_id in task_ids if isinstance(task_id, int)]:

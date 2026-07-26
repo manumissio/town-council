@@ -1,6 +1,7 @@
 import pytest
 import sys
 import os
+import subprocess
 from types import SimpleNamespace
 from contextlib import contextmanager
 from unittest.mock import MagicMock
@@ -8,6 +9,245 @@ from unittest.mock import MagicMock
 # Ensure the pipeline directory is in the path for indexer imports
 sys.path.append(os.path.join(os.path.dirname(__file__), '..', 'pipeline'))
 from pipeline import indexer
+
+
+class EmptyIndexQuery:
+    def join(self, *args, **kwargs):
+        return self
+
+    def outerjoin(self, *args, **kwargs):
+        return self
+
+    def filter(self, *args, **kwargs):
+        return self
+
+    def options(self, *args, **kwargs):
+        return self
+
+    def yield_per(self, *args, **kwargs):
+        return []
+
+
+class ReplacementIndex:
+    def __init__(
+        self,
+        index_events,
+        indexed_document_count,
+        *,
+        settings_valid=True,
+    ):
+        self.index_events = index_events
+        self.indexed_document_count = indexed_document_count
+        self.settings_valid = settings_valid
+
+    def delete_all_documents(self):
+        self.index_events.append("delete_enqueued")
+        return SimpleNamespace(task_uid=91)
+
+    def update_filterable_attributes(self, attributes):
+        return {"taskUid": 1}
+
+    def update_sortable_attributes(self, attributes):
+        return {"taskUid": 2}
+
+    def update_searchable_attributes(self, attributes):
+        return {"taskUid": 3}
+
+    def update_ranking_rules(self, rules):
+        return {"taskUid": 4}
+
+    def get_stats(self):
+        self.index_events.append("stats_checked")
+        return SimpleNamespace(number_of_documents=self.indexed_document_count)
+
+    def get_filterable_attributes(self):
+        self.index_events.append("filterable_settings_checked")
+        if not self.settings_valid:
+            return []
+        return [
+            "city",
+            "meeting_type",
+            "meeting_category",
+            "organization",
+            "people",
+            "date",
+            "organizations",
+            "result_type",
+            "topics",
+            "lineage_id",
+            "catalog_id",
+        ]
+
+    def get_sortable_attributes(self):
+        return ["date"]
+
+    def get_searchable_attributes(self):
+        return [
+            "content",
+            "event_name",
+            "title",
+            "description",
+            "filename",
+            "summary",
+            "organizations",
+            "locations",
+            "meeting_category",
+            "organization",
+            "people",
+        ]
+
+    def get_ranking_rules(self):
+        return ["sort", "words", "typo", "proximity", "attribute", "exactness"]
+
+
+class ReplacementClient:
+    def __init__(
+        self,
+        deletion_status,
+        indexed_document_count=0,
+        *,
+        settings_valid=True,
+    ):
+        self.deletion_status = deletion_status
+        self.index_events = []
+        self.deletion_timeout_ms = None
+        self.deletion_poll_interval_ms = None
+        self.documents_index = ReplacementIndex(
+            self.index_events,
+            indexed_document_count,
+            settings_valid=settings_valid,
+        )
+
+    def create_index(self, index_name, index_options):
+        return None
+
+    def index(self, index_name):
+        return self.documents_index
+
+    def wait_for_task(
+        self,
+        task_uid,
+        timeout_in_ms=5000,
+        interval_in_ms=50,
+    ):
+        if task_uid == 91:
+            self.deletion_timeout_ms = timeout_in_ms
+            self.deletion_poll_interval_ms = interval_in_ms
+            self.index_events.append(f"delete_{self.deletion_status}")
+            return SimpleNamespace(status=self.deletion_status)
+        self.index_events.append(f"settings_{task_uid}")
+        return SimpleNamespace(status="succeeded")
+
+    def get_tasks(self, task_filters):
+        self.index_events.append("queue_idle")
+        return SimpleNamespace(results=[])
+
+
+def _empty_index_session():
+    session = MagicMock()
+    session.query.return_value = EmptyIndexQuery()
+    return session
+
+
+def test_full_reindex_replaces_existing_meilisearch_documents(mocker):
+    replacement_client = ReplacementClient("succeeded")
+
+    @contextmanager
+    def fake_db_session():
+        yield _empty_index_session()
+
+    mocker.patch.object(indexer, "db_session", fake_db_session)
+    mocker.patch.object(indexer.meilisearch, "Client", return_value=replacement_client)
+
+    indexer.replace_documents_index()
+
+    assert replacement_client.index_events[:2] == [
+        "delete_enqueued",
+        "delete_succeeded",
+    ]
+    assert replacement_client.index_events[-3:] == [
+        "queue_idle",
+        "filterable_settings_checked",
+        "stats_checked",
+    ]
+
+
+def test_full_reindex_uses_maintenance_timeout_for_document_clear(mocker):
+    replacement_client = ReplacementClient("failed")
+    mocker.patch.object(indexer.meilisearch, "Client", return_value=replacement_client)
+
+    with pytest.raises(RuntimeError, match="failed"):
+        indexer.replace_documents_index()
+
+    assert replacement_client.deletion_timeout_ms == 300_000
+    assert replacement_client.deletion_poll_interval_ms == 250
+
+
+def test_full_reindex_stops_when_meilisearch_clear_fails(mocker):
+    replacement_client = ReplacementClient("failed")
+    mocker.patch.object(indexer.meilisearch, "Client", return_value=replacement_client)
+
+    with pytest.raises(RuntimeError, match="failed"):
+        indexer.replace_documents_index()
+
+    assert replacement_client.index_events == ["delete_enqueued", "delete_failed"]
+
+
+def test_full_reindex_rejects_document_count_mismatch(mocker):
+    replacement_client = ReplacementClient(
+        "succeeded",
+        indexed_document_count=1,
+    )
+
+    @contextmanager
+    def fake_db_session():
+        yield _empty_index_session()
+
+    mocker.patch.object(indexer, "db_session", fake_db_session)
+    mocker.patch.object(indexer.meilisearch, "Client", return_value=replacement_client)
+
+    with pytest.raises(RuntimeError, match="expected=0 actual=1"):
+        indexer.replace_documents_index()
+
+    assert replacement_client.index_events[-3:] == [
+        "queue_idle",
+        "filterable_settings_checked",
+        "stats_checked",
+    ]
+
+
+def test_full_reindex_rejects_missing_index_settings(mocker):
+    replacement_client = ReplacementClient(
+        "succeeded",
+        settings_valid=False,
+    )
+
+    @contextmanager
+    def fake_db_session():
+        yield _empty_index_session()
+
+    mocker.patch.object(indexer, "db_session", fake_db_session)
+    mocker.patch.object(indexer.meilisearch, "Client", return_value=replacement_client)
+
+    with pytest.raises(RuntimeError, match="filterable_attributes"):
+        indexer.replace_documents_index()
+
+    assert replacement_client.index_events[-2:] == [
+        "queue_idle",
+        "filterable_settings_checked",
+    ]
+
+
+def test_reindex_cli_exposes_explicit_replace_mode():
+    cli_help = subprocess.run(
+        [sys.executable, "-m", "pipeline.reindex_only", "--help"],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+
+    assert cli_help.returncode == 0, cli_help.stderr
+    assert "--replace-all" in cli_help.stdout
 
 def test_meeting_category_normalization():
     """
@@ -36,7 +276,15 @@ def test_meeting_category_normalization():
     assert get_category("") == "Other"
 
 
-def test_indexer_flushes_agenda_final_batch_once(mocker):
+@pytest.mark.parametrize(
+    "batch_submission_fails",
+    [False, True],
+    ids=["submitted", "provider-error"],
+)
+def test_indexer_reports_agenda_source_count_after_batch_attempt(
+    mocker,
+    batch_submission_fails,
+):
     """
     Regression: remaining agenda items should be sent once after the loop.
     """
@@ -81,19 +329,23 @@ def test_indexer_flushes_agenda_final_batch_once(mocker):
     fake_index.update_sortable_attributes.return_value = {"taskUid": 2}
     fake_index.update_searchable_attributes.return_value = {"taskUid": 3}
     fake_index.update_ranking_rules.return_value = {"taskUid": 4}
+    if batch_submission_fails:
+        fake_index.add_documents.side_effect = indexer.MeilisearchError("boom")
     fake_client = MagicMock()
     fake_client.index.return_value = fake_index
     mocker.patch.object(indexer, "db_session", fake_db_session)
     mocker.patch.object(indexer.meilisearch, "Client", return_value=fake_client)
     mocker.patch.object(indexer, "MEILISEARCH_BATCH_SIZE", 2)
 
-    indexer.index_documents()
+    source_document_count = indexer.index_documents()
 
+    assert source_document_count == 2
     fake_index.update_sortable_attributes.assert_called_with(["date"])
     assert fake_client.wait_for_task.call_count == 4
     assert fake_index.add_documents.call_count == 1
-    sent_batch = fake_index.add_documents.call_args[0][0]
-    assert len(sent_batch) == 2
+    if not batch_submission_fails:
+        sent_batch = fake_index.add_documents.call_args[0][0]
+        assert len(sent_batch) == 2
 
 
 def test_flush_batch_updates_count(mocker):

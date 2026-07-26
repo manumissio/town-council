@@ -85,6 +85,110 @@ What it does *not* do:
 
 ### Database migrations and backups
 
+#### Routine database backup and recovery
+
+Create backups outside the repository. The archive can contain the complete
+database, including governed person-level records, so keep it private and use
+encrypted storage for any off-host copy. The command refuses overwrite,
+creates the archive with owner-only permissions, and publishes it only after
+`pg_restore --list` validates the custom-format output:
+
+```bash
+BACKUP_PATH="<BACKUP_PATH>/town_council_$(date -u +%Y%m%dT%H%M%SZ).dump"
+bash ./scripts/backup_db.sh "$BACKUP_PATH"
+```
+
+PostgreSQL gives `pg_dump` one consistent snapshot while ordinary writes
+continue. Still stop all writers before migration, destructive maintenance, or
+a recovery backup whose exact application boundary matters.
+
+Recommended cadence:
+
+- back up daily while actively ingesting or curating records
+- back up weekly when the local dataset is otherwise stable
+- always take a fresh backup before schema migration or destructive maintenance
+- retain enough daily and weekly copies to recover from corruption discovered
+  after the latest run, and keep at least one encrypted copy outside the host
+- periodically perform the disposable-database restore drill below; archive
+  listing alone does not prove successful restoration
+
+`STARTUP_PURGE_DERIVED=true` clears agenda items and derived catalog fields but
+preserves source ingest records. That development convenience is not a backup:
+the archive covers the complete PostgreSQL snapshot, including the system of
+record and any derived rows present when the dump starts.
+
+To validate an archive without touching the active database, restore into a
+new, uniquely named database created from `template0`, inspect
+`alembic_version` and representative row counts, then drop only that validation
+database.
+
+For full recovery, stop every Compose writer plus schedulers or manual commands
+running outside this project. Validate the archive before dropping the target:
+
+```bash
+BACKUP_PATH="<BACKUP_PATH>/town_council_recovery.dump"
+POSTGRES_USER="$(docker compose exec -T postgres printenv POSTGRES_USER)"
+POSTGRES_DB="$(docker compose exec -T postgres printenv POSTGRES_DB)"
+
+docker compose exec -T postgres pg_restore --list < "$BACKUP_PATH" >/dev/null
+docker compose -f docker-compose.yml -f docker-compose.dev.yml stop
+docker compose -f docker-compose.yml -f docker-compose.dev.yml up -d postgres
+docker compose exec -T postgres dropdb \
+  -U "$POSTGRES_USER" --maintenance-db=postgres --force --if-exists "$POSTGRES_DB"
+docker compose exec -T postgres createdb \
+  -U "$POSTGRES_USER" -T template0 "$POSTGRES_DB"
+docker compose exec -T postgres pg_restore \
+  -U "$POSTGRES_USER" -d "$POSTGRES_DB" \
+  --exit-on-error --no-owner --no-privileges < "$BACKUP_PATH"
+STARTUP_PURGE_DERIVED=false docker compose \
+  -f docker-compose.yml -f docker-compose.dev.yml run \
+  --rm --build --no-deps pipeline python db_migrate.py
+STARTUP_PURGE_DERIVED=false docker compose \
+  -f docker-compose.yml -f docker-compose.dev.yml run \
+  --rm --no-deps pipeline python /app/scripts/check_schema_parity.py
+docker compose exec -T postgres psql \
+  -U "$POSTGRES_USER" -d "$POSTGRES_DB" \
+  -c "select 'catalog' as relation, count(*) from catalog
+      union all
+      select 'event' as relation, count(*) from event
+      order by relation"
+```
+
+Confirm those counts against the expected recovery corpus or the latest
+successful restore-drill record. Do not accept traffic yet. PostgreSQL is
+authoritative, so replace any external search state that may be newer than the
+restored snapshot:
+
+```bash
+STARTUP_PURGE_DERIVED=false docker compose \
+  -f docker-compose.yml -f docker-compose.dev.yml up -d postgres redis meilisearch
+STARTUP_PURGE_DERIVED=false docker compose \
+  -f docker-compose.yml -f docker-compose.dev.yml run \
+  --rm --no-deps pipeline python reindex_only.py --replace-all
+
+# Required when SEMANTIC_BACKEND=faiss; pgvector state is inside the backup.
+docker compose -f docker-compose.yml -f docker-compose.dev.yml run \
+  --rm --no-deps semantic python ../pipeline/reindex_semantic.py
+```
+
+`--replace-all` waits up to five minutes for the Meilisearch deletion and
+rebuild queue, then verifies the index settings and compares the indexed
+document count with the restored PostgreSQL corpus. Any deletion failure,
+timeout, settings mismatch, or count mismatch blocks restart. After schema
+parity, row-count inspection, and required search rebuilds pass, restart
+without the development purge:
+
+```bash
+STARTUP_PURGE_DERIVED=false docker compose \
+  -f docker-compose.yml -f docker-compose.dev.yml up -d --build
+```
+
+The runbook provides cadence and recovery controls, but it does not configure a
+scheduler or prove an off-host copy exists. Keep the `SECURITY.md` backup
+checklist open until the operator has configured and tested those controls.
+
+#### Schema migration workflow
+
 `pipeline/db_migrate.py` is the only supported schema entrypoint. It handles
 fresh databases, guarded adoption of unversioned databases through the frozen
 v10 history, and upgrades to the current Alembic head. `db_init.py` remains a
@@ -99,9 +203,7 @@ BACKUP_PATH="<BACKUP_PATH>/town_council_pre_migration.dump"
 
 docker compose -f docker-compose.yml -f docker-compose.dev.yml stop
 docker compose -f docker-compose.yml -f docker-compose.dev.yml up -d postgres
-docker compose exec -T postgres pg_dump \
-  -U town_council -d town_council_db -Fc > "$BACKUP_PATH"
-docker compose exec -T postgres pg_restore --list < "$BACKUP_PATH" >/dev/null
+bash ./scripts/backup_db.sh "$BACKUP_PATH"
 docker compose -f docker-compose.yml -f docker-compose.dev.yml run \
   --rm --build --no-deps pipeline python db_migrate.py
 ```
@@ -167,14 +269,8 @@ Confirm `embed_dispatch_failed=0`, then monitor the semantic worker until the
 queued tasks finish. Embeddings are derived data; the migration transaction
 preserves source catalog, document, event, agenda, and civic records.
 
-Rollback restores the backup while writers remain stopped:
-
-```bash
-docker compose exec -T postgres pg_restore \
-  -U town_council -d town_council_db --clean --if-exists --exit-on-error \
-  < "$BACKUP_PATH"
-docker compose -f docker-compose.yml -f docker-compose.dev.yml up -d --build
-```
+Rollback follows the routine replacement-restore procedure above while writers
+remain stopped, then repeats schema parity before restart.
 
 #### Historical timezone migration v10
 
@@ -215,9 +311,7 @@ before running these commands; `docker compose stop` cannot quiesce them.
 ```bash
 docker compose -f docker-compose.yml -f docker-compose.dev.yml stop
 docker compose -f docker-compose.yml -f docker-compose.dev.yml up -d postgres
-docker compose exec -T postgres pg_dump \
-  -U town_council -d town_council_db -Fc > "$BACKUP_PATH"
-docker compose exec -T postgres pg_restore --list < "$BACKUP_PATH" >/dev/null
+bash ./scripts/backup_db.sh "$BACKUP_PATH"
 docker compose -f docker-compose.yml -f docker-compose.dev.yml run \
   --rm --no-deps pipeline python db_migrate.py
 docker compose exec -T postgres psql -U town_council -d town_council_db \
@@ -232,22 +326,9 @@ Every migrated timestamp must report `timestamp with time zone`. Generated
 timestamps have a `now()` default; lifecycle-attempt timestamps intentionally
 have no default so null continues to mean not attempted.
 
-Rollback uses the verified preflight backup. Keep all writers stopped while
-restoring:
-
-```bash
-docker compose -f docker-compose.yml -f docker-compose.dev.yml stop
-docker compose -f docker-compose.yml -f docker-compose.dev.yml up -d postgres
-docker compose exec -T postgres pg_restore \
-  -U town_council -d town_council_db --clean --if-exists --exit-on-error \
-  < "$BACKUP_PATH"
-docker compose exec -T postgres psql -U town_council -d town_council_db \
-  -c "select table_name, column_name, data_type, column_default
-      from information_schema.columns
-      where table_schema = 'public' and data_type like 'timestamp%'
-      order by table_name, ordinal_position"
-docker compose -f docker-compose.yml -f docker-compose.dev.yml up -d --build
-```
+Rollback uses the verified preflight backup and the routine replacement-restore
+procedure above. Keep all writers stopped, then repeat the timestamp-column
+query before restart.
 
 Do not reverse-convert a database that accepted post-migration writes. Restore
 the backup, then revert the application release.

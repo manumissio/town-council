@@ -76,9 +76,10 @@ uniquely named temporary validation database.
 8. Run `pg_dump` inside the existing `postgres` service with the container's
    `POSTGRES_USER` and `POSTGRES_DB`. Use custom format, omit ownership and ACL
    restoration metadata, and redirect binary stdout to the temporary host file.
-9. Validate the completed archive through in-container
-   `pg_restore --list`. Atomically rename the temporary file to the requested
-   destination only after validation succeeds.
+9. Validate the completed archive through in-container `pg_restore --list`.
+   Atomically hard-link the temporary file to the requested destination only
+   after validation succeeds, then unlink the temporary name. Linking fails
+   rather than overwriting a destination created after the preflight check.
 10. Extend `docs/OPERATIONS.md` with routine backup, restore, cadence,
     retention, credential, and `STARTUP_PURGE_DERIVED` guidance.
 11. Replace the two migration-specific inline `pg_dump` and archive-list
@@ -92,11 +93,18 @@ uniquely named temporary validation database.
     `STARTUP_PURGE_DERIVED=false`.
 13. Add one focused typed helper to existing `indexer_meilisearch.py`: delete
     every document and wait for the documented asynchronous task to succeed.
+    Add a second focused helper that waits until no `documents` index task is
+    enqueued or processing.
     Add one focused `replace_documents_index()` operation to `indexer.py` that
-    calls that helper and then the unchanged `index_documents()`.
+    calls that helper and then `index_documents()`. Its new return value is the
+    PostgreSQL source-corpus count, including rows whose batch submission was
+    rejected before Meilisearch accepted a task.
 14. Extend the existing `reindex_only.py` CLI with explicit `--replace-all`.
     The default remains unchanged. Replacement mode routes to
-    `replace_documents_index()`.
+    `replace_documents_index()`. The operation waits for the rebuild queue and
+    verifies the live index settings before comparing the final Meilisearch
+    document count with the PostgreSQL corpus count returned by
+    `index_documents()`.
 15. Require the recovery runbook to rebuild Meilisearch with `--replace-all`
     before accepting traffic. When `SEMANTIC_BACKEND=faiss`, rebuild FAISS
     artifacts from the restored database too. Pgvector embeddings are restored
@@ -113,11 +121,11 @@ private, custom-format archive from the configured Compose PostgreSQL service.
 It does not stop writers, schedule itself, rotate files, upload archives, or
 perform restores.
 
-`pipeline.indexer.index_documents()` remains unchanged and retains full-index
-synchronization ownership. The new `replace_documents_index()` operation owns
-the ordered clear-then-rebuild workflow. The dependency-facing clear/wait
-helper stays in `indexer_meilisearch.py`; helpers never import the indexer or
-CLI.
+`pipeline.indexer.index_documents()` retains full-index synchronization
+ownership and returns the source-corpus count needed for recovery verification.
+The new `replace_documents_index()` operation owns the ordered
+clear-then-rebuild workflow. The dependency-facing clear/wait helper stays in
+`indexer_meilisearch.py`; helpers never import the indexer or CLI.
 
 **f) Reuse audit.** Reuse the current Compose-array convention from
 `scripts/dev_up.sh`, the existing PostgreSQL service environment, and the
@@ -189,19 +197,21 @@ and access controls as the live database. G4 is unaffected.
 
 **l) Untrusted input.** The destination path is operator input. It is quoted,
 must have an existing parent, and cannot already exist. It is never evaluated
-as shell code. The archive is validated by PostgreSQL's own `pg_restore --list`
-before publication. Restore commands accept only an operator-selected local
-archive and run with writers stopped.
+as shell code. Atomic hard-link publication also refuses a destination created
+after preflight. The archive is validated by PostgreSQL's own
+`pg_restore --list` before publication. Restore commands accept only an
+operator-selected local archive and run with writers stopped.
 
 ## 4. Code Health
 
 **m) GED conformance sweep.** The script uses `set -euo pipefail`, named
 constants/variables, quoted expansions, one cleanup function, and a single exit
 trap. Errors either stop execution with context or remove incomplete output.
-The indexer receives one short ordered operation while its existing long batch
-function remains unchanged. The Meilisearch helper has typed concrete SDK
-parameters and one fail-fast responsibility. No environment config surface,
-timestamp behavior, broad exception handler, or Ruff boundary changes.
+The indexer receives one short ordered operation, while its existing batch
+function adds only the source-corpus counter returned to recovery verification.
+The Meilisearch helper has typed concrete SDK parameters and one fail-fast
+responsibility. No environment config surface, timestamp behavior, broad
+exception handler, or Ruff boundary changes.
 
 **n) Antipattern scan, plan pass.**
 
@@ -267,6 +277,11 @@ concise runbook/ledger text.
 15. Restored PostgreSQL is older than Meilisearch/FAISS: delete all
     Meilisearch documents and wait before reindex; rebuild FAISS before traffic.
 16. Meilisearch deletion task fails: stop recovery before indexing or restart.
+17. Meilisearch rebuild task fails or stalls: queue timeout, settings mismatch,
+    or final count mismatch blocks restart.
+18. A batch submission fails before Meilisearch accepts the asynchronous task:
+    the PostgreSQL corpus count still includes those rows, so final count
+    verification blocks restart.
 
 **r) Tests added or updated.**
 
@@ -280,7 +295,11 @@ concise runbook/ledger text.
 | `test_backup_runbook_covers_restore_cadence_and_startup_purge` | 9-13 |
 | `test_full_reindex_replaces_existing_meilisearch_documents` | 15 |
 | `test_full_reindex_stops_when_meilisearch_clear_fails` | 16 |
-| `test_backup_runbook_rebuilds_external_search_state` | 15, 16 |
+| `test_full_reindex_uses_maintenance_timeout_for_document_clear` | 17 |
+| `test_full_reindex_rejects_missing_index_settings` | 17 |
+| `test_full_reindex_rejects_document_count_mismatch` | 17 |
+| `test_indexer_reports_agenda_source_count_after_batch_attempt` | 18 |
+| `test_backup_runbook_rebuilds_external_search_state` | 15-18 |
 | Real dev-stack backup and temporary restore drill | 5-13 |
 | Existing docs-link suite | Runbook and plan links |
 | Complete Python suite | Cross-cutting regression check |
