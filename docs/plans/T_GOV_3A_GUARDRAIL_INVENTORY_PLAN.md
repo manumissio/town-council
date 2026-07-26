@@ -1,7 +1,7 @@
 # T-GOV-3A: Retire File-Length Inventories and Consolidate Dependency Rules
 
-`artifact_contract: ce-unified-plan/v1`  
-`artifact_readiness: implementation-ready`  
+`artifact_contract: ce-unified-plan/v1`
+`artifact_readiness: complete`
 `execution: code`
 
 ## 1. Context & Alignment
@@ -87,11 +87,10 @@ open for T-GOV-2 and City Coverage Expansion. G2, G3, and G5 remain satisfied.
 9. Run full verification, simplification, a fresh subagent pre-commit review,
    eligible fixes, atomic commits, PR delivery, and bounded CI repair.
 
-The new `_file_length_policy_nodes()` test helper has one responsibility:
-identify module inventories and AST comparisons that enforce source-line
-limits. The new policy test prevents those nodes from returning. The
-consolidated dependency test verifies only registered helpers do not import
-their facades.
+Three small test helpers separate assignment-name detection, semantic
+source-line comparison detection, and aggregation for one module. The new
+policy test prevents those nodes from returning. The consolidated dependency
+test verifies only registered helpers do not import their facades.
 
 **f) Reuse audit.** Reuse the existing AST parser, `_forbidden_imports()`,
 relative-import characterization, repository guardrail suite, and GOV lane.
@@ -194,6 +193,7 @@ instead of predicting the whole-PR net delta.
 | Test | Scenarios |
 |---|---|
 | New `test_structural_guardrails_do_not_restore_file_length_inventories` | 1, 2 |
+| New detector characterization for named thresholds and non-policy reads | 1, 2 |
 | Consolidated `test_registered_helpers_do_not_import_facades` | 3, 5 |
 | Extended `test_facade_import_guardrail_detects_relative_imports` | 4, 6 |
 | Existing direct-operation boundary tests | 7 |

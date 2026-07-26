@@ -1,6 +1,6 @@
 # Town Council Remediation Plan (Codex Multi-Agent)
 
-version: 3.57
+version: 3.58
 generated: 2026-07-26
 source: Four-pass external code review (security, architecture, smells, process)
 source_artifact: [Town Council architecture review](../reviews/architecture-review-2026-07-19.html)
@@ -10,6 +10,11 @@ remains in force; where this plan is stricter, this plan wins for these tasks.
 
 ## Changelog
 
+- **v3.58:** Completes T-GOV-3A. The repository no longer enforces 34
+  per-family 300-line inventories; one explicit registry now protects the same
+  24 already-clean helper-to-facade relationships. Umbrella T-GOV-3 remains
+  partially landed, and its transition marker stays until T-DC-1 and revised
+  T-DE-1 enable T-GOV-3B's final structural checks.
 - **v3.57:** Marks T-DD-1A complete after PR #153 merged with all required
   checks green and no unresolved P1/P2 findings. Splits T-GOV-3 into
   T-GOV-3A inventory cleanup and T-GOV-3B final smell enforcement. Activates
@@ -280,8 +285,7 @@ remains in force; where this plan is stricter, this plan wins for these tasks.
 
 | State | Tasks |
 |---|---|
-| **Complete** | T-CI-0, T-CI-1, T-CI-1A, T-CI-2, T-CI-2A, T-CI-3, T-CI-4, T-CI-5, T-SEC-1, T-SEC-2, T-SEC-3, T-SEC-3C, T-SEC-4, T-SEC-4A, T-SEC-5, T-SEC-6, T-TIME-1, T-TIME-2, T-TIME-3, T-CRAWL-1, T-CRAWL-2, T-PLAT-1, T-PLAT-1A, T-PLAT-2A, T-PLAT-2B, T-GOV-1, T-GOV-4, T-GOV-5, T-DA-1, T-DB-1A, T-DB-1, T-DB-1B, T-DD-1A |
-| **In progress** | T-GOV-3A |
+| **Complete** | T-CI-0, T-CI-1, T-CI-1A, T-CI-2, T-CI-2A, T-CI-3, T-CI-4, T-CI-5, T-SEC-1, T-SEC-2, T-SEC-3, T-SEC-3C, T-SEC-4, T-SEC-4A, T-SEC-5, T-SEC-6, T-TIME-1, T-TIME-2, T-TIME-3, T-CRAWL-1, T-CRAWL-2, T-PLAT-1, T-PLAT-1A, T-PLAT-2A, T-PLAT-2B, T-GOV-1, T-GOV-3A, T-GOV-4, T-GOV-5, T-DA-1, T-DB-1A, T-DB-1, T-DB-1B, T-DD-1A |
 | **Partially landed; acceptance incomplete** | T-GOV-3, T-GOV-6 |
 | **Pending** | T-DC-1, T-DD-1B, T-DE-1, T-PLAT-2, T-PLAT-3, T-PLAT-4, T-GOV-2, T-GOV-3B |
 
@@ -1430,17 +1434,16 @@ files (GED-5 grant).
 - prerequisite: at least two Phase 2 tasks merged (satisfied by T-DA-1,
   T-DB-1A, T-DB-1, and T-DB-1B)
 - delivered: Ruff C901 with max-complexity 10 and ratcheting path-specific
-  exceptions.
-- remaining: T-GOV-3A retires the file-length proxy and consolidates existing
-  dependency rules. T-GOV-3B adds the final sync-global and interpolated-SQL
-  checks after T-DC-1 and revised T-DE-1 remove the active reverse
-  dependencies.
+  exceptions; T-GOV-3A retirement of the file-length proxy and consolidation
+  of existing dependency rules.
+- remaining: T-GOV-3B adds the final sync-global and interpolated-SQL checks
+  after T-DC-1 and revised T-DE-1 remove the active reverse dependencies.
 - accept: T-GOV-3A and T-GOV-3B complete; the structural transition marker is
   removed only after every replacement rule is enforced.
 
 ### T-GOV-3A: Retire file-length inventories
 - priority: P2
-- status: in progress
+- status: complete and verified 2026-07-26
 - implementation_plan:
   `docs/plans/T_GOV_3A_GUARDRAIL_INVENTORY_PLAN.md`
 - files_owned: `docs/plans/T_GOV_3A_GUARDRAIL_INVENTORY_PLAN.md`,

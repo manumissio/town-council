@@ -84,9 +84,10 @@ long as their content is cohesive.
    inside SQLAlchemy `text(...)` DDL/DML; duplicated module-global state
    synchronized by convention. See `AGENTS.md` `<known_antipatterns>` for
    the full rationale.
-4. Retired: per-file line-count assertions for families collapsed in
-   remediation Phase 2. Remaining line assertions are deleted as their
-   families are recombined, not extended to new files.
+4. Retired: all per-file line-count assertions. The registered
+   helper-to-facade relationships in the repository guardrail test preserve
+   dependency direction without treating source length as an architecture
+   proxy.
 
 ## Optional local dead-code and complexity audit
 
