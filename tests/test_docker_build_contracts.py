@@ -7,6 +7,13 @@ from pathlib import Path
 import pytest
 
 TEST_MEILI_MASTER_KEY = "test-only-meilisearch-master-key"
+RUNTIME_REQUIREMENT_PATHS = (
+    Path("api/requirements.txt"),
+    Path("council_crawler/requirements.txt"),
+    Path("pipeline/requirements.txt"),
+    Path("pipeline/requirements-batch.txt"),
+    Path("semantic_service/requirements.txt"),
+)
 
 
 def _compose_services(
@@ -56,15 +63,26 @@ def _service_dependencies(
     }
 
 
+def _normalized_requirement_name(requirement_line: str) -> str | None:
+    requirement_specifier = requirement_line.partition("#")[0].strip()
+    if not requirement_specifier:
+        return None
+    requirement_name = re.split(
+        r"[<>=!~;\[\s]",
+        requirement_specifier,
+        maxsplit=1,
+    )[0]
+    return re.sub(r"[-_.]+", "-", requirement_name).lower()
+
+
 def _requirement_names(requirements_path: Path) -> set[str]:
-    requirement_names = set()
-    for requirement_line in requirements_path.read_text(encoding="utf-8").splitlines():
-        requirement_specifier = requirement_line.partition("#")[0].strip()
-        if not requirement_specifier:
-            continue
-        requirement_name = re.split(r"[<>=!~;\[\s]", requirement_specifier, maxsplit=1)[0]
-        requirement_names.add(re.sub(r"[-_.]+", "-", requirement_name).lower())
-    return requirement_names
+    return {
+        requirement_name
+        for requirement_line in requirements_path.read_text(
+            encoding="utf-8"
+        ).splitlines()
+        if (requirement_name := _normalized_requirement_name(requirement_line))
+    }
 
 
 def test_compose_uses_role_specific_python_images_and_model_volume():
@@ -378,11 +396,9 @@ def test_compose_maps_worker_family_to_live_and_batch_images():
 def test_worker_runtime_requirements_exclude_development_tooling():
     runtime = Path("pipeline/requirements.txt").read_text(encoding="utf-8")
     dev = Path("pipeline/requirements-dev.txt").read_text(encoding="utf-8")
-    runtime_requirement_names = {
-        re.split(r"[<>=!~;\[\s]", requirement_line, maxsplit=1)[0].lower()
-        for runtime_line in runtime.splitlines()
-        if (requirement_line := runtime_line.partition("#")[0].strip())
-    }
+    runtime_requirement_names = _requirement_names(
+        Path("pipeline/requirements.txt")
+    )
 
     for package in (
         "pytest==9.0.3",
@@ -397,16 +413,9 @@ def test_worker_runtime_requirements_exclude_development_tooling():
 
 
 def test_coverage_tooling_is_development_only():
-    runtime_requirement_paths = (
-        Path("api/requirements.txt"),
-        Path("council_crawler/requirements.txt"),
-        Path("pipeline/requirements.txt"),
-        Path("pipeline/requirements-batch.txt"),
-        Path("semantic_service/requirements.txt"),
-    )
     development_requirements = Path("pipeline/requirements-dev.txt").read_text(encoding="utf-8")
 
-    for runtime_requirement_path in runtime_requirement_paths:
+    for runtime_requirement_path in RUNTIME_REQUIREMENT_PATHS:
         runtime_requirements = runtime_requirement_path.read_text(encoding="utf-8")
         runtime_requirement_names = _requirement_names(runtime_requirement_path)
         runtime_requirement_directives = [
@@ -442,9 +451,28 @@ def test_worker_live_and_batch_requirements_split_table_stack_only():
         assert package not in core
         assert package in batch
 
-    for package in ("spacy==3.7.4", "pytextrank==3.3.0", "scikit-learn==1.5.0", "pypdf==6.13.3"):
+    for package in ("spacy==3.7.4", "pytextrank==3.3.0", "scikit-learn==1.5.0"):
         assert package not in core
         assert package in batch
+
+
+def test_batch_pdf_parser_uses_patched_pypdf():
+    batch_requirements_path = Path("pipeline/requirements-batch.txt")
+    pypdf_requirement_paths = [
+        requirements_path
+        for requirements_path in RUNTIME_REQUIREMENT_PATHS
+        if "pypdf" in _requirement_names(requirements_path)
+    ]
+    batch_pypdf_requirements = [
+        requirement_line.partition("#")[0].strip()
+        for requirement_line in batch_requirements_path.read_text(
+            encoding="utf-8"
+        ).splitlines()
+        if _normalized_requirement_name(requirement_line) == "pypdf"
+    ]
+
+    assert pypdf_requirement_paths == [batch_requirements_path]
+    assert batch_pypdf_requirements == ["pypdf==6.14.2"]
 
 
 def test_bootstrap_and_runbook_use_semantic_image_for_semantic_artifacts():

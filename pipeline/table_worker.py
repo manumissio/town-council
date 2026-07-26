@@ -5,10 +5,13 @@ from multiprocessing import cpu_count, get_context
 from sqlalchemy.exc import SQLAlchemyError
 
 try:
-    from pypdf.errors import PdfStreamError
-except Exception:  # pragma: no cover - host test env may not install pypdf
-    class PdfStreamError(Exception):
-        pass
+    from pypdf.errors import PyPdfError
+except ModuleNotFoundError as import_error:  # pragma: no cover - optional in live workers
+    if import_error.name != "pypdf":
+        raise
+
+    class PyPdfError(Exception):
+        """Fallback keeps non-batch development imports available."""
 
 from pipeline.models import Catalog
 from pipeline.cli_logging import configure_cli_logging
@@ -94,7 +97,7 @@ def process_single_pdf(catalog_id):
                 # Try lattice mode first (best for tables with visible borders)
                 try:
                     tables = camelot.read_pdf(record.location, pages=pages, flavor='lattice')
-                except (ValueError, OSError, RuntimeError, IndexError, PdfStreamError):
+                except (ValueError, OSError, RuntimeError, IndexError, PyPdfError):
                     # PDF parsing errors: Why do we need a fallback strategy?
                     # Lattice mode can fail for several reasons:
                     # - ValueError: PDF has no grid lines (needs stream mode instead)
@@ -120,7 +123,7 @@ def process_single_pdf(catalog_id):
                 record.tables = extracted_data
                 session.commit()
                 return 1
-            except (ValueError, OSError, RuntimeError, MemoryError, IndexError, PdfStreamError) as e:
+            except (ValueError, OSError, RuntimeError, MemoryError, IndexError, PyPdfError) as e:
                 # Table extraction failures: What else can go wrong?
                 # - ValueError: Invalid page range, malformed PDF structure
                 # - OSError: File disappeared, permissions changed, disk full

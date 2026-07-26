@@ -50,8 +50,9 @@ seam, migration behavior, model policy, runtime default, or soak baseline.
 2. Add a malformed-PDF test requiring `PyPdfError` from both Camelot strategies
    to persist `tables=[]` without aborting catalog processing.
 3. Run both tests and record failures against 6.13.3 and `PdfStreamError`.
-4. Pin 6.14.2; import and catch `PyPdfError`; narrow the optional import
-   fallback to `ImportError`; remove the stale table-worker BLE001 allowance.
+4. Pin 6.14.2; import and catch `PyPdfError`; limit the optional import
+   fallback to an absent top-level `pypdf` package; remove the stale
+   table-worker BLE001 allowance.
 5. Download the exact wheel without installing it. Verify Python 3.14,
    `Requires-Python`, version 6.14.2, and the public exception import.
 6. Build the real batch image and smoke pypdf, Camelot, and `PyPdfError`.
@@ -124,8 +125,8 @@ persisting an empty table result. Tests use existing approved boundaries.
 - A2, A4, B2-B3, C1-C2, D2, E3, F2, and H2-H4: no planned violations.
 
 **o) Ratchets.** Remove the table-worker BLE001 selector and matching exact
-boundary inventory after replacing broad import fallback with `ImportError`.
-No selector is added or widened.
+boundary inventory after replacing the broad import fallback with a guarded
+`ModuleNotFoundError`. No selector is added or widened.
 
 **p) Dead code and duplication.** Remove the obsolete pin expectation,
 `PdfStreamError` import/fallback, and stale BLE001 entries. Do not preserve an

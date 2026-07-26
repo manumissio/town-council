@@ -1295,8 +1295,9 @@ files (GED-5 grant).
   `pypdf==6.14.2`, the first release that closes all four open repository
   advisories. Catch pypdf's documented `PyPdfError` base at both table-parser
   boundaries because patched malformed inputs now raise `PdfReadError` and
-  `LimitReachedError`. Narrow the optional import fallback to `ImportError`
-  and remove the resulting stale table-worker BLE001 allowance.
+  `LimitReachedError`. Limit the optional import fallback to an absent
+  top-level `pypdf` package and remove the resulting stale table-worker
+  BLE001 allowance.
 - accept: The batch manifest has exactly one pypdf pin at 6.14.2; the core
   worker manifest still excludes pypdf; the batch image imports
   `pypdf.errors.PyPdfError`; malformed pypdf failures persist `tables=[]`

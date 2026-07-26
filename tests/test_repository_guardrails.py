@@ -106,7 +106,6 @@ APPROVED_BROAD_EXCEPTION_PATHS = {
     "pipeline/semantic_tasks.py",
     "pipeline/startup_purge.py",
     "pipeline/task_startup.py",
-    "pipeline/table_worker.py",
     "pipeline/tasks.py",
     "pipeline/text_cleaning.py",
     "pipeline/topic_worker.py",
