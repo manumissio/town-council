@@ -11,7 +11,6 @@ VALID_KEY = "dev_secret_key_change_me"
 
 def test_semantic_search_success_with_filters(mocker):
     mocker.patch("api.main.SEMANTIC_ENABLED", True)
-    mocker.patch("api.main._semantic_service_healthcheck", return_value={"status": "healthy"})
     mocker.patch(
         "api.main._semantic_service_get_json",
         return_value={
@@ -33,7 +32,6 @@ def test_semantic_search_success_with_filters(mocker):
 
 def test_semantic_search_missing_artifacts_returns_503(mocker):
     mocker.patch("api.main.SEMANTIC_ENABLED", True)
-    mocker.patch("api.main._semantic_service_healthcheck", return_value={"status": "healthy"})
     mocker.patch(
         "api.main._semantic_service_get_json",
         side_effect=HTTPException(

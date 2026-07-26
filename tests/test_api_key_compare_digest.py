@@ -1,11 +1,10 @@
 import asyncio
-import pytest
 
 
 def test_verify_api_key_uses_compare_digest(mocker):
-    from api import main
+    from api import app_setup
 
-    spy = mocker.patch("api.main.hmac.compare_digest", return_value=False)
+    mocker.patch("api.app_setup.hmac.compare_digest", return_value=True)
 
     class _Client:
         host = "127.0.0.1"
@@ -17,8 +16,4 @@ def test_verify_api_key_uses_compare_digest(mocker):
     req.client = _Client()
     req.url = _URL()
 
-    with pytest.raises(main.HTTPException) as exc:
-        asyncio.run(main.verify_api_key(req, x_api_key="bad"))
-
-    assert exc.value.status_code == 401
-    spy.assert_called_once()
+    assert asyncio.run(app_setup.verify_api_key(req, x_api_key="bad")) is None

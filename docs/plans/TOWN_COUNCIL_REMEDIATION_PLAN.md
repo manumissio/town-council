@@ -1,6 +1,6 @@
 # Town Council Remediation Plan (Codex Multi-Agent)
 
-version: 3.63
+version: 3.64
 generated: 2026-07-26
 source: Four-pass external code review (security, architecture, smells, process)
 source_artifact: [Town Council architecture review](../reviews/architecture-review-2026-07-19.html)
@@ -10,6 +10,13 @@ remains in force; where this plan is stricter, this plan wins for these tasks.
 
 ## Changelog
 
+- **v3.64:** Marks T-DD-1B complete after PR #156 merged the characterized
+  event-graph mutation owner with shared-catalog, rollback, idempotency, and
+  CLI parity coverage. Activates P1 T-DC-1 with exact ownership for removing
+  copied startup state, forwarding wrappers, stdlib rebinding, and the
+  `app_setup -> api.main` semantic startup dependency. Test-only model, search,
+  task, and reporting re-exports are removed in the same task; only aliases
+  resolved by assembled task, lineage, and search routes remain.
 - **v3.63:** Marks T-PLAT-3 complete after PR #155 merged with verified backup,
   disposable restore, rollback, search rebuild, and Redis recovery contracts.
   Activates T-DD-1B with exact ownership for a tests-first extraction of only
@@ -306,10 +313,10 @@ remains in force; where this plan is stricter, this plan wins for these tasks.
 
 | State | Tasks |
 |---|---|
-| **Complete** | T-CI-0, T-CI-1, T-CI-1A, T-CI-2, T-CI-2A, T-CI-3, T-CI-4, T-CI-5, T-SEC-1, T-SEC-2, T-SEC-3, T-SEC-3C, T-SEC-4, T-SEC-4A, T-SEC-5, T-SEC-6, T-TIME-1, T-TIME-2, T-TIME-3, T-CRAWL-1, T-CRAWL-2, T-PLAT-1, T-PLAT-1A, T-PLAT-2A, T-PLAT-2B, T-PLAT-3, T-GOV-1, T-GOV-3A, T-GOV-4, T-GOV-5, T-DA-1, T-DB-1A, T-DB-1, T-DB-1B, T-DD-1A |
+| **Complete** | T-CI-0, T-CI-1, T-CI-1A, T-CI-2, T-CI-2A, T-CI-3, T-CI-4, T-CI-5, T-SEC-1, T-SEC-2, T-SEC-3, T-SEC-3C, T-SEC-4, T-SEC-4A, T-SEC-5, T-SEC-6, T-TIME-1, T-TIME-2, T-TIME-3, T-CRAWL-1, T-CRAWL-2, T-PLAT-1, T-PLAT-1A, T-PLAT-2A, T-PLAT-2B, T-PLAT-3, T-GOV-1, T-GOV-3A, T-GOV-4, T-GOV-5, T-DA-1, T-DB-1A, T-DB-1, T-DB-1B, T-DD-1A, T-DD-1B |
 | **Partially landed; acceptance incomplete** | T-GOV-3, T-GOV-6 |
-| **Active** | T-DD-1B |
-| **Pending** | T-DC-1, T-DE-1, T-PLAT-2, T-PLAT-4, T-GOV-2, T-GOV-3B |
+| **Active** | T-DC-1 |
+| **Pending** | T-DE-1, T-PLAT-2, T-PLAT-4, T-GOV-2, T-GOV-3B |
 
 ---
 
@@ -1141,19 +1148,40 @@ files (GED-5 grant).
 
 ### T-DC-1: Remove the api.main <-> app_setup sync machinery
 - priority: P1
+- status: active
 - must_not_run_concurrently_with: any SEC task
-- files_owned: api/main.py, api/app_setup.py, tests/conftest.py,
-  tests/test_*api*
-- do: app_setup owns SessionLocal/_db_init_error/verify_api_key/lifespan as
-  the single authority. Delete `_sync_app_setup_from_facade`,
+- implementation_plan: `docs/plans/T_DC_1_APP_STARTUP_OWNERSHIP_PLAN.md`
+- files_owned: the implementation plan and ledger; `api/main.py`;
+  `api/app_setup.py`; `api/search/semantic_support.py`
+  (`SEMANTIC_SERVICE_URL` ownership only); `tests/conftest.py`;
+  `tests/test_api.py` (database startup, direct model imports, and dead AI
+  override only);
+  `tests/test_api_key_compare_digest.py`;
+  `tests/test_api_startup_security.py`;
+  `tests/test_city_slug_normalization.py`;
+  `tests/test_semantic_search_api.py` (dead semantic health patches only)
+- do: `api.app_setup` owns
+  `SessionLocal`/`_db_init_error`/`verify_api_key`/`lifespan` as the single
+  authority. Delete `_sync_app_setup_from_facade`,
   `_sync_facade_from_app_setup`, the wrapper defs in main.py, the
   `hmac = app_setup.hmac` rebind, and the `X as X` re-export blocks whose
-  only consumers are tests. Repoint tests (conftest.py "api.main.db_connect"
-  patch -> pipeline/app_setup target).
-- accept: main.py contains no bidirectional sync functions; no stdlib
-  re-exports; suite green.
+  only consumers are tests. Delete the inert `get_local_ai` test hook and
+  override. Repoint tests from `api.main.db_connect` to `api.app_setup.db_connect`,
+  model and normalization imports to their implementation modules, and remove
+  dead semantic health facade patches. Move the semantic service URL to its
+  semantic implementation owner so startup no longer imports back through
+  `api.main`.
+- preserve: Direct runtime assembly names for FastAPI lifespan, authentication,
+  and database dependency; task, lineage, and search facade aliases used by
+  routers; all auth, startup, fail-fast, route, and response behavior.
+- accept: `main.py` contains no bidirectional sync functions, copied mutable
+  startup state, forwarding startup wrappers, or stdlib re-exports;
+  `app_setup.py` does not import `api.main`; focused security/API behavior,
+  coverage, complete suite, and boot smoke pass.
 - risk: Highest-touch task in the plan. Land as one PR; do not interleave.
-- verify: Full suite + a manual `uvicorn api.main:app` boot smoke.
+- verify: Follow the Full T-DC-1 plan; Ruff, Mypy, focused security/API/search
+  tests, docs links, coverage, complete suite, and manual
+  `uvicorn api.main:app` boot smoke pass.
 
 ### T-DD-1A: Consolidate worker health probes
 - priority: P2
@@ -1178,7 +1206,7 @@ files (GED-5 grant).
 
 ### T-DD-1B: Evaluate city-state mutation consolidation
 - priority: P2
-- status: active
+- status: complete and verified 2026-07-26 (PR #156)
 - depends_on: T-DD-1A (satisfied by PR #153)
 - implementation_plan: `docs/plans/T_DD_1B_CITY_STATE_MUTATION_PLAN.md`
 - files_owned: the implementation plan and ledger;

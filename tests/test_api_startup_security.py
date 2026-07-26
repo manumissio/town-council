@@ -1,4 +1,5 @@
 import logging
+from pathlib import Path
 from typing import Never
 
 import h11
@@ -20,6 +21,35 @@ CONFIGURED_API_KEY = "Configured Production Key_123"
 CONFIGURED_MEILI_SEARCH_KEY = "Configured Search Key_123"
 MEILI_FALLBACK_WARNING = "Meilisearch reader is using the development fallback key"
 MASTER_KEY_SENTINEL = "master-key-must-not-appear-in-logs"
+TEST_ONLY_API_MAIN_EXPORTS = (
+    "get_local_ai",
+    "IssueReport",
+    "_CeleryTaskProxy",
+    "Place",
+    "Event",
+    "Document",
+    "Catalog",
+    "AgendaItem",
+    "DataIssue",
+    "IssueType",
+    "Membership",
+    "Organization",
+    "Person",
+    "MEILI_HOST",
+    "MEILI_MASTER_KEY",
+    "_build_filter_values",
+    "_count_topics_from_docs",
+    "_facet_topics",
+    "_iter_time_buckets",
+    "_normalize_city_or_400",
+    "_normalize_filters_or_400",
+    "_parse_iso_date",
+    "_require_trends_feature",
+    "_semantic_service_healthcheck",
+    "normalize_city_filter",
+    "search_documents",
+    "validate_date_format",
+)
 
 
 class _HealthySemanticResponse:
@@ -41,6 +71,55 @@ def _fail_database_initialization() -> Never:
 
 def _protected_status() -> dict[str, str]:
     return {"status": "ok"}
+
+
+def test_api_startup_has_one_implementation_owner() -> None:
+    from api import main as api_main
+
+    main_source = Path(api_main.__file__).read_text(encoding="utf-8")
+    app_setup_source = Path(app_setup.__file__).read_text(encoding="utf-8")
+
+    assert "_sync_app_setup_from_facade" not in main_source
+    assert "_sync_facade_from_app_setup" not in main_source
+    assert "hmac = app_setup.hmac" not in main_source
+    assert "from api import main" not in app_setup_source
+    assert not hasattr(api_main, "SessionLocal")
+    assert not hasattr(api_main, "_db_init_error")
+    assert not hasattr(api_main, "db_connect")
+    assert not hasattr(api_main, "sessionmaker")
+    assert not hasattr(api_main, "initialize_database")
+    assert not hasattr(api_main, "is_db_ready")
+    assert not hasattr(app_setup, "SEMANTIC_SERVICE_URL")
+    assert semantic_support.SEMANTIC_SERVICE_URL
+    assert not {
+        export_name
+        for export_name in TEST_ONLY_API_MAIN_EXPORTS
+        if hasattr(api_main, export_name)
+    }
+
+
+def test_semantic_startup_uses_app_setup_policy(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    semantic_failure = "semantic startup owner reached"
+
+    def fail_semantic_healthcheck() -> dict[str, str]:
+        raise RuntimeError(semantic_failure)
+
+    monkeypatch.setenv("APP_ENV", "dev")
+    monkeypatch.setenv("API_AUTH_KEY", CONFIGURED_API_KEY)
+    monkeypatch.setenv("STARTUP_PURGE_DERIVED", "false")
+    monkeypatch.setattr(app_setup, "SEMANTIC_ENABLED", True)
+    monkeypatch.setattr(
+        semantic_support,
+        "_semantic_service_healthcheck",
+        fail_semantic_healthcheck,
+    )
+    application = FastAPI(lifespan=app_setup.lifespan)
+
+    with pytest.raises(RuntimeError, match=semantic_failure):
+        with TestClient(application):
+            pass
 
 
 @pytest.mark.parametrize(

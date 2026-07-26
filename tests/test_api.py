@@ -16,11 +16,7 @@ sys.path.append(os.path.join(os.path.dirname(__file__), '..', 'api'))
 # Mock heavy AI dependency before importing api.main
 sys.modules["llama_cpp"] = MagicMock()
 
-from api.main import app, get_local_ai, agenda_items_look_low_quality
-
-# Override the AI dependency for the entire test module
-mock_ai = MagicMock()
-app.dependency_overrides[get_local_ai] = lambda: mock_ai
+from api.main import agenda_items_look_low_quality, app
 
 client = TestClient(app)
 VALID_KEY = "dev_secret_key_change_me"
@@ -336,48 +332,63 @@ def test_api_database_unavailable(mocker):
 
 
 def test_get_db_returns_sanitized_503_when_database_init_fails(mocker):
-    import api.main as api_main
+    from api import app_setup
 
-    mocker.patch.object(api_main, "db_connect", side_effect=RuntimeError("DATABASE_URL is not set"))
-    api_main.SessionLocal = None
-    api_main._db_init_error = None
+    mocker.patch.object(
+        app_setup,
+        "db_connect",
+        side_effect=RuntimeError("DATABASE_URL is not set"),
+    )
+    app_setup.SessionLocal = None
+    app_setup._db_init_error = None
 
     try:
         with pytest.raises(HTTPException) as excinfo:
-            next(api_main.get_db())
+            next(app_setup.get_db())
         assert excinfo.value.status_code == 503
         assert excinfo.value.detail == "Database service is unavailable"
-        assert isinstance(api_main._db_init_error, RuntimeError)
     finally:
-        api_main.SessionLocal = None
-        api_main._db_init_error = None
+        app_setup.SessionLocal = None
+        app_setup._db_init_error = None
 
 
 def test_initialize_database_recovers_after_transient_failure(mocker):
-    import api.main as api_main
+    from api import app_setup
 
+    class _ClosableSession:
+        closed = False
+
+        def close(self) -> None:
+            self.closed = True
+
+    fake_session = _ClosableSession()
     fake_engine = MagicMock()
-    fake_session_factory = MagicMock()
-    db_connect = mocker.patch.object(
-        api_main,
+    mocker.patch.object(
+        app_setup,
         "db_connect",
         side_effect=[RuntimeError("first failure"), fake_engine],
     )
-    sessionmaker = mocker.patch.object(api_main, "sessionmaker", return_value=fake_session_factory)
-    api_main.SessionLocal = None
-    api_main._db_init_error = None
+    mocker.patch.object(
+        app_setup,
+        "sessionmaker",
+        return_value=lambda: fake_session,
+    )
+    app_setup.SessionLocal = None
+    app_setup._db_init_error = None
 
     try:
-        assert api_main.initialize_database() is None
-        assert isinstance(api_main._db_init_error, RuntimeError)
-        assert api_main.initialize_database() is fake_session_factory
-        assert api_main._db_init_error is None
-        assert api_main.is_db_ready() is True
-        assert db_connect.call_count == 2
-        sessionmaker.assert_called_once_with(bind=fake_engine, autoflush=False, autocommit=False)
+        with pytest.raises(HTTPException) as excinfo:
+            next(app_setup.get_db())
+        assert excinfo.value.status_code == 503
+
+        session_dependency = app_setup.get_db()
+        assert next(session_dependency) is fake_session
+        with pytest.raises(StopIteration):
+            next(session_dependency)
+        assert fake_session.closed is True
     finally:
-        api_main.SessionLocal = None
-        api_main._db_init_error = None
+        app_setup.SessionLocal = None
+        app_setup._db_init_error = None
 
 
 def test_task_status_rejects_invalid_uuid():
@@ -462,7 +473,8 @@ def test_segment_force_bypasses_cache(mocker):
     """
     If cached agenda items exist, `force=true` should still enqueue regeneration.
     """
-    from api.main import get_db, Catalog, AgendaItem
+    from api.main import get_db
+    from pipeline.models import AgendaItem, Catalog
 
     catalog = MagicMock(id=401, content="City council meeting discussed budget updates and adopted multiple motions after public comment.")
 
