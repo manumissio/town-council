@@ -330,35 +330,210 @@ ROLLBACK_REF="<PREVIOUS_RELEASE_REF>"
 git switch --detach "$ROLLBACK_REF"
 ```
 
-Follow the full recovery procedure above. Its `--build` commands now build the
-selected rollback checkout, so `db_migrate.py`, schema parity, and both reindex
-commands all come from the rollback release.
+Follow the full recovery procedure through schema parity and the PostgreSQL
+row-count check, but skip its external-search block and final restart. Its
+`--build` migration command now builds the selected rollback checkout. Then
+select the checkout-based Compose files for the shared search-recovery block
+below:
+
+```bash
+set -euo pipefail
+ROLLBACK_COMPOSE_FILES=(-f docker-compose.yml -f docker-compose.dev.yml)
+docker compose "${ROLLBACK_COMPOSE_FILES[@]}" build
+```
 
 **Prebuilt-image rollback.** The checked-in Compose files are not an
 image-only rollback interface: they include local build definitions and source
 bind mounts. Use a deployment-specific Compose file that pins every Town
 Council application service to an immutable previous-release image and does
 not mount the current checkout. Perform archive validation and database
-replacement through that file, then run the application-owned recovery steps
-without `--build`:
+replacement through that file, then run migration and schema parity without
+rebuilding images:
 
 ```bash
 set -euo pipefail
 ROLLBACK_COMPOSE_FILE="<ROLLBACK_COMPOSE_FILE>"
+ROLLBACK_COMPOSE_FILES=(-f "$ROLLBACK_COMPOSE_FILE")
 
-STARTUP_PURGE_DERIVED=false docker compose -f "$ROLLBACK_COMPOSE_FILE" run \
+STARTUP_PURGE_DERIVED=false docker compose "${ROLLBACK_COMPOSE_FILES[@]}" run \
   --rm --no-deps pipeline python db_migrate.py
-STARTUP_PURGE_DERIVED=false docker compose -f "$ROLLBACK_COMPOSE_FILE" run \
+STARTUP_PURGE_DERIVED=false docker compose "${ROLLBACK_COMPOSE_FILES[@]}" run \
   --rm --no-deps pipeline python /app/scripts/check_schema_parity.py
-STARTUP_PURGE_DERIVED=false docker compose -f "$ROLLBACK_COMPOSE_FILE" up \
+```
+
+The release being rolled back may predate replacement reindex mode. For either
+rollback procedure, keep `ROLLBACK_COMPOSE_FILES` in the same Bash session and
+use this release-independent HTTP step to create or clear the `documents`
+index. It uses only the rollback image's Python standard library, then the
+rollback release's existing additive reindex command:
+
+```bash
+set -euo pipefail
+STARTUP_PURGE_DERIVED=false docker compose "${ROLLBACK_COMPOSE_FILES[@]}" up \
   -d postgres redis meilisearch
-STARTUP_PURGE_DERIVED=false docker compose -f "$ROLLBACK_COMPOSE_FILE" run \
-  --rm --no-deps pipeline python reindex_only.py --replace-all
+MEILI_RECOVERY_TASK_UID="$(
+  STARTUP_PURGE_DERIVED=false docker compose "${ROLLBACK_COMPOSE_FILES[@]}" run \
+    -T --rm --no-deps pipeline python - <<'PY'
+import json
+import os
+import time
+from urllib.error import HTTPError
+from urllib.request import Request, urlopen
+
+HTTP_TIMEOUT_SECONDS = 30
+TASK_TIMEOUT_SECONDS = 300
+TASK_POLL_SECONDS = 1
+MEILI_HOST = os.environ["MEILI_HOST"].rstrip("/")
+MEILI_KEY = os.environ["MEILI_MASTER_KEY"]
+
+
+def request_json(method, path, payload=None, *, allow_not_found=False):
+    request_body = None if payload is None else json.dumps(payload).encode()
+    request = Request(
+        f"{MEILI_HOST}{path}",
+        data=request_body,
+        headers={
+            "Authorization": f"Bearer {MEILI_KEY}",
+            "Content-Type": "application/json",
+        },
+        method=method,
+    )
+    try:
+        with urlopen(request, timeout=HTTP_TIMEOUT_SECONDS) as response:
+            return json.load(response)
+    except HTTPError as error:
+        if allow_not_found and error.code == 404:
+            return None
+        raise
+
+
+def wait_for_task(task_uid):
+    deadline = time.monotonic() + TASK_TIMEOUT_SECONDS
+    while time.monotonic() < deadline:
+        task = request_json("GET", f"/tasks/{task_uid}")
+        if task["status"] == "succeeded":
+            return
+        if task["status"] in {"failed", "canceled"}:
+            raise RuntimeError(json.dumps(task, sort_keys=True))
+        time.sleep(TASK_POLL_SECONDS)
+    raise TimeoutError(f"Meilisearch task {task_uid} exceeded recovery timeout")
+
+
+index = request_json("GET", "/indexes/documents", allow_not_found=True)
+if index is None:
+    task = request_json(
+        "POST",
+        "/indexes",
+        {"uid": "documents", "primaryKey": "id"},
+    )
+else:
+    task = request_json("DELETE", "/indexes/documents/documents")
+task_uid = task["taskUid"]
+wait_for_task(task_uid)
+print(task_uid)
+PY
+)"
+test -n "$MEILI_RECOVERY_TASK_UID"
+
+POSTGRES_USER="$(
+  docker compose "${ROLLBACK_COMPOSE_FILES[@]}" exec -T postgres \
+    printenv POSTGRES_USER
+)"
+POSTGRES_DB="$(
+  docker compose "${ROLLBACK_COMPOSE_FILES[@]}" exec -T postgres \
+    printenv POSTGRES_DB
+)"
+EXPECTED_SEARCH_RECORDS="$(
+  docker compose "${ROLLBACK_COMPOSE_FILES[@]}" exec -T postgres psql \
+    -U "$POSTGRES_USER" -d "$POSTGRES_DB" -At -c "
+      select
+        (select count(*)
+         from document d
+         join catalog c on c.id = d.catalog_id
+         join event e on e.id = d.event_id
+         join place p on p.id = d.place_id
+         where c.content is not null and c.content <> '')
+        +
+        (select count(*)
+         from agenda_item ai
+         join event e on e.id = ai.event_id
+         join place p on p.id = e.place_id);
+    "
+)"
+STARTUP_PURGE_DERIVED=false docker compose "${ROLLBACK_COMPOSE_FILES[@]}" run \
+  --rm --no-deps pipeline python reindex_only.py
+STARTUP_PURGE_DERIVED=false docker compose "${ROLLBACK_COMPOSE_FILES[@]}" run \
+  --rm --no-deps \
+  -e MEILI_RECOVERY_TASK_UID="$MEILI_RECOVERY_TASK_UID" \
+  -e EXPECTED_SEARCH_RECORDS="$EXPECTED_SEARCH_RECORDS" \
+  pipeline python - <<'PY'
+import json
+import os
+import time
+from urllib.request import Request, urlopen
+
+HTTP_TIMEOUT_SECONDS = 30
+TASK_TIMEOUT_SECONDS = 300
+TASK_POLL_SECONDS = 1
+MEILI_HOST = os.environ["MEILI_HOST"].rstrip("/")
+MEILI_KEY = os.environ["MEILI_MASTER_KEY"]
+FIRST_REINDEX_TASK_UID = int(os.environ["MEILI_RECOVERY_TASK_UID"]) + 1
+EXPECTED_SEARCH_RECORDS = int(os.environ["EXPECTED_SEARCH_RECORDS"])
+
+
+def task_allows_rollback_reindex(task):
+    return task["status"] == "succeeded" or (
+        task["status"] == "failed"
+        and task["type"] == "indexCreation"
+        and task["error"]["code"] == "index_already_exists"
+    )
+
+
+def request_json(method, path):
+    request = Request(
+        f"{MEILI_HOST}{path}",
+        headers={"Authorization": f"Bearer {MEILI_KEY}"},
+        method=method,
+    )
+    with urlopen(request, timeout=HTTP_TIMEOUT_SECONDS) as response:
+        return json.load(response)
+
+
+barrier = request_json(
+    "DELETE",
+    "/indexes/documents/documents/__town_council_recovery_barrier__",
+)
+barrier_task_uid = int(barrier["taskUid"])
+deadline = time.monotonic() + TASK_TIMEOUT_SECONDS
+while time.monotonic() < deadline:
+    pending = False
+    for task_uid in range(FIRST_REINDEX_TASK_UID, barrier_task_uid + 1):
+        task = request_json("GET", f"/tasks/{task_uid}")
+        if task_allows_rollback_reindex(task):
+            continue
+        if task["status"] in {"failed", "canceled"}:
+            raise RuntimeError(json.dumps(task, sort_keys=True))
+        pending = True
+    if not pending:
+        break
+    time.sleep(TASK_POLL_SECONDS)
+else:
+    raise TimeoutError("Meilisearch rollback reindex exceeded recovery timeout")
+
+stats = request_json("GET", "/indexes/documents/stats")
+actual_search_records = int(stats["numberOfDocuments"])
+if actual_search_records != EXPECTED_SEARCH_RECORDS:
+    raise RuntimeError(
+        "Meilisearch rollback count mismatch "
+        f"expected={EXPECTED_SEARCH_RECORDS} actual={actual_search_records}"
+    )
+print("Meilisearch rollback reindex completed")
+PY
 
 # Required when SEMANTIC_BACKEND=faiss; pgvector state is inside the backup.
-docker compose -f "$ROLLBACK_COMPOSE_FILE" run \
+docker compose "${ROLLBACK_COMPOSE_FILES[@]}" run \
   --rm --no-deps semantic python ../pipeline/reindex_semantic.py
-STARTUP_PURGE_DERIVED=false docker compose -f "$ROLLBACK_COMPOSE_FILE" up -d
+STARTUP_PURGE_DERIVED=false docker compose "${ROLLBACK_COMPOSE_FILES[@]}" up -d
 ```
 
 Do not run `db_migrate.py` from the failed release: it would upgrade the

@@ -158,13 +158,37 @@ def test_migration_rollback_selects_previous_release_before_schema_tools() -> No
     assert 'git switch --detach "$ROLLBACK_REF"' in rollback_guidance
     assert "before running `db_migrate.py`" in rollback_guidance
     assert "Do not run `db_migrate.py` from the failed release" in rollback_guidance
-    assert "both reindex" in rollback_guidance
     assert "rollback release" in rollback_guidance
     assert "Checkout-based rollback" in rollback_guidance
+    assert "--replace-all" not in rollback_guidance
+    assert "from urllib.request import Request, urlopen" in rollback_guidance
+    assert '"/indexes/documents/documents"' in rollback_guidance
+    rollback_index_clear = rollback_guidance.index('"/indexes/documents/documents"')
+    rollback_additive_reindex = rollback_guidance.index("python reindex_only.py")
+    assert rollback_index_clear < rollback_additive_reindex
+    rollback_task_wait = rollback_guidance.index(
+        "Meilisearch rollback reindex completed"
+    )
+    assert rollback_additive_reindex < rollback_task_wait
+    assert 'in {"failed", "canceled"}' in rollback_guidance
+    assert 'task["type"] == "indexCreation"' in rollback_guidance
+    assert 'task["error"]["code"] == "index_already_exists"' in rollback_guidance
+    assert "TASK_TIMEOUT_SECONDS" in rollback_guidance
+    checkout_image_guidance = rollback_guidance[
+        rollback_guidance.index("Checkout-based rollback") :
+        rollback_guidance.index("Prebuilt-image rollback")
+    ]
+    assert (
+        'docker compose "${ROLLBACK_COMPOSE_FILES[@]}" build\n'
+        in checkout_image_guidance
+    )
     prebuilt_image_guidance = rollback_guidance[
         rollback_guidance.index("Prebuilt-image rollback") :
     ]
     assert 'ROLLBACK_COMPOSE_FILE="<ROLLBACK_COMPOSE_FILE>"' in (
+        prebuilt_image_guidance
+    )
+    assert 'ROLLBACK_COMPOSE_FILES=(-f "$ROLLBACK_COMPOSE_FILE")' in (
         prebuilt_image_guidance
     )
     assert "--rm --no-deps pipeline python db_migrate.py" in prebuilt_image_guidance
@@ -175,9 +199,47 @@ def test_migration_rollback_selects_previous_release_before_schema_tools() -> No
     prebuilt_image_commands = prebuilt_image_guidance.split("```bash", maxsplit=1)[
         1
     ].split("```", maxsplit=1)[0]
-    rollback_compose_command = 'docker compose -f "$ROLLBACK_COMPOSE_FILE"'
+    rollback_compose_command = 'docker compose "${ROLLBACK_COMPOSE_FILES[@]}"'
     assert "set -euo pipefail" in prebuilt_image_commands
-    assert "--build" not in prebuilt_image_commands
-    assert prebuilt_image_commands.count(
+    assert prebuilt_image_guidance.count("set -euo pipefail") == 2
+    assert "--build" not in prebuilt_image_guidance
+    assert prebuilt_image_guidance.count(
         rollback_compose_command
-    ) == prebuilt_image_commands.count("docker compose")
+    ) == prebuilt_image_guidance.count("docker compose")
+
+
+def test_rollback_task_classifier_accepts_only_existing_index_failure() -> None:
+    operations = OPERATIONS_RUNBOOK.read_text(encoding="utf-8")
+    classifier_start = operations.index("def task_allows_rollback_reindex")
+    classifier_end = operations.index("\n\ndef request_json", classifier_start)
+    classifier_source = operations[classifier_start:classifier_end]
+    classifier_contract = """
+assert task_allows_rollback_reindex({"status": "succeeded"})
+assert task_allows_rollback_reindex({
+    "status": "failed",
+    "type": "indexCreation",
+    "error": {"code": "index_already_exists"},
+})
+assert not task_allows_rollback_reindex({
+    "status": "failed",
+    "type": "indexCreation",
+    "error": {"code": "internal_error"},
+})
+assert not task_allows_rollback_reindex({
+    "status": "failed",
+    "type": "documentAdditionOrUpdate",
+    "error": {"code": "index_already_exists"},
+})
+assert not task_allows_rollback_reindex({"status": "canceled"})
+assert not task_allows_rollback_reindex({"status": "processing"})
+"""
+    classifier_check = subprocess.run(
+        [str(REPO_ROOT / ".venv" / "bin" / "python"), "-"],
+        cwd=REPO_ROOT,
+        input=f"{classifier_source}\n{classifier_contract}",
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+
+    assert classifier_check.returncode == 0, classifier_check.stderr
