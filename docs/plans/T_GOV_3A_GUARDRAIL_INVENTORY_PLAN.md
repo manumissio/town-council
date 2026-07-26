@@ -57,16 +57,13 @@ open for T-GOV-2 and City Coverage Expansion. G2, G3, and G5 remain satisfied.
 2. Add this Full plan and update the remediation ledger: mark T-DD-1A
    complete, split T-GOV-3A from T-GOV-3B, record exact ownership, and
    preserve task ordering.
-3. Add a failing policy test before deleting old checks. It parses every
-   tracked Python test module and rejects module-level names ending
-   `_CLEANUP_MODULES` plus test functions whose AST compares source
-   `splitlines()` counts with numeric limits. Module-level helpers and direct
-   aliases are resolved to a fixed point so delegation cannot hide the count.
-   This detects the retired behavior even if a test is renamed, nested in a
-   class, or asynchronous.
-4. Capture the expected red results: the initial guardrail module scan finds
-   34 obsolete constants and 34 obsolete tests; the repository-wide follow-up
-   finds the remaining search-support line cap.
+3. Capture the initial policy inventory before deletion: 34 obsolete
+   constants, 34 paired tests, and one separate search-support line cap.
+   Do not replace them with a semantic Python analyzer. Review showed that a
+   small AST test cannot soundly model helper calls, aliases, reassignment, and
+   control flow without becoming a partial interpreter.
+4. Use the existing repository guardrail suite to protect the retained Ruff
+   complexity and dependency-direction controls.
 5. Replace the 11 separate helper-to-facade policy tests covering 24 helper
    paths with one
    `HELPER_FACADE_IMPORT_RULES` registry and one enforcement test. Each row
@@ -92,14 +89,12 @@ open for T-GOV-2 and City Coverage Expansion. G2, G3, and G5 remain satisfied.
 9. Run full verification, simplification, a fresh subagent pre-commit review,
    eligible fixes, atomic commits, PR delivery, and bounded CI repair.
 
-Focused AST helpers separate source-read recognition, local helper resolution,
-assignment-name detection, and aggregation for one module. The new policy test
-prevents those nodes from returning. The consolidated dependency test verifies
-only registered helpers do not import their facades.
+The consolidated dependency test verifies only registered helpers do not
+import their facades. Ruff C901 remains the complexity control.
 
-**f) Reuse audit.** Reuse the existing AST parser, `_forbidden_imports()`,
-relative-import characterization, repository guardrail suite, and GOV lane.
-No parser framework, runtime helper, policy manager, compatibility alias, or
+**f) Reuse audit.** Reuse `_forbidden_imports()`, its relative-import
+characterization, the repository guardrail suite, and the GOV lane. No source
+data-flow analyzer, parser framework, runtime helper, policy manager, or
 second dependency implementation is added. The superseded tests are
 `test_summary_hydration_sample_helpers_do_not_import_facade`,
 `test_batch_f_operator_ab_helper_does_not_import_facade`,
@@ -120,8 +115,7 @@ tests to:
 - zero `*_CLEANUP_MODULES` inventories;
 - zero `*_stay_under_size_target` tests;
 - one 24-row helper/facade dependency registry;
-- one general dependency-direction enforcement test;
-- one durable test preventing file-length policy reintroduction.
+- one general dependency-direction enforcement test.
 
 **h) Schema and migrations.** None.
 
@@ -149,19 +143,19 @@ or Ruff exception is added.
 
 **n) Antipattern scan, plan pass.**
 
-- A1/H1: no external API or dependency-facing call is introduced; the plan
-  uses existing stdlib AST and path APIs already exercised in this test file.
-- B1/F1: a table replaces 11 duplicate tests; no framework or wrapper is
-  added.
+- A1/H1: no external API or dependency-facing call is introduced.
+- B1/F1: a table replaces 11 duplicate tests; the review-driven semantic
+  source-line analyzer is removed rather than expanded into a partial Python
+  interpreter.
 - C1: all superseded size inventories and separate dependency tests are
   deleted.
 - D1: this is an intentional policy change from 34 inventories and 35 tests
   enforcing a 300-line limit to zero line caps, while retaining Ruff C901
   and registered dependency direction. The remaining deficit is T-GOV-3B
   enforcement for sync globals and interpolated SQL.
-- D3: the legacy constant-suffix check plus semantic AST detection are
-  accepted because preventing the retired repository policy from returning
-  is the observable governance contract.
+- D3: no test claims to prove arbitrary source-line data flow. Current-state
+  removal is verified directly; Ruff C901 remains the durable complexity
+  contract.
 - E1/E2: only five owned files change; no unrelated formatting.
 - A2-A4, B2-B3, C2, D2, E3, F2, and H2-H4: no violations planned.
 
@@ -192,37 +186,25 @@ the final diff instead of predicting the whole-PR net delta.
 7. Unrelated direct-operation boundary checks are accidentally removed.
 8. The T-GOV-3 transition marker is removed before T-GOV-3B enforcement.
 9. Ledger state continues to report merged T-DD-1A as active.
-10. A class-based test reintroduces a line cap.
-11. An async test reintroduces a line cap.
-12. An untracked local test file changes policy results relative to CI.
-13. A test delegates source-line counting through one or more local helpers.
-14. A nested helper contaminates an unrelated enclosing function.
-15. An unrelated object method shares a source-line helper's name.
-16. A helper assigns `read_text()` output before counting its lines.
-17. A test aliases a source-line helper before calling it.
 
 **r) Tests.**
 
 | Test | Scenarios |
 |---|---|
-| New `test_structural_guardrails_do_not_restore_file_length_inventories` | 1, 2, 12 |
-| New detector characterization for direct/assigned/class/async/helper limits and non-policy reads | 1, 2, 10, 11, 13-17 |
+| Pre/post repository audit and code review | 1, 2 |
 | Consolidated `test_registered_helpers_do_not_import_facades` | 3, 5 |
 | Extended `test_facade_import_guardrail_detects_relative_imports` | 4, 6 |
 | Existing direct-operation boundary tests | 7 |
 | New `test_t_gov_3a_retires_line_limits_without_closing_t_gov_3` | 8, 9 |
-| Repository guardrail suite | 1-17 |
+| Repository guardrail suite | 3-9 |
 | Complete Python suite | Regression check |
 
-The new policy test is written and run red before deleting any existing
-inventory or size test. It reports both the inventory names and semantic
-line-limit tests in one assertion payload so neither deficit hides the other.
-
-**s) Fakes and mocks.** None. Tests use approved filesystem and AST boundaries.
-No facade, re-export, or implementation symbol is patched.
+**s) Fakes and mocks.** None. Tests use approved filesystem and AST boundaries
+for dependency checks. No facade, re-export, or implementation symbol is
+patched.
 
 **t) Verification rows.** Apply the guardrail/tooling and docs-only rows. Run
-the complete Python suite because the repository policy test is cross-cutting.
+the complete Python suite because the guardrail policy change is cross-cutting.
 
 ## 6. Execution, Rollback, Docs
 
@@ -235,17 +217,15 @@ git merge --ff-only origin/master
 git switch -c codex/t-gov-3a-guardrail-inventory-cleanup
 ```
 
-Tests-first red evidence:
+Pre-change inventory evidence:
 
 ```bash
-PYTHONPATH=. .venv/bin/pytest -q \
-  tests/test_repository_guardrails.py::test_structural_guardrails_do_not_restore_file_length_inventories
+rg -n "_CLEANUP_MODULES|stay_under.*size|size_budget" tests
 ```
 
-Expected initial result: one failure listing exactly 34
-`*_CLEANUP_MODULES` constants and 34 semantic source-line-limit tests.
-Expected repository-wide follow-up result: the remaining
-`test_search_support_modules_stay_under_size_budget` test.
+Expected initial result: 34 `*_CLEANUP_MODULES` inventories, their paired
+tests, and the separate search-support size-budget test. Expected final
+result: no live matches outside historical plan text.
 
 Final verification:
 
@@ -259,11 +239,13 @@ git diff --check
 git status --short
 ```
 
-Delivery uses three commits:
+Delivery uses reviewable commits:
 
 1. `docs(remediation): authorize T-GOV-3A guardrail cleanup`
 2. `refactor(guardrails): replace file-length inventories`
 3. `fix(guardrails): scan all tests for source line limits`
+4. `fix(guardrails): detect delegated source line limits`
+5. `refactor(guardrails): remove partial source line analyzer`
 
 Push the branch and open one PR titled
 `T-GOV-3A: Replace file-length inventories with dependency rules`. Browser
@@ -292,11 +274,12 @@ knowingly restores the obsolete 300-line proxy policy.
 ## 7. Delivery Self-Audit
 
 **x) Diff scan.** Re-run A-F/H. Reject a replacement file-size threshold,
-duplicate dependency scanner, new structural allowlist, premature sync/SQL
-checks, transition-marker removal, Ruff-policy edit, unrelated formatting, or
-any path outside the five-file ownership set.
+partial source data-flow analyzer, duplicate dependency scanner, new
+structural allowlist, premature sync/SQL checks, transition-marker removal,
+Ruff-policy edit, unrelated formatting, or any path outside the five-file
+ownership set.
 
-**y) Evidence required.** Report the tests-first red result, Ruff, Mypy,
+**y) Evidence required.** Report the pre-change inventory, Ruff, Mypy,
 repository guardrail, docs-link, and complete-suite outcomes; exact test
 counts; planning-review and pre-commit-review findings; fixes; commit hashes;
 PR URL; unresolved-thread count; and final CI state. Mark any unrun item
@@ -306,6 +289,7 @@ PR URL; unresolved-thread count; and final CI state. Mark any unrun item
 T-DD-1A completion update, removal of 34 constants and 35 tests, and
 consolidation of 11 dependency tests covering 24 helper paths. Any inferred
 facade scan that captures pending T-DC/T-DE debt, added runtime file, new lint
-rule, allowlist widening, removed direct-operation contract, premature
-T-GOV-3 completion, skipped subagent review, unresolved P1/P2, path outside
-the five-file ownership set, or unrun required check is a blocker.
+rule, partial source data-flow analyzer, allowlist widening, removed
+direct-operation contract, premature T-GOV-3 completion, skipped subagent
+review, unresolved P1/P2, path outside the five-file ownership set, or unrun
+required check is a blocker.

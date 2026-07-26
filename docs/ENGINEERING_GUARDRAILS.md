@@ -84,10 +84,9 @@ long as their content is cohesive.
    inside SQLAlchemy `text(...)` DDL/DML; duplicated module-global state
    synchronized by convention. See `AGENTS.md` `<known_antipatterns>` for
    the full rationale.
-4. Retired: all per-file line-count assertions. A scan of tracked tests
-   prevents the policy from returning. Registered helper-to-facade
-   relationships preserve dependency direction without treating source
-   length as an architecture proxy.
+4. Retired: all per-file line-count assertions. Ruff C901 and registered
+   helper-to-facade relationships preserve complexity and dependency
+   direction without treating source length as an architecture proxy.
 
 ## Optional local dead-code and complexity audit
 

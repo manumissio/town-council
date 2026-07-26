@@ -1,6 +1,6 @@
 # Town Council Remediation Plan (Codex Multi-Agent)
 
-version: 3.59
+version: 3.60
 generated: 2026-07-26
 source: Four-pass external code review (security, architecture, smells, process)
 source_artifact: [Town Council architecture review](../reviews/architecture-review-2026-07-19.html)
@@ -10,10 +10,12 @@ remains in force; where this plan is stricter, this plan wins for these tasks.
 
 ## Changelog
 
+- **v3.60:** Removes the partial source-line semantic analyzer added during
+  T-GOV-3A review. Arbitrary Python data flow cannot be soundly enforced by a
+  small repository test; Ruff C901 and registered dependency rules remain the
+  durable controls after the final source-line cap is deleted.
 - **v3.59:** Closes the T-GOV-3A review gap by removing the remaining
-  search-support source-line cap and making the retirement guardrail scan
-  every tracked Python test module. Expands ownership to the affected test
-  file.
+  search-support source-line cap. Expands ownership to the affected test file.
 - **v3.58:** Completes T-GOV-3A. The repository no longer enforces 34
   per-family 300-line inventories; one explicit registry now protects the same
   24 already-clean helper-to-facade relationships. Umbrella T-GOV-3 remains
@@ -1458,9 +1460,8 @@ files (GED-5 grant).
 - do: Delete all 34 `*_CLEANUP_MODULES` inventories and all 35 300-line
   tests. Consolidate the 11 standalone dependency-direction tests into one
   registry and one enforcement test covering the same 24 already-clean helper
-  paths. Scan every tracked Python test module so line caps cannot return
-  elsewhere. Do not infer new facade relationships or capture pending T-DC/T-DE
-  debt.
+  paths. Do not add a partial source-line semantic analyzer, infer new facade
+  relationships, or capture pending T-DC/T-DE debt.
 - forbidden: A replacement file-size threshold, Ruff policy changes,
   sync-global or interpolated-SQL enforcement, T-GOV-3 completion, or
   transition-marker removal.
