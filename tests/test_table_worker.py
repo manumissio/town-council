@@ -1,6 +1,11 @@
 import importlib
+import os
+from pathlib import Path
+import subprocess
 import sys
 from types import SimpleNamespace
+
+import pytest
 
 
 class _Ctx:
@@ -78,12 +83,15 @@ def test_process_single_pdf_handles_indexerror_as_broken_pdf(mocker):
     session.commit.assert_called_once()
 
 
-def test_process_single_pdf_handles_pdfstreamerror_as_broken_pdf(mocker):
+def test_process_single_pdf_handles_pypdf_error_as_broken_pdf(mocker):
     tw, camelot = _load_table_worker(mocker)
     record = SimpleNamespace(id=4, location="/tmp/broken-stream.pdf", filename="broken-stream.pdf", tables=None)
     session = mocker.MagicMock()
     session.get.return_value = record
-    camelot.read_pdf.side_effect = [tw.PdfStreamError("truncated"), tw.PdfStreamError("truncated")]
+    camelot.read_pdf.side_effect = [
+        tw.PyPdfError("malformed PDF"),
+        tw.PyPdfError("malformed PDF"),
+    ]
 
     mocker.patch.object(tw, "db_session", return_value=_Ctx(session))
     mocker.patch.object(tw.os.path, "exists", return_value=True)
@@ -94,6 +102,52 @@ def test_process_single_pdf_handles_pdfstreamerror_as_broken_pdf(mocker):
     assert record.tables == []
     assert camelot.read_pdf.call_count == 2
     session.commit.assert_called_once()
+
+
+def test_process_single_pdf_propagates_unexpected_parser_error(mocker):
+    tw, camelot = _load_table_worker(mocker)
+    record = SimpleNamespace(
+        id=5,
+        location="/tmp/unexpected.pdf",
+        filename="unexpected.pdf",
+        tables=None,
+    )
+    session = mocker.MagicMock()
+    session.get.return_value = record
+    camelot.read_pdf.side_effect = TypeError("unexpected parser defect")
+
+    mocker.patch.object(tw, "db_session", return_value=_Ctx(session))
+    mocker.patch.object(tw.os.path, "exists", return_value=True)
+
+    with pytest.raises(TypeError, match="unexpected parser defect"):
+        tw.process_single_pdf(5)
+
+    assert record.tables is None
+
+
+def test_table_worker_does_not_hide_broken_pypdf_install(tmp_path):
+    pypdf_package = tmp_path / "pypdf"
+    pypdf_package.mkdir()
+    (pypdf_package / "__init__.py").write_text("", encoding="utf-8")
+    (pypdf_package / "errors.py").write_text(
+        "import missing_pypdf_dependency\n",
+        encoding="utf-8",
+    )
+    import_environment = os.environ.copy()
+    import_environment["PYTHONPATH"] = os.pathsep.join(
+        (str(tmp_path), str(Path.cwd()))
+    )
+
+    import_process = subprocess.run(
+        [sys.executable, "-c", "import pipeline.table_worker"],
+        cwd=Path.cwd(),
+        env=import_environment,
+        capture_output=True,
+        text=True,
+    )
+
+    assert import_process.returncode != 0
+    assert "missing_pypdf_dependency" in import_process.stderr
 
 
 def test_run_table_pipeline_returns_when_nothing_to_process(mocker):
