@@ -240,7 +240,7 @@ canonical model, crawler model, and consumer edits.
 - Existing downloader, onboarding evaluator, crawl evidence, and reset-state
   tests: scenarios 12-13.
 - Existing API tests: scenario 17.
-- `tests/test_repository_guardrails.py`: scenarios 1-4, 14-15, and exact DTZ
+- `tests/test_repository_guardrails.py`: scenarios 1-3, 14-15, and exact DTZ
   ratchet.
 - Operations contract and docs-link checks: scenario 16.
 
@@ -381,6 +381,10 @@ Local delivery evidence on 2026-07-25:
   findings. The backup now follows writer shutdown, migration uses `--no-deps`,
   metadata validation precedes DDL, and diff whitespace is clean. Re-review
   found no remaining P1/P2.
+- PASS: PR review found one offset-serialization P2 and one brittle-test P1.
+  Verification artifacts now normalize to UTC before adding `Z`, and the
+  duplicate crawler source-text guardrail was removed in favor of the existing
+  mapped-column contract test.
 - NOT VERIFIED: historical UTC wall-clock validity on a populated deployment
   and the mandatory CI PostgreSQL run.
 

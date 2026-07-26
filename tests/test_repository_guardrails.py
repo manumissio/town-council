@@ -881,17 +881,6 @@ def test_timestamp_models_require_aware_server_owned_utc_values():
         assert timestamp_column.server_default is None
 
 
-def test_crawler_stage_timestamp_declarations_match_aware_server_default_policy():
-    crawler_model_source = (
-        ROOT / "council_crawler" / "council_crawler" / "models.py"
-    ).read_text(encoding="utf-8")
-
-    assert crawler_model_source.count("DateTime(timezone=True)") == 2
-    assert crawler_model_source.count("server_default=func.now()") == 2
-    assert "datetime.datetime.now" not in crawler_model_source
-    assert "datetime.datetime.utcnow" not in crawler_model_source
-
-
 def test_timezone_migration_retires_only_the_owned_dtz007_exceptions():
     ignore_entries = _ruff_per_file_ignore_entries()
 
