@@ -166,6 +166,39 @@ Record the archive identifier, Alembic revision, and row counts as restore-drill
 evidence. The high-entropy database name and ownership flag keep cleanup from
 dropping the active database or a database the drill did not create.
 
+Before full recovery or failed-schema rollback, select the exact Compose files
+and project that own the currently deployed Redis volume. The default below is
+the repository development stack. For a prebuilt deployment, replace it with
+the deployment's project name and every current Compose file. Do not proceed
+until `docker compose ps redis` identifies the Redis service used by the
+deployment being recovered. Also stop schedulers and manual writers outside
+that project before running this block:
+
+```bash
+set -euo pipefail
+RECOVERY_COMPOSE=(docker compose -f docker-compose.yml -f docker-compose.dev.yml)
+# Prebuilt example; replace the line above rather than running both:
+# RECOVERY_COMPOSE=(docker compose -p "<CURRENT_DEPLOYMENT_PROJECT>" -f "<CURRENT_DEPLOYMENT_COMPOSE_FILE>")
+
+"${RECOVERY_COMPOSE[@]}" stop
+"${RECOVERY_COMPOSE[@]}" up --wait --wait-timeout 60 redis
+"${RECOVERY_COMPOSE[@]}" exec -T redis sh -eu -c '
+    export REDISCLI_AUTH="$REDIS_PASSWORD"
+    redis-cli -e FLUSHDB SYNC >/dev/null
+    redis-cli -e SAVE >/dev/null
+    test "$(redis-cli -e --raw DBSIZE)" = 0
+  '
+```
+
+`redis-cli -e` makes authentication and command errors fail the block.
+Synchronous flush plus `SAVE` prevents an older persisted queue/cache snapshot
+from returning after Redis restarts, and `DBSIZE=0` verifies database 0 before
+recovery continues. The password is resolved by Compose into the Redis
+container environment and is never expanded into the host command. This
+intentionally discards pending Celery work, task results, and API cache entries.
+Re-enqueue only work that is still valid after PostgreSQL and search recovery
+have passed verification.
+
 For full recovery, stop every Compose writer plus schedulers or manual commands
 running outside this project. Validate the archive before dropping the target:
 
@@ -318,29 +351,28 @@ preserves source catalog, document, event, agenda, and civic records.
 
 ##### Roll back a failed schema release
 
-Keep all writers stopped. Choose one rollback procedure and use it for every
+Run the Redis recovery preflight above from the currently deployed
+control-plane checkout before selecting any rollback release. Keep all writers
+stopped afterward. Choose one rollback procedure and use it for every
 application command.
 
 **Checkout-based rollback.** Select the exact application release that was
 active when the pre-migration backup was created **before running `db_migrate.py`
-or schema parity against the restored database**:
+or schema parity against the restored database**. Initialize strict mode,
+select the release, and build every rollback application image as one block:
 
 ```bash
+set -euo pipefail
 ROLLBACK_REF="<PREVIOUS_RELEASE_REF>"
 git switch --detach "$ROLLBACK_REF"
+ROLLBACK_COMPOSE_FILES=(-f docker-compose.yml -f docker-compose.dev.yml)
+docker compose "${ROLLBACK_COMPOSE_FILES[@]}" build
 ```
 
 Follow the full recovery procedure through schema parity and the PostgreSQL
 row-count check, but skip its external-search block and final restart. Its
-`--build` migration command now builds the selected rollback checkout. Then
-select the checkout-based Compose files for the shared search-recovery block
-below:
-
-```bash
-set -euo pipefail
-ROLLBACK_COMPOSE_FILES=(-f docker-compose.yml -f docker-compose.dev.yml)
-docker compose "${ROLLBACK_COMPOSE_FILES[@]}" build
-```
+`--build` migration command now builds the selected rollback checkout. Keep
+`ROLLBACK_COMPOSE_FILES` for the shared search-recovery block below.
 
 **Prebuilt-image rollback.** The checked-in Compose files are not an
 image-only rollback interface: they include local build definitions and source

@@ -1,7 +1,7 @@
 # T-PLAT-3: Add a Verified PostgreSQL Backup and Restore Workflow
 
-`artifact_contract: ce-unified-plan/v1`  
-`artifact_readiness: implementation-ready`  
+`artifact_contract: ce-unified-plan/v1`
+`artifact_readiness: implementation-ready`
 `execution: code`
 
 ## 1. Context & Alignment
@@ -45,6 +45,8 @@ exclusive `files_owned` set before implementation to:
 - `pipeline/indexer_meilisearch.py`
 - `pipeline/reindex_only.py`
 - `tests/test_indexer_logic.py`
+- `docker-compose.yml`
+- `tests/test_docker_build_contracts.py`
 
 T-DD-1B also expects a later `docs/OPERATIONS.md` edit. The two tasks must run
 serially; T-PLAT-3 lands first and T-DD-1B rebases before implementation.
@@ -114,10 +116,21 @@ uniquely named temporary validation database.
     before accepting traffic. When `SEMANTIC_BACKEND=faiss`, rebuild FAISS
     artifacts from the restored database too. Pgvector embeddings are restored
     inside PostgreSQL and need no external artifact rebuild.
-16. Run a real backup smoke against the local dev stack. Restore that archive
+16. Make the existing `REDIS_PASSWORD` interpolation available inside the
+    Redis service environment and reference the quoted container variable from
+    the server command and healthcheck. Add one common recovery preflight that
+    requires the operator to select the exact current deployment Compose files
+    and project before any rollback checkout: stop writers, confirm the target
+    Redis service, wait for health, run authenticated
+    `FLUSHDB SYNC`, run `SAVE`, and require `DBSIZE=0`. `redis-cli -e` makes
+    authentication and command errors nonzero. The host shell never expands or
+    receives the credential, and older rollback releases do not need the new
+    Redis environment entry because clearing is complete and persisted before
+    they are selected.
+17. Run a real backup smoke against the local dev stack. Restore that archive
     into a uniquely named temporary database, inspect representative table
     counts, and drop only that temporary database.
-17. Simplify the diff, run an independent pre-commit review, apply every
+18. Simplify the diff, run an independent pre-commit review, apply every
     eligible P1/P2, rerun affected verification, create atomic commits, push,
     open one PR, and watch CI to a decided state.
 
@@ -190,10 +203,21 @@ touches the privileged search-writer boundary. The change neither logs nor
 changes the key; it uses the existing writer client to delete and rebuild only
 the `documents` index.
 
+`docker-compose.yml` is also security-sensitive under backing-store boundary 3
+and the environment-only secret policy in `SECURITY.md`. The Redis service
+receives the same existing `REDIS_PASSWORD` interpolation already used by its
+command, healthcheck, clients, and exporter. Processes already running inside
+the Redis container gain environment access to that existing credential; no
+host process, other service, port, default, or credential source gains access.
+Quoted container-side expansion prevents shell parsing from altering the server
+or healthcheck command. Existing application connection-URL character
+constraints are unchanged.
+
 **j) Secrets.** No new secret, key, environment variable, or default is added.
 The script references `POSTGRES_USER` and `POSTGRES_DB` only inside the
 container. PostgreSQL authentication continues to use the existing container
-environment.
+environment. Redis recovery reads the existing password only from the Redis
+container environment through `REDISCLI_AUTH`.
 
 **k) Person data.** The task does not create, link, aggregate, or expose new
 person data. A backup reproduces existing database contents, including any
@@ -215,7 +239,8 @@ trap. Errors either stop execution with context or remove incomplete output.
 The indexer receives one short ordered operation, while its existing batch
 function adds only the source-corpus counter returned to recovery verification.
 The Meilisearch helper has typed concrete SDK parameters and one fail-fast
-responsibility. No environment config surface, timestamp behavior, broad
+responsibility. The existing Redis credential is added to the Redis service
+environment; no environment variable, default, timestamp behavior, broad
 exception handler, or Ruff boundary changes.
 
 **n) Antipattern scan, plan pass.**
@@ -235,7 +260,7 @@ exception handler, or Ruff boundary changes.
   dump commands are removed.
 - D1-D3 corrected: tests preserve strict behavior and avoid fake Docker or
   private helper assertions.
-- E1-E3 corrected: only the nine owned files change and the runbook receives
+- E1-E3 corrected: only the eleven owned files change and the runbook receives
   minimal edits.
 - A3-A4, B2, C2, H2-H4: no violations planned.
 
@@ -266,8 +291,9 @@ concise runbook/ledger text.
    published.
 7. Successful dump: archive validates, is atomically published, and is
    private to the invoking user.
-8. Credentials containing shell metacharacters: remain container environment
-   values and are not host-evaluated.
+8. Redis credentials remain container environment values and are not expanded
+   into server or healthcheck command text. Existing application
+   connection-URL character constraints remain unchanged.
 9. Live writes during routine backup: PostgreSQL supplies one consistent
    snapshot; migration backups still stop writers before the dump.
 10. Active restore with connected writers: runbook requires all Compose and
@@ -293,6 +319,13 @@ concise runbook/ledger text.
     times out before control returns to the task or idle deadline.
 21. Recovery begins while the stack is stopped: stop remains safe, PostgreSQL
     starts before any `docker compose exec`, and configuration reads succeed.
+22. Redis contains queues, task results, or API cache entries newer than the
+    restored PostgreSQL snapshot: authenticated `FLUSHDB` clears database 0
+    after writers stop and before any recovered worker or rollback release
+    starts. `redis-cli -e` rejects authentication errors, `SAVE` persists the
+    empty state, and `DBSIZE=0` verifies completion. The server, healthcheck,
+    and recovery command read a quoted Redis container environment value;
+    application connection-URL character support is not broadened.
 
 **r) Tests added or updated.**
 
@@ -303,8 +336,9 @@ concise runbook/ledger text.
 | `test_backup_script_prints_help_without_docker` | 1, 2 |
 | `test_backup_script_refuses_existing_destination` | 4 |
 | `test_backup_script_uses_private_atomic_validated_archive` | 5-8 |
-| `test_backup_runbook_covers_restore_cadence_and_startup_purge` | 9-13, 21 |
+| `test_backup_runbook_covers_restore_cadence_and_startup_purge` | 9-13, 21, 22 |
 | `test_migration_rollback_selects_previous_release_before_schema_tools` | 19 |
+| `test_redis_service_exposes_configured_password_to_container_commands` | 8, 22 |
 | `test_full_reindex_replaces_existing_meilisearch_documents` | 15 |
 | `test_full_reindex_stops_when_meilisearch_clear_fails` | 16 |
 | `test_full_reindex_uses_maintenance_timeout_for_document_clear` | 17 |
@@ -314,6 +348,7 @@ concise runbook/ledger text.
 | `test_full_reindex_uses_one_bounded_maintenance_client` | 20 |
 | `test_backup_runbook_rebuilds_external_search_state` | 15-18 |
 | Real dev-stack backup and temporary restore drill | 5-13 |
+| Disposable Redis recovery drill | 8, 22 |
 | Existing docs-link suite | Runbook and plan links |
 | Complete Python suite | Cross-cutting regression check |
 
@@ -328,10 +363,11 @@ session boundaries in `pipeline.indexer`; they assert externally visible fake
 index state and raised recovery errors, not call counts. The backup success
 path uses the real Docker Compose/PostgreSQL boundary manually.
 
-**t) Verification rows.** Apply the docs-only row for `docs/**`. No existing
-matrix row names shell operator scripts, so run Ruff, Mypy, the focused backup
-contract, docs links, and the complete Python suite. The real dev-stack backup
-and temporary restore drill are required before handoff.
+**t) Verification rows.** Apply the docs-only row for `docs/**` and the
+security-sensitive Compose contract checks. No existing matrix row names shell
+operator scripts, so run Ruff, Mypy, the focused backup and Docker contracts,
+docs links, and the complete Python suite. The real dev-stack backup and
+temporary restore drill are required before handoff.
 
 ## 6. Execution, Rollback, Docs
 
@@ -360,6 +396,7 @@ bash -n scripts/backup_db.sh
 ./.venv/bin/ruff check .
 ./.venv/bin/mypy
 PYTHONPATH=. .venv/bin/pytest -q tests/test_backup_db_contract.py
+PYTHONPATH=. .venv/bin/pytest -q tests/test_docker_build_contracts.py
 PYTHONPATH=. .venv/bin/pytest -q tests/test_indexer_logic.py
 PYTHONPATH=. .venv/bin/pytest -q tests/test_docs_links.py
 PYTHONPATH=. .venv/bin/pytest -q
@@ -375,6 +412,47 @@ BACKUP_PATH="$BACKUP_SMOKE_DIR/t_plat_3_smoke.dump"
 bash ./scripts/backup_db.sh "$BACKUP_PATH"
 docker compose exec -T postgres pg_restore --list < "$BACKUP_PATH" >/dev/null
 stat -f '%Lp %z %N' "$BACKUP_PATH"
+```
+
+Disposable Redis recovery smoke:
+
+```bash
+REDIS_RECOVERY_PROJECT="tc-redis-recovery-$RANDOM"
+REDIS_PASSWORD='recovery password; not shell'
+MEILI_MASTER_KEY='test-only-meilisearch-master-key'
+export REDIS_PASSWORD MEILI_MASTER_KEY
+cleanup_redis_recovery() {
+  docker compose -p "$REDIS_RECOVERY_PROJECT" -f docker-compose.yml \
+    down -v >/dev/null 2>&1 || true
+}
+trap cleanup_redis_recovery EXIT
+docker compose -p "$REDIS_RECOVERY_PROJECT" -f docker-compose.yml up \
+  --wait --wait-timeout 60 redis
+if docker compose -p "$REDIS_RECOVERY_PROJECT" -f docker-compose.yml exec \
+  -T redis sh -eu -c \
+  'REDISCLI_AUTH="wrong password" redis-cli -e PING >/dev/null'; then
+  echo "Wrong Redis password unexpectedly succeeded" >&2
+  exit 1
+fi
+docker compose -p "$REDIS_RECOVERY_PROJECT" -f docker-compose.yml exec -T redis \
+  sh -eu -c '
+    export REDISCLI_AUTH="$REDIS_PASSWORD"
+    redis-cli -e SET recovery_probe present >/dev/null
+    redis-cli -e FLUSHDB SYNC >/dev/null
+    redis-cli -e SAVE >/dev/null
+    test "$(redis-cli -e --raw DBSIZE)" = 0
+  '
+docker compose -p "$REDIS_RECOVERY_PROJECT" -f docker-compose.yml restart redis
+docker compose -p "$REDIS_RECOVERY_PROJECT" -f docker-compose.yml up \
+  --wait --wait-timeout 60 redis
+docker compose -p "$REDIS_RECOVERY_PROJECT" -f docker-compose.yml exec -T redis \
+  sh -eu -c '
+    export REDISCLI_AUTH="$REDIS_PASSWORD"
+    test "$(redis-cli -e --raw DBSIZE)" = 0
+  '
+cleanup_redis_recovery
+trap - EXIT
+unset MEILI_MASTER_KEY REDIS_PASSWORD REDIS_RECOVERY_PROJECT
 ```
 
 Temporary restore drill:
@@ -434,6 +512,8 @@ is interrupted, verify the generated database name and drop only that
   procedure; update `Last updated`.
 - `docs/plans/TOWN_COUNCIL_REMEDIATION_PLAN.md`: version, ownership,
   dependencies, implementation plan, acceptance, and verification.
+- `docker-compose.yml`: expose the existing Redis password interpolation to
+  commands executed inside the Redis container; no default or network change.
 - `SECURITY.md`: no edit. Its checklist says backups must be configured by an
   operator; adding a script and recommendation does not prove a schedule or
   off-host copy exists.
@@ -445,7 +525,8 @@ is interrupted, verify the generated database name and drop only that
 **x) Antipattern scan, diff pass.** Re-run A-F/H. Reject a second backup path,
 automatic restore, embedded credentials, implicit destination, overwrite,
 world-readable archive, fake Docker seam, duplicated migration dump commands,
-unrelated runbook edits, new environment settings, or files outside ownership.
+unrelated runbook edits, a new environment variable or default, or files
+outside ownership.
 
 **y) Evidence required at delivery.**
 
@@ -455,12 +536,14 @@ unrelated runbook edits, new environment settings, or files outside ownership.
 - Real backup path, archive size/mode, and `pg_restore --list` result.
 - Temporary restore database name, representative row counts, and confirmed
   drop result.
+- Disposable Redis project, wrong-password nonzero result, and zero keys after
+  restart.
 - Planning-review and pre-commit-review findings with applied fixes.
 - Commit hashes, PR URL, unresolved P1/P2 count, and final CI state.
 - Browser stage: `NOT APPLICABLE` because no UI route changes.
 
-**z) Deviations.** Expected authorized deviations are the nine-file ownership
+**z) Deviations.** Expected authorized deviations are the eleven-file ownership
 expansion and serial ordering before T-DD-1B's runbook edit. Any additional
-path, automatic schedule, environment variable, credential default, active
+path, automatic schedule, new environment variable, credential default, active
 database restore during verification, unresolved P1/P2, unrun required check,
 or remaining temporary restore database is a blocker.

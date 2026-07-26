@@ -1,6 +1,6 @@
 # Town Council Remediation Plan (Codex Multi-Agent)
 
-version: 3.61
+version: 3.62
 generated: 2026-07-26
 source: Four-pass external code review (security, architecture, smells, process)
 source_artifact: [Town Council architecture review](../reviews/architecture-review-2026-07-19.html)
@@ -10,6 +10,10 @@ remains in force; where this plan is stricter, this plan wins for these tasks.
 
 ## Changelog
 
+- **v3.62:** Expands active T-PLAT-3 ownership to the Redis service definition
+  and its Compose contract test. Recovery must clear persistent Redis database
+  0 after writers stop and before workers restart, using the service's existing
+  credential inside the container rather than expanding it in the host shell.
 - **v3.61:** Activates T-PLAT-3 with an implementation-ready backup and
   recovery plan. Expands ownership for tests-first shell contracts and the
   existing full-index maintenance path so a PostgreSQL restore cannot leave
@@ -1392,7 +1396,8 @@ files (GED-5 grant).
   `scripts/backup_db.sh`, `tests/test_backup_db_contract.py`,
   `docs/OPERATIONS.md`, `pipeline/indexer.py`,
   `pipeline/indexer_meilisearch.py`, `pipeline/reindex_only.py`,
-  `tests/test_indexer_logic.py`
+  `tests/test_indexer_logic.py`, `docker-compose.yml`,
+  `tests/test_docker_build_contracts.py`
 - do: Add one private, atomic, custom-format `pg_dump` command; document
   cadence and fresh-database replacement restore; make the
   `STARTUP_PURGE_DERIVED` interaction explicit; and add a tested full-index
@@ -1402,8 +1407,8 @@ files (GED-5 grant).
   publication, never overwrites a destination, and leaves no partial archive.
   A disposable database restore proves archive usability. Recovery guidance
   keeps writers stopped, recreates the database from `template0`, migrates and
-  verifies it, rebuilds external search state, and restarts with startup purge
-  disabled.
+  verifies it, clears persistent Redis database 0, rebuilds external search
+  state, and restarts with startup purge disabled.
 - forbidden: Automatic scheduling or restore; embedded credentials; a default
   archive destination; Docker fake seams; runtime-default, schema, migration,
   or search-query behavior changes; edits outside `files_owned`.

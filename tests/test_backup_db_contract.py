@@ -116,6 +116,40 @@ def test_backup_runbook_documents_recovery_contract() -> None:
         "RESTORE_DB_CREATED=true"
     )
 
+    redis_preflight_guidance = recovery_guidance[
+        recovery_guidance.index("Before full recovery") :
+        recovery_guidance.index("For full recovery")
+    ]
+    assert (
+        "RECOVERY_COMPOSE=(docker compose -f docker-compose.yml "
+        "-f docker-compose.dev.yml)" in redis_preflight_guidance
+    )
+    assert (
+        'RECOVERY_COMPOSE=(docker compose -p "<CURRENT_DEPLOYMENT_PROJECT>" '
+        '-f "<CURRENT_DEPLOYMENT_COMPOSE_FILE>")' in redis_preflight_guidance
+    )
+    assert redis_preflight_guidance.count('"${RECOVERY_COMPOSE[@]}"') == 3
+    redis_writers_stopped = redis_preflight_guidance.index(
+        '"${RECOVERY_COMPOSE[@]}" stop'
+    )
+    redis_started = redis_preflight_guidance.index(
+        "--wait --wait-timeout 60 redis"
+    )
+    redis_flushed = redis_preflight_guidance.index("redis-cli -e FLUSHDB SYNC")
+    redis_saved = redis_preflight_guidance.index("redis-cli -e SAVE")
+    redis_verified = redis_preflight_guidance.index(
+        'test "$(redis-cli -e --raw DBSIZE)" = 0'
+    )
+    assert (
+        redis_writers_stopped
+        < redis_started
+        < redis_flushed
+        < redis_saved
+        < redis_verified
+    )
+    assert 'REDISCLI_AUTH="$REDIS_PASSWORD"' in redis_preflight_guidance
+    assert 'REDISCLI_AUTH="${REDIS_PASSWORD' not in redis_preflight_guidance
+
     full_recovery_guidance = recovery_guidance[
         recovery_guidance.index("For full recovery") :
     ]
@@ -141,9 +175,13 @@ def test_backup_runbook_documents_recovery_contract() -> None:
     meilisearch_started = external_search_guidance.index(
         "up -d postgres redis meilisearch"
     )
+    replacement_reindex_started = external_search_guidance.index(
+        "python reindex_only.py --replace-all"
+    )
     assert restore_fail_fast_enabled < writers_stopped < postgres_started
     assert postgres_started < postgres_environment_read
     assert external_search_fail_fast_enabled < meilisearch_started
+    assert meilisearch_started < replacement_reindex_started
     assert "--rm --build --no-deps semantic python ../pipeline/reindex_semantic.py" in (
         full_recovery_guidance
     )
@@ -160,6 +198,15 @@ def test_migration_rollback_selects_previous_release_before_schema_tools() -> No
     assert "Do not run `db_migrate.py` from the failed release" in rollback_guidance
     assert "rollback release" in rollback_guidance
     assert "Checkout-based rollback" in rollback_guidance
+    redis_preflight_required = rollback_guidance.index(
+        "Run the Redis recovery preflight above"
+    )
+    rollback_checkout_selected = rollback_guidance.index(
+        'git switch --detach "$ROLLBACK_REF"'
+    )
+    assert redis_preflight_required < rollback_checkout_selected
+    checkout_fail_fast_enabled = rollback_guidance.index("set -euo pipefail")
+    assert checkout_fail_fast_enabled < rollback_checkout_selected
     assert "--replace-all" not in rollback_guidance
     assert "from urllib.request import Request, urlopen" in rollback_guidance
     assert '"/indexes/documents/documents"' in rollback_guidance
