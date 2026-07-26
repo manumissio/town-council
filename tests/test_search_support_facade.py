@@ -1,5 +1,3 @@
-from pathlib import Path
-
 import api.search_support as search_support
 
 
@@ -27,16 +25,3 @@ def test_search_support_facade_preserves_route_patch_points():
 
     for name in expected_names:
         assert hasattr(search_support, name), name
-
-
-def test_search_support_modules_stay_under_size_budget():
-    paths = [
-        Path("api/search_support.py"),
-        Path("api/search/filter_support.py"),
-        Path("api/search/semantic_support.py"),
-        Path("api/search/support_core.py"),
-        Path("api/search/trends_support.py"),
-    ]
-
-    for path in paths:
-        assert len(path.read_text(encoding="utf-8").splitlines()) < 300, path

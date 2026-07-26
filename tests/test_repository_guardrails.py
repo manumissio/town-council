@@ -204,306 +204,76 @@ TYPED_SUBTREE_PATHS = (
     "scripts/analyze_pipeline_profile.py",
 )
 CONFIG_OWNED_FORMATTER_COMMAND = "./.venv/bin/ruff format --check . --config ruff-format.toml"
-CONFIG_CLEANUP_MODULES = (
-    "pipeline/config.py",
-    "pipeline/config_env.py",
-    "pipeline/config_startup.py",
-    "pipeline/config_inference.py",
-    "pipeline/config_semantic.py",
-    "pipeline/config_processing.py",
-    "pipeline/config_topic_similarity.py",
-    "pipeline/config_table.py",
-)
-METRICS_CLEANUP_MODULES = (
-    "pipeline/metrics.py",
-    "pipeline/metrics_celery_signals.py",
-    "pipeline/metrics_definitions.py",
-    "pipeline/metrics_profile_events.py",
-    "pipeline/metrics_provider_collector.py",
-    "pipeline/metrics_provider_keys.py",
-    "pipeline/metrics_provider_recorders.py",
-    "pipeline/metrics_redis_backend.py",
-    "pipeline/metrics_task_recorders.py",
-)
-DOWNLOADER_CLEANUP_MODULES = (
-    "pipeline/downloader.py",
-    "pipeline/downloader_archive.py",
-    "pipeline/downloader_media.py",
-    "pipeline/downloader_processing.py",
-    "pipeline/downloader_selection.py",
-)
-AGENDA_EXTRACTION_CLEANUP_MODULES = (
-    "pipeline/agenda_extraction.py",
-    "pipeline/agenda_extraction_acceptance.py",
-    "pipeline/agenda_extraction_diagnostics.py",
-    "pipeline/agenda_extraction_fallback.py",
-    "pipeline/agenda_extraction_noise.py",
-    "pipeline/agenda_extraction_numbered.py",
-    "pipeline/agenda_extraction_pages.py",
-    "pipeline/agenda_extraction_paragraphs.py",
-    "pipeline/agenda_extraction_parser.py",
-)
-AGENDA_TEXT_HEURISTICS_CLEANUP_MODULES = (
-    "pipeline/agenda_text_heuristics.py",
-    "pipeline/agenda_text_normalization.py",
-    "pipeline/agenda_text_noise.py",
-    "pipeline/agenda_text_noise_patterns.py",
-    "pipeline/agenda_item_acceptance.py",
-    "pipeline/agenda_item_dedupe.py",
-    "pipeline/agenda_end_markers.py",
-)
-AGENDA_RESOLVER_CLEANUP_MODULES = (
-    "pipeline/agenda_resolver.py",
-    "pipeline/agenda_resolver_contracts.py",
-    "pipeline/agenda_resolver_quality.py",
-    "pipeline/agenda_resolver_legistar_policy.py",
-    "pipeline/agenda_resolver_html.py",
-    "pipeline/agenda_resolver_enrichment.py",
-    "pipeline/agenda_resolver_runner.py",
-)
-AGENDA_QA_CLEANUP_MODULES = (
-    "pipeline/agenda_qa.py",
-)
-AGENDA_SUMMARY_MAINTENANCE_CLEANUP_MODULES = (
-    "pipeline/agenda_summary_contracts.py",
-    "pipeline/agenda_summary_inputs.py",
-    "pipeline/agenda_summary_batch.py",
-    "pipeline/agenda_summary_fallback.py",
-    "pipeline/agenda_summary_side_effects.py",
-    "pipeline/non_agenda_summary_fallback.py",
-)
-AGENDA_SUMMARY_RUNTIME_CLEANUP_MODULES = (
-    "pipeline/agenda_summary.py",
-    "pipeline/agenda_summary_items.py",
-    "pipeline/agenda_summary_scaffold.py",
-    "pipeline/agenda_summary_prompting.py",
-    "pipeline/agenda_summary_rendering.py",
-    "pipeline/agenda_summary_counters.py",
-    "pipeline/agenda_summary_pipeline.py",
-)
-RUN_PIPELINE_CLEANUP_MODULES = (
-    "pipeline/run_pipeline.py",
-    "pipeline/run_pipeline_steps.py",
-    "pipeline/run_pipeline_onboarding.py",
-    "pipeline/run_pipeline_selectors.py",
-    "pipeline/run_pipeline_extraction.py",
-    "pipeline/run_pipeline_parallel.py",
-)
-SUMMARY_HYDRATION_DIAGNOSTIC_CLEANUP_MODULES = (
-    "pipeline/summary_hydration_diagnostics.py",
-    "pipeline/summary_hydration_diagnostic_contracts.py",
-    "pipeline/summary_hydration_diagnostic_policy.py",
-    "pipeline/summary_hydration_diagnostic_queries.py",
-    "pipeline/summary_hydration_diagnostic_samples.py",
-    "pipeline/summary_hydration_diagnostic_builder.py",
-)
-PROFILE_MANIFEST_CLEANUP_MODULES = (
-    "pipeline/profile_manifest.py",
-    "pipeline/profile_manifest_contracts.py",
-    "pipeline/profile_manifest_io.py",
-    "pipeline/profile_manifest_candidates.py",
-    "pipeline/profile_manifest_people.py",
-    "pipeline/profile_manifest_builder.py",
-    "pipeline/profile_manifest_preconditioning.py",
-)
-TOPIC_GENERATION_CLEANUP_MODULES = (
-    "pipeline/topic_generation.py",
-    "pipeline/topic_generation_contracts.py",
-    "pipeline/topic_generation_text.py",
-    "pipeline/topic_generation_keywords.py",
-    "pipeline/topic_generation_task.py",
-    "pipeline/topic_generation_batch.py",
-)
-LOCAL_AI_CLEANUP_MODULES = (
-    "pipeline/llm.py",
-    "pipeline/local_ai_agenda_compat.py",
-    "pipeline/local_ai_provider_calls.py",
-)
-HTTP_PROVIDER_CLEANUP_MODULES = (
-    "pipeline/http_inference_provider.py",
-    "pipeline/http_inference_attempts.py",
-    "pipeline/http_inference_errors.py",
-    "pipeline/http_inference_payloads.py",
-    "pipeline/http_inference_policy.py",
-    "pipeline/http_inference_telemetry.py",
-)
-PERSON_UTILS_CLEANUP_MODULES = (
-    "pipeline/person_linker.py",
-    "pipeline/person_cache.py",
-    "pipeline/person_mutations.py",
-    "pipeline/person_names.py",
-    "pipeline/person_selectors.py",
-    "pipeline/utils.py",
-    "pipeline/utils_matching.py",
-    "pipeline/utils_names.py",
-    "pipeline/utils_ocd.py",
-    "pipeline/utils_pdf.py",
-)
-REPORTING_SCRIPTS_CLEANUP_MODULES = (
-    "scripts/analyze_pipeline_profile.py",
-    "scripts/collect_ab_results.py",
-    "scripts/collect_ab_results_rows.py",
-    "scripts/collect_soak_metrics.py",
-    "scripts/evaluate_soak_week.py",
-    "scripts/evaluate_soak_week_gates.py",
-    "scripts/operator_profile_ab.py",
-    "scripts/operator_profile_ab_aggregate.py",
-    "scripts/operator_profile_artifacts.py",
-    "scripts/operator_profile_metric_deltas.py",
-    "scripts/operator_profile_metrics.py",
-    "scripts/operator_profile_worker_metrics.py",
-    "scripts/operator_profile_reports.py",
-    "scripts/operator_profile_soak_eval.py",
-    "scripts/pipeline_profile_analysis.py",
-    "scripts/pipeline_profile_compare.py",
-    "scripts/profile_pipeline.py",
-    "scripts/profile_pipeline_commands.py",
-    "scripts/profile_pipeline_runner.py",
-    "scripts/profile_pipeline_results.py",
-    "scripts/profile_pipeline_selection.py",
-    "scripts/score_ab_results.py",
-)
-SHARED_HELPER_CLEANUP_MODULES = (
-    "pipeline/cli_logging.py",
-    "scripts/operator_numeric.py",
-)
-TASK_API_FACADE_CLEANUP_MODULES = (
-    "pipeline/tasks.py",
-    "pipeline/task_facade_helpers.py",
-    "pipeline/task_summary_generation.py",
-    "pipeline/task_summary_side_effects.py",
-    "api/task_routes.py",
-    "api/task_dispatch.py",
-    "api/task_route_generation.py",
-    "api/task_route_segmentation.py",
-    "api/task_route_summary.py",
-    "api/task_route_support.py",
-)
-SEARCH_SUPPORT_CLEANUP_MODULES = (
-    "api/search_support.py",
-    "api/search_read_routes.py",
-    "api/search_read_meilisearch.py",
-    "api/search_read_params.py",
-    "api/search_read_results.py",
-    "api/search/support_core.py",
-    "api/search/filter_support.py",
-    "api/search/trends_support.py",
-    "api/search/semantic_support.py",
-)
-CITY_COVERAGE_CLEANUP_MODULES = (
-    "pipeline/city_coverage_audit.py",
-    "pipeline/city_coverage_assembly.py",
-    "pipeline/city_coverage_buckets.py",
-    "pipeline/city_coverage_contracts.py",
-    "pipeline/city_coverage_queries.py",
-    "pipeline/city_coverage_windows.py",
-)
-LINEAGE_CLEANUP_MODULES = (
-    "pipeline/lineage_service.py",
-    "pipeline/lineage_assignment.py",
-    "pipeline/lineage_graph.py",
-)
-CITY_ONBOARDING_EVALUATOR_CLEANUP_MODULES = (
-    "scripts/evaluate_city_onboarding.py",
-    "pipeline/city_onboarding_metrics.py",
-    "pipeline/city_onboarding_gate.py",
-)
-LASERFICHE_REPAIR_CLEANUP_MODULES = (
-    "scripts/repair_san_mateo_laserfiche_backlog.py",
-    "scripts/laserfiche_repair_contracts.py",
-    "scripts/laserfiche_repair_pdf_io.py",
-    "scripts/laserfiche_repair_downloads.py",
-    "scripts/laserfiche_repair_generated_pdf.py",
-    "scripts/laserfiche_repair_backlog.py",
-    "scripts/laserfiche_repair_reporting.py",
-)
-SEGMENT_CITY_CORPUS_CLEANUP_MODULES = (
-    "scripts/segment_city_corpus.py",
-    "scripts/segment_city_contracts.py",
-    "scripts/segment_city_selection.py",
-    "scripts/segment_city_worker.py",
-    "scripts/segment_city_runner.py",
-)
-HYDRATION_CLI_CLEANUP_MODULES = (
-    "scripts/staged_hydrate_cities.py",
-    "scripts/staged_hydration_segment.py",
-    "scripts/staged_hydration_runner.py",
-    "scripts/staged_hydration_output.py",
-    "scripts/hydrate_repaired_city_catalogs.py",
-    "scripts/hydration_counts.py",
-    "scripts/hydration_output.py",
-    "scripts/hydration_repaired_selectors.py",
-    "scripts/hydration_repaired_extract.py",
-    "scripts/hydration_repaired_segment.py",
-    "scripts/hydration_repaired_summary.py",
-    "scripts/hydration_repaired_runner.py",
-)
-MODEL_CLEANUP_MODULES = (
-    "pipeline/models.py",
-    "pipeline/model_base.py",
-    "pipeline/model_runtime.py",
-    "pipeline/model_civic.py",
-    "pipeline/model_events.py",
-    "pipeline/model_records.py",
-)
-DB_MIGRATION_CLEANUP_MODULES = (
-    "pipeline/db_migrate.py",
-    "pipeline/db_migration_columns.py",
-    "pipeline/db_migration_backfills.py",
-    "pipeline/db_migration_runner.py",
-    "pipeline/migrate_v8.py",
-    "pipeline/migrate_v9.py",
-    "pipeline/migration_pgvector_semantic_embeddings.py",
-    "pipeline/migration_catalog_lineage_columns.py",
-)
-INDEXER_CLEANUP_MODULES = (
-    "pipeline/indexer.py",
-    "pipeline/indexer_documents.py",
-    "pipeline/indexer_meilisearch.py",
-)
-SEMANTIC_BACKEND_CLEANUP_MODULES = (
-    "pipeline/semantic_faiss_backend.py",
-    "pipeline/semantic_faiss_artifacts.py",
-    "pipeline/semantic_faiss_rows.py",
-    "pipeline/semantic_pgvector_backend.py",
-    "pipeline/semantic_pgvector_rows.py",
-    "pipeline/semantic_pgvector_rerank.py",
-)
-SEMANTIC_SERVICE_CLEANUP_MODULES = (
-    "semantic_service/main.py",
-    "semantic_service/candidates.py",
-    "semantic_service/filters.py",
-    "semantic_service/retrieval.py",
-    "semantic_service/hydration.py",
-)
-SUMMARY_TEXT_CLEANUP_MODULES = (
-    "pipeline/text_generation.py",
-    "pipeline/summary_text_formatting.py",
-    "pipeline/summary_text_prompting.py",
-    "pipeline/summary_quality.py",
-    "pipeline/summary_source_quality.py",
-    "pipeline/summary_grounding.py",
-    "pipeline/summary_backfill_queries.py",
-    "pipeline/summary_backfill_dispatch.py",
-    "pipeline/summary_backfill_runner.py",
-    "pipeline/summary_backfill_progress.py",
-    "pipeline/summary_backfill_logging.py",
-)
-VOTE_EXTRACTION_CLEANUP_MODULES = (
-    "pipeline/vote_extractor.py",
-    "pipeline/vote_extraction_contracts.py",
-    "pipeline/vote_extraction_prompting.py",
-    "pipeline/vote_extraction_parser.py",
-    "pipeline/vote_extraction_context.py",
-    "pipeline/vote_extraction_policy.py",
-    "pipeline/vote_extraction_runner.py",
-    "pipeline/vote_extraction_item.py",
-)
-NLP_ENTITY_CLEANUP_MODULES = (
-    "pipeline/nlp_worker.py",
-    "pipeline/nlp_entity_candidates.py",
-    "pipeline/nlp_entity_extraction.py",
-    "pipeline/nlp_entity_model.py",
+HELPER_FACADE_IMPORT_RULES = (
+    (
+        "pipeline/summary_hydration_diagnostic_samples.py",
+        (
+            "pipeline.summary_hydration_diagnostics",
+            "pipeline.summary_hydration_diagnostic_queries",
+        ),
+    ),
+    ("scripts/operator_profile_ab_aggregate.py", ("scripts.operator_profile_ab",)),
+    (
+        "scripts/collect_ab_results_rows.py",
+        ("scripts.collect_ab_results", "scripts.evaluate_soak_week"),
+    ),
+    (
+        "scripts/evaluate_soak_week_gates.py",
+        ("scripts.collect_ab_results", "scripts.evaluate_soak_week"),
+    ),
+    (
+        "scripts/operator_profile_worker_metrics.py",
+        (
+            "scripts.operator_profile_metrics",
+            "scripts.profile_pipeline",
+            "scripts.profile_pipeline_runner",
+        ),
+    ),
+    (
+        "scripts/profile_pipeline_commands.py",
+        (
+            "scripts.operator_profile_metrics",
+            "scripts.profile_pipeline",
+            "scripts.profile_pipeline_runner",
+        ),
+    ),
+    (
+        "scripts/profile_pipeline_results.py",
+        (
+            "scripts.operator_profile_metrics",
+            "scripts.profile_pipeline",
+            "scripts.profile_pipeline_runner",
+        ),
+    ),
+    ("api/search_read_meilisearch.py", ("api.search_read_routes",)),
+    ("api/search_read_params.py", ("api.search_read_routes",)),
+    ("api/search_read_results.py", ("api.search_read_routes",)),
+    ("pipeline/city_coverage_assembly.py", ("pipeline.city_coverage_audit",)),
+    ("pipeline/city_coverage_buckets.py", ("pipeline.city_coverage_audit",)),
+    ("pipeline/city_coverage_contracts.py", ("pipeline.city_coverage_audit",)),
+    ("pipeline/city_coverage_queries.py", ("pipeline.city_coverage_audit",)),
+    ("pipeline/city_coverage_windows.py", ("pipeline.city_coverage_audit",)),
+    ("pipeline/lineage_assignment.py", ("pipeline.lineage_service",)),
+    ("pipeline/lineage_graph.py", ("pipeline.lineage_service",)),
+    (
+        "scripts/laserfiche_repair_generated_pdf.py",
+        (
+            "scripts.repair_san_mateo_laserfiche_backlog",
+            "scripts.laserfiche_repair_downloads",
+        ),
+    ),
+    ("semantic_service/candidates.py", ("semantic_service.main",)),
+    ("semantic_service/filters.py", ("semantic_service.main",)),
+    ("semantic_service/retrieval.py", ("semantic_service.main",)),
+    ("semantic_service/hydration.py", ("semantic_service.main",)),
+    (
+        "pipeline/summary_backfill_progress.py",
+        ("pipeline.summary_backfill", "pipeline.summary_backfill_runner"),
+    ),
+    (
+        "pipeline/vote_extraction_item.py",
+        ("pipeline.vote_extractor", "pipeline.vote_extraction_runner"),
+    ),
 )
 
 
@@ -1394,7 +1164,9 @@ def test_facade_import_guardrail_detects_relative_imports(tmp_path: Path):
     pipeline_helper = tmp_path / "pipeline" / "helper.py"
     pipeline_helper.parent.mkdir(parents=True)
     pipeline_helper.write_text(
-        "from . import vote_extractor\nfrom .vote_extraction_runner import run_vote_extraction_for_catalog\n",
+        "from . import vote_extractor\n"
+        "from .vote_extraction_runner import run_vote_extraction_for_catalog\n"
+        "from pipeline.city_scope import city_scope\n",
         encoding="utf-8",
     )
     script_helper = tmp_path / "scripts" / "helper.py"
@@ -1417,6 +1189,24 @@ def test_facade_import_guardrail_detects_relative_imports(tmp_path: Path):
         "semantic_service.main",
         "semantic_service.main",
     ]
+
+
+def test_registered_helpers_do_not_import_facades():
+    dependency_violations: dict[str, list[str]] = {}
+
+    for helper_relative_path, forbidden_facades in HELPER_FACADE_IMPORT_RULES:
+        helper_path = ROOT / helper_relative_path
+        assert helper_path.is_file(), (
+            f"Registered helper path does not exist: {helper_relative_path}"
+        )
+        forbidden_imports = _forbidden_imports(
+            helper_path,
+            set(forbidden_facades),
+        )
+        if forbidden_imports:
+            dependency_violations[helper_relative_path] = forbidden_imports
+
+    assert dependency_violations == {}
 
 
 def test_broad_exception_allowlist_stays_explicit():
@@ -1741,458 +1531,6 @@ def test_broad_exception_handlers_stay_on_approved_boundaries_and_take_action():
     assert silent_handlers == []
 
 
-def test_metrics_cleanup_modules_stay_under_size_target():
-    oversized_modules = [
-        module_path
-        for module_path in METRICS_CLEANUP_MODULES
-        if len((ROOT / module_path).read_text(encoding="utf-8").splitlines()) > 300
-    ]
-
-    assert oversized_modules == []
-
-
-def test_downloader_cleanup_modules_stay_under_size_target():
-    oversized_modules = [
-        module_path
-        for module_path in DOWNLOADER_CLEANUP_MODULES
-        if len((ROOT / module_path).read_text(encoding="utf-8").splitlines()) > 300
-    ]
-
-    assert oversized_modules == []
-
-
-def test_config_cleanup_modules_stay_under_size_target():
-    oversized_modules = [
-        module_path
-        for module_path in CONFIG_CLEANUP_MODULES
-        if len((ROOT / module_path).read_text(encoding="utf-8").splitlines()) > 300
-    ]
-
-    assert oversized_modules == []
-
-
-def test_agenda_extraction_cleanup_modules_stay_under_size_target():
-    oversized_modules = [
-        module_path
-        for module_path in AGENDA_EXTRACTION_CLEANUP_MODULES
-        if len((ROOT / module_path).read_text(encoding="utf-8").splitlines()) > 300
-    ]
-
-    assert oversized_modules == []
-
-
-def test_agenda_text_heuristics_cleanup_modules_stay_under_size_target():
-    oversized_modules = [
-        module_path
-        for module_path in AGENDA_TEXT_HEURISTICS_CLEANUP_MODULES
-        if len((ROOT / module_path).read_text(encoding="utf-8").splitlines()) > 300
-    ]
-
-    assert oversized_modules == []
-
-
-def test_agenda_resolver_cleanup_modules_stay_under_size_target():
-    oversized_modules = [
-        module_path
-        for module_path in AGENDA_RESOLVER_CLEANUP_MODULES
-        if len((ROOT / module_path).read_text(encoding="utf-8").splitlines()) > 300
-    ]
-
-    assert oversized_modules == []
-
-
-def test_agenda_qa_cleanup_modules_stay_under_size_target():
-    oversized_modules = [
-        module_path
-        for module_path in AGENDA_QA_CLEANUP_MODULES
-        if len((ROOT / module_path).read_text(encoding="utf-8").splitlines()) > 300
-    ]
-
-    assert oversized_modules == []
-
-
-def test_agenda_summary_maintenance_cleanup_modules_stay_under_size_target():
-    oversized_modules = [
-        module_path
-        for module_path in AGENDA_SUMMARY_MAINTENANCE_CLEANUP_MODULES
-        if len((ROOT / module_path).read_text(encoding="utf-8").splitlines()) > 300
-    ]
-
-    assert oversized_modules == []
-
-
-def test_agenda_summary_runtime_cleanup_modules_stay_under_size_target():
-    oversized_modules = [
-        module_path
-        for module_path in AGENDA_SUMMARY_RUNTIME_CLEANUP_MODULES
-        if len((ROOT / module_path).read_text(encoding="utf-8").splitlines()) > 300
-    ]
-
-    assert oversized_modules == []
-
-
-def test_run_pipeline_cleanup_modules_stay_under_size_target():
-    oversized_modules = [
-        module_path
-        for module_path in RUN_PIPELINE_CLEANUP_MODULES
-        if len((ROOT / module_path).read_text(encoding="utf-8").splitlines()) > 300
-    ]
-
-    assert oversized_modules == []
-
-
-def test_summary_hydration_diagnostic_cleanup_modules_stay_under_size_target():
-    oversized_modules = [
-        module_path
-        for module_path in SUMMARY_HYDRATION_DIAGNOSTIC_CLEANUP_MODULES
-        if len((ROOT / module_path).read_text(encoding="utf-8").splitlines()) > 300
-    ]
-
-    assert oversized_modules == []
-
-
-def test_summary_hydration_sample_helpers_do_not_import_facade():
-    module_path = ROOT / "pipeline" / "summary_hydration_diagnostic_samples.py"
-    tree = ast.parse(module_path.read_text(encoding="utf-8"), filename=str(module_path.relative_to(ROOT)))
-    forbidden_modules = {
-        "pipeline.summary_hydration_diagnostics",
-        "pipeline.summary_hydration_diagnostic_queries",
-    }
-    forbidden_imports: list[str] = []
-
-    for node in ast.walk(tree):
-        if isinstance(node, ast.Import):
-            forbidden_imports.extend(alias.name for alias in node.names if alias.name in forbidden_modules)
-        elif isinstance(node, ast.ImportFrom) and node.module in forbidden_modules:
-            forbidden_imports.append(node.module)
-        elif isinstance(node, ast.ImportFrom) and node.module == "pipeline":
-            forbidden_imports.extend(
-                f"pipeline.{alias.name}" for alias in node.names if f"pipeline.{alias.name}" in forbidden_modules
-            )
-
-    assert forbidden_imports == []
-
-
-def test_profile_manifest_cleanup_modules_stay_under_size_target():
-    oversized_modules = [
-        module_path
-        for module_path in PROFILE_MANIFEST_CLEANUP_MODULES
-        if len((ROOT / module_path).read_text(encoding="utf-8").splitlines()) > 300
-    ]
-
-    assert oversized_modules == []
-
-
-def test_topic_generation_cleanup_modules_stay_under_size_target():
-    oversized_modules = [
-        module_path
-        for module_path in TOPIC_GENERATION_CLEANUP_MODULES
-        if len((ROOT / module_path).read_text(encoding="utf-8").splitlines()) > 300
-    ]
-
-    assert oversized_modules == []
-
-
-def test_local_ai_cleanup_modules_stay_under_size_target():
-    oversized_modules = [
-        module_path
-        for module_path in LOCAL_AI_CLEANUP_MODULES
-        if len((ROOT / module_path).read_text(encoding="utf-8").splitlines()) > 300
-    ]
-
-    assert oversized_modules == []
-
-
-def test_http_provider_cleanup_modules_stay_under_size_target():
-    oversized_modules = [
-        module_path
-        for module_path in HTTP_PROVIDER_CLEANUP_MODULES
-        if len((ROOT / module_path).read_text(encoding="utf-8").splitlines()) > 300
-    ]
-
-    assert oversized_modules == []
-
-
-def test_person_utils_cleanup_modules_stay_under_size_target():
-    oversized_modules = [
-        module_path
-        for module_path in PERSON_UTILS_CLEANUP_MODULES
-        if len((ROOT / module_path).read_text(encoding="utf-8").splitlines()) > 300
-    ]
-
-    assert oversized_modules == []
-
-
-def test_reporting_scripts_cleanup_modules_stay_under_size_target():
-    oversized_modules = [
-        module_path
-        for module_path in REPORTING_SCRIPTS_CLEANUP_MODULES
-        if len((ROOT / module_path).read_text(encoding="utf-8").splitlines()) > 300
-    ]
-
-    assert oversized_modules == []
-
-
-def test_batch_f_operator_ab_helper_does_not_import_facade():
-    forbidden_imports = _forbidden_imports(
-        ROOT / "scripts" / "operator_profile_ab_aggregate.py",
-        {"scripts.operator_profile_ab"},
-    )
-
-    assert forbidden_imports == []
-
-
-def test_batch_e_reporting_helpers_do_not_import_facades():
-    forbidden_imports: list[str] = []
-    for module_path in (
-        ROOT / "scripts" / "collect_ab_results_rows.py",
-        ROOT / "scripts" / "evaluate_soak_week_gates.py",
-    ):
-        forbidden_imports.extend(
-            _forbidden_imports(
-                module_path,
-                {"scripts.collect_ab_results", "scripts.evaluate_soak_week"},
-            )
-        )
-
-    assert forbidden_imports == []
-
-
-def test_shared_helper_cleanup_modules_stay_under_size_target():
-    oversized_modules = [
-        module_path
-        for module_path in SHARED_HELPER_CLEANUP_MODULES
-        if len((ROOT / module_path).read_text(encoding="utf-8").splitlines()) > 300
-    ]
-
-    assert oversized_modules == []
-
-
-def test_batch_d_profile_helpers_do_not_import_facades():
-    forbidden_imports: list[str] = []
-    for module_path in (
-        ROOT / "scripts" / "operator_profile_worker_metrics.py",
-        ROOT / "scripts" / "profile_pipeline_commands.py",
-        ROOT / "scripts" / "profile_pipeline_results.py",
-    ):
-        forbidden_imports.extend(
-            _forbidden_imports(
-                module_path,
-                {"scripts.operator_profile_metrics", "scripts.profile_pipeline", "scripts.profile_pipeline_runner"},
-            )
-        )
-
-    assert forbidden_imports == []
-
-
-def test_task_api_facade_cleanup_modules_stay_under_size_target():
-    oversized_modules = [
-        module_path
-        for module_path in TASK_API_FACADE_CLEANUP_MODULES
-        if len((ROOT / module_path).read_text(encoding="utf-8").splitlines()) > 300
-    ]
-
-    assert oversized_modules == []
-
-
-def test_search_support_cleanup_modules_stay_under_size_target():
-    oversized_modules = [
-        module_path
-        for module_path in SEARCH_SUPPORT_CLEANUP_MODULES
-        if len((ROOT / module_path).read_text(encoding="utf-8").splitlines()) > 300
-    ]
-
-    assert oversized_modules == []
-
-
-def test_batch_f_search_read_helpers_do_not_import_facade():
-    forbidden_imports: list[str] = []
-    for module_path in (
-        ROOT / "api" / "search_read_meilisearch.py",
-        ROOT / "api" / "search_read_params.py",
-        ROOT / "api" / "search_read_results.py",
-    ):
-        forbidden_imports.extend(_forbidden_imports(module_path, {"api.search_read_routes"}))
-
-    assert forbidden_imports == []
-
-
-def test_city_coverage_cleanup_modules_stay_under_size_target():
-    oversized_modules = [
-        module_path
-        for module_path in CITY_COVERAGE_CLEANUP_MODULES
-        if len((ROOT / module_path).read_text(encoding="utf-8").splitlines()) > 300
-    ]
-
-    assert oversized_modules == []
-
-
-def test_batch_f_city_coverage_helpers_do_not_import_facade():
-    forbidden_imports: list[str] = []
-    for module_path in (
-        ROOT / "pipeline" / "city_coverage_assembly.py",
-        ROOT / "pipeline" / "city_coverage_buckets.py",
-        ROOT / "pipeline" / "city_coverage_contracts.py",
-        ROOT / "pipeline" / "city_coverage_queries.py",
-        ROOT / "pipeline" / "city_coverage_windows.py",
-    ):
-        forbidden_imports.extend(_forbidden_imports(module_path, {"pipeline.city_coverage_audit"}))
-
-    assert forbidden_imports == []
-
-
-def test_lineage_cleanup_modules_stay_under_size_target():
-    oversized_modules = [
-        module_path
-        for module_path in LINEAGE_CLEANUP_MODULES
-        if len((ROOT / module_path).read_text(encoding="utf-8").splitlines()) > 300
-    ]
-
-    assert oversized_modules == []
-
-
-def test_batch_f_lineage_helpers_do_not_import_facade():
-    forbidden_imports: list[str] = []
-    for module_path in (
-        ROOT / "pipeline" / "lineage_assignment.py",
-        ROOT / "pipeline" / "lineage_graph.py",
-    ):
-        forbidden_imports.extend(_forbidden_imports(module_path, {"pipeline.lineage_service"}))
-
-    assert forbidden_imports == []
-
-
-def test_city_onboarding_evaluator_cleanup_modules_stay_under_size_target():
-    oversized_modules = [
-        module_path
-        for module_path in CITY_ONBOARDING_EVALUATOR_CLEANUP_MODULES
-        if len((ROOT / module_path).read_text(encoding="utf-8").splitlines()) > 300
-    ]
-
-    assert oversized_modules == []
-
-
-def test_laserfiche_repair_cleanup_modules_stay_under_size_target():
-    oversized_modules = [
-        module_path
-        for module_path in LASERFICHE_REPAIR_CLEANUP_MODULES
-        if len((ROOT / module_path).read_text(encoding="utf-8").splitlines()) > 300
-    ]
-
-    assert oversized_modules == []
-
-
-def test_laserfiche_generated_pdf_helper_does_not_import_facades():
-    forbidden_imports = _forbidden_imports(
-        ROOT / "scripts" / "laserfiche_repair_generated_pdf.py",
-        {"scripts.repair_san_mateo_laserfiche_backlog", "scripts.laserfiche_repair_downloads"},
-    )
-
-    assert forbidden_imports == []
-
-
-def test_segment_city_corpus_cleanup_modules_stay_under_size_target():
-    oversized_modules = [
-        module_path
-        for module_path in SEGMENT_CITY_CORPUS_CLEANUP_MODULES
-        if len((ROOT / module_path).read_text(encoding="utf-8").splitlines()) > 300
-    ]
-
-    assert oversized_modules == []
-
-
-def test_hydration_cli_cleanup_modules_stay_under_size_target():
-    oversized_modules = [
-        module_path
-        for module_path in HYDRATION_CLI_CLEANUP_MODULES
-        if len((ROOT / module_path).read_text(encoding="utf-8").splitlines()) > 300
-    ]
-
-    assert oversized_modules == []
-
-
-def test_model_cleanup_modules_stay_under_size_target():
-    oversized_modules = [
-        module_path
-        for module_path in MODEL_CLEANUP_MODULES
-        if len((ROOT / module_path).read_text(encoding="utf-8").splitlines()) > 300
-    ]
-
-    assert oversized_modules == []
-
-
-def test_db_migration_cleanup_modules_stay_under_size_target():
-    oversized_modules = [
-        module_path
-        for module_path in DB_MIGRATION_CLEANUP_MODULES
-        if len((ROOT / module_path).read_text(encoding="utf-8").splitlines()) > 300
-    ]
-
-    assert oversized_modules == []
-
-
-def test_indexer_cleanup_modules_stay_under_size_target():
-    oversized_modules = [
-        module_path
-        for module_path in INDEXER_CLEANUP_MODULES
-        if len((ROOT / module_path).read_text(encoding="utf-8").splitlines()) > 300
-    ]
-
-    assert oversized_modules == []
-
-
-def test_semantic_backend_cleanup_modules_stay_under_size_target():
-    oversized_modules = [
-        module_path
-        for module_path in SEMANTIC_BACKEND_CLEANUP_MODULES
-        if len((ROOT / module_path).read_text(encoding="utf-8").splitlines()) > 300
-    ]
-
-    assert oversized_modules == []
-
-
-def test_semantic_service_cleanup_modules_stay_under_size_target():
-    oversized_modules = [
-        module_path
-        for module_path in SEMANTIC_SERVICE_CLEANUP_MODULES
-        if len((ROOT / module_path).read_text(encoding="utf-8").splitlines()) > 300
-    ]
-
-    assert oversized_modules == []
-
-
-def test_batch_g_semantic_service_helpers_do_not_import_facade():
-    forbidden_imports: list[str] = []
-    for module_path in (
-        ROOT / "semantic_service" / "candidates.py",
-        ROOT / "semantic_service" / "filters.py",
-        ROOT / "semantic_service" / "retrieval.py",
-        ROOT / "semantic_service" / "hydration.py",
-    ):
-        forbidden_imports.extend(_forbidden_imports(module_path, {"semantic_service.main"}))
-
-    assert forbidden_imports == []
-
-
-def test_summary_text_cleanup_modules_stay_under_size_target():
-    oversized_modules = [
-        module_path
-        for module_path in SUMMARY_TEXT_CLEANUP_MODULES
-        if len((ROOT / module_path).read_text(encoding="utf-8").splitlines()) > 300
-    ]
-
-    assert oversized_modules == []
-
-
-def test_summary_backfill_progress_helper_does_not_import_facades():
-    forbidden_imports = _forbidden_imports(
-        ROOT / "pipeline" / "summary_backfill_progress.py",
-        {"pipeline.summary_backfill", "pipeline.summary_backfill_runner"},
-    )
-
-    assert forbidden_imports == []
-
-
 def test_summary_backfill_runner_is_the_direct_operation_boundary() -> None:
     deleted_facade = ROOT / "pipeline" / "summary_backfill.py"
     runner_path = ROOT / "pipeline" / "summary_backfill_runner.py"
@@ -2372,35 +1710,6 @@ def test_maintenance_summary_and_staged_hydration_own_runtime_dependencies() -> 
         canonical_map_source = canonical_map_path.read_text(encoding="utf-8")
         assert "pipeline/agenda_summary_maintenance.py" not in canonical_map_source
         assert "pipeline/agenda_summary_callbacks.py" not in canonical_map_source
-
-
-def test_vote_extraction_cleanup_modules_stay_under_size_target():
-    oversized_modules = [
-        module_path
-        for module_path in VOTE_EXTRACTION_CLEANUP_MODULES
-        if len((ROOT / module_path).read_text(encoding="utf-8").splitlines()) > 300
-    ]
-
-    assert oversized_modules == []
-
-
-def test_vote_extraction_item_helper_does_not_import_facades():
-    forbidden_imports = _forbidden_imports(
-        ROOT / "pipeline" / "vote_extraction_item.py",
-        {"pipeline.vote_extractor", "pipeline.vote_extraction_runner"},
-    )
-
-    assert forbidden_imports == []
-
-
-def test_nlp_entity_cleanup_modules_stay_under_size_target():
-    oversized_modules = [
-        module_path
-        for module_path in NLP_ENTITY_CLEANUP_MODULES
-        if len((ROOT / module_path).read_text(encoding="utf-8").splitlines()) > 300
-    ]
-
-    assert oversized_modules == []
 
 
 def _required_markdown_section(markdown: str, heading: str, next_heading: str) -> str:
@@ -3454,6 +2763,50 @@ def test_t_gov_4_agents_policy_is_complete():
     assert "docs/TESTING.md" not in agent_policy
     assert "docs/TESTING.MD" in project_identity
     assert "docs/TESTING.MD" in known_antipatterns
+
+
+def test_t_gov_3a_retires_line_limits_without_closing_t_gov_3():
+    guardrail_policy = (
+        ROOT / "docs" / "ENGINEERING_GUARDRAILS.md"
+    ).read_text(encoding="utf-8")
+    remediation_ledger = (
+        ROOT / "docs" / "plans" / "TOWN_COUNCIL_REMEDIATION_PLAN.md"
+    ).read_text(encoding="utf-8")
+    t_gov_3_entry = _required_markdown_section(
+        remediation_ledger,
+        "### T-GOV-3: Redesign the guardrail regime",
+        "\n### T-GOV-3A:",
+    )
+    t_gov_3a_entry = _required_markdown_section(
+        remediation_ledger,
+        "### T-GOV-3A: Retire file-length inventories",
+        "\n### T-GOV-3B:",
+    )
+    t_gov_3b_entry = _required_markdown_section(
+        remediation_ledger,
+        "### T-GOV-3B: Enforce remaining structural smells",
+        "\n### T-GOV-4:",
+    )
+
+    assert _remediation_task_states(remediation_ledger, "T-GOV-3") == [
+        "Partially landed; acceptance incomplete"
+    ]
+    assert _remediation_task_states(remediation_ledger, "T-GOV-3A") == [
+        "Complete"
+    ]
+    assert _remediation_task_states(remediation_ledger, "T-GOV-3B") == [
+        "Pending"
+    ]
+    assert "status: partially landed; acceptance incomplete" in t_gov_3_entry
+    assert "delivered:" in t_gov_3_entry
+    assert "T-GOV-3A retirement" in t_gov_3_entry
+    assert "remaining: T-GOV-3B" in t_gov_3_entry
+    assert "remaining: T-GOV-3A" not in t_gov_3_entry
+    assert "status: complete and verified 2026-07-26" in t_gov_3a_entry
+    assert "depends_on: T-DC-1 and revised T-DE-1" in t_gov_3b_entry
+    assert "## Structural rules `[transition: T-GOV-3]`" in guardrail_policy
+    assert "Retired: all per-file line-count assertions." in guardrail_policy
+    assert "Remaining line assertions are deleted" not in guardrail_policy
 
 
 def test_t_gov_5_engineering_guardrails_is_complete():

@@ -1,6 +1,6 @@
 # Town Council Remediation Plan (Codex Multi-Agent)
 
-version: 3.56
+version: 3.60
 generated: 2026-07-26
 source: Four-pass external code review (security, architecture, smells, process)
 source_artifact: [Town Council architecture review](../reviews/architecture-review-2026-07-19.html)
@@ -10,6 +10,24 @@ remains in force; where this plan is stricter, this plan wins for these tasks.
 
 ## Changelog
 
+- **v3.60:** Removes the partial source-line semantic analyzer added during
+  T-GOV-3A review. Arbitrary Python data flow cannot be soundly enforced by a
+  small repository test; Ruff C901 and registered dependency rules remain the
+  durable controls after the final source-line cap is deleted.
+- **v3.59:** Closes the T-GOV-3A review gap by removing the remaining
+  search-support source-line cap. Expands ownership to the affected test file.
+- **v3.58:** Completes T-GOV-3A. The repository no longer enforces 34
+  per-family 300-line inventories; one explicit registry now protects the same
+  24 already-clean helper-to-facade relationships. Umbrella T-GOV-3 remains
+  partially landed, and its transition marker stays until T-DC-1 and revised
+  T-DE-1 enable T-GOV-3B's final structural checks.
+- **v3.57:** Marks T-DD-1A complete after PR #153 merged with all required
+  checks green and no unresolved P1/P2 findings. Splits T-GOV-3 into
+  T-GOV-3A inventory cleanup and T-GOV-3B final smell enforcement. Activates
+  T-GOV-3A with exact ownership for removing 34 file-length inventories,
+  consolidating 24 already-clean helper relationships, and retaining the
+  structural transition until T-DC-1 and revised T-DE-1 clear the remaining
+  reverse dependencies.
 - **v3.56:** Expands T-DD-1A ownership with exact-path role CLI parity tests
   after pre-commit review found that direct script execution and role failure
   aggregation were not durably covered. All three CLIs must work without
@@ -273,10 +291,9 @@ remains in force; where this plan is stricter, this plan wins for these tasks.
 
 | State | Tasks |
 |---|---|
-| **Complete** | T-CI-0, T-CI-1, T-CI-1A, T-CI-2, T-CI-2A, T-CI-3, T-CI-4, T-CI-5, T-SEC-1, T-SEC-2, T-SEC-3, T-SEC-3C, T-SEC-4, T-SEC-4A, T-SEC-5, T-SEC-6, T-TIME-1, T-TIME-2, T-TIME-3, T-CRAWL-1, T-CRAWL-2, T-PLAT-1, T-PLAT-1A, T-PLAT-2A, T-PLAT-2B, T-GOV-1, T-GOV-4, T-GOV-5, T-DA-1, T-DB-1A, T-DB-1, T-DB-1B |
-| **In progress** | T-DD-1A |
-| **Partially landed; acceptance incomplete** | T-GOV-6 |
-| **Pending** | T-DC-1, T-DD-1B, T-DE-1, T-PLAT-2, T-PLAT-3, T-PLAT-4, T-GOV-2..3 |
+| **Complete** | T-CI-0, T-CI-1, T-CI-1A, T-CI-2, T-CI-2A, T-CI-3, T-CI-4, T-CI-5, T-SEC-1, T-SEC-2, T-SEC-3, T-SEC-3C, T-SEC-4, T-SEC-4A, T-SEC-5, T-SEC-6, T-TIME-1, T-TIME-2, T-TIME-3, T-CRAWL-1, T-CRAWL-2, T-PLAT-1, T-PLAT-1A, T-PLAT-2A, T-PLAT-2B, T-GOV-1, T-GOV-3A, T-GOV-4, T-GOV-5, T-DA-1, T-DB-1A, T-DB-1, T-DB-1B, T-DD-1A |
+| **Partially landed; acceptance incomplete** | T-GOV-3, T-GOV-6 |
+| **Pending** | T-DC-1, T-DD-1B, T-DE-1, T-PLAT-2, T-PLAT-3, T-PLAT-4, T-GOV-2, T-GOV-3B |
 
 ---
 
@@ -1124,7 +1141,7 @@ files (GED-5 grant).
 
 ### T-DD-1A: Consolidate worker health probes
 - priority: P2
-- status: in progress
+- status: complete and verified 2026-07-26 (PR #153)
 - implementation_plan: `docs/plans/T_DD_1A_WORKER_HEALTHCHECK_PLAN.md`
 - files_owned: the plan and ledger; `scripts/worker_health_probes.py`;
   `scripts/worker_healthcheck.py`;
@@ -1145,7 +1162,8 @@ files (GED-5 grant).
 
 ### T-DD-1B: Evaluate city-state mutation consolidation
 - priority: P2
-- status: pending after T-DD-1A
+- status: pending
+- depends_on: T-DD-1A (satisfied by PR #153)
 - files_owned: `scripts/flush_city_pipeline_state.py`,
   `scripts/reset_city_verification_state.py`, and focused tests to be named in
   a separate Full plan
@@ -1416,25 +1434,59 @@ files (GED-5 grant).
 - accept: ADR merged with a selected option; follow-up implementation task
   filed (out of scope here).
 
-### T-GOV-3: Redesign the guardrail regime (after >= 2 Phase 2 tasks merge)
+### T-GOV-3: Redesign the guardrail regime
 - priority: P2
-- files_owned: tests/test_repository_guardrails.py,
-  docs/ENGINEERING_GUARDRAILS.md
-- coordination: T-CI-0 may edit only the broad-handler structural-policy prose
-  needed to align PR #108 enforcement. T-GOV-3 retains the later structural-rule
-  redesign and must preserve or deliberately supersede that contract.
-- do: Replace enumerated 300-line file lists with general rules:
-  (a) complexity ceiling — DELIVERED by T-CI-5 (ruff C901, max-complexity
-  10, offenders allowlisted and ratcheting); this task only documents its
-  exception process and removes the corresponding [transition] marker in
-  ENGINEERING_GUARDRAILS.md;
-  (b) import-direction rule generalized from the semantic_service pattern
-  (helpers must not import their facade); (c) new smell checks banning
-  `_sync_*_from_*` bidirectional-global patterns and f-string interpolation
-  inside `text(...)` DDL; (d) delete line-count checks for recombined files.
-- accept: Guardrail file shrinks materially; no enumerated per-file line
-  lists for the collapsed families; CI green.
-- verify: Full suite + guardrail tests green.
+- status: partially landed; acceptance incomplete
+- prerequisite: at least two Phase 2 tasks merged (satisfied by T-DA-1,
+  T-DB-1A, T-DB-1, and T-DB-1B)
+- delivered: Ruff C901 with max-complexity 10 and ratcheting path-specific
+  exceptions; T-GOV-3A retirement of the file-length proxy and consolidation
+  of existing dependency rules.
+- remaining: T-GOV-3B adds the final sync-global and interpolated-SQL checks
+  after T-DC-1 and revised T-DE-1 remove the active reverse dependencies.
+- accept: T-GOV-3A and T-GOV-3B complete; the structural transition marker is
+  removed only after every replacement rule is enforced.
+
+### T-GOV-3A: Retire file-length inventories
+- priority: P2
+- status: complete and verified 2026-07-26
+- implementation_plan:
+  `docs/plans/T_GOV_3A_GUARDRAIL_INVENTORY_PLAN.md`
+- files_owned: `docs/plans/T_GOV_3A_GUARDRAIL_INVENTORY_PLAN.md`,
+  `docs/plans/TOWN_COUNCIL_REMEDIATION_PLAN.md`,
+  `docs/ENGINEERING_GUARDRAILS.md`,
+  `tests/test_repository_guardrails.py`,
+  `tests/test_search_support_facade.py`
+- do: Delete all 34 `*_CLEANUP_MODULES` inventories and all 35 300-line
+  tests. Consolidate the 11 standalone dependency-direction tests into one
+  registry and one enforcement test covering the same 24 already-clean helper
+  paths. Do not add a partial source-line semantic analyzer, infer new facade
+  relationships, or capture pending T-DC/T-DE debt.
+- forbidden: A replacement file-size threshold, Ruff policy changes,
+  sync-global or interpolated-SQL enforcement, T-GOV-3 completion, or
+  transition-marker removal.
+- accept: No file-length policy remains; registered helper dependencies remain
+  protected; the guardrail test file shrinks materially; T-GOV-3 remains
+  partially landed.
+- verify: Follow the Full T-GOV-3A plan; Ruff, Mypy, repository guardrails,
+  docs links, and the complete Python suite pass.
+
+### T-GOV-3B: Enforce remaining structural smells
+- priority: P2
+- status: pending
+- depends_on: T-DC-1 and revised T-DE-1
+- files_owned: to be named in a separate Full plan after both dependencies
+  merge
+- do: Register helper relationships made clean by T-DC-1 and revised T-DE-1;
+  add checks banning bidirectional `_sync_*_from_*` global reconciliation and
+  f-string interpolation inside SQLAlchemy `text(...)` DDL/DML; remove the
+  `[transition: T-GOV-3]` marker only after all checks pass.
+- note: T-DD-1B introduces no current facade rule and remains outside the
+  dependency registry.
+- accept: Remaining structural rules are mechanically enforced, no pending
+  reverse dependencies are hidden by an allowlist, and T-GOV-3 is complete.
+- verify: Separate tests-first Full plan, repository guardrails, and complete
+  Python suite.
 
 ### T-GOV-4: Land the revised AGENTS.md
 - priority: P1
@@ -1528,7 +1580,8 @@ Phase 2: agent-da || agent-db [T-DB-1A, then T-DB-1, then T-DB-1B] || agent-dd |
          then agent-dc (exclusive on api/*)
 Phase 3: agent-plat [T-PLAT-1 after T-TIME-1 and T-TIME-2, T-PLAT-1A
          closure, T-PLAT-2B security patch, then T-PLAT-2..4]
-         || agent-gov [T-GOV-2, T-GOV-3 + T-GOV-5]
+         || agent-gov [T-GOV-2, T-GOV-3A, then T-GOV-3B after T-DC-1 and
+         revised T-DE-1; T-GOV-5 complete]
 Anytime: T-GOV-6 DATA_GOVERNANCE.md (Section 3 pending G4)
 ```
 
