@@ -208,6 +208,23 @@ def test_base_compose_requires_meilisearch_master_key() -> None:
     assert "MEILI_MASTER_KEY must be set" in completed_process.stderr
 
 
+def test_redis_service_exposes_configured_password_to_container_commands(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    redis_password_sentinel = "compose redis; password with spaces"
+    monkeypatch.setenv("REDIS_PASSWORD", redis_password_sentinel)
+
+    redis_service = _compose_services("docker-compose.yml")["redis"]
+    redis_command = " ".join(redis_service["command"])
+    redis_healthcheck = " ".join(redis_service["healthcheck"]["test"])
+
+    assert redis_service["environment"]["REDIS_PASSWORD"] == redis_password_sentinel
+    assert redis_password_sentinel not in redis_command
+    assert redis_password_sentinel not in redis_healthcheck
+    assert '"$$REDIS_PASSWORD"' in redis_command
+    assert '"$$REDIS_PASSWORD"' in redis_healthcheck
+
+
 def test_dev_overlay_mounts_reader_source_without_repository_secrets() -> None:
     development_services = _compose_services("docker-compose.yml", "docker-compose.dev.yml")
     expected_targets = {

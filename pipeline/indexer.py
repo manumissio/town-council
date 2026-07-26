@@ -4,7 +4,8 @@ from collections.abc import Iterable
 
 import meilisearch
 from meilisearch.errors import MeilisearchError
-from sqlalchemy.orm import selectinload
+from meilisearch.index import Index
+from sqlalchemy.orm import Session, selectinload
 
 from pipeline.config import MEILISEARCH_BATCH_SIZE
 from pipeline.db_session import db_session
@@ -18,9 +19,14 @@ from pipeline.indexer_documents import (
 )
 from pipeline.indexer_meilisearch import (
     _apply_index_settings,
+    _clear_documents_index,
     _delete_documents_by_filter,
     _flush_batch,
+    INDEX_ALREADY_EXISTS_ERROR_CODE,
     _task_uid,
+    _verify_documents_index_settings,
+    _wait_for_documents_index_idle,
+    _wait_for_task_success,
 )
 from pipeline.models import AgendaItem, Catalog, Document, Event, Membership, Organization, Place
 
@@ -29,6 +35,22 @@ MEILI_HOST = os.getenv("MEILI_HOST", "http://meilisearch:7700")
 MEILI_MASTER_KEY = os.getenv("MEILI_MASTER_KEY", "masterKey")
 
 logger = logging.getLogger("indexer")
+MEILISEARCH_MAINTENANCE_REQUEST_TIMEOUT_SECONDS = 30
+
+
+def _report_document_truncation(
+    source_document_count: int,
+    truncated_document_count: int,
+) -> None:
+    """Expose truncation coverage without affecting recovery count checks."""
+    if not source_document_count:
+        return
+    truncation_rate = truncated_document_count / source_document_count * 100
+    print(
+        "Document truncation summary: "
+        f"{truncated_document_count}/{source_document_count} "
+        f"({truncation_rate:.1f}%) meeting docs truncated"
+    )
 
 
 def _build_meeting_search_doc(doc, catalog, event, place, organization) -> dict:
@@ -57,11 +79,25 @@ def _build_agenda_item_search_doc(item, event, place, organization) -> dict:
     )
 
 
-def _ensure_documents_index(client, *, apply_settings: bool):
+def _ensure_documents_index(
+    client,
+    *,
+    apply_settings: bool,
+    wait_for_creation: bool = False,
+):
     try:
-        client.create_index("documents", {"primaryKey": "id"})
+        creation_task = client.create_index("documents", {"primaryKey": "id"})
     except MeilisearchError:
-        pass
+        if wait_for_creation:
+            raise
+    else:
+        if wait_for_creation:
+            _wait_for_task_success(
+                client,
+                creation_task.task_uid,
+                "index creation",
+                accepted_failure_code=INDEX_ALREADY_EXISTS_ERROR_CODE,
+            )
     index = client.index("documents")
     if apply_settings:
         _apply_index_settings(client, index)
@@ -115,49 +151,127 @@ def _catalog_agenda_item_rows(session, catalog_id: int):
     )
 
 
-def index_documents():
-    """
-    Sync processed meetings and agenda items into Meilisearch.
-    """
+def _index_meeting_documents(session: Session, index: Index) -> tuple[int, int]:
+    """Index meeting records and retain the source count for recovery checks."""
+    documents_batch = []
+    submitted_document_count = 0
+    source_document_count = 0
+    truncated_document_count = 0
+
+    print("Step 1: Indexing Full Meeting Documents...")
+    for document, catalog, event, place, organization in _document_rows(session):
+        source_document_count += 1
+        _, content_truncated, _, _ = _truncate_content_for_index(catalog.content)
+        truncated_document_count += int(content_truncated)
+        documents_batch.append(
+            _build_meeting_search_doc(
+                document,
+                catalog,
+                event,
+                place,
+                organization,
+            )
+        )
+        if len(documents_batch) >= MEILISEARCH_BATCH_SIZE:
+            submitted_document_count = _flush_batch(
+                index,
+                documents_batch,
+                submitted_document_count,
+                "document",
+            )
+            documents_batch = []
+
+    submitted_document_count = _flush_batch(
+        index,
+        documents_batch,
+        submitted_document_count,
+        "document",
+    )
+    _report_document_truncation(source_document_count, truncated_document_count)
+    return submitted_document_count, source_document_count
+
+
+def _index_agenda_items(session: Session, index: Index) -> tuple[int, int]:
+    """Index agenda items and retain the source count for recovery checks."""
+    agenda_batch = []
+    submitted_agenda_count = 0
+    source_agenda_count = 0
+
+    print("Step 2: Indexing Individual Agenda Items...")
+    for agenda_item, event, place, organization in _agenda_item_rows(session):
+        source_agenda_count += 1
+        agenda_batch.append(
+            _build_agenda_item_search_doc(
+                agenda_item,
+                event,
+                place,
+                organization,
+            )
+        )
+        if len(agenda_batch) >= MEILISEARCH_BATCH_SIZE:
+            submitted_agenda_count = _flush_batch(
+                index,
+                agenda_batch,
+                submitted_agenda_count,
+                "agenda item",
+            )
+            agenda_batch = []
+
+    submitted_agenda_count = _flush_batch(
+        index,
+        agenda_batch,
+        submitted_agenda_count,
+        "agenda item",
+    )
+    return submitted_agenda_count, source_agenda_count
+
+
+def _index_documents_with_client(client: meilisearch.Client) -> int:
+    """Index the PostgreSQL corpus through the caller's Meilisearch policy."""
+    index = _ensure_documents_index(client, apply_settings=True)
+    with db_session() as session:
+        submitted_document_count, source_document_count = (
+            _index_meeting_documents(session, index)
+        )
+        submitted_agenda_count, source_agenda_count = _index_agenda_items(
+            session,
+            index,
+        )
+
+    submitted_record_count = submitted_document_count + submitted_agenda_count
+    print(f"Indexing complete. Total records indexed: {submitted_record_count}")
+    return source_document_count + source_agenda_count
+
+
+def index_documents() -> int:
+    """Sync processed meetings and agenda items into Meilisearch."""
     print(f"Connecting to Meilisearch at {MEILI_HOST}...")
     client = meilisearch.Client(MEILI_HOST, MEILI_MASTER_KEY)
-    index = _ensure_documents_index(client, apply_settings=True)
+    return _index_documents_with_client(client)
 
-    with db_session() as session:
-        documents_batch = []
-        count = 0
-        indexed_meeting_docs = 0
-        truncated_meeting_docs = 0
 
-        print("Step 1: Indexing Full Meeting Documents...")
-        for doc, catalog, event, place, organization in _document_rows(session):
-            _, is_content_truncated, _, _ = _truncate_content_for_index(catalog.content)
-            indexed_meeting_docs += 1
-            if is_content_truncated:
-                truncated_meeting_docs += 1
-            documents_batch.append(_build_meeting_search_doc(doc, catalog, event, place, organization))
-            if len(documents_batch) >= MEILISEARCH_BATCH_SIZE:
-                count = _flush_batch(index, documents_batch, count, "document")
-                documents_batch = []
-
-        count = _flush_batch(index, documents_batch, count, "document")
-        documents_batch = []
-        if indexed_meeting_docs:
-            print(
-                f"Document truncation summary: {truncated_meeting_docs}/{indexed_meeting_docs} "
-                f"({(truncated_meeting_docs / indexed_meeting_docs) * 100:.1f}%) meeting docs truncated"
-            )
-
-        print("Step 2: Indexing Individual Agenda Items...")
-        for item, event, place, organization in _agenda_item_rows(session):
-            documents_batch.append(_build_agenda_item_search_doc(item, event, place, organization))
-            if len(documents_batch) >= MEILISEARCH_BATCH_SIZE:
-                count = _flush_batch(index, documents_batch, count, "agenda item")
-                documents_batch = []
-
-        count = _flush_batch(index, documents_batch, count, "agenda item")
-
-    print(f"Indexing complete. Total records indexed: {count}")
+def replace_documents_index() -> None:
+    """Replace search state from PostgreSQL and reject incomplete rebuilds."""
+    client = meilisearch.Client(
+        MEILI_HOST,
+        MEILI_MASTER_KEY,
+        timeout=MEILISEARCH_MAINTENANCE_REQUEST_TIMEOUT_SECONDS,
+    )
+    index = _ensure_documents_index(
+        client,
+        apply_settings=False,
+        wait_for_creation=True,
+    )
+    _clear_documents_index(client, index)
+    expected_document_count = _index_documents_with_client(client)
+    _wait_for_documents_index_idle(client)
+    _verify_documents_index_settings(index)
+    actual_document_count = int(index.get_stats().number_of_documents)
+    if actual_document_count != expected_document_count:
+        raise RuntimeError(
+            "Meilisearch replacement count mismatch "
+            f"expected={expected_document_count} actual={actual_document_count}"
+        )
 
 
 def reindex_catalog(catalog_id: int) -> dict:

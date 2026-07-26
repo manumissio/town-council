@@ -85,6 +85,190 @@ What it does *not* do:
 
 ### Database migrations and backups
 
+#### Routine database backup and recovery
+
+Create backups outside the repository. The archive can contain the complete
+database, including governed person-level records, so keep it private and use
+encrypted storage for any off-host copy. The command refuses overwrite,
+creates the archive with owner-only permissions, and publishes it only after
+`pg_restore --list` validates the custom-format output:
+
+```bash
+BACKUP_PATH="<BACKUP_PATH>/town_council_$(date -u +%Y%m%dT%H%M%SZ).dump"
+bash ./scripts/backup_db.sh "$BACKUP_PATH"
+```
+
+PostgreSQL gives `pg_dump` one consistent snapshot while ordinary writes
+continue. Still stop all writers before migration, destructive maintenance, or
+a recovery backup whose exact application boundary matters.
+
+Recommended cadence:
+
+- back up daily while actively ingesting or curating records
+- back up weekly when the local dataset is otherwise stable
+- always take a fresh backup before schema migration or destructive maintenance
+- retain enough daily and weekly copies to recover from corruption discovered
+  after the latest run, and keep at least one encrypted copy outside the host
+- periodically perform the disposable-database restore drill below; archive
+  listing alone does not prove successful restoration
+
+`STARTUP_PURGE_DERIVED=true` clears agenda items and derived catalog fields but
+preserves source ingest records. That development convenience is not a backup:
+the archive covers the complete PostgreSQL snapshot, including the system of
+record and any derived rows present when the dump starts.
+
+To validate an archive without touching the active database, restore into a
+new, uniquely named database created from `template0`, inspect
+`alembic_version` and representative row counts, then drop only that validation
+database:
+
+```bash
+set -euo pipefail
+BACKUP_PATH="<BACKUP_PATH>/town_council_restore_drill.dump"
+docker compose -f docker-compose.yml -f docker-compose.dev.yml up -d postgres
+POSTGRES_USER="$(docker compose exec -T postgres printenv POSTGRES_USER)"
+RESTORE_DB="town_council_restore_check_$(.venv/bin/python -c \
+  'import secrets; print(secrets.token_hex(8))')"
+RESTORE_DB_CREATED=false
+
+cleanup_restore_drill() {
+  if [[ "$RESTORE_DB_CREATED" == "true" ]]; then
+    docker compose exec -T postgres dropdb \
+      -U "$POSTGRES_USER" --maintenance-db=postgres \
+      --force --if-exists "$RESTORE_DB" >/dev/null
+    RESTORE_DB_CREATED=false
+  fi
+}
+trap cleanup_restore_drill EXIT
+
+docker compose exec -T postgres pg_restore --list < "$BACKUP_PATH" >/dev/null
+if docker compose exec -T postgres createdb \
+  -U "$POSTGRES_USER" -T template0 "$RESTORE_DB"; then
+  RESTORE_DB_CREATED=true
+else
+  exit 1
+fi
+docker compose exec -T postgres pg_restore \
+  -U "$POSTGRES_USER" -d "$RESTORE_DB" \
+  --exit-on-error --no-owner --no-privileges < "$BACKUP_PATH"
+docker compose exec -T postgres psql \
+  -U "$POSTGRES_USER" -d "$RESTORE_DB" \
+  -c "select version_num from alembic_version;
+      select 'catalog' as relation, count(*) from catalog
+      union all
+      select 'event' as relation, count(*) from event
+      order by relation"
+cleanup_restore_drill
+trap - EXIT
+```
+
+Record the archive identifier, Alembic revision, and row counts as restore-drill
+evidence. The high-entropy database name and ownership flag keep cleanup from
+dropping the active database or a database the drill did not create.
+
+Before full recovery or failed-schema rollback, select the exact Compose files
+and project that own the currently deployed Redis volume. The default below is
+the repository development stack. For a prebuilt deployment, replace it with
+the deployment's project name and every current Compose file. Do not proceed
+until `docker compose ps redis` identifies the Redis service used by the
+deployment being recovered. Also stop schedulers and manual writers outside
+that project before running this block:
+
+```bash
+set -euo pipefail
+RECOVERY_COMPOSE=(docker compose -f docker-compose.yml -f docker-compose.dev.yml)
+# Prebuilt example; replace the line above rather than running both:
+# RECOVERY_COMPOSE=(docker compose -p "<CURRENT_DEPLOYMENT_PROJECT>" -f "<CURRENT_DEPLOYMENT_COMPOSE_FILE>")
+
+"${RECOVERY_COMPOSE[@]}" stop
+"${RECOVERY_COMPOSE[@]}" up --wait --wait-timeout 60 redis
+"${RECOVERY_COMPOSE[@]}" exec -T redis sh -eu -c '
+    export REDISCLI_AUTH="$REDIS_PASSWORD"
+    redis-cli -e FLUSHDB SYNC >/dev/null
+    redis-cli -e SAVE >/dev/null
+    test "$(redis-cli -e --raw DBSIZE)" = 0
+  '
+```
+
+`redis-cli -e` makes authentication and command errors fail the block.
+Synchronous flush plus `SAVE` prevents an older persisted queue/cache snapshot
+from returning after Redis restarts, and `DBSIZE=0` verifies database 0 before
+recovery continues. The password is resolved by Compose into the Redis
+container environment and is never expanded into the host command. This
+intentionally discards pending Celery work, task results, and API cache entries.
+Re-enqueue only work that is still valid after PostgreSQL and search recovery
+have passed verification.
+
+For full recovery, stop every Compose writer plus schedulers or manual commands
+running outside this project. Validate the archive before dropping the target:
+
+```bash
+set -euo pipefail
+BACKUP_PATH="<BACKUP_PATH>/town_council_recovery.dump"
+
+docker compose -f docker-compose.yml -f docker-compose.dev.yml stop
+docker compose -f docker-compose.yml -f docker-compose.dev.yml up -d postgres
+POSTGRES_USER="$(docker compose exec -T postgres printenv POSTGRES_USER)"
+POSTGRES_DB="$(docker compose exec -T postgres printenv POSTGRES_DB)"
+docker compose exec -T postgres pg_restore --list < "$BACKUP_PATH" >/dev/null
+docker compose exec -T postgres dropdb \
+  -U "$POSTGRES_USER" --maintenance-db=postgres --force --if-exists "$POSTGRES_DB"
+docker compose exec -T postgres createdb \
+  -U "$POSTGRES_USER" -T template0 "$POSTGRES_DB"
+docker compose exec -T postgres pg_restore \
+  -U "$POSTGRES_USER" -d "$POSTGRES_DB" \
+  --exit-on-error --no-owner --no-privileges < "$BACKUP_PATH"
+STARTUP_PURGE_DERIVED=false docker compose \
+  -f docker-compose.yml -f docker-compose.dev.yml run \
+  --rm --build --no-deps pipeline python db_migrate.py
+STARTUP_PURGE_DERIVED=false docker compose \
+  -f docker-compose.yml -f docker-compose.dev.yml run \
+  --rm --no-deps pipeline python /app/scripts/check_schema_parity.py
+docker compose exec -T postgres psql \
+  -U "$POSTGRES_USER" -d "$POSTGRES_DB" \
+  -c "select 'catalog' as relation, count(*) from catalog
+      union all
+      select 'event' as relation, count(*) from event
+      order by relation"
+```
+
+Confirm those counts against the expected recovery corpus or the latest
+successful restore-drill record. Do not accept traffic yet. PostgreSQL is
+authoritative, so replace any external search state that may be newer than the
+restored snapshot:
+
+```bash
+set -euo pipefail
+STARTUP_PURGE_DERIVED=false docker compose \
+  -f docker-compose.yml -f docker-compose.dev.yml up -d postgres redis meilisearch
+STARTUP_PURGE_DERIVED=false docker compose \
+  -f docker-compose.yml -f docker-compose.dev.yml run \
+  --rm --no-deps pipeline python reindex_only.py --replace-all
+
+# Required when SEMANTIC_BACKEND=faiss; pgvector state is inside the backup.
+docker compose -f docker-compose.yml -f docker-compose.dev.yml run \
+  --rm --build --no-deps semantic python ../pipeline/reindex_semantic.py
+```
+
+`--replace-all` bounds every Meilisearch HTTP request at 30 seconds and uses
+separate five-minute waits for deletion and rebuild-queue completion. It then
+verifies the index settings and compares the indexed document count with the
+restored PostgreSQL corpus. Any deletion failure, request or queue timeout,
+settings mismatch, or count mismatch blocks restart. After schema parity,
+row-count inspection, and required search rebuilds pass, restart without the
+development purge:
+
+```bash
+STARTUP_PURGE_DERIVED=false docker compose \
+  -f docker-compose.yml -f docker-compose.dev.yml up -d --build
+```
+
+The runbook provides cadence and recovery controls, but it does not configure a
+scheduler or prove an off-host copy exists. Keep the `SECURITY.md` backup
+checklist open until the operator has configured and tested those controls.
+
+#### Schema migration workflow
+
 `pipeline/db_migrate.py` is the only supported schema entrypoint. It handles
 fresh databases, guarded adoption of unversioned databases through the frozen
 v10 history, and upgrades to the current Alembic head. `db_init.py` remains a
@@ -99,9 +283,7 @@ BACKUP_PATH="<BACKUP_PATH>/town_council_pre_migration.dump"
 
 docker compose -f docker-compose.yml -f docker-compose.dev.yml stop
 docker compose -f docker-compose.yml -f docker-compose.dev.yml up -d postgres
-docker compose exec -T postgres pg_dump \
-  -U town_council -d town_council_db -Fc > "$BACKUP_PATH"
-docker compose exec -T postgres pg_restore --list < "$BACKUP_PATH" >/dev/null
+bash ./scripts/backup_db.sh "$BACKUP_PATH"
 docker compose -f docker-compose.yml -f docker-compose.dev.yml run \
   --rm --build --no-deps pipeline python db_migrate.py
 ```
@@ -167,14 +349,228 @@ Confirm `embed_dispatch_failed=0`, then monitor the semantic worker until the
 queued tasks finish. Embeddings are derived data; the migration transaction
 preserves source catalog, document, event, agenda, and civic records.
 
-Rollback restores the backup while writers remain stopped:
+##### Roll back a failed schema release
+
+Run the Redis recovery preflight above from the currently deployed
+control-plane checkout before selecting any rollback release. Keep all writers
+stopped afterward. Choose one rollback procedure and use it for every
+application command.
+
+**Checkout-based rollback.** Select the exact application release that was
+active when the pre-migration backup was created **before running `db_migrate.py`
+or schema parity against the restored database**. Initialize strict mode,
+select the release, and build every rollback application image as one block:
 
 ```bash
-docker compose exec -T postgres pg_restore \
-  -U town_council -d town_council_db --clean --if-exists --exit-on-error \
-  < "$BACKUP_PATH"
-docker compose -f docker-compose.yml -f docker-compose.dev.yml up -d --build
+set -euo pipefail
+ROLLBACK_REF="<PREVIOUS_RELEASE_REF>"
+git switch --detach "$ROLLBACK_REF"
+ROLLBACK_COMPOSE_FILES=(-f docker-compose.yml -f docker-compose.dev.yml)
+docker compose "${ROLLBACK_COMPOSE_FILES[@]}" build
 ```
+
+Follow the full recovery procedure through schema parity and the PostgreSQL
+row-count check, but skip its external-search block and final restart. Its
+`--build` migration command now builds the selected rollback checkout. Keep
+`ROLLBACK_COMPOSE_FILES` for the shared search-recovery block below.
+
+**Prebuilt-image rollback.** The checked-in Compose files are not an
+image-only rollback interface: they include local build definitions and source
+bind mounts. Use a deployment-specific Compose file that pins every Town
+Council application service to an immutable previous-release image and does
+not mount the current checkout. Perform archive validation and database
+replacement through that file, then run migration and schema parity without
+rebuilding images:
+
+```bash
+set -euo pipefail
+ROLLBACK_COMPOSE_FILE="<ROLLBACK_COMPOSE_FILE>"
+ROLLBACK_COMPOSE_FILES=(-f "$ROLLBACK_COMPOSE_FILE")
+
+STARTUP_PURGE_DERIVED=false docker compose "${ROLLBACK_COMPOSE_FILES[@]}" run \
+  --rm --no-deps pipeline python db_migrate.py
+STARTUP_PURGE_DERIVED=false docker compose "${ROLLBACK_COMPOSE_FILES[@]}" run \
+  --rm --no-deps pipeline python /app/scripts/check_schema_parity.py
+```
+
+The release being rolled back may predate replacement reindex mode. For either
+rollback procedure, keep `ROLLBACK_COMPOSE_FILES` in the same Bash session and
+use this release-independent HTTP step to create or clear the `documents`
+index. It uses only the rollback image's Python standard library, then the
+rollback release's existing additive reindex command:
+
+```bash
+set -euo pipefail
+STARTUP_PURGE_DERIVED=false docker compose "${ROLLBACK_COMPOSE_FILES[@]}" up \
+  -d postgres redis meilisearch
+MEILI_RECOVERY_TASK_UID="$(
+  STARTUP_PURGE_DERIVED=false docker compose "${ROLLBACK_COMPOSE_FILES[@]}" run \
+    -T --rm --no-deps pipeline python - <<'PY'
+import json
+import os
+import time
+from urllib.error import HTTPError
+from urllib.request import Request, urlopen
+
+HTTP_TIMEOUT_SECONDS = 30
+TASK_TIMEOUT_SECONDS = 300
+TASK_POLL_SECONDS = 1
+MEILI_HOST = os.environ["MEILI_HOST"].rstrip("/")
+MEILI_KEY = os.environ["MEILI_MASTER_KEY"]
+
+
+def request_json(method, path, payload=None, *, allow_not_found=False):
+    request_body = None if payload is None else json.dumps(payload).encode()
+    request = Request(
+        f"{MEILI_HOST}{path}",
+        data=request_body,
+        headers={
+            "Authorization": f"Bearer {MEILI_KEY}",
+            "Content-Type": "application/json",
+        },
+        method=method,
+    )
+    try:
+        with urlopen(request, timeout=HTTP_TIMEOUT_SECONDS) as response:
+            return json.load(response)
+    except HTTPError as error:
+        if allow_not_found and error.code == 404:
+            return None
+        raise
+
+
+def wait_for_task(task_uid):
+    deadline = time.monotonic() + TASK_TIMEOUT_SECONDS
+    while time.monotonic() < deadline:
+        task = request_json("GET", f"/tasks/{task_uid}")
+        if task["status"] == "succeeded":
+            return
+        if task["status"] in {"failed", "canceled"}:
+            raise RuntimeError(json.dumps(task, sort_keys=True))
+        time.sleep(TASK_POLL_SECONDS)
+    raise TimeoutError(f"Meilisearch task {task_uid} exceeded recovery timeout")
+
+
+index = request_json("GET", "/indexes/documents", allow_not_found=True)
+if index is None:
+    task = request_json(
+        "POST",
+        "/indexes",
+        {"uid": "documents", "primaryKey": "id"},
+    )
+else:
+    task = request_json("DELETE", "/indexes/documents/documents")
+task_uid = task["taskUid"]
+wait_for_task(task_uid)
+print(task_uid)
+PY
+)"
+test -n "$MEILI_RECOVERY_TASK_UID"
+
+POSTGRES_USER="$(
+  docker compose "${ROLLBACK_COMPOSE_FILES[@]}" exec -T postgres \
+    printenv POSTGRES_USER
+)"
+POSTGRES_DB="$(
+  docker compose "${ROLLBACK_COMPOSE_FILES[@]}" exec -T postgres \
+    printenv POSTGRES_DB
+)"
+EXPECTED_SEARCH_RECORDS="$(
+  docker compose "${ROLLBACK_COMPOSE_FILES[@]}" exec -T postgres psql \
+    -U "$POSTGRES_USER" -d "$POSTGRES_DB" -At -c "
+      select
+        (select count(*)
+         from document d
+         join catalog c on c.id = d.catalog_id
+         join event e on e.id = d.event_id
+         join place p on p.id = d.place_id
+         where c.content is not null and c.content <> '')
+        +
+        (select count(*)
+         from agenda_item ai
+         join event e on e.id = ai.event_id
+         join place p on p.id = e.place_id);
+    "
+)"
+STARTUP_PURGE_DERIVED=false docker compose "${ROLLBACK_COMPOSE_FILES[@]}" run \
+  --rm --no-deps pipeline python reindex_only.py
+STARTUP_PURGE_DERIVED=false docker compose "${ROLLBACK_COMPOSE_FILES[@]}" run \
+  --rm --no-deps \
+  -e MEILI_RECOVERY_TASK_UID="$MEILI_RECOVERY_TASK_UID" \
+  -e EXPECTED_SEARCH_RECORDS="$EXPECTED_SEARCH_RECORDS" \
+  pipeline python - <<'PY'
+import json
+import os
+import time
+from urllib.request import Request, urlopen
+
+HTTP_TIMEOUT_SECONDS = 30
+TASK_TIMEOUT_SECONDS = 300
+TASK_POLL_SECONDS = 1
+MEILI_HOST = os.environ["MEILI_HOST"].rstrip("/")
+MEILI_KEY = os.environ["MEILI_MASTER_KEY"]
+FIRST_REINDEX_TASK_UID = int(os.environ["MEILI_RECOVERY_TASK_UID"]) + 1
+EXPECTED_SEARCH_RECORDS = int(os.environ["EXPECTED_SEARCH_RECORDS"])
+
+
+def task_allows_rollback_reindex(task):
+    return task["status"] == "succeeded" or (
+        task["status"] == "failed"
+        and task["type"] == "indexCreation"
+        and task["error"]["code"] == "index_already_exists"
+    )
+
+
+def request_json(method, path):
+    request = Request(
+        f"{MEILI_HOST}{path}",
+        headers={"Authorization": f"Bearer {MEILI_KEY}"},
+        method=method,
+    )
+    with urlopen(request, timeout=HTTP_TIMEOUT_SECONDS) as response:
+        return json.load(response)
+
+
+barrier = request_json(
+    "DELETE",
+    "/indexes/documents/documents/__town_council_recovery_barrier__",
+)
+barrier_task_uid = int(barrier["taskUid"])
+deadline = time.monotonic() + TASK_TIMEOUT_SECONDS
+while time.monotonic() < deadline:
+    pending = False
+    for task_uid in range(FIRST_REINDEX_TASK_UID, barrier_task_uid + 1):
+        task = request_json("GET", f"/tasks/{task_uid}")
+        if task_allows_rollback_reindex(task):
+            continue
+        if task["status"] in {"failed", "canceled"}:
+            raise RuntimeError(json.dumps(task, sort_keys=True))
+        pending = True
+    if not pending:
+        break
+    time.sleep(TASK_POLL_SECONDS)
+else:
+    raise TimeoutError("Meilisearch rollback reindex exceeded recovery timeout")
+
+stats = request_json("GET", "/indexes/documents/stats")
+actual_search_records = int(stats["numberOfDocuments"])
+if actual_search_records != EXPECTED_SEARCH_RECORDS:
+    raise RuntimeError(
+        "Meilisearch rollback count mismatch "
+        f"expected={EXPECTED_SEARCH_RECORDS} actual={actual_search_records}"
+    )
+print("Meilisearch rollback reindex completed")
+PY
+
+# Required when SEMANTIC_BACKEND=faiss; pgvector state is inside the backup.
+docker compose "${ROLLBACK_COMPOSE_FILES[@]}" run \
+  --rm --no-deps semantic python ../pipeline/reindex_semantic.py
+STARTUP_PURGE_DERIVED=false docker compose "${ROLLBACK_COMPOSE_FILES[@]}" up -d
+```
+
+Do not run `db_migrate.py` from the failed release: it would upgrade the
+restored backup to the schema being rolled back. Restart only the previous
+application release after every recovery check passes.
 
 #### Historical timezone migration v10
 
@@ -215,9 +611,7 @@ before running these commands; `docker compose stop` cannot quiesce them.
 ```bash
 docker compose -f docker-compose.yml -f docker-compose.dev.yml stop
 docker compose -f docker-compose.yml -f docker-compose.dev.yml up -d postgres
-docker compose exec -T postgres pg_dump \
-  -U town_council -d town_council_db -Fc > "$BACKUP_PATH"
-docker compose exec -T postgres pg_restore --list < "$BACKUP_PATH" >/dev/null
+bash ./scripts/backup_db.sh "$BACKUP_PATH"
 docker compose -f docker-compose.yml -f docker-compose.dev.yml run \
   --rm --no-deps pipeline python db_migrate.py
 docker compose exec -T postgres psql -U town_council -d town_council_db \
@@ -232,25 +626,13 @@ Every migrated timestamp must report `timestamp with time zone`. Generated
 timestamps have a `now()` default; lifecycle-attempt timestamps intentionally
 have no default so null continues to mean not attempted.
 
-Rollback uses the verified preflight backup. Keep all writers stopped while
-restoring:
-
-```bash
-docker compose -f docker-compose.yml -f docker-compose.dev.yml stop
-docker compose -f docker-compose.yml -f docker-compose.dev.yml up -d postgres
-docker compose exec -T postgres pg_restore \
-  -U town_council -d town_council_db --clean --if-exists --exit-on-error \
-  < "$BACKUP_PATH"
-docker compose exec -T postgres psql -U town_council -d town_council_db \
-  -c "select table_name, column_name, data_type, column_default
-      from information_schema.columns
-      where table_schema = 'public' and data_type like 'timestamp%'
-      order by table_name, ordinal_position"
-docker compose -f docker-compose.yml -f docker-compose.dev.yml up -d --build
-```
+Rollback uses the failed-schema-release procedure above and the verified
+preflight backup. Keep all writers stopped, select the previous application
+release first, restore the backup, then repeat the timestamp-column query
+before restarting that previous release.
 
 Do not reverse-convert a database that accepted post-migration writes. Restore
-the backup, then revert the application release.
+the backup through the rollback release instead.
 
 Why the explicit model bootstrap exists:
 - local model downloads no longer happen during Docker image builds

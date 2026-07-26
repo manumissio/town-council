@@ -12,21 +12,34 @@ Usage (Docker):
 
 import argparse
 
-from pipeline.indexer import index_documents, reindex_catalog
+from pipeline.indexer import (
+    index_documents,
+    reindex_catalog,
+    replace_documents_index,
+)
 
 
 def main() -> int:
     parser = argparse.ArgumentParser(description="Reindex Meilisearch from Postgres only.")
-    parser.add_argument(
+    reindex_scope = parser.add_mutually_exclusive_group()
+    reindex_scope.add_argument(
         "--catalog-id",
         type=int,
         default=None,
         help="If provided, reindex only this one catalog. Otherwise, reindex all documents and agenda items.",
     )
+    reindex_scope.add_argument(
+        "--replace-all",
+        action="store_true",
+        help="Delete the existing search corpus before rebuilding it from Postgres.",
+    )
     args = parser.parse_args()
 
     if args.catalog_id is not None:
         reindex_catalog(args.catalog_id)
+        return 0
+    if args.replace_all:
+        replace_documents_index()
         return 0
 
     index_documents()
@@ -35,4 +48,3 @@ def main() -> int:
 
 if __name__ == "__main__":
     raise SystemExit(main())
-

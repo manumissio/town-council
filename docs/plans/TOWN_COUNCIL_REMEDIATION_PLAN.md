@@ -1,6 +1,6 @@
 # Town Council Remediation Plan (Codex Multi-Agent)
 
-version: 3.60
+version: 3.62
 generated: 2026-07-26
 source: Four-pass external code review (security, architecture, smells, process)
 source_artifact: [Town Council architecture review](../reviews/architecture-review-2026-07-19.html)
@@ -10,6 +10,15 @@ remains in force; where this plan is stricter, this plan wins for these tasks.
 
 ## Changelog
 
+- **v3.62:** Expands active T-PLAT-3 ownership to the Redis service definition
+  and its Compose contract test. Recovery must clear persistent Redis database
+  0 after writers stop and before workers restart, using the service's existing
+  credential inside the container rather than expanding it in the host shell.
+- **v3.61:** Activates T-PLAT-3 with an implementation-ready backup and
+  recovery plan. Expands ownership for tests-first shell contracts and the
+  existing full-index maintenance path so a PostgreSQL restore cannot leave
+  Meilisearch or FAISS newer than the restored system of record. T-PLAT-3 and
+  T-DD-1B must serialize their shared operations-runbook edits.
 - **v3.60:** Removes the partial source-line semantic analyzer added during
   T-GOV-3A review. Arbitrary Python data flow cannot be soundly enforced by a
   small repository test; Ruff C901 and registered dependency rules remain the
@@ -293,7 +302,8 @@ remains in force; where this plan is stricter, this plan wins for these tasks.
 |---|---|
 | **Complete** | T-CI-0, T-CI-1, T-CI-1A, T-CI-2, T-CI-2A, T-CI-3, T-CI-4, T-CI-5, T-SEC-1, T-SEC-2, T-SEC-3, T-SEC-3C, T-SEC-4, T-SEC-4A, T-SEC-5, T-SEC-6, T-TIME-1, T-TIME-2, T-TIME-3, T-CRAWL-1, T-CRAWL-2, T-PLAT-1, T-PLAT-1A, T-PLAT-2A, T-PLAT-2B, T-GOV-1, T-GOV-3A, T-GOV-4, T-GOV-5, T-DA-1, T-DB-1A, T-DB-1, T-DB-1B, T-DD-1A |
 | **Partially landed; acceptance incomplete** | T-GOV-3, T-GOV-6 |
-| **Pending** | T-DC-1, T-DD-1B, T-DE-1, T-PLAT-2, T-PLAT-3, T-PLAT-4, T-GOV-2, T-GOV-3B |
+| **Active** | T-PLAT-3 |
+| **Pending** | T-DC-1, T-DD-1B, T-DE-1, T-PLAT-2, T-PLAT-4, T-GOV-2, T-GOV-3B |
 
 ---
 
@@ -1378,12 +1388,34 @@ files (GED-5 grant).
 
 ### T-PLAT-3: Backup/restore runbook
 - priority: P1
-- files_owned: docs/OPERATIONS.md (new section), scripts/backup_db.sh (new)
-- do: pg_dump-based backup script (custom format), restore procedure,
-  cadence recommendation, and an explicit note on the STARTUP_PURGE
-  interaction (purge is derived-only; backups still cover system of record).
-- accept: Documented, script exits 0 against dev stack.
-- verify: Manual run against dev compose.
+- status: active
+- implementation_plan: `docs/plans/T_PLAT_3_BACKUP_RESTORE_PLAN.md`
+- must_not_run_concurrently_with: T-DD-1B
+- files_owned: `docs/plans/T_PLAT_3_BACKUP_RESTORE_PLAN.md`,
+  `docs/plans/TOWN_COUNCIL_REMEDIATION_PLAN.md`,
+  `scripts/backup_db.sh`, `tests/test_backup_db_contract.py`,
+  `docs/OPERATIONS.md`, `pipeline/indexer.py`,
+  `pipeline/indexer_meilisearch.py`, `pipeline/reindex_only.py`,
+  `tests/test_indexer_logic.py`, `docker-compose.yml`,
+  `tests/test_docker_build_contracts.py`
+- do: Add one private, atomic, custom-format `pg_dump` command; document
+  cadence and fresh-database replacement restore; make the
+  `STARTUP_PURGE_DERIVED` interaction explicit; and add a tested full-index
+  replacement mode so restored PostgreSQL, Meilisearch, and FAISS converge
+  before traffic resumes.
+- accept: The script exits 0 against the dev stack, validates before
+  publication, never overwrites a destination, and leaves no partial archive.
+  A disposable database restore proves archive usability. Recovery guidance
+  keeps writers stopped, recreates the database from `template0`, migrates and
+  verifies it, clears persistent Redis database 0, rebuilds external search
+  state, and restarts with startup purge disabled.
+- forbidden: Automatic scheduling or restore; embedded credentials; a default
+  archive destination; Docker fake seams; runtime-default, schema, migration,
+  or search-query behavior changes; edits outside `files_owned`.
+- verify: Follow the Full T-PLAT-3 plan, including tests-first evidence, shell
+  syntax, Ruff, Mypy, focused backup/indexer contracts, docs links, complete
+  suite, real dev-stack backup, disposable restore drill, independent review,
+  and PR CI.
 
 ### T-PLAT-4: cache.py right-sizing
 - priority: P3
