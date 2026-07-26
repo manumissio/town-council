@@ -3,12 +3,18 @@ from typing import Any
 import httpx
 from fastapi import HTTPException
 
-from api.app_setup import SEMANTIC_SERVICE_URL
 from api.search.support_core import (
     SEMANTIC_HEALTHCHECK_TIMEOUT_SECONDS,
     SEMANTIC_SEARCH_TIMEOUT_SECONDS,
     SEMANTIC_SERVICE_ERROR_DETAIL,
 )
+from pipeline.config_env import env_raw
+
+
+SEMANTIC_SERVICE_URL = env_raw(
+    "SEMANTIC_SERVICE_URL",
+    "http://semantic:8010",
+).rstrip("/")
 
 
 def _semantic_service_healthcheck() -> dict[str, Any]:

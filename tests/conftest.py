@@ -56,7 +56,6 @@ def mock_db_connect(monkeypatch, shared_engine):
         "pipeline.promote_stage.db_connect",
         "pipeline.downloader.db_connect",
         "api.app_setup.db_connect",
-        "api.main.db_connect"
     ]
     for target in targets:
         try:

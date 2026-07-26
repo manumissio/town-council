@@ -1,6 +1,5 @@
 import hmac
 import logging
-import os
 from collections.abc import AsyncIterator, Iterator
 from contextlib import asynccontextmanager
 from ipaddress import ip_address
@@ -28,7 +27,6 @@ HEADER_UNSAFE_API_AUTH_KEY_MESSAGE = (
     "API_AUTH_KEY must contain printable ASCII characters without leading or trailing whitespace."
 )
 DATABASE_UNAVAILABLE_DETAIL = "Database service is unavailable"
-SEMANTIC_SERVICE_URL = os.getenv("SEMANTIC_SERVICE_URL", "http://semantic:8010").rstrip("/")
 API_KEY_HEADER = "x-api-key"
 FORWARDED_CLIENT_HEADER = "x-forwarded-for"
 
@@ -110,20 +108,6 @@ async def verify_api_key(request: Request, x_api_key: str = Header(None)) -> Non
         raise HTTPException(status_code=401, detail="Invalid or missing API Key")
 
 
-def _semantic_enabled_from_facade() -> bool:
-    try:
-        from api import main as api_main
-    except ImportError:
-        return bool(SEMANTIC_ENABLED)
-    return bool(getattr(api_main, "SEMANTIC_ENABLED", SEMANTIC_ENABLED))
-
-
-def _semantic_healthcheck_from_facade() -> dict:
-    from api import main as api_main
-
-    return api_main._semantic_service_healthcheck()
-
-
 @asynccontextmanager
 async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     _ = app
@@ -142,7 +126,7 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         raise RuntimeError(HEADER_UNSAFE_API_AUTH_KEY_MESSAGE)
     if api_auth_key == DEFAULT_API_AUTH_KEY:
         logger.critical("SECURITY WARNING: You are using the default API Key. Please set API_AUTH_KEY in production.")
-    from api.search import support_core
+    from api.search import semantic_support, support_core
 
     if support_core.MEILI_MASTER_KEY == DEVELOPMENT_MEILI_SEARCH_KEY:
         logger.warning(MEILI_SEARCH_KEY_FALLBACK_WARNING)
@@ -152,10 +136,10 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     # Startup purge is lock-protected. If another service already purged, we skip.
     purge_result = run_startup_purge_if_enabled()
     logger.info("startup_purge_result=%s", purge_result)
-    if _semantic_enabled_from_facade():
+    if SEMANTIC_ENABLED:
         try:
             # The API image only verifies the internal semantic service boundary.
-            health = _semantic_healthcheck_from_facade()
+            health = semantic_support._semantic_service_healthcheck()
             logger.info("semantic_backend_health=%s", health)
         except RuntimeError as exc:
             logger.critical("Semantic service misconfiguration: %s", exc)

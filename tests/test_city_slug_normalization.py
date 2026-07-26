@@ -1,4 +1,4 @@
-from api.main import normalize_city_filter
+from api.search.query_builder import normalize_city_filter
 
 
 def test_city_slug_normalization_defaults_to_ca_prefix():
