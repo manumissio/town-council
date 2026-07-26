@@ -1,6 +1,6 @@
 # Town Council Remediation Plan (Codex Multi-Agent)
 
-version: 3.62
+version: 3.63
 generated: 2026-07-26
 source: Four-pass external code review (security, architecture, smells, process)
 source_artifact: [Town Council architecture review](../reviews/architecture-review-2026-07-19.html)
@@ -10,6 +10,12 @@ remains in force; where this plan is stricter, this plan wins for these tasks.
 
 ## Changelog
 
+- **v3.63:** Marks T-PLAT-3 complete after PR #155 merged with verified backup,
+  disposable restore, rollback, search rebuild, and Redis recovery contracts.
+  Activates T-DD-1B with exact ownership for a tests-first extraction of only
+  the identical selected-event reference and deletion policy. Stage behavior,
+  temporal selection, validation, command defaults, transaction ownership, and
+  reports remain command-local.
 - **v3.62:** Expands active T-PLAT-3 ownership to the Redis service definition
   and its Compose contract test. Recovery must clear persistent Redis database
   0 after writers stop and before workers restart, using the service's existing
@@ -300,10 +306,10 @@ remains in force; where this plan is stricter, this plan wins for these tasks.
 
 | State | Tasks |
 |---|---|
-| **Complete** | T-CI-0, T-CI-1, T-CI-1A, T-CI-2, T-CI-2A, T-CI-3, T-CI-4, T-CI-5, T-SEC-1, T-SEC-2, T-SEC-3, T-SEC-3C, T-SEC-4, T-SEC-4A, T-SEC-5, T-SEC-6, T-TIME-1, T-TIME-2, T-TIME-3, T-CRAWL-1, T-CRAWL-2, T-PLAT-1, T-PLAT-1A, T-PLAT-2A, T-PLAT-2B, T-GOV-1, T-GOV-3A, T-GOV-4, T-GOV-5, T-DA-1, T-DB-1A, T-DB-1, T-DB-1B, T-DD-1A |
+| **Complete** | T-CI-0, T-CI-1, T-CI-1A, T-CI-2, T-CI-2A, T-CI-3, T-CI-4, T-CI-5, T-SEC-1, T-SEC-2, T-SEC-3, T-SEC-3C, T-SEC-4, T-SEC-4A, T-SEC-5, T-SEC-6, T-TIME-1, T-TIME-2, T-TIME-3, T-CRAWL-1, T-CRAWL-2, T-PLAT-1, T-PLAT-1A, T-PLAT-2A, T-PLAT-2B, T-PLAT-3, T-GOV-1, T-GOV-3A, T-GOV-4, T-GOV-5, T-DA-1, T-DB-1A, T-DB-1, T-DB-1B, T-DD-1A |
 | **Partially landed; acceptance incomplete** | T-GOV-3, T-GOV-6 |
-| **Active** | T-PLAT-3 |
-| **Pending** | T-DC-1, T-DD-1B, T-DE-1, T-PLAT-2, T-PLAT-4, T-GOV-2, T-GOV-3B |
+| **Active** | T-DD-1B |
+| **Pending** | T-DC-1, T-DE-1, T-PLAT-2, T-PLAT-4, T-GOV-2, T-GOV-3B |
 
 ---
 
@@ -1172,18 +1178,30 @@ files (GED-5 grant).
 
 ### T-DD-1B: Evaluate city-state mutation consolidation
 - priority: P2
-- status: pending
+- status: active
 - depends_on: T-DD-1A (satisfied by PR #153)
-- files_owned: `scripts/flush_city_pipeline_state.py`,
-  `scripts/reset_city_verification_state.py`, and focused tests to be named in
-  a separate Full plan
+- implementation_plan: `docs/plans/T_DD_1B_CITY_STATE_MUTATION_PLAN.md`
+- files_owned: the implementation plan and ledger;
+  `docs/OPERATIONS.md` (pending-city rewind deletion list only);
+  `scripts/city_state_mutation.py` (new);
+  `scripts/flush_city_pipeline_state.py`;
+  `scripts/reset_city_verification_state.py`;
+  `tests/test_city_state_mutation_cli.py` (new);
+  `tests/test_flush_city_pipeline_state.py`;
+  `tests/test_reset_city_verification_baseline.py` (new);
+  `tests/test_reset_city_verification_state.py`
 - do: Characterize the exact shared event-graph deletion invariant before
-  extracting code. Preserve each command's distinct stage-row behavior,
-  defaults, temporal selection, output, and dry-run contract.
+  extracting code. Move only selected-event ID accounting, shared-catalog
+  protection, and live event-graph deletion into one implementation owner.
+  Preserve each command's distinct stage-row behavior, defaults, temporal
+  selection, validation, output, commit ownership, and dry-run contract.
 - accept: Consolidate only proven identical mutation policy; do not force
-  shallow reuse when semantics differ.
-- verify: Separate tests-first Full plan, CLI parity, targeted tests, and the
-  complete suite.
+  shallow reuse when semantics differ. Both commands retain their CLI and
+  persisted-state behavior, and the shared module never imports either CLI or
+  commits the caller-owned transaction.
+- verify: Follow the Full T-DD-1B plan; CLI characterization, focused
+  persisted-state and onboarding contracts, Ruff, Mypy, docs links, coverage,
+  and the complete suite pass.
 
 ### T-DE-1: Shared provider retry/telemetry
 - priority: P2
@@ -1388,7 +1406,7 @@ files (GED-5 grant).
 
 ### T-PLAT-3: Backup/restore runbook
 - priority: P1
-- status: active
+- status: complete and verified 2026-07-26 (PR #155)
 - implementation_plan: `docs/plans/T_PLAT_3_BACKUP_RESTORE_PLAN.md`
 - must_not_run_concurrently_with: T-DD-1B
 - files_owned: `docs/plans/T_PLAT_3_BACKUP_RESTORE_PLAN.md`,
