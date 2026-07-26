@@ -1,6 +1,6 @@
 # Town Council Remediation Plan (Codex Multi-Agent)
 
-version: 3.58
+version: 3.59
 generated: 2026-07-26
 source: Four-pass external code review (security, architecture, smells, process)
 source_artifact: [Town Council architecture review](../reviews/architecture-review-2026-07-19.html)
@@ -10,6 +10,10 @@ remains in force; where this plan is stricter, this plan wins for these tasks.
 
 ## Changelog
 
+- **v3.59:** Closes the T-GOV-3A review gap by removing the remaining
+  search-support source-line cap and making the retirement guardrail scan
+  every tracked Python test module. Expands ownership to the affected test
+  file.
 - **v3.58:** Completes T-GOV-3A. The repository no longer enforces 34
   per-family 300-line inventories; one explicit registry now protects the same
   24 already-clean helper-to-facade relationships. Umbrella T-GOV-3 remains
@@ -1449,11 +1453,13 @@ files (GED-5 grant).
 - files_owned: `docs/plans/T_GOV_3A_GUARDRAIL_INVENTORY_PLAN.md`,
   `docs/plans/TOWN_COUNCIL_REMEDIATION_PLAN.md`,
   `docs/ENGINEERING_GUARDRAILS.md`,
-  `tests/test_repository_guardrails.py`
-- do: Delete all 34 `*_CLEANUP_MODULES` inventories and their 34 300-line
+  `tests/test_repository_guardrails.py`,
+  `tests/test_search_support_facade.py`
+- do: Delete all 34 `*_CLEANUP_MODULES` inventories and all 35 300-line
   tests. Consolidate the 11 standalone dependency-direction tests into one
   registry and one enforcement test covering the same 24 already-clean helper
-  paths. Do not infer new facade relationships or capture pending T-DC/T-DE
+  paths. Scan every tracked Python test module so line caps cannot return
+  elsewhere. Do not infer new facade relationships or capture pending T-DC/T-DE
   debt.
 - forbidden: A replacement file-size threshold, Ruff policy changes,
   sync-global or interpolated-SQL enforcement, T-GOV-3 completion, or

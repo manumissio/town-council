@@ -585,22 +585,36 @@ def _cleanup_inventory_names(node: ast.stmt) -> list[str]:
     ]
 
 
+def _is_source_text_splitlines(node: ast.AST) -> bool:
+    return (
+        isinstance(node, ast.Call)
+        and isinstance(node.func, ast.Attribute)
+        and node.func.attr == "splitlines"
+        and any(
+            isinstance(descendant, ast.Call)
+            and isinstance(descendant.func, ast.Attribute)
+            and descendant.func.attr == "read_text"
+            for descendant in ast.walk(node.func.value)
+        )
+    )
+
+
 def _is_source_line_count(node: ast.AST) -> bool:
     return (
         isinstance(node, ast.Call)
         and isinstance(node.func, ast.Name)
         and node.func.id == "len"
         and any(
-            isinstance(descendant, ast.Call)
-            and isinstance(descendant.func, ast.Attribute)
-            and descendant.func.attr == "splitlines"
+            _is_source_text_splitlines(descendant)
             for argument in node.args
             for descendant in ast.walk(argument)
         )
     )
 
 
-def _assigned_source_line_count_names(function_node: ast.FunctionDef) -> set[str]:
+def _assigned_source_line_count_names(
+    function_node: ast.FunctionDef | ast.AsyncFunctionDef,
+) -> set[str]:
     assigned_names: set[str] = set()
     for node in ast.walk(function_node):
         if isinstance(node, ast.Assign) and _is_source_line_count(node.value):
@@ -616,7 +630,10 @@ def _assigned_source_line_count_names(function_node: ast.FunctionDef) -> set[str
 
 
 def _test_enforces_source_line_limit(node: ast.stmt) -> bool:
-    if not isinstance(node, ast.FunctionDef) or not node.name.startswith("test_"):
+    if (
+        not isinstance(node, ast.FunctionDef | ast.AsyncFunctionDef)
+        or not node.name.startswith("test_")
+    ):
         return False
     line_count_names = _assigned_source_line_count_names(node)
     return any(
@@ -652,8 +669,8 @@ def _file_length_policy_nodes(module_path: Path) -> tuple[list[str], list[str]]:
     ]
     line_limit_test_names = [
         node.name
-        for node in tree.body
-        if isinstance(node, ast.FunctionDef)
+        for node in ast.walk(tree)
+        if isinstance(node, ast.FunctionDef | ast.AsyncFunctionDef)
         and _test_enforces_source_line_limit(node)
     ]
     return sorted(inventory_names), sorted(line_limit_test_names)
@@ -1621,13 +1638,23 @@ def test_broad_exception_handlers_stay_on_approved_boundaries_and_take_action():
 
 
 def test_structural_guardrails_do_not_restore_file_length_inventories():
-    inventory_names, line_limit_test_names = _file_length_policy_nodes(
-        Path(__file__)
-    )
+    module_inventories: list[str] = []
+    line_limit_tests: list[str] = []
+    for test_path in _python_module_paths("tests"):
+        relative_path = test_path.relative_to(ROOT)
+        inventory_names, line_limit_test_names = _file_length_policy_nodes(test_path)
+        module_inventories.extend(
+            f"{relative_path}:{inventory_name}"
+            for inventory_name in inventory_names
+        )
+        line_limit_tests.extend(
+            f"{relative_path}:{test_name}"
+            for test_name in line_limit_test_names
+        )
 
     assert {
-        "module_inventories": inventory_names,
-        "line_limit_tests": line_limit_test_names,
+        "module_inventories": module_inventories,
+        "line_limit_tests": line_limit_tests,
     } == {
         "module_inventories": [],
         "line_limit_tests": [],
@@ -1646,17 +1673,29 @@ def test_file_length_policy_scan_detects_assigned_limits_without_false_positives
         "def test_assigned_source_policy():\n"
         "    source_line_count = len(Path('example.py').read_text().splitlines())\n"
         "    assert source_line_count <= MAX_SOURCE_LINES\n"
+        "class TestSourcePolicy:\n"
+        "    def test_class_source_policy(self):\n"
+        "        assert len(Path('example.py').read_text().splitlines()) <= MAX_SOURCE_LINES\n"
+        "async def test_async_source_policy():\n"
+        "    assert len(Path('example.py').read_text().splitlines()) <= MAX_SOURCE_LINES\n"
         "def test_source_read():\n"
         "    source_lines = Path('example.py').read_text().splitlines()\n"
         "    assert source_lines\n"
         "def test_source_content():\n"
-        "    assert Path('example.py').read_text().splitlines() == ['heading', 'body']\n",
+        "    assert Path('example.py').read_text().splitlines() == ['heading', 'body']\n"
+        "def test_output_lines(captured):\n"
+        "    assert len(captured.out.splitlines()) == EXPECTED_OUTPUT_LINES\n",
         encoding="utf-8",
     )
 
     assert _file_length_policy_nodes(policy_module) == (
         ["RENAMED_CLEANUP_MODULES"],
-        ["test_assigned_source_policy", "test_source_policy"],
+        [
+            "test_assigned_source_policy",
+            "test_async_source_policy",
+            "test_class_source_policy",
+            "test_source_policy",
+        ],
     )
 
 

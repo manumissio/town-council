@@ -10,7 +10,8 @@
 but `tests/test_repository_guardrails.py` still carries 34 module inventories
 and 34 tests enforcing a 300-line proxy. Those checks preserve the mechanical
 facade-plus-helper splits the architecture review identifies as harmful.
-T-GOV-3A removes that obsolete policy and consolidates existing
+One separate search-support test enforces the same proxy. T-GOV-3A removes
+that obsolete policy across the test suite and consolidates existing
 helper-to-facade dependency checks without prematurely enforcing the sync and
 SQL smell rules reserved for T-GOV-3B.
 
@@ -38,6 +39,7 @@ T-GOV-3A owns exactly:
 - `docs/plans/TOWN_COUNCIL_REMEDIATION_PLAN.md`
 - `docs/ENGINEERING_GUARDRAILS.md`
 - `tests/test_repository_guardrails.py`
+- `tests/test_search_support_facade.py`
 
 The prerequisite is satisfied: T-DA-1, T-DB-1A, T-DB-1, and T-DB-1B are
 merged Phase 2 tasks. T-PLAT-1 is also merged, so its concurrency exclusion no
@@ -52,16 +54,17 @@ open for T-GOV-2 and City Coverage Expansion. G2, G3, and G5 remain satisfied.
 
 1. Fast-forward `master` and create
    `codex/t-gov-3a-guardrail-inventory-cleanup`.
-2. Add this Full plan and update the remediation ledger to version 3.57:
-   mark T-DD-1A complete, split T-GOV-3A from T-GOV-3B, record exact
-   ownership, and preserve task ordering.
-3. Add a failing policy test before deleting old checks. It parses the
-   guardrail test module and rejects module-level names ending
+2. Add this Full plan and update the remediation ledger: mark T-DD-1A
+   complete, split T-GOV-3A from T-GOV-3B, record exact ownership, and
+   preserve task ordering.
+3. Add a failing policy test before deleting old checks. It parses every
+   tracked Python test module and rejects module-level names ending
    `_CLEANUP_MODULES` plus test functions whose AST compares source
    `splitlines()` counts with numeric limits. This detects the retired
-   behavior even if a test is renamed.
-4. Capture the expected red result: 34 obsolete constants and 34 obsolete
-   tests.
+   behavior even if a test is renamed, nested in a class, or asynchronous.
+4. Capture the expected red results: the initial guardrail module scan finds
+   34 obsolete constants and 34 obsolete tests; the repository-wide follow-up
+   finds the remaining search-support line cap.
 5. Replace the 11 separate helper-to-facade policy tests covering 24 helper
    paths with one
    `HELPER_FACADE_IMPORT_RULES` registry and one enforcement test. Each row
@@ -75,7 +78,7 @@ open for T-GOV-2 and City Coverage Expansion. G2, G3, and G5 remain satisfied.
    `test_summary_generation_uses_direct_operation_boundaries`,
    `test_summary_backfill_runner_is_the_direct_operation_boundary`, and
    `test_maintenance_summary_and_staged_hydration_own_runtime_dependencies`.
-7. Delete all 34 file-length constants and 34 file-length tests. Do not
+7. Delete all 34 file-length constants and all 35 file-length tests. Do not
    replace them with another size threshold or inventory.
 8. Update the guardrail policy to state that per-file line-count assertions
    are retired. Retain `[transition: T-GOV-3]` because T-GOV-3B still owns
@@ -150,14 +153,14 @@ or Ruff exception is added.
   added.
 - C1: all superseded size inventories and separate dependency tests are
   deleted.
-- D1: this is an intentional policy change from 34 inventories enforcing a
-  300-line limit to zero line caps, while retaining Ruff C901 and registered
-  dependency direction. The remaining deficit is T-GOV-3B enforcement for
-  sync globals and interpolated SQL.
+- D1: this is an intentional policy change from 34 inventories and 35 tests
+  enforcing a 300-line limit to zero line caps, while retaining Ruff C901
+  and registered dependency direction. The remaining deficit is T-GOV-3B
+  enforcement for sync globals and interpolated SQL.
 - D3: the legacy constant-suffix check plus semantic AST detection are
   accepted because preventing the retired repository policy from returning
   is the observable governance contract.
-- E1/E2: only four owned files change; no unrelated formatting.
+- E1/E2: only five owned files change; no unrelated formatting.
 - A2-A4, B2-B3, C2, D2, E3, F2, and H2-H4: no violations planned.
 
 **o) Ratchets.** Ruff selectors, BLE001 boundaries, C901 maximum, formatter
@@ -165,12 +168,12 @@ scope, Mypy scope, coverage floor, and CI workflows remain unchanged.
 T-GOV-3A removes 34 obsolete file-length inventories and adds no
 new allowlist.
 
-**p) Dead code and duplication.** Delete 34 constants, 34 size tests, and 11
-duplicated dependency tests. The current gross removable inventory is 692
-lines: 301 constant lines covering 233 paths, 272 size-test lines, and 119
-dependency-test lines. Reuse one existing import analyzer. The guardrail test
-file must shrink materially; report exact pre/post counts from the final diff
-instead of predicting the whole-PR net delta.
+**p) Dead code and duplication.** Delete 34 constants, 35 size tests, and 11
+duplicated dependency tests. The guardrail module's gross removable inventory
+is 692 lines: 301 constant lines covering 233 paths, 272 size-test lines, and
+119 dependency-test lines. The additional search-support test contributes 13
+lines. Reuse one existing import analyzer. Report exact pre/post counts from
+the final diff instead of predicting the whole-PR net delta.
 
 ## 5. Testing
 
@@ -187,18 +190,21 @@ instead of predicting the whole-PR net delta.
 7. Unrelated direct-operation boundary checks are accidentally removed.
 8. The T-GOV-3 transition marker is removed before T-GOV-3B enforcement.
 9. Ledger state continues to report merged T-DD-1A as active.
+10. A class-based test reintroduces a line cap.
+11. An async test reintroduces a line cap.
+12. An untracked local test file changes policy results relative to CI.
 
 **r) Tests.**
 
 | Test | Scenarios |
 |---|---|
-| New `test_structural_guardrails_do_not_restore_file_length_inventories` | 1, 2 |
-| New detector characterization for direct/assigned limits and non-policy reads | 1, 2 |
+| New `test_structural_guardrails_do_not_restore_file_length_inventories` | 1, 2, 12 |
+| New detector characterization for direct/assigned/class/async limits and non-policy reads | 1, 2, 10, 11 |
 | Consolidated `test_registered_helpers_do_not_import_facades` | 3, 5 |
 | Extended `test_facade_import_guardrail_detects_relative_imports` | 4, 6 |
 | Existing direct-operation boundary tests | 7 |
 | New `test_t_gov_3a_retires_line_limits_without_closing_t_gov_3` | 8, 9 |
-| Repository guardrail suite | 1-9 |
+| Repository guardrail suite | 1-12 |
 | Complete Python suite | Regression check |
 
 The new policy test is written and run red before deleting any existing
@@ -229,8 +235,10 @@ PYTHONPATH=. .venv/bin/pytest -q \
   tests/test_repository_guardrails.py::test_structural_guardrails_do_not_restore_file_length_inventories
 ```
 
-Expected: one failure listing exactly 34 `*_CLEANUP_MODULES` constants and 34
-tests containing semantic source-line limits.
+Expected initial result: one failure listing exactly 34
+`*_CLEANUP_MODULES` constants and 34 semantic source-line-limit tests.
+Expected repository-wide follow-up result: the remaining
+`test_search_support_modules_stay_under_size_budget` test.
 
 Final verification:
 
@@ -244,10 +252,11 @@ git diff --check
 git status --short
 ```
 
-Delivery uses two commits:
+Delivery uses three commits:
 
 1. `docs(remediation): authorize T-GOV-3A guardrail cleanup`
 2. `refactor(guardrails): replace file-length inventories`
+3. `fix(guardrails): scan all tests for source line limits`
 
 Push the branch and open one PR titled
 `T-GOV-3A: Replace file-length inventories with dependency rules`. Browser
@@ -261,7 +270,7 @@ knowingly restores the obsolete 300-line proxy policy.
 
 **w) Docs synchronization.**
 
-- Remediation plan: v3.57 changelog, T-DD-1A completion, T-GOV-3A/T-GOV-3B
+- Remediation plan: changelog, T-DD-1A completion, T-GOV-3A/T-GOV-3B
   split, ownership, acceptance, and execution order. The task table must show
   T-GOV-3A complete after delivery, T-GOV-3B pending, and umbrella T-GOV-3
   partially landed; umbrella T-GOV-3 never enters the completed row.
@@ -278,7 +287,7 @@ knowingly restores the obsolete 300-line proxy policy.
 **x) Diff scan.** Re-run A-F/H. Reject a replacement file-size threshold,
 duplicate dependency scanner, new structural allowlist, premature sync/SQL
 checks, transition-marker removal, Ruff-policy edit, unrelated formatting, or
-any path outside the four-file ownership set.
+any path outside the five-file ownership set.
 
 **y) Evidence required.** Report the tests-first red result, Ruff, Mypy,
 repository guardrail, docs-link, and complete-suite outcomes; exact test
@@ -287,9 +296,9 @@ PR URL; unresolved-thread count; and final CI state. Mark any unrun item
 `NOT VERIFIED`.
 
 **z) Deviations.** Authorized changes are the T-GOV-3A/T-GOV-3B split,
-T-DD-1A completion update, removal of 34 constants and 34 tests, and
+T-DD-1A completion update, removal of 34 constants and 35 tests, and
 consolidation of 11 dependency tests covering 24 helper paths. Any inferred
 facade scan that captures pending T-DC/T-DE debt, added runtime file, new lint
 rule, allowlist widening, removed direct-operation contract, premature
-T-GOV-3 completion, skipped subagent review, unresolved P1/P2, or unrun
-required check is a blocker.
+T-GOV-3 completion, skipped subagent review, unresolved P1/P2, path outside
+the five-file ownership set, or unrun required check is a blocker.
