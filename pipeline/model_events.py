@@ -1,9 +1,8 @@
 from __future__ import annotations
 
-import datetime
 import enum
 
-from sqlalchemy import Column, Date, DateTime, ForeignKey, Index, Integer, String
+from sqlalchemy import Column, Date, DateTime, ForeignKey, Index, Integer, String, func
 from sqlalchemy.orm import relationship
 
 from pipeline.model_base import Base
@@ -29,7 +28,7 @@ class DataIssue(Base):
     issue_type = Column(String(50), nullable=False)
     description = Column(String(500))
     status = Column(String(20), default="open")
-    created_at = Column(DateTime, default=datetime.datetime.utcnow)
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
 
     event = relationship("Event")
 
@@ -44,7 +43,7 @@ class UrlStage(Base):
     url = Column(String(500))
     url_hash = Column(String(64))
     category = Column(String(50))
-    created_at = Column(DateTime, default=datetime.datetime.now)
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
 
 
 class EventStage(Base):
@@ -54,7 +53,7 @@ class EventStage(Base):
     ocd_division_id = Column(String(255))
     organization_name = Column(String(255))
     name = Column(String(255))
-    scraped_datetime = Column(DateTime, default=datetime.datetime.now)
+    scraped_datetime = Column(DateTime(timezone=True), server_default=func.now())
     record_date = Column(Date)
     source = Column(String(500))
     source_url = Column(String(500))
@@ -70,7 +69,7 @@ class Event(Base):
     place_id = Column(Integer, ForeignKey("place.id"), nullable=False)
     organization_id = Column(Integer, ForeignKey("organization.id"), nullable=True, index=True)
     name = Column(String(255))
-    scraped_datetime = Column(DateTime, default=datetime.datetime.now)
+    scraped_datetime = Column(DateTime(timezone=True), server_default=func.now())
     record_date = Column(Date)
     source = Column(String(500))
     source_url = Column(String(500))
@@ -98,4 +97,4 @@ class UrlStageHist(Base):
     url = Column(String(500))
     url_hash = Column(String(64))
     category = Column(String(50))
-    created_at = Column(DateTime, default=datetime.datetime.now)
+    created_at = Column(DateTime(timezone=True), server_default=func.now())

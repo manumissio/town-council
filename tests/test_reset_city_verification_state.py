@@ -2,7 +2,8 @@ from __future__ import annotations
 
 import importlib.util
 import sys
-from datetime import UTC, date, datetime, timedelta
+from contextlib import contextmanager
+from datetime import UTC, date, datetime, timedelta, timezone
 from pathlib import Path
 
 import pytest
@@ -12,6 +13,7 @@ from sqlalchemy.orm import sessionmaker
 import pipeline.db_session as db_session_module
 from pipeline.models import Base, Catalog, Document, Event, EventStage, Place, UrlStage, UrlStageHist
 from scripts.reset_city_verification_state import capture_city_verification_baseline, reset_city_verification_state
+from scripts import reset_city_verification_state as reset_module
 
 
 def _load_rewind_module():
@@ -30,6 +32,42 @@ def _setup_city_graph(db_path: Path, monkeypatch) -> sessionmaker:
     engine = create_engine(f"sqlite:///{db_path}")
     Base.metadata.create_all(engine)
     return sessionmaker(bind=engine)
+
+
+def test_verification_reset_parser_returns_aware_utc():
+    parsed_at = reset_module._parse_iso_utc("2026-03-15T13:21:09Z")
+
+    assert parsed_at == datetime(2026, 3, 15, 13, 21, 9, tzinfo=UTC)
+    assert parsed_at.utcoffset() == timedelta(0)
+
+
+def test_verification_artifacts_normalize_offset_timestamps_to_utc(monkeypatch, mocker):
+    offset_timestamp = datetime(
+        2026,
+        7,
+        25,
+        5,
+        30,
+        tzinfo=timezone(timedelta(hours=-7)),
+    )
+    session = mocker.MagicMock()
+    session.query.return_value.filter.return_value.one.return_value = (
+        date(2026, 7, 25),
+        offset_timestamp,
+        1,
+    )
+
+    @contextmanager
+    def verification_session():
+        yield session
+
+    monkeypatch.setattr(reset_module, "db_session", verification_session)
+
+    baseline = reset_module.capture_city_verification_baseline("sunnyvale")
+    remaining = reset_module._remaining_anchor_summary(session, "sunnyvale")
+
+    assert baseline["baseline_max_scraped_datetime"] == "2026-07-25T12:30:00Z"
+    assert remaining["remaining_max_scraped_datetime"] == "2026-07-25T12:30:00Z"
 
 
 def test_reset_city_verification_state_dry_run_preserves_rows(tmp_path, monkeypatch):

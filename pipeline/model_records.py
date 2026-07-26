@@ -1,7 +1,5 @@
 from __future__ import annotations
 
-import datetime
-
 from sqlalchemy import (
     Boolean,
     CheckConstraint,
@@ -61,7 +59,7 @@ class SemanticEmbedding(Base):
     embedding: object = Column(VECTOR_COLUMN_TYPE(384), nullable=True)
     # Hash of the exact text payload used to create this vector.
     source_hash = Column(String(64), nullable=True)
-    updated_at = Column(DateTime, default=func.now(), onupdate=func.now())
+    updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
 
     catalog = relationship("Catalog", back_populates="semantic_embeddings")
     agenda_item = relationship("AgendaItem", back_populates="semantic_embeddings")
@@ -91,7 +89,7 @@ class Catalog(Base):
     # like summaries/topics are stale after re-extraction.
     content_hash = Column(String(64), nullable=True)
     extraction_status = Column(String(20), nullable=True)
-    extraction_attempted_at = Column(DateTime, nullable=True)
+    extraction_attempted_at = Column(DateTime(timezone=True), nullable=True)
     extraction_attempt_count = Column(Integer, nullable=True)
     extraction_error = Column(Text, nullable=True)
     summary = Column(Text)
@@ -114,17 +112,17 @@ class Catalog(Base):
     related_ids = Column(JSON, nullable=True)
     lineage_id = Column(String(64), nullable=True, index=True)
     lineage_confidence = Column(Float, nullable=True, index=True)
-    lineage_updated_at = Column(DateTime, nullable=True)
+    lineage_updated_at = Column(DateTime(timezone=True), nullable=True)
 
     # Agenda segmentation status prevents poison-pill reprocessing when a document genuinely yields 0 items.
     agenda_segmentation_status = Column(String(20), nullable=True)  # complete|empty|failed
-    agenda_segmentation_attempted_at = Column(DateTime, nullable=True)
+    agenda_segmentation_attempted_at = Column(DateTime(timezone=True), nullable=True)
     agenda_segmentation_item_count = Column(Integer, nullable=True)
     agenda_segmentation_error = Column(Text, nullable=True)
 
     processed = Column(Boolean, default=False)
-    created_at = Column(DateTime, default=func.now())
-    uploaded_at = Column(DateTime, default=datetime.datetime.now)
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+    uploaded_at = Column(DateTime(timezone=True), server_default=func.now())
 
     document = relationship("Document", back_populates="catalog", uselist=False)
     agenda_items = relationship("AgendaItem", back_populates="catalog", cascade="all, delete-orphan")
@@ -148,7 +146,7 @@ class Document(Base):
     url_hash = Column(String(64))
     media_type = Column(String(100))
     category = Column(String(50))
-    created_at = Column(DateTime, default=datetime.datetime.now)
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
     page_count = Column(Integer)
 
     place = relationship("Place")

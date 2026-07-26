@@ -22,6 +22,29 @@ ROOT = Path(__file__).resolve().parents[1]
 RUFF_CLEAN_EXIT = 0
 RUFF_VIOLATION_EXIT = 1
 GITHUB_EXPRESSION_OPEN = "${{"
+GENERATED_TIMESTAMP_COLUMNS = (
+    ("person", "created_at"),
+    ("data_issue", "created_at"),
+    ("url_stage", "created_at"),
+    ("event_stage", "scraped_datetime"),
+    ("event", "scraped_datetime"),
+    ("url_stage_hist", "created_at"),
+    ("semantic_embedding", "updated_at"),
+    ("catalog", "created_at"),
+    ("catalog", "uploaded_at"),
+    ("document", "created_at"),
+)
+LIFECYCLE_TIMESTAMP_COLUMNS = (
+    ("catalog", "extraction_attempted_at"),
+    ("catalog", "lineage_updated_at"),
+    ("catalog", "agenda_segmentation_attempted_at"),
+)
+RETIRED_DTZ007_PATHS = (
+    "pipeline/city_onboarding_metrics.py",
+    "pipeline/run_pipeline_onboarding.py",
+    "scripts/check_city_crawl_evidence.py",
+    "scripts/reset_city_verification_state.py",
+)
 COVERAGE_PROCESS_ENVIRONMENT_KEYS = (
     "COVERAGE_PROCESS_CONFIG",
     "COVERAGE_PROCESS_START",
@@ -839,6 +862,83 @@ def test_ruff_guardrail_config_keeps_scope_and_exceptions_narrow():
     assert "api/*.py" not in config_text
 
 
+def test_timestamp_models_require_aware_server_owned_utc_values():
+    from pipeline.models import Base
+
+    for table_name, column_name in GENERATED_TIMESTAMP_COLUMNS:
+        timestamp_column = Base.metadata.tables[table_name].c[column_name]
+
+        assert timestamp_column.type.timezone is True
+        assert timestamp_column.default is None
+        assert timestamp_column.server_default is not None
+
+    for table_name, column_name in LIFECYCLE_TIMESTAMP_COLUMNS:
+        timestamp_column = Base.metadata.tables[table_name].c[column_name]
+
+        assert timestamp_column.type.timezone is True
+        assert timestamp_column.nullable is True
+        assert timestamp_column.default is None
+        assert timestamp_column.server_default is None
+
+
+def test_timezone_migration_retires_only_the_owned_dtz007_exceptions():
+    ignore_entries = _ruff_per_file_ignore_entries()
+
+    assert all("DTZ007" not in ignore_entries.get(relative_path, set()) for relative_path in RETIRED_DTZ007_PATHS)
+
+
+def test_timezone_migration_uses_only_literal_direct_sqlalchemy_text_calls():
+    migration_source = (ROOT / "pipeline" / "migrate_v10.py").read_text(
+        encoding="utf-8"
+    )
+    migration_tree = ast.parse(migration_source)
+    sqlalchemy_imports = {
+        (alias.name, None, alias.asname)
+        for node in ast.walk(migration_tree)
+        if isinstance(node, ast.Import)
+        for alias in node.names
+        if alias.name == "sqlalchemy" or alias.name.startswith("sqlalchemy.")
+    } | {
+        (node.module, alias.name, alias.asname)
+        for node in ast.walk(migration_tree)
+        if isinstance(node, ast.ImportFrom)
+        and node.module
+        and (node.module == "sqlalchemy" or node.module.startswith("sqlalchemy."))
+        for alias in node.names
+    }
+    text_calls = [
+        node
+        for node in ast.walk(migration_tree)
+        if isinstance(node, ast.Call)
+        and isinstance(node.func, ast.Name)
+        and node.func.id == "text"
+    ]
+    text_name_references = [
+        node
+        for node in ast.walk(migration_tree)
+        if isinstance(node, ast.Name)
+        and isinstance(node.ctx, ast.Load)
+        and node.id == "text"
+    ]
+
+    assert sqlalchemy_imports == {
+        ("sqlalchemy", "DDL", None),
+        ("sqlalchemy", "text", None),
+        ("sqlalchemy.engine", "Connection", None),
+    }
+    assert text_calls
+    assert {id(reference) for reference in text_name_references} == {
+        id(text_call.func) for text_call in text_calls
+    }
+    assert all(
+        len(text_call.args) == 1
+        and not text_call.keywords
+        and isinstance(text_call.args[0], ast.Constant)
+        and isinstance(text_call.args[0].value, str)
+        for text_call in text_calls
+    )
+
+
 def test_ruff_entrypoints_use_config_owned_repository_scope():
     repository_command = "ruff check ."
     legacy_command = "ruff check api pipeline scripts tests"
@@ -988,11 +1088,28 @@ def test_python_guardrail_workflow_enforces_production_coverage():
     assert "continue-on-error:" not in fast_fail_step
     assert "if:" not in fast_fail_step
     assert "--cov" not in fast_fail_step
-
     full_suite_step_body = full_suite_tail.partition("\n      - name:")[0]
     assert "continue-on-error:" not in full_suite_step_body
     assert "if:" not in full_suite_step_body
 
+
+def test_python_guardrails_provide_mandatory_pgvector_postgres():
+    workflow_text = (ROOT / ".github" / "workflows" / "python-guardrails.yml").read_text(encoding="utf-8")
+    workflow_contract = yaml.load(workflow_text, Loader=yaml.BaseLoader)
+    guardrail_job = workflow_contract["jobs"]["python-guardrails"]
+    postgres_service = guardrail_job["services"]["postgres"]
+
+    assert guardrail_job["env"]["TEST_POSTGRES_DATABASE_URL"] == (
+        "postgresql://town_council:town_council_test@localhost:5432/town_council_test"
+    )
+    assert postgres_service["image"] == "pgvector/pgvector:pg15"
+    assert postgres_service["env"] == {
+        "POSTGRES_DB": "town_council_test",
+        "POSTGRES_PASSWORD": "town_council_test",
+        "POSTGRES_USER": "town_council",
+    }
+    assert postgres_service["ports"] == ["5432:5432"]
+    assert "pg_isready" in postgres_service["options"]
 
 def test_coverage_configuration_measures_repository_production_python():
     coverage_config = configparser.ConfigParser()

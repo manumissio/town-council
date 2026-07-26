@@ -23,8 +23,9 @@ silently choose between Alembic and the existing `migrate_v*` chain.
 - `docs/plans/TOWN_COUNCIL_REMEDIATION_PLAN.md`
 - `docs/ADR.md`
 
-T-PLAT-1 remains pending and owns Alembic implementation. T-TIME-2 remains
-pending and owns the timezone-column migration.
+T-PLAT-1 remains pending and owns Alembic implementation. Coordinated
+T-TIME-1 + T-TIME-2 implementation is in progress and owns the final numbered
+timezone-column migration.
 
 **d) Decision-gate check.** G5 is satisfied by explicit operator approval.
 G1-G4 remain unchanged. This record authorizes T-PLAT-1 after the existing
@@ -35,9 +36,9 @@ TIME migration work; it does not rewrite T-TIME-2 into an Alembic revision.
 **e) Step-by-step approach.**
 
 1. Record G5 as approved with date and rationale.
-2. Preserve the migration sequence: T-TIME-1 updates model declarations,
-   T-TIME-2 migrates existing databases through `migrate_v10.py`, then
-   T-PLAT-1 establishes the Alembic baseline.
+2. Preserve the migration sequence: one coordinated T-TIME-1 + T-TIME-2 PR
+   updates model declarations and existing databases through
+   `migrate_v10.py`, then T-PLAT-1 establishes the Alembic baseline.
 3. Mark T-PLAT-1 as approved and pending, not complete.
 4. Add an Accepted ADR that preserves the current migration chain as frozen
    history after the baseline and assigns post-baseline migrations to Alembic.
@@ -157,7 +158,7 @@ rg -n "G5 migration_tooling: \\*\\*Approved 2026-07-24" \
   docs/plans/TOWN_COUNCIL_REMEDIATION_PLAN.md
 rg -n "status: approved; implementation pending" \
   docs/plans/TOWN_COUNCIL_REMEDIATION_PLAN.md
-rg -n "Migration order is T-TIME-1, T-TIME-2, then T-PLAT-1" \
+rg -n "T-TIME-1 and T-TIME-2 execute in one coordinated PR" \
   docs/plans/TOWN_COUNCIL_REMEDIATION_PLAN.md
 rg -n "files_owned: alembic/\\*\\* \\(new\\), alembic.ini \\(new\\)" \
   docs/plans/TOWN_COUNCIL_REMEDIATION_PLAN.md
@@ -196,9 +197,8 @@ rg -n "pgvector extension before baseline table DDL" \
 rg -n "python db_migrate.py" \
   docs/plans/TOWN_COUNCIL_REMEDIATION_PLAN.md docs/ADR.md
 rg -n "Adopt Alembic for schema migrations" docs/ADR.md
-rg -n "T-TIME-1 updates timezone-aware model" docs/ADR.md
-rg -n "T-TIME-2 converts existing databases" docs/ADR.md
-rg -n "T-PLAT-1 establishes the Alembic baseline" docs/ADR.md
+rg -n "one coordinated T-TIME-1 \\+ T-TIME-2" docs/ADR.md
+rg -n "T-PLAT-1 establishes" docs/ADR.md
 ! rg -n "depends_on: T-TIME-2|T-TIME-1, T-PLAT-1, then T-TIME-2|T-TIME-2.*Alembic revision" \
   docs/plans/TOWN_COUNCIL_REMEDIATION_PLAN.md docs/ADR.md
 git diff --check
@@ -216,7 +216,8 @@ or external-state remediation is required.
 - Remediation plan: gate, sequence, task status, and changelog.
 - ADR: accepted migration-tooling decision.
 - Architecture review: unchanged historical artifact.
-- Operations: deferred to T-PLAT-1 implementation.
+- Operations: T-TIME-1 + T-TIME-2 owns v10 preflight and rollback; T-PLAT-1
+  later owns Alembic adoption and backup-policy sections.
 
 ## 7. Delivery Self-Audit
 
@@ -227,5 +228,6 @@ implemented.
 **y) Evidence.** Report every command in 6u and the pre-commit review with
 `PASS` or `FAIL`. Mark anything unrun as `NOT VERIFIED`.
 
-**z) Deviations.** Expected result: none. Any fourth changed file or migration
-implementation is a blocker.
+**z) Deviations.** The later operator-approved coordinated TIME task may update
+this decision plan's sequence and verification statements. Any migration code
+inside this decision-only record remains a blocker.

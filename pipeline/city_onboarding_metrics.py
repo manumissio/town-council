@@ -37,8 +37,7 @@ class CityMetrics:
 
 
 def parse_iso_utc(value: str) -> datetime:
-    dt = datetime.strptime(value, ISO_FMT)
-    return dt.replace(tzinfo=timezone.utc)
+    return datetime.strptime(value, ISO_FMT).replace(tzinfo=timezone.utc)
 
 
 def load_city_metadata_slugs(path: Path = Path("city_metadata/list_of_cities.csv")) -> set[str]:
@@ -75,10 +74,7 @@ def load_runs(path: Path) -> list[dict[str, Any]]:
 def collect_historical_city_catalog_rows(
     db_session, city: str, city_runs: list[dict[str, Any]]
 ) -> list[tuple[int, str, str | None, str | None]]:
-    windows = [
-        (run["started_dt"].replace(tzinfo=None), run["finished_dt"].replace(tzinfo=None))
-        for run in city_runs
-    ]
+    windows = [(run["started_dt"], run["finished_dt"]) for run in city_runs]
     if not windows:
         return []
 
@@ -119,8 +115,8 @@ def collect_run_window_catalog_rows(
 
     touched_queries = []
     for run in city_runs:
-        started_dt = run["started_dt"].replace(tzinfo=None)
-        finished_dt = run["finished_dt"].replace(tzinfo=None)
+        started_dt = run["started_dt"]
+        finished_dt = run["finished_dt"]
         touched_queries.append(
             db_session.query(
                 UrlStageHist.url_hash.label("url_hash"),

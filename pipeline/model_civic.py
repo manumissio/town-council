@@ -1,8 +1,6 @@
 from __future__ import annotations
 
-import datetime
-
-from sqlalchemy import Boolean, Column, Date, DateTime, ForeignKey, Integer, String
+from sqlalchemy import Boolean, Column, Date, DateTime, ForeignKey, Integer, String, func
 from sqlalchemy.orm import relationship
 
 from pipeline.model_base import Base
@@ -56,7 +54,7 @@ class Person(Base):
     # Distinguishes official records from mention-only NLP detections.
     person_type = Column(String(20), default="mentioned", index=True, nullable=False)
 
-    created_at = Column(DateTime, default=datetime.datetime.now)
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
 
     memberships = relationship("Membership", back_populates="person")
 

@@ -1,6 +1,6 @@
 # Operations Runbook
 
-Last updated: 2026-07-24
+Last updated: 2026-07-25
 
 ## Core workflow
 
@@ -90,6 +90,82 @@ image and fails unless Caddy replaces it with the direct client address.
 What it does *not* do:
 - scrape any city data (no crawler runs)
 - process/index documents (no `run_pipeline.py`)
+
+### Timezone migration v10
+
+Run v10 before restarting application writers after deploying the coordinated
+T-TIME-1 + T-TIME-2 release. The conversion takes PostgreSQL table locks and
+interprets existing naive wall-clock values as UTC, so use a maintenance
+window.
+
+Preflight:
+
+```bash
+BACKUP_PATH="<BACKUP_PATH>/town_council_pre_v10.dump"
+
+docker compose exec -T postgres psql -U town_council -d town_council_db \
+  -c "show timezone"
+docker compose exec -T postgres psql -U town_council -d town_council_db \
+  -c "select table_name, column_name, data_type, column_default
+      from information_schema.columns
+      where table_schema = 'public' and data_type like 'timestamp%'
+      order by table_name, ordinal_position"
+docker compose exec -T postgres psql -U town_council -d town_council_db \
+  -c "select id, created_at, uploaded_at, extraction_attempted_at
+      from catalog
+      where created_at is not null
+      order by id desc
+      limit 20"
+```
+
+Confirm the sampled catalog timestamps represent UTC wall-clock time before
+continuing. Stop if historical writers used another timezone. Current server
+timezone alone does not prove historical rows are UTC.
+
+Apply and verify:
+
+Stop any schedulers, manual scripts, or workers outside this Compose project
+before running these commands; `docker compose stop` cannot quiesce them.
+
+```bash
+docker compose -f docker-compose.yml -f docker-compose.dev.yml stop
+docker compose -f docker-compose.yml -f docker-compose.dev.yml up -d postgres
+docker compose exec -T postgres pg_dump \
+  -U town_council -d town_council_db -Fc > "$BACKUP_PATH"
+docker compose exec -T postgres pg_restore --list < "$BACKUP_PATH" >/dev/null
+docker compose -f docker-compose.yml -f docker-compose.dev.yml run \
+  --rm --no-deps pipeline python db_migrate.py
+docker compose exec -T postgres psql -U town_council -d town_council_db \
+  -c "select table_name, column_name, data_type, column_default
+      from information_schema.columns
+      where table_schema = 'public' and data_type like 'timestamp%'
+      order by table_name, ordinal_position"
+docker compose -f docker-compose.yml -f docker-compose.dev.yml up -d --build
+```
+
+Every migrated timestamp must report `timestamp with time zone`. Generated
+timestamps have a `now()` default; lifecycle-attempt timestamps intentionally
+have no default so null continues to mean not attempted.
+
+Rollback uses the verified preflight backup. Keep all writers stopped while
+restoring:
+
+```bash
+docker compose -f docker-compose.yml -f docker-compose.dev.yml stop
+docker compose -f docker-compose.yml -f docker-compose.dev.yml up -d postgres
+docker compose exec -T postgres pg_restore \
+  -U town_council -d town_council_db --clean --if-exists --exit-on-error \
+  < "$BACKUP_PATH"
+docker compose exec -T postgres psql -U town_council -d town_council_db \
+  -c "select table_name, column_name, data_type, column_default
+      from information_schema.columns
+      where table_schema = 'public' and data_type like 'timestamp%'
+      order by table_name, ordinal_position"
+docker compose -f docker-compose.yml -f docker-compose.dev.yml up -d --build
+```
+
+Do not reverse-convert a database that accepted post-migration writes. Restore
+the backup, then revert the application release.
 
 Why the explicit model bootstrap exists:
 - local model downloads no longer happen during Docker image builds

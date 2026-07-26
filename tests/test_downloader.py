@@ -11,6 +11,7 @@ sys.path.append(os.path.join(root_dir, 'pipeline'))
 from pipeline.models import Catalog, UrlStage, Event, Place
 import pipeline.downloader as downloader
 from pipeline.downloader import Media, process_single_url, process_staged_urls, _select_staged_url_ids
+from pipeline.downloader_selection import _parse_onboarding_started_at
 
 
 def test_downloader_facade_preserves_public_patch_seams():
@@ -215,6 +216,13 @@ def test_select_staged_url_ids_scopes_to_onboarding_city_window(db_session, monk
     monkeypatch.setenv("PIPELINE_ONBOARDING_STARTED_AT_UTC", "2026-04-04T14:00:00Z")
 
     assert _select_staged_url_ids(db_session) == [1]
+
+
+def test_onboarding_window_parser_preserves_utc_awareness():
+    onboarding_started_at = _parse_onboarding_started_at("2026-04-04T14:00:00Z")
+
+    assert onboarding_started_at == datetime.datetime(2026, 4, 4, 14, 0, tzinfo=datetime.UTC)
+    assert onboarding_started_at.utcoffset() == datetime.timedelta(0)
 
 
 def test_downloader_uses_misc_fallback_for_malformed_ocd_id(tmp_path, monkeypatch):

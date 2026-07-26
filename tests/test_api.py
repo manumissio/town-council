@@ -1,6 +1,7 @@
 import pytest
 from fastapi.testclient import TestClient
 from fastapi import HTTPException
+from datetime import UTC, datetime
 import sys
 import os
 from unittest.mock import MagicMock
@@ -407,6 +408,41 @@ def test_lineage_endpoint_not_gated_by_trends_flag(mocker):
         response = client.get("/lineage/lin-101", headers={"X-API-Key": VALID_KEY})
         assert response.status_code == 200
         assert response.json()["lineage_id"] == "lin-101"
+        assert response.json()["meetings"][0]["lineage_updated_at"] is None
+    finally:
+        del app.dependency_overrides[get_db]
+
+
+def test_lineage_endpoint_emits_offset_bearing_timestamp(mocker):
+    from api.main import get_db
+
+    rows = [
+        (
+            MagicMock(
+                id=101,
+                lineage_id="lin-101",
+                lineage_confidence=0.8,
+                lineage_updated_at=datetime(2026, 7, 25, 12, 30, tzinfo=UTC),
+                summary="Summary",
+            ),
+            MagicMock(),
+            MagicMock(name="Meeting A", record_date=MagicMock(isoformat=lambda: "2026-07-25")),
+            MagicMock(display_name="ca_berkeley", name="Berkeley"),
+        )
+    ]
+    mocker.patch("api.main._lineage_rows", return_value=rows)
+
+    def _get_db():
+        yield MagicMock()
+
+    app.dependency_overrides[get_db] = _get_db
+    try:
+        response = client.get("/lineage/lin-101", headers={"X-API-Key": VALID_KEY})
+        meeting = response.json()["meetings"][0]
+
+        assert response.status_code == 200
+        assert "lineage_updated_at" in meeting
+        assert meeting["lineage_updated_at"] == "2026-07-25T12:30:00+00:00"
     finally:
         del app.dependency_overrides[get_db]
 
@@ -864,7 +900,7 @@ def test_derived_status_marks_agenda_summary_stale_from_structured_items():
         topics_source_hash=None,
         agenda_segmentation_status="complete",
         agenda_segmentation_item_count=1,
-        agenda_segmentation_attempted_at=None,
+        agenda_segmentation_attempted_at=datetime(2026, 7, 25, 12, 45, tzinfo=UTC),
         agenda_segmentation_error=None,
     )
     db = MagicMock()
@@ -891,6 +927,7 @@ def test_derived_status_marks_agenda_summary_stale_from_structured_items():
         assert resp.status_code == 200
         payload = resp.json()
         assert payload["summary_is_stale"] is True
+        assert payload["agenda_segmentation_attempted_at"] == "2026-07-25T12:45:00+00:00"
     finally:
         del app.dependency_overrides[get_db]
 
@@ -937,5 +974,7 @@ def test_derived_status_marks_empty_agenda_fallback_summary_fresh():
         assert payload["summary_is_stale"] is False
         assert payload["summary_not_generated_yet"] is False
         assert payload["agenda_is_empty"] is True
+        assert "agenda_segmentation_attempted_at" in payload
+        assert payload["agenda_segmentation_attempted_at"] is None
     finally:
         del app.dependency_overrides[get_db]

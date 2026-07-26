@@ -1,5 +1,6 @@
 import importlib.util
 import sys
+from datetime import UTC, datetime
 from pathlib import Path
 
 from sqlalchemy import create_engine
@@ -14,6 +15,16 @@ spec = importlib.util.spec_from_file_location(
 mod = importlib.util.module_from_spec(spec)
 sys.modules[spec.name] = mod
 spec.loader.exec_module(mod)
+
+
+class _TimezonePreservationProbe(datetime):
+    def replace(self, *args, **kwargs):
+        assert kwargs.get("tzinfo", UTC) is not None, "onboarding windows must remain timezone-aware"
+        return super().replace(*args, **kwargs)
+
+
+def _aware_probe(hour: int) -> _TimezonePreservationProbe:
+    return _TimezonePreservationProbe(2026, 3, 14, hour, 0, tzinfo=UTC)
 
 
 def test_gate_evaluator_pass_thresholds():
@@ -235,6 +246,39 @@ def test_collect_city_metrics_uses_run_window_touched_catalogs_for_denominator()
     finally:
         db.close()
         engine.dispose()
+
+
+def test_historical_catalog_window_comparisons_preserve_timezone_awareness():
+    engine = create_engine("sqlite:///:memory:")
+    Base.metadata.create_all(engine)
+    Session = sessionmaker(bind=engine)
+
+    with Session() as db:
+        catalog_rows = mod._collect_historical_city_catalog_rows(
+            db,
+            "san_mateo",
+            [{"started_dt": _aware_probe(0), "finished_dt": _aware_probe(1)}],
+        )
+
+    engine.dispose()
+    assert catalog_rows == []
+
+
+def test_staging_window_comparisons_preserve_timezone_awareness():
+    engine = create_engine("sqlite:///:memory:")
+    Base.metadata.create_all(engine)
+    Session = sessionmaker(bind=engine)
+
+    with Session() as db:
+        catalog_rows, touched_hash_count = mod._collect_run_window_catalog_rows(
+            db,
+            "san_mateo",
+            [{"started_dt": _aware_probe(0), "finished_dt": _aware_probe(1)}],
+        )
+
+    engine.dispose()
+    assert catalog_rows == []
+    assert touched_hash_count == 0
 
 
 def test_collect_city_metrics_falls_back_to_live_url_stage_before_archive():

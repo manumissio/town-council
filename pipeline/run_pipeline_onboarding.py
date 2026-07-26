@@ -1,6 +1,6 @@
 import logging
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import UTC, datetime
 from typing import TypeAlias
 
 
@@ -20,7 +20,7 @@ def parse_onboarding_started_at(raw_value: str, *, logger: logging.Logger) -> da
     if not raw_value:
         return None
     try:
-        return datetime.strptime(raw_value, ONBOARDING_STARTED_AT_FORMAT)
+        return datetime.strptime(raw_value, ONBOARDING_STARTED_AT_FORMAT).replace(tzinfo=UTC)
     except ValueError:
         logger.warning(
             "Invalid PIPELINE_ONBOARDING_STARTED_AT_UTC=%r; falling back to city-wide scope.",

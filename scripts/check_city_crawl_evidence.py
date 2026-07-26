@@ -5,7 +5,7 @@ import argparse
 import json
 import os
 import sys
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 
 from sqlalchemy import or_
 
@@ -20,8 +20,7 @@ ISO_FMT = "%Y-%m-%dT%H:%M:%SZ"
 
 
 def _parse_iso_utc(value: str) -> datetime:
-    dt = datetime.strptime(value, ISO_FMT)
-    return dt.replace(tzinfo=timezone.utc).replace(tzinfo=None)
+    return datetime.strptime(value, ISO_FMT).replace(tzinfo=UTC)
 
 
 def _source_aliases_for_city(city: str) -> set[str]:

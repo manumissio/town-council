@@ -1,5 +1,8 @@
-from pipeline import db_migrate
 from pathlib import Path
+
+import pytest
+
+from pipeline import db_migrate, migrate_v10
 
 
 class _ScalarResult:
@@ -174,3 +177,36 @@ def test_db_migrate_warns_and_keeps_core_migration_when_submigration_fails(mocke
     assert any("alter table event add column organization_id" in c for c in calls)
     assert "migrate_v8 skipped: pgvector unavailable" in caplog.text
     migrate_v9_spy.assert_called_once_with()
+
+
+def test_db_migrate_runs_mandatory_v10_after_legacy_migrations(monkeypatch):
+    migration_events: list[str] = []
+
+    def run_legacy_migrations(**_kwargs):
+        migration_events.append("legacy")
+
+    monkeypatch.setattr(db_migrate, "run_migrations", run_legacy_migrations)
+    monkeypatch.setattr(migrate_v10, "migrate", lambda: migration_events.append("v10"))
+
+    db_migrate.migrate()
+
+    assert migration_events == ["legacy", "v10"]
+
+
+def test_db_migrate_propagates_v10_failure(monkeypatch):
+    migration_events: list[str] = []
+
+    def run_legacy_migrations(**_kwargs):
+        migration_events.append("legacy")
+
+    def fail_v10_migration():
+        migration_events.append("v10")
+        raise RuntimeError("timestamp schema drift")
+
+    monkeypatch.setattr(db_migrate, "run_migrations", run_legacy_migrations)
+    monkeypatch.setattr(migrate_v10, "migrate", fail_v10_migration)
+
+    with pytest.raises(RuntimeError, match="timestamp schema drift"):
+        db_migrate.migrate()
+
+    assert migration_events == ["legacy", "v10"]
