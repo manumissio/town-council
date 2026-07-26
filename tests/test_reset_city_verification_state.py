@@ -2,18 +2,18 @@ from __future__ import annotations
 
 import importlib.util
 import sys
-from contextlib import contextmanager
-from datetime import UTC, date, datetime, timedelta, timezone
+from datetime import UTC, date, datetime, timedelta
 from pathlib import Path
 
 import pytest
 from sqlalchemy import create_engine
+from sqlalchemy import text
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import sessionmaker
 
 import pipeline.db_session as db_session_module
-from pipeline.models import Base, Catalog, Document, Event, EventStage, Place, UrlStage, UrlStageHist
-from scripts.reset_city_verification_state import capture_city_verification_baseline, reset_city_verification_state
-from scripts import reset_city_verification_state as reset_module
+from pipeline.models import Base, Catalog, DataIssue, Document, Event, EventStage, Place, UrlStage, UrlStageHist
+from scripts.reset_city_verification_state import reset_city_verification_state
 
 
 def _load_rewind_module():
@@ -32,42 +32,6 @@ def _setup_city_graph(db_path: Path, monkeypatch) -> sessionmaker:
     engine = create_engine(f"sqlite:///{db_path}")
     Base.metadata.create_all(engine)
     return sessionmaker(bind=engine)
-
-
-def test_verification_reset_parser_returns_aware_utc():
-    parsed_at = reset_module._parse_iso_utc("2026-03-15T13:21:09Z")
-
-    assert parsed_at == datetime(2026, 3, 15, 13, 21, 9, tzinfo=UTC)
-    assert parsed_at.utcoffset() == timedelta(0)
-
-
-def test_verification_artifacts_normalize_offset_timestamps_to_utc(monkeypatch, mocker):
-    offset_timestamp = datetime(
-        2026,
-        7,
-        25,
-        5,
-        30,
-        tzinfo=timezone(timedelta(hours=-7)),
-    )
-    session = mocker.MagicMock()
-    session.query.return_value.filter.return_value.one.return_value = (
-        date(2026, 7, 25),
-        offset_timestamp,
-        1,
-    )
-
-    @contextmanager
-    def verification_session():
-        yield session
-
-    monkeypatch.setattr(reset_module, "db_session", verification_session)
-
-    baseline = reset_module.capture_city_verification_baseline("sunnyvale")
-    remaining = reset_module._remaining_anchor_summary(session, "sunnyvale")
-
-    assert baseline["baseline_max_scraped_datetime"] == "2026-07-25T12:30:00Z"
-    assert remaining["remaining_max_scraped_datetime"] == "2026-07-25T12:30:00Z"
 
 
 def test_reset_city_verification_state_dry_run_preserves_rows(tmp_path, monkeypatch):
@@ -165,7 +129,15 @@ def test_reset_city_verification_state_deletes_only_events_in_window_and_unrefer
         session.add_all(
             [
                 Document(place_id=place.id, event_id=old_event.id, catalog_id=preserved_catalog.id, url="https://example.com/old.pdf", url_hash="preserved"),
+                Document(place_id=place.id, event_id=new_event.id, catalog_id=preserved_catalog.id, url="https://example.com/new-shared.pdf", url_hash="new-shared"),
                 Document(place_id=place.id, event_id=new_event.id, catalog_id=exclusive_catalog.id, url="https://example.com/new-exclusive.pdf", url_hash="exclusive"),
+                Document(place_id=place.id, event_id=new_event.id, catalog_id=None, url="https://example.com/catalogless.pdf", url_hash="catalogless"),
+            ]
+        )
+        session.add_all(
+            [
+                DataIssue(event_id=old_event.id, issue_type="preserved_issue"),
+                DataIssue(event_id=new_event.id, issue_type="deleted_issue"),
             ]
         )
         session.commit()
@@ -174,18 +146,28 @@ def test_reset_city_verification_state_deletes_only_events_in_window_and_unrefer
 
     assert result["city"] == "fremont"
     assert result["deleted_event_count"] == 1
-    assert result["deleted_document_count"] == 1
+    assert result["deleted_document_count"] == 3
     assert result["deleted_catalog_count"] == 1
-    assert result["catalog_reference_count"] == 1
+    assert result["catalog_reference_count"] == 2
+    assert result["deleted_data_issue_count"] == 1
+
+    second = reset_city_verification_state("fremont", now.strftime("%Y-%m-%dT%H:%M:%SZ"))
+    assert second["deleted_event_count"] == 0
+    assert second["deleted_document_count"] == 0
+    assert second["deleted_catalog_count"] == 0
+    assert second["deleted_data_issue_count"] == 0
 
     with Session() as session:
         assert session.query(Event).count() == 1
         assert session.query(Document).count() == 1
         assert session.query(Catalog).count() == 1
+        assert session.query(DataIssue).count() == 1
         remaining_event = session.query(Event).one()
         remaining_catalog = session.query(Catalog).one()
+        remaining_issue = session.query(DataIssue).one()
         assert remaining_event.ocd_id == "old-event"
         assert remaining_catalog.url_hash == "preserved"
+        assert remaining_issue.issue_type == "preserved_issue"
 
 
 def test_rewind_pending_city_onboarding_rejects_enabled_or_pass_city(mocker):
@@ -198,132 +180,6 @@ def test_rewind_pending_city_onboarding_rejects_enabled_or_pass_city(mocker):
 
     with pytest.raises(ValueError, match="disabled cities"):
         mod._validate_city_is_rewindable("hayward")
-
-
-def test_capture_city_verification_baseline_reports_city_anchor(tmp_path, monkeypatch):
-    Session = _setup_city_graph(tmp_path / "baseline.sqlite", monkeypatch)
-    now = datetime.now(UTC).replace(tzinfo=None, microsecond=0)
-
-    with Session() as session:
-        place = Place(
-            name="Sunnyvale",
-            state="CA",
-            country="us",
-            display_name="Sunnyvale, CA",
-            ocd_division_id="ocd-division/country:us/state:ca/place:sunnyvale",
-        )
-        session.add(place)
-        session.flush()
-        session.add_all(
-            [
-                Event(
-                    ocd_id="early",
-                    ocd_division_id=place.ocd_division_id,
-                    place_id=place.id,
-                    scraped_datetime=now,
-                    record_date=date(2026, 3, 1),
-                    source="sunnyvale",
-                    source_url="https://example.com/early",
-                    name="Early meeting",
-                ),
-                Event(
-                    ocd_id="late",
-                    ocd_division_id=place.ocd_division_id,
-                    place_id=place.id,
-                    scraped_datetime=now + timedelta(days=1),
-                    record_date=date(2026, 3, 7),
-                    source="sunnyvale",
-                    source_url="https://example.com/late",
-                    name="Late meeting",
-                ),
-            ]
-        )
-        session.commit()
-
-    result = capture_city_verification_baseline("sunnyvale")
-
-    assert result["city"] == "sunnyvale"
-    assert result["baseline_event_count"] == 2
-    assert result["baseline_max_record_date"] == "2026-03-07"
-    assert result["baseline_max_scraped_datetime"] == (now + timedelta(days=1)).strftime("%Y-%m-%dT%H:%M:%SZ")
-
-
-def test_reset_city_verification_state_rewinds_to_baseline_record_date(tmp_path, monkeypatch):
-    Session = _setup_city_graph(tmp_path / "anchor_reset.sqlite", monkeypatch)
-    campaign_started_at = datetime(2026, 3, 15, 13, 21, 9)
-
-    with Session() as session:
-        place = Place(
-            name="Sunnyvale",
-            state="CA",
-            country="us",
-            display_name="Sunnyvale, CA",
-            ocd_division_id="ocd-division/country:us/state:ca/place:sunnyvale",
-        )
-        session.add(place)
-        session.flush()
-
-        preserved_same_day = Event(
-            ocd_id="baseline-same-day",
-            ocd_division_id=place.ocd_division_id,
-            place_id=place.id,
-            scraped_datetime=campaign_started_at - timedelta(days=1),
-            record_date=date(2026, 3, 10),
-            source="sunnyvale",
-            source_url="https://example.com/baseline-same-day",
-            name="Baseline same-day meeting",
-        )
-        future_event = Event(
-            ocd_id="future-run-one",
-            ocd_division_id=place.ocd_division_id,
-            place_id=place.id,
-            scraped_datetime=campaign_started_at + timedelta(minutes=2),
-            record_date=date(2026, 5, 18),
-            source="sunnyvale",
-            source_url="https://example.com/future",
-            name="Future meeting",
-        )
-        same_day_run_one = Event(
-            ocd_id="same-day-run-one",
-            ocd_division_id=place.ocd_division_id,
-            place_id=place.id,
-            scraped_datetime=campaign_started_at + timedelta(minutes=3),
-            record_date=date(2026, 3, 10),
-            source="sunnyvale",
-            source_url="https://example.com/same-day-run-one",
-            name="Same day run-one meeting",
-        )
-        session.add_all([preserved_same_day, future_event, same_day_run_one])
-        session.flush()
-
-        future_catalog = Catalog(url_hash="future", location="/tmp/future.pdf")
-        same_day_catalog = Catalog(url_hash="same-day", location="/tmp/same-day.pdf")
-        session.add_all([future_catalog, same_day_catalog])
-        session.flush()
-        session.add_all(
-            [
-                Document(place_id=place.id, event_id=future_event.id, catalog_id=future_catalog.id, url_hash="future"),
-                Document(place_id=place.id, event_id=same_day_run_one.id, catalog_id=same_day_catalog.id, url_hash="same-day"),
-            ]
-        )
-        session.commit()
-
-    result = reset_city_verification_state(
-        "sunnyvale",
-        campaign_started_at.strftime("%Y-%m-%dT%H:%M:%SZ"),
-        baseline_record_date="2026-03-10",
-    )
-
-    assert result["deleted_event_count"] == 2
-    assert result["deleted_document_count"] == 2
-    assert result["deleted_catalog_count"] == 2
-    assert result["remaining_event_count"] == 1
-    assert result["remaining_max_record_date"] == "2026-03-10"
-    assert result["remaining_max_scraped_datetime"] == (campaign_started_at - timedelta(days=1)).strftime("%Y-%m-%dT%H:%M:%SZ")
-
-    with Session() as session:
-        remaining_events = session.query(Event).all()
-        assert [event.ocd_id for event in remaining_events] == ["baseline-same-day"]
 
 
 def test_reset_city_verification_state_does_not_delete_stage_rows(tmp_path, monkeypatch):
@@ -363,3 +219,59 @@ def test_reset_city_verification_state_does_not_delete_stage_rows(tmp_path, monk
         assert session.query(EventStage).count() == 1
         assert session.query(UrlStage).count() == 1
         assert session.query(UrlStageHist).count() == 1
+
+
+def test_reset_city_verification_state_rolls_back_live_deletes_on_late_failure(tmp_path, monkeypatch):
+    Session = _setup_city_graph(tmp_path / "reset_rollback.sqlite", monkeypatch)
+    since = datetime(2026, 3, 15, 13, 21, 9)
+
+    with Session() as session:
+        place = Place(
+            name="Fremont",
+            state="CA",
+            country="us",
+            display_name="Fremont, CA",
+            ocd_division_id="ocd-division/country:us/state:ca/place:fremont",
+        )
+        session.add(place)
+        session.flush()
+        event = Event(
+            ocd_id="rollback-event",
+            ocd_division_id=place.ocd_division_id,
+            place_id=place.id,
+            scraped_datetime=since + timedelta(minutes=1),
+            record_date=date(2026, 4, 4),
+            source="fremont",
+            source_url="https://example.com/rollback",
+            name="Rollback meeting",
+        )
+        catalog = Catalog(url_hash="rollback", location="/tmp/rollback.pdf")
+        session.add_all([event, catalog])
+        session.flush()
+        session.add(
+            Document(
+                place_id=place.id,
+                event_id=event.id,
+                catalog_id=catalog.id,
+                url_hash="rollback",
+            )
+        )
+        session.add(DataIssue(event_id=event.id, issue_type="rollback_issue"))
+        session.commit()
+        session.execute(
+            text(
+                "CREATE TRIGGER abort_catalog_delete "
+                "BEFORE DELETE ON catalog "
+                "BEGIN SELECT RAISE(ABORT, 'catalog delete blocked'); END"
+            )
+        )
+        session.commit()
+
+    with pytest.raises(IntegrityError, match="catalog delete blocked"):
+        reset_city_verification_state("fremont", since.strftime("%Y-%m-%dT%H:%M:%SZ"))
+
+    with Session() as session:
+        assert session.query(Event).count() == 1
+        assert session.query(Document).count() == 1
+        assert session.query(Catalog).count() == 1
+        assert session.query(DataIssue).count() == 1

@@ -990,6 +990,7 @@ docker compose start api worker frontend monitor
 - The rewind deletes only city-scoped verification-era state:
   - `event`
   - linked `document`
+  - linked `data_issue`
   - unreferenced `catalog`
   - linked derived agenda/embedding rows via existing cascades
 - Example shape:
