@@ -3,10 +3,12 @@ from __future__ import annotations
 import logging
 
 from pipeline import db_migration_alembic
+from pipeline.cli_logging import configure_cli_logging
 from pipeline.models import db_connect
 
 
 LOGGER = logging.getLogger("db-migrate")
+LOGGER_FORMAT = "%(asctime)s - %(levelname)s - %(message)s"
 
 
 def migrate() -> None:
@@ -24,5 +26,11 @@ def migrate() -> None:
         engine.dispose()
 
 
-if __name__ == "__main__":
+def main() -> int:
+    configure_cli_logging(LOGGER_FORMAT)
     migrate()
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())
