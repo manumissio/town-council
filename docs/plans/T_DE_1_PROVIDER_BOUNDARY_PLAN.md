@@ -1,7 +1,7 @@
 # T-DE-1: Remove Reverse Provider-Facade Dependencies
 
-`artifact_contract: ce-unified-plan/v1`  
-`artifact_readiness: implementation-ready`  
+`artifact_contract: ce-unified-plan/v1`
+`artifact_readiness: implementation-ready`
 `execution: code`
 
 ## 1. Context & Alignment
