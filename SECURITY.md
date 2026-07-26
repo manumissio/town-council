@@ -21,8 +21,7 @@ mandatory.
 - `reachable`: any instance where the frontend or API is network-accessible
   beyond localhost (VPS, LAN demo, tunnel). All controls below are mandatory.
 
-Current declared posture: ___ (owner fills in; default assumption for
-engineering decisions is `reachable`).
+Current declared posture: `reachable` (operator-approved 2026-07-26).
 
 ## Trust boundaries
 
