@@ -1,9 +1,9 @@
 import pytest
 import requests
 
-import pipeline.llm_provider as llm_provider
-from pipeline.llm_provider import (
-    HttpInferenceProvider,
+import pipeline.http_inference_provider as http_inference_provider
+from pipeline.http_inference_provider import HttpInferenceProvider
+from pipeline.inference_provider_contract import (
     ProviderResponseError,
     ProviderTimeoutError,
     ProviderUnavailableError,
@@ -13,14 +13,22 @@ from pipeline.llm_provider import (
 def test_http_provider_timeout_emits_single_attempt_metrics_in_conservative_profile(monkeypatch):
     events = {"timeout": 0, "retry": 0, "request": 0}
 
-    monkeypatch.setattr(llm_provider, "LOCAL_AI_HTTP_PROFILE", "conservative")
-    monkeypatch.setattr("pipeline.llm_provider.record_provider_timeout", lambda *args, **kwargs: events.__setitem__("timeout", events["timeout"] + 1))
-    monkeypatch.setattr("pipeline.llm_provider.record_provider_retry", lambda *args, **kwargs: events.__setitem__("retry", events["retry"] + 1))
-    monkeypatch.setattr("pipeline.llm_provider.record_provider_request", lambda *args, **kwargs: events.__setitem__("request", events["request"] + 1))
+    monkeypatch.setattr(http_inference_provider, "LOCAL_AI_HTTP_PROFILE", "conservative")
+    monkeypatch.setattr(
+        "pipeline.provider_telemetry.record_provider_timeout",
+        lambda *args, **kwargs: events.__setitem__("timeout", events["timeout"] + 1),
+    )
+    monkeypatch.setattr(
+        "pipeline.provider_telemetry.record_provider_retry",
+        lambda *args, **kwargs: events.__setitem__("retry", events["retry"] + 1),
+    )
+    monkeypatch.setattr(
+        "pipeline.provider_telemetry.record_provider_request",
+        lambda *args, **kwargs: events.__setitem__("request", events["request"] + 1),
+    )
 
     monkeypatch.setattr(
-        requests,
-        "post",
+        "pipeline.http_inference_provider.requests.post",
         lambda *args, **kwargs: (_ for _ in ()).throw(requests.exceptions.Timeout("slow")),
     )
 
@@ -42,14 +50,22 @@ def test_http_provider_timeout_emits_single_attempt_metrics_in_conservative_prof
 def test_http_provider_timeout_emits_retry_metrics_in_balanced_profile(monkeypatch):
     events = {"timeout": 0, "retry": 0, "request": 0}
 
-    monkeypatch.setattr(llm_provider, "LOCAL_AI_HTTP_PROFILE", "balanced")
-    monkeypatch.setattr("pipeline.llm_provider.record_provider_timeout", lambda *args, **kwargs: events.__setitem__("timeout", events["timeout"] + 1))
-    monkeypatch.setattr("pipeline.llm_provider.record_provider_retry", lambda *args, **kwargs: events.__setitem__("retry", events["retry"] + 1))
-    monkeypatch.setattr("pipeline.llm_provider.record_provider_request", lambda *args, **kwargs: events.__setitem__("request", events["request"] + 1))
+    monkeypatch.setattr(http_inference_provider, "LOCAL_AI_HTTP_PROFILE", "balanced")
+    monkeypatch.setattr(
+        "pipeline.provider_telemetry.record_provider_timeout",
+        lambda *args, **kwargs: events.__setitem__("timeout", events["timeout"] + 1),
+    )
+    monkeypatch.setattr(
+        "pipeline.provider_telemetry.record_provider_retry",
+        lambda *args, **kwargs: events.__setitem__("retry", events["retry"] + 1),
+    )
+    monkeypatch.setattr(
+        "pipeline.provider_telemetry.record_provider_request",
+        lambda *args, **kwargs: events.__setitem__("request", events["request"] + 1),
+    )
 
     monkeypatch.setattr(
-        requests,
-        "post",
+        "pipeline.http_inference_provider.requests.post",
         lambda *args, **kwargs: (_ for _ in ()).throw(requests.exceptions.Timeout("slow")),
     )
 
@@ -87,24 +103,23 @@ def test_http_provider_missing_stats_skips_token_metrics(monkeypatch):
     events = {"ttft": 0, "tps": 0, "tokens": 0, "request": 0}
 
     monkeypatch.setattr(
-        "pipeline.llm_provider.record_provider_request",
+        "pipeline.provider_telemetry.record_provider_request",
         lambda *args, **kwargs: events.__setitem__("request", events["request"] + 1),
     )
     monkeypatch.setattr(
-        "pipeline.llm_provider.record_provider_ttft",
+        "pipeline.provider_telemetry.record_provider_ttft",
         lambda *args, **kwargs: events.__setitem__("ttft", events["ttft"] + 1),
     )
     monkeypatch.setattr(
-        "pipeline.llm_provider.record_provider_tokens_per_sec",
+        "pipeline.provider_telemetry.record_provider_tokens_per_sec",
         lambda *args, **kwargs: events.__setitem__("tps", events["tps"] + 1),
     )
     monkeypatch.setattr(
-        "pipeline.llm_provider.record_provider_token_counts",
+        "pipeline.provider_telemetry.record_provider_token_counts",
         lambda *args, **kwargs: events.__setitem__("tokens", events["tokens"] + 1),
     )
     monkeypatch.setattr(
-        requests,
-        "post",
+        "pipeline.http_inference_provider.requests.post",
         lambda *args, **kwargs: _FakeResponse({"response": "ok"}),
     )
 
@@ -120,12 +135,17 @@ def test_http_provider_missing_stats_skips_token_metrics(monkeypatch):
 def test_http_provider_empty_response_payload_is_response_error_without_retry(monkeypatch):
     events = {"retry": 0, "request": 0}
 
-    monkeypatch.setattr("pipeline.llm_provider.record_provider_retry", lambda *args, **kwargs: events.__setitem__("retry", events["retry"] + 1))
-    monkeypatch.setattr("pipeline.llm_provider.record_provider_request", lambda *args, **kwargs: events.__setitem__("request", events["request"] + 1))
+    monkeypatch.setattr(
+        "pipeline.provider_telemetry.record_provider_retry",
+        lambda *args, **kwargs: events.__setitem__("retry", events["retry"] + 1),
+    )
+    monkeypatch.setattr(
+        "pipeline.provider_telemetry.record_provider_request",
+        lambda *args, **kwargs: events.__setitem__("request", events["request"] + 1),
+    )
 
     monkeypatch.setattr(
-        requests,
-        "post",
+        "pipeline.http_inference_provider.requests.post",
         lambda *args, **kwargs: _FakeResponse({"response": "   "}),
     )
 
@@ -149,8 +169,11 @@ def test_http_provider_invalid_json_is_response_error_without_retry(monkeypatch)
         def json(self):
             raise ValueError("bad json")
 
-    monkeypatch.setattr("pipeline.llm_provider.record_provider_retry", lambda *args, **kwargs: events.__setitem__("retry", events["retry"] + 1))
-    monkeypatch.setattr(requests, "post", lambda *args, **kwargs: _BadJsonResponse())
+    monkeypatch.setattr(
+        "pipeline.provider_telemetry.record_provider_retry",
+        lambda *args, **kwargs: events.__setitem__("retry", events["retry"] + 1),
+    )
+    monkeypatch.setattr("pipeline.http_inference_provider.requests.post", lambda *args, **kwargs: _BadJsonResponse())
 
     provider = HttpInferenceProvider()
     provider.max_retries = 2
@@ -165,10 +188,10 @@ def test_http_provider_malformed_response_payload_is_response_error_without_retr
     events = {"retry": 0}
 
     monkeypatch.setattr(
-        "pipeline.llm_provider.record_provider_retry",
+        "pipeline.provider_telemetry.record_provider_retry",
         lambda *args, **kwargs: events.__setitem__("retry", events["retry"] + 1),
     )
-    monkeypatch.setattr(requests, "post", lambda *args, **kwargs: _FakeResponse(payload))
+    monkeypatch.setattr("pipeline.http_inference_provider.requests.post", lambda *args, **kwargs: _FakeResponse(payload))
 
     provider = HttpInferenceProvider()
     provider.max_retries = 2
@@ -188,8 +211,11 @@ def test_http_provider_client_http_error_is_response_error_without_retry(monkeyp
         response = _ClientErrorResponse()
         raise requests.exceptions.HTTPError("bad request", response=response)
 
-    monkeypatch.setattr("pipeline.llm_provider.record_provider_retry", lambda *args, **kwargs: events.__setitem__("retry", events["retry"] + 1))
-    monkeypatch.setattr(requests, "post", _raise_http_error)
+    monkeypatch.setattr(
+        "pipeline.provider_telemetry.record_provider_retry",
+        lambda *args, **kwargs: events.__setitem__("retry", events["retry"] + 1),
+    )
+    monkeypatch.setattr("pipeline.http_inference_provider.requests.post", _raise_http_error)
 
     provider = HttpInferenceProvider()
     provider.max_retries = 2
@@ -201,8 +227,7 @@ def test_http_provider_client_http_error_is_response_error_without_retry(monkeyp
 
 def test_http_provider_request_exception_maps_to_unavailable(monkeypatch):
     monkeypatch.setattr(
-        requests,
-        "post",
+        "pipeline.http_inference_provider.requests.post",
         lambda *args, **kwargs: (_ for _ in ()).throw(requests.exceptions.ConnectionError("down")),
     )
 
@@ -216,11 +241,11 @@ def test_http_provider_unexpected_transport_failure_maps_to_unavailable_with_err
     outcomes = []
 
     monkeypatch.setattr(
-        "pipeline.llm_provider.record_provider_request",
+        "pipeline.provider_telemetry.record_provider_request",
         lambda provider, operation, model, outcome, duration_ms: outcomes.append(outcome),
     )
     monkeypatch.setattr(
-        "pipeline.llm_provider.requests.post",
+        "pipeline.http_inference_provider.requests.post",
         lambda *args, **kwargs: (_ for _ in ()).throw(RuntimeError("patched transport blew up")),
     )
 
@@ -236,11 +261,11 @@ def test_http_provider_metric_parse_failure_maps_to_unavailable_with_error_outco
     outcomes = []
 
     monkeypatch.setattr(
-        "pipeline.llm_provider.record_provider_request",
+        "pipeline.provider_telemetry.record_provider_request",
         lambda provider, operation, model, outcome, duration_ms: outcomes.append(outcome),
     )
     monkeypatch.setattr(
-        "pipeline.llm_provider.requests.post",
+        "pipeline.http_inference_provider.requests.post",
         lambda *args, **kwargs: _FakeResponse({"response": "ok"}),
     )
 
@@ -258,17 +283,17 @@ def test_http_provider_memory_failure_maps_to_unavailable_with_error_outcome(mon
     outcomes = []
 
     monkeypatch.setattr(
-        "pipeline.llm_provider.record_provider_request",
+        "pipeline.provider_telemetry.record_provider_request",
         lambda provider, operation, model, outcome, duration_ms: outcomes.append(outcome),
     )
     if failure_source == "request":
         monkeypatch.setattr(
-            "pipeline.llm_provider.requests.post",
+            "pipeline.http_inference_provider.requests.post",
             lambda *args, **kwargs: (_ for _ in ()).throw(MemoryError("request memory failed")),
         )
     else:
         monkeypatch.setattr(
-            "pipeline.llm_provider.requests.post",
+            "pipeline.http_inference_provider.requests.post",
             lambda *args, **kwargs: _MemoryErrorResponse(),
         )
 
@@ -281,19 +306,19 @@ def test_http_provider_memory_failure_maps_to_unavailable_with_error_outcome(mon
     assert outcomes == ["error"]
 
 
-def test_http_provider_uses_llm_provider_facade_request_patch(monkeypatch):
+def test_http_provider_uses_outbound_http_call_site_patch(monkeypatch):
     monkeypatch.setattr(
-        "pipeline.llm_provider.requests.post",
-        lambda *args, **kwargs: _FakeResponse({"response": "ok from facade"}),
+        "pipeline.http_inference_provider.requests.post",
+        lambda *args, **kwargs: _FakeResponse({"response": "ok from call site"}),
     )
 
     provider = HttpInferenceProvider()
-    assert provider.summarize_text("hello", temperature=0.1, max_tokens=16) == "ok from facade"
+    assert provider.summarize_text("hello", temperature=0.1, max_tokens=16) == "ok from call site"
 
 
 def test_http_provider_health_check_handles_request_failure(monkeypatch):
     monkeypatch.setattr(
-        "pipeline.llm_provider.requests.get",
+        "pipeline.http_inference_provider.requests.get",
         lambda *args, **kwargs: (_ for _ in ()).throw(requests.exceptions.ConnectionError("down")),
     )
 

@@ -6,9 +6,9 @@ from pathlib import Path
 
 from pipeline import (
     agenda_segmentation_maintenance,
+    http_inference_provider,
     indexer,
     llm as llm_module,
-    llm_provider as llm_provider_module,
     semantic_tasks,
 )
 from pipeline.models import AgendaItem, Catalog, Document, Event, Place
@@ -416,14 +416,15 @@ def test_segment_timeout_override_is_scoped(mocker):
     previous_provider = object()
     previous_instance = type("Instance", (), {"_provider": previous_provider, "_provider_backend": "http"})()
     mocker.patch.object(llm_module.LocalAI, "_instance", previous_instance)
-    previous_timeout = llm_provider_module.LOCAL_AI_HTTP_TIMEOUT_SEGMENT_SECONDS
+    previous_timeout = http_inference_provider.LOCAL_AI_HTTP_TIMEOUT_SEGMENT_SECONDS
 
     with agenda_segmentation_maintenance.segment_timeout_override(17):
-        assert llm_provider_module.LOCAL_AI_HTTP_TIMEOUT_SEGMENT_SECONDS == 17
+        assert http_inference_provider.LOCAL_AI_HTTP_TIMEOUT_SEGMENT_SECONDS == 17
+        assert http_inference_provider.HttpInferenceProvider().timeout_segment_seconds == 17
         assert previous_instance._provider is None
         assert previous_instance._provider_backend is None
 
-    assert llm_provider_module.LOCAL_AI_HTTP_TIMEOUT_SEGMENT_SECONDS == previous_timeout
+    assert http_inference_provider.LOCAL_AI_HTTP_TIMEOUT_SEGMENT_SECONDS == previous_timeout
     assert previous_instance._provider is previous_provider
     assert previous_instance._provider_backend == "http"
 
@@ -558,14 +559,15 @@ def test_summary_timeout_override_is_scoped(mocker):
     previous_provider = object()
     previous_instance = type("Instance", (), {"_provider": previous_provider, "_provider_backend": "http"})()
     mocker.patch.object(llm_module.LocalAI, "_instance", previous_instance)
-    previous_timeout = llm_provider_module.LOCAL_AI_HTTP_TIMEOUT_SUMMARY_SECONDS
+    previous_timeout = http_inference_provider.LOCAL_AI_HTTP_TIMEOUT_SUMMARY_SECONDS
 
     with agenda_segmentation_maintenance.summary_timeout_override(29):
-        assert llm_provider_module.LOCAL_AI_HTTP_TIMEOUT_SUMMARY_SECONDS == 29
+        assert http_inference_provider.LOCAL_AI_HTTP_TIMEOUT_SUMMARY_SECONDS == 29
+        assert http_inference_provider.HttpInferenceProvider().timeout_summary_seconds == 29
         assert previous_instance._provider is None
         assert previous_instance._provider_backend is None
 
-    assert llm_provider_module.LOCAL_AI_HTTP_TIMEOUT_SUMMARY_SECONDS == previous_timeout
+    assert http_inference_provider.LOCAL_AI_HTTP_TIMEOUT_SUMMARY_SECONDS == previous_timeout
     assert previous_instance._provider is previous_provider
     assert previous_instance._provider_backend == "http"
 

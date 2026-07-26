@@ -1,6 +1,4 @@
-import requests
-
-from pipeline.llm_provider import HttpInferenceProvider
+from pipeline.http_inference_provider import HttpInferenceProvider
 
 
 class _FakeResponse:
@@ -25,20 +23,20 @@ def test_http_provider_emits_token_metrics_when_stats_exist(monkeypatch):
         "eval_duration": 3_000_000_000,
     }
 
-    monkeypatch.setattr(requests, "post", lambda *args, **kwargs: _FakeResponse(payload))
-    monkeypatch.setattr("pipeline.llm_provider.record_provider_request", lambda *args, **kwargs: None)
-    monkeypatch.setattr("pipeline.llm_provider.record_provider_timeout", lambda *args, **kwargs: None)
-    monkeypatch.setattr("pipeline.llm_provider.record_provider_retry", lambda *args, **kwargs: None)
+    monkeypatch.setattr("pipeline.http_inference_provider.requests.post", lambda *args, **kwargs: _FakeResponse(payload))
+    monkeypatch.setattr("pipeline.provider_telemetry.record_provider_request", lambda *args, **kwargs: None)
+    monkeypatch.setattr("pipeline.provider_telemetry.record_provider_timeout", lambda *args, **kwargs: None)
+    monkeypatch.setattr("pipeline.provider_telemetry.record_provider_retry", lambda *args, **kwargs: None)
     monkeypatch.setattr(
-        "pipeline.llm_provider.record_provider_ttft",
+        "pipeline.provider_telemetry.record_provider_ttft",
         lambda provider, operation, model, outcome, ttft_ms: seen.__setitem__("ttft", ttft_ms),
     )
     monkeypatch.setattr(
-        "pipeline.llm_provider.record_provider_tokens_per_sec",
+        "pipeline.provider_telemetry.record_provider_tokens_per_sec",
         lambda provider, operation, model, outcome, tokens_per_sec: seen.__setitem__("tps", tokens_per_sec),
     )
     monkeypatch.setattr(
-        "pipeline.llm_provider.record_provider_token_counts",
+        "pipeline.provider_telemetry.record_provider_token_counts",
         lambda provider, operation, model, outcome, prompt_tokens, completion_tokens: seen.__setitem__(
             "counts", (prompt_tokens, completion_tokens)
         ),

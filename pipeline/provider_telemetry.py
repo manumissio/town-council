@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import logging
 from dataclasses import dataclass
-from types import ModuleType
 
 from pipeline.inference_provider_contract import (
     EVAL_COUNT_FIELD,
@@ -10,6 +9,14 @@ from pipeline.inference_provider_contract import (
     PROMPT_EVAL_COUNT_FIELD,
     PROMPT_EVAL_DURATION_FIELD,
     TOTAL_DURATION_FIELD,
+)
+from pipeline.metrics import (
+    record_provider_request,
+    record_provider_retry,
+    record_provider_timeout,
+    record_provider_token_counts,
+    record_provider_tokens_per_sec,
+    record_provider_ttft,
 )
 
 
@@ -154,7 +161,7 @@ def record_provider_retry_event(
         retry_telemetry.timeout_seconds,
         retry_telemetry.error.__class__.__name__,
     )
-    _provider_facade().record_provider_retry(
+    record_provider_retry(
         identity.provider_name,
         retry_telemetry.operation,
         identity.model_name,
@@ -188,8 +195,7 @@ def record_provider_attempt_event(
         _format_metric(token_metrics[TOKEN_METRIC_PROMPT_EVAL_DURATION_MS], precision=2),
         _format_metric(token_metrics[TOKEN_METRIC_EVAL_DURATION_MS], precision=2),
     )
-    facade = _provider_facade()
-    facade.record_provider_request(
+    record_provider_request(
         identity.provider_name,
         attempt_telemetry.operation,
         identity.model_name,
@@ -198,7 +204,7 @@ def record_provider_attempt_event(
     )
     ttft_ms = token_metrics[TOKEN_METRIC_TTFT_MS]
     if ttft_ms is not None:
-        facade.record_provider_ttft(
+        record_provider_ttft(
             identity.provider_name,
             attempt_telemetry.operation,
             identity.model_name,
@@ -207,7 +213,7 @@ def record_provider_attempt_event(
         )
     tokens_per_sec = token_metrics[TOKEN_METRIC_TOKENS_PER_SEC]
     if tokens_per_sec is not None:
-        facade.record_provider_tokens_per_sec(
+        record_provider_tokens_per_sec(
             identity.provider_name,
             attempt_telemetry.operation,
             identity.model_name,
@@ -217,7 +223,7 @@ def record_provider_attempt_event(
     prompt_tokens = token_metrics[TOKEN_METRIC_PROMPT_TOKENS]
     completion_tokens = token_metrics[TOKEN_METRIC_COMPLETION_TOKENS]
     if prompt_tokens is not None and completion_tokens is not None:
-        facade.record_provider_token_counts(
+        record_provider_token_counts(
             identity.provider_name,
             attempt_telemetry.operation,
             identity.model_name,
@@ -234,11 +240,11 @@ def record_inprocess_provider_request(
     outcome: str,
     duration_ms: float,
 ) -> None:
-    _provider_facade().record_provider_request(provider_name, operation, model_name, outcome, duration_ms)
+    record_provider_request(provider_name, operation, model_name, outcome, duration_ms)
 
 
 def record_provider_timeout_event(provider_name: str, operation: str, model_name: str) -> None:
-    _provider_facade().record_provider_timeout(provider_name, operation, model_name)
+    record_provider_timeout(provider_name, operation, model_name)
 
 
 def _format_metric(metric_value: float | int | None, *, precision: int | None = None) -> str:
@@ -247,9 +253,3 @@ def _format_metric(metric_value: float | int | None, *, precision: int | None = 
     if precision is None:
         return str(metric_value)
     return f"{metric_value:.{precision}f}"
-
-
-def _provider_facade() -> ModuleType:
-    from pipeline import llm_provider
-
-    return llm_provider

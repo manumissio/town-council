@@ -1,11 +1,13 @@
 import threading
+from pathlib import Path
 
 from pipeline import llm as llm_mod
-from pipeline import llm_provider
+from pipeline import http_inference_provider, llm_provider, provider_telemetry
 from pipeline.http_inference_payloads import parse_openai_compatible_response_payload
 from pipeline.http_inference_provider import HttpInferenceProvider as DirectHttpInferenceProvider
-from pipeline.llm_provider import InferenceProvider, InProcessLlamaProvider, HttpInferenceProvider
-from pipeline.llm_provider import ProviderResponseError
+from pipeline.inference_provider_contract import InferenceProvider, ProviderResponseError
+from pipeline.inprocess_inference_provider import InProcessLlamaProvider
+from pipeline.llm_provider import HttpInferenceProvider
 from pipeline.provider_telemetry import TOKEN_METRIC_COMPLETION_TOKENS, TOKEN_METRIC_PROMPT_TOKENS
 
 
@@ -107,9 +109,25 @@ def test_inprocess_provider_satisfies_protocol():
     assert provider.summarize_text("x", temperature=0.0, max_tokens=8) == "ok"
 
 
+def test_inprocess_provider_emits_success_request_metric(monkeypatch):
+    provider_requests = []
+    monkeypatch.setattr(
+        provider_telemetry,
+        "record_provider_request",
+        lambda provider, operation, model, outcome, duration_ms: provider_requests.append(
+            (provider, operation, model, outcome, duration_ms)
+        ),
+    )
+
+    InProcessLlamaProvider(_DummyOwner()).summarize_text("x", temperature=0.0, max_tokens=8)
+
+    assert len(provider_requests) == 1
+    assert provider_requests[0][:4] == ("inprocess", "summarize_text", "inprocess-llama", "ok")
+
+
 def test_http_provider_payload_includes_configured_context_window(monkeypatch):
-    monkeypatch.setattr(llm_provider, "LOCAL_AI_HTTP_API", "ollama")
-    monkeypatch.setattr(llm_provider, "LLM_CONTEXT_WINDOW", 8192)
+    monkeypatch.setattr(http_inference_provider, "LOCAL_AI_HTTP_API", "ollama")
+    monkeypatch.setattr(http_inference_provider, "LLM_CONTEXT_WINDOW", 8192)
     provider = DirectHttpInferenceProvider()
 
     payload = provider._build_request_payload("summarize this", max_tokens=128, temperature=0.2)
@@ -120,8 +138,8 @@ def test_http_provider_payload_includes_configured_context_window(monkeypatch):
 
 
 def test_http_provider_openai_compatible_payload_uses_chat_completion_shape(monkeypatch):
-    monkeypatch.setattr(llm_provider, "LOCAL_AI_HTTP_API", "openai_compat")
-    monkeypatch.setattr(llm_provider, "LOCAL_AI_HTTP_MODEL", "mlx-community/test-model")
+    monkeypatch.setattr(http_inference_provider, "LOCAL_AI_HTTP_API", "openai_compat")
+    monkeypatch.setattr(http_inference_provider, "LOCAL_AI_HTTP_MODEL", "mlx-community/test-model")
     provider = DirectHttpInferenceProvider()
 
     payload = provider._build_request_payload("summarize this", max_tokens=128, temperature=0.2)
@@ -142,9 +160,13 @@ def test_http_provider_openai_compatible_health_check_uses_health_endpoint(monke
         requested_urls.append((url, timeout))
         return _OkResponse()
 
-    monkeypatch.setattr(llm_provider, "LOCAL_AI_HTTP_API", "openai_compat")
-    monkeypatch.setattr(llm_provider, "LOCAL_AI_HTTP_BASE_URL", "http://host.docker.internal:8080")
-    monkeypatch.setattr(llm_provider.requests, "get", fake_get)
+    monkeypatch.setattr(http_inference_provider, "LOCAL_AI_HTTP_API", "openai_compat")
+    monkeypatch.setattr(
+        http_inference_provider,
+        "LOCAL_AI_HTTP_BASE_URL",
+        "http://host.docker.internal:8080",
+    )
+    monkeypatch.setattr(http_inference_provider.requests, "get", fake_get)
     provider = DirectHttpInferenceProvider()
 
     assert provider.health_check() is True
@@ -217,6 +239,29 @@ def test_inprocess_provider_maps_backend_failure_and_resets_model():
     assert owner.llm.reset_count == 1
 
 
+def test_inprocess_provider_emits_failure_request_metric(monkeypatch):
+    provider_requests = []
+    monkeypatch.setattr(
+        provider_telemetry,
+        "record_provider_request",
+        lambda provider, operation, model, outcome, duration_ms: provider_requests.append(
+            (provider, operation, model, outcome, duration_ms)
+        ),
+    )
+    owner = _DummyOwner()
+    owner.llm = _FailingLlama()
+
+    try:
+        InProcessLlamaProvider(owner).summarize_text("x", temperature=0.0, max_tokens=8)
+    except ProviderResponseError:
+        pass
+    else:  # pragma: no cover - defensive
+        raise AssertionError("expected ProviderResponseError")
+
+    assert len(provider_requests) == 1
+    assert provider_requests[0][:4] == ("inprocess", "summarize_text", "inprocess-llama", "error")
+
+
 def test_inprocess_provider_maps_model_assertion_failure_to_response_error():
     owner = _DummyOwner()
     owner.llm = _AssertionFailingLlama()
@@ -275,6 +320,42 @@ def test_http_provider_has_protocol_methods():
 def test_http_provider_import_contract_preserves_llm_provider_facade():
     assert llm_provider.HttpInferenceProvider is DirectHttpInferenceProvider
     assert HttpInferenceProvider is DirectHttpInferenceProvider
+
+
+def test_provider_facade_excludes_test_only_rebinding_names():
+    removed_names = {
+        "LOCAL_AI_HTTP_BASE_URL",
+        "LOCAL_AI_HTTP_API",
+        "LOCAL_AI_HTTP_MAX_RETRIES",
+        "LOCAL_AI_HTTP_MODEL",
+        "LOCAL_AI_HTTP_PROFILE",
+        "LOCAL_AI_HTTP_TIMEOUT_SECONDS",
+        "LOCAL_AI_HTTP_TIMEOUT_SEGMENT_SECONDS",
+        "LOCAL_AI_HTTP_TIMEOUT_SUMMARY_SECONDS",
+        "LOCAL_AI_HTTP_TIMEOUT_TOPICS_SECONDS",
+        "LLM_CONTEXT_WINDOW",
+        "record_provider_request",
+        "record_provider_retry",
+        "record_provider_timeout",
+        "record_provider_token_counts",
+        "record_provider_tokens_per_sec",
+        "record_provider_ttft",
+        "requests",
+    }
+
+    assert removed_names.isdisjoint(llm_provider.__all__)
+    assert all(not hasattr(llm_provider, name) for name in removed_names)
+
+
+def test_provider_implementation_modules_do_not_import_compatibility_facade():
+    provider_implementation_paths = (
+        Path("pipeline/http_inference_provider.py"),
+        Path("pipeline/provider_telemetry.py"),
+        Path("pipeline/agenda_segmentation_maintenance.py"),
+    )
+
+    for provider_implementation_path in provider_implementation_paths:
+        assert "llm_provider" not in provider_implementation_path.read_text()
 
 
 def test_local_ai_defaults_to_http_provider_when_backend_unset(monkeypatch):

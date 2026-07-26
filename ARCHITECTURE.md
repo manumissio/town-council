@@ -272,6 +272,10 @@ Primary owners:
 - Transport is abstracted behind `InferenceProvider`:
   - `InProcessLlamaProvider`
   - `HttpInferenceProvider`
+- HTTP retry orchestration stays in `pipeline/http_inference_attempts.py`;
+  in-process locking and reset behavior stays adapter-local.
+- Provider implementations import configuration and metrics from their owners,
+  never backward through the provider compatibility facade.
 - Providers emit typed errors (`ProviderTimeoutError`, `ProviderUnavailableError`, `ProviderResponseError`) so orchestration can distinguish retryable paths from deterministic fallback paths.
 - Under prefork workers, provider telemetry is mirrored to Redis-backed aggregates so `tc_provider_*` series remain visible.
 
@@ -287,8 +291,10 @@ Future direction (Experimental, non-baseline):
 Primary owners:
 - `pipeline/llm.py` facade plus focused `pipeline/local_ai_*` helpers
 - `pipeline/agenda_extraction.py`
-- `pipeline/llm_provider.py`
-- `pipeline/http_inference_provider.py` facade plus focused `pipeline/http_inference_*` helpers
+- `pipeline/llm_provider.py` (provider class, protocol, field, and typed-error
+  import compatibility only)
+- `pipeline/http_inference_provider.py` adapter plus focused
+  `pipeline/http_inference_*` helpers
 - `pipeline/inprocess_inference_provider.py`
 - `pipeline/inference_provider_contract.py`
 - `pipeline/config.py` facade plus focused `pipeline/config_*` loaders
@@ -325,7 +331,7 @@ Primary owners:
 - Ingestion and promotion: `council_crawler/`, `crawler/promote_stage.py`
 - Canonical extraction/content hashing: `pipeline/extraction_service.py`, `pipeline/content_hash.py`
 - Async orchestration and writes: `pipeline/tasks.py` facade plus focused `pipeline/task_*` helpers, vote extraction through `pipeline/vote_extractor.py` plus focused `pipeline/vote_extraction_*` helpers
-- Inference abstraction and provider telemetry: `pipeline/llm.py` facade plus focused `pipeline/local_ai_*` helpers, `pipeline/agenda_extraction.py`, `pipeline/llm_provider.py`, `pipeline/http_inference_provider.py` facade plus focused `pipeline/http_inference_*` helpers, `pipeline/inprocess_inference_provider.py`, `pipeline/provider_telemetry.py`, `pipeline/metrics.py`, `pipeline/metrics_provider_recorders.py`, `pipeline/metrics_redis_backend.py`
+- Inference abstraction and provider telemetry: `pipeline/llm.py` facade plus focused `pipeline/local_ai_*` helpers, `pipeline/agenda_extraction.py`, `pipeline/llm_provider.py` import compatibility, `pipeline/http_inference_provider.py` adapter plus focused `pipeline/http_inference_*` helpers, `pipeline/inprocess_inference_provider.py`, `pipeline/provider_telemetry.py`, `pipeline/metrics.py`, `pipeline/metrics_provider_recorders.py`, `pipeline/metrics_redis_backend.py`
 - API surface and auth: `api/main.py`, `api/app_setup.py`, `api/search_routes.py`, `api/search_read_routes.py` facade plus focused `api/search_read_*` helpers, `api/task_routes.py` facade plus focused `api/task_*` helpers, `api/search_support.py` facade plus focused `api/search/*_support.py` helpers, `api/search/query_builder.py`, `api/metrics.py`
 - Semantic retrieval and embeddings: `semantic_service/main.py` route facade plus focused `semantic_service/*` helpers, `pipeline/semantic_index.py`, `pipeline/semantic_faiss_backend.py`, `pipeline/semantic_pgvector_backend.py`, focused semantic backend helpers, `pipeline/models.py` facade plus focused `pipeline/model_*` modules
 - Frontend query/task UX: `frontend/app/page.js`, `frontend/state/search-state.js`, `frontend/components/ResultCard.js`
@@ -369,7 +375,10 @@ Primary owners:
 ### Extension Points and Safe Customization Seams
 
 - Add new generation capability: add route in `api/task_routes.py` + task in `pipeline/tasks.py` + UI task-state wiring.
-- Add provider transport: implement the `InferenceProvider` contract from `pipeline/inference_provider_contract.py`, expose it through `pipeline/llm_provider.py`, and preserve typed errors plus metrics.
+- Add provider transport: implement the `InferenceProvider` contract from
+  `pipeline/inference_provider_contract.py`, keep transport policy in the
+  adapter, and preserve typed errors plus metrics. Add facade imports only when
+  they are an explicit runtime compatibility contract.
 - Extend query behavior: modify `api/search/query_builder.py` to avoid search/trend filter drift.
 - Add enrichment stage: append explicit stage in pipeline orchestration with deterministic write contract.
 
@@ -396,7 +405,8 @@ Owners:
 - `pipeline/llm.py`
 - `pipeline/agenda_extraction.py`
 - `pipeline/llm_provider.py`
-- `pipeline/http_inference_provider.py` facade plus focused `pipeline/http_inference_*` helpers
+- `pipeline/http_inference_provider.py` adapter plus focused
+  `pipeline/http_inference_*` helpers
 - `pipeline/inprocess_inference_provider.py`
 - `pipeline/inference_provider_contract.py`
 - `pipeline/config.py` facade plus focused `pipeline/config_*` loaders
@@ -423,7 +433,6 @@ Owners:
 - `pipeline/metrics_task_recorders.py`
 - `pipeline/metrics_celery_signals.py`
 - `pipeline/metrics_profile_events.py`
-- `pipeline/llm_provider.py`
 - `pipeline/provider_telemetry.py`
 
 ### API Behavior Contract
@@ -457,7 +466,7 @@ Owners:
 |---|---|---|
 | API service metrics | `GET /metrics` on API | `api/metrics.py`, `api/main.py` |
 | Worker service metrics | `GET /metrics` on worker exporter | `pipeline/metrics.py`, `pipeline/metrics_definitions.py`, `pipeline/metrics_task_recorders.py`, `pipeline/metrics_celery_signals.py`, `pipeline/metrics_profile_events.py` |
-| Provider transport telemetry | `tc_provider_*` (requests, duration, retries, timeouts, TTFT/TPS, token counters) | `pipeline/provider_telemetry.py`, `pipeline/llm_provider.py`, `pipeline/metrics.py`, `pipeline/metrics_provider_keys.py`, `pipeline/metrics_provider_recorders.py`, `pipeline/metrics_redis_backend.py` |
+| Provider transport telemetry | `tc_provider_*` (requests, duration, retries, timeouts, TTFT/TPS, token counters) | `pipeline/provider_telemetry.py`, `pipeline/metrics.py`, `pipeline/metrics_provider_keys.py`, `pipeline/metrics_provider_recorders.py`, `pipeline/metrics_redis_backend.py` |
 | Prefork-safe provider visibility | Redis-backed provider metric aggregates | `pipeline/metrics.py`, `pipeline/metrics_provider_keys.py`, `pipeline/metrics_provider_collector.py`, `pipeline/metrics_redis_backend.py` |
 
 ### Security and Reliability Controls
