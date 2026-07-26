@@ -170,6 +170,7 @@ For full recovery, stop every Compose writer plus schedulers or manual commands
 running outside this project. Validate the archive before dropping the target:
 
 ```bash
+set -euo pipefail
 BACKUP_PATH="<BACKUP_PATH>/town_council_recovery.dump"
 
 docker compose -f docker-compose.yml -f docker-compose.dev.yml stop
@@ -204,6 +205,7 @@ authoritative, so replace any external search state that may be newer than the
 restored snapshot:
 
 ```bash
+set -euo pipefail
 STARTUP_PURGE_DERIVED=false docker compose \
   -f docker-compose.yml -f docker-compose.dev.yml up -d postgres redis meilisearch
 STARTUP_PURGE_DERIVED=false docker compose \
@@ -212,7 +214,7 @@ STARTUP_PURGE_DERIVED=false docker compose \
 
 # Required when SEMANTIC_BACKEND=faiss; pgvector state is inside the backup.
 docker compose -f docker-compose.yml -f docker-compose.dev.yml run \
-  --rm --no-deps semantic python ../pipeline/reindex_semantic.py
+  --rm --build --no-deps semantic python ../pipeline/reindex_semantic.py
 ```
 
 `--replace-all` bounds every Meilisearch HTTP request at 30 seconds and uses
@@ -316,22 +318,52 @@ preserves source catalog, document, event, agenda, and civic records.
 
 ##### Roll back a failed schema release
 
-Keep all writers stopped. Select the exact application release that was active
-when the pre-migration backup was created **before running `db_migrate.py` or
-schema parity against the restored database**:
+Keep all writers stopped. Choose one rollback procedure and use it for every
+application command.
+
+**Checkout-based rollback.** Select the exact application release that was
+active when the pre-migration backup was created **before running `db_migrate.py`
+or schema parity against the restored database**:
 
 ```bash
 ROLLBACK_REF="<PREVIOUS_RELEASE_REF>"
 git switch --detach "$ROLLBACK_REF"
 ```
 
-For image-based deployment, select the equivalent previous image tag instead
-of changing the checkout. With the previous release active, follow the routine
-replacement-restore procedure above, including external search rebuilds. Its
-`db_migrate.py`, schema-parity check, and reindex commands must all come from
-the rollback release. Do not run `db_migrate.py` from the failed release: it
-would upgrade the restored backup to the schema being rolled back. Restart
-only the previous application release after every recovery check passes.
+Follow the full recovery procedure above. Its `--build` commands now build the
+selected rollback checkout, so `db_migrate.py`, schema parity, and both reindex
+commands all come from the rollback release.
+
+**Prebuilt-image rollback.** The checked-in Compose files are not an
+image-only rollback interface: they include local build definitions and source
+bind mounts. Use a deployment-specific Compose file that pins every Town
+Council application service to an immutable previous-release image and does
+not mount the current checkout. Perform archive validation and database
+replacement through that file, then run the application-owned recovery steps
+without `--build`:
+
+```bash
+set -euo pipefail
+ROLLBACK_COMPOSE_FILE="<ROLLBACK_COMPOSE_FILE>"
+
+STARTUP_PURGE_DERIVED=false docker compose -f "$ROLLBACK_COMPOSE_FILE" run \
+  --rm --no-deps pipeline python db_migrate.py
+STARTUP_PURGE_DERIVED=false docker compose -f "$ROLLBACK_COMPOSE_FILE" run \
+  --rm --no-deps pipeline python /app/scripts/check_schema_parity.py
+STARTUP_PURGE_DERIVED=false docker compose -f "$ROLLBACK_COMPOSE_FILE" up \
+  -d postgres redis meilisearch
+STARTUP_PURGE_DERIVED=false docker compose -f "$ROLLBACK_COMPOSE_FILE" run \
+  --rm --no-deps pipeline python reindex_only.py --replace-all
+
+# Required when SEMANTIC_BACKEND=faiss; pgvector state is inside the backup.
+docker compose -f "$ROLLBACK_COMPOSE_FILE" run \
+  --rm --no-deps semantic python ../pipeline/reindex_semantic.py
+STARTUP_PURGE_DERIVED=false docker compose -f "$ROLLBACK_COMPOSE_FILE" up -d
+```
+
+Do not run `db_migrate.py` from the failed release: it would upgrade the
+restored backup to the schema being rolled back. Restart only the previous
+application release after every recovery check passes.
 
 #### Historical timezone migration v10
 

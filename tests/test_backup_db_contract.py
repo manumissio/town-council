@@ -119,16 +119,34 @@ def test_backup_runbook_documents_recovery_contract() -> None:
     full_recovery_guidance = recovery_guidance[
         recovery_guidance.index("For full recovery") :
     ]
+    restore_guidance = full_recovery_guidance[
+        : full_recovery_guidance.index("Confirm those counts")
+    ]
+    external_search_guidance = full_recovery_guidance[
+        full_recovery_guidance.index("restored snapshot:") :
+    ]
     writers_stopped = full_recovery_guidance.index(
         "docker compose -f docker-compose.yml -f docker-compose.dev.yml stop"
     )
+    restore_fail_fast_enabled = restore_guidance.index("set -euo pipefail")
     postgres_started = full_recovery_guidance.index(
         "docker compose -f docker-compose.yml -f docker-compose.dev.yml up -d postgres"
     )
     postgres_environment_read = full_recovery_guidance.index(
         'POSTGRES_USER="$(docker compose exec -T postgres printenv POSTGRES_USER)"'
     )
-    assert writers_stopped < postgres_started < postgres_environment_read
+    external_search_fail_fast_enabled = external_search_guidance.index(
+        "set -euo pipefail"
+    )
+    meilisearch_started = external_search_guidance.index(
+        "up -d postgres redis meilisearch"
+    )
+    assert restore_fail_fast_enabled < writers_stopped < postgres_started
+    assert postgres_started < postgres_environment_read
+    assert external_search_fail_fast_enabled < meilisearch_started
+    assert "--rm --build --no-deps semantic python ../pipeline/reindex_semantic.py" in (
+        full_recovery_guidance
+    )
 
 
 def test_migration_rollback_selects_previous_release_before_schema_tools() -> None:
@@ -140,3 +158,26 @@ def test_migration_rollback_selects_previous_release_before_schema_tools() -> No
     assert 'git switch --detach "$ROLLBACK_REF"' in rollback_guidance
     assert "before running `db_migrate.py`" in rollback_guidance
     assert "Do not run `db_migrate.py` from the failed release" in rollback_guidance
+    assert "both reindex" in rollback_guidance
+    assert "rollback release" in rollback_guidance
+    assert "Checkout-based rollback" in rollback_guidance
+    prebuilt_image_guidance = rollback_guidance[
+        rollback_guidance.index("Prebuilt-image rollback") :
+    ]
+    assert 'ROLLBACK_COMPOSE_FILE="<ROLLBACK_COMPOSE_FILE>"' in (
+        prebuilt_image_guidance
+    )
+    assert "--rm --no-deps pipeline python db_migrate.py" in prebuilt_image_guidance
+    assert (
+        "--rm --no-deps semantic python ../pipeline/reindex_semantic.py"
+        in prebuilt_image_guidance
+    )
+    prebuilt_image_commands = prebuilt_image_guidance.split("```bash", maxsplit=1)[
+        1
+    ].split("```", maxsplit=1)[0]
+    rollback_compose_command = 'docker compose -f "$ROLLBACK_COMPOSE_FILE"'
+    assert "set -euo pipefail" in prebuilt_image_commands
+    assert "--build" not in prebuilt_image_commands
+    assert prebuilt_image_commands.count(
+        rollback_compose_command
+    ) == prebuilt_image_commands.count("docker compose")
