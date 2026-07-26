@@ -43,6 +43,7 @@ The task-level ownership set is authoritative for this PR:
 - `docs/plans/G5_ALEMBIC_ADOPTION_DECISION_PLAN.md`
 - `alembic.ini`
 - `alembic/**`
+- `ruff.toml` (`pipeline/db_migration_runner.py` BLE001 selector removal only)
 - `pipeline/requirements.txt`
 - `pipeline/db_init.py`
 - `pipeline/db_migrate.py`
@@ -78,7 +79,7 @@ The task-level ownership set is authoritative for this PR:
 - `tests/test_database.py` promotion handoff only
 - `tests/test_pipeline_idempotency.py` promotion handoff only
 - `tests/test_pipeline_integration.py` promotion handoff only
-- `tests/test_repository_guardrails.py` migration CI contract only
+- `tests/test_repository_guardrails.py` migration CI and BLE001 ratchet only
 - `tests/test_run_pipeline_orchestration.py` migration prelude only
 
 T-GOV-3 must not run concurrently. The pypdf and PostCSS security alerts are
@@ -190,8 +191,8 @@ New-module responsibilities and import direction:
 - `pipeline/db_migration_alembic.py`: state machine, transaction, lock, and
   Alembic commands; imports schema contracts and frozen legacy owners, never
   `db_migrate`.
-- `scripts/check_schema_parity.py`: CLI translation only; imports the schema
-  contract owner, never the facade.
+- `scripts/check_schema_parity.py`: CLI translation only; imports the Alembic
+  parity operation, which delegates comparison to the schema contract owner.
 - `alembic/env.py`: Alembic runtime adapter; imports model metadata only for
   future autogeneration and accepts an external connection through
   `Config.attributes`.
@@ -297,10 +298,11 @@ All timestamps remain timezone-aware UTC.
 - H2-H4: no type suppression, hand-rolled alternate contract, or import-time
   engine/network work.
 
-**o) Ratchet interaction.** No Ruff selector, BLE001 boundary, coverage floor,
-formatter scope, or Mypy scope is widened. `db_migration_runner.py` leaves the
-BLE001 inventory if its only broad handler is removed. The guardrail test adds
-only migration CI and no-v11 contracts.
+**o) Ratchet interaction.** No Ruff rule, coverage floor, formatter scope, or
+Mypy scope is widened. The operator-approved scope correction removes one
+stale selector: `pipeline/db_migration_runner.py` leaves the BLE001 inventory
+after its only broad handler is removed. The guardrail test adds only
+migration CI and no-v11 contracts.
 
 **p) Dead code and duplication audit.** Delete mutable v8 metadata access,
 best-effort migration swallowing, implicit schema creation in three
@@ -476,13 +478,19 @@ PYTHONPATH=. .venv/bin/python -m pytest -q \
   --cov-report=term-missing:skip-covered tests/
 docker compose config --quiet
 docker compose build pipeline api worker
-docker compose down --volumes
-docker compose up -d postgres
-docker compose run --rm pipeline python db_migrate.py
-docker compose run --rm pipeline python seed_places.py
-docker compose up -d api worker
-docker compose exec -T api python -c \
+COMPOSE_PROJECT_NAME=town-council-alembic-smoke \
+  docker compose up -d postgres
+COMPOSE_PROJECT_NAME=town-council-alembic-smoke \
+  docker compose run --rm pipeline python db_migrate.py
+COMPOSE_PROJECT_NAME=town-council-alembic-smoke \
+  docker compose run --rm pipeline python seed_places.py
+COMPOSE_PROJECT_NAME=town-council-alembic-smoke \
+  docker compose up -d api worker
+COMPOSE_PROJECT_NAME=town-council-alembic-smoke \
+  docker compose exec -T api python -c \
   "from pipeline.models import db_connect; print(db_connect().dialect.name)"
+COMPOSE_PROJECT_NAME=town-council-alembic-smoke \
+  docker compose down --volumes
 git diff --check
 git status --short
 ```
@@ -541,10 +549,11 @@ count, schema parity output, row checksums, downgrade result, Docker smoke,
 full-suite counts/coverage, planning-review findings, pre-commit findings,
 commit hashes, PR URL, unresolved thread count, and CI state.
 
-**z) Deviations.** Expected deviations: none. Any additional file, new
-environment variable, unsupported stamp path, optional PostgreSQL CI skip,
-post-v10 numbered migration, dual schema owner, unresolved P1/P2, or unrun
-required check blocks handoff.
+**z) Deviations.** Authorized deviation: T-PLAT-1 owns the one-line
+`ruff.toml` removal required by its strict legacy-runner change. Any other
+additional file, new environment variable, unsupported stamp path, optional
+PostgreSQL CI skip, post-v10 numbered migration, dual schema owner, unresolved
+P1/P2, or unrun required check blocks handoff.
 
 ## Independent Planning Review Incorporated
 

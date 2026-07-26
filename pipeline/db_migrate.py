@@ -1,47 +1,27 @@
-"""
-Additive schema migrations for local/dev environments.
-
-Why this exists:
-This repo does not use Alembic migrations yet. `create_all()` can create missing
-tables, but it will NOT add new columns to existing tables. When the Python
-models evolve, older databases can break at runtime.
-
-This script applies small, additive migrations (safe ALTER TABLE) so existing
-dev databases can keep working without requiring destructive resets.
-"""
-
 from __future__ import annotations
 
 import logging
 
-from sqlalchemy.engine import Connection
-
-from pipeline import migrate_v8
-from pipeline import migrate_v9
-from pipeline import migrate_v10
-from pipeline.db_migration_columns import add_column_if_missing, postgres_column_exists
-from pipeline.db_migration_runner import run_migrations
+from pipeline import db_migration_alembic
 from pipeline.models import db_connect
 
-logger = logging.getLogger("db-migrate")
 
-
-def _postgres_column_exists(conn: Connection, table: str, column: str) -> bool:
-    return postgres_column_exists(conn, table, column)
-
-
-def _add_column_if_missing(conn: Connection, table: str, column: str, ddl: str) -> bool:
-    return add_column_if_missing(conn, table, column, ddl, logger)
+LOGGER = logging.getLogger("db-migrate")
 
 
 def migrate() -> None:
-    run_migrations(
-        db_connect_callable=db_connect,
-        migrate_v8_module=migrate_v8,
-        migrate_v9_module=migrate_v9,
-        logger=logger,
-    )
-    migrate_v10.migrate()
+    engine = db_connect()
+    try:
+        migration_outcome = db_migration_alembic.migrate_database(engine)
+        LOGGER.info(
+            "database_migration_complete status=%s revision=%s "
+            "retired_catalog_vector_count=%d",
+            migration_outcome.status,
+            migration_outcome.revision,
+            migration_outcome.retired_vector_count,
+        )
+    finally:
+        engine.dispose()
 
 
 if __name__ == "__main__":

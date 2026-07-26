@@ -127,7 +127,7 @@ def test_main_runs_steps_in_expected_order(mocker):
 
     run_pipeline.main()
 
-    assert calls[0][0] == "DB Migrate"
+    assert calls[0] == ("DB Migrate", ("python", "db_migrate.py"))
     assert calls[1][0] == "Seed Places"
     assert calls[2][0] == "Promote Staged Events"
     assert calls[3][0] == "Downloader"

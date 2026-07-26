@@ -52,7 +52,12 @@ Important validation behavior:
   `council_crawler/council_crawler/pipelines.py`.
 
 ### 4) Seed + process
+
+Apply migrations before seeding. Seed and promotion commands intentionally
+fail when the schema is missing.
+
 ```bash
+docker compose run --rm pipeline python db_migrate.py
 docker compose run --rm pipeline python seed_places.py
 docker compose run --rm crawler scrapy crawl <city_spider_name>
 docker compose run --rm pipeline python run_pipeline.py

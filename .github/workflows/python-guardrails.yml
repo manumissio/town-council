@@ -62,5 +62,8 @@ jobs:
           PYTHONPATH=. python -m pytest -q tests/test_pipeline_profile_report.py
           PYTHONPATH=. python -m pytest -q tests/test_docs_links.py
 
+      - name: Run PostgreSQL migration acceptance
+        run: PYTHONPATH=. python -m pytest -q tests/test_alembic_migrations.py
+
       - name: Run full Python test suite
         run: PYTHONPATH=. python -m pytest -q --cov --cov-config=.coveragerc --cov-report=term-missing:skip-covered tests/

@@ -1,6 +1,6 @@
 # Town Council Pipeline Guide
 
-Last updated: 2026-05-16
+Last updated: 2026-07-26
 
 ## 1) Purpose and Boundaries
 
@@ -44,9 +44,14 @@ Town Council uses two complementary pipelines:
 
 Why this exists:
 - Later stages assume canonical rows, valid schema, and local files already present.
-- `db_migrate.py` remains the supported additive upgrade facade for older Postgres schemas.
-  Focused `pipeline/db_migration_*` helpers own column checks, additive column plans, backfills, and submigration orchestration.
-- `pipeline/migrate_v8.py` and `pipeline/migrate_v9.py` remain compatibility wrappers around descriptive pgvector and lineage migration modules.
+- `db_migrate.py` is the single supported schema entrypoint. It migrates fresh
+  databases, adopts supported unversioned databases through frozen migration
+  history, and upgrades versioned databases to the current Alembic head.
+- Alembic owns the baseline and every post-baseline revision.
+- The numbered migration history through v10 is frozen adoption history, not a
+  second path for new schema changes.
+- `seed_places.py` and `promote_stage.py` require a migrated schema and fail
+  rather than creating missing tables.
 
 ### Stage B: Parallel document processing
 `run_parallel_processing()` finds records needing extraction or extraction-state repair and processes them in chunked parallel workers.

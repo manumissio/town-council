@@ -170,26 +170,34 @@ def _analyze_changed_tables(connection: Connection, changed_tables: set[str]) ->
         )
 
 
-def migrate() -> None:
-    engine = db_connect()
-    if engine.dialect.name != POSTGRESQL_DIALECT:
+def migrate(connection: Connection | None = None) -> None:
+    if connection is not None:
+        _migrate_connection(connection)
         return
 
-    with engine.begin() as connection:
-        timestamp_contracts = {
-            timestamp_spec: _read_timestamp_contract(connection, timestamp_spec)
-            for timestamp_spec in TIMESTAMP_COLUMNS
-        }
-        changed_tables = {
-            timestamp_spec.table_name
-            for timestamp_spec in TIMESTAMP_COLUMNS
-            if _migrate_timestamp_column(
-                connection,
-                timestamp_spec,
-                timestamp_contracts[timestamp_spec],
-            )
-        }
-        _analyze_changed_tables(connection, changed_tables)
+    engine = db_connect()
+    with engine.begin() as owned_connection:
+        _migrate_connection(owned_connection)
+
+
+def _migrate_connection(connection: Connection) -> None:
+    if connection.dialect.name != POSTGRESQL_DIALECT:
+        return
+
+    timestamp_contracts = {
+        timestamp_spec: _read_timestamp_contract(connection, timestamp_spec)
+        for timestamp_spec in TIMESTAMP_COLUMNS
+    }
+    changed_tables = {
+        timestamp_spec.table_name
+        for timestamp_spec in TIMESTAMP_COLUMNS
+        if _migrate_timestamp_column(
+            connection,
+            timestamp_spec,
+            timestamp_contracts[timestamp_spec],
+        )
+    }
+    _analyze_changed_tables(connection, changed_tables)
 
 
 if __name__ == "__main__":

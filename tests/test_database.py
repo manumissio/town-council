@@ -3,7 +3,8 @@ import sys
 import os
 from pathlib import Path
 import pytest
-from sqlalchemy import create_engine
+from sqlalchemy import create_engine, event
+from sqlalchemy.exc import OperationalError
 from sqlalchemy.orm import sessionmaker
 
 # Setup: Add project root and pipeline dir to path so imports work.
@@ -103,6 +104,25 @@ def test_promotion_keeps_blocked_rows_in_event_stage(db_session, mocker):
     remaining = db_session.query(EventStage).all()
     assert len(remaining) == 1
     assert remaining[0].name == "Blocked Meeting"
+
+
+def test_promotion_fails_on_unmigrated_schema(mocker, caplog):
+    engine = create_engine("sqlite:///:memory:")
+    rollback_observed = False
+
+    def record_rollback(_connection) -> None:
+        nonlocal rollback_observed
+        rollback_observed = True
+
+    event.listen(engine, "rollback", record_rollback)
+    mocker.patch("pipeline.promote_stage.db_connect", return_value=engine)
+
+    with pytest.raises(OperationalError):
+        promote_stage()
+
+    assert rollback_observed is True
+    assert "Error during promotion" in caplog.text
+    engine.dispose()
 
 
 def test_db_connect_requires_explicit_database_url(monkeypatch):

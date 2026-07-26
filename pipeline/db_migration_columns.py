@@ -42,6 +42,11 @@ CORE_COLUMN_MIGRATIONS = (
     ColumnMigration("catalog", "entities_source_hash", "ALTER TABLE catalog ADD COLUMN entities_source_hash VARCHAR(64)"),
     ColumnMigration("catalog", "agenda_items_hash", "ALTER TABLE catalog ADD COLUMN agenda_items_hash VARCHAR(64)"),
 )
+PERSON_CONSTRAINT_REPAIRS = (
+    "ALTER TABLE person ALTER COLUMN is_elected SET DEFAULT false",
+    "ALTER TABLE person ALTER COLUMN person_type SET DEFAULT 'mentioned'",
+    "ALTER TABLE person ALTER COLUMN person_type SET NOT NULL",
+)
 
 
 def postgres_column_exists(conn: Connection, table: str, column: str) -> bool:
@@ -74,12 +79,17 @@ def add_column_if_missing(conn: Connection, table: str, column: str, ddl: str, l
 
 def apply_core_column_migrations(conn: Connection, logger: logging.Logger) -> None:
     for column_migration in CORE_COLUMN_MIGRATIONS:
-        added = add_column_if_missing(
+        add_column_if_missing(
             conn,
             column_migration.table,
             column_migration.column,
             column_migration.ddl,
             logger,
         )
-        if added and column_migration.index_sql:
+        if column_migration.index_sql:
             conn.execute(text(column_migration.index_sql))
+
+
+def apply_core_constraint_repairs(conn: Connection) -> None:
+    for constraint_repair in PERSON_CONSTRAINT_REPAIRS:
+        conn.execute(text(constraint_repair))

@@ -1,6 +1,6 @@
 # Operations Runbook
 
-Last updated: 2026-07-25
+Last updated: 2026-07-26
 
 ## Core workflow
 
@@ -17,15 +17,6 @@ cd "$REPO_ROOT"
 ### 1) Start stack
 ```bash
 test -f .env || cp .env.example .env
-docker compose -f docker-compose.yml -f docker-compose.dev.yml up -d --build \
-  postgres redis meilisearch tika inference semantic semantic-worker api worker enrichment-worker monitor frontend ingress
-bash ./scripts/bootstrap_local_models.sh
-docker compose -f docker-compose.yml -f docker-compose.dev.yml run --rm \
-  pipeline python db_init.py
-```
-
-Optional helper (same steps, fewer flags to remember):
-```bash
 bash ./scripts/dev_up.sh
 ```
 
@@ -63,9 +54,10 @@ docker compose exec -T worker python scripts/worker_healthcheck.py
 ```
 
 What `scripts/dev_up.sh` does:
-- starts the core Docker Compose stack (with `--build`)
+- starts PostgreSQL and waits for it to accept connections
+- runs the canonical database migration entrypoint
 - bootstraps the shared local model volume
-- initializes the DB schema
+- starts the remaining Docker Compose stack (with `--build`)
 - runs a small smoke check (`/health`)
 
 Public frontend traffic enters through Caddy on `http://localhost:3000`.
@@ -91,7 +83,100 @@ What it does *not* do:
 - scrape any city data (no crawler runs)
 - process/index documents (no `run_pipeline.py`)
 
-### Timezone migration v10
+### Database migrations and backups
+
+`pipeline/db_migrate.py` is the only supported schema entrypoint. It handles
+fresh databases, guarded adoption of unversioned databases through the frozen
+v10 history, and upgrades to the current Alembic head. `db_init.py` remains a
+compatibility command that delegates to the same implementation. Seeding and
+promotion do not create tables; run migration first.
+
+Before migrating an existing database, stop every writer and create a verified
+PostgreSQL backup:
+
+```bash
+BACKUP_PATH="<BACKUP_PATH>/town_council_pre_migration.dump"
+
+docker compose -f docker-compose.yml -f docker-compose.dev.yml stop
+docker compose -f docker-compose.yml -f docker-compose.dev.yml up -d postgres
+docker compose exec -T postgres pg_dump \
+  -U town_council -d town_council_db -Fc > "$BACKUP_PATH"
+docker compose exec -T postgres pg_restore --list < "$BACKUP_PATH" >/dev/null
+docker compose -f docker-compose.yml -f docker-compose.dev.yml run \
+  --rm --build --no-deps pipeline python db_migrate.py
+```
+
+Migration lock conflicts, legacy migration errors, and schema-parity failures
+exit nonzero without stamping the database. Do not run an unguarded
+`alembic stamp`. The baseline is the downgrade floor; restore the verified
+backup instead of attempting to downgrade below it.
+
+Verify the migrated database against the current Alembic head:
+
+```bash
+docker compose -f docker-compose.yml -f docker-compose.dev.yml run \
+  --rm --no-deps pipeline python /app/scripts/check_schema_parity.py
+```
+
+The command must print `Schema parity: PASS`. Any reported object difference
+blocks writer restart until the migration or unexpected schema drift is
+resolved.
+
+Unversioned adoption logs `retired_catalog_vector_count`. A nonzero value
+means frozen v8 removed derived vectors from the retired `catalog` column.
+After the semantic worker is healthy, re-enqueue embeddings for catalogs with
+summaries:
+
+```bash
+docker compose -f docker-compose.yml -f docker-compose.dev.yml run \
+  --rm --no-deps pipeline python - <<'PY'
+from sqlalchemy import select
+from sqlalchemy.orm import Session
+
+from pipeline.models import Catalog, db_connect
+from pipeline.summary_backfill_dispatch import enqueue_embed_catalogs
+
+EMBEDDING_DISPATCH_BATCH_SIZE = 500
+
+engine = db_connect()
+try:
+    with Session(engine) as session:
+        last_catalog_id = 0
+        while True:
+            catalog_ids = list(
+                session.scalars(
+                    select(Catalog.id)
+                    .where(
+                        Catalog.summary.is_not(None),
+                        Catalog.id > last_catalog_id,
+                    )
+                    .order_by(Catalog.id)
+                    .limit(EMBEDDING_DISPATCH_BATCH_SIZE)
+                )
+            )
+            if not catalog_ids:
+                break
+            print(enqueue_embed_catalogs(catalog_ids))
+            last_catalog_id = catalog_ids[-1]
+finally:
+    engine.dispose()
+PY
+```
+
+Confirm `embed_dispatch_failed=0`, then monitor the semantic worker until the
+queued tasks finish. Embeddings are derived data; the migration transaction
+preserves source catalog, document, event, agenda, and civic records.
+
+Rollback restores the backup while writers remain stopped:
+
+```bash
+docker compose exec -T postgres pg_restore \
+  -U town_council -d town_council_db --clean --if-exists --exit-on-error \
+  < "$BACKUP_PATH"
+docker compose -f docker-compose.yml -f docker-compose.dev.yml up -d --build
+```
+
+#### Historical timezone migration v10
 
 Run v10 before restarting application writers after deploying the coordinated
 T-TIME-1 + T-TIME-2 release. The conversion takes PostgreSQL table locks and

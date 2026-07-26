@@ -87,9 +87,9 @@ def _create_legacy_timestamp_schema(engine: Engine, migration_module: ModuleType
             )
 
 
-def _run_migration(monkeypatch: pytest.MonkeyPatch, engine: Engine, migration_module: ModuleType) -> None:
-    monkeypatch.setattr(migration_module, "db_connect", lambda: engine)
-    migration_module.migrate()
+def _run_migration(engine: Engine, migration_module: ModuleType) -> None:
+    with engine.begin() as connection:
+        migration_module.migrate(connection)
 
 
 def _physical_timestamp_contract(engine: Engine) -> dict[tuple[str, str], tuple[str, str | None]]:
@@ -122,13 +122,12 @@ def _expected_physical_contract(migration_module: ModuleType) -> dict[tuple[str,
 
 
 def test_migrate_converts_all_timestamps_and_enforces_physical_defaults(
-    monkeypatch: pytest.MonkeyPatch,
     postgres_schema_engine: Engine,
 ) -> None:
     migration_module = _migration_module()
     _create_legacy_timestamp_schema(postgres_schema_engine, migration_module)
 
-    _run_migration(monkeypatch, postgres_schema_engine, migration_module)
+    _run_migration(postgres_schema_engine, migration_module)
 
     physical_contract = _physical_timestamp_contract(postgres_schema_engine)
     expected_contract = _expected_physical_contract(migration_module)
@@ -142,12 +141,11 @@ def test_migrate_converts_all_timestamps_and_enforces_physical_defaults(
 
 
 def test_migrate_preserves_utc_instant_under_non_utc_session(
-    monkeypatch: pytest.MonkeyPatch,
     postgres_schema_engine: Engine,
 ) -> None:
     migration_module = _migration_module()
     _create_legacy_timestamp_schema(postgres_schema_engine, migration_module)
-    _run_migration(monkeypatch, postgres_schema_engine, migration_module)
+    _run_migration(postgres_schema_engine, migration_module)
 
     with postgres_schema_engine.connect() as connection:
         connection.execute(text(f"SET TIME ZONE '{NON_UTC_SESSION_TIMEZONE}'"))
@@ -159,12 +157,11 @@ def test_migrate_preserves_utc_instant_under_non_utc_session(
 
 
 def test_migrate_is_idempotent(
-    monkeypatch: pytest.MonkeyPatch,
     postgres_schema_engine: Engine,
 ) -> None:
     migration_module = _migration_module()
     _create_legacy_timestamp_schema(postgres_schema_engine, migration_module)
-    _run_migration(monkeypatch, postgres_schema_engine, migration_module)
+    _run_migration(postgres_schema_engine, migration_module)
     first_contract = _physical_timestamp_contract(postgres_schema_engine)
     rerun_statements: list[str] = []
 
@@ -178,7 +175,7 @@ def test_migrate_is_idempotent(
         named=True,
     )
     try:
-        _run_migration(monkeypatch, postgres_schema_engine, migration_module)
+        _run_migration(postgres_schema_engine, migration_module)
     finally:
         event.remove(postgres_schema_engine, "before_cursor_execute", capture_rerun_statement)
 
@@ -188,7 +185,6 @@ def test_migrate_is_idempotent(
 
 
 def test_migrate_converges_mixed_timestamp_schema(
-    monkeypatch: pytest.MonkeyPatch,
     postgres_schema_engine: Engine,
 ) -> None:
     migration_module = _migration_module()
@@ -209,7 +205,7 @@ def test_migrate_converges_mixed_timestamp_schema(
             )
         )
 
-    _run_migration(monkeypatch, postgres_schema_engine, migration_module)
+    _run_migration(postgres_schema_engine, migration_module)
 
     physical_contract = _physical_timestamp_contract(postgres_schema_engine)
     assert all(data_type == "timestamp with time zone" for data_type, _ in physical_contract.values())
@@ -217,7 +213,6 @@ def test_migrate_converges_mixed_timestamp_schema(
 
 @pytest.mark.parametrize("schema_defect", ["missing", "unsupported"])
 def test_migrate_rolls_back_when_schema_is_not_supported(
-    monkeypatch: pytest.MonkeyPatch,
     postgres_schema_engine: Engine,
     schema_defect: str,
 ) -> None:
@@ -260,7 +255,7 @@ def test_migrate_rolls_back_when_schema_is_not_supported(
     )
     try:
         with pytest.raises(migration_module.TimestampMigrationError):
-            _run_migration(monkeypatch, postgres_schema_engine, migration_module)
+            _run_migration(postgres_schema_engine, migration_module)
     finally:
         event.remove(postgres_schema_engine, "before_cursor_execute", capture_migration_statement)
 
@@ -272,13 +267,25 @@ def test_migrate_rolls_back_when_schema_is_not_supported(
     assert not any(statement.lstrip().upper().startswith("ALTER TABLE") for statement in migration_statements)
 
 
-def test_migrate_is_no_op_for_sqlite(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_migrate_is_no_op_for_sqlite() -> None:
     migration_module = _migration_module()
     sqlite_engine = create_engine("sqlite:///:memory:")
     with sqlite_engine.begin() as connection:
         connection.execute(text("CREATE TABLE migration_sentinel (id INTEGER PRIMARY KEY)"))
 
-    _run_migration(monkeypatch, sqlite_engine, migration_module)
+    _run_migration(sqlite_engine, migration_module)
 
     assert inspect(sqlite_engine).has_table("migration_sentinel")
+    sqlite_engine.dispose()
+
+
+def test_migrate_preserves_historical_cli_entrypoint(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    migration_module = _migration_module()
+    sqlite_engine = create_engine("sqlite:///:memory:")
+    monkeypatch.setattr(migration_module, "db_connect", lambda: sqlite_engine)
+
+    migration_module.migrate()
+
     sqlite_engine.dispose()

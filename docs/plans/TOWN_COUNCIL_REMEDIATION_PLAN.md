@@ -1,6 +1,6 @@
 # Town Council Remediation Plan (Codex Multi-Agent)
 
-version: 3.51
+version: 3.52
 generated: 2026-07-26
 source: Four-pass external code review (security, architecture, smells, process)
 source_artifact: [Town Council architecture review](../reviews/architecture-review-2026-07-19.html)
@@ -10,6 +10,10 @@ remains in force; where this plan is stricter, this plan wins for these tasks.
 
 ## Changelog
 
+- **v3.52:** Grants T-PLAT-1 narrow ownership of `ruff.toml` to remove the
+  stale `pipeline/db_migration_runner.py` BLE001 selector after the strict
+  legacy runner eliminated its broad handler. No Ruff rule, source scope, or
+  other exception changes.
 - **v3.51:** Marks coordinated T-TIME-1 and T-TIME-2 complete after PR #148
   merged with PostgreSQL migration evidence and activates T-PLAT-1. Expands
   T-PLAT-1 ownership for its Full plan, strict legacy runner, focused Alembic
@@ -318,7 +322,7 @@ remains in force; where this plan is stricter, this plan wins for these tasks.
 | DEDUP-C   | agent-dc   | api/main.py, api/app_setup.py, tests/conftest.py, tests/test_*api* (Phase 2 only) |
 | DEDUP-D   | agent-dd   | scripts/flush_city_pipeline_state.py, scripts/reset_city_verification_state.py, scripts/*_healthcheck.py, tests for same |
 | DEDUP-E   | agent-de   | pipeline/http_inference_provider.py, pipeline/inprocess_inference_provider.py, pipeline/inference_provider_contract.py, tests for same |
-| PLAT      | agent-plat | alembic/** (new), alembic.ini (new), pipeline/requirements*.txt, pipeline/db_init.py (T-PLAT-1 only), pipeline/db_migrate.py (T-PLAT-1 only, after TIME), pipeline/db_migration_alembic.py (new, T-PLAT-1 only), pipeline/db_migration_backfills.py (T-PLAT-1 shared transaction only), pipeline/db_migration_runner.py (T-PLAT-1 strict legacy path only), pipeline/db_schema_contracts.py (new, T-PLAT-1 only), pipeline/db_migration_columns.py (T-PLAT-1 legacy parity only), pipeline/migrate_v8.py (T-PLAT-1 frozen transaction adapter only), pipeline/migration_pgvector_semantic_embeddings.py (T-PLAT-1 frozen metadata only), pipeline/migrate_v9.py and pipeline/migration_catalog_lineage_columns.py (T-PLAT-1 shared transaction only), pipeline/migrate_v10.py (T-PLAT-1 shared transaction only), pipeline/seed_places.py (T-PLAT-1 schema handoff only), pipeline/promote_stage.py (T-PLAT-1 schema handoff only), scripts/check_schema_parity.py (new, T-PLAT-1 only), scripts/dev_up.sh (T-PLAT-1 only), README.md (T-PLAT-1 setup section only), ARCHITECTURE.md (T-PLAT-1 migration map only), api/requirements.txt, semantic_service/requirements.txt, constraints.txt (new), .github/dependabot.yml (new), .github/workflows/python-guardrails.yml (T-PLAT-1 PostgreSQL migration service/step only), docs/OPERATIONS.md (migration and backup sections only), docs/PIPELINE.md (T-PLAT-1 migration section only), docs/CONTRIBUTING_CITIES.md (T-PLAT-1 seed prerequisite only), docs/plans/T_PLAT_1_ALEMBIC_BASELINE_PLAN.md (new), docs/plans/G5_ALEMBIC_ADOPTION_DECISION_PLAN.md (T-PLAT-1 status only), docs/plans/TOWN_COUNCIL_REMEDIATION_PLAN.md (T-PLAT-1 only), tests/test_alembic_migrations.py (new), tests/test_db_init.py (T-PLAT-1 only), tests/test_db_migrate.py (T-PLAT-1 only), tests/test_docker_build_contracts.py (T-PLAT-1 fresh-DB contract only), tests/test_migrate_v8_pgvector_order.py (T-PLAT-1 only), tests/test_migrate_v9.py (T-PLAT-1 only), tests/test_migrate_v10.py (T-PLAT-1 only), tests/test_seed_places.py (T-PLAT-1 schema handoff only), tests/test_seed_places_includes_cupertino.py (T-PLAT-1 schema handoff only), tests/test_database.py (T-PLAT-1 promotion schema handoff only), tests/test_pipeline_idempotency.py (T-PLAT-1 promotion schema handoff only), tests/test_pipeline_integration.py (T-PLAT-1 promotion schema handoff only), tests/test_repository_guardrails.py (T-PLAT-1 migration CI contract only), tests/test_run_pipeline_orchestration.py (T-PLAT-1 migration-prelude contract only), api/cache.py |
+| PLAT      | agent-plat | alembic/** (new), alembic.ini (new), pipeline/requirements*.txt, pipeline/db_init.py (T-PLAT-1 only), pipeline/db_migrate.py (T-PLAT-1 only, after TIME), pipeline/db_migration_alembic.py (new, T-PLAT-1 only), pipeline/db_migration_backfills.py (T-PLAT-1 shared transaction only), pipeline/db_migration_runner.py (T-PLAT-1 strict legacy path only), pipeline/db_schema_contracts.py (new, T-PLAT-1 only), pipeline/db_migration_columns.py (T-PLAT-1 legacy parity only), pipeline/migrate_v8.py (T-PLAT-1 frozen transaction adapter only), pipeline/migration_pgvector_semantic_embeddings.py (T-PLAT-1 frozen metadata only), pipeline/migrate_v9.py and pipeline/migration_catalog_lineage_columns.py (T-PLAT-1 shared transaction only), pipeline/migrate_v10.py (T-PLAT-1 shared transaction only), pipeline/seed_places.py (T-PLAT-1 schema handoff only), pipeline/promote_stage.py (T-PLAT-1 schema handoff only), scripts/check_schema_parity.py (new, T-PLAT-1 only), scripts/dev_up.sh (T-PLAT-1 only), README.md (T-PLAT-1 setup section only), ARCHITECTURE.md (T-PLAT-1 migration map only), api/requirements.txt, semantic_service/requirements.txt, constraints.txt (new), .github/dependabot.yml (new), .github/workflows/python-guardrails.yml (T-PLAT-1 PostgreSQL migration service/step only), ruff.toml (T-PLAT-1 stale db_migration_runner.py BLE001 selector removal only), docs/OPERATIONS.md (migration and backup sections only), docs/PIPELINE.md (T-PLAT-1 migration section only), docs/CONTRIBUTING_CITIES.md (T-PLAT-1 seed prerequisite only), docs/plans/T_PLAT_1_ALEMBIC_BASELINE_PLAN.md (new), docs/plans/G5_ALEMBIC_ADOPTION_DECISION_PLAN.md (T-PLAT-1 status only), docs/plans/TOWN_COUNCIL_REMEDIATION_PLAN.md (T-PLAT-1 only), tests/test_alembic_migrations.py (new), tests/test_db_init.py (T-PLAT-1 only), tests/test_db_migrate.py (T-PLAT-1 only), tests/test_docker_build_contracts.py (T-PLAT-1 fresh-DB contract only), tests/test_migrate_v8_pgvector_order.py (T-PLAT-1 only), tests/test_migrate_v9.py (T-PLAT-1 only), tests/test_migrate_v10.py (T-PLAT-1 only), tests/test_seed_places.py (T-PLAT-1 schema handoff only), tests/test_seed_places_includes_cupertino.py (T-PLAT-1 schema handoff only), tests/test_database.py (T-PLAT-1 promotion schema handoff only), tests/test_pipeline_idempotency.py (T-PLAT-1 promotion schema handoff only), tests/test_pipeline_integration.py (T-PLAT-1 promotion schema handoff only), tests/test_repository_guardrails.py (T-PLAT-1 migration CI and BLE001 ratchet only), tests/test_run_pipeline_orchestration.py (T-PLAT-1 migration-prelude contract only), api/cache.py |
 | GOV       | agent-gov  | docs/ADR.md, docs/ENGINEERING_GUARDRAILS.md, AGENTS.md, SECURITY.md (new), docs/TESTING.md (new), docs/DATA_GOVERNANCE.md (new), tests/test_repository_guardrails.py (Phase 3 only) |
 
 Sequencing rule: SEC and DEDUP-C both own api/app_setup.py + api/main.py —
@@ -347,6 +351,9 @@ in `AGENTS.md`, `docs/TESTING.MD`, and
 T-PLAT-1 and T-GOV-3 MUST NOT run concurrently because both own focused
 changes in `tests/test_repository_guardrails.py`; whichever starts second
 must wait for the first PR to merge and rebase on `master`.
+T-PLAT-1 also receives a narrow operator-approved coordination grant over
+CI-owned `ruff.toml` for removal of the stale
+`pipeline/db_migration_runner.py` BLE001 selector only.
 
 ---
 
@@ -1130,6 +1137,7 @@ files (GED-5 grant).
   docs/plans/T_PLAT_1_ALEMBIC_BASELINE_PLAN.md,
   docs/plans/TOWN_COUNCIL_REMEDIATION_PLAN.md,
   docs/plans/G5_ALEMBIC_ADOPTION_DECISION_PLAN.md (status only),
+  ruff.toml (`pipeline/db_migration_runner.py` BLE001 selector removal only),
   pipeline/requirements.txt, pipeline/db_init.py (fresh-DB handoff),
   pipeline/db_migrate.py (Alembic handoff),
   pipeline/db_migration_alembic.py (new),
@@ -1159,7 +1167,7 @@ files (GED-5 grant).
   (schema handoff only), tests/test_database.py,
   tests/test_pipeline_idempotency.py, and tests/test_pipeline_integration.py
   (promotion schema handoff only),
-  tests/test_repository_guardrails.py (migration CI contract only),
+  tests/test_repository_guardrails.py (migration CI and BLE001 ratchet only),
   tests/test_run_pipeline_orchestration.py (migration-prelude contract only)
 - do: `alembic init`; autogenerate a baseline revision from current models
   after T-TIME-2, then reconcile it against an explicit inventory of every

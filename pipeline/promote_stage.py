@@ -1,9 +1,10 @@
 import logging
-from sqlalchemy.orm import sessionmaker
+
 from sqlalchemy.exc import SQLAlchemyError
+from sqlalchemy.orm import Session, sessionmaker
 
 from pipeline.cli_logging import configure_cli_logging
-from pipeline.models import Event, EventStage, Place, db_connect, create_tables
+from pipeline.models import Event, EventStage, Place, db_connect
 from pipeline.utils import generate_ocd_id
 
 LOGGER_NAME = "promote-stage"
@@ -17,103 +18,96 @@ def _configure_cli_logging() -> None:
     configure_cli_logging(LOGGER_FORMAT)
 
 
-def promote_stage():
-    """
-    Moves scraped meeting data from the 'staging' table to the 'production' table.
-    
-    Why this is needed:
-    The crawler saves data to a temporary staging area first. This script checks
-    that data for validity and duplicates before officially adding it to the main
-    'Event' table that the application uses.
-    """
-    engine = db_connect()
-    create_tables(engine)
-    session_factory = sessionmaker(bind=engine)
-    session = session_factory()
-
-    logger.info("Promoting EventStage records to Event...")
-
-    # Get all the meetings currently sitting in the staging area.
-    staged_events = session.query(EventStage).all()
-    
+def _promote_staged_events(session: Session) -> tuple[list[int], int, int]:
     promoted_count = 0
     skipped_count = 0
-    promoted_ids = []
+    promoted_ids: list[int] = []
 
-    for staged in staged_events:
-        # 1. Find the City (Place) this meeting belongs to.
-        # We need to link the meeting to a valid Place ID in our database.
-        place = session.query(Place).filter(
-            Place.ocd_division_id == staged.ocd_division_id
-        ).first()
-
+    for staged_event in session.query(EventStage).all():
+        place = (
+            session.query(Place)
+            .filter(Place.ocd_division_id == staged_event.ocd_division_id)
+            .first()
+        )
         if not place:
             logger.warning(
                 "Skipping EventStage id=%s reason=blocked_missing_place ocd_division_id=%s event=%s",
-                staged.id,
-                staged.ocd_division_id,
-                staged.name,
+                staged_event.id,
+                staged_event.ocd_division_id,
+                staged_event.name,
             )
             skipped_count += 1
             continue
 
-        # 2. Check for Duplicates.
-        # Don't add the meeting if we already have it (same city, same date, same name).
-        existing = session.query(Event).filter(
-            Event.ocd_division_id == staged.ocd_division_id,
-            Event.record_date == staged.record_date,
-            Event.name == staged.name
-        ).first()
-
-        if not existing:
-            # 3. Create the Production Record.
-            # Copy valid data from staging to the live Event table.
-            event = Event(
-                ocd_id=generate_ocd_id('event'),
-                ocd_division_id=staged.ocd_division_id,
-                place_id=place.id,
-                name=staged.name,
-                scraped_datetime=staged.scraped_datetime,
-                record_date=staged.record_date,
-                source=staged.source,
-                source_url=staged.source_url,
-                meeting_type=staged.meeting_type
+        existing_event = (
+            session.query(Event)
+            .filter(
+                Event.ocd_division_id == staged_event.ocd_division_id,
+                Event.record_date == staged_event.record_date,
+                Event.name == staged_event.name,
             )
-            session.add(event)
-            promoted_count += 1
-            promoted_ids.append(staged.id)
-        else:
+            .first()
+        )
+        if existing_event:
             logger.info(
                 "Skipping EventStage id=%s reason=duplicate ocd_division_id=%s event=%s",
-                staged.id,
-                staged.ocd_division_id,
-                staged.name,
+                staged_event.id,
+                staged_event.ocd_division_id,
+                staged_event.name,
             )
             skipped_count += 1
+            continue
 
-    try:
-        # Save all the new events to the database.
-        session.commit()
-        logger.info(
-            "Promotion complete. promoted=%s skipped_or_duplicates=%s",
-            promoted_count,
-            skipped_count,
+        session.add(
+            Event(
+                ocd_id=generate_ocd_id("event"),
+                ocd_division_id=staged_event.ocd_division_id,
+                place_id=place.id,
+                name=staged_event.name,
+                scraped_datetime=staged_event.scraped_datetime,
+                record_date=staged_event.record_date,
+                source=staged_event.source,
+                source_url=staged_event.source_url,
+                meeting_type=staged_event.meeting_type,
+            )
         )
-        
-        # Clean up: Remove the processed records from the staging table.
-        if promoted_ids:
-            logger.info("Clearing %s promoted EventStage rows...", len(promoted_ids))
-            session.query(EventStage).filter(EventStage.id.in_(promoted_ids)).delete(synchronize_session=False)
-            session.commit()
+        promoted_count += 1
+        promoted_ids.append(staged_event.id)
 
-    except SQLAlchemyError as e:
-        # Database errors during event promotion: What can fail?
-        # - IntegrityError: Duplicate event (same date/name/location)
-        # - ForeignKeyError: Referenced place doesn't exist
-        # - OperationalError: Database connection lost during bulk insert
-        # Why rollback? If ANY promotion fails, undo ALL to keep staging/production in sync
-        logger.error("Error during promotion: %s", e, exc_info=True)
+    return promoted_ids, promoted_count, skipped_count
+
+
+def _commit_promotion(
+    session: Session,
+    promoted_ids: list[int],
+    promoted_count: int,
+    skipped_count: int,
+) -> None:
+    if promoted_ids:
+        logger.info("Clearing %s promoted EventStage rows...", len(promoted_ids))
+        session.query(EventStage).filter(EventStage.id.in_(promoted_ids)).delete(
+            synchronize_session=False
+        )
+    session.commit()
+    logger.info(
+        "Promotion complete. promoted=%s skipped_or_duplicates=%s",
+        promoted_count,
+        skipped_count,
+    )
+
+
+def promote_stage() -> None:
+    """Promote staging rows only after the canonical migration has run."""
+    engine = db_connect()
+    session = sessionmaker(bind=engine)()
+    try:
+        logger.info("Promoting EventStage records to Event...")
+        promotion = _promote_staged_events(session)
+        _commit_promotion(session, *promotion)
+    except SQLAlchemyError as error:
+        logger.error("Error during promotion: %s", error, exc_info=True)
         session.rollback()
+        raise
     finally:
         session.close()
 

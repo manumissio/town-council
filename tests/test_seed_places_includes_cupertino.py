@@ -20,8 +20,6 @@ def test_seed_places_includes_cupertino_from_repo_csv(mocker):
 
     # Force seed_places() to use our in-memory DB, but read the real CSV from the repo.
     mocker.patch("pipeline.seed_places.db_connect", return_value=engine)
-    mocker.patch("pipeline.seed_places.create_tables")  # tables already exist
-    mocker.patch("pipeline.seed_places.os.path.exists", return_value=True)
 
     seed_places()
 
@@ -48,8 +46,6 @@ def test_seed_places_updates_san_mateo_to_official_portal(mocker):
     Base.metadata.create_all(engine)
 
     mocker.patch("pipeline.seed_places.db_connect", return_value=engine)
-    mocker.patch("pipeline.seed_places.create_tables")
-    mocker.patch("pipeline.seed_places.os.path.exists", return_value=True)
 
     seed_places()
 

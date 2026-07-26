@@ -1,6 +1,6 @@
 # Town Council Architecture (2026)
 
-Last updated: 2026-05-16
+Last updated: 2026-07-26
 
 ## 1) System Overview
 
@@ -247,8 +247,9 @@ Primary owners:
 - `api/search_read_routes.py` facade plus focused `api/search_read_*` helpers
 - `api/search_semantic_routes.py`
 - `pipeline/semantic_index.py`
-- `pipeline/db_migrate.py` facade plus focused `pipeline/db_migration_*` helpers
-- `pipeline/migrate_v8.py` compatibility wrapper and `pipeline/migration_pgvector_semantic_embeddings.py`
+- `pipeline/db_migrate.py` facade plus the focused Alembic migration owner
+- `alembic/` baseline and post-baseline revision graph
+- frozen numbered migration history through v10 for existing-database adoption
 
 #### Lineage + Trends (Stable)
 
@@ -316,8 +317,8 @@ Primary owners:
   - `api/search_routes.py` (`/search` and `/search/semantic` paths)
   - `semantic_service/main.py` route facade plus focused `semantic_service/candidates.py`, `semantic_service/filters.py`, `semantic_service/retrieval.py`, and `semantic_service/hydration.py` helpers
   - `pipeline/semantic_index.py`
-  - `pipeline/db_migrate.py` facade plus focused `pipeline/db_migration_*` helpers
-  - `pipeline/migrate_v8.py` compatibility wrapper and `pipeline/migration_pgvector_semantic_embeddings.py`
+  - `pipeline/db_migrate.py` facade plus the focused Alembic migration owner
+  - `alembic/` baseline and post-baseline revision graph
 
 ### Code Map by Concern
 
@@ -328,7 +329,11 @@ Primary owners:
 - API surface and auth: `api/main.py`, `api/app_setup.py`, `api/search_routes.py`, `api/search_read_routes.py` facade plus focused `api/search_read_*` helpers, `api/task_routes.py` facade plus focused `api/task_*` helpers, `api/search_support.py` facade plus focused `api/search/*_support.py` helpers, `api/search/query_builder.py`, `api/metrics.py`
 - Semantic retrieval and embeddings: `semantic_service/main.py` route facade plus focused `semantic_service/*` helpers, `pipeline/semantic_index.py`, `pipeline/semantic_faiss_backend.py`, `pipeline/semantic_pgvector_backend.py`, focused semantic backend helpers, `pipeline/models.py` facade plus focused `pipeline/model_*` modules
 - Frontend query/task UX: `frontend/app/page.js`, `frontend/state/search-state.js`, `frontend/components/ResultCard.js`
-- Data model and persistence: `pipeline/models.py` facade plus focused `pipeline/model_*` modules, `pipeline/db_migrate.py` facade plus focused `pipeline/db_migration_*` helpers, `pipeline/migrate_v8.py` and `pipeline/migrate_v9.py` compatibility wrappers, descriptive `pipeline/migration_*` modules
+- Data model and persistence: `pipeline/models.py` facade plus focused
+  `pipeline/model_*` modules, `pipeline/db_migrate.py` as the single migration
+  entrypoint, `alembic/` as the authoritative baseline and post-baseline
+  revision graph, and frozen numbered migration history through v10 for
+  existing-database adoption
 - Onboarding orchestration and evaluation: `scripts/onboard_city_wave.sh`, `scripts/check_city_crawl_evidence.py`, `scripts/evaluate_city_onboarding.py` facade plus focused `pipeline/city_onboarding_*` helpers
 - Operator profiling and soak reports: `scripts/profile_pipeline.py` facade, `scripts/profile_pipeline_runner.py`, focused `scripts/profile_pipeline_*` helpers, `scripts/operator_profile_ab.py` facade plus focused `scripts/operator_profile_ab_*` helpers, focused `scripts/operator_profile_*` helpers, `scripts/evaluate_soak_week.py` plus `scripts/evaluate_soak_week_gates.py`, and `scripts/collect_ab_results.py` plus `scripts/collect_ab_results_rows.py`
 - City coverage diagnostics: `scripts/audit_city_coverage.py` command plus `pipeline/city_coverage_audit.py` facade and focused `pipeline/city_coverage_*` helpers

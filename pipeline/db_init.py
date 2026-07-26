@@ -1,7 +1,7 @@
 import logging
 
+from pipeline import db_migrate
 from pipeline.cli_logging import configure_cli_logging
-from pipeline.models import db_connect, create_tables
 
 LOGGER_NAME = "db-init"
 LOGGER_FORMAT = "%(asctime)s - %(levelname)s - %(message)s"
@@ -14,18 +14,11 @@ def _configure_cli_logging() -> None:
     configure_cli_logging(LOGGER_FORMAT)
 
 
-def init_db():
-    """
-    Explicitly creates the database tables.
-    Run this script once when setting up the system.
-    """
-    logger.info("Connecting to database...")
-    engine = db_connect()
-    
-    logger.info("Creating tables...")
-    create_tables(engine)
-    
-    logger.info("Database initialization complete.")
+def init_db() -> None:
+    """Apply the canonical migration path for fresh and existing databases."""
+    logger.info("Applying database migrations...")
+    db_migrate.migrate()
+    logger.info("Database migration complete.")
 
 
 def main() -> int:
