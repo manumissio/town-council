@@ -106,8 +106,10 @@ class ReplacementClient:
         deletion_status,
         indexed_document_count=0,
         *,
+        creation_error_code="index_already_exists",
         settings_valid=True,
     ):
+        self.creation_error_code = creation_error_code
         self.deletion_status = deletion_status
         self.index_events = []
         self.deletion_timeout_ms = None
@@ -119,7 +121,8 @@ class ReplacementClient:
         )
 
     def create_index(self, index_name, index_options):
-        return None
+        self.index_events.append("create_enqueued")
+        return SimpleNamespace(task_uid=77)
 
     def index(self, index_name):
         return self.documents_index
@@ -130,6 +133,15 @@ class ReplacementClient:
         timeout_in_ms=5000,
         interval_in_ms=50,
     ):
+        if task_uid == 77:
+            if self.creation_error_code is None:
+                self.index_events.append("create_succeeded")
+                return SimpleNamespace(status="succeeded", error=None)
+            self.index_events.append(f"create_{self.creation_error_code}")
+            return SimpleNamespace(
+                status="failed",
+                error={"code": self.creation_error_code},
+            )
         if task_uid == 91:
             self.deletion_timeout_ms = timeout_in_ms
             self.deletion_poll_interval_ms = interval_in_ms
@@ -141,6 +153,15 @@ class ReplacementClient:
     def get_tasks(self, task_filters):
         self.index_events.append("queue_idle")
         return SimpleNamespace(results=[])
+
+
+class SynchronousCreationFailureClient(ReplacementClient):
+    def create_index(self, index_name, index_options):
+        self.index_events.append("create_rejected")
+        raise indexer.MeilisearchError("provider unavailable")
+
+    def index(self, index_name):
+        raise AssertionError("recovery continued after synchronous create failure")
 
 
 def _empty_index_session():
@@ -161,7 +182,9 @@ def test_full_reindex_replaces_existing_meilisearch_documents(mocker):
 
     indexer.replace_documents_index()
 
-    assert replacement_client.index_events[:2] == [
+    assert replacement_client.index_events[:4] == [
+        "create_enqueued",
+        "create_index_already_exists",
         "delete_enqueued",
         "delete_succeeded",
     ]
@@ -170,6 +193,55 @@ def test_full_reindex_replaces_existing_meilisearch_documents(mocker):
         "filterable_settings_checked",
         "stats_checked",
     ]
+
+
+def test_full_reindex_waits_for_fresh_index_before_clearing(mocker):
+    replacement_client = ReplacementClient(
+        "succeeded",
+        creation_error_code=None,
+    )
+
+    @contextmanager
+    def fake_db_session():
+        yield _empty_index_session()
+
+    mocker.patch.object(indexer, "db_session", fake_db_session)
+    mocker.patch.object(indexer.meilisearch, "Client", return_value=replacement_client)
+
+    indexer.replace_documents_index()
+
+    assert replacement_client.index_events[:4] == [
+        "create_enqueued",
+        "create_succeeded",
+        "delete_enqueued",
+        "delete_succeeded",
+    ]
+
+
+def test_full_reindex_stops_when_fresh_index_creation_fails(mocker):
+    replacement_client = ReplacementClient(
+        "succeeded",
+        creation_error_code="internal",
+    )
+    mocker.patch.object(indexer.meilisearch, "Client", return_value=replacement_client)
+
+    with pytest.raises(RuntimeError, match="index creation failed status=failed"):
+        indexer.replace_documents_index()
+
+    assert replacement_client.index_events == [
+        "create_enqueued",
+        "create_internal",
+    ]
+
+
+def test_full_reindex_stops_when_index_creation_is_rejected(mocker):
+    replacement_client = SynchronousCreationFailureClient("succeeded")
+    mocker.patch.object(indexer.meilisearch, "Client", return_value=replacement_client)
+
+    with pytest.raises(indexer.MeilisearchError, match="provider unavailable"):
+        indexer.replace_documents_index()
+
+    assert replacement_client.index_events == ["create_rejected"]
 
 
 def test_full_reindex_uses_maintenance_timeout_for_document_clear(mocker):
@@ -218,7 +290,12 @@ def test_full_reindex_stops_when_meilisearch_clear_fails(mocker):
     with pytest.raises(RuntimeError, match="failed"):
         indexer.replace_documents_index()
 
-    assert replacement_client.index_events == ["delete_enqueued", "delete_failed"]
+    assert replacement_client.index_events == [
+        "create_enqueued",
+        "create_index_already_exists",
+        "delete_enqueued",
+        "delete_failed",
+    ]
 
 
 def test_full_reindex_rejects_document_count_mismatch(mocker):
@@ -360,6 +437,7 @@ def test_indexer_reports_agenda_source_count_after_batch_attempt(
     if batch_submission_fails:
         fake_index.add_documents.side_effect = indexer.MeilisearchError("boom")
     fake_client = MagicMock()
+    fake_client.create_index.return_value = SimpleNamespace(task_uid=77)
     fake_client.index.return_value = fake_index
     mocker.patch.object(indexer, "db_session", fake_db_session)
     mocker.patch.object(indexer.meilisearch, "Client", return_value=fake_client)
@@ -495,6 +573,7 @@ def test_reindex_catalog_skips_schema_updates_and_reindexes_agenda_items(mocker)
     fake_index = MagicMock()
     fake_index.delete_documents.return_value = {"taskUid": 88}
     fake_client = MagicMock()
+    fake_client.create_index.return_value = SimpleNamespace(task_uid=77)
     fake_client.index.return_value = fake_index
     mocker.patch.object(indexer, "db_session", fake_db_session)
     mocker.patch.object(indexer.meilisearch, "Client", return_value=fake_client)
@@ -507,6 +586,7 @@ def test_reindex_catalog_skips_schema_updates_and_reindexes_agenda_items(mocker)
         filter='catalog_id = 9 AND result_type = "agenda_item"'
     )
     fake_index.add_documents.assert_called_once()
+    fake_client.wait_for_task.assert_called_once_with(88)
     sent = fake_index.add_documents.call_args.args[0]
     assert {doc["result_type"] for doc in sent} == {"meeting", "agenda_item"}
     assert result["agenda_item_documents"] == 1

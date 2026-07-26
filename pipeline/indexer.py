@@ -22,9 +22,11 @@ from pipeline.indexer_meilisearch import (
     _clear_documents_index,
     _delete_documents_by_filter,
     _flush_batch,
+    INDEX_ALREADY_EXISTS_ERROR_CODE,
     _task_uid,
     _verify_documents_index_settings,
     _wait_for_documents_index_idle,
+    _wait_for_task_success,
 )
 from pipeline.models import AgendaItem, Catalog, Document, Event, Membership, Organization, Place
 
@@ -77,11 +79,25 @@ def _build_agenda_item_search_doc(item, event, place, organization) -> dict:
     )
 
 
-def _ensure_documents_index(client, *, apply_settings: bool):
+def _ensure_documents_index(
+    client,
+    *,
+    apply_settings: bool,
+    wait_for_creation: bool = False,
+):
     try:
-        client.create_index("documents", {"primaryKey": "id"})
+        creation_task = client.create_index("documents", {"primaryKey": "id"})
     except MeilisearchError:
-        pass
+        if wait_for_creation:
+            raise
+    else:
+        if wait_for_creation:
+            _wait_for_task_success(
+                client,
+                creation_task.task_uid,
+                "index creation",
+                accepted_failure_code=INDEX_ALREADY_EXISTS_ERROR_CODE,
+            )
     index = client.index("documents")
     if apply_settings:
         _apply_index_settings(client, index)
@@ -241,7 +257,11 @@ def replace_documents_index() -> None:
         MEILI_MASTER_KEY,
         timeout=MEILISEARCH_MAINTENANCE_REQUEST_TIMEOUT_SECONDS,
     )
-    index = _ensure_documents_index(client, apply_settings=False)
+    index = _ensure_documents_index(
+        client,
+        apply_settings=False,
+        wait_for_creation=True,
+    )
     _clear_documents_index(client, index)
     expected_document_count = _index_documents_with_client(client)
     _wait_for_documents_index_idle(client)

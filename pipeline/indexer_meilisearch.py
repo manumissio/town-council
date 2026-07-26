@@ -12,6 +12,7 @@ INDEX_IDLE_TIMEOUT_SECONDS = 300.0
 INDEX_IDLE_POLL_SECONDS = 0.25
 INDEX_TASK_TIMEOUT_MS = 300_000
 INDEX_TASK_POLL_INTERVAL_MS = 250
+INDEX_ALREADY_EXISTS_ERROR_CODE = "index_already_exists"
 FILTERABLE_ATTRIBUTES = (
     "city",
     "meeting_type",
@@ -42,19 +43,38 @@ SEARCHABLE_ATTRIBUTES = (
 RANKING_RULES = ("sort", "words", "typo", "proximity", "attribute", "exactness")
 
 
-def _clear_documents_index(client: Client, index: Index) -> None:
-    """Remove the old corpus before a recovery rebuild can publish new rows."""
-    deletion_task = index.delete_all_documents()
+def _wait_for_task_success(
+    client: Client,
+    task_uid: int,
+    operation: str,
+    *,
+    accepted_failure_code: str | None = None,
+) -> None:
+    """Keep recovery steps ordered and reject failed asynchronous work."""
     completed_task = client.wait_for_task(
-        deletion_task.task_uid,
+        task_uid,
         timeout_in_ms=INDEX_TASK_TIMEOUT_MS,
         interval_in_ms=INDEX_TASK_POLL_INTERVAL_MS,
     )
-    if completed_task.status != "succeeded":
-        raise RuntimeError(
-            "Meilisearch document deletion failed "
-            f"status={completed_task.status}"
-        )
+    if completed_task.status == "succeeded":
+        return
+    if accepted_failure_code is not None:
+        completed_error = completed_task.error or {}
+        if completed_error.get("code") == accepted_failure_code:
+            return
+    raise RuntimeError(
+        f"Meilisearch {operation} failed status={completed_task.status}"
+    )
+
+
+def _clear_documents_index(client: Client, index: Index) -> None:
+    """Remove the old corpus before a recovery rebuild can publish new rows."""
+    deletion_task = index.delete_all_documents()
+    _wait_for_task_success(
+        client,
+        deletion_task.task_uid,
+        "document deletion",
+    )
 
 
 def _wait_for_documents_index_idle(client: Client) -> None:
