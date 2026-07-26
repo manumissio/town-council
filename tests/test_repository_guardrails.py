@@ -585,62 +585,235 @@ def _cleanup_inventory_names(node: ast.stmt) -> list[str]:
     ]
 
 
-def _is_source_text_splitlines(node: ast.AST) -> bool:
+def _function_scope_nodes(
+    function_node: ast.FunctionDef | ast.AsyncFunctionDef,
+) -> list[ast.AST]:
+    scope_nodes: list[ast.AST] = []
+    pending_nodes: list[ast.AST] = list(reversed(function_node.body))
+    while pending_nodes:
+        node = pending_nodes.pop()
+        scope_nodes.append(node)
+        if isinstance(node, ast.FunctionDef | ast.AsyncFunctionDef | ast.ClassDef | ast.Lambda):
+            continue
+        pending_nodes.extend(reversed(list(ast.iter_child_nodes(node))))
+    return scope_nodes
+
+
+def _assigned_source_text_names(scope_nodes: list[ast.AST]) -> set[str]:
+    source_text_names: set[str] = set()
+    for node in scope_nodes:
+        assignment_targets: list[ast.expr]
+        if isinstance(node, ast.Assign) and _is_read_text_call(node.value):
+            assignment_targets = node.targets
+        elif isinstance(node, ast.AnnAssign) and _is_read_text_call(node.value):
+            assignment_targets = [node.target]
+        else:
+            continue
+        source_text_names.update(
+            target.id
+            for target in assignment_targets
+            if isinstance(target, ast.Name)
+        )
+    return source_text_names
+
+
+def _is_read_text_call(node: ast.AST | None) -> bool:
     return (
         isinstance(node, ast.Call)
         and isinstance(node.func, ast.Attribute)
-        and node.func.attr == "splitlines"
-        and any(
-            isinstance(descendant, ast.Call)
-            and isinstance(descendant.func, ast.Attribute)
-            and descendant.func.attr == "read_text"
-            for descendant in ast.walk(node.func.value)
-        )
+        and node.func.attr == "read_text"
     )
 
 
-def _is_source_line_count(node: ast.AST) -> bool:
+def _is_source_text_splitlines(
+    node: ast.AST,
+    source_text_names: set[str],
+) -> bool:
+    if (
+        not isinstance(node, ast.Call)
+        or not isinstance(node.func, ast.Attribute)
+        or node.func.attr != "splitlines"
+    ):
+        return False
+    splitlines_source = node.func.value
     return (
+        isinstance(splitlines_source, ast.Name)
+        and splitlines_source.id in source_text_names
+    ) or any(
+        _is_read_text_call(descendant)
+        for descendant in ast.walk(splitlines_source)
+    )
+
+
+def _is_source_line_count(
+    node: ast.AST | None,
+    helper_names: set[str],
+    source_text_names: set[str],
+) -> bool:
+    direct_source_count = (
         isinstance(node, ast.Call)
         and isinstance(node.func, ast.Name)
         and node.func.id == "len"
         and any(
-            _is_source_text_splitlines(descendant)
+            _is_source_text_splitlines(descendant, source_text_names)
             for argument in node.args
             for descendant in ast.walk(argument)
         )
     )
+    if direct_source_count:
+        return True
+    return (
+        isinstance(node, ast.Call)
+        and isinstance(node.func, ast.Name)
+        and node.func.id in helper_names
+    )
+
+
+def _source_line_helper_aliases(
+    scope_nodes: list[ast.AST],
+    helper_names: set[str],
+) -> set[str]:
+    alias_names = set(helper_names)
+    while True:
+        discovered_names: set[str] = set()
+        for node in scope_nodes:
+            assignment_targets: list[ast.expr]
+            if (
+                isinstance(node, ast.Assign)
+                and isinstance(node.value, ast.Name)
+                and node.value.id in alias_names
+            ):
+                assignment_targets = node.targets
+            elif (
+                isinstance(node, ast.AnnAssign)
+                and isinstance(node.value, ast.Name)
+                and node.value.id in alias_names
+            ):
+                assignment_targets = [node.target]
+            else:
+                continue
+            discovered_names.update(
+                target.id
+                for target in assignment_targets
+                if isinstance(target, ast.Name)
+            )
+        if discovered_names <= alias_names:
+            return alias_names
+        alias_names.update(discovered_names)
 
 
 def _assigned_source_line_count_names(
     function_node: ast.FunctionDef | ast.AsyncFunctionDef,
+    helper_names: set[str],
 ) -> set[str]:
+    scope_nodes = _function_scope_nodes(function_node)
+    source_text_names = _assigned_source_text_names(scope_nodes)
+    effective_helper_names = _source_line_helper_aliases(
+        scope_nodes,
+        helper_names,
+    )
     assigned_names: set[str] = set()
-    for node in ast.walk(function_node):
-        if isinstance(node, ast.Assign) and _is_source_line_count(node.value):
+    for node in scope_nodes:
+        if isinstance(node, ast.Assign) and _is_source_line_count(
+            node.value,
+            effective_helper_names,
+            source_text_names,
+        ):
             assigned_names.update(
                 target.id
                 for target in node.targets
                 if isinstance(target, ast.Name)
             )
-        elif isinstance(node, ast.AnnAssign) and _is_source_line_count(node.value):
+        elif isinstance(node, ast.AnnAssign) and _is_source_line_count(
+            node.value,
+            effective_helper_names,
+            source_text_names,
+        ):
             if isinstance(node.target, ast.Name):
                 assigned_names.add(node.target.id)
     return assigned_names
 
 
-def _test_enforces_source_line_limit(node: ast.stmt) -> bool:
+def _returns_source_line_count(
+    function_node: ast.FunctionDef | ast.AsyncFunctionDef,
+    helper_names: set[str],
+) -> bool:
+    scope_nodes = _function_scope_nodes(function_node)
+    source_text_names = _assigned_source_text_names(scope_nodes)
+    effective_helper_names = _source_line_helper_aliases(
+        scope_nodes,
+        helper_names,
+    )
+    assigned_names = _assigned_source_line_count_names(
+        function_node,
+        helper_names,
+    )
+    return any(
+        isinstance(node, ast.Return)
+        and node.value is not None
+        and (
+            _is_source_line_count(
+                node.value,
+                effective_helper_names,
+                source_text_names,
+            )
+            or (
+                isinstance(node.value, ast.Name)
+                and node.value.id in assigned_names
+            )
+        )
+        for node in scope_nodes
+    )
+
+
+def _source_line_count_helper_names(tree: ast.Module) -> set[str]:
+    function_nodes = [
+        node
+        for node in tree.body
+        if isinstance(node, ast.FunctionDef | ast.AsyncFunctionDef)
+    ]
+    helper_names: set[str] = set()
+    while True:
+        module_helper_names = _source_line_helper_aliases(
+            list(tree.body),
+            helper_names,
+        )
+        discovered_names = {
+            node.name
+            for node in function_nodes
+            if _returns_source_line_count(node, module_helper_names)
+        }
+        next_helper_names = module_helper_names | discovered_names
+        if next_helper_names <= helper_names:
+            return helper_names
+        helper_names.update(next_helper_names)
+
+
+def _test_enforces_source_line_limit(
+    node: ast.stmt,
+    helper_names: set[str],
+) -> bool:
     if (
         not isinstance(node, ast.FunctionDef | ast.AsyncFunctionDef)
         or not node.name.startswith("test_")
     ):
         return False
-    line_count_names = _assigned_source_line_count_names(node)
+    line_count_names = _assigned_source_line_count_names(node, helper_names)
+    scope_nodes = _function_scope_nodes(node)
+    source_text_names = _assigned_source_text_names(scope_nodes)
+    effective_helper_names = _source_line_helper_aliases(
+        scope_nodes,
+        helper_names,
+    )
     return any(
         isinstance(candidate, ast.Compare)
         and (
             any(
-                _is_source_line_count(descendant)
+                _is_source_line_count(
+                    descendant,
+                    effective_helper_names,
+                    source_text_names,
+                )
                 for descendant in ast.walk(candidate)
             )
             or any(
@@ -649,7 +822,7 @@ def _test_enforces_source_line_limit(node: ast.stmt) -> bool:
                 for descendant in ast.walk(candidate)
             )
         )
-        for candidate in ast.walk(node)
+        for candidate in scope_nodes
     )
 
 
@@ -667,11 +840,12 @@ def _file_length_policy_nodes(module_path: Path) -> tuple[list[str], list[str]]:
         for node in tree.body
         for inventory_name in _cleanup_inventory_names(node)
     ]
+    helper_names = _source_line_count_helper_names(tree)
     line_limit_test_names = [
         node.name
         for node in ast.walk(tree)
         if isinstance(node, ast.FunctionDef | ast.AsyncFunctionDef)
-        and _test_enforces_source_line_limit(node)
+        and _test_enforces_source_line_limit(node, helper_names)
     ]
     return sorted(inventory_names), sorted(line_limit_test_names)
 
@@ -1678,6 +1852,41 @@ def test_file_length_policy_scan_detects_assigned_limits_without_false_positives
         "        assert len(Path('example.py').read_text().splitlines()) <= MAX_SOURCE_LINES\n"
         "async def test_async_source_policy():\n"
         "    assert len(Path('example.py').read_text().splitlines()) <= MAX_SOURCE_LINES\n"
+        "def count_source_lines(path):\n"
+        "    return len(path.read_text().splitlines())\n"
+        "def delegated_source_lines(path):\n"
+        "    return count_source_lines(path)\n"
+        "module_line_counter = count_source_lines\n"
+        "def assigned_text_source_lines(path):\n"
+        "    source_text = path.read_text()\n"
+        "    return len(source_text.splitlines())\n"
+        "def test_helper_source_policy():\n"
+        "    assert count_source_lines(Path('example.py')) <= MAX_SOURCE_LINES\n"
+        "def test_assigned_helper_source_policy():\n"
+        "    source_line_count = delegated_source_lines(Path('example.py'))\n"
+        "    assert source_line_count <= MAX_SOURCE_LINES\n"
+        "def test_assigned_text_helper_source_policy():\n"
+        "    assert assigned_text_source_lines(Path('example.py')) <= MAX_SOURCE_LINES\n"
+        "def test_local_alias_helper_source_policy():\n"
+        "    line_counter = count_source_lines\n"
+        "    assert line_counter(Path('example.py')) <= MAX_SOURCE_LINES\n"
+        "def test_module_alias_helper_source_policy():\n"
+        "    assert module_line_counter(Path('example.py')) <= MAX_SOURCE_LINES\n"
+        "def unrelated_outer():\n"
+        "    def nested_count():\n"
+        "        return len(Path('example.py').read_text().splitlines())\n"
+        "    return 1\n"
+        "def nested_count(path):\n"
+        "    return 1\n"
+        "def test_nested_scope_is_not_source_policy():\n"
+        "    assert unrelated_outer() == 1\n"
+        "def test_nested_name_is_not_source_policy():\n"
+        "    assert nested_count(Path('example.py')) == 1\n"
+        "class Counter:\n"
+        "    def count_source_lines(self):\n"
+        "        return 1\n"
+        "def test_attribute_call_is_not_source_policy():\n"
+        "    assert Counter().count_source_lines() == 1\n"
         "def test_source_read():\n"
         "    source_lines = Path('example.py').read_text().splitlines()\n"
         "    assert source_lines\n"
@@ -1691,9 +1900,14 @@ def test_file_length_policy_scan_detects_assigned_limits_without_false_positives
     assert _file_length_policy_nodes(policy_module) == (
         ["RENAMED_CLEANUP_MODULES"],
         [
+            "test_assigned_helper_source_policy",
             "test_assigned_source_policy",
+            "test_assigned_text_helper_source_policy",
             "test_async_source_policy",
             "test_class_source_policy",
+            "test_helper_source_policy",
+            "test_local_alias_helper_source_policy",
+            "test_module_alias_helper_source_policy",
             "test_source_policy",
         ],
     )
