@@ -3,16 +3,13 @@
 `artifact_contract: ce-unified-plan/v1`
 `artifact_readiness: implementation-ready`
 `execution: code`
-
 ## 1. Context & Alignment
 
-**a) Driver.** Town Council has three worker healthcheck CLIs, not the two
-described by the older remediation task. All three aggregate failures and
-probe Redis/PostgreSQL connectivity, while each owns different runtime checks.
-The architecture review recommends a deeper shared health-probe module and
-stable CLI entrypoints. T-DD-1A isolates that proven overlap from the disputed
-city-state mutation overlap in T-DD-1B.
-
+**a) Driver.** Town Council has three worker healthcheck CLIs, not the two in
+the older remediation task. All aggregate failures and probe Redis/PostgreSQL,
+while each owns different runtime checks. The architecture review recommends a
+shared health-probe module and stable CLI entrypoints. T-DD-1A isolates that
+overlap from the disputed city-state mutation overlap in T-DD-1B.
 **b) Canonical documents consulted.**
 
 - `AGENTS.md`: preserve CLI/runtime behavior, use approved test boundaries,
@@ -40,6 +37,7 @@ exactly:
 - `scripts/semantic_worker_healthcheck.py`
 - `tests/test_worker_health_probes.py` (new)
 - `tests/test_worker_healthcheck.py`
+- `tests/test_role_worker_healthchecks.py` (new)
 - `tests/test_docker_health_contracts.py`
 
 T-DD-1B retains the two city-state scripts and their focused tests. The two
@@ -48,7 +46,6 @@ tasks must not run concurrently with each other because they share the ledger.
 **d) Decision-gate check.** No G1-G5 decision is required or foreclosed.
 Runtime defaults, service topology, model policy, task registration, and soak
 comparability remain unchanged.
-
 ## 2. Design
 
 **e) Step-by-step approach.**
@@ -116,7 +113,6 @@ The observable contract remains: print every failure to stderr, return `1` if
 any probe fails, otherwise return `0`.
 
 **h) Schema/migration impact.** None.
-
 ## 3. Security & Data Governance
 
 **i) Security-sensitive paths.** None. Compose is verified but not edited.
@@ -165,8 +161,8 @@ selectors remain unchanged.
 **p) Dead code and duplication audit.** Delete private helper imports from the
 role CLIs and repeated broker/database/reporting blocks. Reuse existing probe
 logic rather than copying it. Expected production line count decreases; tests
-increase around the shared and primary-worker contracts. The task owns nine
-files.
+increase around the shared, primary-worker, and role CLI contracts. The task
+owns ten files.
 
 ## 5. Testing
 
@@ -196,6 +192,7 @@ files.
 |---|---|
 | New shared-probe tests using real loopback sockets | 1-4, 7-8 |
 | Updated primary-worker tests | 3, 5, 7-9, 12 |
+| New exact-path role CLI tests | 6-8, 10-13 |
 | Import-direction structural contract | 6, 11, 13 |
 | Docker health contract plus real role-container smoke | 6, 10, 12-13 |
 | Ruff, Mypy, and complete suite | 1-13 regression check |
@@ -227,6 +224,7 @@ git switch -c codex/t-dd-1a-worker-healthchecks
 PYTHONPATH=. .venv/bin/pytest -q \
   tests/test_worker_health_probes.py \
   tests/test_worker_healthcheck.py \
+  tests/test_role_worker_healthchecks.py \
   tests/test_docker_health_contracts.py \
   tests/test_docker_build_contracts.py
 
@@ -295,8 +293,7 @@ weakened tests, or files outside ownership.
 independent planning/pre-commit findings, applied fixes, commit hashes, PR URL,
 review threads, and CI state. Mark unrun checks `NOT VERIFIED`.
 
-**z) Deviations.** Authorized changes are splitting T-DD-1 into T-DD-1A and
-T-DD-1B and correcting the healthcheck count from two to three. Any other
-owned-file expansion, CLI/Compose contract change, role-check relocation,
-new exception, skipped review, unresolved P1/P2, or unrun required check is a
-blocker.
+**z) Deviations.** Authorized changes split T-DD-1 into T-DD-1A/T-DD-1B and
+correct the healthcheck count from two to three. Any other owned-file
+expansion, CLI/Compose contract change, role-check relocation, new exception,
+skipped review, unresolved P1/P2, or unrun required check is a blocker.

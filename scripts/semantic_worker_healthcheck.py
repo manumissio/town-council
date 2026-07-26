@@ -2,29 +2,17 @@
 from __future__ import annotations
 
 import os
-import sys
 import tempfile
 from pathlib import Path
 
-from scripts.worker_healthcheck import _probe_tcp, _socket_target_from_url
+import worker_health_probes
 
 
 def main() -> int:
-    failures: list[str] = []
-
-    broker_failure = _probe_tcp(
-        *_socket_target_from_url((os.getenv("CELERY_BROKER_URL") or "").strip()),
-        label="redis broker",
+    failures = worker_health_probes.probe_broker_and_database(
+        worker_health_probes.socket_target_from_url((os.getenv("CELERY_BROKER_URL") or "").strip()),
+        worker_health_probes.socket_target_from_url((os.getenv("DATABASE_URL") or "").strip()),
     )
-    if broker_failure:
-        failures.append(broker_failure)
-
-    database_failure = _probe_tcp(
-        *_socket_target_from_url((os.getenv("DATABASE_URL") or "").strip()),
-        label="postgres",
-    )
-    if database_failure:
-        failures.append(database_failure)
 
     try:
         import torch  # noqa: F401
@@ -50,11 +38,7 @@ def main() -> int:
     except Exception as exc:
         failures.append(f"semantic artifact directory probe failed: {exc}")
 
-    if failures:
-        for failure in failures:
-            print(failure, file=sys.stderr)
-        return 1
-    return 0
+    return worker_health_probes.healthcheck_exit_code(failures)
 
 
 if __name__ == "__main__":

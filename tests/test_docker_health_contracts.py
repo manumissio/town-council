@@ -6,4 +6,6 @@ def test_compose_uses_explicit_local_healthchecks():
 
     assert "http://127.0.0.1:9998/tika" in source
     assert "python scripts/worker_healthcheck.py" in source
+    assert "python scripts/enrichment_worker_healthcheck.py" in source
+    assert "python scripts/semantic_worker_healthcheck.py" in source
     assert "http://127.0.0.1:3000/" in source

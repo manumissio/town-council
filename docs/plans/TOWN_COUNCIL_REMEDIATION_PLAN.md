@@ -1,6 +1,6 @@
 # Town Council Remediation Plan (Codex Multi-Agent)
 
-version: 3.55
+version: 3.56
 generated: 2026-07-26
 source: Four-pass external code review (security, architecture, smells, process)
 source_artifact: [Town Council architecture review](../reviews/architecture-review-2026-07-19.html)
@@ -10,6 +10,10 @@ remains in force; where this plan is stricter, this plan wins for these tasks.
 
 ## Changelog
 
+- **v3.56:** Expands T-DD-1A ownership with exact-path role CLI parity tests
+  after pre-commit review found that direct script execution and role failure
+  aggregation were not durably covered. All three CLIs must work without
+  `PYTHONPATH`; real role containers remain the success-path evidence.
 - **v3.55:** Marks T-PLAT-2B complete after PR #152 merged and Dependabot
   alerts 116 through 119 closed as fixed. Splits the inaccurate T-DD-1 task
   into T-DD-1A worker-healthcheck consolidation and T-DD-1B city-state
@@ -1128,6 +1132,7 @@ files (GED-5 grant).
   `scripts/semantic_worker_healthcheck.py`;
   `tests/test_worker_health_probes.py`;
   `tests/test_worker_healthcheck.py`;
+  `tests/test_role_worker_healthchecks.py`;
   `tests/test_docker_health_contracts.py`
 - do: Move shared URL/TCP, Redis/PostgreSQL, failure aggregation, and reporting
   behavior into one implementation owner. Preserve all three CLI filenames,
