@@ -2,7 +2,7 @@
 # Keep these packages out of the worker runtime image so Docker installs only
 # what the service needs to boot and process jobs.
 -c ../constraints.txt
-pytest==9.0.3
+pytest==9.1.1
 pytest-cov==7.0.0
 coverage==7.13.3
 pytest-mock==3.12.0
