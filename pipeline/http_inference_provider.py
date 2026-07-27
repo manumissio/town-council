@@ -1,10 +1,21 @@
 from __future__ import annotations
 
 import logging
-from types import ModuleType
 
 import requests
 
+from pipeline.config import (
+    LLM_CONTEXT_WINDOW,
+    LOCAL_AI_HTTP_API,
+    LOCAL_AI_HTTP_BASE_URL,
+    LOCAL_AI_HTTP_MAX_RETRIES,
+    LOCAL_AI_HTTP_MODEL,
+    LOCAL_AI_HTTP_PROFILE,
+    LOCAL_AI_HTTP_TIMEOUT_SECONDS,
+    LOCAL_AI_HTTP_TIMEOUT_SEGMENT_SECONDS,
+    LOCAL_AI_HTTP_TIMEOUT_SUMMARY_SECONDS,
+    LOCAL_AI_HTTP_TIMEOUT_TOPICS_SECONDS,
+)
 from pipeline.http_inference_attempts import HttpOperationContext, ProviderAttemptResult, run_attempt, run_operation
 from pipeline.http_inference_errors import raise_provider_error_from_last_error
 from pipeline.http_inference_payloads import (
@@ -45,21 +56,20 @@ class HttpInferenceProvider:
     name = HTTP_PROVIDER_NAME
 
     def __init__(self):
-        facade = _provider_facade()
-        self.base_url = facade.LOCAL_AI_HTTP_BASE_URL
-        self.http_api = facade.LOCAL_AI_HTTP_API
-        self.timeout_seconds = max(MINIMUM_HTTP_TIMEOUT_SECONDS, facade.LOCAL_AI_HTTP_TIMEOUT_SECONDS)
-        self.timeout_segment_seconds = max(MINIMUM_HTTP_TIMEOUT_SECONDS, facade.LOCAL_AI_HTTP_TIMEOUT_SEGMENT_SECONDS)
-        self.timeout_summary_seconds = max(MINIMUM_HTTP_TIMEOUT_SECONDS, facade.LOCAL_AI_HTTP_TIMEOUT_SUMMARY_SECONDS)
-        self.timeout_topics_seconds = max(MINIMUM_HTTP_TIMEOUT_SECONDS, facade.LOCAL_AI_HTTP_TIMEOUT_TOPICS_SECONDS)
-        self.max_retries = max(0, facade.LOCAL_AI_HTTP_MAX_RETRIES)
-        self.model_name = facade.LOCAL_AI_HTTP_MODEL
-        self.context_window = max(0, facade.LLM_CONTEXT_WINDOW)
+        self.base_url = LOCAL_AI_HTTP_BASE_URL
+        self.http_api = LOCAL_AI_HTTP_API
+        self.timeout_seconds = max(MINIMUM_HTTP_TIMEOUT_SECONDS, LOCAL_AI_HTTP_TIMEOUT_SECONDS)
+        self.timeout_segment_seconds = max(MINIMUM_HTTP_TIMEOUT_SECONDS, LOCAL_AI_HTTP_TIMEOUT_SEGMENT_SECONDS)
+        self.timeout_summary_seconds = max(MINIMUM_HTTP_TIMEOUT_SECONDS, LOCAL_AI_HTTP_TIMEOUT_SUMMARY_SECONDS)
+        self.timeout_topics_seconds = max(MINIMUM_HTTP_TIMEOUT_SECONDS, LOCAL_AI_HTTP_TIMEOUT_TOPICS_SECONDS)
+        self.max_retries = max(0, LOCAL_AI_HTTP_MAX_RETRIES)
+        self.model_name = LOCAL_AI_HTTP_MODEL
+        self.context_window = max(0, LLM_CONTEXT_WINDOW)
 
     def health_check(self) -> bool:
         health_path = "/health" if self.http_api == OPENAI_COMPAT_HTTP_API else "/api/tags"
         try:
-            response = _provider_facade().requests.get(
+            response = requests.get(
                 f"{self.base_url}{health_path}",
                 timeout=min(HEALTH_CHECK_TIMEOUT_SECONDS, self.timeout_seconds),
             )
@@ -80,7 +90,7 @@ class HttpInferenceProvider:
         return max_retries_for_operation(
             operation,
             max_retries=self.max_retries,
-            profile_name=_provider_facade().LOCAL_AI_HTTP_PROFILE,
+            profile_name=LOCAL_AI_HTTP_PROFILE,
         )
 
     def _build_request_payload(self, prompt: str, *, max_tokens: int, temperature: float) -> dict[str, object]:
@@ -101,7 +111,7 @@ class HttpInferenceProvider:
 
     def _post_generate_request(self, payload: dict[str, object], *, timeout_seconds: int) -> requests.Response:
         endpoint_path = "/v1/chat/completions" if self.http_api == OPENAI_COMPAT_HTTP_API else "/api/generate"
-        return _provider_facade().requests.post(
+        return requests.post(
             f"{self.base_url}{endpoint_path}",
             json=payload,
             timeout=timeout_seconds,
@@ -128,7 +138,7 @@ class HttpInferenceProvider:
         return ProviderTelemetryIdentity(
             provider_name=self.name,
             model_name=self.model_name,
-            profile_name=_provider_facade().LOCAL_AI_HTTP_PROFILE,
+            profile_name=LOCAL_AI_HTTP_PROFILE,
             api_name=self.http_api,
         )
 
@@ -232,9 +242,3 @@ class HttpInferenceProvider:
 
     def generate_json(self, prompt: str, *, max_tokens: int) -> str | None:
         return self._run_operation(OPERATION_GENERATE_JSON, prompt, max_tokens=max_tokens, temperature=0.0)
-
-
-def _provider_facade() -> ModuleType:
-    from pipeline import llm_provider
-
-    return llm_provider
