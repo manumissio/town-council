@@ -39,7 +39,6 @@ jobs:
           python -m pip install -r pipeline/requirements.txt
           python -m pip install -r api/requirements.txt
           python -m pip install -r council_crawler/requirements.txt
-          python -m pip install scikit-learn==1.8.0
           python -m pip install -r pipeline/requirements-dev.txt
           python -m venv --system-site-packages .venv
 
@@ -67,3 +66,78 @@ jobs:
 
       - name: Run full Python test suite
         run: PYTHONPATH=. python -m pytest -q --cov --cov-config=.coveragerc --cov-report=term-missing:skip-covered tests/
+
+      - name: Set up Python dependency audit runtime
+        uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+
+      - name: Install Python dependency auditor
+        run: python -m pip install -c constraints.txt pip-audit
+
+      - name: Audit Python dependency environments
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          audit_requirements() {
+            local audit_name="$1"
+            local audit_report_path="${RUNNER_TEMP}/pip-audit-${audit_name}.json"
+            shift
+
+            set +e
+            pip-audit --strict --format json --output "$audit_report_path" "$@"
+            local audit_status=$?
+            set -e
+
+            python - "$audit_name" "$audit_status" "$audit_report_path" <<'PY'
+          import json
+          import sys
+          from pathlib import Path
+
+          audit_name, audit_status_text, audit_report_name = sys.argv[1:]
+          audit_status = int(audit_status_text)
+          audit_report_path = Path(audit_report_name)
+
+          try:
+              audit_report = json.loads(audit_report_path.read_text(encoding="utf-8"))
+          except (OSError, json.JSONDecodeError) as audit_error:
+              print(f"{audit_name}: invalid pip-audit report: {audit_error}", file=sys.stderr)
+              raise SystemExit(2) from audit_error
+
+          dependencies = audit_report.get("dependencies")
+          fixes = audit_report.get("fixes")
+          if not isinstance(dependencies, list) or not isinstance(fixes, list):
+              print(f"{audit_name}: pip-audit report is missing required lists", file=sys.stderr)
+              raise SystemExit(2)
+
+          vulnerability_count = 0
+          for dependency in dependencies:
+              if not isinstance(dependency, dict) or not isinstance(dependency.get("vulns"), list):
+                  print(f"{audit_name}: invalid dependency entry", file=sys.stderr)
+                  raise SystemExit(2)
+              vulnerability_count += len(dependency["vulns"])
+
+          if audit_status == 0 and vulnerability_count == 0:
+              print(f"{audit_name}: no known Python vulnerabilities")
+          elif audit_status == 1 and vulnerability_count > 0:
+              print(
+                  f"::warning title=Python dependency audit ({audit_name})::"
+                  f"{vulnerability_count} known vulnerabilities"
+              )
+          else:
+              print(
+                  f"{audit_name}: contradictory pip-audit status {audit_status} "
+                  f"for {vulnerability_count} findings",
+                  file=sys.stderr,
+              )
+              raise SystemExit(2)
+          PY
+          }
+
+          audit_requirements api -r api/requirements.txt
+          audit_requirements crawler -r council_crawler/requirements.txt
+          PIP_CONSTRAINT=docker/semantic-cpu-constraints.txt PIP_EXTRA_INDEX_URL=https://download.pytorch.org/whl/cpu audit_requirements worker-live -r pipeline/requirements.txt
+          PIP_CONSTRAINT=docker/semantic-cpu-constraints.txt PIP_EXTRA_INDEX_URL=https://download.pytorch.org/whl/cpu audit_requirements worker-batch -r pipeline/requirements.txt -r pipeline/requirements-batch.txt
+          audit_requirements semantic -r semantic_service/requirements.txt
+          audit_requirements development -r pipeline/requirements-dev.txt

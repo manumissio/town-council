@@ -1,11 +1,14 @@
-fastapi==0.115.8
-uvicorn==0.34.0
-meilisearch==0.31.0
-sqlalchemy==2.0.38
-psycopg2-binary==2.9.10
+-c ../constraints.txt
+fastapi
+uvicorn
+meilisearch
+sqlalchemy
+psycopg2-binary
 pgvector>=0.2.5
-celery==5.3.4
-redis==5.0.1
+celery
+redis
 numpy==2.4.4
 sentence-transformers==3.3.0
 faiss-cpu==1.10.0
+# Docker constrains this to the matching +cpu build; the base pin remains auditable.
+torch==2.11.0

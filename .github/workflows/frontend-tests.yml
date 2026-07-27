@@ -26,3 +26,59 @@ jobs:
 
       - name: Run frontend tests
         run: npm test
+
+      - name: Audit frontend production dependencies
+        shell: bash
+        run: |
+          set -euo pipefail
+          audit_report_path="${RUNNER_TEMP}/npm-audit.json"
+
+          set +e
+          npm audit --omit=dev --audit-level=high --json > "$audit_report_path"
+          audit_status=$?
+          set -e
+
+          node - "$audit_status" "$audit_report_path" <<'NODE'
+          const fs = require("node:fs");
+
+          const auditStatus = Number(process.argv[2]);
+          const auditReportPath = process.argv[3];
+          let auditReport;
+          try {
+            auditReport = JSON.parse(fs.readFileSync(auditReportPath, "utf8"));
+          } catch (auditError) {
+            console.error(`Invalid npm audit report: ${auditError.message}`);
+            process.exit(2);
+          }
+
+          const vulnerabilityCounts = auditReport?.metadata?.vulnerabilities;
+          const highCount = vulnerabilityCounts?.high;
+          const criticalCount = vulnerabilityCounts?.critical;
+          if (
+            !Number.isInteger(auditReport?.auditReportVersion) ||
+            auditReport?.error != null ||
+            !Number.isInteger(highCount) ||
+            !Number.isInteger(criticalCount) ||
+            highCount < 0 ||
+            criticalCount < 0
+          ) {
+            console.error("npm audit report is missing valid vulnerability metadata");
+            process.exit(2);
+          }
+
+          const gatingFindingCount = highCount + criticalCount;
+          if (auditStatus === 0 && gatingFindingCount === 0) {
+            console.log("No high or critical frontend vulnerabilities");
+          } else if (auditStatus === 1 && gatingFindingCount > 0) {
+            console.log(
+              `::warning title=Frontend dependency audit::${gatingFindingCount} ` +
+                "high or critical vulnerabilities"
+            );
+          } else {
+            console.error(
+              `Contradictory npm audit status ${auditStatus} for ` +
+                `${gatingFindingCount} high or critical findings`
+            );
+            process.exit(2);
+          }
+          NODE

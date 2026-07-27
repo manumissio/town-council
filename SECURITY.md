@@ -127,9 +127,13 @@ Record deliberate acceptances here with rationale and revisit date, per the
 
 ## Dependency and supply chain
 
-Dependabot plus `pip-audit` / `npm audit` run in CI `[remediation: T-PLAT-2]`.
-High-severity findings on the API, frontend, or crawler dependency families
-block merge once the audit steps are promoted from report-only.
+Dependabot performs weekly version updates for Python, frontend, and GitHub
+Actions dependencies. Required CI runs `pip-audit` across each Python
+environment and `npm audit` against frontend production dependencies.
+Vulnerability findings are report-only until a separate policy change promotes
+them to merge gates. Audit-tool, registry, network, and report-validation
+failures block the required workflow because missing evidence is not a clean
+audit `[remediation: T-PLAT-2]`.
 
 ## Reporting a vulnerability
 

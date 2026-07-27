@@ -12,12 +12,13 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     libpq-dev \
     && rm -rf /var/lib/apt/lists/*
 
-COPY council_crawler/requirements.txt ./council_crawler_requirements.txt
-COPY pipeline/requirements.txt ./pipeline_requirements.txt
-COPY pipeline/requirements-batch.txt ./pipeline_requirements_batch.txt
-COPY api/requirements.txt ./api_requirements.txt
-COPY semantic_service/requirements.txt ./semantic_service_requirements.txt
-COPY docker/semantic-cpu-constraints.txt ./semantic_cpu_constraints.txt
+COPY constraints.txt ./constraints.txt
+COPY council_crawler/requirements.txt ./council_crawler/requirements.txt
+COPY pipeline/requirements.txt ./pipeline/requirements.txt
+COPY pipeline/requirements-batch.txt ./pipeline/requirements-batch.txt
+COPY api/requirements.txt ./api/requirements.txt
+COPY semantic_service/requirements.txt ./semantic_service/requirements.txt
+COPY docker/semantic-cpu-constraints.txt ./docker/semantic-cpu-constraints.txt
 
 FROM python-build-base AS venv-crawler
 RUN python -m venv /opt/venv
@@ -25,7 +26,7 @@ ENV PATH=/opt/venv/bin:$PATH
 RUN --mount=type=cache,target=/root/.cache/pip \
     pip install --upgrade pip setuptools wheel && \
     pip install \
-    -r council_crawler_requirements.txt
+    -r /app/council_crawler/requirements.txt
 
 FROM python-build-base AS venv-api
 RUN python -m venv /opt/venv
@@ -33,7 +34,7 @@ ENV PATH=/opt/venv/bin:$PATH
 RUN --mount=type=cache,target=/root/.cache/pip \
     pip install --upgrade pip setuptools wheel && \
     pip install \
-    -r api_requirements.txt
+    -r /app/api/requirements.txt
 
 FROM python-build-base AS venv-semantic
 RUN python -m venv /opt/venv
@@ -42,8 +43,8 @@ ENV PIP_EXTRA_INDEX_URL=https://download.pytorch.org/whl/cpu
 RUN --mount=type=cache,target=/root/.cache/pip \
     pip install --upgrade pip setuptools wheel && \
     pip install \
-    -c semantic_cpu_constraints.txt \
-    -r semantic_service_requirements.txt
+    -c /app/docker/semantic-cpu-constraints.txt \
+    -r /app/semantic_service/requirements.txt
 
 FROM python-build-base AS worker-build-base
 RUN apt-get update && apt-get install -y --no-install-recommends cmake \
@@ -60,9 +61,8 @@ ENV PIP_EXTRA_INDEX_URL=https://download.pytorch.org/whl/cpu
 RUN --mount=type=cache,target=/root/.cache/pip \
     pip install --upgrade pip setuptools wheel && \
     pip install \
-    -c semantic_cpu_constraints.txt \
-    -r pipeline_requirements.txt \
-    rapidfuzz
+    -c /app/docker/semantic-cpu-constraints.txt \
+    -r /app/pipeline/requirements.txt
 
 FROM worker-build-base AS venv-worker-batch
 RUN python -m venv /opt/venv
@@ -71,10 +71,9 @@ ENV PIP_EXTRA_INDEX_URL=https://download.pytorch.org/whl/cpu
 RUN --mount=type=cache,target=/root/.cache/pip \
     pip install --upgrade pip setuptools wheel && \
     pip install \
-    -c semantic_cpu_constraints.txt \
-    -r pipeline_requirements.txt \
-    rapidfuzz \
-    -r pipeline_requirements_batch.txt \
+    -c /app/docker/semantic-cpu-constraints.txt \
+    -r /app/pipeline/requirements.txt \
+    -r /app/pipeline/requirements-batch.txt \
     https://github.com/explosion/spacy-models/releases/download/en_core_web_sm-3.7.0/en_core_web_sm-3.7.0.tar.gz
 
 FROM python:3.12-slim-bookworm AS python-runtime-base
