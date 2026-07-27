@@ -1,6 +1,6 @@
 # Town Council Remediation Plan (Codex Multi-Agent)
 
-version: 3.66
+version: 3.67
 generated: 2026-07-26
 source: Four-pass external code review (security, architecture, smells, process)
 source_artifact: [Town Council architecture review](../reviews/architecture-review-2026-07-19.html)
@@ -10,6 +10,11 @@ remains in force; where this plan is stricter, this plan wins for these tasks.
 
 ## Changelog
 
+- **v3.67:** Synchronizes T-DE-1 completion after PR #158 and activates
+  T-PLAT-2 after operator approval of the exact dependency-policy, Docker,
+  workflow, security, and test ownership needed for shared constraints, weekly
+  version updates, and trustworthy report-only audits. Audit findings remain
+  non-blocking, while malformed reports and audit-tool failures must fail CI.
 - **v3.66:** Records the operator-approved reachable deployment posture in the
   G1 decision ledger and closes T-GOV-6 after all three governance documents
   were linked from the README. Expands T-GOV-6 ownership narrowly for the
@@ -323,10 +328,10 @@ remains in force; where this plan is stricter, this plan wins for these tasks.
 
 | State | Tasks |
 |---|---|
-| **Complete** | T-CI-0, T-CI-1, T-CI-1A, T-CI-2, T-CI-2A, T-CI-3, T-CI-4, T-CI-5, T-SEC-1, T-SEC-2, T-SEC-3, T-SEC-3C, T-SEC-4, T-SEC-4A, T-SEC-5, T-SEC-6, T-TIME-1, T-TIME-2, T-TIME-3, T-CRAWL-1, T-CRAWL-2, T-PLAT-1, T-PLAT-1A, T-PLAT-2A, T-PLAT-2B, T-PLAT-3, T-GOV-1, T-GOV-3A, T-GOV-4, T-GOV-5, T-GOV-6, T-DA-1, T-DB-1A, T-DB-1, T-DB-1B, T-DC-1, T-DD-1A, T-DD-1B |
+| **Complete** | T-CI-0, T-CI-1, T-CI-1A, T-CI-2, T-CI-2A, T-CI-3, T-CI-4, T-CI-5, T-SEC-1, T-SEC-2, T-SEC-3, T-SEC-3C, T-SEC-4, T-SEC-4A, T-SEC-5, T-SEC-6, T-TIME-1, T-TIME-2, T-TIME-3, T-CRAWL-1, T-CRAWL-2, T-PLAT-1, T-PLAT-1A, T-PLAT-2A, T-PLAT-2B, T-PLAT-3, T-GOV-1, T-GOV-3A, T-GOV-4, T-GOV-5, T-GOV-6, T-DA-1, T-DB-1A, T-DB-1, T-DB-1B, T-DC-1, T-DD-1A, T-DD-1B, T-DE-1 |
 | **Partially landed; acceptance incomplete** | T-GOV-3 |
-| **Active** | T-DE-1 |
-| **Pending** | T-PLAT-2, T-PLAT-4, T-GOV-2, T-GOV-3B |
+| **Active** | T-PLAT-2 |
+| **Pending** | T-PLAT-4, T-GOV-2, T-GOV-3B |
 
 ---
 
@@ -1244,6 +1249,7 @@ files (GED-5 grant).
 
 ### T-DE-1: Remove reverse provider-facade dependencies
 - priority: P2
+- status: complete and verified 2026-07-26 (PR #158)
 - implementation_plan: `docs/plans/T_DE_1_PROVIDER_BOUNDARY_PLAN.md`
 - files_owned: the implementation plan and ledger; `ARCHITECTURE.md`;
   `docs/PIPELINE.md`; `pipeline/http_inference_provider.py`;
@@ -1454,15 +1460,41 @@ files (GED-5 grant).
 
 ### T-PLAT-2: Dependency hygiene
 - priority: P2
-- files_owned: requirements files, constraints.txt (new),
-  .github/dependabot.yml (new), python-guardrails.yml (audit step),
-  frontend-tests.yml (audit step)
-- do: (a) Shared constraints.txt for pins duplicated across the three
-  Python requirements files; requirements reference it. (b) Dependabot for
-  pip + npm + actions, weekly. (c) `pip-audit` and `npm audit --audit-level=high`
-  CI steps, initially non-blocking (report-only), promote later.
-- accept: One authoritative pin per shared package; audits visible in CI.
-- verify: Images build; suite green.
+- status: active; implementation authorized 2026-07-26
+- implementation_plan:
+  `docs/plans/T_PLAT_2_DEPENDENCY_HYGIENE_PLAN.md`
+- scope_authorization: Operator-approved 2026-07-26.
+- files_owned: `docs/plans/T_PLAT_2_DEPENDENCY_HYGIENE_PLAN.md`,
+  `docs/plans/TOWN_COUNCIL_REMEDIATION_PLAN.md`, `constraints.txt` (new),
+  `api/requirements.txt`, `council_crawler/requirements.txt`,
+  `pipeline/requirements.txt`, `pipeline/requirements-batch.txt`,
+  `pipeline/requirements-dev.txt`, `pipeline/requirements-nlp.txt` (delete),
+  `semantic_service/requirements.txt`, `Dockerfile`,
+  `.github/dependabot.yml` (new),
+  `.github/workflows/python-guardrails.yml` (audit steps only),
+  `.github/workflows/frontend-tests.yml` (audit step only),
+  `tests/test_docker_build_contracts.py`,
+  `tests/test_repository_guardrails.py`, `SECURITY.md`.
+- do: Centralize eleven repeated exact pins without changing versions; preserve
+  six separate Python environments and the `pgvector>=0.2.5` policy; delete
+  the obsolete NLP manifest; preserve manifest directories in Docker; add
+  weekly pip, npm, and Actions version updates; and add report-only Python and
+  npm vulnerability findings whose malformed reports or tool failures still
+  fail CI.
+- accept: Each shared package has one authoritative exact pin; every active
+  manifest uses the root constraints; all five Python images resolve their
+  intended dependencies; Dependabot covers every manifest location weekly;
+  valid vulnerability findings are visible but non-blocking; invalid reports,
+  network failures, and abnormal tool exits are blocking; security policy and
+  workflows agree.
+- forbidden: Package-version changes; pinning `pgvector`; combined
+  cross-service audit environments; `continue-on-error`, `if: always()`, or
+  `|| true` audit suppression; workflow permission or required-check changes;
+  runtime API, schema, environment, inference, or soak-policy changes.
+- verify: Follow the Full T-PLAT-2 plan, including tests-first evidence, Ruff,
+  Mypy, Docker and repository contracts, docs links, complete Python and
+  frontend suites, native Python 3.12 resolution, all five image builds,
+  independent review, and PR CI.
 
 ### T-PLAT-3: Backup/restore runbook
 - priority: P1
