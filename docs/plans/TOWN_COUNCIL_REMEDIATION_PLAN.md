@@ -1662,7 +1662,7 @@ files (GED-5 grant).
   docs/DATA_GOVERNANCE.md (new), README.md (Documentation Map section only),
   docs/plans/TOWN_COUNCIL_REMEDIATION_PLAN.md (G1 and T-GOV-6 only),
   tests/test_repository_guardrails.py (T-GOV-6 policy contract only)
-- scope_authorization: Operator-directed PR #159 P2 repair on 2026-07-26.
+- scope_authorization: Operator-approved 2026-07-26.
 - sequencing: SECURITY.md merges at Phase 1 start (it is the reference for
   SEC-lane PR impact statements; its checklist items cite T-SEC tasks as
   pending — that is intentional, update checkboxes as tasks merge).
@@ -1677,9 +1677,11 @@ files (GED-5 grant).
 - accept: All three documents are linked from README; G1 records the
   operator-approved `reachable` posture in both canonical locations; docs-link
   and T-GOV-6 policy-contract tests are green.
-- verify: `PYTHONPATH=. .venv/bin/pytest -q
-  tests/test_repository_guardrails.py::test_t_gov_6_closes_reachable_deployment_posture_decision
-  tests/test_docs_links.py`
+- verify: `./.venv/bin/ruff check .`;
+  `./.venv/bin/mypy`;
+  `PYTHONPATH=. .venv/bin/pytest -q tests/test_repository_guardrails.py`;
+  `PYTHONPATH=. .venv/bin/pytest -q tests/test_docs_links.py`;
+  `PYTHONPATH=. .venv/bin/pytest -q`.
 
 ---
 

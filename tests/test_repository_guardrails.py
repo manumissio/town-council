@@ -2751,9 +2751,18 @@ def test_t_gov_6_closes_reachable_deployment_posture_decision():
     assert _remediation_task_states(remediation_ledger, "T-GOV-6") == ["Complete"]
     assert "docs/plans/TOWN_COUNCIL_REMEDIATION_PLAN.md" in t_gov_6_entry
     assert "tests/test_repository_guardrails.py" in t_gov_6_entry
-    assert "Operator-directed PR #159 P2 repair" in t_gov_6_entry
+    assert "scope_authorization: Operator-approved 2026-07-26" in t_gov_6_entry
     assert "T-GOV-6 remains partially landed" not in remediation_ledger
     assert "T-GOV-6 DATA_GOVERNANCE.md (Section 3 pending G4)" not in remediation_ledger
+    _, verify_marker, verification_block = t_gov_6_entry.partition("- verify:")
+    assert verify_marker
+    assert tuple(re.findall(r"`([^`]+)`", verification_block)) == (
+        "./.venv/bin/ruff check .",
+        "./.venv/bin/mypy",
+        "PYTHONPATH=. .venv/bin/pytest -q tests/test_repository_guardrails.py",
+        "PYTHONPATH=. .venv/bin/pytest -q tests/test_docs_links.py",
+        "PYTHONPATH=. .venv/bin/pytest -q",
+    )
     for policy_path in ("SECURITY.md", "docs/TESTING.MD", "docs/DATA_GOVERNANCE.md"):
         assert f"]({policy_path})" in readme
 
