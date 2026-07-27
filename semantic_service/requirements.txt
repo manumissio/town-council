@@ -10,3 +10,5 @@ redis
 numpy==2.4.4
 sentence-transformers==3.3.0
 faiss-cpu==1.10.0
+# Docker constrains this to the matching +cpu build; the base pin remains auditable.
+torch==2.11.0

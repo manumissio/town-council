@@ -39,7 +39,6 @@ jobs:
           python -m pip install -r pipeline/requirements.txt
           python -m pip install -r api/requirements.txt
           python -m pip install -r council_crawler/requirements.txt
-          python -m pip install scikit-learn==1.8.0
           python -m pip install -r pipeline/requirements-dev.txt
           python -m venv --system-site-packages .venv
 
@@ -140,5 +139,5 @@ jobs:
           audit_requirements crawler -r council_crawler/requirements.txt
           PIP_CONSTRAINT=docker/semantic-cpu-constraints.txt PIP_EXTRA_INDEX_URL=https://download.pytorch.org/whl/cpu audit_requirements worker-live -r pipeline/requirements.txt
           PIP_CONSTRAINT=docker/semantic-cpu-constraints.txt PIP_EXTRA_INDEX_URL=https://download.pytorch.org/whl/cpu audit_requirements worker-batch -r pipeline/requirements.txt -r pipeline/requirements-batch.txt
-          PIP_CONSTRAINT=docker/semantic-cpu-constraints.txt PIP_EXTRA_INDEX_URL=https://download.pytorch.org/whl/cpu audit_requirements semantic -r semantic_service/requirements.txt
+          audit_requirements semantic -r semantic_service/requirements.txt
           audit_requirements development -r pipeline/requirements-dev.txt

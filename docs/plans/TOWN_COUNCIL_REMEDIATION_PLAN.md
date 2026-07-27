@@ -1,6 +1,6 @@
 # Town Council Remediation Plan (Codex Multi-Agent)
 
-version: 3.67
+version: 3.68
 generated: 2026-07-26
 source: Four-pass external code review (security, architecture, smells, process)
 source_artifact: [Town Council architecture review](../reviews/architecture-review-2026-07-19.html)
@@ -10,6 +10,10 @@ remains in force; where this plan is stricter, this plan wins for these tasks.
 
 ## Changelog
 
+- **v3.68:** Closes T-PLAT-2 audit parity gaps found during review and CI.
+  The CI-only scikit-learn pin now lives in the audited development manifest,
+  while the semantic manifest exposes Torch's upstream version and Docker's
+  existing CPU constraint continues to select the matching `+cpu` build.
 - **v3.67:** Synchronizes T-DE-1 completion after PR #158 and activates
   T-PLAT-2 after operator approval of the exact dependency-policy, Docker,
   workflow, security, and test ownership needed for shared constraints, weekly

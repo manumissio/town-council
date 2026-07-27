@@ -817,7 +817,6 @@ def test_python_guardrail_workflow_enforces_production_coverage():
         "python -m pip install -r pipeline/requirements.txt",
         "python -m pip install -r api/requirements.txt",
         "python -m pip install -r council_crawler/requirements.txt",
-        "python -m pip install scikit-learn==1.8.0",
         "python -m pip install -r pipeline/requirements-dev.txt",
         "python -m venv --system-site-packages .venv",
     )
@@ -1261,7 +1260,6 @@ def test_python_dependency_audit_covers_six_separate_environments() -> None:
             "-r pipeline/requirements-batch.txt"
         ),
         (
-            f"{CPU_DEPENDENCY_AUDIT_ENV}"
             "audit_requirements semantic -r semantic_service/requirements.txt"
         ),
         "audit_requirements development -r pipeline/requirements-dev.txt",
@@ -1275,6 +1273,7 @@ def test_python_dependency_audit_covers_six_separate_environments() -> None:
     assert configured_audit_commands == expected_audit_commands
     assert "python-version: \"3.12\"" in workflow_text
     assert "python -m pip install -c constraints.txt pip-audit" in workflow_text
+    assert "python -m pip install scikit-learn==1.8.0" not in workflow_text
     assert workflow_text.index("Run full Python test suite") < workflow_text.index(
         "Audit Python dependency environments"
     )
@@ -1330,9 +1329,13 @@ def test_python_dependency_audit_distinguishes_findings_from_tool_failures(
 set -eu
 report_path=""
 case " $* " in
-  *" pipeline/requirements.txt "*|*" semantic_service/requirements.txt "*)
+  *" pipeline/requirements.txt "*)
     test "$PIP_CONSTRAINT" = "docker/semantic-cpu-constraints.txt"
     test "$PIP_EXTRA_INDEX_URL" = "https://download.pytorch.org/whl/cpu"
+    ;;
+  *" semantic_service/requirements.txt "*)
+    test -z "${PIP_CONSTRAINT:-}"
+    test -z "${PIP_EXTRA_INDEX_URL:-}"
     ;;
 esac
 while [ "$#" -gt 0 ]; do

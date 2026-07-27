@@ -75,7 +75,8 @@ inference policy remain unchanged.
    `-c ../constraints.txt`. Keep every direct dependency listed in its owning
    manifest, but remove versions now owned by constraints. Preserve
    `pgvector>=0.2.5`, batch `scikit-learn==1.5.0`, and every unique exact pin.
-5. Add unversioned `pip-audit` to `pipeline/requirements-dev.txt`. Delete the
+5. Add unversioned `pip-audit` and the CI-only
+   `scikit-learn==1.8.0` pin to `pipeline/requirements-dev.txt`. Delete the
    obsolete, unreferenced `pipeline/requirements-nlp.txt`; the batch manifest
    already owns its three packages.
 6. Preserve manifest directories in `Dockerfile`, copy root and semantic CPU
@@ -87,7 +88,9 @@ inference policy remain unchanged.
 8. After the Python 3.14 test and coverage steps, select Python 3.12, install
    the constrained `pip-audit`, and audit API, crawler, live worker, batch
    worker, semantic, and development manifests separately. Batch uses both
-   pipeline requirement files.
+   pipeline requirement files. The semantic manifest exposes the upstream
+   Torch version for advisory lookup; Docker's CPU constraint selects the
+   local `+cpu` build with the same upstream version.
 9. For each Python audit, write JSON to the runner temporary directory.
    Accept exit `0` only with valid zero-finding JSON. Treat exit `1` as
    report-only only when valid JSON contains at least one vulnerability.
@@ -200,12 +203,14 @@ Dependabot configuration; production Python remains unchanged.
 12. Workflow findings are hidden by `continue-on-error`, `if`, or `|| true`.
 13. Security prose claims findings block merge or tool failures are tolerated.
 14. Native or Docker dependency resolution fails under Python 3.12.
+15. A CI-only package pin falls outside every audited manifest.
+16. The semantic CPU build and its auditable upstream version drift.
 
 **r) Tests.**
 
 | Test | Scenarios |
 |---|---|
-| Shared constraint and active-manifest contract | 1, 4 |
+| Shared constraint and active-manifest contract | 1, 4, 15, 16 |
 | Docker requirement-path and split-image contract | 2-5 |
 | Obsolete NLP manifest contract | 5 |
 | Dependabot configuration contract | 6 |

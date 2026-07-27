@@ -406,6 +406,7 @@ def test_dependency_audit_and_pgvector_constraints_remain_explicit() -> None:
     constraint_directives = _requirement_directives(Path("constraints.txt"))
 
     assert "pip-audit" in development_directives
+    assert "scikit-learn==1.8.0" in development_directives
     assert "pip-audit==2.10.1" in constraint_directives
     for requirements_path in (
         Path("api/requirements.txt"),
@@ -413,6 +414,18 @@ def test_dependency_audit_and_pgvector_constraints_remain_explicit() -> None:
         Path("semantic_service/requirements.txt"),
     ):
         assert "pgvector>=0.2.5" in _requirement_directives(requirements_path)
+
+
+def test_semantic_cpu_constraint_preserves_auditable_upstream_version() -> None:
+    semantic_directives = _requirement_directives(
+        Path("semantic_service/requirements.txt")
+    )
+    cpu_constraint_directives = _requirement_directives(
+        Path("docker/semantic-cpu-constraints.txt")
+    )
+
+    assert "torch==2.11.0" in semantic_directives
+    assert "torch==2.11.0+cpu" in cpu_constraint_directives
 
 
 def test_docker_preserves_requirement_paths_and_applies_constraints() -> None:
