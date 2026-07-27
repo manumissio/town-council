@@ -1,6 +1,6 @@
 # Town Council Remediation Plan (Codex Multi-Agent)
 
-version: 3.64
+version: 3.65
 generated: 2026-07-26
 source: Four-pass external code review (security, architecture, smells, process)
 source_artifact: [Town Council architecture review](../reviews/architecture-review-2026-07-19.html)
@@ -10,6 +10,12 @@ remains in force; where this plan is stricter, this plan wins for these tasks.
 
 ## Changelog
 
+- **v3.65:** Marks T-DC-1 complete after PR #157 removed copied startup state,
+  reverse startup imports, forwarding wrappers, stdlib rebinding, and test-only
+  API re-exports. Activates a corrected T-DE-1 after independent review found
+  that retry orchestration is already transport-local. T-DE-1 now removes
+  reverse imports through the provider compatibility facade, repoints tests to
+  implementation owners, and preserves HTTP retry and in-process reset policy.
 - **v3.64:** Marks T-DD-1B complete after PR #156 merged the characterized
   event-graph mutation owner with shared-catalog, rollback, idempotency, and
   CLI parity coverage. Activates P1 T-DC-1 with exact ownership for removing
@@ -313,10 +319,10 @@ remains in force; where this plan is stricter, this plan wins for these tasks.
 
 | State | Tasks |
 |---|---|
-| **Complete** | T-CI-0, T-CI-1, T-CI-1A, T-CI-2, T-CI-2A, T-CI-3, T-CI-4, T-CI-5, T-SEC-1, T-SEC-2, T-SEC-3, T-SEC-3C, T-SEC-4, T-SEC-4A, T-SEC-5, T-SEC-6, T-TIME-1, T-TIME-2, T-TIME-3, T-CRAWL-1, T-CRAWL-2, T-PLAT-1, T-PLAT-1A, T-PLAT-2A, T-PLAT-2B, T-PLAT-3, T-GOV-1, T-GOV-3A, T-GOV-4, T-GOV-5, T-DA-1, T-DB-1A, T-DB-1, T-DB-1B, T-DD-1A, T-DD-1B |
+| **Complete** | T-CI-0, T-CI-1, T-CI-1A, T-CI-2, T-CI-2A, T-CI-3, T-CI-4, T-CI-5, T-SEC-1, T-SEC-2, T-SEC-3, T-SEC-3C, T-SEC-4, T-SEC-4A, T-SEC-5, T-SEC-6, T-TIME-1, T-TIME-2, T-TIME-3, T-CRAWL-1, T-CRAWL-2, T-PLAT-1, T-PLAT-1A, T-PLAT-2A, T-PLAT-2B, T-PLAT-3, T-GOV-1, T-GOV-3A, T-GOV-4, T-GOV-5, T-DA-1, T-DB-1A, T-DB-1, T-DB-1B, T-DC-1, T-DD-1A, T-DD-1B |
 | **Partially landed; acceptance incomplete** | T-GOV-3, T-GOV-6 |
-| **Active** | T-DC-1 |
-| **Pending** | T-DE-1, T-PLAT-2, T-PLAT-4, T-GOV-2, T-GOV-3B |
+| **Active** | T-DE-1 |
+| **Pending** | T-PLAT-2, T-PLAT-4, T-GOV-2, T-GOV-3B |
 
 ---
 
@@ -383,7 +389,7 @@ remains in force; where this plan is stricter, this plan wins for these tasks.
 | DEDUP-B   | agent-db   | pipeline/summary_backfill*.py, pipeline/task_summary_generation*.py, pipeline/task_summary_empty_agenda.py, pipeline/task_summary_side_effects.py, pipeline/task_facade_helpers.py, pipeline/tasks.py, pipeline/run_pipeline.py (T-DB-1 only), pipeline/backlog_maintenance.py (T-DB-1B only), pipeline/agenda_summary_maintenance.py (T-DB-1B only), pipeline/agenda_summary_fallback.py (T-DB-1B only), pipeline/non_agenda_summary_fallback.py (T-DB-1B only), pipeline/agenda_summary_batch.py (T-DB-1B only), scripts/backfill_summaries.py, scripts/staged_hydrate_cities.py, scripts/profile_pipeline_selection.py, scripts/staged_hydration_runner.py (T-DB-1B only), ARCHITECTURE.md and docs/PIPELINE.md (T-DB-1B agenda-summary maintenance map only), tests/test_*backfill*, tests/test_summary_generation_operation.py (new), tests/test_agenda_summary_payload_budget.py, tests/test_summary_blocking.py, tests/test_task_provider_retry_semantics.py, tests/test_async_flow.py, tests/test_task_facade_cleanup.py, tests/test_repository_guardrails.py (T-DB tasks only), tests/test_pipeline_batching.py, tests/test_run_pipeline_orchestration.py, tests/test_staged_hydrate_cities.py, tests/test_tasks_agenda_summary_format.py, tests/test_profile_pipeline_cli.py |
 | DEDUP-C   | agent-dc   | api/main.py, api/app_setup.py, tests/conftest.py, tests/test_*api* (Phase 2 only) |
 | DEDUP-D   | agent-dd   | scripts/flush_city_pipeline_state.py, scripts/reset_city_verification_state.py, scripts/worker_health_probes.py, scripts/*_healthcheck.py, tests for same |
-| DEDUP-E   | agent-de   | pipeline/http_inference_provider.py, pipeline/inprocess_inference_provider.py, pipeline/inference_provider_contract.py, tests for same |
+| DEDUP-E   | agent-de   | pipeline/http_inference_provider.py, pipeline/http_inference_attempts.py (verify-only), pipeline/inprocess_inference_provider.py (verify-only), pipeline/inference_provider_contract.py (verify-only), pipeline/llm_provider.py, pipeline/provider_telemetry.py, pipeline/agenda_segmentation_maintenance.py, ARCHITECTURE.md, docs/PIPELINE.md, docs/plans/T_DE_1_PROVIDER_BOUNDARY_PLAN.md, docs/plans/TOWN_COUNCIL_REMEDIATION_PLAN.md (T-DE-1 only), tests/test_inference_provider_protocol_contract.py, tests/test_http_provider_telemetry_metrics.py, tests/test_http_provider_operation_retry_budgets.py, tests/test_http_provider_ttft_tps_computation.py, tests/test_http_provider_token_metrics_parsing.py, tests/test_hydrate_repaired_city_catalogs.py |
 | PLAT      | agent-plat | alembic/** (new), alembic.ini (new), pipeline/requirements*.txt, pipeline/db_init.py (T-PLAT-1 only), pipeline/db_migrate.py (T-PLAT-1 only, after TIME), pipeline/db_migration_alembic.py (new, T-PLAT-1 only), pipeline/db_migration_backfills.py (T-PLAT-1 shared transaction only), pipeline/db_migration_runner.py (T-PLAT-1 strict legacy path only), pipeline/db_schema_contracts.py (new, T-PLAT-1 only), pipeline/db_migration_columns.py (T-PLAT-1 legacy parity only), pipeline/migrate_v8.py (T-PLAT-1 frozen transaction adapter only), pipeline/migration_pgvector_semantic_embeddings.py (T-PLAT-1 frozen metadata only), pipeline/migrate_v9.py and pipeline/migration_catalog_lineage_columns.py (T-PLAT-1 shared transaction only), pipeline/migrate_v10.py (T-PLAT-1 shared transaction only), pipeline/seed_places.py (T-PLAT-1 schema handoff only), pipeline/promote_stage.py (T-PLAT-1 schema handoff only), scripts/check_schema_parity.py (new, T-PLAT-1 only), scripts/dev_up.sh (T-PLAT-1 only), README.md (T-PLAT-1 setup section only), ARCHITECTURE.md (T-PLAT-1 migration map only), api/requirements.txt, semantic_service/requirements.txt, constraints.txt (new), .github/dependabot.yml (new), .github/workflows/python-guardrails.yml (T-PLAT-1 PostgreSQL migration service/step only), ruff.toml (T-PLAT-1 stale db_migration_runner.py BLE001 selector removal only), docs/OPERATIONS.md (migration and backup sections only), docs/PIPELINE.md (T-PLAT-1 migration section only), docs/CONTRIBUTING_CITIES.md (T-PLAT-1 seed prerequisite only), docs/plans/T_PLAT_1_ALEMBIC_BASELINE_PLAN.md (new), docs/plans/G5_ALEMBIC_ADOPTION_DECISION_PLAN.md (T-PLAT-1 status only), docs/plans/TOWN_COUNCIL_REMEDIATION_PLAN.md (T-PLAT-1 only), tests/test_alembic_migrations.py (new), tests/test_db_init.py (T-PLAT-1 only), tests/test_db_migrate.py (T-PLAT-1 only), tests/test_docker_build_contracts.py (T-PLAT-1 fresh-DB contract only), tests/test_migrate_v8_pgvector_order.py (T-PLAT-1 only), tests/test_migrate_v9.py (T-PLAT-1 only), tests/test_migrate_v10.py (T-PLAT-1 only), tests/test_seed_places.py (T-PLAT-1 schema handoff only), tests/test_seed_places_includes_cupertino.py (T-PLAT-1 schema handoff only), tests/test_database.py (T-PLAT-1 promotion schema handoff only), tests/test_pipeline_idempotency.py (T-PLAT-1 promotion schema handoff only), tests/test_pipeline_integration.py (T-PLAT-1 promotion schema handoff only), tests/test_repository_guardrails.py (T-PLAT-1 migration CI and BLE001 ratchet only), tests/test_run_pipeline_orchestration.py (T-PLAT-1 migration-prelude contract only), api/cache.py |
 | GOV       | agent-gov  | docs/ADR.md, docs/ENGINEERING_GUARDRAILS.md, AGENTS.md, SECURITY.md (new), docs/TESTING.md (new), docs/DATA_GOVERNANCE.md (new), tests/test_repository_guardrails.py (Phase 3 only) |
 
@@ -1148,7 +1154,7 @@ files (GED-5 grant).
 
 ### T-DC-1: Remove the api.main <-> app_setup sync machinery
 - priority: P1
-- status: active
+- status: complete and verified 2026-07-26 (PR #157)
 - must_not_run_concurrently_with: any SEC task
 - implementation_plan: `docs/plans/T_DC_1_APP_STARTUP_OWNERSHIP_PLAN.md`
 - files_owned: the implementation plan and ledger; `api/main.py`;
@@ -1231,18 +1237,39 @@ files (GED-5 grant).
   persisted-state and onboarding contracts, Ruff, Mypy, docs links, coverage,
   and the complete suite pass.
 
-### T-DE-1: Shared provider retry/telemetry
+### T-DE-1: Remove reverse provider-facade dependencies
 - priority: P2
-- files_owned: http_inference_provider.py, inprocess_inference_provider.py,
-  inference_provider_contract.py, tests for same
-- do: Move the 23 duplicated windows (retry/telemetry scaffolding) into the
-  contract module or a small shared helper; providers call it. No behavior
-  change: error mapping and fail-fast semantics are covered by
-  tests/test_provider_error_mapping_retry_vs_fallback.py — it must pass
-  unmodified.
-- accept: Duplication between providers ~0; that guardrail test green
-  UNCHANGED.
-- verify: Full suite.
+- implementation_plan: `docs/plans/T_DE_1_PROVIDER_BOUNDARY_PLAN.md`
+- files_owned: the implementation plan and ledger; `ARCHITECTURE.md`;
+  `docs/PIPELINE.md`; `pipeline/http_inference_provider.py`;
+  `pipeline/llm_provider.py`;
+  `pipeline/provider_telemetry.py`;
+  `pipeline/agenda_segmentation_maintenance.py`;
+  `tests/test_inference_provider_protocol_contract.py`;
+  `tests/test_http_provider_telemetry_metrics.py`;
+  `tests/test_http_provider_operation_retry_budgets.py`;
+  `tests/test_http_provider_ttft_tps_computation.py`;
+  `tests/test_http_provider_token_metrics_parsing.py`;
+  `tests/test_hydrate_repaired_city_catalogs.py`
+- do: Remove implementation imports through `pipeline.llm_provider`. HTTP
+  transport reads config and calls `requests` at its implementation owner;
+  provider telemetry calls metric recorders at its implementation owner;
+  maintenance timeout overrides patch the HTTP owner. Repoint affected tests
+  from facade monkeypatches. Keep HTTP retry orchestration in
+  `pipeline/http_inference_attempts.py`; in-process locking/reset behavior
+  remains distinct.
+- preserve: `pipeline.llm_provider` runtime import compatibility; provider
+  classes, protocol, operation labels, response fields, and typed errors;
+  retry budgets, timeout values, metric labels, local-first defaults,
+  fail-fast behavior, and model/fallback policy. Remove test-only config,
+  `requests`, and metric-recorder re-exports rather than leaving inert names.
+- accept: Provider implementations do not import their compatibility facade;
+  tests patch implementation or approved fake boundaries; temporary timeout
+  overrides still restore prior values and provider state; the unchanged
+  provider error-mapping test remains green.
+- verify: Follow the Full T-DE-1 plan; focused inference, telemetry, and
+  maintenance tests, Ruff, Mypy, docs links, coverage, and the complete Python
+  suite pass.
 
 ---
 

@@ -10,7 +10,7 @@ from typing import Any
 from sqlalchemy.exc import SQLAlchemyError
 
 from pipeline import llm as llm_mod
-from pipeline import llm_provider as llm_provider_mod
+from pipeline import http_inference_provider as http_inference_provider_mod
 from pipeline.agenda_resolver import has_viable_structured_agenda_source, resolve_agenda_items
 from pipeline.agenda_service import persist_agenda_items
 from pipeline.db_session import db_session
@@ -30,23 +30,23 @@ def provider_timeout_override(
         yield
         return
 
-    previous_segment_timeout = llm_provider_mod.LOCAL_AI_HTTP_TIMEOUT_SEGMENT_SECONDS
-    previous_summary_timeout = llm_provider_mod.LOCAL_AI_HTTP_TIMEOUT_SUMMARY_SECONDS
+    previous_segment_timeout = http_inference_provider_mod.LOCAL_AI_HTTP_TIMEOUT_SEGMENT_SECONDS
+    previous_summary_timeout = http_inference_provider_mod.LOCAL_AI_HTTP_TIMEOUT_SUMMARY_SECONDS
     previous_instance = llm_mod.LocalAI._instance
     previous_provider = getattr(previous_instance, "_provider", None) if previous_instance else None
     previous_backend = getattr(previous_instance, "_provider_backend", None) if previous_instance else None
     if segment_timeout_seconds is not None:
-        llm_provider_mod.LOCAL_AI_HTTP_TIMEOUT_SEGMENT_SECONDS = int(segment_timeout_seconds)
+        http_inference_provider_mod.LOCAL_AI_HTTP_TIMEOUT_SEGMENT_SECONDS = int(segment_timeout_seconds)
     if summary_timeout_seconds is not None:
-        llm_provider_mod.LOCAL_AI_HTTP_TIMEOUT_SUMMARY_SECONDS = int(summary_timeout_seconds)
+        http_inference_provider_mod.LOCAL_AI_HTTP_TIMEOUT_SUMMARY_SECONDS = int(summary_timeout_seconds)
     if previous_instance is not None:
         previous_instance._provider = None
         previous_instance._provider_backend = None
     try:
         yield
     finally:
-        llm_provider_mod.LOCAL_AI_HTTP_TIMEOUT_SEGMENT_SECONDS = previous_segment_timeout
-        llm_provider_mod.LOCAL_AI_HTTP_TIMEOUT_SUMMARY_SECONDS = previous_summary_timeout
+        http_inference_provider_mod.LOCAL_AI_HTTP_TIMEOUT_SEGMENT_SECONDS = previous_segment_timeout
+        http_inference_provider_mod.LOCAL_AI_HTTP_TIMEOUT_SUMMARY_SECONDS = previous_summary_timeout
         current_instance = llm_mod.LocalAI._instance
         if current_instance is not None:
             current_instance._provider = previous_provider
