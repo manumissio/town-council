@@ -1,6 +1,6 @@
 # Town Council Remediation Plan (Codex Multi-Agent)
 
-version: 3.65
+version: 3.66
 generated: 2026-07-26
 source: Four-pass external code review (security, architecture, smells, process)
 source_artifact: [Town Council architecture review](../reviews/architecture-review-2026-07-19.html)
@@ -10,6 +10,10 @@ remains in force; where this plan is stricter, this plan wins for these tasks.
 
 ## Changelog
 
+- **v3.66:** Records the operator-approved reachable deployment posture in the
+  G1 decision ledger and closes T-GOV-6 after all three governance documents
+  were linked from the README. Expands T-GOV-6 ownership narrowly for the
+  synchronized ledger update and its policy contract.
 - **v3.65:** Marks T-DC-1 complete after PR #157 removed copied startup state,
   reverse startup imports, forwarding wrappers, stdlib rebinding, and test-only
   API re-exports. Activates a corrected T-DE-1 after independent review found
@@ -319,8 +323,8 @@ remains in force; where this plan is stricter, this plan wins for these tasks.
 
 | State | Tasks |
 |---|---|
-| **Complete** | T-CI-0, T-CI-1, T-CI-1A, T-CI-2, T-CI-2A, T-CI-3, T-CI-4, T-CI-5, T-SEC-1, T-SEC-2, T-SEC-3, T-SEC-3C, T-SEC-4, T-SEC-4A, T-SEC-5, T-SEC-6, T-TIME-1, T-TIME-2, T-TIME-3, T-CRAWL-1, T-CRAWL-2, T-PLAT-1, T-PLAT-1A, T-PLAT-2A, T-PLAT-2B, T-PLAT-3, T-GOV-1, T-GOV-3A, T-GOV-4, T-GOV-5, T-DA-1, T-DB-1A, T-DB-1, T-DB-1B, T-DC-1, T-DD-1A, T-DD-1B |
-| **Partially landed; acceptance incomplete** | T-GOV-3, T-GOV-6 |
+| **Complete** | T-CI-0, T-CI-1, T-CI-1A, T-CI-2, T-CI-2A, T-CI-3, T-CI-4, T-CI-5, T-SEC-1, T-SEC-2, T-SEC-3, T-SEC-3C, T-SEC-4, T-SEC-4A, T-SEC-5, T-SEC-6, T-TIME-1, T-TIME-2, T-TIME-3, T-CRAWL-1, T-CRAWL-2, T-PLAT-1, T-PLAT-1A, T-PLAT-2A, T-PLAT-2B, T-PLAT-3, T-GOV-1, T-GOV-3A, T-GOV-4, T-GOV-5, T-GOV-6, T-DA-1, T-DB-1A, T-DB-1, T-DB-1B, T-DC-1, T-DD-1A, T-DD-1B |
+| **Partially landed; acceptance incomplete** | T-GOV-3 |
 | **Active** | T-DE-1 |
 | **Pending** | T-PLAT-2, T-PLAT-4, T-GOV-2, T-GOV-3B |
 
@@ -352,9 +356,10 @@ remains in force; where this plan is stricter, this plan wins for these tasks.
 
 ## 1. HUMAN DECISION GATES (Users resolves; agents must not assume)
 
-- G1 deployment_posture: Is any instance ever network-reachable beyond
-  localhost? Default assumption for this plan: YES (harden accordingly).
-  Affects severity of SEC lane; does not block it.
+- G1 deployment_posture: **Approved 2026-07-26.** Town Council is operated
+  with a `reachable` deployment posture. Reachable controls in `SECURITY.md`
+  are mandatory for any instance exposed beyond localhost. This decision
+  affects SEC-lane severity and does not block remediation execution.
 - G2 protected_action_policy: **Approved 2026-07-24.** AI task endpoints
   (summarize/segment/extract/topics) remain available to visitors through the
   public Next.js proxy with per-client rate limits. Direct calls to these
@@ -1516,9 +1521,9 @@ files (GED-5 grant).
   task-identity, and operational contracts without rewriting historical ADR
   entries. Activate the testing policy, remove the stale live G3 deferral
   comment, and enforce the decision with repository guardrails.
-- coordination: T-GOV-6 remains partially landed after this task because its
-  README Documentation Map links remain missing and are outside T-GOV-1
-  ownership.
+- historical_coordination: T-GOV-6 remained partial after this task because its
+  README Documentation Map links were outside T-GOV-1 ownership. T-GOV-6 is
+  now complete.
 - accept: Accepted ADR merged; testing policy effective; no live source treats
   G3 as a facade deferral; Phase 2 G3 blocker removed; runtime behavior and
   public contracts unchanged.
@@ -1652,25 +1657,29 @@ files (GED-5 grant).
 
 ### T-GOV-6: Introduce SECURITY.md, docs/TESTING.md, docs/DATA_GOVERNANCE.md
 - priority: P1 (SECURITY.md, TESTING.md), P2 (DATA_GOVERNANCE.md)
+- status: complete and verified 2026-07-26
 - files_owned: SECURITY.md (new), docs/TESTING.md (new),
-  docs/DATA_GOVERNANCE.md (new), README.md (Documentation Map section only)
+  docs/DATA_GOVERNANCE.md (new), README.md (Documentation Map section only),
+  docs/plans/TOWN_COUNCIL_REMEDIATION_PLAN.md (G1 and T-GOV-6 only),
+  tests/test_repository_guardrails.py (T-GOV-6 policy contract only)
+- scope_authorization: Operator-directed PR #159 P2 repair on 2026-07-26.
 - sequencing: SECURITY.md merges at Phase 1 start (it is the reference for
   SEC-lane PR impact statements; its checklist items cite T-SEC tasks as
   pending — that is intentional, update checkboxes as tasks merge).
   TESTING.md is active with the G3 ADR (T-GOV-1) as its operational companion.
-  T-GOV-6 remains partially landed until its three canonical documents are
-  linked from the README Documentation Map. DATA_GOVERNANCE.md merges any time;
-  its Section 3 stays in "options + working default" form until the user
-  resolves G4, then the G4 ADR task replaces Section 3 with the adopted policy.
-- do: Merge the provided drafts. Add the three documents to the README
-  Documentation Map. The user fills the deployment-posture blank in
-  SECURITY.md (G1) before or at merge.
-- forbidden: Resolving G1/G2/G4 by editing defaults; adding further new
-  documents (net-new doc budget for this remediation is exactly these
-  three).
-- accept: All three merged and linked from README; docs-link test green;
-  no decision gate silently resolved.
-- verify: `PYTHONPATH=. .venv/bin/pytest -q tests/test_docs_links.py`
+  All three canonical documents are linked from the README Documentation Map.
+  DATA_GOVERNANCE.md Section 3 stays in "options + working default" form until
+  T-GOV-2 records and implements the approved G4 policy.
+- do: Keep the three governance documents linked from the README and keep the
+  G1 deployment posture synchronized between SECURITY.md and this ledger.
+- forbidden: Resolving G2/G4 by editing defaults; adding further new documents
+  (net-new doc budget for this remediation is exactly these three).
+- accept: All three documents are linked from README; G1 records the
+  operator-approved `reachable` posture in both canonical locations; docs-link
+  and T-GOV-6 policy-contract tests are green.
+- verify: `PYTHONPATH=. .venv/bin/pytest -q
+  tests/test_repository_guardrails.py::test_t_gov_6_closes_reachable_deployment_posture_decision
+  tests/test_docs_links.py`
 
 ---
 
@@ -1687,7 +1696,7 @@ Phase 3: agent-plat [T-PLAT-1 after T-TIME-1 and T-TIME-2, T-PLAT-1A
          closure, T-PLAT-2B security patch, then T-PLAT-2..4]
          || agent-gov [T-GOV-2, T-GOV-3A, then T-GOV-3B after T-DC-1 and
          revised T-DE-1; T-GOV-5 complete]
-Anytime: T-GOV-6 DATA_GOVERNANCE.md (Section 3 pending G4)
+Anytime: T-GOV-6 complete; T-GOV-2 records the approved G4 policy
 ```
 
 Merge policy: one task = one PR, except operator-approved T-TIME-1 +
