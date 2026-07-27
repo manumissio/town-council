@@ -336,6 +336,9 @@ For complete troubleshooting (auth, stale/blocked/not-generated states, startup 
 - Use reproducibility and performance notes: [`docs/PERFORMANCE.md`](docs/PERFORMANCE.md)
 - Use contributor guidance for new crawlers: [`docs/CONTRIBUTING_CITIES.md`](docs/CONTRIBUTING_CITIES.md)
 - Use repo policy and collaboration constraints: [`AGENTS.md`](AGENTS.md)
+- Use the threat model and hardening controls: [`SECURITY.md`](SECURITY.md)
+- Use test boundaries and verification policy: [`docs/TESTING.MD`](docs/TESTING.MD)
+- Use person-data minimization and correction policy: [`docs/DATA_GOVERNANCE.md`](docs/DATA_GOVERNANCE.md)
 
 ## Contributing
 - Use [`AGENTS.md`](AGENTS.md) for repo workflow, policy, verification, and collaboration constraints.

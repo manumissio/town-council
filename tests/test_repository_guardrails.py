@@ -2662,11 +2662,6 @@ def test_test_patch_points_policy_has_accepted_adr_and_effective_runbook():
     complete_row = next(
         line for line in remediation_ledger.splitlines() if line.startswith("| **Complete** |")
     )
-    partial_row = next(
-        line
-        for line in remediation_ledger.splitlines()
-        if line.startswith("| **Partially landed; acceptance incomplete** |")
-    )
     pending_row = next(
         line for line in remediation_ledger.splitlines() if line.startswith("| **Pending** |")
     )
@@ -2692,10 +2687,9 @@ def test_test_patch_points_policy_has_accepted_adr_and_effective_runbook():
     )
     assert "T-GOV-1" in complete_row
     assert "T-GOV-1" not in pending_row
-    assert "T-GOV-6" in partial_row
+    assert "T-GOV-6" in complete_row
     assert (
-        "remains partially landed until its three canonical documents are linked from the README "
-        "Documentation Map"
+        "All three canonical documents are linked from the README Documentation Map"
         in t_gov_6_entry
     )
     assert "## 5. PHASE 2 — DEDUPLICATION & DE-FACADING\n" in remediation_ledger
@@ -2720,6 +2714,57 @@ def test_test_patch_points_policy_has_accepted_adr_and_effective_runbook():
     ):
         assert owned_path in t_db_1_entry
         assert owned_path in dedup_b_row
+
+
+def test_t_gov_6_closes_reachable_deployment_posture_decision():
+    readme = (ROOT / "README.md").read_text(encoding="utf-8")
+    security_policy = (ROOT / "SECURITY.md").read_text(encoding="utf-8")
+    remediation_ledger = (
+        ROOT / "docs" / "plans" / "TOWN_COUNCIL_REMEDIATION_PLAN.md"
+    ).read_text(encoding="utf-8")
+    g1_entry = _required_markdown_section(
+        remediation_ledger,
+        "- G1 deployment_posture:",
+        "\n- G2 protected_action_policy:",
+    )
+    t_gov_6_entry = _required_markdown_section(
+        remediation_ledger,
+        "### T-GOV-6: Introduce SECURITY.md, docs/TESTING.md, docs/DATA_GOVERNANCE.md",
+        "\n---\n\n## 7. EXECUTION ORDER SUMMARY",
+    )
+
+    deployment_posture = _required_markdown_section(
+        security_policy,
+        "## Deployment posture (decision G1)",
+        "\n## Trust boundaries",
+    )
+    assert "Current declared posture: `reachable`" in deployment_posture
+    assert "operator-approved 2026-07-26" in deployment_posture
+    assert "**Approved 2026-07-26.**" in g1_entry
+    assert "`reachable` deployment posture" in g1_entry
+    assert not re.search(
+        r"\b(?:default assumption|is any instance ever|open|pending|unresolved)\b",
+        g1_entry,
+        re.IGNORECASE,
+    )
+    assert "status: complete and verified 2026-07-26" in t_gov_6_entry
+    assert _remediation_task_states(remediation_ledger, "T-GOV-6") == ["Complete"]
+    assert "docs/plans/TOWN_COUNCIL_REMEDIATION_PLAN.md" in t_gov_6_entry
+    assert "tests/test_repository_guardrails.py" in t_gov_6_entry
+    assert "scope_authorization: Operator-approved 2026-07-26" in t_gov_6_entry
+    assert "T-GOV-6 remains partially landed" not in remediation_ledger
+    assert "T-GOV-6 DATA_GOVERNANCE.md (Section 3 pending G4)" not in remediation_ledger
+    _, verify_marker, verification_block = t_gov_6_entry.partition("- verify:")
+    assert verify_marker
+    assert tuple(re.findall(r"`([^`]+)`", verification_block)) == (
+        "./.venv/bin/ruff check .",
+        "./.venv/bin/mypy",
+        "PYTHONPATH=. .venv/bin/pytest -q tests/test_repository_guardrails.py",
+        "PYTHONPATH=. .venv/bin/pytest -q tests/test_docs_links.py",
+        "PYTHONPATH=. .venv/bin/pytest -q",
+    )
+    for policy_path in ("SECURITY.md", "docs/TESTING.MD", "docs/DATA_GOVERNANCE.md"):
+        assert f"]({policy_path})" in readme
 
 
 def test_t_gov_4_agents_policy_is_complete():
