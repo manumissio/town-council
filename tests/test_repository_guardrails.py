@@ -22,6 +22,11 @@ ROOT = Path(__file__).resolve().parents[1]
 RUFF_CLEAN_EXIT = 0
 RUFF_VIOLATION_EXIT = 1
 GITHUB_EXPRESSION_OPEN = "${{"
+TEST_EXECUTABLE_MODE = 0o755
+CPU_DEPENDENCY_AUDIT_ENV = (
+    "PIP_CONSTRAINT=docker/semantic-cpu-constraints.txt "
+    "PIP_EXTRA_INDEX_URL=https://download.pytorch.org/whl/cpu "
+)
 GENERATED_TIMESTAMP_COLUMNS = (
     ("person", "created_at"),
     ("data_issue", "created_at"),
@@ -1158,6 +1163,314 @@ def test_frontend_workflow_installs_locked_dependencies_before_tests():
     assert "continue-on-error:" not in workflow_text
     assert "if:" not in workflow_text
     assert "strategy:" not in workflow_text
+
+
+def _workflow_run_step(
+    workflow_path: Path,
+    workflow_job_id: str,
+    workflow_step_name: str,
+) -> str:
+    workflow_contract = yaml.load(
+        workflow_path.read_text(encoding="utf-8"),
+        Loader=yaml.BaseLoader,
+    )
+    workflow_steps = workflow_contract["jobs"][workflow_job_id]["steps"]
+    matching_steps = [
+        workflow_step
+        for workflow_step in workflow_steps
+        if workflow_step.get("name") == workflow_step_name
+    ]
+    assert len(matching_steps) == 1
+    workflow_script = matching_steps[0].get("run")
+    assert isinstance(workflow_script, str)
+    return workflow_script
+
+
+def _write_test_executable(executable_path: Path, executable_source: str) -> None:
+    executable_path.write_text(executable_source, encoding="utf-8")
+    executable_path.chmod(TEST_EXECUTABLE_MODE)
+
+
+def _run_workflow_script(
+    workflow_script: str,
+    working_directory: Path,
+    environment_overrides: dict[str, str],
+) -> subprocess.CompletedProcess[str]:
+    workflow_environment = os.environ.copy()
+    workflow_environment.update(environment_overrides)
+    return subprocess.run(
+        ["bash", "-c", workflow_script],
+        cwd=working_directory,
+        env=workflow_environment,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+
+
+def test_dependabot_checks_every_dependency_manifest_weekly() -> None:
+    dependabot_contract = yaml.load(
+        (ROOT / ".github" / "dependabot.yml").read_text(encoding="utf-8"),
+        Loader=yaml.BaseLoader,
+    )
+
+    assert dependabot_contract["version"] == "2"
+    assert dependabot_contract["updates"] == [
+        {
+            "package-ecosystem": "pip",
+            "directories": [
+                "/",
+                "/api",
+                "/council_crawler",
+                "/pipeline",
+                "/semantic_service",
+            ],
+            "schedule": {"interval": "weekly"},
+        },
+        {
+            "package-ecosystem": "npm",
+            "directory": "/frontend",
+            "schedule": {"interval": "weekly"},
+        },
+        {
+            "package-ecosystem": "github-actions",
+            "directory": "/",
+            "schedule": {"interval": "weekly"},
+        },
+    ]
+
+
+def test_python_dependency_audit_covers_six_separate_environments() -> None:
+    workflow_path = ROOT / ".github" / "workflows" / "python-guardrails.yml"
+    workflow_text = workflow_path.read_text(encoding="utf-8")
+    audit_script = _workflow_run_step(
+        workflow_path,
+        "python-guardrails",
+        "Audit Python dependency environments",
+    )
+    expected_audit_commands = (
+        "audit_requirements api -r api/requirements.txt",
+        "audit_requirements crawler -r council_crawler/requirements.txt",
+        (
+            f"{CPU_DEPENDENCY_AUDIT_ENV}"
+            "audit_requirements worker-live -r pipeline/requirements.txt"
+        ),
+        (
+            f"{CPU_DEPENDENCY_AUDIT_ENV}"
+            "audit_requirements worker-batch -r pipeline/requirements.txt "
+            "-r pipeline/requirements-batch.txt"
+        ),
+        (
+            f"{CPU_DEPENDENCY_AUDIT_ENV}"
+            "audit_requirements semantic -r semantic_service/requirements.txt"
+        ),
+        "audit_requirements development -r pipeline/requirements-dev.txt",
+    )
+    configured_audit_commands = tuple(
+        workflow_line.strip()
+        for workflow_line in audit_script.splitlines()
+        if "audit_requirements " in workflow_line
+    )
+
+    assert configured_audit_commands == expected_audit_commands
+    assert "python-version: \"3.12\"" in workflow_text
+    assert "python -m pip install -c constraints.txt pip-audit" in workflow_text
+    assert workflow_text.index("Run full Python test suite") < workflow_text.index(
+        "Audit Python dependency environments"
+    )
+    assert "pip-audit --strict --format json --output" in audit_script
+    assert "continue-on-error:" not in workflow_text
+    assert "if: always()" not in workflow_text
+    assert "|| true" not in audit_script
+
+
+@pytest.mark.parametrize(
+    ("audit_status", "audit_payload", "should_pass"),
+    (
+        (
+            "0",
+            {"dependencies": [{"name": "safe", "version": "1", "vulns": []}], "fixes": []},
+            True,
+        ),
+        (
+            "1",
+            {
+                "dependencies": [
+                    {
+                        "name": "affected",
+                        "version": "1",
+                        "vulns": [{"id": "PYSEC-1", "fix_versions": ["2"]}],
+                    }
+                ],
+                "fixes": [],
+            },
+            True,
+        ),
+        ("1", {"dependencies": [], "fixes": []}, False),
+        ("1", {"error": "registry unavailable"}, False),
+        ("2", {"dependencies": [], "fixes": []}, False),
+    ),
+)
+def test_python_dependency_audit_distinguishes_findings_from_tool_failures(
+    tmp_path: Path,
+    audit_status: str,
+    audit_payload: dict[str, object],
+    should_pass: bool,
+) -> None:
+    workflow_script = _workflow_run_step(
+        ROOT / ".github" / "workflows" / "python-guardrails.yml",
+        "python-guardrails",
+        "Audit Python dependency environments",
+    )
+    executable_directory = tmp_path / "bin"
+    executable_directory.mkdir()
+    _write_test_executable(
+        executable_directory / "pip-audit",
+        """#!/usr/bin/env bash
+set -eu
+report_path=""
+case " $* " in
+  *" pipeline/requirements.txt "*|*" semantic_service/requirements.txt "*)
+    test "$PIP_CONSTRAINT" = "docker/semantic-cpu-constraints.txt"
+    test "$PIP_EXTRA_INDEX_URL" = "https://download.pytorch.org/whl/cpu"
+    ;;
+esac
+while [ "$#" -gt 0 ]; do
+  if [ "$1" = "--output" ]; then
+    report_path="$2"
+    shift 2
+  else
+    shift
+  fi
+done
+printf '%s' "$FAKE_AUDIT_JSON" > "$report_path"
+exit "$FAKE_AUDIT_STATUS"
+""",
+    )
+    workflow_result = _run_workflow_script(
+        workflow_script,
+        ROOT,
+        {
+            "FAKE_AUDIT_JSON": json.dumps(audit_payload),
+            "FAKE_AUDIT_STATUS": audit_status,
+            "PATH": (
+                f"{executable_directory}:{Path(sys.executable).parent}:"
+                f"{os.environ['PATH']}"
+            ),
+            "RUNNER_TEMP": str(tmp_path),
+        },
+    )
+
+    assert (workflow_result.returncode == 0) is should_pass, workflow_result.stderr
+
+
+def test_frontend_dependency_audit_runs_after_tests() -> None:
+    workflow_path = ROOT / ".github" / "workflows" / "frontend-tests.yml"
+    workflow_text = workflow_path.read_text(encoding="utf-8")
+    audit_script = _workflow_run_step(
+        workflow_path,
+        "frontend-tests",
+        "Audit frontend production dependencies",
+    )
+
+    assert workflow_text.index("Run frontend tests") < workflow_text.index(
+        "Audit frontend production dependencies"
+    )
+    assert "npm audit --omit=dev --audit-level=high --json" in audit_script
+    assert "continue-on-error:" not in workflow_text
+    assert "if: always()" not in workflow_text
+    assert "|| true" not in audit_script
+
+
+@pytest.mark.parametrize(
+    ("audit_status", "audit_payload", "should_pass"),
+    (
+        (
+            "0",
+            {
+                "auditReportVersion": 2,
+                "metadata": {"vulnerabilities": {"high": 0, "critical": 0}},
+            },
+            True,
+        ),
+        (
+            "1",
+            {
+                "auditReportVersion": 2,
+                "metadata": {"vulnerabilities": {"high": 1, "critical": 0}},
+            },
+            True,
+        ),
+        (
+            "1",
+            {
+                "auditReportVersion": 2,
+                "metadata": {"vulnerabilities": {"high": 0, "critical": 0}},
+            },
+            False,
+        ),
+        ("1", {"error": {"code": "ENETUNREACH"}}, False),
+        (
+            "2",
+            {
+                "auditReportVersion": 2,
+                "metadata": {"vulnerabilities": {"high": 1, "critical": 0}},
+            },
+            False,
+        ),
+    ),
+)
+def test_frontend_dependency_audit_distinguishes_findings_from_tool_failures(
+    tmp_path: Path,
+    audit_status: str,
+    audit_payload: dict[str, object],
+    should_pass: bool,
+) -> None:
+    workflow_script = _workflow_run_step(
+        ROOT / ".github" / "workflows" / "frontend-tests.yml",
+        "frontend-tests",
+        "Audit frontend production dependencies",
+    )
+    executable_directory = tmp_path / "bin"
+    executable_directory.mkdir()
+    _write_test_executable(
+        executable_directory / "npm",
+        """#!/usr/bin/env bash
+set -eu
+printf '%s' "$FAKE_AUDIT_JSON"
+exit "$FAKE_AUDIT_STATUS"
+""",
+    )
+    workflow_result = _run_workflow_script(
+        workflow_script,
+        ROOT / "frontend",
+        {
+            "FAKE_AUDIT_JSON": json.dumps(audit_payload),
+            "FAKE_AUDIT_STATUS": audit_status,
+            "PATH": f"{executable_directory}:{os.environ['PATH']}",
+            "RUNNER_TEMP": str(tmp_path),
+        },
+    )
+
+    assert (workflow_result.returncode == 0) is should_pass, workflow_result.stderr
+
+
+def test_dependency_security_policy_matches_report_only_workflows() -> None:
+    security_policy = (ROOT / "SECURITY.md").read_text(encoding="utf-8")
+    dependency_policy = _required_markdown_section(
+        security_policy,
+        "## Dependency and supply chain",
+        "\n## Reporting a vulnerability",
+    )
+
+    normalized_dependency_policy = dependency_policy.lower()
+    assert "weekly version updates" in normalized_dependency_policy
+    assert "report-only" in normalized_dependency_policy
+    assert (
+        "audit-tool, registry, network, and report-validation failures block"
+        in normalized_dependency_policy
+    )
+    assert "vulnerability findings block merge" not in normalized_dependency_policy
 
 
 def test_facade_import_guardrail_detects_relative_imports(tmp_path: Path):
