@@ -1,6 +1,6 @@
 # Town Council Remediation Plan (Codex Multi-Agent)
 
-version: 3.68
+version: 3.69
 generated: 2026-07-26
 source: Four-pass external code review (security, architecture, smells, process)
 source_artifact: [Town Council architecture review](../reviews/architecture-review-2026-07-19.html)
@@ -10,6 +10,10 @@ remains in force; where this plan is stricter, this plan wins for these tasks.
 
 ## Changelog
 
+- **v3.69:** Marks T-PLAT-2 complete after PR #160 merged with all required
+  checks green, activates T-GOV-2, and records the exact policy-only ownership
+  needed to adopt the operator-approved G4 roster-gated decision without
+  overstating current runtime enforcement.
 - **v3.68:** Closes T-PLAT-2 audit parity gaps found during review and CI.
   The CI-only scikit-learn pin now lives in the audited development manifest,
   while the semantic manifest exposes Torch's upstream version and Docker's
@@ -332,10 +336,10 @@ remains in force; where this plan is stricter, this plan wins for these tasks.
 
 | State | Tasks |
 |---|---|
-| **Complete** | T-CI-0, T-CI-1, T-CI-1A, T-CI-2, T-CI-2A, T-CI-3, T-CI-4, T-CI-5, T-SEC-1, T-SEC-2, T-SEC-3, T-SEC-3C, T-SEC-4, T-SEC-4A, T-SEC-5, T-SEC-6, T-TIME-1, T-TIME-2, T-TIME-3, T-CRAWL-1, T-CRAWL-2, T-PLAT-1, T-PLAT-1A, T-PLAT-2A, T-PLAT-2B, T-PLAT-3, T-GOV-1, T-GOV-3A, T-GOV-4, T-GOV-5, T-GOV-6, T-DA-1, T-DB-1A, T-DB-1, T-DB-1B, T-DC-1, T-DD-1A, T-DD-1B, T-DE-1 |
+| **Complete** | T-CI-0, T-CI-1, T-CI-1A, T-CI-2, T-CI-2A, T-CI-3, T-CI-4, T-CI-5, T-SEC-1, T-SEC-2, T-SEC-3, T-SEC-3C, T-SEC-4, T-SEC-4A, T-SEC-5, T-SEC-6, T-TIME-1, T-TIME-2, T-TIME-3, T-CRAWL-1, T-CRAWL-2, T-PLAT-1, T-PLAT-1A, T-PLAT-2, T-PLAT-2A, T-PLAT-2B, T-PLAT-3, T-GOV-1, T-GOV-3A, T-GOV-4, T-GOV-5, T-GOV-6, T-DA-1, T-DB-1A, T-DB-1, T-DB-1B, T-DC-1, T-DD-1A, T-DD-1B, T-DE-1 |
 | **Partially landed; acceptance incomplete** | T-GOV-3 |
-| **Active** | T-PLAT-2 |
-| **Pending** | T-PLAT-4, T-GOV-2, T-GOV-3B |
+| **Active** | T-GOV-2 |
+| **Pending** | T-PLAT-4, T-GOV-2A, T-GOV-3B |
 
 ---
 
@@ -382,8 +386,12 @@ remains in force; where this plan is stricter, this plan wins for these tasks.
   at approved architectural boundaries; historical test patch targets are not
   public API. Phase 2 is unblocked, subject to each task's own sequencing and
   ownership.
-- G4 pii_policy: Ratify ADR on person-entity minimization for non-officials
-  (T-GOV-2). BLOCKS nothing in this plan, but blocks City Coverage Expansion.
+- G4 pii_policy: **Approved 2026-07-26.** Use roster-gated person linking.
+  Only names matched to independently authoritative official membership data
+  may become person entities or people-facing derived records. Title inference
+  and linker-created memberships are not roster authority. T-GOV-2 records
+  the decision; T-GOV-2A implements and remediates it. City Coverage Expansion
+  remains blocked until T-GOV-2A completes.
 - G5 migration_tooling: **Approved 2026-07-24.** Adopt Alembic through
   T-PLAT-1 after T-TIME-1 and T-TIME-2. Freeze the readable `migrate_v*`
   chain after the baseline; author all later schema changes as Alembic
@@ -1464,7 +1472,7 @@ files (GED-5 grant).
 
 ### T-PLAT-2: Dependency hygiene
 - priority: P2
-- status: active; implementation authorized 2026-07-26
+- status: complete and verified 2026-07-27 (PR #160)
 - implementation_plan:
   `docs/plans/T_PLAT_2_DEPENDENCY_HYGIENE_PLAN.md`
 - scope_authorization: Operator-approved 2026-07-26.
@@ -1571,14 +1579,48 @@ files (GED-5 grant).
 
 ### T-GOV-2: ADR — Person-entity minimization & takedown (gate G4)
 - priority: P1
-- files_owned: docs/ADR.md
-- do: Draft decision options for the user: (a) entity-link only persons
-  matching official rosters (person_linker gate), (b) index commenter names
-  but exclude from people profiles/metadata, (c) status quo + documented
-  takedown SLA via the existing report-issue path. Include retention stance
-  and correction workflow. Users selects; agent records.
-- accept: ADR merged with a selected option; follow-up implementation task
-  filed (out of scope here).
+- status: active; G4 decision approved 2026-07-26
+- implementation_plan:
+  `docs/plans/T_GOV_2_PERSON_MINIMIZATION_PLAN.md`
+- scope_authorization: The operator approved G4 Option A and directed continued
+  remediation execution through completion.
+- files_owned: `docs/plans/T_GOV_2_PERSON_MINIMIZATION_PLAN.md`,
+  `docs/plans/TOWN_COUNCIL_REMEDIATION_PLAN.md`, `docs/ADR.md`,
+  `docs/DATA_GOVERNANCE.md`, `tests/test_repository_guardrails.py`
+  (G4 and T-GOV-2 policy contracts only)
+- do: Record roster-gated person linking as an Accepted ADR. Replace the live
+  option list in Data Governance with the adopted policy. Define roster
+  authority as independently authoritative official membership data, not title
+  inference or linker-created memberships. Preserve source-document text and
+  correction of derived records. Register T-GOV-2A for runtime enforcement,
+  existing derived-data remediation, reindexing, and prevention of
+  re-derivation.
+- forbidden: Runtime, schema, API, crawler, search, inference, or migration
+  changes; claiming current behavior is compliant; treating inferred titles or
+  current derived memberships as roster authority; edits outside
+  `files_owned`.
+- accept: ADR and Data Governance agree on the approved policy; live G4 option
+  and working-default language is gone; T-GOV-2A is pending; City Coverage
+  Expansion remains blocked until implementation; repository guardrails, docs
+  links, and the complete suite pass.
+- verify: Follow the Full T-GOV-2 plan; Ruff, Mypy, repository guardrails, docs
+  links, complete Python suite, independent review, and PR CI.
+
+### T-GOV-2A: Enforce roster-gated person linking
+- priority: P1
+- status: pending
+- depends_on: T-GOV-2
+- files_owned: to be named in a separate Full plan after authoritative roster
+  inputs and current derived person records are inventoried
+- do: Establish independently authoritative roster input; gate person creation
+  and people-facing derived records; remediate existing non-roster entities and
+  memberships; reindex affected catalogs; and prevent re-derivation.
+- forbidden: Inferring roster authority from titles, source-document mentions,
+  or linker-generated memberships; deleting or rewriting municipal source
+  records; implementing without an approved Full person-data plan.
+- accept: Runtime behavior and existing derived data conform to the accepted G4
+  policy; correction and reindexing are repeatable; City Coverage Expansion is
+  unblocked only after verification.
 
 ### T-GOV-3: Redesign the guardrail regime
 - priority: P2
@@ -1704,8 +1746,9 @@ files (GED-5 grant).
   pending — that is intentional, update checkboxes as tasks merge).
   TESTING.md is active with the G3 ADR (T-GOV-1) as its operational companion.
   All three canonical documents are linked from the README Documentation Map.
-  DATA_GOVERNANCE.md Section 3 stays in "options + working default" form until
-  T-GOV-2 records and implements the approved G4 policy.
+  DATA_GOVERNANCE.md Section 3 remains in its historical
+  "options + working default" form only until T-GOV-2 records the approved G4
+  policy; T-GOV-2A owns runtime implementation.
 - do: Keep the three governance documents linked from the README and keep the
   G1 deployment posture synchronized between SECURITY.md and this ledger.
 - forbidden: Resolving G2/G4 by editing defaults; adding further new documents
@@ -1732,9 +1775,11 @@ Phase 2: agent-da || agent-db [T-DB-1A, then T-DB-1, then T-DB-1B] || agent-dd |
          then agent-dc (exclusive on api/*)
 Phase 3: agent-plat [T-PLAT-1 after T-TIME-1 and T-TIME-2, T-PLAT-1A
          closure, T-PLAT-2B security patch, then T-PLAT-2..4]
-         || agent-gov [T-GOV-2, T-GOV-3A, then T-GOV-3B after T-DC-1 and
-         revised T-DE-1; T-GOV-5 complete]
-Anytime: T-GOV-6 complete; T-GOV-2 records the approved G4 policy
+         || agent-gov [T-GOV-2 records G4 policy, T-GOV-2A implements after
+         authoritative roster approval; T-GOV-3A, then T-GOV-3B after T-DC-1
+         and revised T-DE-1; T-GOV-5 complete]
+Anytime: T-GOV-6 complete; T-GOV-2 records approved G4, while T-GOV-2A
+         implements it only after authoritative roster-source approval
 ```
 
 Merge policy: one task = one PR, except operator-approved T-TIME-1 +
