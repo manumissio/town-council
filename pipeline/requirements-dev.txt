@@ -1,6 +1,7 @@
 # Development and benchmark tooling for local verification workflows.
 # Keep these packages out of the worker runtime image so Docker installs only
 # what the service needs to boot and process jobs.
+-c ../constraints.txt
 pytest==9.0.3
 pytest-cov==7.0.0
 coverage==7.13.3
@@ -13,3 +14,4 @@ pre-commit==4.5.1
 mypy==1.20.0
 vulture==2.16
 radon==6.0.1
+pip-audit

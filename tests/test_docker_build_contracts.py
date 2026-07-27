@@ -14,6 +14,23 @@ RUNTIME_REQUIREMENT_PATHS = (
     Path("pipeline/requirements-batch.txt"),
     Path("semantic_service/requirements.txt"),
 )
+ACTIVE_REQUIREMENT_PATHS = (
+    *RUNTIME_REQUIREMENT_PATHS,
+    Path("pipeline/requirements-dev.txt"),
+)
+SHARED_EXACT_CONSTRAINTS = {
+    "beautifulsoup4": "4.12.3",
+    "celery": "5.3.4",
+    "fastapi": "0.115.8",
+    "httpx": "0.28.1",
+    "meilisearch": "0.31.0",
+    "prometheus-client": "0.19.0",
+    "psycopg2-binary": "2.9.10",
+    "rapidfuzz": "3.14.3",
+    "redis": "5.0.1",
+    "sqlalchemy": "2.0.38",
+    "uvicorn": "0.34.0",
+}
 
 
 def _compose_services(
@@ -83,6 +100,16 @@ def _requirement_names(requirements_path: Path) -> set[str]:
         ).splitlines()
         if (requirement_name := _normalized_requirement_name(requirement_line))
     }
+
+
+def _requirement_directives(requirements_path: Path) -> list[str]:
+    return [
+        requirement_line.partition("#")[0].strip()
+        for requirement_line in requirements_path.read_text(
+            encoding="utf-8"
+        ).splitlines()
+        if requirement_line.partition("#")[0].strip()
+    ]
 
 
 def test_compose_uses_role_specific_python_images_and_model_volume():
@@ -349,7 +376,62 @@ def test_dockerfile_defines_split_python_targets():
     assert "COPY --from=wheels-api /app/wheels /wheels" not in source
     assert "COPY --from=wheels-worker /app/wheels /wheels" not in source
     assert "PIP_EXTRA_INDEX_URL=https://download.pytorch.org/whl/cpu" in source
-    assert "semantic_cpu_constraints.txt" in source
+    assert "/app/docker/semantic-cpu-constraints.txt" in source
+
+
+def test_active_python_manifests_use_shared_exact_constraints() -> None:
+    constraint_directives = _requirement_directives(Path("constraints.txt"))
+    expected_constraint_directives = {
+        f"{package_name}=={package_version}"
+        for package_name, package_version in SHARED_EXACT_CONSTRAINTS.items()
+    }
+    expected_constraint_directives.add("pip-audit==2.10.1")
+
+    assert len(constraint_directives) == len(set(constraint_directives))
+    assert set(constraint_directives) == expected_constraint_directives
+
+    for requirements_path in ACTIVE_REQUIREMENT_PATHS:
+        requirement_directives = _requirement_directives(requirements_path)
+        assert requirement_directives[0] == "-c ../constraints.txt"
+        for requirement_directive in requirement_directives:
+            requirement_name = _normalized_requirement_name(requirement_directive)
+            if requirement_name in SHARED_EXACT_CONSTRAINTS:
+                assert requirement_directive == requirement_name
+
+
+def test_dependency_audit_and_pgvector_constraints_remain_explicit() -> None:
+    development_directives = _requirement_directives(
+        Path("pipeline/requirements-dev.txt")
+    )
+    constraint_directives = _requirement_directives(Path("constraints.txt"))
+
+    assert "pip-audit" in development_directives
+    assert "pip-audit==2.10.1" in constraint_directives
+    for requirements_path in (
+        Path("api/requirements.txt"),
+        Path("pipeline/requirements.txt"),
+        Path("semantic_service/requirements.txt"),
+    ):
+        assert "pgvector>=0.2.5" in _requirement_directives(requirements_path)
+
+
+def test_docker_preserves_requirement_paths_and_applies_constraints() -> None:
+    dockerfile = Path("Dockerfile").read_text(encoding="utf-8")
+
+    assert "COPY constraints.txt ./constraints.txt" in dockerfile
+    for requirements_path in ACTIVE_REQUIREMENT_PATHS:
+        if requirements_path == Path("pipeline/requirements-dev.txt"):
+            continue
+        copy_contract = f"COPY {requirements_path} ./{requirements_path}"
+        install_contract = f"-r /app/{requirements_path}"
+        assert copy_contract in dockerfile
+        assert install_contract in dockerfile
+    assert (
+        "COPY docker/semantic-cpu-constraints.txt "
+        "./docker/semantic-cpu-constraints.txt"
+    ) in dockerfile
+    assert "-c /app/docker/semantic-cpu-constraints.txt" in dockerfile
+    assert "rapidfuzz" not in dockerfile
 
 
 def test_dev_up_migrates_before_starting_schema_consumers():
@@ -527,5 +609,6 @@ def test_old_batch_requirements_file_is_not_referenced():
     dockerfile = Path("Dockerfile").read_text(encoding="utf-8")
     compose = Path("docker-compose.yml").read_text(encoding="utf-8")
 
+    assert not Path("pipeline/requirements-nlp.txt").exists()
     assert "requirements-nlp.txt" not in dockerfile
     assert "requirements-nlp.txt" not in compose
