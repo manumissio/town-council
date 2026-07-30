@@ -545,7 +545,7 @@ def test_coverage_tooling_is_development_only():
         )
 
     assert "coverage==7.13.3" in development_requirements
-    assert "pytest-cov==7.0.0" in development_requirements
+    assert "pytest-cov==7.1.0" in development_requirements
 
 
 def test_semantic_dependencies_live_outside_worker_runtime():
