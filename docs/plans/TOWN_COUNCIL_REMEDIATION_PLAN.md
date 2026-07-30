@@ -1,6 +1,6 @@
 # Town Council Remediation Plan (Codex Multi-Agent)
 
-version: 3.73
+version: 3.74
 generated: 2026-07-26
 source: Four-pass external code review (security, architecture, smells, process)
 source_artifact: [Town Council architecture review](../reviews/architecture-review-2026-07-19.html)
@@ -10,6 +10,9 @@ remains in force; where this plan is stricter, this plan wins for these tasks.
 
 ## Changelog
 
+- **v3.74:** Marks T-PLAT-2C complete after PR #205 and activates T-GOV-3B
+  with six-file ownership for final structural enforcement and removal of
+  superseded domain-specific assertions.
 - **v3.73:** Registers T-PLAT-2C to migrate Celery from 5.3.4 to 5.6.3 with
   exact dependency contracts, four image builds, and isolated Redis worker
   acceptance before superseding Dependabot PR #194.
@@ -349,10 +352,10 @@ remains in force; where this plan is stricter, this plan wins for these tasks.
 
 | State | Tasks |
 |---|---|
-| **Complete** | T-CI-0, T-CI-1, T-CI-1A, T-CI-2, T-CI-2A, T-CI-3, T-CI-4, T-CI-5, T-SEC-1, T-SEC-2, T-SEC-3, T-SEC-3C, T-SEC-4, T-SEC-4A, T-SEC-5, T-SEC-6, T-TIME-1, T-TIME-2, T-TIME-3, T-CRAWL-1, T-CRAWL-2, T-PLAT-1, T-PLAT-1A, T-PLAT-2, T-PLAT-2A, T-PLAT-2B, T-PLAT-3, T-GOV-1, T-GOV-2, T-GOV-3A, T-GOV-4, T-GOV-5, T-GOV-6, T-DA-1, T-DB-1A, T-DB-1, T-DB-1B, T-DC-1, T-DD-1A, T-DD-1B, T-DE-1 |
-| **In progress** | T-PLAT-2C |
+| **Complete** | T-CI-0, T-CI-1, T-CI-1A, T-CI-2, T-CI-2A, T-CI-3, T-CI-4, T-CI-5, T-SEC-1, T-SEC-2, T-SEC-3, T-SEC-3C, T-SEC-4, T-SEC-4A, T-SEC-5, T-SEC-6, T-TIME-1, T-TIME-2, T-TIME-3, T-CRAWL-1, T-CRAWL-2, T-PLAT-1, T-PLAT-1A, T-PLAT-2, T-PLAT-2A, T-PLAT-2B, T-PLAT-2C, T-PLAT-3, T-GOV-1, T-GOV-2, T-GOV-3A, T-GOV-4, T-GOV-5, T-GOV-6, T-DA-1, T-DB-1A, T-DB-1, T-DB-1B, T-DC-1, T-DD-1A, T-DD-1B, T-DE-1 |
+| **In progress** | T-GOV-3B |
 | **Partially landed; acceptance incomplete** | T-GOV-3 |
-| **Pending** | T-PLAT-4, T-GOV-2A, T-GOV-3B |
+| **Pending** | T-PLAT-4, T-GOV-2A |
 
 ---
 
@@ -1523,7 +1526,7 @@ files (GED-5 grant).
 
 ### T-PLAT-2C: Migrate Celery to 5.6.3
 - priority: P1
-- status: in progress
+- status: complete and verified 2026-07-30 (PR #205)
 - depends_on: T-PLAT-2 and PR #196 merge (ledger serialization only)
 - implementation_plan: `docs/plans/T_PLAT_2C_CELERY_MIGRATION_PLAN.md`
 - scope_authorization: Operator-approved 2026-07-30.
@@ -1703,20 +1706,27 @@ files (GED-5 grant).
 
 ### T-GOV-3B: Enforce remaining structural smells
 - priority: P2
-- status: pending
+- status: in progress
 - depends_on: T-DC-1 and revised T-DE-1
-- files_owned: to be named in a separate Full plan after both dependencies
-  merge
-- do: Register helper relationships made clean by T-DC-1 and revised T-DE-1;
-  add checks banning bidirectional `_sync_*_from_*` global reconciliation and
-  f-string interpolation inside SQLAlchemy `text(...)` DDL/DML; remove the
-  `[transition: T-GOV-3]` marker only after all checks pass.
+- implementation_plan: `docs/plans/T_GOV_3B_STRUCTURAL_GUARDRAILS_PLAN.md`
+- scope_authorization: Operator-approved 2026-07-30.
+- files_owned: `docs/plans/T_GOV_3B_STRUCTURAL_GUARDRAILS_PLAN.md`,
+  `docs/plans/TOWN_COUNCIL_REMEDIATION_PLAN.md`,
+  `docs/ENGINEERING_GUARDRAILS.md`, `tests/test_repository_guardrails.py`,
+  `tests/test_api_startup_security.py`,
+  `tests/test_inference_provider_protocol_contract.py`
+- do: Register four helper relationships made clean by T-DC-1 and revised
+  T-DE-1; add checks banning top-level private `_sync_*_from_*` functions and
+  direct f-string interpolation in SQLAlchemy `text(...)`; remove superseded
+  domain-specific assertions and the `[transition: T-GOV-3]` marker only after
+  all checks pass.
 - note: T-DD-1B introduces no current facade rule and remains outside the
   dependency registry.
 - accept: Remaining structural rules are mechanically enforced, no pending
   reverse dependencies are hidden by an allowlist, and T-GOV-3 is complete.
-- verify: Separate tests-first Full plan, repository guardrails, and complete
-  Python suite.
+- verify: Follow the Full T-GOV-3B plan, including tests-first AST examples,
+  repository guardrails, docs links, coverage-gated complete Python suite,
+  independent review, and PR CI.
 
 ### T-GOV-4: Land the revised AGENTS.md
 - priority: P1
