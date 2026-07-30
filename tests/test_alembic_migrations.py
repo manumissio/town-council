@@ -14,7 +14,7 @@ from uuid import uuid4
 from alembic import command
 from alembic.config import Config
 import pytest
-from sqlalchemy import DDL, Engine, create_engine, inspect, text
+from sqlalchemy import DDL, Engine, create_engine, inspect, select, text
 from sqlalchemy.engine import URL, make_url
 
 from pipeline.db_schema_contracts import (
@@ -28,6 +28,8 @@ from pipeline.models import Base
 
 ROOT = Path(__file__).resolve().parents[1]
 POSTGRES_TEST_URL_ENV = "TEST_POSTGRES_DATABASE_URL"
+PGVECTOR_CONTRACT_DIMENSION = 384
+PGVECTOR_CONTRACT_VALUE = 0.125
 BASELINE_REVISION = "0001_v10_baseline"
 POST_BASELINE_REVISION = "0002_test_head"
 POST_BASELINE_REVISION_SOURCE = f'''"""Test-only revision after the v10 baseline."""
@@ -357,6 +359,37 @@ def test_current_unversioned_schema_is_repaired_and_adopted() -> None:
         assert migration_outcome.status == "adopted"
         assert _current_revision(database_engine) == BASELINE_REVISION
         assert _reference_schema_names(database_engine) == set()
+
+
+def test_pgvector_sqlalchemy_round_trip_returns_list() -> None:
+    migration_module = _migration_module()
+    expected_embedding = [PGVECTOR_CONTRACT_VALUE] * PGVECTOR_CONTRACT_DIMENSION
+    with _isolated_postgres_database() as database_engine:
+        migration_module.migrate_database(database_engine)
+        catalog_table = Base.metadata.tables["catalog"]
+        semantic_embedding_table = Base.metadata.tables["semantic_embedding"]
+        with database_engine.begin() as connection:
+            catalog_id = connection.scalar(
+                catalog_table.insert()
+                .values(url_hash="pgvector-round-trip")
+                .returning(catalog_table.c.id)
+            )
+            connection.execute(
+                semantic_embedding_table.insert().values(
+                    catalog_id=catalog_id,
+                    model_name="pgvector-contract",
+                    embedding_dim=len(expected_embedding),
+                    embedding=expected_embedding,
+                )
+            )
+            stored_embedding = connection.scalar(
+                select(semantic_embedding_table.c.embedding).where(
+                    semantic_embedding_table.c.catalog_id == catalog_id
+                )
+            )
+
+        assert isinstance(stored_embedding, list)
+        assert stored_embedding == pytest.approx(expected_embedding)
 
 
 def test_direct_migration_cli_reports_retired_catalog_vectors() -> None:
