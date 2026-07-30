@@ -1210,7 +1210,7 @@ def test_frontend_workflow_installs_locked_dependencies_before_tests():
     test_step = "      - name: Run frontend tests\n        run: npm test"
 
     assert "uses: actions/checkout@v7" in workflow_text
-    assert "uses: actions/setup-node@v6" in workflow_text
+    assert "uses: actions/setup-node@v7" in workflow_text
     assert 'node-version: "20"' in workflow_text
     assert 'cache: "npm"' in workflow_text
     assert "cache-dependency-path: frontend/package-lock.json" in workflow_text
@@ -1219,6 +1219,12 @@ def test_frontend_workflow_installs_locked_dependencies_before_tests():
     assert "continue-on-error:" not in workflow_text
     assert "if:" not in workflow_text
     assert "strategy:" not in workflow_text
+
+
+def test_active_workflows_use_setup_node_v7() -> None:
+    assert set(_active_workflow_action_references("actions/setup-node")) == {
+        "actions/setup-node@v7"
+    }
 
 
 def test_active_workflows_use_checkout_v7() -> None:
