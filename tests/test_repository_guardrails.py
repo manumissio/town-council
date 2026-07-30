@@ -2995,6 +2995,7 @@ G4_SOURCE_AFFIRMATIVE_CUE = re.compile(
     re.IGNORECASE,
 )
 G4_NEGATION_SCOPE_BOUNDARY = re.compile(r"\b(?:and|but|while)\b", re.IGNORECASE)
+G4_NO_DETERMINER_NEGATION = re.compile(r"^\s*no\b", re.IGNORECASE)
 G4_SHARED_NEGATION = re.compile(
     r"(?:\b(?:forbidden|prohibited|not (?:allowed|permitted|authorized))\s+to\b"
     r"|\b(?:do|does|must|may|can|will|should)\s+not\b|\bcannot\b)"
@@ -3324,8 +3325,10 @@ def _segment_allows_passive_source_edit(
 
 
 def _source_action_is_negated(action_prefix: str) -> bool:
-    if G4_SHARED_NEGATION.search(action_prefix) or G4_PAIRED_NEGATION.search(
-        action_prefix
+    if (
+        G4_NO_DETERMINER_NEGATION.search(action_prefix)
+        or G4_SHARED_NEGATION.search(action_prefix)
+        or G4_PAIRED_NEGATION.search(action_prefix)
     ):
         return True
     action_scope = G4_NEGATION_SCOPE_BOUNDARY.split(action_prefix)[-1]
@@ -3414,6 +3417,7 @@ def test_g2_policy_contradiction_detection_allows_approved_wording(
         ("Corrections alter municipal source records.", True),
         ("Source documents will be modified during correction.", True),
         ("Source documents may be modified during correction.", True),
+        ("No source documents may be edited.", False),
         ("City Coverage Expansion may proceed before T-GOV-2A completes.", True),
         ("City Coverage Expansion starts before T-GOV-2A completes.", True),
         ("City Coverage Expansion is unblocked before roster enforcement.", True),
@@ -3517,6 +3521,7 @@ def test_g2_policy_contradiction_detection_allows_approved_wording(
         ("Person entities may be created from source-document mentions.", True),
         ("Profiles are created from source-document mentions.", True),
         ("Profiles are generated from source-document mentions.", True),
+        ("No profiles may be created from source-document mentions.", False),
         (
             "Neither profiles nor memberships are created from "
             "source-document mentions.",
