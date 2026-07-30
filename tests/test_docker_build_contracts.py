@@ -508,12 +508,13 @@ def test_compose_maps_worker_family_to_live_and_batch_images():
 def test_worker_runtime_requirements_exclude_development_tooling():
     runtime = Path("pipeline/requirements.txt").read_text(encoding="utf-8")
     dev = Path("pipeline/requirements-dev.txt").read_text(encoding="utf-8")
+    pytest_configuration = Path("pytest.ini").read_text(encoding="utf-8")
     runtime_requirement_names = _requirement_names(
         Path("pipeline/requirements.txt")
     )
 
     for package in (
-        "pytest==9.0.3",
+        "pytest==9.1.1",
         "pytest-mock==3.12.0",
         "pytest-benchmark==5.1.0",
         "locust==2.33.0",
@@ -522,6 +523,7 @@ def test_worker_runtime_requirements_exclude_development_tooling():
         assert package in dev
     assert "pyyaml" not in runtime_requirement_names
     assert "PyYAML==6.0.3" in dev
+    assert "PytestRemovedIn9Warning" not in pytest_configuration
 
 
 def test_coverage_tooling_is_development_only():
