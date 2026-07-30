@@ -1080,10 +1080,10 @@ def _active_workflow_action_references(action_name: str) -> tuple[str, ...]:
 @pytest.mark.parametrize(
     ("action_reference", "action_name", "targets_action"),
     (
-        ("Actions/Setup-Node@v6", "actions/setup-node", True),
-        ("actions/setup-node@v7", "actions/setup-node", True),
-        ("actions/setup-node-helper@v7", "actions/setup-node", False),
-        ("actions/setup-node", "actions/setup-node", False),
+        ("Actions/Checkout@v4", "actions/checkout", True),
+        ("actions/checkout@v7", "actions/checkout", True),
+        ("actions/checkout-helper@v7", "actions/checkout", False),
+        ("actions/checkout", "actions/checkout", False),
     ),
 )
 def test_workflow_action_matching_follows_github_repository_identity(
@@ -1209,7 +1209,7 @@ def test_frontend_workflow_installs_locked_dependencies_before_tests():
     install_step = "      - name: Install dependencies\n        run: npm ci"
     test_step = "      - name: Run frontend tests\n        run: npm test"
 
-    assert "uses: actions/checkout@v5" in workflow_text
+    assert "uses: actions/checkout@v7" in workflow_text
     assert "uses: actions/setup-node@v7" in workflow_text
     assert 'node-version: "20"' in workflow_text
     assert 'cache: "npm"' in workflow_text
@@ -1224,6 +1224,12 @@ def test_frontend_workflow_installs_locked_dependencies_before_tests():
 def test_active_workflows_use_setup_node_v7() -> None:
     assert set(_active_workflow_action_references("actions/setup-node")) == {
         "actions/setup-node@v7"
+    }
+
+
+def test_active_workflows_use_checkout_v7() -> None:
+    assert set(_active_workflow_action_references("actions/checkout")) == {
+        "actions/checkout@v7"
     }
 
 
