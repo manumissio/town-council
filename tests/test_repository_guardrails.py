@@ -2856,6 +2856,14 @@ G4_DERIVED_PERSON_TARGET = re.compile(
     r"\b(?:person creation|person entities|people-facing records)\b",
     re.IGNORECASE,
 )
+G4_DERIVED_PASSIVE_PERSON_PROMOTION = re.compile(
+    r"\b(?:person entities|people-facing records)\b[^.!?;]{0,40}"
+    r"\b(?:may|can|will|must|should)\s+be\s+"
+    r"(?:authorized|created|produced)\s+from\s+"
+    r"(?:title inference|source-document mentions?|linker-created memberships?"
+    r"|memberships created by the entity linker)\b",
+    re.IGNORECASE,
+)
 G4_DERIVED_PERSON_RELATION_BARRIER = re.compile(
     r"\b(?:links?|linked|references?|referenced|associations?|associated|related)"
     r"\s+(?:to|with|by)\b",
@@ -3053,7 +3061,8 @@ def _g4_policy_has_contradiction(g4_policy: str) -> bool:
 
 def _g4_policy_promotes_derived_evidence(g4_policy: str) -> bool:
     return any(
-        _g4_clause_grants_roster_authority(policy_clause)
+        G4_DERIVED_PASSIVE_PERSON_PROMOTION.search(policy_clause) is not None
+        or _g4_clause_grants_roster_authority(policy_clause)
         or _g4_clause_creates_person_record(policy_clause)
         for policy_clause in _g4_policy_clauses(g4_policy)
     )
@@ -3417,6 +3426,7 @@ def test_g2_policy_contradiction_detection_allows_approved_wording(
         ("Staff may edit municipal source records.", True),
         ("Town Council deletes source documents.", True),
         ("Source-document mentions may become person entities.", True),
+        ("Person entities may be created from source-document mentions.", True),
         ("Title inference may produce people-facing records.", True),
         ("Source-document mentions may not become person entities.", False),
         (
@@ -3595,6 +3605,20 @@ def test_g4_policy_scan_excludes_later_historical_adr_entries() -> None:
     assert not _g4_policy_has_contradiction(live_g4_decision)
 
 
+def test_g4_policy_scan_covers_city_expansion_readiness() -> None:
+    roadmap = (ROOT / "ROADMAP.md").read_text(encoding="utf-8")
+    city_readiness = _required_markdown_section(
+        roadmap,
+        "### City Expansion Readiness",
+        "\n## Next",
+    )
+
+    assert _g4_policy_has_contradiction(
+        f"{city_readiness}\nCity Coverage Expansion may proceed before "
+        "T-GOV-2A completes."
+    )
+
+
 def test_g4_roster_gated_policy_is_aligned() -> None:
     agent_policy = (ROOT / "AGENTS.md").read_text(encoding="utf-8")
     architecture_decisions = (ROOT / "docs" / "ADR.md").read_text(encoding="utf-8")
@@ -3634,6 +3658,11 @@ def test_g4_roster_gated_policy_is_aligned() -> None:
         roadmap,
         "### City Coverage Expansion I/II",
         "\n### Signal Intelligence",
+    )
+    city_readiness = _required_markdown_section(
+        roadmap,
+        "### City Expansion Readiness",
+        "\n## Next",
     )
 
     assert "- Status: Accepted" in g4_decision
@@ -3683,6 +3712,7 @@ def test_g4_roster_gated_policy_is_aligned() -> None:
             g4_entry,
             t_gov_2_entry,
             t_gov_2a_entry,
+            city_readiness,
             city_coverage_plan,
         )
     )
