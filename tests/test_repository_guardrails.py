@@ -2849,7 +2849,7 @@ G4_DERIVED_EVIDENCE_SOURCE = re.compile(
 )
 G4_DERIVED_PERSON_ACTION = re.compile(
     r"(?<!-)\b(?:authoriz(?:e|es|ed|ing)|becom(?:e|es|ing)|"
-    r"creat(?:e|es|ed|ing)|produc(?:e|es|ed|ing))\b",
+    r"creat(?:e|es|ed|ing)|generat(?:e|es|ed|ing)|produc(?:e|es|ed|ing))\b",
     re.IGNORECASE,
 )
 G4_DERIVED_PERSON_TARGET = re.compile(
@@ -2862,7 +2862,7 @@ G4_DERIVED_PASSIVE_PERSON_PROMOTION = re.compile(
     r"people metadata|vote attribution|cross-document aggregation)\b"
     r"[^.!?;]{0,60}"
     r"\b(?:(?:may|can|will|must|should)\s+be|is|are)\s+"
-    r"(?:authorized|created|produced)\s+from\s+"
+    r"(?:authorized|created|generated|produced)\s+from\s+"
     r"(?:title inference|source-document mentions?|linker-created memberships?"
     r"|memberships created by the entity linker)\b",
     re.IGNORECASE,
@@ -2895,13 +2895,13 @@ G4_NON_ROSTER_PERSON_CREATION_POLICY = re.compile(
     r"\bnon-roster (?:names?|people)\b"
     r"(?![^.!?;]{0,80}\bwhile\b)"
     r"[^.!?;]{0,80}\b(?:(?:may|can)\s+"
-    r"(?:become|create|produce|appear in|be retained as|receive|"
+    r"(?:become|create|generate|produce|appear in|be retained as|receive|"
     r"(?:be\s+)?link(?:ed|ing)?\s+to)"
     r"|are\s+allowed\s+to\s+"
-    r"(?:become|create|produce|appear in|be retained as|receive|"
+    r"(?:become|create|generate|produce|appear in|be retained as|receive|"
     r"(?:be\s+)?link(?:ed|ing)?\s+to)"
     r"|(?<!not )(?<!never )(?<!cannot )"
-    r"(?:become|create|produce|appear in|are retained as|receive|"
+    r"(?:become|create|generate|produce|appear in|are retained as|receive|"
     r"(?:are\s+)?link(?:ed|ing|s)?\s+to))"
     r"(?![^.!?;]{0,40}\bnot\s+(?:person entities|people metadata|profiles|"
     r"memberships|vote attribution|cross-document aggregation)\b)"
@@ -2913,7 +2913,7 @@ G4_NON_ROSTER_PERSON_CREATION_POLICY = re.compile(
 G4_NON_ROSTER_WHILE_CONTINUATION_POLICY = re.compile(
     r"\bnon-roster (?:names?|people)\b[^.!?;]{0,80}"
     r"\bwhile\s+they\s+(?:(?:may|can)\s+)?"
-    r"(?:become|create|produce|appear in|are retained as|receive|"
+    r"(?:become|create|generate|produce|appear in|are retained as|receive|"
     r"(?:be\s+|are\s+)?link(?:ed|ing|s)?\s+to)\b"
     r"(?![^.!?;]{0,40}\bnot\s+(?:person entities|people metadata|profiles|"
     r"memberships|vote attribution|cross-document aggregation)\b)"
@@ -2986,6 +2986,7 @@ G4_SOURCE_NOMINAL_AUTHORIZATION = re.compile(
 )
 G4_SOURCE_NEGATION_CUE = re.compile(
     r"\b(?:not(?:\s+(?:allowed|permitted|authorized)(?:\s+to)?)?|never|cannot|"
+    r"prevent(?:s|ed|ing)?|refus(?:e|es|ed|ing)|"
     r"prohibit(?:s|ed)?|forbid(?:s|den)?|prohibited|forbidden)\b",
     re.IGNORECASE,
 )
@@ -3030,7 +3031,9 @@ G4_PREMATURE_CITY_EXPANSION_POLICY = re.compile(
     r"\b(?:t-gov-2a|roster enforcement|roster-gated person linking)\b"
     r"|prior\s+to\s+(?:the\s+)?completion\s+of\s+t-gov-2a\b"
     r"|without\b[^.!?;]{0,40}\b(?:completion\s+of|completing)\s+t-gov-2a\b)"
-    r"|\bt-gov-2a\b[^.!?;]{0,80}\b(?:is|becomes|remains)\s+optional\b"
+    r"|\bt-gov-2a\b[^.!?;]{0,80}\b(?:is|becomes|remains)\s+"
+    r"(?:optional|unnecessary|not\s+(?:required|mandatory)|"
+    r"no\s+longer\s+(?:required|mandatory))\b"
     r"[^.!?;]{0,80}\bbefore\b[^.!?;]{0,80}\bcity coverage expansion\b"
     r"|\bt-gov-2a\b[^.!?;]{0,40}\b"
     r"(?:need(?:s)?\s+not|do(?:es)?\s+not\s+need\s+to)\s+"
@@ -3469,6 +3472,7 @@ def test_g2_policy_contradiction_detection_allows_approved_wording(
         ("Deletion of source records is authorized for takedowns.", True),
         ("Deletion of source records is not authorized for takedowns.", False),
         ("Corrections prohibit editing source documents.", False),
+        ("Correction controls prevent editing municipal source records.", False),
         (
             "Corrections remove derived records and source documents remain unchanged.",
             False,
@@ -3507,10 +3511,12 @@ def test_g2_policy_contradiction_detection_allows_approved_wording(
         ("Source-document mentions may create profiles.", True),
         ("Source-document mentions may create a profile.", True),
         ("Source-document mentions may create a membership.", True),
+        ("Source-document mentions may generate profiles.", True),
         ("Source-document mentions may create links to profiles.", True),
         ("Title inference may produce memberships.", True),
         ("Person entities may be created from source-document mentions.", True),
         ("Profiles are created from source-document mentions.", True),
+        ("Profiles are generated from source-document mentions.", True),
         (
             "Neither profiles nor memberships are created from "
             "source-document mentions.",
@@ -3722,6 +3728,10 @@ def test_g2_policy_contradiction_detection_allows_approved_wording(
         (
             "T-GOV-2A does not need to be complete before City Coverage "
             "Expansion proceeds.",
+            True,
+        ),
+        (
+            "T-GOV-2A is not required before City Coverage Expansion proceeds.",
             True,
         ),
     ),
