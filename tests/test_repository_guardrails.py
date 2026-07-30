@@ -751,11 +751,17 @@ def _is_sqlalchemy_text_call(
 
 
 def _call_has_interpolated_text(call_node: ast.Call) -> bool:
-    if call_node.args and isinstance(call_node.args[0], ast.JoinedStr):
+    if call_node.args and any(
+        isinstance(argument_node, ast.JoinedStr)
+        for argument_node in ast.walk(call_node.args[0])
+    ):
         return True
     return any(
         keyword.arg == SQLALCHEMY_TEXT_NAME
-        and isinstance(keyword.value, ast.JoinedStr)
+        and any(
+            isinstance(argument_node, ast.JoinedStr)
+            for argument_node in ast.walk(keyword.value)
+        )
         for keyword in call_node.keywords
     )
 
@@ -1869,6 +1875,14 @@ def test_sync_global_guardrail_detects_top_level_functions(
         (
             "from sqlalchemy import text",
             'text(text=f"SELECT {value}")',
+        ),
+        (
+            "from sqlalchemy import text",
+            'text(f"SELECT {value}" + " FROM catalog")',
+        ),
+        (
+            "from sqlalchemy import text",
+            'text(text="SELECT " + f"{value}")',
         ),
     ),
 )
