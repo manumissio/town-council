@@ -40,6 +40,7 @@ Its exact `files_owned` set is:
 - `docs/plans/TOWN_COUNCIL_REMEDIATION_PLAN.md`
 - `docs/ADR.md`
 - `docs/DATA_GOVERNANCE.md`
+- `ROADMAP.md`
 - `tests/test_repository_guardrails.py`
 
 The remediation ledger update is limited to the changelog, task table,
@@ -142,7 +143,7 @@ membership, derived record, and reindexing.
 - D1: no skip, xfail, weakened assertion, or widened tolerance.
 - D3: exact decision and task states are observable governance contracts;
   tests avoid full-document snapshots.
-- E1-E3: edits remain within the five owned files and do not rewrite
+- E1-E3: edits remain within the six owned files and do not rewrite
   historical ADR entries.
 - H2-H4: no type suppression, alternate trust-boundary model, or import-time
   behavior.
@@ -184,7 +185,7 @@ contracts. Expected production-code delta is zero.
 |---|---|
 | G4 contradiction detector positive and negative fixtures | 1-3 |
 | Cross-document roster-gated policy contract | 4-7, 10 |
-| T-GOV-2/T-GOV-2A ledger contract | 5, 8, 9, 10 |
+| T-GOV-2/T-GOV-2A ledger and roadmap contract | 5, 8, 9, 10 |
 | Existing repository guardrail suite | 1-10 |
 | Docs-link test | Canonical references |
 | Complete Python suite | Regression coverage |
@@ -250,9 +251,11 @@ policy and keeps City Coverage Expansion blocked.
 - `docs/plans/TOWN_COUNCIL_REMEDIATION_PLAN.md`: version, changelog, task
   states, T-PLAT-2 completion, G4, T-GOV-2, T-GOV-2A, T-GOV-6 sequencing,
   and execution order.
+- `ROADMAP.md`: add verified T-GOV-2A completion to City Coverage Expansion
+  start criteria.
 - New T-GOV-2 Full plan.
 - README, architecture, operations, performance, engineering guardrails,
-  testing policy, security policy, API contracts, and roadmap: no changes.
+  testing policy, security policy, and API contracts: no changes.
 
 ## 7. Delivery Self-Audit
 
@@ -267,7 +270,8 @@ pre-commit-review findings, commit hashes, PR URL, unresolved-thread count,
 and final CI state. Mark unrun evidence `NOT VERIFIED`.
 
 **z) Deviations.** The authorized scope expansion from the ledger's original
-single ADR file to the five-file set above is required to keep the canonical
-policy, task states, implementation follow-up, and durable contract aligned.
+single ADR file to the six-file set above is required to keep the canonical
+policy, roadmap start criterion, task states, implementation follow-up, and
+durable contract aligned.
 Any runtime file, schema change, new dependency, new governance document,
 skipped review, unresolved P1/P2, or unrun required check is a blocker.

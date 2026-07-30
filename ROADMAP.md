@@ -145,6 +145,9 @@ Existing spider coverage should be promoted before new provider families. City
 membership and enabled status should come from the rollout registry, not from
 hardcoded roadmap lists.
 
+Start criteria:
+- T-GOV-2A roster-gated person linking is complete and verified.
+
 Quality gates stay outcome-based:
 - crawl success is high enough for repeatable ingestion;
 - extraction is non-empty for the expected document set;

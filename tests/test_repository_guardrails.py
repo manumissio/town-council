@@ -2930,6 +2930,7 @@ def test_g4_roster_gated_policy_is_aligned() -> None:
     data_governance = (ROOT / "docs" / "DATA_GOVERNANCE.md").read_text(
         encoding="utf-8"
     )
+    roadmap = (ROOT / "ROADMAP.md").read_text(encoding="utf-8")
     remediation_ledger = (
         ROOT / "docs" / "plans" / "TOWN_COUNCIL_REMEDIATION_PLAN.md"
     ).read_text(encoding="utf-8")
@@ -2958,6 +2959,11 @@ def test_g4_roster_gated_policy_is_aligned() -> None:
         "### T-GOV-2A: Enforce roster-gated person linking",
         "\n### T-GOV-3:",
     )
+    city_coverage_plan = _required_markdown_section(
+        roadmap,
+        "### City Coverage Expansion I/II",
+        "\n### Signal Intelligence",
+    )
 
     assert "- Status: Accepted" in g4_decision
     assert "independently authoritative official membership data" in g4_decision
@@ -2970,11 +2976,13 @@ def test_g4_roster_gated_policy_is_aligned() -> None:
     assert "Status: effective." in data_governance
     assert "independently authoritative official membership data" in person_policy
     assert "municipality, governing body, and meeting date" in person_policy
-    assert "Non-roster names remain searchable source text" in person_policy
-    assert "person entities" in person_policy
-    assert "people metadata" in person_policy
-    assert "profiles" in person_policy
-    assert "cross-document aggregation" in person_policy
+    normalized_person_policy = " ".join(person_policy.split())
+    assert (
+        "Non-roster names remain searchable source text. They do not become "
+        "person entities, people metadata, profiles, memberships, vote attribution, "
+        "or cross-document aggregation."
+        in normalized_person_policy
+    )
     assert "Source documents are not modified" in person_policy
 
     active_g4_policy = f"{person_policy} {g4_entry} {t_gov_2_entry}"
@@ -2982,6 +2990,10 @@ def test_g4_roster_gated_policy_is_aligned() -> None:
     assert "status: complete and verified" in t_gov_2_entry
     assert "status: pending" in t_gov_2a_entry
     assert "City Coverage Expansion remains blocked until T-GOV-2A completes" in g4_entry
+    assert (
+        "T-GOV-2A roster-gated person linking is complete and verified"
+        in city_coverage_plan
+    )
     assert _remediation_task_states(remediation_ledger, "T-GOV-2") == ["Complete"]
     assert _remediation_task_states(remediation_ledger, "T-GOV-2A") == ["Pending"]
 
