@@ -1037,6 +1037,63 @@ def _workflow_job_check_producers(
     return tuple(check_producers)
 
 
+def _action_reference_targets(
+    action_reference: str,
+    action_name: str,
+) -> bool:
+    action_target, version_separator, _ = action_reference.partition("@")
+    return bool(version_separator) and action_target.casefold() == action_name.casefold()
+
+
+def _active_workflow_action_references(action_name: str) -> tuple[str, ...]:
+    workflow_directory = ROOT / ".github" / "workflows"
+    workflow_paths = sorted(
+        (*workflow_directory.glob("*.yml"), *workflow_directory.glob("*.yaml"))
+    )
+    action_references: list[str] = []
+
+    for workflow_path in workflow_paths:
+        workflow_contract = yaml.load(
+            workflow_path.read_text(encoding="utf-8"),
+            Loader=yaml.BaseLoader,
+        )
+        assert isinstance(workflow_contract, dict)
+        workflow_jobs = workflow_contract.get("jobs")
+        assert isinstance(workflow_jobs, dict)
+        for workflow_job in workflow_jobs.values():
+            assert isinstance(workflow_job, dict)
+            workflow_steps = workflow_job.get("steps", ())
+            assert isinstance(workflow_steps, (list, tuple))
+            action_references.extend(
+                action_reference
+                for workflow_step in workflow_steps
+                if isinstance(workflow_step, dict)
+                and isinstance(
+                    action_reference := workflow_step.get("uses"),
+                    str,
+                )
+                and _action_reference_targets(action_reference, action_name)
+            )
+    return tuple(action_references)
+
+
+@pytest.mark.parametrize(
+    ("action_reference", "action_name", "targets_action"),
+    (
+        ("Actions/Checkout@v4", "actions/checkout", True),
+        ("actions/checkout@v7", "actions/checkout", True),
+        ("actions/checkout-helper@v7", "actions/checkout", False),
+        ("actions/checkout", "actions/checkout", False),
+    ),
+)
+def test_workflow_action_matching_follows_github_repository_identity(
+    action_reference: str,
+    action_name: str,
+    targets_action: bool,
+) -> None:
+    assert _action_reference_targets(action_reference, action_name) is targets_action
+
+
 def test_frontend_required_check_uses_one_canonical_workflow_job():
     workflow_directory = ROOT / ".github" / "workflows"
     candidate_workflow_paths = sorted(
@@ -1165,16 +1222,9 @@ def test_frontend_workflow_installs_locked_dependencies_before_tests():
 
 
 def test_active_workflows_use_checkout_v7() -> None:
-    workflow_directory = ROOT / ".github" / "workflows"
-    checkout_versions = {
-        workflow_line.partition("actions/checkout@")[2].split()[0]
-        for workflow_path in workflow_directory.iterdir()
-        if workflow_path.suffix in {".yaml", ".yml"}
-        for workflow_line in workflow_path.read_text(encoding="utf-8").splitlines()
-        if "uses: actions/checkout@" in workflow_line
+    assert set(_active_workflow_action_references("actions/checkout")) == {
+        "actions/checkout@v7"
     }
-
-    assert checkout_versions == {"v7"}
 
 
 def _workflow_run_step(
