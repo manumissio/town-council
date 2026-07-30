@@ -598,12 +598,12 @@ def _top_level_sync_function_lines(module_path: Path) -> list[int]:
         module_path.read_text(encoding="utf-8"),
         filename=str(module_path),
     )
-    return [
+    return sorted(
         statement.lineno
-        for statement in module_tree.body
+        for statement in _nodes_in_lexical_scope(module_tree)
         if isinstance(statement, (ast.FunctionDef, ast.AsyncFunctionDef))
         and SYNC_GLOBAL_FUNCTION_NAME.fullmatch(statement.name)
-    ]
+    )
 
 
 def _dotted_expression_name(expression: ast.expr) -> str | None:
@@ -662,6 +662,13 @@ def _sqlalchemy_import_bindings(
         return sqlalchemy_bindings
     for imported_name in import_node.names:
         binding_name = imported_name.asname or imported_name.name
+        if (
+            imported_name.name == "*"
+            and SQLALCHEMY_TEXT_NAME
+            in _sqlalchemy_module_text_suffixes(import_node.module)
+        ):
+            sqlalchemy_bindings.setdefault(SQLALCHEMY_TEXT_NAME, set()).add("")
+            continue
         if (
             imported_name.name == SQLALCHEMY_TEXT_NAME
             and (
@@ -751,18 +758,35 @@ def _is_sqlalchemy_text_call(
 
 
 def _call_has_interpolated_text(call_node: ast.Call) -> bool:
-    if call_node.args and any(
-        isinstance(argument_node, ast.JoinedStr)
-        for argument_node in ast.walk(call_node.args[0])
-    ):
+    if call_node.args and _expression_has_joined_string(call_node.args[0]):
         return True
     return any(
-        keyword.arg == SQLALCHEMY_TEXT_NAME
-        and any(
-            isinstance(argument_node, ast.JoinedStr)
-            for argument_node in ast.walk(keyword.value)
-        )
+        _keyword_has_interpolated_text(keyword)
         for keyword in call_node.keywords
+    )
+
+
+def _expression_has_joined_string(expression: ast.expr) -> bool:
+    return any(
+        isinstance(expression_node, ast.JoinedStr)
+        for expression_node in ast.walk(expression)
+    )
+
+
+def _keyword_has_interpolated_text(keyword: ast.keyword) -> bool:
+    if keyword.arg == SQLALCHEMY_TEXT_NAME:
+        return _expression_has_joined_string(keyword.value)
+    if keyword.arg is not None or not isinstance(keyword.value, ast.Dict):
+        return False
+    return any(
+        isinstance(keyword_name, ast.Constant)
+        and keyword_name.value == SQLALCHEMY_TEXT_NAME
+        and _expression_has_joined_string(keyword_value)
+        for keyword_name, keyword_value in zip(
+            keyword.value.keys,
+            keyword.value.values,
+            strict=True,
+        )
     )
 
 
@@ -1845,11 +1869,21 @@ def test_sync_global_guardrail_detects_top_level_functions(
         "\n"
         "class Owner:\n"
         "    def _sync_method_from_owner(self):\n"
-        "        pass\n",
+        "        pass\n"
+        "\n"
+        "if enabled:\n"
+        "    def _sync_conditional_from_owner():\n"
+        "        pass\n"
+        "\n"
+        "try:\n"
+        "    async def _sync_guarded_from_owner():\n"
+        "        pass\n"
+        "except ImportError:\n"
+        "    pass\n",
         encoding="utf-8",
     )
 
-    assert _top_level_sync_function_lines(sync_source) == [1, 4, 7]
+    assert _top_level_sync_function_lines(sync_source) == [1, 4, 7, 28, 32]
 
 
 @pytest.mark.parametrize(
@@ -1883,6 +1917,14 @@ def test_sync_global_guardrail_detects_top_level_functions(
         (
             "from sqlalchemy import text",
             'text(text="SELECT " + f"{value}")',
+        ),
+        (
+            "from sqlalchemy import *",
+            'text(f"SELECT {value}")',
+        ),
+        (
+            "from sqlalchemy import text",
+            'text(**{"text": f"SELECT {value}"})',
         ),
     ),
 )
