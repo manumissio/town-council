@@ -1037,6 +1037,39 @@ def _workflow_job_check_producers(
     return tuple(check_producers)
 
 
+def _active_workflow_action_references(action_name: str) -> tuple[str, ...]:
+    workflow_directory = ROOT / ".github" / "workflows"
+    workflow_paths = sorted(
+        (*workflow_directory.glob("*.yml"), *workflow_directory.glob("*.yaml"))
+    )
+    action_prefix = f"{action_name}@"
+    action_references: list[str] = []
+
+    for workflow_path in workflow_paths:
+        workflow_contract = yaml.load(
+            workflow_path.read_text(encoding="utf-8"),
+            Loader=yaml.BaseLoader,
+        )
+        assert isinstance(workflow_contract, dict)
+        workflow_jobs = workflow_contract.get("jobs")
+        assert isinstance(workflow_jobs, dict)
+        for workflow_job in workflow_jobs.values():
+            assert isinstance(workflow_job, dict)
+            workflow_steps = workflow_job.get("steps", ())
+            assert isinstance(workflow_steps, (list, tuple))
+            action_references.extend(
+                action_reference
+                for workflow_step in workflow_steps
+                if isinstance(workflow_step, dict)
+                and isinstance(
+                    action_reference := workflow_step.get("uses"),
+                    str,
+                )
+                and action_reference.startswith(action_prefix)
+            )
+    return tuple(action_references)
+
+
 def test_frontend_required_check_uses_one_canonical_workflow_job():
     workflow_directory = ROOT / ".github" / "workflows"
     candidate_workflow_paths = sorted(
@@ -1153,7 +1186,7 @@ def test_frontend_workflow_installs_locked_dependencies_before_tests():
     test_step = "      - name: Run frontend tests\n        run: npm test"
 
     assert "uses: actions/checkout@v5" in workflow_text
-    assert "uses: actions/setup-node@v6" in workflow_text
+    assert "uses: actions/setup-node@v7" in workflow_text
     assert 'node-version: "20"' in workflow_text
     assert 'cache: "npm"' in workflow_text
     assert "cache-dependency-path: frontend/package-lock.json" in workflow_text
@@ -1162,6 +1195,12 @@ def test_frontend_workflow_installs_locked_dependencies_before_tests():
     assert "continue-on-error:" not in workflow_text
     assert "if:" not in workflow_text
     assert "strategy:" not in workflow_text
+
+
+def test_active_workflows_use_setup_node_v7() -> None:
+    assert set(_active_workflow_action_references("actions/setup-node")) == {
+        "actions/setup-node@v7"
+    }
 
 
 def _workflow_run_step(
