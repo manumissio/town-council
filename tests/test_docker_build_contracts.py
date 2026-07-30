@@ -20,7 +20,7 @@ ACTIVE_REQUIREMENT_PATHS = (
 )
 SHARED_EXACT_CONSTRAINTS = {
     "beautifulsoup4": "4.15.0",
-    "celery": "5.3.4",
+    "celery": "5.6.3",
     "fastapi": "0.115.8",
     "httpx": "0.28.1",
     "meilisearch": "0.31.0",
