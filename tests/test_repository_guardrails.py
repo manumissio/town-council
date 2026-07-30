@@ -2862,7 +2862,8 @@ G4_DERIVED_PERSON_RELATION_BARRIER = re.compile(
 G4_DERIVED_AUTHORITY_ACTION = re.compile(
     r"\b(?:is|are|be|becom(?:e|es|ing)|constitut(?:e|es|ed|ing)|"
     r"establish(?:es|ed|ing)?|serv(?:e|es|ed|ing)\s+as|"
-    r"qualif(?:y|ies|ied|ying)\s+as|provid(?:e|es|ed|ing))\b",
+    r"qualif(?:y|ies|ied|ying)\s+as|count(?:s|ed|ing)?\s+as|"
+    r"provid(?:e|es|ed|ing))\b",
     re.IGNORECASE,
 )
 G4_DERIVED_AUTHORITY_TARGET = re.compile(r"\broster authority\b", re.IGNORECASE)
@@ -2917,6 +2918,7 @@ G4_SOURCE_RECORD_TARGET = re.compile(
 )
 G4_SOURCE_ACTION_BARRIER = re.compile(
     r"\b(?:not|rather than|instead of|links? to|linked to|associated with|related to|"
+    r"derived from|extracted from|built from|"
     r"keep(?:s|ing)?|leav(?:e|es|ing)|"
     r"preserv(?:e|es|ed|ing)|retain(?:s|ed|ing)?)\b",
     re.IGNORECASE,
@@ -2954,6 +2956,10 @@ G4_SHARED_NEGATION = re.compile(
     r"(?:\b(?:forbidden|prohibited|not (?:allowed|permitted|authorized))\s+to\b"
     r"|\b(?:do|does|must|may|can|will|should)\s+not\b|\bcannot\b)"
     r"[^.!?;]{0,80}\band\s*$",
+    re.IGNORECASE,
+)
+G4_PAIRED_NEGATION = re.compile(
+    r"\bneither\b[^.!?;]{0,120}\bnor\b",
     re.IGNORECASE,
 )
 G4_SOURCE_INHERITED_PASSIVE_SUBJECT = re.compile(
@@ -3228,7 +3234,9 @@ def _segment_allows_passive_source_edit(
 
 
 def _source_action_is_negated(action_prefix: str) -> bool:
-    if G4_SHARED_NEGATION.search(action_prefix):
+    if G4_SHARED_NEGATION.search(action_prefix) or G4_PAIRED_NEGATION.search(
+        action_prefix
+    ):
         return True
     action_scope = G4_NEGATION_SCOPE_BOUNDARY.split(action_prefix)[-1]
     latest_negative = max(
@@ -3476,6 +3484,15 @@ def test_g2_policy_contradiction_detection_allows_approved_wording(
             "Title inference, instead of official rosters, provides roster authority.",
             True,
         ),
+        ("Title inference may count as roster authority.", True),
+        (
+            "Neither title inference nor source-document mentions provide "
+            "roster authority.",
+            False,
+        ),
+        ("Corrections remove links derived from source documents.", False),
+        ("Corrections remove metadata extracted from source records.", False),
+        ("Corrections remove profiles built from source documents.", False),
         ("Title inference does not constitute roster authority.", False),
         ("City Coverage Expansion remains blocked until T-GOV-2A completes.", False),
         (
