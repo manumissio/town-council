@@ -1,7 +1,7 @@
 # T-GOV-2: Record Roster-Gated Person Minimization
 
-`artifact_contract: ce-unified-plan/v1`  
-`artifact_readiness: implementation-ready`  
+`artifact_contract: ce-unified-plan/v1`
+`artifact_readiness: implementation-ready`
 `execution: docs-and-tests`
 
 ## 1. Context & Alignment
