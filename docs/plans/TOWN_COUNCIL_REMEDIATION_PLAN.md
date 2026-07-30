@@ -1,6 +1,6 @@
 # Town Council Remediation Plan (Codex Multi-Agent)
 
-version: 3.69
+version: 3.70
 generated: 2026-07-26
 source: Four-pass external code review (security, architecture, smells, process)
 source_artifact: [Town Council architecture review](../reviews/architecture-review-2026-07-19.html)
@@ -10,6 +10,10 @@ remains in force; where this plan is stricter, this plan wins for these tasks.
 
 ## Changelog
 
+- **v3.70:** Completes T-GOV-2 by recording the approved roster-gated person
+  policy in the ADR and Data Governance document. Runtime enforcement remains
+  explicitly pending under T-GOV-2A, and City Coverage Expansion stays
+  blocked.
 - **v3.69:** Marks T-PLAT-2 complete after PR #160 merged with all required
   checks green, activates T-GOV-2, and records the exact policy-only ownership
   needed to adopt the operator-approved G4 roster-gated decision without
@@ -336,9 +340,8 @@ remains in force; where this plan is stricter, this plan wins for these tasks.
 
 | State | Tasks |
 |---|---|
-| **Complete** | T-CI-0, T-CI-1, T-CI-1A, T-CI-2, T-CI-2A, T-CI-3, T-CI-4, T-CI-5, T-SEC-1, T-SEC-2, T-SEC-3, T-SEC-3C, T-SEC-4, T-SEC-4A, T-SEC-5, T-SEC-6, T-TIME-1, T-TIME-2, T-TIME-3, T-CRAWL-1, T-CRAWL-2, T-PLAT-1, T-PLAT-1A, T-PLAT-2, T-PLAT-2A, T-PLAT-2B, T-PLAT-3, T-GOV-1, T-GOV-3A, T-GOV-4, T-GOV-5, T-GOV-6, T-DA-1, T-DB-1A, T-DB-1, T-DB-1B, T-DC-1, T-DD-1A, T-DD-1B, T-DE-1 |
+| **Complete** | T-CI-0, T-CI-1, T-CI-1A, T-CI-2, T-CI-2A, T-CI-3, T-CI-4, T-CI-5, T-SEC-1, T-SEC-2, T-SEC-3, T-SEC-3C, T-SEC-4, T-SEC-4A, T-SEC-5, T-SEC-6, T-TIME-1, T-TIME-2, T-TIME-3, T-CRAWL-1, T-CRAWL-2, T-PLAT-1, T-PLAT-1A, T-PLAT-2, T-PLAT-2A, T-PLAT-2B, T-PLAT-3, T-GOV-1, T-GOV-2, T-GOV-3A, T-GOV-4, T-GOV-5, T-GOV-6, T-DA-1, T-DB-1A, T-DB-1, T-DB-1B, T-DC-1, T-DD-1A, T-DD-1B, T-DE-1 |
 | **Partially landed; acceptance incomplete** | T-GOV-3 |
-| **Active** | T-GOV-2 |
 | **Pending** | T-PLAT-4, T-GOV-2A, T-GOV-3B |
 
 ---
@@ -1579,7 +1582,7 @@ files (GED-5 grant).
 
 ### T-GOV-2: ADR — Person-entity minimization & takedown (gate G4)
 - priority: P1
-- status: active; G4 decision approved 2026-07-26
+- status: complete and verified 2026-07-29
 - implementation_plan:
   `docs/plans/T_GOV_2_PERSON_MINIMIZATION_PLAN.md`
 - scope_authorization: The operator approved G4 Option A and directed continued

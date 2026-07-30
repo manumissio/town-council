@@ -2827,6 +2827,19 @@ G2_OPEN_POLICY = re.compile(
     r"|\b(?:open|pending|unresolved)\s+g2\b)",
     re.IGNORECASE,
 )
+G4_UNRESOLVED_POLICY = re.compile(
+    r"(?:\bg4\b\s+(?:is|remains)\s+(?:open|pending|unresolved)\b"
+    r"|\bg4\b\s*(?:status\s*)?:\s*(?:open|pending|unresolved)\b"
+    r"|\bdecision\s+g4\b.{0,20}\b(?:open|pending|unresolved)\b"
+    r"|\b(?:open|pending|unresolved)\s+g4\b)",
+    re.IGNORECASE,
+)
+G4_LIVE_OPTIONS_POLICY = re.compile(
+    r"(?:\boptions?\s+under\s+consideration\b"
+    r"|\bexactly\s+one\s+will\s+be\s+adopted\s+by\s+adr\b"
+    r"|\bworking\s+default\s+until\s+(?:the\s+)?adr\s+lands\b)",
+    re.IGNORECASE,
+)
 OPERATOR_AUTH_APPROVAL_POLICY = re.compile(
     r"\boperator(?:-only)?(?: proxy)? authentication\s+(?:is\s+)?(?:approved|pending)\b",
     re.IGNORECASE,
@@ -2852,6 +2865,13 @@ PHASE_2_G3_BLOCKER_POLICY = re.compile(
 def _g2_policy_has_contradiction(g2_policy: str) -> bool:
     return bool(
         G2_OPEN_POLICY.search(g2_policy) or OPERATOR_AUTH_APPROVAL_POLICY.search(g2_policy)
+    )
+
+
+def _g4_policy_has_contradiction(g4_policy: str) -> bool:
+    return bool(
+        G4_UNRESOLVED_POLICY.search(g4_policy)
+        or G4_LIVE_OPTIONS_POLICY.search(g4_policy)
     )
 
 
@@ -2883,6 +2903,87 @@ def test_g2_policy_contradiction_detection_allows_approved_wording(
     approved_policy: str,
 ) -> None:
     assert not _g2_policy_has_contradiction(approved_policy)
+
+
+@pytest.mark.parametrize(
+    ("g4_policy", "has_contradiction"),
+    (
+        ("G4 remains open.", True),
+        ("G4 status: pending.", True),
+        ("DECISION G4 - unresolved", True),
+        ("Options under consideration; exactly one will be adopted by ADR.", True),
+        ("Working default until the ADR lands.", True),
+        ("G4 is approved; T-GOV-2A remains pending.", False),
+        ("Runtime enforcement is pending T-GOV-2A.", False),
+        ("The historical alternatives were superseded by approved G4.", False),
+    ),
+)
+def test_g4_contradiction_detection_covers_equivalent_wording(
+    g4_policy: str,
+    has_contradiction: bool,
+) -> None:
+    assert _g4_policy_has_contradiction(g4_policy) is has_contradiction
+
+
+def test_g4_roster_gated_policy_is_aligned() -> None:
+    architecture_decisions = (ROOT / "docs" / "ADR.md").read_text(encoding="utf-8")
+    data_governance = (ROOT / "docs" / "DATA_GOVERNANCE.md").read_text(
+        encoding="utf-8"
+    )
+    remediation_ledger = (
+        ROOT / "docs" / "plans" / "TOWN_COUNCIL_REMEDIATION_PLAN.md"
+    ).read_text(encoding="utf-8")
+
+    g4_decision = _required_markdown_entry(
+        architecture_decisions,
+        "## 2026-07-26: Roster-gated person linking",
+    )
+    person_policy = _required_markdown_section(
+        data_governance,
+        "## 3. Roster-gated person entities",
+        "\n## 4. Correction and takedown",
+    )
+    g4_entry = _required_markdown_section(
+        remediation_ledger,
+        "- G4 pii_policy:",
+        "\n- G5 migration_tooling:",
+    )
+    t_gov_2_entry = _required_markdown_section(
+        remediation_ledger,
+        "### T-GOV-2: ADR — Person-entity minimization & takedown (gate G4)",
+        "\n### T-GOV-2A:",
+    )
+    t_gov_2a_entry = _required_markdown_section(
+        remediation_ledger,
+        "### T-GOV-2A: Enforce roster-gated person linking",
+        "\n### T-GOV-3:",
+    )
+
+    assert "- Status: Accepted" in g4_decision
+    assert "independently authoritative official membership data" in g4_decision
+    assert "municipality, governing body, and meeting date" in g4_decision
+    assert "Title inference" in g4_decision
+    assert "linker-created memberships" in g4_decision
+    assert "does not yet enforce" in g4_decision
+    assert "T-GOV-2A" in g4_decision
+
+    assert "Status: effective." in data_governance
+    assert "independently authoritative official membership data" in person_policy
+    assert "municipality, governing body, and meeting date" in person_policy
+    assert "Non-roster names remain searchable source text" in person_policy
+    assert "person entities" in person_policy
+    assert "people metadata" in person_policy
+    assert "profiles" in person_policy
+    assert "cross-document aggregation" in person_policy
+    assert "Source documents are not modified" in person_policy
+
+    active_g4_policy = f"{person_policy} {g4_entry} {t_gov_2_entry}"
+    assert not _g4_policy_has_contradiction(active_g4_policy)
+    assert "status: complete and verified" in t_gov_2_entry
+    assert "status: pending" in t_gov_2a_entry
+    assert "City Coverage Expansion remains blocked until T-GOV-2A completes" in g4_entry
+    assert _remediation_task_states(remediation_ledger, "T-GOV-2") == ["Complete"]
+    assert _remediation_task_states(remediation_ledger, "T-GOV-2A") == ["Pending"]
 
 
 def test_g2_visitor_access_policy_is_aligned_after_t_sec_4_delivery():
