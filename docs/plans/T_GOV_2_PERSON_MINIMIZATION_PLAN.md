@@ -40,6 +40,7 @@ Its exact `files_owned` set is:
 - `docs/plans/TOWN_COUNCIL_REMEDIATION_PLAN.md`
 - `docs/ADR.md`
 - `docs/DATA_GOVERNANCE.md`
+- `AGENTS.md`
 - `ROADMAP.md`
 - `tests/test_repository_guardrails.py`
 
@@ -143,7 +144,7 @@ membership, derived record, and reindexing.
 - D1: no skip, xfail, weakened assertion, or widened tolerance.
 - D3: exact decision and task states are observable governance contracts;
   tests avoid full-document snapshots.
-- E1-E3: edits remain within the six owned files and do not rewrite
+- E1-E3: edits remain within the seven owned files and do not rewrite
   historical ADR entries.
 - H2-H4: no type suppression, alternate trust-boundary model, or import-time
   behavior.
@@ -178,15 +179,17 @@ contracts. Expected production-code delta is zero.
 8. T-GOV-2 is complete without a pending runtime follow-up.
 9. City Coverage Expansion is unblocked before T-GOV-2A completes.
 10. ADR, governance policy, and remediation ledger disagree.
+11. `AGENTS.md` omits the official-roster-only exclusions or contradicts the
+    canonical policy.
 
 **r) Tests.**
 
 | Test | Scenarios |
 |---|---|
 | G4 contradiction detector positive and negative fixtures | 1-3 |
-| Cross-document roster-gated policy contract | 4-7, 10 |
+| Cross-document roster-gated policy contract | 4-7, 10-11 |
 | T-GOV-2/T-GOV-2A ledger and roadmap contract | 5, 8, 9, 10 |
-| Existing repository guardrail suite | 1-10 |
+| Existing repository guardrail suite | 1-11 |
 | Docs-link test | Canonical references |
 | Complete Python suite | Regression coverage |
 
@@ -248,6 +251,8 @@ policy and keeps City Coverage Expansion blocked.
 - `docs/ADR.md`: add the Accepted G4 decision.
 - `docs/DATA_GOVERNANCE.md`: activate the document and replace Section 3's
   open options with the adopted policy.
+- `AGENTS.md`: reference the binding roster authority and T-GOV-2A expansion
+  gate.
 - `docs/plans/TOWN_COUNCIL_REMEDIATION_PLAN.md`: version, changelog, task
   states, T-PLAT-2 completion, G4, T-GOV-2, T-GOV-2A, T-GOV-6 sequencing,
   and execution order.
@@ -270,8 +275,8 @@ pre-commit-review findings, commit hashes, PR URL, unresolved-thread count,
 and final CI state. Mark unrun evidence `NOT VERIFIED`.
 
 **z) Deviations.** The authorized scope expansion from the ledger's original
-single ADR file to the six-file set above is required to keep the canonical
-policy, roadmap start criterion, task states, implementation follow-up, and
-durable contract aligned.
+single ADR file to the seven-file set above is required to keep the canonical
+policy, agent invariant, roadmap start criterion, task states, implementation
+follow-up, and durable contract aligned.
 Any runtime file, schema change, new dependency, new governance document,
 skipped review, unresolved P1/P2, or unrun required check is a blocker.

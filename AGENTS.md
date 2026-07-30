@@ -23,6 +23,11 @@ Do:
 - Treat optional remote acceleration as personal opt-in only.
 - Fail fast when remote inference is unreachable.
 - Preserve soak comparability unless the task explicitly changes baseline policy.
+- Create person entities and people-facing records only from independently
+  authoritative official membership data scoped to municipality, governing
+  body, and meeting date. Title inference, source-document mentions, and
+  linker-created memberships are not roster authority. Do not start City
+  Coverage Expansion before T-GOV-2A is complete and verified.
 
 Don't:
 - Do not silently fall back from remote to local inference.

@@ -1,6 +1,6 @@
 # Town Council Remediation Plan (Codex Multi-Agent)
 
-version: 3.71
+version: 3.72
 generated: 2026-07-26
 source: Four-pass external code review (security, architecture, smells, process)
 source_artifact: [Town Council architecture review](../reviews/architecture-review-2026-07-19.html)
@@ -10,6 +10,9 @@ remains in force; where this plan is stricter, this plan wins for these tasks.
 
 ## Changelog
 
+- **v3.72:** Expands T-GOV-2 ownership to `AGENTS.md`, synchronizes the binding
+  roster-authority and T-GOV-2A expansion invariant, and extends guardrails to
+  reject contradictions in the ADR or agent policy.
 - **v3.71:** Expands T-GOV-2 ownership to the roadmap after review, makes
   T-GOV-2A completion an explicit City Coverage Expansion start criterion,
   and strengthens the non-roster prohibition contract.
@@ -1592,7 +1595,7 @@ files (GED-5 grant).
   remediation execution through completion.
 - files_owned: `docs/plans/T_GOV_2_PERSON_MINIMIZATION_PLAN.md`,
   `docs/plans/TOWN_COUNCIL_REMEDIATION_PLAN.md`, `docs/ADR.md`,
-  `docs/DATA_GOVERNANCE.md`, `ROADMAP.md`,
+  `docs/DATA_GOVERNANCE.md`, `AGENTS.md`, `ROADMAP.md`,
   `tests/test_repository_guardrails.py`
   (G4 and T-GOV-2 policy contracts only)
 - do: Record roster-gated person linking as an Accepted ADR. Replace the live
@@ -1607,9 +1610,10 @@ files (GED-5 grant).
   current derived memberships as roster authority; edits outside
   `files_owned`.
 - accept: ADR and Data Governance agree on the approved policy; live G4 option
-  and working-default language is gone; T-GOV-2A is pending; City Coverage
-  Expansion names verified T-GOV-2A completion as a start criterion; repository
-  guardrails, docs links, and the complete suite pass.
+  and working-default language is gone; AGENTS names the binding roster
+  authority and T-GOV-2A expansion gate; T-GOV-2A is pending; City Coverage
+  Expansion names verified T-GOV-2A completion as a start criterion;
+  repository guardrails, docs links, and the complete suite pass.
 - verify: Follow the Full T-GOV-2 plan; Ruff, Mypy, repository guardrails, docs
   links, complete Python suite, independent review, and PR CI.
 

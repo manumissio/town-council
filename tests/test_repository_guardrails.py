@@ -2840,6 +2840,19 @@ G4_LIVE_OPTIONS_POLICY = re.compile(
     r"|\bworking\s+default\s+until\s+(?:the\s+)?adr\s+lands\b)",
     re.IGNORECASE,
 )
+G4_DERIVED_ROSTER_AUTHORITY_POLICY = re.compile(
+    r"\b(?:title inference|source-document mentions?|linker-created memberships?"
+    r"|memberships created by the entity linker)\b"
+    r".{0,80}\b(?:(?:may|can)\s+(?:be|become|constitute|establish|serve as)"
+    r"|(?:is|are)(?:\s+valid)?)\s+roster authority\b",
+    re.IGNORECASE,
+)
+G4_NON_ROSTER_PERSON_CREATION_POLICY = re.compile(
+    r"\bnon-roster names?\b.{0,80}\b(?:may|can)\s+(?:become|create|produce)"
+    r".{0,40}\b(?:person entities|people metadata|profiles|memberships|"
+    r"vote attribution|cross-document aggregation)\b",
+    re.IGNORECASE,
+)
 OPERATOR_AUTH_APPROVAL_POLICY = re.compile(
     r"\boperator(?:-only)?(?: proxy)? authentication\s+(?:is\s+)?(?:approved|pending)\b",
     re.IGNORECASE,
@@ -2869,9 +2882,12 @@ def _g2_policy_has_contradiction(g2_policy: str) -> bool:
 
 
 def _g4_policy_has_contradiction(g4_policy: str) -> bool:
+    normalized_g4_policy = " ".join(g4_policy.split())
     return bool(
-        G4_UNRESOLVED_POLICY.search(g4_policy)
-        or G4_LIVE_OPTIONS_POLICY.search(g4_policy)
+        G4_UNRESOLVED_POLICY.search(normalized_g4_policy)
+        or G4_LIVE_OPTIONS_POLICY.search(normalized_g4_policy)
+        or G4_DERIVED_ROSTER_AUTHORITY_POLICY.search(normalized_g4_policy)
+        or G4_NON_ROSTER_PERSON_CREATION_POLICY.search(normalized_g4_policy)
     )
 
 
@@ -2913,9 +2929,17 @@ def test_g2_policy_contradiction_detection_allows_approved_wording(
         ("DECISION G4 - unresolved", True),
         ("Options under consideration; exactly one will be adopted by ADR.", True),
         ("Working default until the ADR lands.", True),
+        ("Title inference may establish roster authority.", True),
+        ("Title inference\nmay establish roster authority.", True),
+        ("Linker-created memberships are roster authority.", True),
+        ("Memberships created by the entity linker are roster authority.", True),
+        ("Non-roster names may become person entities.", True),
+        ("Non-roster names\nmay become person entities.", True),
         ("G4 is approved; T-GOV-2A remains pending.", False),
         ("Runtime enforcement is pending T-GOV-2A.", False),
         ("The historical alternatives were superseded by approved G4.", False),
+        ("Title inference and linker-created memberships are not roster authority.", False),
+        ("Non-roster names do not become person entities.", False),
     ),
 )
 def test_g4_contradiction_detection_covers_equivalent_wording(
@@ -2926,6 +2950,7 @@ def test_g4_contradiction_detection_covers_equivalent_wording(
 
 
 def test_g4_roster_gated_policy_is_aligned() -> None:
+    agent_policy = (ROOT / "AGENTS.md").read_text(encoding="utf-8")
     architecture_decisions = (ROOT / "docs" / "ADR.md").read_text(encoding="utf-8")
     data_governance = (ROOT / "docs" / "DATA_GOVERNANCE.md").read_text(
         encoding="utf-8"
@@ -2968,8 +2993,12 @@ def test_g4_roster_gated_policy_is_aligned() -> None:
     assert "- Status: Accepted" in g4_decision
     assert "independently authoritative official membership data" in g4_decision
     assert "municipality, governing body, and meeting date" in g4_decision
-    assert "Title inference" in g4_decision
-    assert "linker-created memberships" in g4_decision
+    normalized_g4_decision = " ".join(g4_decision.split())
+    assert (
+        "Title inference, source-document mentions, and linker-created memberships "
+        "are not roster authority."
+        in normalized_g4_decision
+    )
     assert "does not yet enforce" in g4_decision
     assert "T-GOV-2A" in g4_decision
 
@@ -2978,6 +3007,12 @@ def test_g4_roster_gated_policy_is_aligned() -> None:
     assert "municipality, governing body, and meeting date" in person_policy
     normalized_person_policy = " ".join(person_policy.split())
     assert (
+        "Title inference, source-document mentions, and memberships created by the "
+        "entity linker are derived evidence, not roster authority. They cannot "
+        "authorize person creation or people-facing records."
+        in normalized_person_policy
+    )
+    assert (
         "Non-roster names remain searchable source text. They do not become "
         "person entities, people metadata, profiles, memberships, vote attribution, "
         "or cross-document aggregation."
@@ -2985,7 +3020,18 @@ def test_g4_roster_gated_policy_is_aligned() -> None:
     )
     assert "Source documents are not modified" in person_policy
 
-    active_g4_policy = f"{person_policy} {g4_entry} {t_gov_2_entry}"
+    normalized_agent_policy = " ".join(agent_policy.split())
+    assert (
+        "Create person entities and people-facing records only from independently "
+        "authoritative official membership data scoped to municipality, governing "
+        "body, and meeting date. Title inference, source-document mentions, and "
+        "linker-created memberships are not roster authority. Do not start City "
+        "Coverage Expansion before T-GOV-2A is complete and verified."
+        in normalized_agent_policy
+    )
+    active_g4_policy = " ".join(
+        (agent_policy, g4_decision, person_policy, g4_entry, t_gov_2_entry)
+    )
     assert not _g4_policy_has_contradiction(active_g4_policy)
     assert "status: complete and verified" in t_gov_2_entry
     assert "status: pending" in t_gov_2a_entry
