@@ -1276,7 +1276,7 @@ def _run_workflow_script(
     )
 
 
-def test_dependabot_checks_every_dependency_manifest_weekly() -> None:
+def test_dependabot_checks_every_dependency_manifest_weekly_and_groups_python_updates() -> None:
     dependabot_contract = yaml.load(
         (ROOT / ".github" / "dependabot.yml").read_text(encoding="utf-8"),
         Loader=yaml.BaseLoader,
@@ -1294,6 +1294,11 @@ def test_dependabot_checks_every_dependency_manifest_weekly() -> None:
                 "/semantic_service",
             ],
             "schedule": {"interval": "weekly"},
+            "groups": {
+                "python-dependencies": {
+                    "group-by": "dependency-name",
+                },
+            },
         },
         {
             "package-ecosystem": "npm",

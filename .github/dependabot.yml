@@ -9,6 +9,9 @@ updates:
       - /semantic_service
     schedule:
       interval: weekly
+    groups:
+      python-dependencies:
+        group-by: dependency-name
 
   - package-ecosystem: npm
     directory: /frontend
