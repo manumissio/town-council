@@ -1037,12 +1037,19 @@ def _workflow_job_check_producers(
     return tuple(check_producers)
 
 
+def _action_reference_targets(
+    action_reference: str,
+    action_name: str,
+) -> bool:
+    action_target, version_separator, _ = action_reference.partition("@")
+    return bool(version_separator) and action_target.casefold() == action_name.casefold()
+
+
 def _active_workflow_action_references(action_name: str) -> tuple[str, ...]:
     workflow_directory = ROOT / ".github" / "workflows"
     workflow_paths = sorted(
         (*workflow_directory.glob("*.yml"), *workflow_directory.glob("*.yaml"))
     )
-    action_prefix = f"{action_name}@"
     action_references: list[str] = []
 
     for workflow_path in workflow_paths:
@@ -1065,9 +1072,26 @@ def _active_workflow_action_references(action_name: str) -> tuple[str, ...]:
                     action_reference := workflow_step.get("uses"),
                     str,
                 )
-                and action_reference.startswith(action_prefix)
+                and _action_reference_targets(action_reference, action_name)
             )
     return tuple(action_references)
+
+
+@pytest.mark.parametrize(
+    ("action_reference", "action_name", "targets_action"),
+    (
+        ("Actions/Setup-Node@v6", "actions/setup-node", True),
+        ("actions/setup-node@v7", "actions/setup-node", True),
+        ("actions/setup-node-helper@v7", "actions/setup-node", False),
+        ("actions/setup-node", "actions/setup-node", False),
+    ),
+)
+def test_workflow_action_matching_follows_github_repository_identity(
+    action_reference: str,
+    action_name: str,
+    targets_action: bool,
+) -> None:
+    assert _action_reference_targets(action_reference, action_name) is targets_action
 
 
 def test_frontend_required_check_uses_one_canonical_workflow_job():
