@@ -2853,14 +2853,15 @@ G4_DERIVED_PERSON_ACTION = re.compile(
     re.IGNORECASE,
 )
 G4_DERIVED_PERSON_TARGET = re.compile(
-    r"\b(?:person creation|person entities|people-facing records)\b",
+    r"\b(?:person creation|person entities|people-facing records|profiles|"
+    r"memberships|people metadata|vote attribution|cross-document aggregation)\b",
     re.IGNORECASE,
 )
 G4_DERIVED_PASSIVE_PERSON_PROMOTION = re.compile(
     r"\b(?:person entities|people-facing records|profiles|memberships|"
     r"people metadata|vote attribution|cross-document aggregation)\b"
     r"[^.!?;]{0,60}"
-    r"\b(?:may|can|will|must|should)\s+be\s+"
+    r"\b(?:(?:may|can|will|must|should)\s+be|is|are)\s+"
     r"(?:authorized|created|produced)\s+from\s+"
     r"(?:title inference|source-document mentions?|linker-created memberships?"
     r"|memberships created by the entity linker)\b",
@@ -3007,6 +3008,9 @@ G4_PREMATURE_CITY_EXPANSION_POLICY = re.compile(
     r"[^.!?;]{0,160}\b(?:(?<!not )(?<!never )before|without)\b"
     r"|\bt-gov-2a\b[^.!?;]{0,80}\b(?:is|becomes|remains)\s+optional\b"
     r"[^.!?;]{0,80}\bbefore\b[^.!?;]{0,80}\bcity coverage expansion\b"
+    r"|\bt-gov-2a\b[^.!?;]{0,40}\bneed(?:s)?\s+not\s+"
+    r"(?:be\s+)?complete\b[^.!?;]{0,80}\bbefore\b[^.!?;]{0,80}"
+    r"\bcity coverage expansion\b"
     r"|\bbefore\b[^.!?;]{0,80}\bt-gov-2a\b[^.!?;]{0,80}"
     r"\bcity coverage expansion\b[^.!?;]{0,80}"
     r"(?:(?:may|can)\s+(?:start|begin|proceed|resume)"
@@ -3167,6 +3171,7 @@ def _g4_policy_allows_source_record_modification(g4_policy: str) -> bool:
     for policy_sentence in _g4_policy_clauses(g4_policy):
         if any(
             nominal_action.group("negated") is None
+            and G4_EXTERNAL_SOURCE_CUSTODIAN.search(policy_sentence) is None
             for nominal_action in G4_SOURCE_NOMINAL_AUTHORIZATION.finditer(
                 policy_sentence
             )
@@ -3436,7 +3441,10 @@ def test_g2_policy_contradiction_detection_allows_approved_wording(
         ("Staff may edit municipal source records.", True),
         ("Town Council deletes source documents.", True),
         ("Source-document mentions may become person entities.", True),
+        ("Source-document mentions may create profiles.", True),
+        ("Title inference may produce memberships.", True),
         ("Person entities may be created from source-document mentions.", True),
+        ("Profiles are created from source-document mentions.", True),
         (
             "Profiles for non-roster names may be created from "
             "source-document mentions.",
@@ -3503,6 +3511,11 @@ def test_g2_policy_contradiction_detection_allows_approved_wording(
         (
             "The originating municipality may edit its source records before "
             "publication.",
+            False,
+        ),
+        (
+            "Deletion of source records by the originating municipality is "
+            "permitted under local retention law.",
             False,
         ),
         ("Corrections remove entity links to source documents.", False),
@@ -3582,6 +3595,10 @@ def test_g2_policy_contradiction_detection_allows_approved_wording(
         ("Town Council does not yet enforce this policy.", False),
         ("Runtime enforcement remains pending under T-GOV-2A.", False),
         ("T-GOV-2A must complete before City Coverage Expansion starts.", False),
+        (
+            "T-GOV-2A need not complete before City Coverage Expansion proceeds.",
+            True,
+        ),
     ),
 )
 def test_g4_contradiction_detection_covers_equivalent_wording(
