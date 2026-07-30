@@ -2840,34 +2840,41 @@ G4_LIVE_OPTIONS_POLICY = re.compile(
     r"|\bworking\s+default\s+until\s+(?:the\s+)?adr\s+lands\b)",
     re.IGNORECASE,
 )
-G4_DERIVED_ROSTER_AUTHORITY_POLICY = re.compile(
+G4_DERIVED_EVIDENCE_SOURCE = re.compile(
     r"\b(?:title inference|source-document mentions?|linker-created memberships?"
-    r"|memberships created by the entity linker)\b"
-    r"(?![^.!?;]{0,80}\bwhile\b)"
-    r"[^.!?;]{0,80}\b(?:(?:may|can)\s+"
-    r"(?:be|become|constitute|establish|serve as|qualify as|provide)"
-    r"|(?:is|are)(?:\s+valid)?"
-    r"|(?<!not )(?<!never )(?<!cannot )"
-    r"(?:constitutes?|establishes?|serves? as|qualifies? as|provides?))"
-    r"\s+roster authority\b",
+    r"|memberships created by the entity linker)\b",
     re.IGNORECASE,
 )
-G4_DERIVED_PERSON_AUTHORIZATION_POLICY = re.compile(
-    r"\b(?:title inference|source-document mentions?|linker-created memberships?"
-    r"|memberships created by the entity linker)\b"
-    r"(?![^.!?;]{0,80}\bwhile\b)"
-    r"[^.!?;]{0,80}\b(?:(?:may|can)\s+authorize"
-    r"|(?<!not )(?<!never )(?<!cannot )authorizes?)\b"
-    r"[^.!?;]{0,40}\b(?:person creation|person entities|people-facing records)\b",
+G4_DERIVED_PERSON_ACTION = re.compile(
+    r"(?<!-)\b(?:authoriz(?:e|es|ed|ing)|becom(?:e|es|ing)|"
+    r"creat(?:e|es|ed|ing)|produc(?:e|es|ed|ing))\b",
     re.IGNORECASE,
 )
-G4_DERIVED_WHILE_CONTINUATION_POLICY = re.compile(
-    r"\b(?:title inference|source-document mentions?|linker-created memberships?"
-    r"|memberships created by the entity linker)\b[^.!?;]{0,80}"
-    r"\bwhile\s+(?:it|they)\s+"
-    r"(?:(?:may|can)\s+)?(?:provides?|constitutes?|authorizes?)\b"
-    r"[^.!?;]{0,40}\b(?:roster authority|person creation|person entities|"
-    r"people-facing records)\b",
+G4_DERIVED_PERSON_TARGET = re.compile(
+    r"\b(?:person creation|person entities|people-facing records)\b",
+    re.IGNORECASE,
+)
+G4_DERIVED_PERSON_RELATION_BARRIER = re.compile(
+    r"\b(?:links?|linked|references?|referenced|associations?|associated|related)"
+    r"\s+(?:to|with|by)\b",
+    re.IGNORECASE,
+)
+G4_DERIVED_AUTHORITY_ACTION = re.compile(
+    r"\b(?:is|are|be|becom(?:e|es|ing)|constitut(?:e|es|ed|ing)|"
+    r"establish(?:es|ed|ing)?|serv(?:e|es|ed|ing)\s+as|"
+    r"qualif(?:y|ies|ied|ying)\s+as|provid(?:e|es|ed|ing))\b",
+    re.IGNORECASE,
+)
+G4_DERIVED_AUTHORITY_TARGET = re.compile(r"\broster authority\b", re.IGNORECASE)
+G4_DERIVED_AUTHORITY_RELATION_BARRIER = re.compile(
+    r"\b(?:rather than|instead of)\b",
+    re.IGNORECASE,
+)
+G4_AUTHORITATIVE_ROSTER_SUBJECT = re.compile(
+    r"(?<!not )(?<!rather than )(?<!instead of )"
+    r"\b(?:independently authoritative(?: official)?"
+    r"(?: membership data| rosters?)|official membership data|official rosters?)"
+    r"\s*,?\s*$",
     re.IGNORECASE,
 )
 G4_NON_ROSTER_PERSON_CREATION_POLICY = re.compile(
@@ -2891,19 +2898,17 @@ G4_NON_ROSTER_WHILE_CONTINUATION_POLICY = re.compile(
     r"vote attribution|cross-document aggregation)\b",
     re.IGNORECASE,
 )
-G4_POLICY_SENTENCE_BOUNDARY = re.compile(r"[.!?;]+")
+G4_POLICY_SENTENCE_BOUNDARY = re.compile(r"[.!?]+")
+G4_POLICY_CLAUSE_BOUNDARY = re.compile(r";+")
+G4_POLICY_LIST_NEGATION = re.compile(r"\b(?:forbidden|prohibited)\s*:", re.IGNORECASE)
 G4_POLICY_CONTRAST_BOUNDARY = re.compile(r"\b(?:but|while)\b", re.IGNORECASE)
 G4_SOURCE_ACTIVE_ACTION = re.compile(
     r"\b(?:edit(?:ed|ing|s)?|modif(?:ied|ies|y|ying)|rewrite(?:s|ten)?|"
-    r"rewriting|delete(?:d|ing|s)?|alter(?:ed|ing|s)?|remove(?:d|s)?|removing)\b",
+    r"rewriting|delet(?:e|ed|es|ing)|alter(?:ed|ing|s)?|remove(?:d|s)?|removing)\b",
     re.IGNORECASE,
 )
 G4_SOURCE_PASSIVE_ACTION = re.compile(
     r"\b(?:edited|modified|rewritten|deleted|altered|removed)\b",
-    re.IGNORECASE,
-)
-G4_SOURCE_RECORD_SUBJECT = re.compile(
-    r"\b(?:corrections?|takedowns?|removal requests?)\b",
     re.IGNORECASE,
 )
 G4_SOURCE_RECORD_TARGET = re.compile(
@@ -2911,8 +2916,14 @@ G4_SOURCE_RECORD_TARGET = re.compile(
     re.IGNORECASE,
 )
 G4_SOURCE_ACTION_BARRIER = re.compile(
-    r"\b(?:not|rather than|instead of|keep(?:s|ing)?|leav(?:e|es|ing)|"
+    r"\b(?:not|rather than|instead of|links? to|linked to|associated with|related to|"
+    r"keep(?:s|ing)?|leav(?:e|es|ing)|"
     r"preserv(?:e|es|ed|ing)|retain(?:s|ed|ing)?)\b",
+    re.IGNORECASE,
+)
+G4_SOURCE_PASSIVE_SUBJECT_BARRIER = re.compile(
+    r"\b(?:derived (?:records?|indexes?|metadata|summaries|profiles?|memberships?)"
+    r"|entity links?|annotations?)\b",
     re.IGNORECASE,
 )
 G4_SOURCE_TARGET_PRESERVATION = re.compile(
@@ -2931,11 +2942,18 @@ G4_SOURCE_NOMINAL_AUTHORIZATION = re.compile(
 )
 G4_SOURCE_NEGATION_CUE = re.compile(
     r"\b(?:not(?:\s+(?:allowed|permitted|authorized)(?:\s+to)?)?|never|cannot|"
-    r"prohibit(?:s|ed)?|forbid(?:s|den)?)\b",
+    r"prohibit(?:s|ed)?|forbid(?:s|den)?|prohibited|forbidden)\b",
     re.IGNORECASE,
 )
 G4_SOURCE_AFFIRMATIVE_CUE = re.compile(
     r"\b(?:may|can|will|must|should)\b",
+    re.IGNORECASE,
+)
+G4_NEGATION_SCOPE_BOUNDARY = re.compile(r"\b(?:and|but|while)\b", re.IGNORECASE)
+G4_SHARED_NEGATION = re.compile(
+    r"(?:\b(?:forbidden|prohibited|not (?:allowed|permitted|authorized))\s+to\b"
+    r"|\b(?:do|does|must|may|can|will|should)\s+not\b|\bcannot\b)"
+    r"[^.!?;]{0,80}\band\s*$",
     re.IGNORECASE,
 )
 G4_SOURCE_INHERITED_PASSIVE_SUBJECT = re.compile(
@@ -3009,9 +3027,7 @@ def _g4_policy_has_contradiction(g4_policy: str) -> bool:
     return bool(
         G4_UNRESOLVED_POLICY.search(normalized_g4_policy)
         or G4_LIVE_OPTIONS_POLICY.search(normalized_g4_policy)
-        or G4_DERIVED_ROSTER_AUTHORITY_POLICY.search(normalized_g4_policy)
-        or G4_DERIVED_PERSON_AUTHORIZATION_POLICY.search(normalized_g4_policy)
-        or G4_DERIVED_WHILE_CONTINUATION_POLICY.search(normalized_g4_policy)
+        or _g4_policy_promotes_derived_evidence(normalized_g4_policy)
         or G4_NON_ROSTER_PERSON_CREATION_POLICY.search(normalized_g4_policy)
         or G4_NON_ROSTER_WHILE_CONTINUATION_POLICY.search(normalized_g4_policy)
         or _g4_policy_allows_source_record_modification(normalized_g4_policy)
@@ -3021,9 +3037,105 @@ def _g4_policy_has_contradiction(g4_policy: str) -> bool:
     )
 
 
-def _g4_policy_allows_source_record_modification(g4_policy: str) -> bool:
+def _g4_policy_promotes_derived_evidence(g4_policy: str) -> bool:
+    return any(
+        _g4_clause_grants_roster_authority(policy_clause)
+        or _g4_clause_creates_person_record(policy_clause)
+        for policy_clause in _g4_policy_clauses(g4_policy)
+    )
+
+
+def _g4_clause_grants_roster_authority(policy_clause: str) -> bool:
+    for authority_target in G4_DERIVED_AUTHORITY_TARGET.finditer(policy_clause):
+        authority_actions = tuple(
+            G4_DERIVED_AUTHORITY_ACTION.finditer(
+                policy_clause,
+                0,
+                authority_target.start(),
+            )
+        )
+        if not authority_actions:
+            continue
+        authority_action = authority_actions[-1]
+        evidence_sources = tuple(
+            G4_DERIVED_EVIDENCE_SOURCE.finditer(
+                policy_clause,
+                0,
+                authority_action.start(),
+            )
+        )
+        if not evidence_sources:
+            continue
+        evidence_source = evidence_sources[-1]
+        source_action_text = policy_clause[
+            evidence_source.end() : authority_action.start()
+        ]
+        action_target_text = policy_clause[
+            authority_action.end() : authority_target.start()
+        ]
+        if (
+            G4_AUTHORITATIVE_ROSTER_SUBJECT.search(source_action_text) is None
+            and not _source_action_is_negated(
+                policy_clause[: authority_action.start()].rsplit(",", maxsplit=1)[-1]
+            )
+            and G4_SOURCE_NEGATION_CUE.search(action_target_text) is None
+            and G4_DERIVED_AUTHORITY_RELATION_BARRIER.search(action_target_text)
+            is None
+        ):
+            return True
+    return False
+
+
+def _g4_clause_creates_person_record(policy_clause: str) -> bool:
+    for person_target in G4_DERIVED_PERSON_TARGET.finditer(policy_clause):
+        person_actions = tuple(
+            G4_DERIVED_PERSON_ACTION.finditer(
+                policy_clause,
+                0,
+                person_target.start(),
+            )
+        )
+        if not person_actions:
+            continue
+        person_action = person_actions[-1]
+        evidence_sources = tuple(
+            G4_DERIVED_EVIDENCE_SOURCE.finditer(
+                policy_clause,
+                0,
+                person_action.start(),
+            )
+        )
+        if not evidence_sources:
+            continue
+        source_action_text = policy_clause[
+            evidence_sources[-1].end() : person_action.start()
+        ]
+        action_target_text = policy_clause[person_action.end() : person_target.start()]
+        if (
+            G4_AUTHORITATIVE_ROSTER_SUBJECT.search(source_action_text) is None
+            and G4_DERIVED_PERSON_RELATION_BARRIER.search(action_target_text) is None
+            and G4_SOURCE_NEGATION_CUE.search(action_target_text) is None
+            and not _source_action_is_negated(policy_clause[: person_action.start()])
+        ):
+            return True
+    return False
+
+
+def _g4_policy_clauses(g4_policy: str) -> tuple[str, ...]:
+    policy_clauses: list[str] = []
     for policy_sentence in G4_POLICY_SENTENCE_BOUNDARY.split(g4_policy):
-        correction_context = G4_SOURCE_RECORD_SUBJECT.search(policy_sentence) is not None
+        sentence_clauses = G4_POLICY_CLAUSE_BOUNDARY.split(policy_sentence)
+        list_match = G4_POLICY_LIST_NEGATION.search(sentence_clauses[0])
+        list_negation = list_match.group() if list_match else ""
+        policy_clauses.extend(
+            f"{list_negation} {policy_clause}" if list_negation else policy_clause
+            for policy_clause in sentence_clauses
+        )
+    return tuple(policy_clauses)
+
+
+def _g4_policy_allows_source_record_modification(g4_policy: str) -> bool:
+    for policy_sentence in _g4_policy_clauses(g4_policy):
         if any(
             nominal_action.group("negated") is None
             for nominal_action in G4_SOURCE_NOMINAL_AUTHORIZATION.finditer(
@@ -3034,7 +3146,7 @@ def _g4_policy_allows_source_record_modification(g4_policy: str) -> bool:
         source_context = False
         for policy_segment in G4_POLICY_CONTRAST_BOUNDARY.split(policy_sentence):
             source_targets = tuple(G4_SOURCE_RECORD_TARGET.finditer(policy_segment))
-            if correction_context and _segment_allows_active_source_edit(
+            if _segment_allows_active_source_edit(
                 policy_segment,
                 source_targets,
             ):
@@ -3092,6 +3204,10 @@ def _segment_allows_passive_source_edit(
     for source_action in G4_SOURCE_PASSIVE_ACTION.finditer(policy_segment):
         explicit_source = any(
             source_target.end() <= source_action.start()
+            and G4_SOURCE_PASSIVE_SUBJECT_BARRIER.search(
+                policy_segment[source_target.end() : source_action.start()]
+            )
+            is None
             for source_target in source_targets
         )
         inherited_source = (
@@ -3112,14 +3228,17 @@ def _segment_allows_passive_source_edit(
 
 
 def _source_action_is_negated(action_prefix: str) -> bool:
+    if G4_SHARED_NEGATION.search(action_prefix):
+        return True
+    action_scope = G4_NEGATION_SCOPE_BOUNDARY.split(action_prefix)[-1]
     latest_negative = max(
-        (negative_cue.end() for negative_cue in G4_SOURCE_NEGATION_CUE.finditer(action_prefix)),
+        (negative_cue.end() for negative_cue in G4_SOURCE_NEGATION_CUE.finditer(action_scope)),
         default=-1,
     )
     latest_affirmative = max(
         (
             affirmative_cue.end()
-            for affirmative_cue in G4_SOURCE_AFFIRMATIVE_CUE.finditer(action_prefix)
+            for affirmative_cue in G4_SOURCE_AFFIRMATIVE_CUE.finditer(action_scope)
         ),
         default=-1,
     )
@@ -3276,6 +3395,87 @@ def test_g2_policy_contradiction_detection_allows_approved_wording(
             False,
         ),
         ("Source documents are not modified but they may be deleted.", True),
+        ("Staff may edit municipal source records.", True),
+        ("Town Council deletes source documents.", True),
+        ("Source-document mentions may become person entities.", True),
+        ("Title inference may produce people-facing records.", True),
+        ("Source-document mentions may not become person entities.", False),
+        (
+            "Source-document mentions are not allowed to become person entities.",
+            False,
+        ),
+        (
+            "Title inference is not allowed to create people-facing records.",
+            False,
+        ),
+        (
+            "Corrections remove derived indexes associated with source documents.",
+            False,
+        ),
+        (
+            "Source-document mentions may create links to roster-authorized "
+            "person entities.",
+            False,
+        ),
+        (
+            "Source-document mentions may become linked to roster-authorized "
+            "person entities.",
+            False,
+        ),
+        (
+            "Source-document mentions may become associated with roster-authorized "
+            "person entities.",
+            False,
+        ),
+        (
+            "Source-document mentions remain searchable while they may create "
+            "links to roster-authorized person entities.",
+            False,
+        ),
+        (
+            "Title inference is prohibited; independently authoritative rosters "
+            "may create person entities.",
+            False,
+        ),
+        (
+            "Corrections remove derived data; source documents are the public "
+            "record and are not edited.",
+            False,
+        ),
+        ("Title inference, not official rosters, provides roster authority.", True),
+        (
+            "Title inference rather than official membership data establishes "
+            "roster authority.",
+            True,
+        ),
+        ("Staff are forbidden to edit and delete source records.", False),
+        ("Staff cannot edit and delete source records.", False),
+        ("Staff are deleting source documents.", True),
+        ("Corrections remove entity links to source documents.", False),
+        (
+            "Corrections modify annotations linked to municipal source records.",
+            False,
+        ),
+        (
+            "Source documents link to derived records that are deleted during "
+            "correction.",
+            False,
+        ),
+        (
+            "Source documents link to derived metadata that is deleted during "
+            "correction.",
+            False,
+        ),
+        (
+            "Source-document mentions remain searchable while official rosters "
+            "create person entities.",
+            False,
+        ),
+        ("Title inference is derived evidence rather than roster authority.", False),
+        (
+            "Title inference, instead of official rosters, provides roster authority.",
+            True,
+        ),
         ("Title inference does not constitute roster authority.", False),
         ("City Coverage Expansion remains blocked until T-GOV-2A completes.", False),
         (
