@@ -2843,22 +2843,88 @@ G4_LIVE_OPTIONS_POLICY = re.compile(
 G4_DERIVED_ROSTER_AUTHORITY_POLICY = re.compile(
     r"\b(?:title inference|source-document mentions?|linker-created memberships?"
     r"|memberships created by the entity linker)\b"
-    r".{0,80}\b(?:(?:may|can)\s+(?:be|become|constitute|establish|serve as)"
-    r"|(?:is|are)(?:\s+valid)?)\s+roster authority\b",
+    r"(?![^.!?;]{0,80}\bwhile\b)"
+    r"[^.!?;]{0,80}\b(?:(?:may|can)\s+"
+    r"(?:be|become|constitute|establish|serve as|qualify as|provide)"
+    r"|(?:is|are)(?:\s+valid)?"
+    r"|(?<!not )(?<!never )(?<!cannot )"
+    r"(?:constitutes?|establishes?|serves? as|qualifies? as|provides?))"
+    r"\s+roster authority\b",
+    re.IGNORECASE,
+)
+G4_DERIVED_PERSON_AUTHORIZATION_POLICY = re.compile(
+    r"\b(?:title inference|source-document mentions?|linker-created memberships?"
+    r"|memberships created by the entity linker)\b"
+    r"(?![^.!?;]{0,80}\bwhile\b)"
+    r"[^.!?;]{0,80}\b(?:(?:may|can)\s+authorize"
+    r"|(?<!not )(?<!never )(?<!cannot )authorizes?)\b"
+    r"[^.!?;]{0,40}\b(?:person creation|person entities|people-facing records)\b",
+    re.IGNORECASE,
+)
+G4_DERIVED_WHILE_CONTINUATION_POLICY = re.compile(
+    r"\b(?:title inference|source-document mentions?|linker-created memberships?"
+    r"|memberships created by the entity linker)\b[^.!?;]{0,80}"
+    r"\bwhile\s+(?:it|they)\s+"
+    r"(?:(?:may|can)\s+)?(?:provides?|constitutes?|authorizes?)\b"
+    r"[^.!?;]{0,40}\b(?:roster authority|person creation|person entities|"
+    r"people-facing records)\b",
     re.IGNORECASE,
 )
 G4_NON_ROSTER_PERSON_CREATION_POLICY = re.compile(
-    r"\bnon-roster names?\b.{0,80}\b(?:may|can)\s+(?:become|create|produce)"
-    r".{0,40}\b(?:person entities|people metadata|profiles|memberships|"
+    r"\bnon-roster (?:names?|people)\b"
+    r"(?![^.!?;]{0,80}\bwhile\b)"
+    r"[^.!?;]{0,80}\b(?:(?:may|can)\s+"
+    r"(?:become|create|produce|appear in|be retained as|receive)"
+    r"|are\s+allowed\s+to\s+"
+    r"(?:become|create|produce|appear in|be retained as|receive)"
+    r"|(?<!not )(?<!never )(?<!cannot )"
+    r"(?:become|create|produce|appear in|are retained as|receive))"
+    r"[^.!?;]{0,40}\b(?:person entities|people metadata|profiles|memberships|"
+    r"vote attribution|cross-document aggregation)\b",
+    re.IGNORECASE,
+)
+G4_NON_ROSTER_WHILE_CONTINUATION_POLICY = re.compile(
+    r"\bnon-roster (?:names?|people)\b[^.!?;]{0,80}"
+    r"\bwhile\s+they\s+(?:(?:may|can)\s+)?"
+    r"(?:become|create|produce|appear in|are retained as|receive)\b"
+    r"[^.!?;]{0,40}\b(?:person entities|people metadata|profiles|memberships|"
     r"vote attribution|cross-document aggregation)\b",
     re.IGNORECASE,
 )
 G4_SOURCE_RECORD_MODIFICATION_POLICY = re.compile(
-    r"(?:\b(?:corrections?|takedowns?)\b.{0,80}\b(?:may|can)\s+"
-    r"(?:edit|modify|rewrite|delete)\b.{0,40}\b(?:municipal\s+)?source "
+    r"(?:\b(?:corrections?|takedowns?)\b"
+    r"(?![^.!?;]{0,80}\bwhile\b)"
+    r"[^.!?;]{0,80}\b"
+    r"(?:(?:may|can)\s+(?:edit|modify|rewrite|delete|alter|remove)"
+    r"|(?<!not )(?<!never )(?<!cannot )"
+    r"(?:edits?|modifies?|rewrites?|deletes?|alters?|removes?))"
+    r"\b[^.!?;]{0,40}\b(?:municipal\s+)?source "
     r"(?:documents?|records?|text)\b"
-    r"|\b(?:municipal\s+)?source (?:documents?|records?|text)\b.{0,80}"
-    r"\b(?:may|can)\s+be\s+(?:edited|modified|rewritten|deleted)\b)",
+    r"|\b(?:municipal\s+)?source (?:documents?|records?|text)\b[^.!?;]{0,80}"
+    r"\b(?:(?:may|can|will)\s+be\s+"
+    r"(?:edited|modified|rewritten|deleted|altered)"
+    r"|(?:is|are)\s+(?:edited|modified|rewritten|deleted|altered))\b)",
+    re.IGNORECASE,
+)
+G4_SOURCE_WHILE_CONTINUATION_POLICY = re.compile(
+    r"\b(?:corrections?|takedowns?)\b[^.!?;]{0,80}"
+    r"\bwhile\s+they\s+(?:(?:may|can)\s+)?"
+    r"(?:edit|modify|rewrite|delete|alter|remove)\b"
+    r"[^.!?;]{0,40}\b(?:municipal\s+)?source "
+    r"(?:documents?|records?|text)\b",
+    re.IGNORECASE,
+)
+G4_PREMATURE_CITY_EXPANSION_POLICY = re.compile(
+    r"(?:\bcity coverage expansion\b"
+    r"(?=[^.!?;]{0,120}\b(?:(?:may|can)\s+(?:start|begin|proceed|resume)"
+    r"|(?:starts|begins|proceeds|resumes)|(?:is|remains)\s+(?:allowed|unblocked))\b)"
+    r"[^.!?;]{0,160}\b(?:(?<!not )(?<!never )before|without)\b"
+    r"|\bt-gov-2a\b[^.!?;]{0,80}\b(?:is|becomes|remains)\s+optional\b"
+    r"[^.!?;]{0,80}\bbefore\b[^.!?;]{0,80}\bcity coverage expansion\b"
+    r"|\bbefore\b[^.!?;]{0,80}\bt-gov-2a\b[^.!?;]{0,80}"
+    r"\bcity coverage expansion\b[^.!?;]{0,80}"
+    r"(?:(?:may|can)\s+(?:start|begin|proceed|resume)"
+    r"|(?:starts|begins|proceeds|resumes)|(?:is|remains)\s+(?:allowed|unblocked))\b)",
     re.IGNORECASE,
 )
 OPERATOR_AUTH_APPROVAL_POLICY = re.compile(
@@ -2895,8 +2961,13 @@ def _g4_policy_has_contradiction(g4_policy: str) -> bool:
         G4_UNRESOLVED_POLICY.search(normalized_g4_policy)
         or G4_LIVE_OPTIONS_POLICY.search(normalized_g4_policy)
         or G4_DERIVED_ROSTER_AUTHORITY_POLICY.search(normalized_g4_policy)
+        or G4_DERIVED_PERSON_AUTHORIZATION_POLICY.search(normalized_g4_policy)
+        or G4_DERIVED_WHILE_CONTINUATION_POLICY.search(normalized_g4_policy)
         or G4_NON_ROSTER_PERSON_CREATION_POLICY.search(normalized_g4_policy)
+        or G4_NON_ROSTER_WHILE_CONTINUATION_POLICY.search(normalized_g4_policy)
         or G4_SOURCE_RECORD_MODIFICATION_POLICY.search(normalized_g4_policy)
+        or G4_SOURCE_WHILE_CONTINUATION_POLICY.search(normalized_g4_policy)
+        or G4_PREMATURE_CITY_EXPANSION_POLICY.search(normalized_g4_policy)
     )
 
 
@@ -2939,19 +3010,82 @@ def test_g2_policy_contradiction_detection_allows_approved_wording(
         ("Options under consideration; exactly one will be adopted by ADR.", True),
         ("Working default until the ADR lands.", True),
         ("Title inference may establish roster authority.", True),
+        ("Title inference constitutes roster authority.", True),
+        ("Title inference qualifies as roster authority.", True),
+        ("Source-document mentions provide roster authority.", True),
+        ("Title inference can authorize person creation.", True),
+        ("Title inference is not rejected and constitutes roster authority.", True),
+        ("Title inference is reviewed while it provides roster authority.", True),
         ("Title inference\nmay establish roster authority.", True),
         ("Linker-created memberships are roster authority.", True),
         ("Memberships created by the entity linker are roster authority.", True),
         ("Non-roster names may become person entities.", True),
+        ("Non-roster names become person entities.", True),
+        ("Non-roster names can appear in people metadata.", True),
+        ("Non-roster names may receive profiles.", True),
+        ("Non-roster people may become person entities.", True),
+        ("Non-roster names remain searchable while they become person entities.", True),
+        ("Non-roster names are allowed to become person entities.", True),
         ("Non-roster names\nmay become person entities.", True),
         ("Corrections may edit municipal source records.", True),
+        ("Corrections edit municipal source records.", True),
+        ("Corrections alter municipal source records.", True),
+        ("Source documents will be modified during correction.", True),
         ("Source documents may be modified during correction.", True),
+        ("City Coverage Expansion may proceed before T-GOV-2A completes.", True),
+        ("City Coverage Expansion starts before T-GOV-2A completes.", True),
+        ("City Coverage Expansion is unblocked before roster enforcement.", True),
+        ("City Coverage Expansion is allowed before T-GOV-2A completes.", True),
+        ("T-GOV-2A is optional before City Coverage Expansion.", True),
+        ("Takedowns remove source text.", True),
+        ("Corrections apply to derived records while they remove source documents.", True),
+        ("Before T-GOV-2A completes, City Coverage Expansion may proceed.", True),
         ("G4 is approved; T-GOV-2A remains pending.", False),
         ("Runtime enforcement is pending T-GOV-2A.", False),
         ("The historical alternatives were superseded by approved G4.", False),
         ("Title inference and linker-created memberships are not roster authority.", False),
         ("Non-roster names do not become person entities.", False),
         ("Corrections apply to derived records; source documents are not modified.", False),
+        ("Corrections do not edit municipal source records.", False),
+        ("Title inference does not constitute roster authority.", False),
+        ("City Coverage Expansion remains blocked until T-GOV-2A completes.", False),
+        (
+            "City Coverage Expansion may proceed after T-GOV-2A is complete "
+            "and verified.",
+            False,
+        ),
+        (
+            "City Coverage Expansion starts only after T-GOV-2A is complete "
+            "and verified.",
+            False,
+        ),
+        ("City Coverage Expansion resumes when T-GOV-2A passes verification.", False),
+        ("Non-roster names remain searchable; official rosters create person entities.", False),
+        (
+            "Corrections alter derived indexes; municipal source records remain "
+            "unchanged.",
+            False,
+        ),
+        (
+            "City Coverage Expansion may proceed after T-GOV-2A completes, "
+            "never before verification.",
+            False,
+        ),
+        (
+            "Non-roster names remain searchable, while official rosters create "
+            "person entities.",
+            False,
+        ),
+        (
+            "Corrections alter derived indexes, while municipal source records "
+            "remain unchanged.",
+            False,
+        ),
+        (
+            "Title inference is reviewed, while independently authoritative "
+            "official membership data provides roster authority.",
+            False,
+        ),
     ),
 )
 def test_g4_contradiction_detection_covers_equivalent_wording(
@@ -2959,6 +3093,29 @@ def test_g4_contradiction_detection_covers_equivalent_wording(
     has_contradiction: bool,
 ) -> None:
     assert _g4_policy_has_contradiction(g4_policy) is has_contradiction
+
+
+@pytest.mark.parametrize(
+    "section_heading",
+    (
+        "## 2. Principles",
+        "## 4. Correction and takedown",
+        "## 5. Retention",
+    ),
+)
+def test_g4_policy_scan_covers_live_data_governance_sections(
+    section_heading: str,
+) -> None:
+    data_governance = (ROOT / "docs" / "DATA_GOVERNANCE.md").read_text(
+        encoding="utf-8"
+    )
+    contradictory_governance = data_governance.replace(
+        section_heading,
+        f"{section_heading}\n\nCorrections edit municipal source records.",
+        1,
+    )
+
+    assert _g4_policy_has_contradiction(contradictory_governance)
 
 
 def test_g4_roster_gated_policy_is_aligned() -> None:
@@ -3042,7 +3199,13 @@ def test_g4_roster_gated_policy_is_aligned() -> None:
         in normalized_agent_policy
     )
     active_g4_policy = " ".join(
-        (agent_policy, g4_decision, person_policy, g4_entry, t_gov_2_entry)
+        (
+            agent_policy,
+            architecture_decisions,
+            data_governance,
+            remediation_ledger,
+            roadmap,
+        )
     )
     assert not _g4_policy_has_contradiction(active_g4_policy)
     assert "status: complete and verified" in t_gov_2_entry
