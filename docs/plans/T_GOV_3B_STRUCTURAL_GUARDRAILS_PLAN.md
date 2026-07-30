@@ -70,19 +70,24 @@ The operator approved T-GOV-3B planning, ownership, and implementation on
    prohibited so synchronization debt cannot land in stages. Nested functions,
    methods, and names outside that private convention remain allowed.
 6. Add test-local AST helpers that resolve direct and module-qualified
-   SQLAlchemy `text` imports and report direct f-string arguments. Scan
+   SQLAlchemy `text` imports in each call's ancestor lexical scopes and report
+   positional or `text=` f-string arguments. Scan
    Ruff-discovered production Python files, including repository-root modules
    and `alembic/**`, while excluding tests, archive, and experiments. Treat all
    direct SQLAlchemy `text(f"...")` calls as prohibited because static segments
    cannot reliably classify dynamically assembled SQL as read or mutation.
-   Do not trace values through variables or build a partial data-flow analyzer.
+   Do not treat imports from sibling scopes as aliases, trace values through
+   variables, or model rebinding and statement order.
 7. Add focused positive and negative tests:
    - single, reciprocal, and async top-level sync names fail;
    - nested functions, methods, and nonmatching names remain allowed;
    - `from sqlalchemy import text`, aliased direct imports,
      `from sqlalchemy.sql import text`, aliased `sqlalchemy.sql` imports,
-     `import sqlalchemy`, `import sqlalchemy as sa`, and
-     `import sqlalchemy.sql as sql` all reject direct `text(f"...")` calls;
+     `import sqlalchemy`, `import sqlalchemy as sa`,
+     `import sqlalchemy.sql as sql`, and deeper qualified module aliases all
+     reject direct positional or keyword `text(f"...")` calls;
+   - later assignments, function defaults, and comprehension targets cannot
+     hide an earlier direct SQLAlchemy call;
    - literal SQL, non-SQLAlchemy helpers, and directive text inside strings do
      not fail.
 8. Enforce both rules against the current repository. No exceptions or
@@ -104,10 +109,14 @@ New test-local responsibilities:
 
 - `_top_level_sync_function_lines`: report top-level functions matching the
   prohibited private synchronization convention.
-- `_sqlalchemy_text_aliases`: resolve names that directly reference
-  SQLAlchemy's `text` callable.
+- `_sqlalchemy_import_bindings`: resolve direct and module-qualified names
+  that reference SQLAlchemy's `text` callable.
+- `_scope_sqlalchemy_text_bindings`: keep alias identity within the call's
+  ancestor lexical scopes without attempting value-flow analysis.
 - `_interpolated_sqlalchemy_text_lines`: report direct f-string arguments to
   those resolved callables.
+- `_is_production_structural_path`: preserve the explicit non-production
+  exclusions while keeping repository-root and Alembic Python in scope.
 
 **f) Reuse audit.** Reuse `_broad_exception_scan_files()` for Ruff-owned Python
 discovery, `_forbidden_imports()` for dependency direction, existing AST
