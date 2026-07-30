@@ -2869,7 +2869,7 @@ G4_DERIVED_PASSIVE_PERSON_PROMOTION = re.compile(
 )
 G4_DERIVED_PERSON_RELATION_BARRIER = re.compile(
     r"\b(?:links?|linked|references?|referenced|associations?|associated|related)"
-    r"\s+(?:to|with|by)\b",
+    r"\s+(?:to|with|by)\s+roster-authorized\s*$",
     re.IGNORECASE,
 )
 G4_DERIVED_AUTHORITY_ACTION = re.compile(
@@ -2934,6 +2934,16 @@ G4_SOURCE_RECORD_TARGET = re.compile(
 )
 G4_EXTERNAL_SOURCE_CUSTODIAN = re.compile(
     r"\b(?:originating municipality|source municipality|records? custodian)\b",
+    re.IGNORECASE,
+)
+G4_EXTERNAL_SOURCE_CUSTODIAN_ACTOR = re.compile(
+    r"\bby\s+(?:the\s+)?"
+    r"(?:originating municipality|source municipality|records? custodian)\b",
+    re.IGNORECASE,
+)
+G4_EXTERNAL_SOURCE_CUSTODIAN_PASSIVE_AGENT = re.compile(
+    r"^\s+by\s+(?:the\s+)?"
+    r"(?:originating municipality|source municipality|records? custodian)\b",
     re.IGNORECASE,
 )
 G4_SOURCE_ACTION_BARRIER = re.compile(
@@ -3008,7 +3018,8 @@ G4_PREMATURE_CITY_EXPANSION_POLICY = re.compile(
     r"[^.!?;]{0,160}\b(?:(?<!not )(?<!never )before|without)\b"
     r"|\bt-gov-2a\b[^.!?;]{0,80}\b(?:is|becomes|remains)\s+optional\b"
     r"[^.!?;]{0,80}\bbefore\b[^.!?;]{0,80}\bcity coverage expansion\b"
-    r"|\bt-gov-2a\b[^.!?;]{0,40}\bneed(?:s)?\s+not\s+"
+    r"|\bt-gov-2a\b[^.!?;]{0,40}\b"
+    r"(?:need(?:s)?\s+not|do(?:es)?\s+not\s+need\s+to)\s+"
     r"(?:be\s+)?complete\b[^.!?;]{0,80}\bbefore\b[^.!?;]{0,80}"
     r"\bcity coverage expansion\b"
     r"|\bbefore\b[^.!?;]{0,80}\bt-gov-2a\b[^.!?;]{0,80}"
@@ -3171,7 +3182,10 @@ def _g4_policy_allows_source_record_modification(g4_policy: str) -> bool:
     for policy_sentence in _g4_policy_clauses(g4_policy):
         if any(
             nominal_action.group("negated") is None
-            and G4_EXTERNAL_SOURCE_CUSTODIAN.search(policy_sentence) is None
+            and G4_EXTERNAL_SOURCE_CUSTODIAN_ACTOR.search(
+                nominal_action.group()
+            )
+            is None
             for nominal_action in G4_SOURCE_NOMINAL_AUTHORIZATION.finditer(
                 policy_sentence
             )
@@ -3259,6 +3273,10 @@ def _segment_allows_passive_source_edit(
         )
         if (
             (explicit_source or inherited_source)
+            and G4_EXTERNAL_SOURCE_CUSTODIAN_PASSIVE_AGENT.match(
+                policy_segment[source_action.end() :]
+            )
+            is None
             and not _source_action_is_negated(policy_segment[: source_action.start()])
         ):
             return True
@@ -3442,6 +3460,7 @@ def test_g2_policy_contradiction_detection_allows_approved_wording(
         ("Town Council deletes source documents.", True),
         ("Source-document mentions may become person entities.", True),
         ("Source-document mentions may create profiles.", True),
+        ("Source-document mentions may create links to profiles.", True),
         ("Title inference may produce memberships.", True),
         ("Person entities may be created from source-document mentions.", True),
         ("Profiles are created from source-document mentions.", True),
@@ -3516,6 +3535,16 @@ def test_g2_policy_contradiction_detection_allows_approved_wording(
         (
             "Deletion of source records by the originating municipality is "
             "permitted under local retention law.",
+            False,
+        ),
+        (
+            "Deletion of source records by Town Council is permitted when the "
+            "originating municipality requests it.",
+            True,
+        ),
+        (
+            "Source records may be edited by the originating municipality "
+            "before publication.",
             False,
         ),
         ("Corrections remove entity links to source documents.", False),
@@ -3597,6 +3626,11 @@ def test_g2_policy_contradiction_detection_allows_approved_wording(
         ("T-GOV-2A must complete before City Coverage Expansion starts.", False),
         (
             "T-GOV-2A need not complete before City Coverage Expansion proceeds.",
+            True,
+        ),
+        (
+            "T-GOV-2A does not need to be complete before City Coverage "
+            "Expansion proceeds.",
             True,
         ),
     ),
