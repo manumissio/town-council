@@ -1152,7 +1152,7 @@ def test_frontend_workflow_installs_locked_dependencies_before_tests():
     install_step = "      - name: Install dependencies\n        run: npm ci"
     test_step = "      - name: Run frontend tests\n        run: npm test"
 
-    assert "uses: actions/checkout@v5" in workflow_text
+    assert "uses: actions/checkout@v7" in workflow_text
     assert "uses: actions/setup-node@v6" in workflow_text
     assert 'node-version: "20"' in workflow_text
     assert 'cache: "npm"' in workflow_text
@@ -1162,6 +1162,19 @@ def test_frontend_workflow_installs_locked_dependencies_before_tests():
     assert "continue-on-error:" not in workflow_text
     assert "if:" not in workflow_text
     assert "strategy:" not in workflow_text
+
+
+def test_active_workflows_use_checkout_v7() -> None:
+    workflow_directory = ROOT / ".github" / "workflows"
+    checkout_versions = {
+        workflow_line.partition("actions/checkout@")[2].split()[0]
+        for workflow_path in workflow_directory.iterdir()
+        if workflow_path.suffix in {".yaml", ".yml"}
+        for workflow_line in workflow_path.read_text(encoding="utf-8").splitlines()
+        if "uses: actions/checkout@" in workflow_line
+    }
+
+    assert checkout_versions == {"v7"}
 
 
 def _workflow_run_step(
