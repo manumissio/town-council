@@ -2895,11 +2895,14 @@ G4_NON_ROSTER_PERSON_CREATION_POLICY = re.compile(
     r"\bnon-roster (?:names?|people)\b"
     r"(?![^.!?;]{0,80}\bwhile\b)"
     r"[^.!?;]{0,80}\b(?:(?:may|can)\s+"
-    r"(?:become|create|produce|appear in|be retained as|receive)"
+    r"(?:become|create|produce|appear in|be retained as|receive|"
+    r"(?:be\s+)?link(?:ed|ing)?\s+to)"
     r"|are\s+allowed\s+to\s+"
-    r"(?:become|create|produce|appear in|be retained as|receive)"
+    r"(?:become|create|produce|appear in|be retained as|receive|"
+    r"(?:be\s+)?link(?:ed|ing)?\s+to)"
     r"|(?<!not )(?<!never )(?<!cannot )"
-    r"(?:become|create|produce|appear in|are retained as|receive))"
+    r"(?:become|create|produce|appear in|are retained as|receive|"
+    r"(?:are\s+)?link(?:ed|ing|s)?\s+to))"
     r"(?![^.!?;]{0,40}\bnot\b)[^.!?;]{0,40}"
     r"\b(?:person entities|people metadata|profiles|memberships|"
     r"vote attribution|cross-document aggregation)\b",
@@ -2908,7 +2911,8 @@ G4_NON_ROSTER_PERSON_CREATION_POLICY = re.compile(
 G4_NON_ROSTER_WHILE_CONTINUATION_POLICY = re.compile(
     r"\bnon-roster (?:names?|people)\b[^.!?;]{0,80}"
     r"\bwhile\s+they\s+(?:(?:may|can)\s+)?"
-    r"(?:become|create|produce|appear in|are retained as|receive)\b"
+    r"(?:become|create|produce|appear in|are retained as|receive|"
+    r"(?:be\s+|are\s+)?link(?:ed|ing|s)?\s+to)\b"
     r"(?![^.!?;]{0,40}\bnot\b)[^.!?;]{0,40}"
     r"\b(?:person entities|people metadata|profiles|memberships|"
     r"vote attribution|cross-document aggregation)\b",
@@ -2932,8 +2936,10 @@ G4_SOURCE_RECORD_TARGET = re.compile(
     r"\b(?:municipal\s+)?source (?:documents?|records?|text)\b",
     re.IGNORECASE,
 )
-G4_EXTERNAL_SOURCE_CUSTODIAN = re.compile(
-    r"\b(?:originating municipality|source municipality|records? custodian)\b",
+G4_EXTERNAL_SOURCE_CUSTODIAN_ACTIVE_ACTOR = re.compile(
+    r"\b(?:the\s+)?"
+    r"(?:originating municipality|source municipality|records? custodian)\b"
+    r"(?:\s+(?:may|can|will|must|should|does|is|are))?\s*$",
     re.IGNORECASE,
 )
 G4_EXTERNAL_SOURCE_CUSTODIAN_ACTOR = re.compile(
@@ -3232,7 +3238,7 @@ def _segment_allows_active_source_edit(
         ]
         if (
             G4_SOURCE_ACTION_BARRIER.search(action_target_text) is None
-            and G4_EXTERNAL_SOURCE_CUSTODIAN.search(
+            and G4_EXTERNAL_SOURCE_CUSTODIAN_ACTIVE_ACTOR.search(
                 policy_segment[: source_action.start()]
             )
             is None
@@ -3353,6 +3359,9 @@ def test_g2_policy_contradiction_detection_allows_approved_wording(
         ("Linker-created memberships are roster authority.", True),
         ("Memberships created by the entity linker are roster authority.", True),
         ("Non-roster names may become person entities.", True),
+        ("Non-roster names may be linked to person entities.", True),
+        ("Non-roster names link to person entities.", True),
+        ("Non-roster names are linked to person entities.", True),
         ("Non-roster names become person entities.", True),
         ("Non-roster names can appear in people metadata.", True),
         ("Non-roster names may appear in source text, not profiles.", False),
@@ -3531,6 +3540,11 @@ def test_g2_policy_contradiction_detection_allows_approved_wording(
             "The originating municipality may edit its source records before "
             "publication.",
             False,
+        ),
+        (
+            "At the originating municipality's request, Town Council may edit "
+            "source records.",
+            True,
         ),
         (
             "Deletion of source records by the originating municipality is "
