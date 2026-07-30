@@ -2837,7 +2837,9 @@ G4_UNRESOLVED_POLICY = re.compile(
 G4_LIVE_OPTIONS_POLICY = re.compile(
     r"(?:\boptions?\s+under\s+consideration\b"
     r"|\bexactly\s+one\s+will\s+be\s+adopted\s+by\s+adr\b"
-    r"|\bworking\s+default\s+until\s+(?:the\s+)?adr\s+lands\b)",
+    r"|\bworking\s+default\s+until\s+(?:the\s+)?adr\s+lands\b"
+    r"|\b(?:option [abc]|status quo)\b[^.!?;]{0,40}\b(?:remains?|is)\s+"
+    r"(?:a\s+)?(?:live|viable|current)\s+(?:alternative|choice|option)\b)",
     re.IGNORECASE,
 )
 G4_DERIVED_EVIDENCE_SOURCE = re.compile(
@@ -2887,7 +2889,8 @@ G4_NON_ROSTER_PERSON_CREATION_POLICY = re.compile(
     r"(?:become|create|produce|appear in|be retained as|receive)"
     r"|(?<!not )(?<!never )(?<!cannot )"
     r"(?:become|create|produce|appear in|are retained as|receive))"
-    r"[^.!?;]{0,40}\b(?:person entities|people metadata|profiles|memberships|"
+    r"(?![^.!?;]{0,40}\bnot\b)[^.!?;]{0,40}"
+    r"\b(?:person entities|people metadata|profiles|memberships|"
     r"vote attribution|cross-document aggregation)\b",
     re.IGNORECASE,
 )
@@ -2895,7 +2898,8 @@ G4_NON_ROSTER_WHILE_CONTINUATION_POLICY = re.compile(
     r"\bnon-roster (?:names?|people)\b[^.!?;]{0,80}"
     r"\bwhile\s+they\s+(?:(?:may|can)\s+)?"
     r"(?:become|create|produce|appear in|are retained as|receive)\b"
-    r"[^.!?;]{0,40}\b(?:person entities|people metadata|profiles|memberships|"
+    r"(?![^.!?;]{0,40}\bnot\b)[^.!?;]{0,40}"
+    r"\b(?:person entities|people metadata|profiles|memberships|"
     r"vote attribution|cross-document aggregation)\b",
     re.IGNORECASE,
 )
@@ -2905,11 +2909,12 @@ G4_POLICY_LIST_NEGATION = re.compile(r"\b(?:forbidden|prohibited)\s*:", re.IGNOR
 G4_POLICY_CONTRAST_BOUNDARY = re.compile(r"\b(?:but|while)\b", re.IGNORECASE)
 G4_SOURCE_ACTIVE_ACTION = re.compile(
     r"\b(?:edit(?:ed|ing|s)?|modif(?:ied|ies|y|ying)|rewrite(?:s|ten)?|"
-    r"rewriting|delet(?:e|ed|es|ing)|alter(?:ed|ing|s)?|remove(?:d|s)?|removing)\b",
+    r"rewriting|delet(?:e|ed|es|ing)|alter(?:ed|ing|s)?|remove(?:d|s)?|removing|"
+    r"redact(?:ed|ing|s)?)\b",
     re.IGNORECASE,
 )
 G4_SOURCE_PASSIVE_ACTION = re.compile(
-    r"\b(?:edited|modified|rewritten|deleted|altered|removed)\b",
+    r"\b(?:edited|modified|rewritten|deleted|altered|removed|redacted)\b",
     re.IGNORECASE,
 )
 G4_SOURCE_RECORD_TARGET = re.compile(
@@ -2935,7 +2940,8 @@ G4_SOURCE_TARGET_PRESERVATION = re.compile(
     re.IGNORECASE,
 )
 G4_SOURCE_NOMINAL_AUTHORIZATION = re.compile(
-    r"\b(?:deletion|modification|removal|alteration|rewriting|editing)\s+of\s+"
+    r"\b(?:deletion|modification|removal|alteration|rewriting|editing|redaction)"
+    r"\s+of\s+"
     r"(?:municipal\s+)?source (?:documents?|records?|text)\b"
     r"[^.!?;]{0,40}\b(?:is|are|may be|can be|will be|must be|should be)\s+"
     r"(?P<negated>not\s+)?"
@@ -3293,6 +3299,7 @@ def test_g2_policy_contradiction_detection_allows_approved_wording(
         ("DECISION G4 - unresolved", True),
         ("Options under consideration; exactly one will be adopted by ADR.", True),
         ("Working default until the ADR lands.", True),
+        ("Option B remains a live alternative.", True),
         ("Title inference may establish roster authority.", True),
         ("Title inference constitutes roster authority.", True),
         ("Title inference qualifies as roster authority.", True),
@@ -3306,6 +3313,7 @@ def test_g2_policy_contradiction_detection_allows_approved_wording(
         ("Non-roster names may become person entities.", True),
         ("Non-roster names become person entities.", True),
         ("Non-roster names can appear in people metadata.", True),
+        ("Non-roster names may appear in source text, not profiles.", False),
         ("Non-roster names may receive profiles.", True),
         ("Non-roster people may become person entities.", True),
         ("Non-roster names remain searchable while they become person entities.", True),
@@ -3462,6 +3470,7 @@ def test_g2_policy_contradiction_detection_allows_approved_wording(
         ("Staff are forbidden to edit and delete source records.", False),
         ("Staff cannot edit and delete source records.", False),
         ("Staff are deleting source documents.", True),
+        ("Staff may redact municipal source documents.", True),
         ("Corrections remove entity links to source documents.", False),
         (
             "Corrections modify annotations linked to municipal source records.",
