@@ -2868,7 +2868,7 @@ G4_DERIVED_AUTHORITY_ACTION = re.compile(
 )
 G4_DERIVED_AUTHORITY_TARGET = re.compile(r"\broster authority\b", re.IGNORECASE)
 G4_DERIVED_AUTHORITY_RELATION_BARRIER = re.compile(
-    r"\b(?:rather than|instead of)\b",
+    r"\b(?:rather than|instead of|rejected as)\b",
     re.IGNORECASE,
 )
 G4_AUTHORITATIVE_ROSTER_SUBJECT = re.compile(
@@ -2997,7 +2997,9 @@ G4_PREMATURE_ENFORCEMENT_POLICY = re.compile(
     r"(?:\btown council\b[^.!?;]{0,80}\b(?:currently|already|now)\s+"
     r"enforces?\s+(?:this|the)\s+(?:g4\s+)?policy\b"
     r"|\bruntime enforcement\b[^.!?;]{0,80}\b"
-    r"(?:is|has been)\s+(?:complete|implemented|verified)\b)",
+    r"(?:is|has been)\s+(?:complete|implemented|verified)\b"
+    r"|\broster gating\b[^.!?;]{0,40}\b(?:is|has been)\s+"
+    r"(?:(?:already|currently|now)\s+)?(?:enforced|implemented|complete|verified)\b)",
     re.IGNORECASE,
 )
 OPERATOR_AUTH_APPROVAL_POLICY = re.compile(
@@ -3323,6 +3325,7 @@ def test_g2_policy_contradiction_detection_allows_approved_wording(
         ("Corrections apply to derived records while they remove source documents.", True),
         ("Before T-GOV-2A completes, City Coverage Expansion may proceed.", True),
         ("Town Council currently enforces this policy.", True),
+        ("Roster gating is already enforced.", True),
         ("Runtime enforcement is complete.", True),
         ("G4 is approved; T-GOV-2A remains pending.", False),
         ("Runtime enforcement is pending T-GOV-2A.", False),
@@ -3485,6 +3488,7 @@ def test_g2_policy_contradiction_detection_allows_approved_wording(
             True,
         ),
         ("Title inference may count as roster authority.", True),
+        ("Title inference is rejected as roster authority.", False),
         (
             "Neither title inference nor source-document mentions provide "
             "roster authority.",
