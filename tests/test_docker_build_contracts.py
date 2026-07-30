@@ -19,7 +19,7 @@ ACTIVE_REQUIREMENT_PATHS = (
     Path("pipeline/requirements-dev.txt"),
 )
 SHARED_EXACT_CONSTRAINTS = {
-    "beautifulsoup4": "4.12.3",
+    "beautifulsoup4": "4.15.0",
     "celery": "5.3.4",
     "fastapi": "0.115.8",
     "httpx": "0.28.1",
