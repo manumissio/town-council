@@ -2853,12 +2853,12 @@ G4_DERIVED_PERSON_ACTION = re.compile(
     re.IGNORECASE,
 )
 G4_DERIVED_PERSON_TARGET = re.compile(
-    r"\b(?:person creation|person entities|people-facing records|profiles|"
-    r"memberships|people metadata|vote attribution|cross-document aggregation)\b",
+    r"\b(?:person creation|person entities|people-facing records|profiles?|"
+    r"memberships?|people metadata|vote attribution|cross-document aggregation)\b",
     re.IGNORECASE,
 )
 G4_DERIVED_PASSIVE_PERSON_PROMOTION = re.compile(
-    r"\b(?:person entities|people-facing records|profiles|memberships|"
+    r"\b(?:person entities|people-facing records|profiles?|memberships?|"
     r"people metadata|vote attribution|cross-document aggregation)\b"
     r"[^.!?;]{0,60}"
     r"\b(?:(?:may|can|will|must|should)\s+be|is|are)\s+"
@@ -3096,11 +3096,33 @@ def _g4_policy_has_contradiction(g4_policy: str) -> bool:
 
 def _g4_policy_promotes_derived_evidence(g4_policy: str) -> bool:
     return any(
-        G4_DERIVED_PASSIVE_PERSON_PROMOTION.search(policy_clause) is not None
+        _g4_clause_passively_promotes_derived_evidence(policy_clause)
         or _g4_clause_grants_roster_authority(policy_clause)
         or _g4_clause_creates_person_record(policy_clause)
         for policy_clause in _g4_policy_clauses(g4_policy)
     )
+
+
+def _g4_clause_passively_promotes_derived_evidence(policy_clause: str) -> bool:
+    passive_promotion = G4_DERIVED_PASSIVE_PERSON_PROMOTION.search(policy_clause)
+    return passive_promotion is not None and not _source_action_is_negated(
+        policy_clause[: passive_promotion.end()]
+    )
+
+
+def _g4_authority_subject(authority_prefix: str) -> str:
+    relative_marker = re.search(r"\b(?:that|which)\s*$", authority_prefix, re.IGNORECASE)
+    if relative_marker is not None:
+        relative_subject = G4_AUTHORITATIVE_ROSTER_SUBJECT.search(
+            authority_prefix[: relative_marker.start()]
+        )
+        if relative_subject is not None:
+            return relative_subject.group()
+    return re.split(
+        r",|\bwhile\b",
+        authority_prefix,
+        flags=re.IGNORECASE,
+    )[-1]
 
 
 def _g4_clause_grants_roster_authority(policy_clause: str) -> bool:
@@ -3125,11 +3147,7 @@ def _g4_clause_grants_roster_authority(policy_clause: str) -> bool:
         if not evidence_sources:
             continue
         authority_prefix = policy_clause[: authority_action.start()]
-        authority_subject = re.split(
-            r",|\bwhile\b",
-            authority_prefix,
-            flags=re.IGNORECASE,
-        )[-1]
+        authority_subject = _g4_authority_subject(authority_prefix)
         action_target_text = policy_clause[
             authority_action.end() : authority_target.start()
         ]
@@ -3487,10 +3505,17 @@ def test_g2_policy_contradiction_detection_allows_approved_wording(
         ("Town Council deletes source documents.", True),
         ("Source-document mentions may become person entities.", True),
         ("Source-document mentions may create profiles.", True),
+        ("Source-document mentions may create a profile.", True),
+        ("Source-document mentions may create a membership.", True),
         ("Source-document mentions may create links to profiles.", True),
         ("Title inference may produce memberships.", True),
         ("Person entities may be created from source-document mentions.", True),
         ("Profiles are created from source-document mentions.", True),
+        (
+            "Neither profiles nor memberships are created from "
+            "source-document mentions.",
+            False,
+        ),
         (
             "Profiles for non-roster names may be created from "
             "source-document mentions.",
@@ -3615,6 +3640,11 @@ def test_g2_policy_contradiction_detection_allows_approved_wording(
             False,
         ),
         ("Title inference is derived evidence rather than roster authority.", False),
+        (
+            "Title inference helps locate official rosters that provide roster "
+            "authority.",
+            False,
+        ),
         (
             "Title inference, instead of official rosters, provides roster authority.",
             True,
