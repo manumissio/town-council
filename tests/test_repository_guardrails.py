@@ -2853,6 +2853,14 @@ G4_NON_ROSTER_PERSON_CREATION_POLICY = re.compile(
     r"vote attribution|cross-document aggregation)\b",
     re.IGNORECASE,
 )
+G4_SOURCE_RECORD_MODIFICATION_POLICY = re.compile(
+    r"(?:\b(?:corrections?|takedowns?)\b.{0,80}\b(?:may|can)\s+"
+    r"(?:edit|modify|rewrite|delete)\b.{0,40}\b(?:municipal\s+)?source "
+    r"(?:documents?|records?|text)\b"
+    r"|\b(?:municipal\s+)?source (?:documents?|records?|text)\b.{0,80}"
+    r"\b(?:may|can)\s+be\s+(?:edited|modified|rewritten|deleted)\b)",
+    re.IGNORECASE,
+)
 OPERATOR_AUTH_APPROVAL_POLICY = re.compile(
     r"\boperator(?:-only)?(?: proxy)? authentication\s+(?:is\s+)?(?:approved|pending)\b",
     re.IGNORECASE,
@@ -2888,6 +2896,7 @@ def _g4_policy_has_contradiction(g4_policy: str) -> bool:
         or G4_LIVE_OPTIONS_POLICY.search(normalized_g4_policy)
         or G4_DERIVED_ROSTER_AUTHORITY_POLICY.search(normalized_g4_policy)
         or G4_NON_ROSTER_PERSON_CREATION_POLICY.search(normalized_g4_policy)
+        or G4_SOURCE_RECORD_MODIFICATION_POLICY.search(normalized_g4_policy)
     )
 
 
@@ -2935,11 +2944,14 @@ def test_g2_policy_contradiction_detection_allows_approved_wording(
         ("Memberships created by the entity linker are roster authority.", True),
         ("Non-roster names may become person entities.", True),
         ("Non-roster names\nmay become person entities.", True),
+        ("Corrections may edit municipal source records.", True),
+        ("Source documents may be modified during correction.", True),
         ("G4 is approved; T-GOV-2A remains pending.", False),
         ("Runtime enforcement is pending T-GOV-2A.", False),
         ("The historical alternatives were superseded by approved G4.", False),
         ("Title inference and linker-created memberships are not roster authority.", False),
         ("Non-roster names do not become person entities.", False),
+        ("Corrections apply to derived records; source documents are not modified.", False),
     ),
 )
 def test_g4_contradiction_detection_covers_equivalent_wording(
