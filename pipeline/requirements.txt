@@ -5,7 +5,7 @@ requests==2.33.0
 tika==2.6.0
 meilisearch
 psycopg2-binary
-pgvector>=0.2.5
+pgvector>=0.5.0
 celery
 redis
 # We use llama-cpp-python to run AI models locally on the CPU.
