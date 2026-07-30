@@ -1,4 +1,5 @@
 import logging
+from pathlib import Path
 from typing import Never
 
 import h11
@@ -75,6 +76,9 @@ def _protected_status() -> dict[str, str]:
 def test_api_startup_has_one_implementation_owner() -> None:
     from api import main as api_main
 
+    main_source = Path(api_main.__file__).read_text(encoding="utf-8")
+
+    assert "hmac = app_setup.hmac" not in main_source
     assert not hasattr(api_main, "SessionLocal")
     assert not hasattr(api_main, "_db_init_error")
     assert not hasattr(api_main, "db_connect")

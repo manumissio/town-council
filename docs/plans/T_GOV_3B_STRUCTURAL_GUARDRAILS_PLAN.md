@@ -63,8 +63,9 @@ The operator approved T-GOV-3B planning, ownership, and implementation on
    - `pipeline/agenda_segmentation_maintenance.py` must not import
      `pipeline.llm_provider`.
 4. Remove superseded source-string assertions for these synchronization and
-   reverse-import rules from their domain tests. Keep their runtime and facade
-   compatibility assertions.
+   reverse-import rules from their domain tests. Keep runtime, facade
+   compatibility, and dependency re-binding assertions that the new checks do
+   not supersede.
 5. Add a test-local AST helper that reports every top-level function or async
    function following `_sync_<owner>_from_<peer>`. A one-way function is also
    prohibited so synchronization debt cannot land in stages. Nested functions,
