@@ -30,7 +30,7 @@ jobs:
     steps:
       - uses: actions/checkout@v5
 
-      - uses: actions/setup-python@v6
+      - uses: actions/setup-python@v7
         with:
           python-version: "3.14"
 
@@ -68,7 +68,7 @@ jobs:
         run: PYTHONPATH=. python -m pytest -q --cov --cov-config=.coveragerc --cov-report=term-missing:skip-covered tests/
 
       - name: Set up Python dependency audit runtime
-        uses: actions/setup-python@v6
+        uses: actions/setup-python@v7
         with:
           python-version: "3.12"
 
