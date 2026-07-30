@@ -2891,19 +2891,61 @@ G4_NON_ROSTER_WHILE_CONTINUATION_POLICY = re.compile(
     r"vote attribution|cross-document aggregation)\b",
     re.IGNORECASE,
 )
-G4_SOURCE_RECORD_MODIFICATION_POLICY = re.compile(
-    r"(?:\b(?:corrections?|takedowns?)\b"
-    r"(?![^.!?;]{0,80}\bwhile\b)"
-    r"[^.!?;]{0,80}\b"
-    r"(?:(?:may|can)\s+(?:edit|modify|rewrite|delete|alter|remove)"
-    r"|(?<!not )(?<!never )(?<!cannot )"
-    r"(?:edits?|modifies?|rewrites?|deletes?|alters?|removes?))"
-    r"\b[^.!?;]{0,40}\b(?:municipal\s+)?source "
-    r"(?:documents?|records?|text)\b"
-    r"|\b(?:municipal\s+)?source (?:documents?|records?|text)\b[^.!?;]{0,80}"
-    r"\b(?:(?:may|can|will)\s+be\s+"
-    r"(?:edited|modified|rewritten|deleted|altered)"
-    r"|(?:is|are)\s+(?:edited|modified|rewritten|deleted|altered))\b)",
+G4_POLICY_SENTENCE_BOUNDARY = re.compile(r"[.!?;]+")
+G4_POLICY_CONTRAST_BOUNDARY = re.compile(r"\b(?:but|while)\b", re.IGNORECASE)
+G4_SOURCE_ACTIVE_ACTION = re.compile(
+    r"\b(?:edit(?:ed|ing|s)?|modif(?:ied|ies|y|ying)|rewrite(?:s|ten)?|"
+    r"rewriting|delete(?:d|ing|s)?|alter(?:ed|ing|s)?|remove(?:d|s)?|removing)\b",
+    re.IGNORECASE,
+)
+G4_SOURCE_PASSIVE_ACTION = re.compile(
+    r"\b(?:edited|modified|rewritten|deleted|altered|removed)\b",
+    re.IGNORECASE,
+)
+G4_SOURCE_RECORD_SUBJECT = re.compile(
+    r"\b(?:corrections?|takedowns?|removal requests?)\b",
+    re.IGNORECASE,
+)
+G4_SOURCE_RECORD_TARGET = re.compile(
+    r"\b(?:municipal\s+)?source (?:documents?|records?|text)\b",
+    re.IGNORECASE,
+)
+G4_SOURCE_ACTION_BARRIER = re.compile(
+    r"\b(?:not|rather than|instead of|keep(?:s|ing)?|leav(?:e|es|ing)|"
+    r"preserv(?:e|es|ed|ing)|retain(?:s|ed|ing)?)\b",
+    re.IGNORECASE,
+)
+G4_SOURCE_TARGET_PRESERVATION = re.compile(
+    r"^\s*(?:(?:is|are|will be|must be|should be)\s+(?:kept\s+)?unchanged|"
+    r"remain(?:s|ed)?\s+unchanged|"
+    r"(?:is|are|will be|must be|should be)\s+(?:preserved|retained))\b",
+    re.IGNORECASE,
+)
+G4_SOURCE_NOMINAL_AUTHORIZATION = re.compile(
+    r"\b(?:deletion|modification|removal|alteration|rewriting|editing)\s+of\s+"
+    r"(?:municipal\s+)?source (?:documents?|records?|text)\b"
+    r"[^.!?;]{0,40}\b(?:is|are|may be|can be|will be|must be|should be)\s+"
+    r"(?P<negated>not\s+)?"
+    r"(?:allowed|authorized|permitted)\b",
+    re.IGNORECASE,
+)
+G4_SOURCE_NEGATION_CUE = re.compile(
+    r"\b(?:not(?:\s+(?:allowed|permitted|authorized)(?:\s+to)?)?|never|cannot|"
+    r"prohibit(?:s|ed)?|forbid(?:s|den)?)\b",
+    re.IGNORECASE,
+)
+G4_SOURCE_AFFIRMATIVE_CUE = re.compile(
+    r"\b(?:may|can|will|must|should)\b",
+    re.IGNORECASE,
+)
+G4_SOURCE_INHERITED_PASSIVE_SUBJECT = re.compile(
+    r"^\s*(?:(?:they|it)\s+)?(?:may|can|will|must|should|is|are)\b",
+    re.IGNORECASE,
+)
+G4_SOURCE_NEW_SUBJECT_CUE = re.compile(
+    r"\b(?:and|or)\s+(?:[a-z][a-z-]*\s+){1,4}"
+    r"(?:(?:is|are|will|may|can|must|should)\s+(?:be\s+)?|"
+    r"(?:has|have)\s+been\s+)$",
     re.IGNORECASE,
 )
 G4_SOURCE_WHILE_CONTINUATION_POLICY = re.compile(
@@ -2972,11 +3014,116 @@ def _g4_policy_has_contradiction(g4_policy: str) -> bool:
         or G4_DERIVED_WHILE_CONTINUATION_POLICY.search(normalized_g4_policy)
         or G4_NON_ROSTER_PERSON_CREATION_POLICY.search(normalized_g4_policy)
         or G4_NON_ROSTER_WHILE_CONTINUATION_POLICY.search(normalized_g4_policy)
-        or G4_SOURCE_RECORD_MODIFICATION_POLICY.search(normalized_g4_policy)
+        or _g4_policy_allows_source_record_modification(normalized_g4_policy)
         or G4_SOURCE_WHILE_CONTINUATION_POLICY.search(normalized_g4_policy)
         or G4_PREMATURE_CITY_EXPANSION_POLICY.search(normalized_g4_policy)
         or G4_PREMATURE_ENFORCEMENT_POLICY.search(normalized_g4_policy)
     )
+
+
+def _g4_policy_allows_source_record_modification(g4_policy: str) -> bool:
+    for policy_sentence in G4_POLICY_SENTENCE_BOUNDARY.split(g4_policy):
+        correction_context = G4_SOURCE_RECORD_SUBJECT.search(policy_sentence) is not None
+        if any(
+            nominal_action.group("negated") is None
+            for nominal_action in G4_SOURCE_NOMINAL_AUTHORIZATION.finditer(
+                policy_sentence
+            )
+        ):
+            return True
+        source_context = False
+        for policy_segment in G4_POLICY_CONTRAST_BOUNDARY.split(policy_sentence):
+            source_targets = tuple(G4_SOURCE_RECORD_TARGET.finditer(policy_segment))
+            if correction_context and _segment_allows_active_source_edit(
+                policy_segment,
+                source_targets,
+            ):
+                return True
+            if _segment_allows_passive_source_edit(
+                policy_segment,
+                source_targets,
+                source_context,
+            ):
+                return True
+            source_context = bool(source_targets) or (
+                source_context
+                and G4_SOURCE_INHERITED_PASSIVE_SUBJECT.match(policy_segment) is not None
+            )
+    return False
+
+
+def _segment_allows_active_source_edit(
+    policy_segment: str,
+    source_targets: tuple[re.Match[str], ...],
+) -> bool:
+    for source_target in source_targets:
+        source_actions = tuple(
+            G4_SOURCE_ACTIVE_ACTION.finditer(
+                policy_segment,
+                0,
+                source_target.start(),
+            )
+        )
+        if not source_actions:
+            continue
+        source_action = source_actions[-1]
+        action_target_text = policy_segment[
+            source_action.end() : source_target.start()
+        ]
+        if (
+            G4_SOURCE_ACTION_BARRIER.search(action_target_text) is None
+            and G4_SOURCE_TARGET_PRESERVATION.match(
+                policy_segment[source_target.end() :]
+            )
+            is None
+            and not _source_action_is_negated(
+                policy_segment[: source_action.start()]
+            )
+        ):
+            return True
+    return False
+
+
+def _segment_allows_passive_source_edit(
+    policy_segment: str,
+    source_targets: tuple[re.Match[str], ...],
+    source_context: bool,
+) -> bool:
+    for source_action in G4_SOURCE_PASSIVE_ACTION.finditer(policy_segment):
+        explicit_source = any(
+            source_target.end() <= source_action.start()
+            for source_target in source_targets
+        )
+        inherited_source = (
+            not source_targets
+            and source_context
+            and G4_SOURCE_INHERITED_PASSIVE_SUBJECT.match(policy_segment) is not None
+            and G4_SOURCE_NEW_SUBJECT_CUE.search(
+                policy_segment[: source_action.start()]
+            )
+            is None
+        )
+        if (
+            (explicit_source or inherited_source)
+            and not _source_action_is_negated(policy_segment[: source_action.start()])
+        ):
+            return True
+    return False
+
+
+def _source_action_is_negated(action_prefix: str) -> bool:
+    latest_negative = max(
+        (negative_cue.end() for negative_cue in G4_SOURCE_NEGATION_CUE.finditer(action_prefix)),
+        default=-1,
+    )
+    latest_affirmative = max(
+        (
+            affirmative_cue.end()
+            for affirmative_cue in G4_SOURCE_AFFIRMATIVE_CUE.finditer(action_prefix)
+        ),
+        default=-1,
+    )
+    return latest_negative > latest_affirmative
 
 
 @pytest.mark.parametrize(
@@ -3057,6 +3204,78 @@ def test_g2_policy_contradiction_detection_allows_approved_wording(
         ("Non-roster names do not become person entities.", False),
         ("Corrections apply to derived records; source documents are not modified.", False),
         ("Corrections do not edit municipal source records.", False),
+        ("Corrections are not allowed to edit municipal source records.", False),
+        (
+            "Corrections do not edit derived indexes but may remove municipal "
+            "source records.",
+            True,
+        ),
+        (
+            "Corrections may edit municipal source records but do not modify "
+            "derived indexes.",
+            True,
+        ),
+        (
+            "Corrections do not edit source records but may delete source documents.",
+            True,
+        ),
+        (
+            "Source documents are not modified but may be deleted during correction.",
+            True,
+        ),
+        ("Corrections do not edit or remove source records.", False),
+        (
+            "Corrections are not allowed to modify or delete source documents.",
+            False,
+        ),
+        ("Corrections do not edit, modify, or remove source records.", False),
+        (
+            "Source documents are not modified, but derived indexes are deleted.",
+            False,
+        ),
+        ("Corrections apply while staff may edit source documents.", True),
+        ("Corrections edit derived indexes and preserve source documents.", False),
+        (
+            "Source documents are not modified but may be retained and derived "
+            "indexes are deleted.",
+            False,
+        ),
+        ("Corrections permit editing source documents.", True),
+        ("Deletion of source records is authorized for takedowns.", True),
+        ("Deletion of source records is not authorized for takedowns.", False),
+        ("Corrections prohibit editing source documents.", False),
+        (
+            "Corrections remove derived records and source documents remain unchanged.",
+            False,
+        ),
+        (
+            "Source documents are not modified but may be retained, and derived "
+            "indexes will be deleted.",
+            False,
+        ),
+        ("Deletion of source records may be authorized for takedowns.", True),
+        (
+            "Deletion of source records is authorized for private-individual "
+            "removal requests.",
+            True,
+        ),
+        (
+            "Corrections remove derived records and do not edit source documents.",
+            False,
+        ),
+        ("Deletion of source records is authorized.", True),
+        ("Removal of municipal source documents is permitted.", True),
+        ("Corrections remove derived records, not source documents.", False),
+        (
+            "Corrections alter derived indexes rather than source records.",
+            False,
+        ),
+        (
+            "Corrections modify only derived records, leaving source documents "
+            "unchanged.",
+            False,
+        ),
+        ("Source documents are not modified but they may be deleted.", True),
         ("Title inference does not constitute roster authority.", False),
         ("City Coverage Expansion remains blocked until T-GOV-2A completes.", False),
         (
