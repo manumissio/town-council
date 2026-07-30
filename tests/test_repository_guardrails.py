@@ -2927,6 +2927,13 @@ G4_PREMATURE_CITY_EXPANSION_POLICY = re.compile(
     r"|(?:starts|begins|proceeds|resumes)|(?:is|remains)\s+(?:allowed|unblocked))\b)",
     re.IGNORECASE,
 )
+G4_PREMATURE_ENFORCEMENT_POLICY = re.compile(
+    r"(?:\btown council\b[^.!?;]{0,80}\b(?:currently|already|now)\s+"
+    r"enforces?\s+(?:this|the)\s+(?:g4\s+)?policy\b"
+    r"|\bruntime enforcement\b[^.!?;]{0,80}\b"
+    r"(?:is|has been)\s+(?:complete|implemented|verified)\b)",
+    re.IGNORECASE,
+)
 OPERATOR_AUTH_APPROVAL_POLICY = re.compile(
     r"\boperator(?:-only)?(?: proxy)? authentication\s+(?:is\s+)?(?:approved|pending)\b",
     re.IGNORECASE,
@@ -2968,6 +2975,7 @@ def _g4_policy_has_contradiction(g4_policy: str) -> bool:
         or G4_SOURCE_RECORD_MODIFICATION_POLICY.search(normalized_g4_policy)
         or G4_SOURCE_WHILE_CONTINUATION_POLICY.search(normalized_g4_policy)
         or G4_PREMATURE_CITY_EXPANSION_POLICY.search(normalized_g4_policy)
+        or G4_PREMATURE_ENFORCEMENT_POLICY.search(normalized_g4_policy)
     )
 
 
@@ -3040,6 +3048,8 @@ def test_g2_policy_contradiction_detection_allows_approved_wording(
         ("Takedowns remove source text.", True),
         ("Corrections apply to derived records while they remove source documents.", True),
         ("Before T-GOV-2A completes, City Coverage Expansion may proceed.", True),
+        ("Town Council currently enforces this policy.", True),
+        ("Runtime enforcement is complete.", True),
         ("G4 is approved; T-GOV-2A remains pending.", False),
         ("Runtime enforcement is pending T-GOV-2A.", False),
         ("The historical alternatives were superseded by approved G4.", False),
@@ -3086,6 +3096,9 @@ def test_g2_policy_contradiction_detection_allows_approved_wording(
             "official membership data provides roster authority.",
             False,
         ),
+        ("Town Council does not yet enforce this policy.", False),
+        ("Runtime enforcement remains pending under T-GOV-2A.", False),
+        ("T-GOV-2A must complete before City Coverage Expansion starts.", False),
     ),
 )
 def test_g4_contradiction_detection_covers_equivalent_wording(
@@ -3116,6 +3129,21 @@ def test_g4_policy_scan_covers_live_data_governance_sections(
     )
 
     assert _g4_policy_has_contradiction(contradictory_governance)
+
+
+def test_g4_policy_scan_excludes_later_historical_adr_entries() -> None:
+    architecture_decisions = (ROOT / "docs" / "ADR.md").read_text(encoding="utf-8")
+    architecture_decisions_with_history = (
+        f"{architecture_decisions}\n"
+        "## 2026-07-30: Historical G4 wording\n\n"
+        "The prior policy said G4 remains open.\n"
+    )
+    live_g4_decision = _required_markdown_entry(
+        architecture_decisions_with_history,
+        "## 2026-07-26: Roster-gated person linking",
+    )
+
+    assert not _g4_policy_has_contradiction(live_g4_decision)
 
 
 def test_g4_roster_gated_policy_is_aligned() -> None:
@@ -3201,10 +3229,12 @@ def test_g4_roster_gated_policy_is_aligned() -> None:
     active_g4_policy = " ".join(
         (
             agent_policy,
-            architecture_decisions,
+            g4_decision,
             data_governance,
-            remediation_ledger,
-            roadmap,
+            g4_entry,
+            t_gov_2_entry,
+            t_gov_2a_entry,
+            city_coverage_plan,
         )
     )
     assert not _g4_policy_has_contradiction(active_g4_policy)
