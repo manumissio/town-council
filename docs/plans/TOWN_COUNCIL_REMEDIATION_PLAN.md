@@ -1,6 +1,6 @@
 # Town Council Remediation Plan (Codex Multi-Agent)
 
-version: 3.72
+version: 3.73
 generated: 2026-07-26
 source: Four-pass external code review (security, architecture, smells, process)
 source_artifact: [Town Council architecture review](../reviews/architecture-review-2026-07-19.html)
@@ -10,6 +10,9 @@ remains in force; where this plan is stricter, this plan wins for these tasks.
 
 ## Changelog
 
+- **v3.73:** Registers T-PLAT-2C to migrate Celery from 5.3.4 to 5.6.3 with
+  exact dependency contracts, four image builds, and isolated Redis worker
+  acceptance before superseding Dependabot PR #194.
 - **v3.72:** Expands T-GOV-2 ownership to `AGENTS.md`, synchronizes the binding
   roster-authority and T-GOV-2A expansion invariant, and extends guardrails to
   reject contradictions in the ADR or agent policy.
@@ -347,6 +350,7 @@ remains in force; where this plan is stricter, this plan wins for these tasks.
 | State | Tasks |
 |---|---|
 | **Complete** | T-CI-0, T-CI-1, T-CI-1A, T-CI-2, T-CI-2A, T-CI-3, T-CI-4, T-CI-5, T-SEC-1, T-SEC-2, T-SEC-3, T-SEC-3C, T-SEC-4, T-SEC-4A, T-SEC-5, T-SEC-6, T-TIME-1, T-TIME-2, T-TIME-3, T-CRAWL-1, T-CRAWL-2, T-PLAT-1, T-PLAT-1A, T-PLAT-2, T-PLAT-2A, T-PLAT-2B, T-PLAT-3, T-GOV-1, T-GOV-2, T-GOV-3A, T-GOV-4, T-GOV-5, T-GOV-6, T-DA-1, T-DB-1A, T-DB-1, T-DB-1B, T-DC-1, T-DD-1A, T-DD-1B, T-DE-1 |
+| **In progress** | T-PLAT-2C |
 | **Partially landed; acceptance incomplete** | T-GOV-3 |
 | **Pending** | T-PLAT-4, T-GOV-2A, T-GOV-3B |
 
@@ -1450,7 +1454,7 @@ files (GED-5 grant).
 
 ### T-PLAT-2B: Patch pypdf batch parsing
 - priority: P0 (urgent dependency security patch)
-- status: in progress
+- status: complete and verified 2026-07-26 (PR #152)
 - depends_on: T-PLAT-1A closure
 - implementation_plan:
   `docs/plans/T_PLAT_2B_PYPDF_SECURITY_PATCH_PLAN.md`
@@ -1516,6 +1520,33 @@ files (GED-5 grant).
   Mypy, Docker and repository contracts, docs links, complete Python and
   frontend suites, native Python 3.12 resolution, all five image builds,
   independent review, and PR CI.
+
+### T-PLAT-2C: Migrate Celery to 5.6.3
+- priority: P1
+- status: in progress
+- depends_on: T-PLAT-2 and PR #196 merge (ledger serialization only)
+- implementation_plan: `docs/plans/T_PLAT_2C_CELERY_MIGRATION_PLAN.md`
+- scope_authorization: Operator-approved 2026-07-30.
+- files_owned: `docs/plans/T_PLAT_2C_CELERY_MIGRATION_PLAN.md`,
+  `docs/plans/TOWN_COUNCIL_REMEDIATION_PLAN.md`, `constraints.txt`,
+  `tests/test_docker_build_contracts.py`
+- do: Replace only the shared Celery 5.3.4 constraint and matching exact
+  contract with 5.6.3. Prove API, live-worker, batch-worker, and semantic
+  images resolve cleanly, then verify the production Celery app against
+  isolated authenticated Redis and PostgreSQL.
+- preserve: Task names and arguments, result payloads, queues, retries, worker
+  pools and concurrency, broker/result configuration, runtime defaults, and
+  soak comparability.
+- forbidden: Production source, Dockerfile, Compose, requirement-manifest,
+  workflow, API, schema, task-signature, queue, retry, fallback, or unrelated
+  dependency changes; compatibility layers; edits outside `files_owned`.
+- accept: Exact contracts and all Python gates pass; all four affected images
+  build and pass dependency inspection; prefork readiness, task registration,
+  control ping, broker/result round-trip, healthcheck, credential masking, and
+  graceful shutdown pass; PR #194 is superseded.
+- verify: Follow the Full T-PLAT-2C plan, including tests-first evidence,
+  Ruff, Mypy, task and Docker contracts, docs links, coverage-gated suite,
+  four image builds, isolated runtime smoke, independent review, and PR CI.
 
 ### T-PLAT-3: Backup/restore runbook
 - priority: P1
