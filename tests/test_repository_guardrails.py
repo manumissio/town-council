@@ -2857,7 +2857,9 @@ G4_DERIVED_PERSON_TARGET = re.compile(
     re.IGNORECASE,
 )
 G4_DERIVED_PASSIVE_PERSON_PROMOTION = re.compile(
-    r"\b(?:person entities|people-facing records)\b[^.!?;]{0,40}"
+    r"\b(?:person entities|people-facing records|profiles|memberships|"
+    r"people metadata|vote attribution|cross-document aggregation)\b"
+    r"[^.!?;]{0,60}"
     r"\b(?:may|can|will|must|should)\s+be\s+"
     r"(?:authorized|created|produced)\s+from\s+"
     r"(?:title inference|source-document mentions?|linker-created memberships?"
@@ -2927,6 +2929,10 @@ G4_SOURCE_PASSIVE_ACTION = re.compile(
 )
 G4_SOURCE_RECORD_TARGET = re.compile(
     r"\b(?:municipal\s+)?source (?:documents?|records?|text)\b",
+    re.IGNORECASE,
+)
+G4_EXTERNAL_SOURCE_CUSTODIAN = re.compile(
+    r"\b(?:originating municipality|source municipality|records? custodian)\b",
     re.IGNORECASE,
 )
 G4_SOURCE_ACTION_BARRIER = re.compile(
@@ -3207,6 +3213,10 @@ def _segment_allows_active_source_edit(
         ]
         if (
             G4_SOURCE_ACTION_BARRIER.search(action_target_text) is None
+            and G4_EXTERNAL_SOURCE_CUSTODIAN.search(
+                policy_segment[: source_action.start()]
+            )
+            is None
             and G4_SOURCE_TARGET_PRESERVATION.match(
                 policy_segment[source_target.end() :]
             )
@@ -3427,6 +3437,15 @@ def test_g2_policy_contradiction_detection_allows_approved_wording(
         ("Town Council deletes source documents.", True),
         ("Source-document mentions may become person entities.", True),
         ("Person entities may be created from source-document mentions.", True),
+        (
+            "Profiles for non-roster names may be created from "
+            "source-document mentions.",
+            True,
+        ),
+        (
+            "Memberships may be created from linker-created memberships.",
+            True,
+        ),
         ("Title inference may produce people-facing records.", True),
         ("Source-document mentions may not become person entities.", False),
         (
@@ -3481,6 +3500,11 @@ def test_g2_policy_contradiction_detection_allows_approved_wording(
         ("Staff cannot edit and delete source records.", False),
         ("Staff are deleting source documents.", True),
         ("Staff may redact municipal source documents.", True),
+        (
+            "The originating municipality may edit its source records before "
+            "publication.",
+            False,
+        ),
         ("Corrections remove entity links to source documents.", False),
         (
             "Corrections modify annotations linked to municipal source records.",
