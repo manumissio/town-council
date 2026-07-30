@@ -8,6 +8,41 @@ Use each entry to record:
 - the affected boundary or contract
 - links to the canonical docs that carry the ongoing operational or architecture detail
 
+## 2026-07-26: Roster-gated person linking
+
+- Status: Accepted
+- Decision:
+  - Only names matched to independently authoritative official membership data
+    for the relevant municipality, governing body, and meeting date may become
+    person entities, profiles, memberships, or vote attributions.
+  - Title inference, source-document mentions, and linker-created memberships
+    are not roster authority.
+  - Non-roster names remain searchable municipal source text, but they do not
+    become people metadata or cross-document person aggregation.
+  - Outside enrichment of private individuals remains prohibited.
+  - Corrections remove or repair derived records and indexes. Source documents
+    are not modified.
+- Why:
+  - Public-record status does not justify turning incidental names into
+    persistent, cross-document person records.
+  - Independent roster authority keeps the civic-accountability product
+    focused on officials acting in public roles.
+  - Preserving source text maintains the municipal record while minimizing
+    derived exposure.
+- Current state:
+  - Town Council does not yet enforce this policy. Existing entity linking can
+    create mention-only people and infer memberships from document content.
+  - T-GOV-2A owns authoritative roster input, runtime gating, existing
+    derived-data remediation, reindexing, and prevention of re-derivation.
+  - City Coverage Expansion remains blocked until T-GOV-2A is complete.
+- Affected boundaries:
+  - This decision governs person creation, people metadata, profiles,
+    memberships, vote attribution, correction, and derived-data retention.
+  - Municipal source documents and searchable source text remain unchanged.
+- Canonical references:
+  - [Data governance policy](DATA_GOVERNANCE.md)
+  - [Town Council remediation plan](plans/TOWN_COUNCIL_REMEDIATION_PLAN.md)
+
 ## 2026-07-25: Maintenance hydration operations own runtime dependencies
 
 - Status: Accepted

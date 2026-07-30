@@ -6,8 +6,8 @@ itself justify every derived use: aggregation, entity linking, and search
 change the accessibility of information about identifiable people. This
 document states the project's handling policy.
 
-Status: initial version. Section 3 carries the open decision (gate G4);
-everything else is effective policy on merge.
+Status: effective. Decision G4 was approved on 2026-07-26. Runtime enforcement
+remains pending under T-GOV-2A.
 
 ## 1. Data classes
 
@@ -34,26 +34,26 @@ everything else is effective policy on merge.
   public record and are not edited; corrections apply to derived data
   (links, profiles, summaries, index entries).
 
-## 3. Person-entity treatment for private individuals (DECISION G4 — open)
+## 3. Roster-gated person entities
 
-Options under consideration; exactly one will be adopted by ADR:
+Only names matched to independently authoritative official membership data
+for the relevant municipality, governing body, and meeting date may become
+person entities. Covered officials may receive profiles, memberships, and vote
+attribution only after that match.
 
-- Option A (roster-gated linking): `person_linker` creates/links Person
-  entities only for names matching official membership rosters. Private
-  individuals remain plain text in documents — searchable in full text, but
-  never entity-linked, never in people metadata, never profiled.
-- Option B (index-but-no-profile): names are indexed and may appear in
-  people metadata on search hits, but profile pages and cross-document
-  person aggregation are roster-gated.
-- Option C (status quo + process): current extraction behavior, with the
-  Section 4 takedown/correction process as the sole safeguard.
+Title inference, source-document mentions, and memberships created by the
+entity linker are derived evidence, not roster authority. They cannot
+authorize person creation or people-facing records.
 
-Working default until the ADR lands: build nothing new that expands
-person-level aggregation of non-officials, and treat Option A as the design
-target for City Coverage Expansion planning.
+Non-roster names remain searchable source text. They do not become person
+entities, people metadata, profiles, memberships, vote attribution, or
+cross-document aggregation. Outside enrichment of private individuals remains
+forbidden.
 
-Decision owner: repository owner. Record the outcome in `docs/ADR.md` and
-replace this section with the adopted policy.
+Corrections apply to derived records and indexes. Source documents are not
+modified. Current runtime behavior does not yet enforce this policy; T-GOV-2A
+owns authoritative roster input, runtime gating, existing derived-data
+remediation, reindexing, and prevention of re-derivation.
 
 ## 4. Correction and takedown
 
@@ -78,10 +78,9 @@ so decisions are auditable.
 
 - Source documents and extraction outputs: retained indefinitely (archival
   civic record).
-- Derived person-level data for private individuals: retained only while
-  policy in Section 3 permits its existence; removals under Section 4 are
-  permanent (re-derivation must respect a suppression list — implementation
-  task to be filed with the G4 ADR).
+- Derived person-level data for non-roster people: not retained. Existing
+  records remain remediation debt until T-GOV-2A removes them and prevents
+  re-derivation through roster gating.
 - Operational telemetry: per `docs/OPERATIONS.md`; no person-level data in
   metrics.
 
