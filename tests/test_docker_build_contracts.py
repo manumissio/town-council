@@ -413,7 +413,7 @@ def test_dependency_audit_and_pgvector_constraints_remain_explicit() -> None:
         Path("pipeline/requirements.txt"),
         Path("semantic_service/requirements.txt"),
     ):
-        assert "pgvector>=0.2.5" in _requirement_directives(requirements_path)
+        assert "pgvector>=0.5.0" in _requirement_directives(requirements_path)
 
 
 def test_semantic_cpu_constraint_preserves_auditable_upstream_version() -> None:
