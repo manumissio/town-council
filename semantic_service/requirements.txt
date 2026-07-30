@@ -4,7 +4,7 @@ uvicorn
 meilisearch
 sqlalchemy
 psycopg2-binary
-pgvector>=0.2.5
+pgvector>=0.5.0
 celery
 redis
 numpy==2.4.4
