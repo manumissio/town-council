@@ -1,5 +1,6 @@
 import datetime
 from types import SimpleNamespace
+from unittest.mock import MagicMock
 
 
 def _meeting_document():
@@ -53,3 +54,26 @@ def test_meeting_index_omits_people_until_events_have_authoritative_body_linkage
 
     assert "people_metadata" not in search_document
     assert "people" not in search_document
+
+
+def test_semantic_meeting_hydration_omits_people_without_authoritative_body_linkage():
+    from semantic_service.hydration import hydrate_meeting_hits
+
+    document, catalog, event, place, organization = _meeting_document()
+    database = MagicMock()
+    meeting_query = database.query.return_value
+    meeting_query.join.return_value = meeting_query
+    meeting_query.outerjoin.return_value = meeting_query
+    meeting_query.filter.return_value = meeting_query
+    meeting_query.all.return_value = [
+        (document, catalog, event, place, organization)
+    ]
+    candidate = SimpleNamespace(
+        score=0.9,
+        metadata={"db_id": document.id, "result_type": "meeting"},
+    )
+
+    [semantic_hit] = hydrate_meeting_hits(database, [candidate])
+
+    assert "people_metadata" not in semantic_hit
+    assert "people" not in semantic_hit

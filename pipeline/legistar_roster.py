@@ -14,6 +14,7 @@ from pipeline.roster_contracts import (
     RosterOfficeRecord,
     RosterPayloadError,
     RosterUnavailableError,
+    normalize_roster_body_name,
 )
 
 
@@ -89,13 +90,13 @@ def _resolve_body(
     bodies_payload: list[object],
     configured_body_name: str,
 ) -> RosterBody:
-    normalized_name = _normalized_text(configured_body_name).casefold()
+    normalized_name = normalize_roster_body_name(configured_body_name)
     matching_bodies: list[RosterBody] = []
     for body_payload in bodies_payload:
         if not isinstance(body_payload, dict):
             raise RosterPayloadError("Legistar Bodies contains a non-object body")
         body_name = _required_text(body_payload, "BodyName")
-        if body_name.casefold() != normalized_name:
+        if normalize_roster_body_name(body_name) != normalized_name:
             continue
         if body_payload.get("BodyActiveFlag") not in (1, True):
             continue

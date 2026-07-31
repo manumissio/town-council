@@ -692,7 +692,18 @@ APPLY_INVENTORY="$(
   "${ROSTER_COMPOSE[@]}" run --rm --no-deps pipeline \
     python /app/scripts/remediate_legacy_people.py --apply
 )"
-test "$DRY_RUN_INVENTORY" = "$APPLY_INVENTORY"
+inventory_counts() {
+  python -c '
+import json
+import sys
+fields = ("catalogs_with_person_entities", "memberships", "people")
+inventory = json.load(sys.stdin)
+print(json.dumps({field: inventory[field] for field in fields}, sort_keys=True))
+'
+}
+DRY_RUN_COUNTS="$(printf '%s\n' "$DRY_RUN_INVENTORY" | inventory_counts)"
+APPLY_COUNTS="$(printf '%s\n' "$APPLY_INVENTORY" | inventory_counts)"
+test "$DRY_RUN_COUNTS" = "$APPLY_COUNTS"
 printf '%s\n' "$APPLY_INVENTORY"
 
 "${ROSTER_COMPOSE[@]}" run --rm --no-deps pipeline python db_migrate.py

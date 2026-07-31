@@ -24,6 +24,11 @@ AUTHORIZED_ROSTER_ENTRY = SimpleNamespace(
     roster_body_name="City Council",
     roster_authorized=True,
 )
+NORMALIZED_ROSTER_ENTRY = SimpleNamespace(
+    city_slug="san_leandro",
+    roster_body_name="  city   council  ",
+    roster_authorized=True,
+)
 REVOKED_ROSTER_ENTRY = SimpleNamespace(
     city_slug="test",
     roster_body_name="",
@@ -175,6 +180,32 @@ def test_people_endpoint_requires_exact_city_division_identity() -> None:
         assert response.json()["results"] == [
             {"id": roster_person_id, "name": "Roster Member"}
         ]
+    finally:
+        del app.dependency_overrides[get_db]
+        engine.dispose()
+
+
+def test_people_endpoint_normalizes_approved_body_names() -> None:
+    engine, Session = _build_db()
+    with Session() as seed_session:
+        roster_person, _ = _seed_roster_backed_person(seed_session)
+        roster_person_id = roster_person.id
+
+    app.dependency_overrides[get_db] = _override_database(Session)
+    client = TestClient(app)
+
+    try:
+        with patch(
+            "api.people_routes.load_rollout_registry",
+            return_value=[NORMALIZED_ROSTER_ENTRY],
+        ):
+            people_response = client.get("/people")
+            person_response = client.get(f"/person/{roster_person_id}")
+
+        assert people_response.status_code == 200
+        assert people_response.json()["total"] == 1
+        assert person_response.status_code == 200
+        assert person_response.json()["roles"][0]["body"] == "City Council"
     finally:
         del app.dependency_overrides[get_db]
         engine.dispose()

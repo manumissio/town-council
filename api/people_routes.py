@@ -2,13 +2,14 @@ import logging
 from collections.abc import Callable
 
 from fastapi import APIRouter, Depends, HTTPException, Path, Query
-from sqlalchemy import and_, false, or_
+from sqlalchemy import and_, false, func, or_
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import Query as SQLAlchemyQuery
 from sqlalchemy.orm import Session as SQLAlchemySession, joinedload
 
 from pipeline.models import Membership, Organization, Person, Place
 from pipeline.rollout_registry import CITY_METADATA_ALIASES, load_rollout_registry
+from pipeline.roster_contracts import normalize_roster_body_name
 
 logger = logging.getLogger("town-council-api")
 
@@ -25,7 +26,9 @@ def _authorized_roster_bodies() -> set[tuple[str, str]]:
         if not rollout_entry.roster_authorized:
             continue
         city_slug = CITY_METADATA_ALIASES.get(rollout_entry.city_slug, rollout_entry.city_slug)
-        authorized_roster_bodies.add((city_slug, rollout_entry.roster_body_name))
+        authorized_roster_bodies.add(
+            (city_slug, normalize_roster_body_name(rollout_entry.roster_body_name))
+        )
     return authorized_roster_bodies
 
 
@@ -68,7 +71,8 @@ def _authorized_memberships(
             membership.organization.place.ocd_division_id.endswith(
                 f"/place:{city_slug}"
             )
-            and membership.organization.name == roster_body_name
+            and normalize_roster_body_name(membership.organization.name)
+            == roster_body_name
             for city_slug, roster_body_name in authorized_roster_bodies
         )
     ]
@@ -98,7 +102,8 @@ def _authorized_people_query(
                 Membership.start_date.is_not(None),
                 Membership.organization.has(
                     and_(
-                        Organization.name == roster_body_name,
+                        func.lower(func.trim(Organization.name))
+                        == roster_body_name,
                         Organization.legistar_body_id.is_not(None),
                         Organization.legistar_body_guid.is_not(None),
                         Organization.roster_source_url.is_not(None),

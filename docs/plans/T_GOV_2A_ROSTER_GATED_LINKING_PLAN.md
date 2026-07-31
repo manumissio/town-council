@@ -33,8 +33,10 @@ roster exists, and retires the incompatible performance baseline.
 **c) Remediation alignment.** T-GOV-2A owns only the files named in the active
 remediation plan. The work is split into five ordered commits: authorization,
 tests, schema/roster runtime, legacy deletion/baseline transition, and docs.
-T-IDX-1 may later simplify the remaining authoritative projection, but this
-task must make the current projection fail closed.
+Review expanded ownership to `semantic_service/hydration.py` so both meeting
+search producers enforce the same omission policy. T-IDX-1 may later simplify
+the remaining authoritative projection, but this task must make the current
+projection fail closed.
 
 **d) Decision gates.** G1-G5 are satisfied. The operator approved G4 Option A,
 Legistar OfficeRecords as the authoritative source, and the baseline
@@ -220,17 +222,20 @@ delta is negative after the new roster boundary is added.
 10. Legacy database upgrade fails before explicit remediation, then succeeds
     after apply; old people/memberships/person entity arrays disappear and
     provenance constraints are active.
-11. Meeting metadata omits people because events lack independently verified
-    Legistar body identity.
+11. Ordinary and semantic meeting metadata omit people because events lack
+    independently verified Legistar body identity.
 12. Existing stale search documents and revoked registry approvals: roster
     sync depublishes stored roster rows, while the transition's replacement
     reindex removes every obsolete people projection.
 13. Underscores in city slugs remain literal during database matching, and a
     governing-body change leaves only the newly authorized body published.
-14. Equal person names use a stable person-ID tie-breaker across pages.
-15. Historical manifest v1: rejected for active preparation as
+14. Registry body names use the same case and whitespace normalization as
+    source resolution; equal person names use a stable person-ID tie-breaker.
+15. Dry-run and apply remediation inventories compare stable counts rather
+    than their intentionally different operation modes.
+16. Historical manifest v1: rejected for active preparation as
     non-comparable.
-16. Manifest v2: preserves 30 documents, removes people resets, and uses eight
+17. Manifest v2: preserves 30 documents, removes people resets, and uses eight
     entity candidates.
 
 **r) Test mapping.**
@@ -239,12 +244,12 @@ delta is negative after the new roster boundary is added.
 |---|---|
 | `tests/test_legistar_roster.py` | 2-5, 9 |
 | `tests/test_roster_sync.py`, `tests/test_roster_sync_cli.py` | 1-9, 12-13 |
-| `tests/test_person_remediation.py` | 10 |
+| `tests/test_person_remediation.py` | 10, 15 |
 | `tests/test_alembic_migrations.py` | 10 |
 | `tests/test_people_endpoint_filters.py` | 1, 10, 12-14 |
 | `tests/test_indexer_official_roster.py` | 1, 2, 11 |
 | `tests/test_run_pipeline_orchestration.py` | inferred linker deletion |
-| `tests/test_profile_manifest_builder.py`, `tests/test_profile_pipeline_cli.py` | 15-16 |
+| `tests/test_profile_manifest_builder.py`, `tests/test_profile_pipeline_cli.py` | 16-17 |
 | Existing API, search, migration, database, docs, and guardrail suites | regression |
 
 **s) Fakes and mocks.** HTTP tests fake `requests.Session` at

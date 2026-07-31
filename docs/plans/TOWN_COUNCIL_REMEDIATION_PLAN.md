@@ -1,6 +1,6 @@
 # Town Council Remediation Plan (Codex Multi-Agent)
 
-version: 3.83
+version: 3.84
 generated: 2026-07-26
 source: Four-pass external code review (security, architecture, smells, process)
 source_artifact: [Town Council architecture review](../reviews/architecture-review-2026-07-19.html)
@@ -10,6 +10,10 @@ remains in force; where this plan is stricter, this plan wins for these tasks.
 
 ## Changelog
 
+- **v3.84:** Expands T-GOV-2A ownership to remove the obsolete empty
+  `people_metadata` field from semantic meeting hydration after PR review.
+  Also records normalized governing-body authorization and stable remediation
+  inventory comparison fixes.
 - **v3.83:** Marks T-GOV-2A complete after roster-gated persistence,
   fail-closed publication, legacy remediation, migration, and baseline-v2
   workload verification. City Coverage Expansion remains blocked until the
@@ -1854,6 +1858,7 @@ files (GED-5 grant).
   `scripts/sync_rosters.py`,
   `pipeline/rollout_registry.py`, `pipeline/run_batch_enrichment.py`,
   `pipeline/run_pipeline_steps.py`, `pipeline/indexer_documents.py`,
+  `semantic_service/hydration.py`,
   `pipeline/nlp_entity_candidates.py`, `pipeline/nlp_entity_extraction.py`,
   `pipeline/nlp_entity_model.py`, `pipeline/nlp_worker.py`,
   `pipeline/profile_manifest.py`, `pipeline/profile_manifest_builder.py`,

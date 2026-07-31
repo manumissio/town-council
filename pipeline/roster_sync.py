@@ -68,6 +68,7 @@ def _update_organization(
     roster_snapshot: LegistarRosterSnapshot,
     synced_at: datetime,
 ) -> None:
+    set_attribute(organization, "name", roster_snapshot.body.name)
     set_attribute(organization, "legistar_body_id", roster_snapshot.body.body_id)
     set_attribute(organization, "legistar_body_guid", roster_snapshot.body.body_guid)
     source_url = (

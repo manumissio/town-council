@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+from pathlib import Path
 
 import pytest
 from sqlalchemy import create_engine, text
@@ -87,3 +88,12 @@ def test_person_remediation_rejects_malformed_entity_json_before_deleting() -> N
         assert connection.scalar(text("SELECT COUNT(*) FROM person")) == 1
         assert connection.scalar(text("SELECT COUNT(*) FROM membership")) == 1
     engine.dispose()
+
+
+def test_roster_transition_compares_only_stable_remediation_counts() -> None:
+    operations = Path("docs/OPERATIONS.md").read_text(encoding="utf-8")
+
+    assert 'test "$DRY_RUN_INVENTORY" = "$APPLY_INVENTORY"' not in operations
+    assert '"catalogs_with_person_entities"' in operations
+    assert '"memberships"' in operations
+    assert '"people"' in operations

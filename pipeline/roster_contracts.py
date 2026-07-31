@@ -20,6 +20,10 @@ class RosterBodyResolutionError(RosterError):
     """The configured governing body did not resolve unambiguously."""
 
 
+def normalize_roster_body_name(body_name: object) -> str:
+    return " ".join(str(body_name or "").split()).casefold()
+
+
 @dataclass(frozen=True, slots=True)
 class RosterBody:
     body_id: int
