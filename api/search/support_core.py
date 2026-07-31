@@ -1,5 +1,4 @@
 import logging
-from typing import Any
 
 import meilisearch
 
@@ -67,24 +66,4 @@ SEMANTIC_ENABLED = pipeline_config.SEMANTIC_ENABLED
 
 logger = logging.getLogger("town-council-api")
 
-# Search helpers read this through api.main at runtime so existing tests can patch
-# the facade without knowing about the extracted modules.
 client = meilisearch.Client(MEILI_HOST, MEILI_MASTER_KEY, timeout=5)
-
-
-def _api_main() -> Any:
-    from api import main as api_main
-
-    return api_main
-
-
-def facade_value(name: str, fallback: Any) -> Any:
-    return getattr(_api_main(), name, fallback)
-
-
-def facade_callable(name: str, fallback: Any) -> Any:
-    return getattr(_api_main(), name, fallback)
-
-
-def search_client() -> Any:
-    return facade_value("client", client)

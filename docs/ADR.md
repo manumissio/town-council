@@ -1451,3 +1451,37 @@ Use each entry to record:
   - [docs/PIPELINE.md](PIPELINE.md)
   - [docs/TESTING.MD](TESTING.MD)
   - [T-DE-2 implementation plan](plans/T_DE_2_PROVIDER_FACADE_DELETION_PLAN.md)
+
+## 2026-07-31: Delete search patch lookup through api.main
+
+- Status: Accepted
+- Decision:
+  - Search route implementations read configuration and the Meilisearch client
+    from `api/search/support_core.py`.
+  - Filter, semantic transport, and trends behavior call their focused
+    implementation owners directly.
+  - Delete `_api_main`, `facade_value`, `facade_callable`, and `search_client`;
+    remove the corresponding exports from `api/search_support.py`.
+  - Remove search-only patch aliases from `api/main.py`; tests use the
+    Meilisearch construction boundary, outbound HTTP boundary, or
+    implementation-owned feature flags.
+  - Keep `api/search_routes.py` and remaining router compatibility bags until
+    the separately planned T-DC-2B deletion.
+- Why:
+  - Dynamic lookup through `api.main` exists only to preserve historical test
+    patch paths and creates a reverse dependency from search implementations to
+    application assembly.
+  - G3 establishes that test patch targets are not public API and directs tests
+    to real implementation or approved service boundaries.
+  - Direct ownership removes lookup indirection without changing routes,
+    filters, responses, reader-key policy, or search backends.
+- Supersedes:
+  - The `api.main` search monkeypatch-preservation portions of "2026-04-22:
+    Split the search route family behind the search facade" and "2026-05-09:
+    Split Wave 2 task, search, onboarding, and repair cleanup seams." Their
+    route allocation remains active until T-DC-2B.
+- Canonical references:
+  - [ARCHITECTURE.md](../ARCHITECTURE.md)
+  - [docs/TESTING.MD](TESTING.MD)
+  - [SECURITY.md](../SECURITY.md)
+  - [T-DC-2A implementation plan](plans/T_DC_2A_SEARCH_MAIN_LOOKUP_DELETION_PLAN.md)

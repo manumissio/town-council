@@ -3,24 +3,23 @@ from unittest.mock import MagicMock
 from fastapi import HTTPException
 from fastapi.testclient import TestClient
 
-import api.search_routes as search_routes
+from api.search import semantic_support
 from api.main import app, get_db
 
 VALID_KEY = "dev_secret_key_change_me"
 
 
 def test_semantic_search_success_with_filters(mocker):
-    mocker.patch("api.main.SEMANTIC_ENABLED", True)
-    mocker.patch(
-        "api.main._semantic_service_get_json",
-        return_value={
-            "hits": [{"id": "doc_10", "db_id": 10, "result_type": "meeting", "event_name": "Cupertino Meeting", "semantic_score": 0.9}],
-            "estimatedTotalHits": 1,
-            "limit": 20,
-            "offset": 0,
-            "semantic_diagnostics": {"engine": "faiss"},
-        },
-    )
+    mocker.patch("api.search.support_core.SEMANTIC_ENABLED", True)
+    response = MagicMock(status_code=200)
+    response.json.return_value = {
+        "hits": [{"id": "doc_10", "db_id": 10, "result_type": "meeting", "event_name": "Cupertino Meeting", "semantic_score": 0.9}],
+        "estimatedTotalHits": 1,
+        "limit": 20,
+        "offset": 0,
+        "semantic_diagnostics": {"engine": "faiss"},
+    }
+    mocker.patch("api.search.semantic_support.httpx.get", return_value=response)
     client = TestClient(app)
     resp = client.get("/search/semantic?q=zoning&city=cupertino", headers={"X-API-Key": VALID_KEY})
     assert resp.status_code == 200
@@ -31,14 +30,12 @@ def test_semantic_search_success_with_filters(mocker):
 
 
 def test_semantic_search_missing_artifacts_returns_503(mocker):
-    mocker.patch("api.main.SEMANTIC_ENABLED", True)
-    mocker.patch(
-        "api.main._semantic_service_get_json",
-        side_effect=HTTPException(
-            status_code=503,
-            detail="Semantic index artifacts are missing. Run `docker compose run --rm semantic python ../pipeline/reindex_semantic.py` and retry.",
-        ),
-    )
+    mocker.patch("api.search.support_core.SEMANTIC_ENABLED", True)
+    response = MagicMock(status_code=503)
+    response.json.return_value = {
+        "detail": "Semantic index artifacts are missing. Run `docker compose run --rm semantic python ../pipeline/reindex_semantic.py` and retry."
+    }
+    mocker.patch("api.search.semantic_support.httpx.get", return_value=response)
     client = TestClient(app)
     resp = client.get("/search/semantic?q=zoning", headers={"X-API-Key": VALID_KEY})
     assert resp.status_code == 503
@@ -49,10 +46,10 @@ def test_semantic_service_error_forwards_non_dict_json_detail(mocker):
     response = MagicMock()
     response.status_code = 502
     response.json.return_value = ["semantic", "error"]
-    mocker.patch("api.search_routes.httpx.get", return_value=response)
+    mocker.patch("api.search.semantic_support.httpx.get", return_value=response)
 
     try:
-        search_routes._semantic_service_get_json("/search/semantic", {"q": "zoning"})
+        semantic_support._semantic_service_get_json("/search/semantic", {"q": "zoning"})
     except HTTPException as exc:
         assert exc.status_code == 502
         assert exc.detail == ["semantic", "error"]

@@ -1,4 +1,4 @@
-from api.main import _build_meilisearch_filter_clauses
+from api.search.filter_support import _build_meilisearch_filter_clauses
 from api.search.query_builder import build_meili_filter_clauses, normalize_filters
 
 

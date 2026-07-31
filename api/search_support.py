@@ -37,10 +37,7 @@ from api.search.support_core import (
     TOPICS_FACET_NAME as TOPICS_FACET_NAME,
     TRENDS_DASHBOARD_DISABLED_DETAIL as TRENDS_DASHBOARD_DISABLED_DETAIL,
     client as client,
-    facade_callable as facade_callable,
-    facade_value as facade_value,
     logger as logger,
-    search_client as search_client,
 )
 from api.search.trends_support import (
     _collect_meeting_docs as _collect_meeting_docs,
@@ -78,11 +75,8 @@ __all__ = [
     "TOPICS_FACET_NAME",
     "TRENDS_DASHBOARD_DISABLED_DETAIL",
     "client",
-    "facade_callable",
-    "facade_value",
     "httpx",
     "logger",
-    "search_client",
     "validate_date_format",
     "_build_filter_values",
     "_build_meilisearch_filter_clauses",

@@ -10,7 +10,7 @@ VALID_KEY = "dev_secret_key_change_me"
 def test_semantic_search_disabled_returns_503(mocker):
     db = MagicMock()
     app.dependency_overrides[get_db] = lambda: db
-    mocker.patch("api.main.SEMANTIC_ENABLED", False)
+    mocker.patch("api.search.support_core.SEMANTIC_ENABLED", False)
     client = TestClient(app)
     try:
         resp = client.get("/search/semantic?q=zoning", headers={"X-API-Key": VALID_KEY})

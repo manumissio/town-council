@@ -2,7 +2,7 @@ from typing import Any, Optional
 
 from fastapi import APIRouter, HTTPException, Query
 
-from api import search_support
+from api.search import semantic_support, support_core
 
 SEMANTIC_SEARCH_LIMIT_DEFAULT = 20
 SEMANTIC_SEARCH_LIMIT_MAX = 100
@@ -22,13 +22,9 @@ def search_documents_semantic(
     limit: int = Query(SEMANTIC_SEARCH_LIMIT_DEFAULT, ge=1, le=SEMANTIC_SEARCH_LIMIT_MAX),
     offset: int = Query(0, ge=0),
 ) -> dict[str, Any]:
-    if not search_support.facade_value("SEMANTIC_ENABLED", search_support.SEMANTIC_ENABLED):
-        raise HTTPException(status_code=503, detail=search_support.SEMANTIC_DISABLED_DETAIL)
-    semantic_get_json = search_support.facade_callable(
-        "_semantic_service_get_json",
-        search_support._semantic_service_get_json,
-    )
-    return semantic_get_json(
+    if not support_core.SEMANTIC_ENABLED:
+        raise HTTPException(status_code=503, detail=support_core.SEMANTIC_DISABLED_DETAIL)
+    return semantic_support._semantic_service_get_json(
         "/search/semantic",
         {
             "q": q,

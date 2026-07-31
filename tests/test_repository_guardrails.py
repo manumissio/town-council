@@ -585,6 +585,114 @@ def _forbidden_imports(module_path: Path, forbidden_modules: set[str]) -> list[s
     return found_imports
 
 
+def _dotted_reference(node: ast.AST) -> str | None:
+    if isinstance(node, ast.Name):
+        return node.id
+    if not isinstance(node, ast.Attribute):
+        return None
+    parent_reference = _dotted_reference(node.value)
+    if parent_reference is None:
+        return None
+    return f"{parent_reference}.{node.attr}"
+
+
+def _search_main_import_context(
+    test_tree: ast.AST,
+    forbidden_names: set[str],
+) -> tuple[set[str], set[str]]:
+    main_module_bindings: set[str] = set()
+    references: set[str] = set()
+    for node in ast.walk(test_tree):
+        if isinstance(node, ast.Import):
+            main_module_bindings.update(
+                alias.asname or "api.main"
+                for alias in node.names
+                if alias.name == "api.main"
+            )
+        elif isinstance(node, ast.ImportFrom) and node.module == "api":
+            main_module_bindings.update(
+                alias.asname or alias.name
+                for alias in node.names
+                if alias.name == "main"
+            )
+        elif isinstance(node, ast.ImportFrom) and node.module == "api.main":
+            references.update(
+                f"line {node.lineno}: import {alias.name}"
+                for alias in node.names
+                if alias.name in forbidden_names
+            )
+    return main_module_bindings, references
+
+
+def _search_main_object_patch_reference(
+    node: ast.AST,
+    main_module_bindings: set[str],
+    forbidden_names: set[str],
+) -> str | None:
+    if not isinstance(node, ast.Call):
+        return None
+    patch_function = _dotted_reference(node.func) or ""
+    is_object_patch = patch_function.endswith("patch.object")
+    is_setattr_patch = patch_function == "setattr" or patch_function.endswith(
+        ".setattr"
+    )
+    if not is_object_patch and not is_setattr_patch:
+        return None
+    if (
+        len(node.args) < 2
+        or _dotted_reference(node.args[0]) not in main_module_bindings
+    ):
+        return None
+    patch_name = node.args[1]
+    if not isinstance(patch_name, ast.Constant) or patch_name.value not in forbidden_names:
+        return None
+    patch_operation = "patch.object" if is_object_patch else "setattr"
+    return f"line {node.lineno}: {patch_operation} {patch_name.value}"
+
+
+def _search_main_alias_references(
+    test_path: Path,
+    forbidden_names: set[str],
+) -> list[str]:
+    test_tree = ast.parse(
+        test_path.read_text(encoding="utf-8"),
+        filename=str(test_path),
+    )
+    main_module_bindings, references = _search_main_import_context(
+        test_tree,
+        forbidden_names,
+    )
+
+    forbidden_references = {
+        f"{module_binding}.{forbidden_name}"
+        for module_binding in main_module_bindings
+        for forbidden_name in forbidden_names
+    }
+    forbidden_references.update(
+        f"api.main.{forbidden_name}" for forbidden_name in forbidden_names
+    )
+
+    for node in ast.walk(test_tree):
+        dotted_reference = _dotted_reference(node)
+        if dotted_reference in forbidden_references:
+            references.add(f"line {node.lineno}: {dotted_reference}")
+        if (
+            isinstance(node, ast.Constant)
+            and isinstance(node.value, str)
+            and node.value in forbidden_references
+        ):
+            references.add(f"line {node.lineno}: {node.value}")
+        patch_reference = _search_main_object_patch_reference(
+            node,
+            main_module_bindings,
+            forbidden_names,
+        )
+        if patch_reference is not None:
+            references.add(patch_reference)
+
+    return sorted(references)
+
+
 def _top_level_sync_function_lines(module_path: Path) -> list[int]:
     module_tree = ast.parse(
         module_path.read_text(encoding="utf-8"),
@@ -1726,6 +1834,124 @@ def test_provider_compatibility_facade_is_deleted() -> None:
 
     assert not deleted_facade.exists()
     assert remaining_imports == {}
+
+
+def test_search_helpers_do_not_lookup_api_main() -> None:
+    lookup_names = {"_api_main", "facade_value", "facade_callable", "search_client"}
+    main_search_aliases = {
+        "client",
+        "_build_meilisearch_filter_clauses",
+        "_collect_meeting_docs",
+        "_semantic_service_get_json",
+        "search_documents_semantic",
+        "SEMANTIC_ENABLED",
+        "FEATURE_TRENDS_DASHBOARD",
+    }
+    support_core_path = ROOT / "api/search/support_core.py"
+    support_core_tree = ast.parse(support_core_path.read_text(encoding="utf-8"))
+    support_core_functions = {
+        node.name
+        for node in support_core_tree.body
+        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef))
+    }
+
+    search_support_path = ROOT / "api/search_support.py"
+    search_support_tree = ast.parse(search_support_path.read_text(encoding="utf-8"))
+    search_support_imports = {
+        alias.name
+        for node in search_support_tree.body
+        if isinstance(node, (ast.Import, ast.ImportFrom))
+        for alias in node.names
+    }
+
+    api_main_path = ROOT / "api/main.py"
+    api_main_tree = ast.parse(api_main_path.read_text(encoding="utf-8"))
+    api_main_imports = {
+        alias.name
+        for node in api_main_tree.body
+        if isinstance(node, (ast.Import, ast.ImportFrom))
+        for alias in node.names
+    }
+
+    search_helper_paths = sorted((ROOT / "api/search").rglob("*.py"))
+    search_helper_paths.extend(sorted((ROOT / "api").glob("search_*.py")))
+    search_helper_paths.append(ROOT / "api/trends_routes.py")
+    reverse_imports = {
+        str(search_helper_path.relative_to(ROOT)): forbidden_imports
+        for search_helper_path in search_helper_paths
+        if (
+            forbidden_imports := _forbidden_imports(
+                search_helper_path,
+                {"api.main"},
+            )
+        )
+    }
+
+    stale_test_patches = {
+        str(test_path.relative_to(ROOT)): alias_references
+        for test_path in _tracked_files()
+        if test_path.suffix == ".py"
+        and test_path.relative_to(ROOT).parts[0] == "tests"
+        and (
+            alias_references := _search_main_alias_references(
+                test_path,
+                main_search_aliases,
+            )
+        )
+    }
+
+    assert lookup_names.isdisjoint(support_core_functions)
+    assert lookup_names.isdisjoint(search_support_imports)
+    assert main_search_aliases.isdisjoint(api_main_imports)
+    assert reverse_imports == {}
+    assert _forbidden_imports(
+        ROOT / "api/search_read_meilisearch.py",
+        {"api.search_support"},
+    ) == []
+    assert stale_test_patches == {}
+
+
+def test_search_main_alias_guard_covers_import_and_object_patch_forms(
+    tmp_path: Path,
+) -> None:
+    test_path = tmp_path / "test_stale_search_patches.py"
+    test_path.write_text(
+        "\n".join(
+            (
+                "import api.main",
+                "import api.main as api_main",
+                "from api import main as assembled_api",
+                "from api.main import client as reader_client",
+                "api.main" + ".SEMANTIC_ENABLED",
+                "api_main._collect_meeting_docs",
+                'mocker.patch("api.main.search_documents_semantic")',
+                'mocker.patch.object(assembled_api, "FEATURE_TRENDS_DASHBOARD")',
+                'monkeypatch.setattr(api_main, "client", replacement)',
+                "from api.main import app",
+            )
+        ),
+        encoding="utf-8",
+    )
+
+    alias_references = _search_main_alias_references(
+        test_path,
+        {
+            "client",
+            "_collect_meeting_docs",
+            "search_documents_semantic",
+            "SEMANTIC_ENABLED",
+            "FEATURE_TRENDS_DASHBOARD",
+        },
+    )
+
+    assert alias_references == [
+        "line 4: import client",
+        "line 5: api.main.SEMANTIC_ENABLED",
+        "line 6: api_main._collect_meeting_docs",
+        "line 7: api.main.search_documents_semantic",
+        "line 8: patch.object FEATURE_TRENDS_DASHBOARD",
+        "line 9: setattr client",
+    ]
 
 
 def test_sync_global_guardrail_detects_top_level_functions(

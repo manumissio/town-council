@@ -4,7 +4,7 @@ from api.main import app
 
 
 def test_trends_topics_returns_facet_distribution(mocker):
-    mocker.patch("api.main.FEATURE_TRENDS_DASHBOARD", True)
+    mocker.patch("api.search.support_core.FEATURE_TRENDS_DASHBOARD", True)
     mock_index = mocker.Mock()
     mock_index.search.return_value = {
         "facetDistribution": {
@@ -14,7 +14,7 @@ def test_trends_topics_returns_facet_distribution(mocker):
             }
         }
     }
-    mocker.patch("api.main.client.index", return_value=mock_index)
+    mocker.patch("api.search.support_core.client.index", return_value=mock_index)
     client = TestClient(app)
     resp = client.get("/trends/topics?city=berkeley&limit=1")
     assert resp.status_code == 200
@@ -24,7 +24,7 @@ def test_trends_topics_returns_facet_distribution(mocker):
 
 
 def test_trends_topics_feature_flag_disabled(mocker):
-    mocker.patch("api.main.FEATURE_TRENDS_DASHBOARD", False)
+    mocker.patch("api.search.support_core.FEATURE_TRENDS_DASHBOARD", False)
     client = TestClient(app)
     resp = client.get("/trends/topics")
     assert resp.status_code == 503
