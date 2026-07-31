@@ -83,7 +83,7 @@ long as their content is cohesive.
    top-level private `_sync_*_from_*` functions used to reconcile duplicated
    module globals.
    Ruff `S608` rejects SQL-looking string interpolation across maintained
-   production Python; inline suppressions are not permitted.
+   production Python; inline or configured suppressions are not permitted.
    Ruff `F403` rejects new wildcard imports; an existing documented
    compatibility facade retains its explicit suppression.
    See `AGENTS.md` `<known_antipatterns>` for the full rationale.
