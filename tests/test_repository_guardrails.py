@@ -649,12 +649,23 @@ def _sqlalchemy_import_bindings(
     if isinstance(import_node, ast.Import):
         for imported_name in import_node.names:
             text_suffixes = _sqlalchemy_module_text_suffixes(imported_name.name)
+            if (
+                imported_name.asname is None
+                and imported_name.name.startswith(f"{SQLALCHEMY_MODULE}.")
+            ):
+                module_suffix = imported_name.name.removeprefix(
+                    f"{SQLALCHEMY_MODULE}."
+                )
+                qualified_text_suffixes = {
+                    f"{module_suffix}.{text_suffix}" for text_suffix in text_suffixes
+                }
+                sqlalchemy_bindings.setdefault(SQLALCHEMY_MODULE, set()).update(
+                    {SQLALCHEMY_TEXT_NAME, *qualified_text_suffixes}
+                )
+                continue
             if not text_suffixes:
                 continue
             binding_name = imported_name.asname or SQLALCHEMY_MODULE
-            if imported_name.asname is None and imported_name.name != SQLALCHEMY_MODULE:
-                module_suffix = imported_name.name.removeprefix(f"{SQLALCHEMY_MODULE}.")
-                text_suffixes = {f"{module_suffix}.{suffix}" for suffix in text_suffixes}
             sqlalchemy_bindings.setdefault(binding_name, set()).update(text_suffixes)
         return sqlalchemy_bindings
 
@@ -1896,6 +1907,7 @@ def test_sync_global_guardrail_detects_top_level_functions(
             'sql_text(f"SELECT {value}")',
         ),
         ("import sqlalchemy", 'sqlalchemy.text(f"SELECT {value}")'),
+        ("import sqlalchemy.orm", 'sqlalchemy.text(f"SELECT {value}")'),
         ("import sqlalchemy as sa", 'sa.text(f"SELECT {value}")'),
         ("import sqlalchemy.sql as sql", 'sql.text(f"SELECT {value}")'),
         (

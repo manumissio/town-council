@@ -266,6 +266,7 @@ git diff --check
 
 expected_owned_files=$(
   printf '%s\n' \
+    AGENTS.md \
     docs/ENGINEERING_GUARDRAILS.md \
     docs/plans/TOWN_COUNCIL_REMEDIATION_PLAN.md \
     docs/plans/T_GOV_3B_STRUCTURAL_GUARDRAILS_PLAN.md \
