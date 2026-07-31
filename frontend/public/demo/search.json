@@ -45,16 +45,6 @@
           "votes": []
         }
       ],
-      "people_metadata": [
-        {
-          "id": 1,
-          "name": "Rashi Kesarwani"
-        },
-        {
-          "id": 2,
-          "name": "Susan Wengraf"
-        }
-      ],
       "entities": {
         "orgs": [
           "City Council",
@@ -107,12 +97,6 @@
           "votes": []
         }
       ],
-      "people_metadata": [
-        {
-          "id": 3,
-          "name": "Committee Chair"
-        }
-      ],
       "entities": {
         "orgs": [
           "Environmental Review Committee"
@@ -162,12 +146,6 @@
           "votes": []
         }
       ],
-      "people_metadata": [
-        {
-          "id": 4,
-          "name": "Audit Chair"
-        }
-      ],
       "entities": {
         "orgs": [
           "Audit Committee",
@@ -210,12 +188,6 @@
           ]
         }
       ],
-      "people_metadata": [
-        {
-          "id": 1,
-          "name": "Rashi Kesarwani"
-        }
-      ],
       "entities": {
         "orgs": [
           "Planning Commission"
@@ -253,12 +225,6 @@
           "votes": []
         }
       ],
-      "people_metadata": [
-        {
-          "id": 2,
-          "name": "Susan Wengraf"
-        }
-      ],
       "entities": {
         "orgs": [
           "City Council",
@@ -292,12 +258,6 @@
           "result": "Discussion only.",
           "page_number": 1,
           "votes": []
-        }
-      ],
-      "people_metadata": [
-        {
-          "id": 3,
-          "name": "Committee Chair"
         }
       ],
       "entities": {
@@ -339,12 +299,6 @@
           ]
         }
       ],
-      "people_metadata": [
-        {
-          "id": 4,
-          "name": "Audit Chair"
-        }
-      ],
       "entities": {
         "orgs": [
           "Finance Committee"
@@ -382,12 +336,6 @@
           "votes": []
         }
       ],
-      "people_metadata": [
-        {
-          "id": 1,
-          "name": "Rashi Kesarwani"
-        }
-      ],
       "entities": {
         "orgs": [
           "City Council",
@@ -416,12 +364,6 @@
       "topics_is_stale": false,
       "summary_extractive": null,
       "agenda_items": null,
-      "people_metadata": [
-        {
-          "id": 3,
-          "name": "Committee Chair"
-        }
-      ],
       "entities": {
         "orgs": [
           "Parks and Recreation Commission"
@@ -457,12 +399,6 @@
           "result": "Direction to staff.",
           "page_number": 1,
           "votes": []
-        }
-      ],
-      "people_metadata": [
-        {
-          "id": 2,
-          "name": "Susan Wengraf"
         }
       ],
       "entities": {

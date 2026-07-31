@@ -10,7 +10,6 @@ from pipeline.profiling import current_mode, profile_span
 from pipeline.run_pipeline import run_callable_step, run_step
 from pipeline.backfill_entities import run_entity_backfill
 from pipeline.backfill_orgs import run_organization_backfill
-from pipeline.person_linker import run_people_linking
 from pipeline.table_worker import select_catalog_ids_for_table_extraction
 from pipeline.topic_worker import run_topic_hydration_backfill, select_catalog_ids_for_topic_hydration
 
@@ -67,7 +66,7 @@ def main(argv=None):
     logger.info(">>> Starting Batch Enrichment Pipeline")
     started = time.perf_counter()
     with profile_span(phase="batch_enrichment_total", component="pipeline-batch"):
-        entity_counts = run_callable_step("Entity Backfill", run_entity_backfill, component="pipeline-batch")
+        run_callable_step("Entity Backfill", run_entity_backfill, component="pipeline-batch")
         with db_session() as session:
             table_catalog_ids = select_catalog_ids_for_table_extraction(session)
         logger.info("table_extraction_preflight selected=%s", len(table_catalog_ids))
@@ -91,16 +90,6 @@ def main(argv=None):
             )
         else:
             logger.info("Step: Topic Modeling skipped=1 reason=no_eligible_catalogs")
-        changed_catalog_ids = list(entity_counts.get("updated_catalog_ids", [])) if isinstance(entity_counts, dict) else []
-        logger.info("people_linking_preflight selected=%s", len(changed_catalog_ids))
-        if changed_catalog_ids:
-            run_batch_callable_step(
-                "People Linking",
-                "people_linking",
-                lambda: run_people_linking(catalog_ids=changed_catalog_ids),
-            )
-        else:
-            logger.info("Step: People Linking skipped=1 reason=no_changed_entity_catalogs")
     record_pipeline_phase_duration(
         "batch_enrichment_total",
         "pipeline-batch",

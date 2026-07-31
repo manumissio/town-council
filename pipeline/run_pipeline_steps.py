@@ -25,7 +25,6 @@ STEP_PHASE_NAMES = {
     "Table Extraction": "table_extraction",
     "Backfill Organizations": "org_backfill",
     "Topic Modeling": "topic_modeling",
-    "People Linking": "people_linking",
 }
 
 SUBPROCESS_COMPONENT = "subprocess"

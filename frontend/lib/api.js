@@ -15,9 +15,6 @@ function getDemoPath(path) {
   if (cleanPath.startsWith("/metadata")) return "/demo/metadata.json";
   if (cleanPath.startsWith("/catalog/batch")) return "/demo/catalog_batch.json";
 
-  const personMatch = cleanPath.match(/^\/person\/(\d+)/);
-  if (personMatch) return `/demo/person_${personMatch[1]}.json`;
-
   const catalogStatusMatch = cleanPath.match(/^\/catalog\/(\d+)\/derived_status/);
   if (catalogStatusMatch) return `/demo/catalog_${catalogStatusMatch[1]}_derived_status.json`;
 
