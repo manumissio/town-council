@@ -1,6 +1,6 @@
 # Operations Runbook
 
-Last updated: 2026-07-26
+Last updated: 2026-07-31
 
 ## Core workflow
 
