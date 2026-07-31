@@ -174,7 +174,7 @@ literal is added.
 - B3: checks target only structures explicitly named by T-GOV-3B.
 - C1: the transition marker is deleted when its replacement rules land.
 - D1-D3: tests plant observable source examples and do not weaken policy.
-- E1-E3: only six owned files change.
+- E1-E3: only seven owned files change.
 - A2-A4, B2, C2, F2, H2-H4: no planned violations.
 
 **o) Ratchets.** Ruff selectors, BLE001 boundaries, C901 exceptions, typing
