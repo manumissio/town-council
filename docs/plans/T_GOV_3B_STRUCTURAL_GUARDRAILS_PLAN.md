@@ -10,7 +10,7 @@
 rules, but the structural policy remains transitional. T-DC-1 and T-DE-1 have
 now removed the active reverse dependencies. T-GOV-3B must register those clean
 boundaries, mechanically reject top-level private `_sync_*_from_*` functions,
-and reject direct f-string interpolation passed to SQLAlchemy `text(...)`.
+and activate maintained Ruff rules for dynamic SQL and wildcard imports.
 
 **b) Canonical documents consulted.**
 
@@ -56,7 +56,7 @@ No G1-G5 decision remains.
 
 1. Mark merged T-PLAT-2C complete, then register T-GOV-3B as active with exact
    ownership.
-2. Add failing tests for the two structural rules, the four new dependency
+2. Add failing tests for the structural rules, the four new dependency
    registrations, and final T-GOV-3 policy status.
 3. Extend `HELPER_FACADE_IMPORT_RULES` with:
    - `api/app_setup.py` must not import `api.main`;
@@ -74,38 +74,30 @@ No G1-G5 decision remains.
    function following `_sync_<owner>_from_<peer>`. A one-way function is also
    prohibited so synchronization debt cannot land in stages. Nested functions,
    methods, and names outside that private convention remain allowed.
-6. Add one conservative file-level AST rule. Collect direct and
-   module-qualified SQLAlchemy `text` call names from absolute imports anywhere
-   in the file, then report f-string descendants in direct arguments to those
-   names. Shadowing a matching imported binding does not exempt an interpolated
-   call, but plain shadowing is not independently prohibited. Do not trace
-   assigned aliases, statement order, or Python lexical resolution.
+6. Delete the partial SQLAlchemy name matcher. Review demonstrated that each
+   qualifier or lexical case created another project-specific resolver branch.
+   Ruff `S608` becomes the mechanical dynamic-SQL rule; contributor policy
+   requires bound parameters for runtime values.
 7. Select Ruff `F403` so maintained tooling rejects wildcard imports. Narrow
    the scripts security exemption from all `S` rules to the eight current debt
-   codes so `S608` also protects scripts. Delete the custom SQLAlchemy wildcard
-   scanner and its version-sensitive export assumptions.
+   codes so `S608` also protects scripts. Delete the custom wildcard scanner
+   and its version-sensitive export assumptions.
 8. Add focused positive and negative tests:
    - single, reciprocal, and async top-level sync names fail;
    - nested functions, methods, and nonmatching names remain allowed;
-   - `from sqlalchemy import text`, aliased direct imports,
-     `from sqlalchemy.sql import text`, aliased `sqlalchemy.sql` imports,
-     `import sqlalchemy`, `import sqlalchemy as sa`,
-     `import sqlalchemy.sql as sql`, and deeper qualified module aliases all
-     reject direct positional, keyword, concatenated, or unpacked
-     `text(f"...")` calls;
-   - shadowing a matching imported SQLAlchemy binding does not exempt an
-     interpolated call;
-   - literal SQL and files without SQLAlchemy imports do not fail;
-   - Ruff rejects wildcard imports through `F403`.
-9. Enforce both rules against the current repository. Add no T-GOV-3B
+   - Ruff rejects a planted SQL-looking f-string through `S608`;
+   - Ruff rejects a planted wildcard import through `F403`;
+   - Ruff `--ignore-noqa` proves there are no hidden `S608` suppressions and
+     no `F403` suppressions outside the documented compatibility facade;
+   - every retained scripts security exception covers a current violation.
+9. Enforce all structural rules against the current repository. Add no T-GOV-3B
    exception; the pre-existing documented compatibility-facade `F403`
    suppression remains outside this task.
 10. Remove the T-GOV-3 transition marker from the guardrail policy, narrow the
    policy to the enforceable named structures, and assert that policy:
    - has no `[transition: T-GOV-3]` marker;
    - no longer claims generic duplicated-global detection;
-   - covers direct SQLAlchemy `text(f"...")` calls through matching imported
-     bindings, not only DDL/DML;
+   - names Ruff `S608` as the mechanical dynamic-SQL rule;
    - prohibits one-way top-level `_sync_*_from_*` functions.
    Mark T-GOV-3/T-GOV-3B complete only after enforcement passes.
 11. Run static checks, repository guardrails, docs links, and the coverage-gated
@@ -118,10 +110,6 @@ New test-local responsibilities:
 
 - `_top_level_sync_function_lines`: report top-level functions matching the
   prohibited private synchronization convention.
-- `_sqlalchemy_text_call_names`: collect reserved direct and module-qualified
-  SQLAlchemy `text` call names for one file.
-- `_interpolated_sqlalchemy_text_lines`: report direct f-string arguments to
-  those reserved names.
 - `_is_production_structural_path`: apply the guardrail test's canonical
   production exclusions to Ruff discovery.
 
@@ -132,10 +120,10 @@ module or second scope registry is not justified.
 
 Rejected alternatives:
 
-- Keep the lexical resolver: rejected after review demonstrated false positives
-  and false negatives across comprehensions, rebinding, and assigned aliases.
-- Use Ruff `S608` alone: useful defense in depth, but it intentionally detects
-  SQL-looking strings rather than every direct interpolated `text(...)` call.
+- Keep either the lexical resolver or the smaller imported-binding matcher:
+  rejected after review demonstrated false positives, false negatives, and
+  repeated qualifier gaps. The repository must not maintain a partial Python
+  or SQLAlchemy resolver.
 - Search source text with regular expressions: cannot distinguish comments,
   strings, aliases, or unrelated `text` helpers.
 - Build variable/data-flow tracking for SQL statements: unsound at repository
@@ -152,8 +140,8 @@ directions. Scan scope remains derived from Ruff.
 ## 3. Security & Data Governance
 
 **i) Security boundary.** No security-sensitive production path changes.
-Rejecting interpolated SQLAlchemy text reduces future SQL-injection risk, but
-does not alter current query execution or trust boundaries.
+Ruff `S608` broadens maintained dynamic-SQL detection without altering current
+query execution or trust boundaries.
 
 **j) Secrets.** None.
 
@@ -171,9 +159,9 @@ literal is added.
 
 **n) Antipattern scan, plan pass.**
 
-- A1/H1: only Python standard-library AST APIs and existing repository helpers
-  are used.
-- B1/F1: the partial lexical resolver and custom wildcard scanner are deleted;
+- A1/H1: only Python standard-library AST APIs, pinned Ruff rules, and existing
+  repository helpers are used.
+- B1/F1: both custom SQLAlchemy matchers and the wildcard scanner are deleted;
   maintained Ruff enforcement replaces duplicated tooling.
 - B3: checks target only structures explicitly named by T-GOV-3B.
 - C1: the transition marker is deleted when its replacement rules land.
@@ -185,6 +173,8 @@ literal is added.
 is narrowed to current `S101`, `S105`, `S112`, `S310`, `S311`, `S324`, `S603`,
 and `S607` debt, activating `S608` there. No ignore is added or widened. The
 existing documented compatibility-facade suppression remains unchanged.
+An `--ignore-noqa` ratchet permits no `S608` suppression and requires the
+documented compatibility import to be the sole `F403` violation.
 BLE001 boundaries, C901 exceptions, typing scope, formatter scope, and coverage
 threshold remain unchanged. Structural rules move from documented transition
 to enforced acceptance with zero structural exceptions.
@@ -193,8 +183,9 @@ to enforced acceptance with zero structural exceptions.
 two exact sync-name assertions, one exact reverse-import assertion, and one
 three-file source-string test superseded by the central registry. Reuse the
 existing import registry and Ruff discovery. Delete the superseded lexical
-resolver and custom wildcard scanner. Expected revision removes roughly
-350-400 test lines with zero production-code delta.
+resolver, smaller imported-binding matcher, and custom wildcard scanner.
+Expected revision removes roughly 450-500 test lines with zero production-code
+delta.
 
 ## 5. Testing
 
@@ -204,32 +195,28 @@ resolver and custom wildcard scanner. Expected revision removes roughly
 2. Async top-level sync functions are prohibited, while nested functions,
    methods, `_sync_worker_config`, `_sync_helper_test_hooks`, and public
    `sync_rows_from_db` remain allowed.
-3. SQLAlchemy `text` is imported directly under its original name.
-4. SQLAlchemy `text` is imported under an alias.
-5. SQLAlchemy is imported as a module alias and `.text(...)` is called.
-6. Literal SQL is passed to SQLAlchemy `text`.
-7. A file without a SQLAlchemy import uses an unrelated `text` helper.
-8. Directive-like source appears only inside a string or comment.
-9. A maintained Python file adds a wildcard import.
-10. Any of the four T-DC-1 or T-DE-1 implementations imports backward through
+3. A maintained production file constructs a SQL-looking f-string.
+4. A maintained script constructs a SQL-looking f-string.
+5. A maintained Python file adds a wildcard import.
+6. A maintained file hides `S608` or `F403` with an inline suppression.
+7. Any of the four T-DC-1 or T-DE-1 implementations imports backward through
    its facade.
-11. Ruff discovers a new production Python file containing either banned
+8. Ruff discovers a new production Python file containing the banned sync
     structure.
-12. The structural scan follows the canonical Ruff-derived production scope
+9. The structural scan follows the canonical Ruff-derived production scope
     without a second file-set enumeration.
-13. T-GOV-3 is marked complete before both checks and dependency registrations
-    are present.
+10. T-GOV-3 is marked complete before the structural checks and dependency
+   registrations are present.
 
 **r) Test mapping.**
 
 | Test | Scenarios |
 |---|---|
-| Top-level sync detector examples | 1, 2, 8 |
-| Conservative SQLAlchemy text detector examples | 3-8 |
-| Ruff `F403` planted violation and repository lint | 9 |
-| Repository-wide structural enforcement | 1, 3-5, 11, 12 |
-| Registered helper dependency test | 10 |
-| T-GOV-3 completion contract | 13 |
+| Top-level sync detector examples | 1, 2 |
+| Ruff `S608`/`F403` planted violations and suppression ratchet | 3-6 |
+| Repository-wide structural enforcement | 1, 8, 9 |
+| Registered helper dependency test | 7 |
+| T-GOV-3 completion contract | 10 |
 | Complete Python suite | Runtime regression check |
 
 **s) Fakes and mocks.** None. Temporary source files use pytest's approved
@@ -257,7 +244,6 @@ Tests-first:
 ```bash
 PYTHONPATH=. .venv/bin/pytest -q \
   tests/test_repository_guardrails.py::test_sync_global_guardrail_detects_top_level_functions \
-  tests/test_repository_guardrails.py::test_sqlalchemy_text_guardrail_detects_matching_imports \
   tests/test_repository_guardrails.py::test_ruff_rejects_wildcard_imports_and_sql_interpolation \
   tests/test_repository_guardrails.py::test_production_python_has_no_banned_structural_smells \
   tests/test_repository_guardrails.py::test_t_gov_3_closes_after_structural_rules_land
@@ -317,8 +303,9 @@ required. Rollback knowingly restores the structural transition.
 ## 7. Delivery Self-Audit
 
 **x) Diff scan.** Re-run A-F/H. Reject production edits, a second scan scope,
-lexical or data-flow machinery, source-text regex enforcement, any new
-allowlist, test weakening, or files outside ownership.
+custom SQLAlchemy name matching, lexical or data-flow machinery, source-text
+regex enforcement, any new allowlist, test weakening, or files outside
+ownership.
 
 **y) Evidence.** Report tests-first red output, all commands from 6u, suite and
 coverage totals, planning and pre-commit review findings, commits, PR URL,

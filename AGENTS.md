@@ -167,8 +167,8 @@ If the impact is unclear, invoke the objection protocol rather than guessing.
 - Remove dead code, unused imports, orphaned branches, and speculative utilities introduced by the change.
 - Import SQLAlchemy names explicitly; Ruff `F403` rejects new wildcard imports
   unless an existing documented compatibility boundary applies.
-- Pass values to SQLAlchemy `text(...)` through bound parameters; never interpolate SQL with f-strings.
-- Shadowing an imported SQLAlchemy `text` binding does not exempt an interpolated call from the guardrail.
+- Ruff `S608` rejects SQL-looking string interpolation; pass runtime values to
+  SQLAlchemy `text(...)` through bound parameters.
 - Error handlers must take meaningful action: re-raise, wrap in a typed/domain error, return a typed failure, or log with enough context and a stated invariant.
 - Use project-domain names instead of generic identifiers when a domain term exists.
 - Extract meaningful magic literals to named constants unless the value is self-evident.

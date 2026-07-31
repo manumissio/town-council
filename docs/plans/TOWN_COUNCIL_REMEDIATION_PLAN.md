@@ -1,6 +1,6 @@
 # Town Council Remediation Plan (Codex Multi-Agent)
 
-version: 3.78
+version: 3.79
 generated: 2026-07-26
 source: Four-pass external code review (security, architecture, smells, process)
 source_artifact: [Town Council architecture review](../reviews/architecture-review-2026-07-19.html)
@@ -10,6 +10,10 @@ remains in force; where this plan is stricter, this plan wins for these tasks.
 
 ## Changelog
 
+- **v3.79:** Deletes T-GOV-3B's remaining custom SQLAlchemy matcher after
+  review found another qualifier gap. Ruff `S608` and `F403` now own dynamic
+  SQL and wildcard-import enforcement without project-specific name resolution;
+  an `--ignore-noqa` ratchet prevents hidden suppressions.
 - **v3.78:** Narrows T-GOV-3B after pre-commit review: activates Ruff `S608`
   for scripts by replacing their wildcard security exemption with eight
   current debt codes, and limits shadowing policy to interpolated calls.
@@ -1729,11 +1733,10 @@ files (GED-5 grant).
   `tests/test_inference_provider_protocol_contract.py`
 - do: Register four helper relationships made clean by T-DC-1 and revised
   T-DE-1; add checks banning top-level private `_sync_*_from_*` functions and
-  direct f-string interpolation through matching SQLAlchemy `text` import
-  bindings; select Ruff `F403` for wildcard imports; activate Ruff `S608` for
-  scripts by narrowing their security debt list; remove superseded domain-
-  specific assertions and the `[transition: T-GOV-3]` marker only after all
-  checks pass.
+  select Ruff `F403` for wildcard imports; activate Ruff `S608` for scripts by
+  narrowing their security debt list; remove the partial SQLAlchemy matcher,
+  superseded domain-specific assertions, and the `[transition: T-GOV-3]`
+  marker only after all checks pass.
 - note: T-DD-1B introduces no current facade rule and remains outside the
   dependency registry.
 - accept: Remaining structural rules are mechanically enforced, no pending

@@ -68,8 +68,6 @@ GUARDRAIL_SCAN_PREFIXES = {"api", "pipeline", "scripts", "tests", "docs", "ops",
 FACADE_IMPORT_PACKAGE_ROOTS = ("api", "pipeline", "scripts", "semantic_service", "tests")
 STRUCTURAL_SCAN_EXCLUDED_PREFIXES = {"tests"}
 SYNC_GLOBAL_FUNCTION_NAME = re.compile(r"^_sync_.+_from_.+$")
-SQLALCHEMY_MODULE = "sqlalchemy"
-SQLALCHEMY_TEXT_NAME = "text"
 LEXICAL_SCOPE_NODES = (
     ast.Module,
     ast.FunctionDef,
@@ -606,16 +604,6 @@ def _top_level_sync_function_lines(module_path: Path) -> list[int]:
     )
 
 
-def _dotted_expression_name(expression: ast.expr) -> str | None:
-    if isinstance(expression, ast.Name):
-        return expression.id
-    if isinstance(expression, ast.Attribute):
-        owner_name = _dotted_expression_name(expression.value)
-        if owner_name is not None:
-            return f"{owner_name}.{expression.attr}"
-    return None
-
-
 def _nodes_in_lexical_scope(scope_node: ast.AST) -> list[ast.AST]:
     scope_body = scope_node.body if hasattr(scope_node, "body") else []
     pending_nodes = list(scope_body) if isinstance(scope_body, list) else [scope_body]
@@ -629,67 +617,6 @@ def _nodes_in_lexical_scope(scope_node: ast.AST) -> list[ast.AST]:
         pending_nodes.extend(ast.iter_child_nodes(current_node))
 
     return scope_nodes
-
-
-def _sqlalchemy_text_call_names(module_tree: ast.Module) -> set[str]:
-    text_call_names: set[str] = set()
-
-    for import_node in ast.walk(module_tree):
-        if isinstance(import_node, ast.Import):
-            for imported_name in import_node.names:
-                if imported_name.name == SQLALCHEMY_MODULE:
-                    module_binding = imported_name.asname or SQLALCHEMY_MODULE
-                    text_call_names.add(f"{module_binding}.{SQLALCHEMY_TEXT_NAME}")
-                elif imported_name.name.startswith(f"{SQLALCHEMY_MODULE}."):
-                    module_binding = imported_name.asname or SQLALCHEMY_MODULE
-                    text_call_names.add(f"{module_binding}.{SQLALCHEMY_TEXT_NAME}")
-                    if imported_name.asname is None:
-                        text_call_names.add(
-                            f"{imported_name.name}.{SQLALCHEMY_TEXT_NAME}"
-                        )
-        elif (
-            isinstance(import_node, ast.ImportFrom)
-            and import_node.level == 0
-            and import_node.module is not None
-            and (
-                import_node.module == SQLALCHEMY_MODULE
-                or import_node.module.startswith(f"{SQLALCHEMY_MODULE}.")
-            )
-        ):
-            for imported_name in import_node.names:
-                binding_name = imported_name.asname or imported_name.name
-                if imported_name.name == SQLALCHEMY_TEXT_NAME:
-                    text_call_names.add(binding_name)
-                elif imported_name.name in {"sql", "expression"}:
-                    text_call_names.add(f"{binding_name}.{SQLALCHEMY_TEXT_NAME}")
-
-    return text_call_names
-
-
-def _call_has_interpolated_text(call_node: ast.Call) -> bool:
-    return any(
-        isinstance(expression_node, ast.JoinedStr)
-        for argument_expression in (
-            *call_node.args,
-            *(keyword.value for keyword in call_node.keywords),
-        )
-        for expression_node in ast.walk(argument_expression)
-    )
-
-
-def _interpolated_sqlalchemy_text_lines(module_path: Path) -> list[int]:
-    module_tree = ast.parse(
-        module_path.read_text(encoding="utf-8"),
-        filename=str(module_path),
-    )
-    text_call_names = _sqlalchemy_text_call_names(module_tree)
-    return sorted(
-        statement.lineno
-        for statement in ast.walk(module_tree)
-        if isinstance(statement, ast.Call)
-        and _call_has_interpolated_text(statement)
-        and _dotted_expression_name(statement.func) in text_call_names
-    )
 
 
 def _is_production_structural_path(relative_source_path: Path) -> bool:
@@ -906,6 +833,38 @@ def test_ruff_rejects_wildcard_imports_and_sql_interpolation() -> None:
     assert planted_violations.returncode == RUFF_VIOLATION_EXIT
     assert "F403" in planted_violations.stdout
     assert "S608" in planted_violations.stdout
+
+
+def test_ruff_structural_rule_suppressions_stay_explicit() -> None:
+    structural_rule_check = subprocess.run(
+        [
+            sys.executable,
+            "-m",
+            "ruff",
+            "check",
+            "--ignore-noqa",
+            "--select",
+            "F403,S608",
+            "--output-format",
+            "json",
+            ".",
+        ],
+        cwd=ROOT,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+
+    assert structural_rule_check.returncode == RUFF_VIOLATION_EXIT
+    structural_rule_violations = json.loads(structural_rule_check.stdout)
+    assert [
+        (
+            str(Path(violation["filename"]).relative_to(ROOT)),
+            violation["location"]["row"],
+            violation["code"],
+        )
+        for violation in structural_rule_violations
+    ] == [("pipeline/metrics.py", 12, "F403")]
 
 
 def test_typed_subtree_config_stays_explicit_and_aligned():
@@ -1797,106 +1756,6 @@ def test_sync_global_guardrail_detects_top_level_functions(
     assert _top_level_sync_function_lines(sync_source) == [1, 4, 7, 28, 32]
 
 
-@pytest.mark.parametrize(
-    "sqlalchemy_import, interpolated_call",
-    (
-        ("from sqlalchemy import text", 'text(f"SELECT {value}")'),
-        (
-            "from sqlalchemy import text as sql_text",
-            'sql_text(f"SELECT {value}")',
-        ),
-        ("from sqlalchemy.sql import text", 'text(f"SELECT {value}")'),
-        (
-            "from sqlalchemy.sql import text as sql_text",
-            'sql_text(f"SELECT {value}")',
-        ),
-        ("import sqlalchemy", 'sqlalchemy.text(f"SELECT {value}")'),
-        ("import sqlalchemy.orm", 'sqlalchemy.text(f"SELECT {value}")'),
-        ("import sqlalchemy as sa", 'sa.text(f"SELECT {value}")'),
-        ("import sqlalchemy.sql as sql", 'sql.text(f"SELECT {value}")'),
-        (
-            "import sqlalchemy.sql.expression as expression",
-            'expression.text(f"SELECT {value}")',
-        ),
-        (
-            "from sqlalchemy import text",
-            'text(text=f"SELECT {value}")',
-        ),
-        (
-            "from sqlalchemy import text",
-            'text(f"SELECT {value}" + " FROM catalog")',
-        ),
-        (
-            "from sqlalchemy import text",
-            'text(text="SELECT " + f"{value}")',
-        ),
-        (
-            "from sqlalchemy import text",
-            'text(**{"text": f"SELECT {value}"})',
-        ),
-        (
-            "from sqlalchemy import text",
-            'text(**dict(text=f"SELECT {value}"))',
-        ),
-    ),
-)
-def test_sqlalchemy_text_guardrail_detects_matching_imports(
-    tmp_path: Path,
-    sqlalchemy_import: str,
-    interpolated_call: str,
-) -> None:
-    sql_source = tmp_path / "sql_source.py"
-    sql_source.write_text(
-        f"{sqlalchemy_import}\nvalue = 1\n{interpolated_call}\n",
-        encoding="utf-8",
-    )
-
-    assert _interpolated_sqlalchemy_text_lines(sql_source) == [3]
-
-
-def test_sqlalchemy_text_guardrail_allows_safe_and_unrelated_calls(
-    tmp_path: Path,
-) -> None:
-    sql_source = tmp_path / "safe_sql_source.py"
-    sql_source.write_text(
-        "from sqlalchemy import text as sql_text\n"
-        "\n"
-        "def text(statement):\n"
-        "    return statement\n"
-        "\n"
-        'sql_text("SELECT :value")\n'
-        'text(f"SELECT {value}")\n'
-        'message = \'sql_text(f"SELECT {value}")\'\n'
-        '# sql_text(f"SELECT {value}")\n'
-        "def local_sqlalchemy(value):\n"
-        "    from .sqlalchemy import text\n"
-        '    return text(f"Value: {value}")\n',
-        encoding="utf-8",
-    )
-
-    assert _interpolated_sqlalchemy_text_lines(sql_source) == []
-
-
-def test_sqlalchemy_text_guardrail_shadowing_does_not_exempt_interpolation(
-    tmp_path: Path,
-) -> None:
-    sql_source = tmp_path / "shadowed_sql_source.py"
-    sql_source.write_text(
-        "from sqlalchemy import text\n"
-        "\n"
-        "def render_parameter(text, value):\n"
-        '    return text(f"Value: {value}")\n'
-        "\n"
-        "def render_helper(value):\n"
-        "    def text(statement):\n"
-        "        return statement\n"
-        '    return text(f"Value: {value}")\n',
-        encoding="utf-8",
-    )
-
-    assert _interpolated_sqlalchemy_text_lines(sql_source) == [4, 9]
-
-
 def test_structural_scan_scope_covers_production_python_only() -> None:
     assert _is_production_structural_path(Path("root_module.py"))
     assert _is_production_structural_path(Path("alembic/versions/0001.py"))
@@ -1906,7 +1765,6 @@ def test_structural_scan_scope_covers_production_python_only() -> None:
 
 def test_production_python_has_no_banned_structural_smells() -> None:
     sync_violations: dict[str, list[int]] = {}
-    sql_violations: dict[str, list[int]] = {}
 
     for source_path in _broad_exception_scan_files():
         relative_source_path = source_path.relative_to(ROOT)
@@ -1915,12 +1773,8 @@ def test_production_python_has_no_banned_structural_smells() -> None:
         sync_lines = _top_level_sync_function_lines(source_path)
         if sync_lines:
             sync_violations[str(relative_source_path)] = sync_lines
-        sql_lines = _interpolated_sqlalchemy_text_lines(source_path)
-        if sql_lines:
-            sql_violations[str(relative_source_path)] = sql_lines
 
     assert sync_violations == {}
-    assert sql_violations == {}
 
 
 def test_broad_exception_allowlist_stays_explicit():
@@ -4586,8 +4440,7 @@ def test_t_gov_3_closes_after_structural_rules_land():
     assert "## Structural rules\n" in guardrail_policy
     assert "[transition: T-GOV-3]" not in guardrail_policy
     assert "duplicated module-global state synchronized by convention" not in guardrail_policy
-    assert "conservative file-level scan rejects direct f-string interpolation" in guardrail_policy
-    assert "Shadowing a matching imported" in guardrail_policy
+    assert "Ruff `S608` rejects SQL-looking string interpolation" in guardrail_policy
     assert "Ruff `F403` rejects new wildcard imports" in guardrail_policy
     assert "top-level private `_sync_*_from_*` functions" in guardrail_policy
     assert "Retired: all per-file line-count assertions." in guardrail_policy
