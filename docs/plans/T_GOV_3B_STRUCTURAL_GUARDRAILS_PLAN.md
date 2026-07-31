@@ -72,9 +72,9 @@ The operator approved T-GOV-3B planning, ownership, and implementation on
    methods, and names outside that private convention remain allowed.
 6. Add test-local AST helpers that resolve direct and module-qualified
    SQLAlchemy `text` imports in each call's ancestor lexical scopes and report
-   f-string descendants in any direct call argument expression. Scan
-   Ruff-discovered production Python files, including repository-root modules
-   and `alembic/**`, while excluding tests, archive, and experiments. Treat all
+   f-string descendants in any direct call argument expression. Scan the
+   production Python set derived by the repository guardrail from Ruff
+   discovery and its canonical exclusion constant. Treat all
    direct SQLAlchemy `text(f"...")` calls as prohibited because static segments
    cannot reliably classify dynamically assembled SQL as read or mutation.
    Do not treat imports from sibling scopes as aliases, trace values through
@@ -119,8 +119,8 @@ New test-local responsibilities:
   ancestor lexical scopes without attempting value-flow analysis.
 - `_interpolated_sqlalchemy_text_lines`: report direct f-string arguments to
   those resolved callables.
-- `_is_production_structural_path`: preserve the explicit non-production
-  exclusions while keeping repository-root and Alembic Python in scope.
+- `_is_production_structural_path`: apply the guardrail test's canonical
+  production exclusions to Ruff discovery.
 
 **f) Reuse audit.** Reuse `_broad_exception_scan_files()` for Ruff-owned Python
 discovery, `_forbidden_imports()` for dependency direction, existing AST
@@ -204,8 +204,8 @@ zero production-code delta.
    its facade.
 10. Ruff discovers a new production Python file containing either banned
     structure.
-11. Tests, archived history, and experiments do not become production
-    violations; repository-root and Alembic modules do.
+11. The structural scan follows the canonical Ruff-derived production scope
+    without a second file-set enumeration.
 12. T-GOV-3 is marked complete before both checks and dependency registrations
     are present.
 

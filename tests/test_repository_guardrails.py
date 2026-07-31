@@ -658,7 +658,7 @@ def _sqlalchemy_import_bindings(
             sqlalchemy_bindings.setdefault(binding_name, set()).update(text_suffixes)
         return sqlalchemy_bindings
 
-    if import_node.module is None:
+    if import_node.module is None or import_node.level != 0:
         return sqlalchemy_bindings
     for imported_name in import_node.names:
         binding_name = imported_name.asname or imported_name.name
@@ -799,6 +799,7 @@ def _sqlalchemy_wildcard_import_lines(module_path: Path) -> list[int]:
         for statement in ast.walk(module_tree)
         if isinstance(statement, ast.ImportFrom)
         and statement.module is not None
+        and statement.level == 0
         and (
             statement.module == SQLALCHEMY_MODULE
             or statement.module.startswith(f"{SQLALCHEMY_MODULE}.")
@@ -1950,7 +1951,10 @@ def test_sqlalchemy_text_guardrail_allows_safe_and_unrelated_calls(
         'sql_text("SELECT :value")\n'
         'text(f"SELECT {value}")\n'
         'message = \'sql_text(f"SELECT {value}")\'\n'
-        '# sql_text(f"SELECT {value}")\n',
+        '# sql_text(f"SELECT {value}")\n'
+        "def local_sqlalchemy(value):\n"
+        "    from .sqlalchemy import text\n"
+        '    return text(f"Value: {value}")\n',
         encoding="utf-8",
     )
 
@@ -2056,7 +2060,8 @@ def test_sqlalchemy_wildcard_guardrail_rejects_only_sqlalchemy_imports(
     wildcard_source.write_text(
         "from sqlalchemy import *\n"
         "from sqlalchemy.sql import *\n"
-        "from unrelated import *\n",
+        "from unrelated import *\n"
+        "from .sqlalchemy import *\n",
         encoding="utf-8",
     )
 
