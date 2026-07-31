@@ -1,6 +1,6 @@
 # Town Council Remediation Plan (Codex Multi-Agent)
 
-version: 3.80
+version: 3.81
 generated: 2026-07-26
 source: Four-pass external code review (security, architecture, smells, process)
 source_artifact: [Town Council architecture review](../reviews/architecture-review-2026-07-19.html)
@@ -10,6 +10,14 @@ remains in force; where this plan is stricter, this plan wins for these tasks.
 
 ## Changelog
 
+- **v3.81:** Reconciles the active ledger with merged work and the architecture
+  review. Marks T-PLAT-4 complete after PR #207, corrects the stale T-TIME-1
+  and T-TIME-2 in-progress labels, and registers seven narrow deletion tasks:
+  T-DE-2, T-DC-2A, T-DC-2B, T-TASK-1, T-SEM-1, T-IDX-1, and T-FE-1. Each
+  pending task requires a separate Full plan and exact ownership before code
+  changes. Records Legistar OfficeRecords as the approved T-GOV-2A roster
+  authority and requires cities without an approved source to fail closed for
+  people-derived data.
 - **v3.80:** Activates operator-approved T-PLAT-4 with exact cross-lane
   ownership for deleting the generic API Redis cache, preserving the metadata
   endpoint's one-hour behavior in its route, removing obsolete cache-only
@@ -374,8 +382,8 @@ remains in force; where this plan is stricter, this plan wins for these tasks.
 
 | State | Tasks |
 |---|---|
-| **Complete** | T-CI-0, T-CI-1, T-CI-1A, T-CI-2, T-CI-2A, T-CI-3, T-CI-4, T-CI-5, T-SEC-1, T-SEC-2, T-SEC-3, T-SEC-3C, T-SEC-4, T-SEC-4A, T-SEC-5, T-SEC-6, T-TIME-1, T-TIME-2, T-TIME-3, T-CRAWL-1, T-CRAWL-2, T-PLAT-1, T-PLAT-1A, T-PLAT-2, T-PLAT-2A, T-PLAT-2B, T-PLAT-2C, T-PLAT-3, T-GOV-1, T-GOV-2, T-GOV-3, T-GOV-3A, T-GOV-3B, T-GOV-4, T-GOV-5, T-GOV-6, T-DA-1, T-DB-1A, T-DB-1, T-DB-1B, T-DC-1, T-DD-1A, T-DD-1B, T-DE-1 |
-| **Pending** | T-PLAT-4, T-GOV-2A |
+| **Complete** | T-CI-0, T-CI-1, T-CI-1A, T-CI-2, T-CI-2A, T-CI-3, T-CI-4, T-CI-5, T-SEC-1, T-SEC-2, T-SEC-3, T-SEC-3C, T-SEC-4, T-SEC-4A, T-SEC-5, T-SEC-6, T-TIME-1, T-TIME-2, T-TIME-3, T-CRAWL-1, T-CRAWL-2, T-PLAT-1, T-PLAT-1A, T-PLAT-2, T-PLAT-2A, T-PLAT-2B, T-PLAT-2C, T-PLAT-3, T-PLAT-4, T-GOV-1, T-GOV-2, T-GOV-3, T-GOV-3A, T-GOV-3B, T-GOV-4, T-GOV-5, T-GOV-6, T-DA-1, T-DB-1A, T-DB-1, T-DB-1B, T-DC-1, T-DD-1A, T-DD-1B, T-DE-1 |
+| **Pending** | T-GOV-2A, T-DE-2, T-DC-2A, T-DC-2B, T-TASK-1, T-SEM-1, T-IDX-1, T-FE-1 |
 
 ---
 
@@ -927,7 +935,7 @@ CI-owned `ruff.toml` for removal of the stale
 
 ### T-TIME-1: One clock — timezone-aware timestamps everywhere
 - priority: P1
-- status: coordinated implementation in progress with T-TIME-2
+- status: complete and verified 2026-07-26 (PR #148)
 - implementation_plan: `docs/plans/T_TIME_1_2_TIMEZONE_MIGRATION_PLAN.md`
 - files_owned: exact shared twenty-eight-file set in the implementation plan
 - do: Make all thirteen model timestamps timezone-aware. Give the ten
@@ -944,7 +952,7 @@ CI-owned `ruff.toml` for removal of the stale
 
 ### T-TIME-2: Migration for timestamp columns
 - priority: P1
-- status: coordinated implementation in progress with T-TIME-1
+- status: complete and verified 2026-07-26 (PR #148)
 - implementation_plan: `docs/plans/T_TIME_1_2_TIMEZONE_MIGRATION_PLAN.md`
 - files_owned: exact shared twenty-eight-file set in the implementation plan
 - do: Add mandatory v10 conversion using
@@ -1330,6 +1338,127 @@ files (GED-5 grant).
   maintenance tests, Ruff, Mypy, docs links, coverage, and the complete Python
   suite pass.
 
+### T-DE-2: Delete the provider compatibility facade
+- priority: P2
+- status: pending Full plan and exact ownership
+- depends_on: T-DE-1 (satisfied by PR #158)
+- files_owned: to be named in a separate Full plan before implementation
+- do: Delete `pipeline/llm_provider.py`. Repoint production callers and tests
+  to `pipeline/inference_provider_contract.py`,
+  `pipeline/http_inference_provider.py`, and
+  `pipeline/inprocess_inference_provider.py`, according to ownership. Preserve
+  the `LocalAI` product-policy boundary in `pipeline/llm.py`.
+- preserve: Provider protocol, typed errors, adapters, retries, timeouts,
+  telemetry, local-first defaults, fail-fast behavior, model selection, and
+  fallback policy.
+- accept: No tracked import of `pipeline.llm_provider` remains; the file is
+  deleted rather than retained as a re-export; tests patch implementation
+  owners or approved provider boundaries.
+- forbidden: Compatibility aliases, provider-policy changes, retry changes,
+  or implementation before the task-specific Full plan locks ownership.
+
+### T-DC-2A: Delete search-to-api.main patch lookup
+- priority: P2
+- status: pending Full plan and exact ownership
+- depends_on: T-DC-1 (satisfied by PR #157)
+- files_owned: to be named in a separate Full plan before implementation
+- do: Delete `_api_main`, `facade_value`, `facade_callable`, and
+  `search_client` lookup behavior from the search support family. Repoint
+  callers and tests to direct search implementation owners and the approved
+  Meilisearch boundary.
+- preserve: Search, trends, semantic-search, feature-flag, pagination, filter,
+  response, authentication, and Meilisearch-key behavior.
+- accept: Search helpers never import or inspect `api.main`; no patch-safe
+  lookup wrapper or facade re-export survives; behavior-focused search tests
+  remain green.
+- forbidden: Search redesign, query-policy changes, compatibility aliases, or
+  implementation before exact ownership is approved.
+
+### T-DC-2B: Delete API router facade bags
+- priority: P2
+- status: pending Full plan and exact ownership
+- depends_on: T-DC-2A
+- files_owned: to be named in a separate Full plan before implementation
+- do: Replace `sys.modules[__name__]`, `lineage_facade`, `task_facade`, and
+  route-level model/callable bags with direct imports and approved runtime
+  boundaries.
+- preserve: FastAPI routes, request and response contracts, Celery dispatch,
+  task status, lineage filtering, authentication, and startup behavior.
+- accept: Router builders receive only real runtime dependencies; no route
+  function accepts a module facade or generic callable bag; tests patch
+  implementation modules rather than `api.main`.
+- forbidden: Route-contract changes, Celery signature changes, new dependency
+  injection machinery, or concurrent implementation with T-DC-2A.
+
+### T-TASK-1: Delete the task facade helper layer
+- priority: P1
+- status: pending Full plan and exact ownership
+- depends_on: T-DB-1B (satisfied by PR #146)
+- files_owned: to be named in a separate Full plan before implementation
+- do: Delete `pipeline/task_facade_helpers.py` and the remaining `globals()`
+  service bags, callable injection, and forwarding wrappers in
+  `pipeline/tasks.py`. Move each operation to its existing domain owner and
+  keep the Celery-decorated entrypoints thin.
+- preserve: Celery task names, signatures, routes, retry and rollback
+  behavior, task result payloads, session ownership, and pipeline ordering.
+- accept: The helper file and global lookup paths are absent; task entrypoints
+  call domain operations directly; tests use approved DB, Celery, provider,
+  and Meilisearch boundaries.
+- forbidden: Task identity drift, new wrappers or compatibility exports,
+  orchestration redesign, or implementation without exact ownership.
+
+### T-SEM-1: Delete reverse semantic-index facade lookups
+- priority: P2
+- status: pending Full plan and exact ownership
+- depends_on: G3 (satisfied by T-GOV-1)
+- files_owned: to be named in a separate Full plan before implementation
+- do: Delete `_semantic_index_facade` lookups and implementation-callable
+  exposure across semantic backends, row builders, artifact handling,
+  reranking, and backend selection. Move configuration and optional dependency
+  ownership to one existing semantic implementation boundary.
+- preserve: FAISS and pgvector behavior, model configuration, worker-safety
+  checks, artifact contracts, reranking, telemetry, and semantic API results.
+- accept: Lower semantic modules do not import back through
+  `pipeline.semantic_index`; tests fake the approved semantic/provider or
+  persistence boundary rather than a facade.
+- forbidden: New semantic registry, backend-policy changes, model changes,
+  compatibility aliases, or implementation before exact ownership.
+
+### T-IDX-1: Delete obsolete people index projections
+- priority: P1
+- status: pending T-GOV-2A and a separate Full plan
+- depends_on: T-GOV-2A
+- files_owned: to be named in a separate Full plan after T-GOV-2A
+- do: Remove people-index projection paths and compatibility fields made
+  obsolete by roster-gated person linking. Keep only projections backed by
+  authoritative roster membership and delete superseded title-inference
+  assumptions rather than translating them.
+- preserve: Source-document availability, non-person search behavior,
+  grounding, lineage, and independently authoritative roster evidence.
+- accept: Search indexes and API responses cannot expose document-inferred
+  people as officials; obsolete projection code and fields are deleted in the
+  same task.
+- forbidden: Implementation before T-GOV-2A, new person inference,
+  hardcoded city roster status, or preserving obsolete fields as aliases.
+
+### T-FE-1: Delete proven ResultCard task lifecycle duplication
+- priority: P2
+- status: pending behavior-test design and exact ownership
+- depends_on: T-CI-2 (satisfied)
+- files_owned: to be named in a separate Full plan before implementation
+- do: Characterize summary, topic, extraction, and segmentation task
+  lifecycles. Consolidate only polling, cancellation, timeout, error, or state
+  transitions that behavior tests prove identical, then delete each
+  superseded copy from `frontend/components/ResultCard.js`.
+- preserve: User-visible actions, loading and error states, bounded polling,
+  unmount cleanup, task-status interpretation, rendered result content, and
+  accessibility behavior.
+- accept: One tested implementation owns each proven shared behavior;
+  ResultCard retains action-specific differences and rendering; superseded
+  lifecycle code is deleted rather than wrapped.
+- forbidden: Visual redesign, API changes, weakened polling tests, speculative
+  frontend framework, or implementation before behavior tests are approved.
+
 ---
 
 ## 6. PHASE 3 — PLATFORM & GOVERNANCE (agents: plat, gov; after Phase 1)
@@ -1604,7 +1733,7 @@ files (GED-5 grant).
 
 ### T-PLAT-4: cache.py right-sizing
 - priority: P3
-- status: active; operator approved deletion and ownership expansion
+- status: complete and verified 2026-07-31 (PR #207)
 - implementation_plan: `docs/plans/T_PLAT_4_CACHE_RIGHTSIZING_PLAN.md`
 - files_owned: `docs/plans/T_PLAT_4_CACHE_RIGHTSIZING_PLAN.md`,
   `docs/plans/TOWN_COUNCIL_REMEDIATION_PLAN.md`, `api/cache.py`,
@@ -1695,16 +1824,23 @@ files (GED-5 grant).
 
 ### T-GOV-2A: Enforce roster-gated person linking
 - priority: P1
-- status: pending
+- status: pending; roster authority approved, Full plan and data inventory required
 - depends_on: T-GOV-2
-- files_owned: to be named in a separate Full plan after authoritative roster
-  inputs and current derived person records are inventoried
-- do: Establish independently authoritative roster input; gate person creation
-  and people-facing derived records; remediate existing non-roster entities and
-  memberships; reindex affected catalogs; and prevent re-derivation.
+- authoritative_source: Legistar OfficeRecords membership records, resolved
+  through the owning city's approved Legistar body rather than a hardcoded
+  body identifier
+- files_owned: to be named in a separate Full plan after current derived person
+  records and roster availability are inventoried
+- do: Ingest independently authoritative OfficeRecords membership evidence;
+  gate person creation and people-facing derived records; remediate existing
+  non-roster entities and memberships; reindex affected catalogs; and prevent
+  re-derivation. Cities without an approved roster source fail closed: source
+  documents remain available, while people-facing derived data is disabled.
 - forbidden: Inferring roster authority from titles, source-document mentions,
   or linker-generated memberships; deleting or rewriting municipal source
-  records; implementing without an approved Full person-data plan.
+  records; hardcoding a Legistar body identifier; enabling people-derived data
+  for cities without an approved roster source; implementing without an
+  approved Full person-data plan.
 - accept: Runtime behavior and existing derived data conform to the accepted G4
   policy; correction and reindexing are repeatable; City Coverage Expansion is
   unblocked only after verification.
@@ -1867,15 +2003,18 @@ Phase 0: agent-ci  [T-CI-0, then T-CI-5 (allowlist snapshot freshness), then T-C
 Docs-0:  agent-gov [T-GOV-6: SECURITY.md] + [T-GOV-4: AGENTS.md]   (with/just after Phase 0)
 Phase 1: agent-sec [T-SEC-1..6] || agent-time [T-TIME-1 + T-TIME-2 coordinated, T-TIME-3] || agent-crawl [T-CRAWL-1..2]
 Gate:    G3 satisfied (T-GOV-1 Accepted ADR + active docs/TESTING.MD)
-Phase 2: agent-da || agent-db [T-DB-1A, then T-DB-1, then T-DB-1B] || agent-dd || agent-de ;
-         then agent-dc (exclusive on api/*)
+Phase 2: completed foundations [T-DA-1, T-DB-1A, T-DB-1, T-DB-1B,
+         T-DC-1, T-DD-1A, T-DD-1B, T-DE-1]
+Next:    Serialize each task's Full-plan registration through this ledger.
+         After ownership approval, T-DE-2 and T-SEM-1 may run in parallel only
+         if their implementation files are disjoint; T-DC-2A then T-DC-2B;
+         T-TASK-1 separately.
 Phase 3: agent-plat [T-PLAT-1 after T-TIME-1 and T-TIME-2, T-PLAT-1A
-         closure, T-PLAT-2B security patch, then T-PLAT-2..4]
-         || agent-gov [T-GOV-2 records G4 policy, T-GOV-2A implements after
-         authoritative roster approval; T-GOV-3A, then T-GOV-3B after T-DC-1
-         and revised T-DE-1; T-GOV-5 complete]
-Anytime: T-GOV-6 complete; T-GOV-2 records approved G4, while T-GOV-2A
-         implements it only after authoritative roster-source approval
+         closure, T-PLAT-2B security patch, then T-PLAT-2..4; complete]
+         || agent-gov [T-GOV-2 policy complete; T-GOV-2A pending with approved
+         OfficeRecords authority; T-GOV-3A/B and T-GOV-5 complete]
+After:   T-IDX-1 remains blocked until verified T-GOV-2A; T-FE-1 follows
+         behavior-test design.
 ```
 
 Merge policy: one task = one PR, except operator-approved T-TIME-1 +
@@ -1886,11 +2025,9 @@ its owned files reports and halts rather than widening scope.
 
 ## 8. OUT OF SCOPE (explicitly deferred; do not attempt)
 
-- Splitting frontend/components/ResultCard.js (needs a design pass, not a
-  mechanical one; schedule after T-CI-2 provides a harness).
 - "Operator-only" auth on the Next proxy (not approved by G2; requires a
   future policy change).
-- Retiring generational strata (search_routes/search_read/api-search;
-  migrate_v* files) beyond what Phase 2 tasks name.
+- Retiring compatibility strata beyond the seven registered deletion tasks.
+- Retiring frozen `migrate_v*` history after the Alembic baseline.
 - env-access consolidation into config_env (low value until Phase 2 lands).
 - Any change to inference runtime policy, models, or soak baselines.
