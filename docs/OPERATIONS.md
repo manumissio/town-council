@@ -1,6 +1,6 @@
 # Operations Runbook
 
-Last updated: 2026-07-26
+Last updated: 2026-07-31
 
 ## Core workflow
 
@@ -195,9 +195,13 @@ Synchronous flush plus `SAVE` prevents an older persisted queue/cache snapshot
 from returning after Redis restarts, and `DBSIZE=0` verifies database 0 before
 recovery continues. The password is resolved by Compose into the Redis
 container environment and is never expanded into the host command. This
-intentionally discards pending Celery work, task results, and API cache entries.
-Re-enqueue only work that is still valid after PostgreSQL and search recovery
-have passed verification.
+intentionally discards pending Celery work and task results. Re-enqueue only
+work that is still valid after PostgreSQL and search recovery have passed
+verification.
+
+The `/metadata` endpoint keeps a one-hour process-local snapshot. The supported
+Compose service runs one API process. Custom multi-process deployments keep one
+snapshot per process and may briefly serve different metadata after a refresh.
 
 For full recovery, stop every Compose writer plus schedulers or manual commands
 running outside this project. Validate the archive before dropping the target:
