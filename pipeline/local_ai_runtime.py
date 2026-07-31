@@ -1,6 +1,7 @@
 import os
 
-from pipeline.llm_provider import HttpInferenceProvider, InProcessLlamaProvider
+from pipeline.http_inference_provider import HttpInferenceProvider
+from pipeline.inprocess_inference_provider import InProcessLlamaProvider
 
 
 class LocalAIConfigError(RuntimeError):

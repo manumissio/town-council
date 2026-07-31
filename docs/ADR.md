@@ -1420,3 +1420,34 @@ Use each entry to record:
   - [docs/PIPELINE.md](PIPELINE.md)
   - [docs/ENGINEERING_GUARDRAILS.md](ENGINEERING_GUARDRAILS.md)
   - [ROADMAP.md](../ROADMAP.md)
+
+## 2026-07-31: Delete the provider compatibility facade
+
+- Status: Accepted
+- Decision:
+  - Delete `pipeline/llm_provider.py` after T-DE-1 removed reverse imports
+    from provider implementations.
+  - Import the provider protocol and typed errors from
+    `pipeline/inference_provider_contract.py`.
+  - Import HTTP and in-process adapters from their implementation owners.
+  - Remove provider-class re-exports from `pipeline/llm.py`; LocalAI remains
+    the product-policy and fallback boundary.
+  - Repoint tests to implementation modules or the approved inference fake
+    boundary rather than preserving historical patch targets.
+- Why:
+  - The compatibility module contains only re-exports and adds no production
+    behavior or policy.
+  - G3 establishes that test patch points are not public API and requires
+    tests to follow real architectural ownership.
+  - Deleting the facade makes the provider contract and adapters discoverable
+    without changing transport, retry, timeout, telemetry, model, or fallback
+    behavior.
+- Supersedes:
+  - The compatibility-facade portion of "2026-04-29: Split inference provider
+    implementation behind the existing facade." Its contract and adapter
+    ownership decisions remain active.
+- Canonical references:
+  - [ARCHITECTURE.md](../ARCHITECTURE.md)
+  - [docs/PIPELINE.md](PIPELINE.md)
+  - [docs/TESTING.MD](TESTING.MD)
+  - [T-DE-2 implementation plan](plans/T_DE_2_PROVIDER_FACADE_DELETION_PLAN.md)

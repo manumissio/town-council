@@ -1,4 +1,4 @@
-from pipeline.llm_provider import HttpInferenceProvider
+from pipeline.http_inference_provider import HttpInferenceProvider
 
 
 def test_operation_timeout_selection_prefers_split_budgets(monkeypatch):

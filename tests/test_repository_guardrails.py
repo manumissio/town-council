@@ -221,12 +221,6 @@ CONFIG_OWNED_FORMATTER_COMMAND = "./.venv/bin/ruff format --check . --config ruf
 HELPER_FACADE_IMPORT_RULES = (
     ("api/app_setup.py", ("api.main",)),
     (
-        "pipeline/agenda_segmentation_maintenance.py",
-        ("pipeline.llm_provider",),
-    ),
-    ("pipeline/http_inference_provider.py", ("pipeline.llm_provider",)),
-    ("pipeline/provider_telemetry.py", ("pipeline.llm_provider",)),
-    (
         "pipeline/summary_hydration_diagnostic_samples.py",
         (
             "pipeline.summary_hydration_diagnostics",
@@ -1714,6 +1708,24 @@ def test_registered_helpers_do_not_import_facades():
             dependency_violations[helper_relative_path] = forbidden_imports
 
     assert dependency_violations == {}
+
+
+def test_provider_compatibility_facade_is_deleted() -> None:
+    deleted_facade = ROOT / "pipeline/llm_provider.py"
+    remaining_imports: dict[str, list[str]] = {}
+
+    for tracked_path in _tracked_files():
+        if tracked_path.suffix != ".py" or not tracked_path.is_file():
+            continue
+        forbidden_imports = _forbidden_imports(
+            tracked_path,
+            {"pipeline.llm_provider"},
+        )
+        if forbidden_imports:
+            remaining_imports[str(tracked_path.relative_to(ROOT))] = forbidden_imports
+
+    assert not deleted_facade.exists()
+    assert remaining_imports == {}
 
 
 def test_sync_global_guardrail_detects_top_level_functions(
@@ -4451,15 +4463,7 @@ def test_t_gov_3_closes_after_structural_rules_land():
     assert "top-level private `_sync_*_from_*` functions" in guardrail_policy
     assert "Retired: all per-file line-count assertions." in guardrail_policy
     assert "Remaining line assertions are deleted" not in guardrail_policy
-    assert {
-        ("api/app_setup.py", ("api.main",)),
-        (
-            "pipeline/agenda_segmentation_maintenance.py",
-            ("pipeline.llm_provider",),
-        ),
-        ("pipeline/http_inference_provider.py", ("pipeline.llm_provider",)),
-        ("pipeline/provider_telemetry.py", ("pipeline.llm_provider",)),
-    }.issubset(set(HELPER_FACADE_IMPORT_RULES))
+    assert ("api/app_setup.py", ("api.main",)) in HELPER_FACADE_IMPORT_RULES
 
 
 def test_t_gov_5_engineering_guardrails_is_complete():

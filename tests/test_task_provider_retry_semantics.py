@@ -11,7 +11,7 @@ from pipeline import indexer
 from pipeline import enrichment_tasks
 from pipeline import semantic_tasks
 from pipeline import tasks
-from pipeline.llm_provider import ProviderResponseError, ProviderTimeoutError
+from pipeline.inference_provider_contract import ProviderResponseError, ProviderTimeoutError
 from pipeline.models import AgendaItem, Document
 
 

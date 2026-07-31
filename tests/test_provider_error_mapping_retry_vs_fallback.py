@@ -1,5 +1,5 @@
 from pipeline.llm import LocalAI
-from pipeline.llm_provider import ProviderResponseError, ProviderTimeoutError
+from pipeline.inference_provider_contract import ProviderResponseError, ProviderTimeoutError
 
 
 class _ResponseErrorProvider:

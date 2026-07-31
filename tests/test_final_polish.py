@@ -3,7 +3,8 @@ from unittest.mock import MagicMock
 import sys
 import os
 
-from pipeline.llm import HttpInferenceProvider, LocalAI
+from pipeline.http_inference_provider import HttpInferenceProvider
+from pipeline.llm import LocalAI
 
 def test_local_ai_missing_model_returns_none(mocker):
     """
