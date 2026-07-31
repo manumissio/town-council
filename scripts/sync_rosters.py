@@ -21,6 +21,7 @@ from pipeline.roster_contracts import (
     RosterReconciliationCounts,
     RosterRunCounts,
     RosterSyncTarget,
+    normalize_roster_body_name,
 )
 from pipeline.roster_sync import depublish_city_roster, reconcile_roster_snapshot
 from pipeline.utils import generate_ocd_id
@@ -210,14 +211,20 @@ def _organization_for_snapshot(
     )
     if organization is not None:
         return organization
-    named_organizations = (
+    normalized_body_name = normalize_roster_body_name(
+        rollout_entry.roster_body_name
+    )
+    place_organizations = (
         session.query(Organization)
-        .filter(
-            Organization.place_id == place.id,
-            Organization.name == rollout_entry.roster_body_name,
-        )
+        .filter(Organization.place_id == place.id)
         .all()
     )
+    named_organizations = [
+        local_organization
+        for local_organization in place_organizations
+        if normalize_roster_body_name(str(local_organization.name))
+        == normalized_body_name
+    ]
     if len(named_organizations) > 1:
         raise ValueError(
             f"multiple local organizations match {rollout_entry.city_slug}"

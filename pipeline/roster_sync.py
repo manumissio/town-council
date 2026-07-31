@@ -30,6 +30,7 @@ def reconcile_roster_snapshot(
     if organization is None or organization.place_id != sync_target.place_id:
         raise ValueError("roster sync target does not match a local organization")
     counts = RosterReconciliationCounts()
+    displaced_person_ids: set[int] = set()
     _update_organization(organization, sync_target, roster_snapshot, synced_at)
     current_record_ids: set[int] = set()
     for office_record in roster_snapshot.office_records:
@@ -41,7 +42,7 @@ def reconcile_roster_snapshot(
         )
         counts.people_created += int(person_created)
         counts.people_updated += int(person_updated)
-        membership_created, membership_updated = _upsert_membership(
+        membership_created, membership_updated, displaced_person_id = _upsert_membership(
             session,
             sync_target,
             roster_snapshot,
@@ -51,14 +52,19 @@ def reconcile_roster_snapshot(
         )
         counts.memberships_created += int(membership_created)
         counts.memberships_updated += int(membership_updated)
+        if displaced_person_id is not None:
+            displaced_person_ids.add(displaced_person_id)
         current_record_ids.add(office_record.office_record_id)
-    deleted_memberships, deleted_people = _delete_stale_records(
+    deleted_memberships, stale_person_ids = _delete_stale_records(
         session,
         sync_target,
         current_record_ids,
     )
     counts.memberships_deleted = deleted_memberships
-    counts.people_deleted = deleted_people
+    counts.people_deleted = _delete_orphan_people(
+        session,
+        stale_person_ids | displaced_person_ids,
+    )
     return counts
 
 
@@ -127,7 +133,7 @@ def _upsert_membership(
     office_record: RosterOfficeRecord,
     person: Person,
     synced_at: datetime,
-) -> tuple[bool, bool]:
+) -> tuple[bool, bool, int | None]:
     office_record_id = office_record.office_record_id
     membership = (
         session.query(Membership)
@@ -161,7 +167,8 @@ def _upsert_membership(
                 roster_synced_at=synced_at,
             )
         )
-        return True, False
+        return True, False, None
+    stored_person_id = _instance_int(membership, "person_id")
     changed = (
         _instance_value(membership, "person_id") != person_id
         or _instance_value(membership, "organization_id")
@@ -196,7 +203,8 @@ def _upsert_membership(
         office_record.last_modified_at,
     )
     set_attribute(membership, "roster_synced_at", synced_at)
-    return False, changed
+    displaced_person_id = stored_person_id if stored_person_id != person_id else None
+    return False, changed, displaced_person_id
 
 
 def _same_timestamp(stored_at: datetime, source_at: datetime) -> bool:
@@ -221,7 +229,7 @@ def _delete_stale_records(
     session: Session,
     sync_target: RosterSyncTarget,
     current_record_ids: set[int],
-) -> tuple[int, int]:
+) -> tuple[int, set[int]]:
     stale_query = session.query(Membership).filter(
         Membership.organization_id == sync_target.organization_id,
         Membership.legistar_client == sync_target.legistar_client,
@@ -231,21 +239,26 @@ def _delete_stale_records(
             Membership.legistar_office_record_id.notin_(current_record_ids)
         )
     stale_memberships = stale_query.all()
-    return _delete_memberships_and_orphans(session, stale_memberships)
+    stale_person_ids = _delete_memberships(session, stale_memberships)
+    return len(stale_memberships), stale_person_ids
 
 
-def _delete_memberships_and_orphans(
+def _delete_memberships(
     session: Session,
     stale_memberships: list[Membership],
-) -> tuple[int, int]:
+) -> set[int]:
     stale_person_ids = {
         _instance_int(membership, "person_id") for membership in stale_memberships
     }
     for membership in stale_memberships:
         session.delete(membership)
+    return stale_person_ids
+
+
+def _delete_orphan_people(session: Session, candidate_person_ids: set[int]) -> int:
     session.flush()
     deleted_people = 0
-    for person_id in stale_person_ids:
+    for person_id in candidate_person_ids:
         remaining_membership = session.query(Membership.id).filter(
             Membership.person_id == person_id
         ).first()
@@ -254,7 +267,7 @@ def _delete_memberships_and_orphans(
             if person is not None:
                 session.delete(person)
                 deleted_people += 1
-    return len(stale_memberships), deleted_people
+    return deleted_people
 
 
 def _instance_int(model: object, attribute_name: str) -> int:
@@ -286,12 +299,9 @@ def depublish_city_roster(
             .filter(Membership.organization_id == organization_id)
             .all()
         )
-        deleted_memberships, deleted_people = _delete_memberships_and_orphans(
-            session,
-            stale_memberships,
-        )
-        counts.memberships_deleted += deleted_memberships
-        counts.people_deleted += deleted_people
+        stale_person_ids = _delete_memberships(session, stale_memberships)
+        counts.memberships_deleted += len(stale_memberships)
+        counts.people_deleted += _delete_orphan_people(session, stale_person_ids)
         set_attribute(organization, "legistar_body_id", None)
         set_attribute(organization, "legistar_body_guid", None)
         set_attribute(organization, "roster_source_url", None)

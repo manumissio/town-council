@@ -237,13 +237,17 @@ delta is negative after the new roster boundary is added.
     non-comparable.
 17. Manifest v2: preserves 30 documents, removes people resets, and uses eight
     entity candidates.
+18. An OfficeRecord reassigned to a corrected person identity deletes the
+    displaced person only when no other roster membership still references it.
+19. A seeded organization whose name differs only by case or whitespace is
+    reused rather than duplicated during roster synchronization.
 
 **r) Test mapping.**
 
 | Tests | Scenarios |
 |---|---|
 | `tests/test_legistar_roster.py` | 2-5, 9 |
-| `tests/test_roster_sync.py`, `tests/test_roster_sync_cli.py` | 1-9, 12-13 |
+| `tests/test_roster_sync.py`, `tests/test_roster_sync_cli.py` | 1-9, 12-13, 18-19 |
 | `tests/test_person_remediation.py` | 10, 15 |
 | `tests/test_alembic_migrations.py` | 10 |
 | `tests/test_people_endpoint_filters.py` | 1, 10, 12-14 |

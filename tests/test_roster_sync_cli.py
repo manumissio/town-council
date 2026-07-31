@@ -111,6 +111,36 @@ def test_roster_sync_apply_persists_authoritative_rows(
     engine.dispose()
 
 
+def test_roster_sync_reuses_seeded_organization_with_normalized_body_name(
+    monkeypatch,
+    tmp_path: Path,
+) -> None:
+    engine = _database(monkeypatch, tmp_path)
+    with sessionmaker(bind=engine)() as session:
+        place = session.query(Place).one()
+        seeded_organization = Organization(
+            name="  city   council  ",
+            place_id=place.id,
+        )
+        session.add(seeded_organization)
+        session.commit()
+        seeded_organization_id = seeded_organization.id
+
+    counts = sync_rosters.synchronize_rosters(city_slug="cupertino", apply=True)
+
+    assert counts.cities_synchronized == 1
+    with sessionmaker(bind=engine)() as session:
+        organizations = session.query(Organization).all()
+        assert len(organizations) == 1
+        assert organizations[0].id == seeded_organization_id
+        assert organizations[0].name == "City Council"
+        assert (
+            session.query(Membership).one().organization_id
+            == seeded_organization_id
+        )
+    engine.dispose()
+
+
 def test_roster_sync_requires_exact_city_division_identity(
     monkeypatch,
     tmp_path: Path,

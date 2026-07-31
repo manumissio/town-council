@@ -1,6 +1,6 @@
 # Town Council Remediation Plan (Codex Multi-Agent)
 
-version: 3.84
+version: 3.85
 generated: 2026-07-26
 source: Four-pass external code review (security, architecture, smells, process)
 source_artifact: [Town Council architecture review](../reviews/architecture-review-2026-07-19.html)
@@ -10,6 +10,9 @@ remains in force; where this plan is stricter, this plan wins for these tasks.
 
 ## Changelog
 
+- **v3.85:** Closes roster-sync review gaps by deleting people displaced by
+  corrected OfficeRecord identities and reusing seeded organizations through
+  the same normalized body-name contract used for source authorization.
 - **v3.84:** Expands T-GOV-2A ownership to remove the obsolete empty
   `people_metadata` field from semantic meeting hydration after PR review.
   Also records normalized governing-body authorization and stable remediation
