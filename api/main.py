@@ -20,14 +20,7 @@ from api.lineage_routes import build_lineage_router
 from api.people_routes import build_people_router
 from api.reporting_routes import build_reporting_router
 from api.search import support_core as search_support_core
-from api.search_routes import (
-    _build_meilisearch_filter_clauses as _build_meilisearch_filter_clauses,
-    _collect_meeting_docs as _collect_meeting_docs,
-    _semantic_service_get_json as _semantic_service_get_json,
-    client as client,
-    router as search_router,
-    search_documents_semantic as search_documents_semantic,
-)
+from api.search_routes import router as search_router
 from api.task_routes import (
     AsyncResult as AsyncResult,
     _enqueue_task as _enqueue_task,
@@ -38,11 +31,6 @@ from api.task_routes import (
     generate_topics_task as generate_topics_task,
     segment_agenda_task as segment_agenda_task,
 )
-from pipeline.config import (
-    SEMANTIC_ENABLED as SEMANTIC_ENABLED,
-    FEATURE_TRENDS_DASHBOARD as FEATURE_TRENDS_DASHBOARD,
-)
-
 # Metrics are internal-only and are scraped by Prometheus from the Docker network.
 from api.metrics import instrument_app
 

@@ -4,12 +4,12 @@ from api.main import app
 
 
 def test_trends_export_csv(mocker):
-    mocker.patch("api.main.FEATURE_TRENDS_DASHBOARD", True)
+    mocker.patch("api.search.support_core.FEATURE_TRENDS_DASHBOARD", True)
     mock_index = mocker.Mock()
     mock_index.search.return_value = {
         "facetDistribution": {"topics": {"housing": 4, "budget": 2}}
     }
-    mocker.patch("api.main.client.index", return_value=mock_index)
+    mocker.patch("api.search.support_core.client.index", return_value=mock_index)
     client = TestClient(app)
 
     resp = client.get("/trends/export?format=csv&city=berkeley")

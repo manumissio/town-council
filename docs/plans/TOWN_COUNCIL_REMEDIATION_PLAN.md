@@ -1,6 +1,6 @@
 # Town Council Remediation Plan (Codex Multi-Agent)
 
-version: 3.88
+version: 3.90
 generated: 2026-07-26
 source: Four-pass external code review (security, architecture, smells, process)
 source_artifact: [Town Council architecture review](../reviews/architecture-review-2026-07-19.html)
@@ -10,6 +10,15 @@ remains in force; where this plan is stricter, this plan wins for these tasks.
 
 ## Changelog
 
+- **v3.90:** Completes T-DC-2A after deleting dynamic search lookup through
+  `api.main`, removing seven search patch aliases, repointing routes and tests
+  to direct Meilisearch, semantic transport, filter, and trends owners, and
+  adding an AST deletion guard for imported, string, `patch.object`, and
+  `setattr` patch forms. T-DC-2B remains pending for broader router facade bags.
+- **v3.89:** Activates T-DC-2A with exact ownership to delete dynamic search
+  lookups through `api.main`, repoint routes and tests to direct search,
+  Meilisearch, and outbound-HTTP owners, and add a structural deletion guard.
+  Broader router facade bags remain reserved for T-DC-2B.
 - **v3.88:** Completes T-DE-2 after deleting the provider compatibility
   facade, repointing production and test imports to direct owners, removing
   provider-class re-exports from `pipeline.llm`, and passing the provider,
@@ -410,8 +419,8 @@ remains in force; where this plan is stricter, this plan wins for these tasks.
 
 | State | Tasks |
 |---|---|
-| **Complete** | T-CI-0, T-CI-1, T-CI-1A, T-CI-2, T-CI-2A, T-CI-3, T-CI-4, T-CI-5, T-SEC-1, T-SEC-2, T-SEC-3, T-SEC-3C, T-SEC-4, T-SEC-4A, T-SEC-5, T-SEC-6, T-TIME-1, T-TIME-2, T-TIME-3, T-CRAWL-1, T-CRAWL-2, T-PLAT-1, T-PLAT-1A, T-PLAT-2, T-PLAT-2A, T-PLAT-2B, T-PLAT-2C, T-PLAT-3, T-PLAT-4, T-GOV-1, T-GOV-2, T-GOV-2A, T-GOV-3, T-GOV-3A, T-GOV-3B, T-GOV-4, T-GOV-5, T-GOV-6, T-DA-1, T-DB-1A, T-DB-1, T-DB-1B, T-DC-1, T-DD-1A, T-DD-1B, T-DE-1, T-DE-2 |
-| **Pending** | T-DC-2A, T-DC-2B, T-TASK-1, T-SEM-1, T-IDX-1, T-FE-1 |
+| **Complete** | T-CI-0, T-CI-1, T-CI-1A, T-CI-2, T-CI-2A, T-CI-3, T-CI-4, T-CI-5, T-SEC-1, T-SEC-2, T-SEC-3, T-SEC-3C, T-SEC-4, T-SEC-4A, T-SEC-5, T-SEC-6, T-TIME-1, T-TIME-2, T-TIME-3, T-CRAWL-1, T-CRAWL-2, T-PLAT-1, T-PLAT-1A, T-PLAT-2, T-PLAT-2A, T-PLAT-2B, T-PLAT-2C, T-PLAT-3, T-PLAT-4, T-GOV-1, T-GOV-2, T-GOV-2A, T-GOV-3, T-GOV-3A, T-GOV-3B, T-GOV-4, T-GOV-5, T-GOV-6, T-DA-1, T-DB-1A, T-DB-1, T-DB-1B, T-DC-1, T-DC-2A, T-DD-1A, T-DD-1B, T-DE-1, T-DE-2 |
+| **Pending** | T-DC-2B, T-TASK-1, T-SEM-1, T-IDX-1, T-FE-1 |
 
 ---
 
@@ -1407,9 +1416,27 @@ files (GED-5 grant).
 
 ### T-DC-2A: Delete search-to-api.main patch lookup
 - priority: P2
-- status: pending Full plan and exact ownership
+- status: complete and verified 2026-07-31
 - depends_on: T-DC-1 (satisfied by PR #157)
-- files_owned: to be named in a separate Full plan before implementation
+- implementation_plan: `docs/plans/T_DC_2A_SEARCH_MAIN_LOOKUP_DELETION_PLAN.md`
+- files_owned: the implementation plan and ledger;
+  `api/main.py` (seven search patch aliases only);
+  `api/search/support_core.py`; `api/search/trends_support.py`;
+  `api/search_support.py`; `api/search_read_params.py`;
+  `api/search_read_meilisearch.py`; `api/search_read_routes.py`;
+  `api/search_semantic_routes.py`; `api/trends_routes.py`;
+  `tests/test_api.py`; `tests/test_catalog_lineage_endpoint.py`;
+  `tests/test_query_builder_parity_search_vs_trends.py`;
+  `tests/test_search_support_facade.py`; `tests/test_semantic_search_api.py`;
+  `tests/test_semantic_search_feature_flag.py`;
+  `tests/test_trends_compare_endpoint.py`; `tests/test_trends_export_csv.py`;
+  `tests/test_trends_topics_endpoint.py`; `tests/test_repository_guardrails.py`;
+  `docs/ADR.md`
+- delivered: Deleted four dynamic lookup functions, three facade exports, and
+  seven `api.main` search aliases; migrated route behavior and tests to direct
+  search-domain and approved service boundaries; and added repository guards
+  against reverse imports and stale patch forms. Search, security, static,
+  coverage, and complete Python gates pass.
 - do: Delete `_api_main`, `facade_value`, `facade_callable`, and
   `search_client` lookup behavior from the search support family. Repoint
   callers and tests to direct search implementation owners and the approved

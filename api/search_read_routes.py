@@ -4,7 +4,7 @@ from typing import Any, Optional
 from fastapi import APIRouter, HTTPException, Query
 from meilisearch.errors import MeilisearchCommunicationError, MeilisearchError, MeilisearchTimeoutError
 
-from api import search_support
+from api.search import support_core
 from api.search_read_meilisearch import run_lexical_search
 from api.search_read_params import SEARCH_LIMIT_DEFAULT, SEARCH_LIMIT_MAX, build_lexical_search_params, validate_search_date_range
 from api.search_read_results import truncate_people_metadata
@@ -38,8 +38,7 @@ def search_documents(
     validate_search_date_range(date_from, date_to)
 
     if semantic:
-        semantic_search = search_support.facade_callable("search_documents_semantic", search_documents_semantic)
-        return semantic_search(
+        return search_documents_semantic(
             q=q,
             city=city,
             include_agenda_items=include_agenda_items,
@@ -52,7 +51,7 @@ def search_documents(
         )
 
     try:
-        index = search_support.search_client().index(search_support.DOCUMENT_INDEX_NAME)
+        index = support_core.client.index(support_core.DOCUMENT_INDEX_NAME)
         search_params = build_lexical_search_params(
             city=city,
             include_agenda_items=include_agenda_items,
@@ -67,13 +66,13 @@ def search_documents(
         results = run_lexical_search(index, q, search_params)
         truncate_people_metadata(results)
 
-        search_support.logger.info("Search query=%r city=%r returned %s hits", q, city, len(results["hits"]))
+        support_core.logger.info("Search query=%r city=%r returned %s hits", q, city, len(results["hits"]))
         return results
     except HTTPException:
         raise
     except (KeyError, RuntimeError, TypeError, ValueError) as exc:
-        search_support.logger.error("Search failed: %s", exc)
-        raise HTTPException(status_code=500, detail=search_support.INTERNAL_SEARCH_ENGINE_ERROR_DETAIL) from exc
+        support_core.logger.error("Search failed: %s", exc)
+        raise HTTPException(status_code=500, detail=support_core.INTERNAL_SEARCH_ENGINE_ERROR_DETAIL) from exc
 
 
 @router.get("/metadata")
@@ -91,8 +90,8 @@ def get_metadata() -> MetadataPayload:
 
 def _load_search_metadata() -> MetadataPayload:
     try:
-        index = search_support.search_client().index(search_support.DOCUMENT_INDEX_NAME)
-        metadata_response = index.search("", {"facets": search_support.METADATA_FACETS, "limit": 0})
+        index = support_core.client.index(support_core.DOCUMENT_INDEX_NAME)
+        metadata_response = index.search("", {"facets": support_core.METADATA_FACETS, "limit": 0})
 
         facets = metadata_response.get("facetDistribution", {})
         cities = sorted([city.replace("ca_", "").replace("_", " ").title() for city in facets.get("city", {}).keys()])
@@ -105,5 +104,5 @@ def _load_search_metadata() -> MetadataPayload:
             "meeting_types": meeting_types,
         }
     except (MeilisearchCommunicationError, MeilisearchTimeoutError, MeilisearchError, RuntimeError, ValueError) as exc:
-        search_support.logger.error("Metadata retrieval failed: %s", exc)
+        support_core.logger.error("Metadata retrieval failed: %s", exc)
         return EMPTY_SEARCH_METADATA

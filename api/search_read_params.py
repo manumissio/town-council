@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from fastapi import HTTPException
 
-from api import search_support
+from api.search import filter_support, support_core
 
 SEARCH_LIMIT_DEFAULT = 20
 SEARCH_LIMIT_MAX = 100
@@ -14,9 +14,9 @@ INVALID_SORT_MODE_DETAIL = "Invalid sort mode. Use newest|oldest|relevance."
 
 def validate_search_date_range(date_from: str | None, date_to: str | None) -> None:
     if date_from:
-        search_support.validate_date_format(date_from)
+        filter_support.validate_date_format(date_from)
     if date_to:
-        search_support.validate_date_format(date_to)
+        filter_support.validate_date_format(date_to)
 
 
 def build_lexical_search_params(
@@ -34,12 +34,12 @@ def build_lexical_search_params(
     search_params: dict[str, object] = {
         "limit": limit,
         "offset": offset,
-        "attributesToRetrieve": search_support.SEARCH_RESULT_ATTRIBUTES_TO_RETRIEVE,
-        "attributesToCrop": search_support.SEARCH_RESULT_ATTRIBUTES_TO_CROP,
-        "cropLength": search_support.SEARCH_RESULT_CROP_LENGTH,
-        "attributesToHighlight": search_support.SEARCH_RESULT_ATTRIBUTES_TO_HIGHLIGHT,
-        "highlightPreTag": search_support.SEARCH_HIGHLIGHT_PRE_TAG,
-        "highlightPostTag": search_support.SEARCH_HIGHLIGHT_POST_TAG,
+        "attributesToRetrieve": support_core.SEARCH_RESULT_ATTRIBUTES_TO_RETRIEVE,
+        "attributesToCrop": support_core.SEARCH_RESULT_ATTRIBUTES_TO_CROP,
+        "cropLength": support_core.SEARCH_RESULT_CROP_LENGTH,
+        "attributesToHighlight": support_core.SEARCH_RESULT_ATTRIBUTES_TO_HIGHLIGHT,
+        "highlightPreTag": support_core.SEARCH_HIGHLIGHT_PRE_TAG,
+        "highlightPostTag": support_core.SEARCH_HIGHLIGHT_POST_TAG,
     }
     apply_sort(search_params, sort)
     apply_filters(
@@ -79,11 +79,7 @@ def apply_filters(
     date_to: str | None,
     include_agenda_items: bool,
 ) -> None:
-    filter_builder = search_support.facade_callable(
-        "_build_meilisearch_filter_clauses",
-        search_support._build_meilisearch_filter_clauses,
-    )
-    filter_clauses = filter_builder(
+    filter_clauses = filter_support._build_meilisearch_filter_clauses(
         city=city,
         meeting_type=meeting_type,
         org=org,

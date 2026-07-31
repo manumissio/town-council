@@ -1,27 +1,12 @@
 import api.search_support as search_support
 
 
-def test_search_support_facade_preserves_route_patch_points():
-    expected_names = {
-        "client",
-        "httpx",
+def test_search_support_does_not_export_main_patch_lookups() -> None:
+    removed_lookup_names = {
         "search_client",
         "facade_callable",
         "facade_value",
-        "validate_date_format",
-        "_build_filter_values",
-        "_build_meilisearch_filter_clauses",
-        "_collect_meeting_docs",
-        "_count_topics_from_docs",
-        "_facet_topics",
-        "_iter_time_buckets",
-        "_normalize_city_or_400",
-        "_normalize_filters_or_400",
-        "_parse_iso_date",
-        "_require_trends_feature",
-        "_semantic_service_get_json",
-        "_semantic_service_healthcheck",
+        "_api_main",
     }
 
-    for name in expected_names:
-        assert hasattr(search_support, name), name
+    assert all(not hasattr(search_support, name) for name in removed_lookup_names)

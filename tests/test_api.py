@@ -168,7 +168,7 @@ def test_search_endpoint_params(mocker):
     """Test the /search endpoint handles query parameters correctly and builds filters."""
     mock_index = mocker.Mock()
     mock_index.search.return_value = {"hits": [], "estimatedTotalHits": 0}
-    mocker.patch("api.main.client.index", return_value=mock_index)
+    mocker.patch("api.search.support_core.client.index", return_value=mock_index)
     
     # Test with multiple filters (meeting-only by default)
     response = client.get("/search?q=zoning&city=berkeley&meeting_type=Regular&limit=10&offset=5", headers={"X-API-Key": VALID_KEY})
@@ -188,10 +188,17 @@ def test_search_endpoint_params(mocker):
     assert "sort" not in search_params
 
 
-def test_search_semantic_flag_delegates_through_main_facade(mocker):
-    semantic_search = mocker.patch(
-        "api.main.search_documents_semantic",
-        return_value={"hits": [], "estimatedTotalHits": 0, "semantic_diagnostics": {"engine": "faiss"}},
+def test_search_semantic_flag_delegates_to_semantic_service(mocker):
+    mocker.patch("api.search.support_core.SEMANTIC_ENABLED", True)
+    semantic_response = MagicMock(status_code=200)
+    semantic_response.json.return_value = {
+        "hits": [],
+        "estimatedTotalHits": 0,
+        "semantic_diagnostics": {"engine": "faiss"},
+    }
+    semantic_get = mocker.patch(
+        "api.search.semantic_support.httpx.get",
+        return_value=semantic_response,
     )
 
     response = client.get(
@@ -200,23 +207,24 @@ def test_search_semantic_flag_delegates_through_main_facade(mocker):
     )
     assert response.status_code == 200
     assert response.json()["semantic_diagnostics"]["engine"] == "faiss"
-    semantic_search.assert_called_once_with(
-        q="zoning",
-        city="berkeley",
-        include_agenda_items=False,
-        meeting_type="Regular",
-        org=None,
-        date_from=None,
-        date_to=None,
-        limit=10,
-        offset=5,
-    )
+    semantic_params = semantic_get.call_args.kwargs["params"]
+    assert semantic_params == {
+        "q": "zoning",
+        "city": "berkeley",
+        "include_agenda_items": False,
+        "meeting_type": "Regular",
+        "org": None,
+        "date_from": None,
+        "date_to": None,
+        "limit": 10,
+        "offset": 5,
+    }
 
 
 def test_search_endpoint_normalizes_meeting_type_and_org_whitespace(mocker):
     mock_index = mocker.Mock()
     mock_index.search.return_value = {"hits": [], "estimatedTotalHits": 0}
-    mocker.patch("api.main.client.index", return_value=mock_index)
+    mocker.patch("api.search.support_core.client.index", return_value=mock_index)
 
     response = client.get(
         "/search?q=zoning&meeting_type=%20%20Regular%20%20Meeting%20&org=%20City%20%20Council%20",
@@ -231,7 +239,7 @@ def test_search_endpoint_normalizes_meeting_type_and_org_whitespace(mocker):
 
 def test_search_rejects_invalid_city_filter(mocker):
     mock_index = mocker.Mock()
-    mocker.patch("api.main.client.index", return_value=mock_index)
+    mocker.patch("api.search.support_core.client.index", return_value=mock_index)
 
     response = client.get("/search?q=zoning&city=%21%21%21", headers={"X-API-Key": VALID_KEY})
     assert response.status_code == 400
@@ -241,7 +249,7 @@ def test_search_rejects_invalid_city_filter(mocker):
 def test_search_sort_newest_sets_meilisearch_sort(mocker):
     mock_index = mocker.Mock()
     mock_index.search.return_value = {"hits": [], "estimatedTotalHits": 0}
-    mocker.patch("api.main.client.index", return_value=mock_index)
+    mocker.patch("api.search.support_core.client.index", return_value=mock_index)
 
     response = client.get("/search?q=zoning&sort=newest", headers={"X-API-Key": VALID_KEY})
     assert response.status_code == 200
@@ -252,7 +260,7 @@ def test_search_sort_newest_sets_meilisearch_sort(mocker):
 def test_search_sort_oldest_sets_meilisearch_sort(mocker):
     mock_index = mocker.Mock()
     mock_index.search.return_value = {"hits": [], "estimatedTotalHits": 0}
-    mocker.patch("api.main.client.index", return_value=mock_index)
+    mocker.patch("api.search.support_core.client.index", return_value=mock_index)
 
     response = client.get("/search?q=zoning&sort=oldest", headers={"X-API-Key": VALID_KEY})
     assert response.status_code == 200
@@ -263,7 +271,7 @@ def test_search_sort_oldest_sets_meilisearch_sort(mocker):
 def test_search_sort_relevance_does_not_set_meilisearch_sort(mocker):
     mock_index = mocker.Mock()
     mock_index.search.return_value = {"hits": [], "estimatedTotalHits": 0}
-    mocker.patch("api.main.client.index", return_value=mock_index)
+    mocker.patch("api.search.support_core.client.index", return_value=mock_index)
 
     response = client.get("/search?q=zoning&sort=relevance", headers={"X-API-Key": VALID_KEY})
     assert response.status_code == 200
@@ -274,7 +282,7 @@ def test_search_sort_relevance_does_not_set_meilisearch_sort(mocker):
 def test_search_sort_invalid_returns_400(mocker):
     mock_index = mocker.Mock()
     mock_index.search.return_value = {"hits": [], "estimatedTotalHits": 0}
-    mocker.patch("api.main.client.index", return_value=mock_index)
+    mocker.patch("api.search.support_core.client.index", return_value=mock_index)
 
     response = client.get("/search?q=zoning&sort=wat", headers={"X-API-Key": VALID_KEY})
     assert response.status_code == 400
@@ -283,7 +291,7 @@ def test_search_sort_invalid_returns_400(mocker):
 def test_search_sort_rejected_by_meilisearch_returns_actionable_400(mocker):
     mock_index = mocker.Mock()
     mock_index.search.side_effect = MeilisearchError("Attribute `date` is not sortable. Invalid sort.")
-    mocker.patch("api.main.client.index", return_value=mock_index)
+    mocker.patch("api.search.support_core.client.index", return_value=mock_index)
 
     response = client.get("/search?q=zoning&sort=newest", headers={"X-API-Key": VALID_KEY})
     assert response.status_code == 400
@@ -302,7 +310,7 @@ def test_search_truncates_people_metadata_in_hits_and_formatted_hits(mocker):
         ],
         "estimatedTotalHits": 1,
     }
-    mocker.patch("api.main.client.index", return_value=mock_index)
+    mocker.patch("api.search.support_core.client.index", return_value=mock_index)
 
     response = client.get("/search?q=zoning", headers={"X-API-Key": VALID_KEY})
 
@@ -315,7 +323,7 @@ def test_search_truncates_people_metadata_in_hits_and_formatted_hits(mocker):
 def test_search_timeout_returns_503(mocker):
     mock_index = mocker.Mock()
     mock_index.search.side_effect = MeilisearchTimeoutError("timeout")
-    mocker.patch("api.main.client.index", return_value=mock_index)
+    mocker.patch("api.search.support_core.client.index", return_value=mock_index)
 
     response = client.get("/search?q=zoning", headers={"X-API-Key": VALID_KEY})
 
@@ -326,7 +334,7 @@ def test_search_timeout_returns_503(mocker):
 def test_search_unavailable_returns_503(mocker):
     mock_index = mocker.Mock()
     mock_index.search.side_effect = MeilisearchCommunicationError("unavailable")
-    mocker.patch("api.main.client.index", return_value=mock_index)
+    mocker.patch("api.search.support_core.client.index", return_value=mock_index)
 
     response = client.get("/search?q=zoning", headers={"X-API-Key": VALID_KEY})
 
@@ -337,7 +345,7 @@ def test_search_unavailable_returns_503(mocker):
 def test_search_generic_meilisearch_error_returns_500(mocker):
     mock_index = mocker.Mock()
     mock_index.search.side_effect = MeilisearchError("unexpected")
-    mocker.patch("api.main.client.index", return_value=mock_index)
+    mocker.patch("api.search.support_core.client.index", return_value=mock_index)
 
     response = client.get("/search?q=zoning", headers={"X-API-Key": VALID_KEY})
 
@@ -351,7 +359,7 @@ def test_search_injection_protection(mocker):
     """
     mock_index = mocker.Mock()
     mock_index.search.return_value = {"hits": []}
-    mocker.patch("api.main.client.index", return_value=mock_index)
+    mocker.patch("api.search.support_core.client.index", return_value=mock_index)
     
     # Attempt a "Quote Escape" attack in the city parameter
     malicious_city = 'berkeley" OR 1=1 OR city="'
@@ -453,7 +461,6 @@ def test_task_status_rejects_invalid_uuid():
 def test_lineage_endpoint_not_gated_by_trends_flag(mocker):
     from api.main import get_db
 
-    mocker.patch("api.main.FEATURE_TRENDS_DASHBOARD", False)
     rows = [
         (
             MagicMock(id=101, lineage_id="lin-101", lineage_confidence=0.8, lineage_updated_at=None, summary="Summary"),
