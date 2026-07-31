@@ -77,6 +77,12 @@ LEXICAL_SCOPE_NODES = (
     ast.ClassDef,
     ast.Lambda,
 )
+LOCAL_BINDING_NESTED_SCOPES = LEXICAL_SCOPE_NODES[1:] + (
+    ast.ListComp,
+    ast.SetComp,
+    ast.DictComp,
+    ast.GeneratorExp,
+)
 PERSONAL_PATH_PATTERNS = (
     re.compile(r"/Users/[^/\s]+/"),
     re.compile(r"/home/[^/\s]+/"),
@@ -703,6 +709,58 @@ def _scope_sqlalchemy_text_bindings(
     return sqlalchemy_bindings
 
 
+def _scope_argument_names(scope_node: ast.AST) -> set[str]:
+    if not isinstance(scope_node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.Lambda)):
+        return set()
+    function_arguments = scope_node.args
+    argument_nodes = (
+        *function_arguments.posonlyargs,
+        *function_arguments.args,
+        *function_arguments.kwonlyargs,
+    )
+    argument_names = {argument.arg for argument in argument_nodes}
+    if function_arguments.vararg is not None:
+        argument_names.add(function_arguments.vararg.arg)
+    if function_arguments.kwarg is not None:
+        argument_names.add(function_arguments.kwarg.arg)
+    return argument_names
+
+
+def _scope_local_binding_names(scope_node: ast.AST) -> set[str]:
+    scope_body = scope_node.body if hasattr(scope_node, "body") else []
+    pending_nodes = list(scope_body) if isinstance(scope_body, list) else [scope_body]
+    binding_names = _scope_argument_names(scope_node)
+    external_binding_names: set[str] = set()
+
+    while pending_nodes:
+        current_node = pending_nodes.pop()
+        if isinstance(current_node, (ast.Global, ast.Nonlocal)):
+            external_binding_names.update(current_node.names)
+            continue
+        if isinstance(current_node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
+            binding_names.add(current_node.name)
+            continue
+        if isinstance(current_node, LOCAL_BINDING_NESTED_SCOPES):
+            continue
+        if isinstance(current_node, ast.Name) and isinstance(current_node.ctx, ast.Store):
+            binding_names.add(current_node.id)
+        elif isinstance(current_node, ast.Import):
+            binding_names.update(
+                imported_name.asname or imported_name.name.partition(".")[0]
+                for imported_name in current_node.names
+            )
+        elif isinstance(current_node, ast.ImportFrom):
+            binding_names.update(
+                imported_name.asname or imported_name.name
+                for imported_name in current_node.names
+            )
+        elif isinstance(current_node, ast.ExceptHandler) and current_node.name:
+            binding_names.add(current_node.name)
+        pending_nodes.extend(ast.iter_child_nodes(current_node))
+
+    return binding_names - external_binding_names
+
+
 def _lexical_scopes(
     source_node: ast.AST,
     parent_nodes: dict[ast.AST, ast.AST],
@@ -758,6 +816,8 @@ def _is_sqlalchemy_text_call(
         sqlalchemy_bindings = _scope_sqlalchemy_text_bindings(scope_node)
         if binding_name in sqlalchemy_bindings:
             return function_suffix in sqlalchemy_bindings[binding_name]
+        if binding_name in _scope_local_binding_names(scope_node):
+            return False
     return False
 
 
@@ -1990,6 +2050,26 @@ def test_sqlalchemy_text_guardrail_respects_lexical_scope(
     )
 
     assert _interpolated_sqlalchemy_text_lines(sql_source) == [3]
+
+
+def test_sqlalchemy_text_guardrail_respects_nearer_local_bindings(
+    tmp_path: Path,
+) -> None:
+    sql_source = tmp_path / "shadowed_sql_source.py"
+    sql_source.write_text(
+        "from sqlalchemy import text\n"
+        "\n"
+        "def render_parameter(text, value):\n"
+        '    return text(f"Value: {value}")\n'
+        "\n"
+        "def render_helper(value):\n"
+        "    def text(statement):\n"
+        "        return statement\n"
+        '    return text(f"Value: {value}")\n',
+        encoding="utf-8",
+    )
+
+    assert _interpolated_sqlalchemy_text_lines(sql_source) == []
 
 
 @pytest.mark.parametrize(
