@@ -87,8 +87,8 @@ No G1-G5 decision remains.
    - nested functions, methods, and nonmatching names remain allowed;
    - Ruff rejects a planted SQL-looking f-string through `S608`;
    - Ruff rejects a planted wildcard import through `F403`;
-   - a dedicated Ruff invocation clears per-file ignores, ignores `noqa`
-     directives, excludes test fixtures, and proves there are no hidden `S608`
+   - an isolated Ruff invocation ignores `noqa` directives, scans Ruff's
+     discovered production files, and proves there are no hidden `S608`
      suppressions or `F403` violations outside the documented compatibility
      facade;
    - every retained scripts security exception covers a current violation.
@@ -175,9 +175,9 @@ literal is added.
 is narrowed to current `S101`, `S105`, `S112`, `S310`, `S311`, `S324`, `S603`,
 and `S607` debt, activating `S608` there. No ignore is added or widened. The
 existing documented compatibility-facade suppression remains unchanged.
-The suppression ratchet clears per-file ignores, ignores `noqa` directives, and
-requires the documented compatibility import to be the sole `F403`/`S608`
-violation outside test fixtures.
+The suppression ratchet runs Ruff in isolation against Ruff's discovered
+production files, ignores `noqa` directives, and requires the documented
+compatibility import to be the sole `F403`/`S608` violation.
 BLE001 boundaries, C901 exceptions, typing scope, formatter scope, and coverage
 threshold remain unchanged. Structural rules move from documented transition
 to enforced acceptance with zero structural exceptions.

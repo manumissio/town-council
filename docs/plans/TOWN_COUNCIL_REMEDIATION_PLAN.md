@@ -13,7 +13,8 @@ remains in force; where this plan is stricter, this plan wins for these tasks.
 - **v3.79:** Deletes T-GOV-3B's remaining custom SQLAlchemy matcher after
   review found another qualifier gap. Ruff `S608` and `F403` now own dynamic
   SQL and wildcard-import enforcement without project-specific name resolution;
-  an `--ignore-noqa` ratchet prevents hidden suppressions.
+  an isolated Ruff ratchet scans Ruff's discovered production files without
+  configured or inline rule suppressions.
 - **v3.78:** Narrows T-GOV-3B after pre-commit review: activates Ruff `S608`
   for scripts by replacing their wildcard security exemption with eight
   current debt codes, and limits shadowing policy to interpolated calls.

@@ -836,22 +836,24 @@ def test_ruff_rejects_wildcard_imports_and_sql_interpolation() -> None:
 
 
 def test_ruff_structural_rule_suppressions_stay_explicit() -> None:
+    structural_rule_targets = [
+        str(source_path.relative_to(ROOT))
+        for source_path in _broad_exception_scan_files()
+        if _is_production_structural_path(source_path.relative_to(ROOT))
+    ]
     structural_rule_check = subprocess.run(
         [
             sys.executable,
             "-m",
             "ruff",
             "check",
+            "--isolated",
             "--ignore-noqa",
             "--select",
             "F403,S608",
-            "--config",
-            "lint.per-file-ignores = {}",
-            "--exclude",
-            "tests",
             "--output-format",
             "json",
-            ".",
+            *structural_rule_targets,
         ],
         cwd=ROOT,
         capture_output=True,
