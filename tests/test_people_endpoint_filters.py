@@ -190,6 +190,8 @@ def test_people_endpoint_normalizes_approved_body_names() -> None:
     with Session() as seed_session:
         roster_person, _ = _seed_roster_backed_person(seed_session)
         roster_person_id = roster_person.id
+        seed_session.query(Organization).one().name = "CITY   COUNCIL"
+        seed_session.commit()
 
     app.dependency_overrides[get_db] = _override_database(Session)
     client = TestClient(app)
@@ -205,7 +207,7 @@ def test_people_endpoint_normalizes_approved_body_names() -> None:
         assert people_response.status_code == 200
         assert people_response.json()["total"] == 1
         assert person_response.status_code == 200
-        assert person_response.json()["roles"][0]["body"] == "City Council"
+        assert person_response.json()["roles"][0]["body"] == "CITY   COUNCIL"
     finally:
         del app.dependency_overrides[get_db]
         engine.dispose()

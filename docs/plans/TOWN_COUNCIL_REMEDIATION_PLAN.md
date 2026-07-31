@@ -1,6 +1,6 @@
 # Town Council Remediation Plan (Codex Multi-Agent)
 
-version: 3.85
+version: 3.86
 generated: 2026-07-26
 source: Four-pass external code review (security, architecture, smells, process)
 source_artifact: [Town Council architecture review](../reviews/architecture-review-2026-07-19.html)
@@ -10,6 +10,9 @@ remains in force; where this plan is stricter, this plan wins for these tasks.
 
 ## Changelog
 
+- **v3.86:** Completes governing-body normalization at the people-list query
+  boundary by authorizing stable organization IDs after applying the shared
+  case-and-whitespace contract to stored names.
 - **v3.85:** Closes roster-sync review gaps by deleting people displaced by
   corrected OfficeRecord identities and reusing seeded organizations through
   the same normalized body-name contract used for source authorization.

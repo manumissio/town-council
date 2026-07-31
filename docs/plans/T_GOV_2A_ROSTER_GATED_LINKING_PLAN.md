@@ -241,6 +241,8 @@ delta is negative after the new roster boundary is added.
     displaced person only when no other roster membership still references it.
 19. A seeded organization whose name differs only by case or whitespace is
     reused rather than duplicated during roster synchronization.
+20. People-list and person-detail authorization both accept canonical stored
+    body names containing repeated internal whitespace.
 
 **r) Test mapping.**
 
@@ -250,7 +252,7 @@ delta is negative after the new roster boundary is added.
 | `tests/test_roster_sync.py`, `tests/test_roster_sync_cli.py` | 1-9, 12-13, 18-19 |
 | `tests/test_person_remediation.py` | 10, 15 |
 | `tests/test_alembic_migrations.py` | 10 |
-| `tests/test_people_endpoint_filters.py` | 1, 10, 12-14 |
+| `tests/test_people_endpoint_filters.py` | 1, 10, 12-14, 20 |
 | `tests/test_indexer_official_roster.py` | 1, 2, 11 |
 | `tests/test_run_pipeline_orchestration.py` | inferred linker deletion |
 | `tests/test_profile_manifest_builder.py`, `tests/test_profile_pipeline_cli.py` | 16-17 |

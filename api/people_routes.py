@@ -2,7 +2,7 @@ import logging
 from collections.abc import Callable
 
 from fastapi import APIRouter, Depends, HTTPException, Path, Query
-from sqlalchemy import and_, false, func, or_
+from sqlalchemy import and_, false
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import Query as SQLAlchemyQuery
 from sqlalchemy.orm import Session as SQLAlchemySession, joinedload
@@ -59,6 +59,19 @@ def _membership_has_roster_evidence(membership: Membership) -> bool:
     )
 
 
+def _organization_matches_authorization(
+    organization: Organization,
+    authorized_roster_bodies: set[tuple[str, str]],
+) -> bool:
+    if organization.place is None:
+        return False
+    return any(
+        organization.place.ocd_division_id.endswith(f"/place:{city_slug}")
+        and normalize_roster_body_name(organization.name) == roster_body_name
+        for city_slug, roster_body_name in authorized_roster_bodies
+    )
+
+
 def _authorized_memberships(
     person: Person,
     authorized_roster_bodies: set[tuple[str, str]],
@@ -67,13 +80,9 @@ def _authorized_memberships(
         membership
         for membership in person.memberships
         if _membership_has_roster_evidence(membership)
-        and any(
-            membership.organization.place.ocd_division_id.endswith(
-                f"/place:{city_slug}"
-            )
-            and normalize_roster_body_name(membership.organization.name)
-            == roster_body_name
-            for city_slug, roster_body_name in authorized_roster_bodies
+        and _organization_matches_authorization(
+            membership.organization,
+            authorized_roster_bodies,
         )
     ]
 
@@ -90,8 +99,13 @@ def _authorized_people_query(
     db: SQLAlchemySession,
     authorized_roster_bodies: set[tuple[str, str]],
 ) -> SQLAlchemyQuery[Person]:
-    roster_body_filters = [
-        Person.memberships.any(
+    authorized_organization_ids = _authorized_organization_ids(
+        db,
+        authorized_roster_bodies,
+    )
+    roster_authorization_filter = false()
+    if authorized_organization_ids:
+        roster_authorization_filter = Person.memberships.any(
             and_(
                 Membership.legistar_client == Person.legistar_client,
                 Membership.legistar_office_record_id.is_not(None),
@@ -100,32 +114,14 @@ def _authorized_people_query(
                 Membership.roster_last_modified_at.is_not(None),
                 Membership.roster_synced_at.is_not(None),
                 Membership.start_date.is_not(None),
+                Membership.organization_id.in_(authorized_organization_ids),
                 Membership.organization.has(
-                    and_(
-                        func.lower(func.trim(Organization.name))
-                        == roster_body_name,
-                        Organization.legistar_body_id.is_not(None),
-                        Organization.legistar_body_guid.is_not(None),
-                        Organization.roster_source_url.is_not(None),
-                        Organization.roster_synced_at.is_not(None),
-                        Organization.place.has(
-                            and_(
-                                Place.ocd_division_id.endswith(
-                                    f"/place:{city_slug}",
-                                    autoescape=True,
-                                ),
-                                Place.legistar_client == Person.legistar_client,
-                            )
-                        ),
+                    Organization.place.has(
+                        Place.legistar_client == Person.legistar_client,
                     )
                 ),
             )
         )
-        for city_slug, roster_body_name in authorized_roster_bodies
-    ]
-    roster_authorization_filter = (
-        or_(*roster_body_filters) if roster_body_filters else false()
-    )
     return db.query(Person).filter(
         Person.legistar_client.is_not(None),
         Person.legistar_person_id.is_not(None),
@@ -133,6 +129,31 @@ def _authorized_people_query(
         Person.roster_synced_at.is_not(None),
         roster_authorization_filter,
     )
+
+
+def _authorized_organization_ids(
+    db: SQLAlchemySession,
+    authorized_roster_bodies: set[tuple[str, str]],
+) -> set[int]:
+    roster_organizations = (
+        db.query(Organization)
+        .options(joinedload(Organization.place))
+        .filter(
+            Organization.legistar_body_id.is_not(None),
+            Organization.legistar_body_guid.is_not(None),
+            Organization.roster_source_url.is_not(None),
+            Organization.roster_synced_at.is_not(None),
+        )
+        .all()
+    )
+    return {
+        int(organization.id)
+        for organization in roster_organizations
+        if _organization_matches_authorization(
+            organization,
+            authorized_roster_bodies,
+        )
+    }
 
 
 def build_people_router(get_db_dependency: Callable[..., object]) -> APIRouter:
