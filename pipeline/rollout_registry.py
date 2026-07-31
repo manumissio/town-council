@@ -81,14 +81,9 @@ def load_city_metadata_slugs(path: Path = CITY_METADATA_PATH) -> set[str]:
 def load_rollout_registry(path: Path = ROLLOUT_REGISTRY_PATH) -> list[RolloutEntry]:
     with path.open("r", encoding="utf-8") as f:
         reader = csv.DictReader(f)
-        missing_roster_columns = ROSTER_AUTHORIZATION_COLUMNS - set(
-            reader.fieldnames or ()
-        )
+        missing_roster_columns = ROSTER_AUTHORIZATION_COLUMNS - set(reader.fieldnames or ())
         if missing_roster_columns:
-            raise ValueError(
-                "rollout registry is missing roster columns: "
-                f"{sorted(missing_roster_columns)}"
-            )
+            raise ValueError(f"rollout registry is missing roster columns: {sorted(missing_roster_columns)}")
         entries = [
             RolloutEntry(
                 city_slug=_normalize(row.get("city_slug")),
@@ -101,9 +96,7 @@ def load_rollout_registry(path: Path = ROLLOUT_REGISTRY_PATH) -> list[RolloutEnt
                 last_fresh_pass_run_id=_normalize(row.get("last_fresh_pass_run_id")),
                 roster_source=_normalize(row.get("roster_source")),
                 roster_body_name=_normalize(row.get("roster_body_name")),
-                roster_source_verified_at=_normalize(
-                    row.get("roster_source_verified_at")
-                ),
+                roster_source_verified_at=_normalize(row.get("roster_source_verified_at")),
             )
             for row in reader
         ]
@@ -137,25 +130,17 @@ def validate_rollout_registry(
         if entry.stable_noop_eligible == "yes" and not entry.last_fresh_pass_run_id:
             raise ValueError(f"stable_noop_eligible city is missing last_fresh_pass_run_id: {entry.city_slug}")
         if entry.roster_source not in VALID_ROSTER_SOURCES:
-            raise ValueError(
-                f"invalid roster_source for {entry.city_slug}: {entry.roster_source}"
-            )
+            raise ValueError(f"invalid roster_source for {entry.city_slug}: {entry.roster_source}")
         roster_fields_present = (
             bool(entry.roster_source),
             bool(entry.roster_body_name),
             bool(entry.roster_source_verified_at),
         )
         if any(roster_fields_present) and not all(roster_fields_present):
+            raise ValueError(f"incomplete roster authorization for {entry.city_slug}")
+        if all(roster_fields_present) and not _is_iso_date(entry.roster_source_verified_at):
             raise ValueError(
-                f"incomplete roster authorization for {entry.city_slug}"
-            )
-        if (
-            all(roster_fields_present)
-            and not _is_iso_date(entry.roster_source_verified_at)
-        ):
-            raise ValueError(
-                "invalid roster_source_verified_at for "
-                f"{entry.city_slug}: {entry.roster_source_verified_at}"
+                f"invalid roster_source_verified_at for {entry.city_slug}: {entry.roster_source_verified_at}"
             )
         metadata_city_slug = CITY_METADATA_ALIASES.get(entry.city_slug, entry.city_slug)
         if metadata_city_slug not in known_city_slugs:
