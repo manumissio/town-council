@@ -79,6 +79,8 @@ The operator approved T-GOV-3B planning, ownership, and implementation on
    cannot reliably classify dynamically assembled SQL as read or mutation.
    Do not treat imports from sibling scopes as aliases, trace values through
    variables, or model rebinding and statement order.
+   Reject SQLAlchemy wildcard imports rather than reproducing the dependency's
+   version-specific export surface.
 7. Add focused positive and negative tests:
    - single, reciprocal, and async top-level sync names fail;
    - nested functions, methods, and nonmatching names remain allowed;

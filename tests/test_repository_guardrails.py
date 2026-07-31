@@ -663,13 +663,6 @@ def _sqlalchemy_import_bindings(
     for imported_name in import_node.names:
         binding_name = imported_name.asname or imported_name.name
         if (
-            imported_name.name == "*"
-            and SQLALCHEMY_TEXT_NAME
-            in _sqlalchemy_module_text_suffixes(import_node.module)
-        ):
-            sqlalchemy_bindings.setdefault(SQLALCHEMY_TEXT_NAME, set()).add("")
-            continue
-        if (
             imported_name.name == SQLALCHEMY_TEXT_NAME
             and (
                 import_node.module == SQLALCHEMY_MODULE
@@ -793,6 +786,24 @@ def _interpolated_sqlalchemy_text_lines(module_path: Path) -> list[int]:
             statement,
             parent_nodes=parent_nodes,
         )
+    )
+
+
+def _sqlalchemy_wildcard_import_lines(module_path: Path) -> list[int]:
+    module_tree = ast.parse(
+        module_path.read_text(encoding="utf-8"),
+        filename=str(module_path),
+    )
+    return sorted(
+        statement.lineno
+        for statement in ast.walk(module_tree)
+        if isinstance(statement, ast.ImportFrom)
+        and statement.module is not None
+        and (
+            statement.module == SQLALCHEMY_MODULE
+            or statement.module.startswith(f"{SQLALCHEMY_MODULE}.")
+        )
+        and any(imported_name.name == "*" for imported_name in statement.names)
     )
 
 
@@ -1903,10 +1914,6 @@ def test_sync_global_guardrail_detects_top_level_functions(
             'text(text="SELECT " + f"{value}")',
         ),
         (
-            "from sqlalchemy import *",
-            'text(f"SELECT {value}")',
-        ),
-        (
             "from sqlalchemy import text",
             'text(**{"text": f"SELECT {value}"})',
         ),
@@ -2042,9 +2049,24 @@ def test_structural_scan_scope_covers_production_python_only() -> None:
     assert not _is_production_structural_path(Path("experiments/probe.py"))
 
 
+def test_sqlalchemy_wildcard_guardrail_rejects_only_sqlalchemy_imports(
+    tmp_path: Path,
+) -> None:
+    wildcard_source = tmp_path / "wildcard_source.py"
+    wildcard_source.write_text(
+        "from sqlalchemy import *\n"
+        "from sqlalchemy.sql import *\n"
+        "from unrelated import *\n",
+        encoding="utf-8",
+    )
+
+    assert _sqlalchemy_wildcard_import_lines(wildcard_source) == [1, 2]
+
+
 def test_production_python_has_no_banned_structural_smells() -> None:
     sync_violations: dict[str, list[int]] = {}
     sql_violations: dict[str, list[int]] = {}
+    sqlalchemy_wildcard_violations: dict[str, list[int]] = {}
 
     for source_path in _broad_exception_scan_files():
         relative_source_path = source_path.relative_to(ROOT)
@@ -2056,9 +2078,13 @@ def test_production_python_has_no_banned_structural_smells() -> None:
         sql_lines = _interpolated_sqlalchemy_text_lines(source_path)
         if sql_lines:
             sql_violations[str(relative_source_path)] = sql_lines
+        wildcard_lines = _sqlalchemy_wildcard_import_lines(source_path)
+        if wildcard_lines:
+            sqlalchemy_wildcard_violations[str(relative_source_path)] = wildcard_lines
 
     assert sync_violations == {}
     assert sql_violations == {}
+    assert sqlalchemy_wildcard_violations == {}
 
 
 def test_broad_exception_allowlist_stays_explicit():
