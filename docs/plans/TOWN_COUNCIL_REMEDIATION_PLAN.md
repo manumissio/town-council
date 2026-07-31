@@ -1,6 +1,6 @@
 # Town Council Remediation Plan (Codex Multi-Agent)
 
-version: 3.79
+version: 3.80
 generated: 2026-07-26
 source: Four-pass external code review (security, architecture, smells, process)
 source_artifact: [Town Council architecture review](../reviews/architecture-review-2026-07-19.html)
@@ -10,6 +10,10 @@ remains in force; where this plan is stricter, this plan wins for these tasks.
 
 ## Changelog
 
+- **v3.80:** Activates operator-approved T-PLAT-4 with exact cross-lane
+  ownership for deleting the generic API Redis cache, preserving the metadata
+  endpoint's one-hour behavior in its route, removing obsolete cache-only
+  tests and BLE001 debt, and correcting stale Redis role wording.
 - **v3.79:** Deletes T-GOV-3B's remaining custom SQLAlchemy matcher after
   review found another qualifier gap. Ruff `S608` and `F403` now own dynamic
   SQL and wildcard-import enforcement without project-specific name resolution;
@@ -1600,13 +1604,35 @@ files (GED-5 grant).
 
 ### T-PLAT-4: cache.py right-sizing
 - priority: P3
-- files_owned: api/cache.py, api/search_read_routes.py
-- do: Either (a) inline a purpose-built cache at the single call site and
-  delete the generic decorator, or (b) keep the decorator but build keys
-  from explicit primitives (not `str(args)`) and drop the hardcoded
-  password default. Default: (a). Remove the api/cache.py BLE001 ruff.toml
-  entry (ratchet from T-CI-5).
-- verify: Suite green; endpoint behavior unchanged.
+- status: active; operator approved deletion and ownership expansion
+- implementation_plan: `docs/plans/T_PLAT_4_CACHE_RIGHTSIZING_PLAN.md`
+- files_owned: `docs/plans/T_PLAT_4_CACHE_RIGHTSIZING_PLAN.md`,
+  `docs/plans/TOWN_COUNCIL_REMEDIATION_PLAN.md`, `api/cache.py`,
+  `api/search_read_routes.py`, `ruff.toml`, `tests/test_api.py`,
+  `tests/test_metrics_api.py`, `tests/test_performance.py`,
+  `tests/test_repository_guardrails.py`, `tests/locustfile.py`,
+  `docker-compose.yml` (Redis comments only), `docs/OPERATIONS.md`
+  (Redis recovery wording only)
+- do: Delete the generic Redis decorator and its cache-only interfaces. Keep
+  the metadata endpoint's one-hour refresh behavior in the route with a
+  process-local monotonic TTL cache. Cache the existing empty failure payload
+  too, matching current behavior. Remove obsolete cache tests, the global
+  Redis module mock, stale API-cache prose, and the deleted file's BLE001
+  selector.
+- preserve: Metadata response fields and normalization, failure payload,
+  endpoint authentication, one-hour TTL, Redis's Celery and metrics roles,
+  Compose service configuration, runtime defaults, and soak comparability.
+- forbidden: New cache abstraction, Redis compatibility path, test-only
+  production reset seam, new dependency or environment variable, API contract
+  change, Ruff widening, Compose configuration change, or edits outside
+  `files_owned`.
+- accept: `api/cache.py` and all imports are gone; repeated metadata requests
+  use one search before expiry and refresh at expiry; failure payloads are
+  cached for the same TTL; broad-exception debt decreases by one; all
+  targeted and complete gates pass.
+- verify: Follow the Full T-PLAT-4 plan, including tests-first evidence, Ruff,
+  formatter, Mypy, API/search, metrics/performance, repository guardrails,
+  docs links, Docker contracts, complete suite, independent review, and PR CI.
 
 ### T-GOV-1: ADR — "Test patch points are not a public API" (gate G3)
 - priority: P0 (unblocks Phase 2)
