@@ -3,6 +3,7 @@ from __future__ import annotations
 from collections.abc import Iterator
 from contextlib import contextmanager
 import importlib
+import importlib.util
 import os
 from pathlib import Path
 import subprocess
@@ -23,7 +24,6 @@ from pipeline.db_schema_contracts import (
     compare_schema_contracts,
     format_schema_differences,
 )
-from pipeline.models import Base
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -31,6 +31,7 @@ POSTGRES_TEST_URL_ENV = "TEST_POSTGRES_DATABASE_URL"
 PGVECTOR_CONTRACT_DIMENSION = 384
 PGVECTOR_CONTRACT_VALUE = 0.125
 BASELINE_REVISION = "0001_v10_baseline"
+ROSTER_GATED_REVISION = "0002_roster_gated_people"
 POST_BASELINE_REVISION = "0002_test_head"
 POST_BASELINE_REVISION_SOURCE = f'''"""Test-only revision after the v10 baseline."""
 
@@ -78,6 +79,21 @@ APPLICATION_TABLES = {
 
 def _migration_module() -> ModuleType:
     return importlib.import_module("pipeline.db_migration_alembic")
+
+
+def _roster_migration_module() -> ModuleType:
+    migration_path = (
+        ROOT / "alembic" / "versions" / f"{ROSTER_GATED_REVISION}.py"
+    )
+    module_spec = importlib.util.spec_from_file_location(
+        ROSTER_GATED_REVISION,
+        migration_path,
+    )
+    if module_spec is None or module_spec.loader is None:
+        raise RuntimeError(f"cannot load migration module: {migration_path}")
+    migration_module = importlib.util.module_from_spec(module_spec)
+    module_spec.loader.exec_module(migration_module)
+    return migration_module
 
 
 def _postgres_test_url() -> URL:
@@ -209,6 +225,9 @@ def test_alembic_runtime_contract_is_checked_in() -> None:
     assert (ROOT / "alembic.ini").is_file()
     assert (ROOT / "alembic" / "env.py").is_file()
     assert (ROOT / "alembic" / "versions" / f"{BASELINE_REVISION}.py").is_file()
+    assert (
+        ROOT / "alembic" / "versions" / f"{ROSTER_GATED_REVISION}.py"
+    ).is_file()
     assert "alembic==1.18.5" in (
         ROOT / "pipeline" / "requirements.txt"
     ).read_text(encoding="utf-8").splitlines()
@@ -260,13 +279,13 @@ def test_schema_differences_identify_exact_drifted_objects() -> None:
     assert "expected=<absent>" in rendered_differences
 
 
-def test_fresh_postgres_upgrade_creates_complete_baseline() -> None:
+def test_fresh_postgres_upgrade_creates_complete_head() -> None:
     migration_module = _migration_module()
     with _isolated_postgres_database() as database_engine:
         migration_outcome = migration_module.migrate_database(database_engine)
 
         assert migration_outcome.status == "upgraded"
-        assert _current_revision(database_engine) == BASELINE_REVISION
+        assert _current_revision(database_engine) == ROSTER_GATED_REVISION
         assert migration_module.check_database_parity(database_engine) == ()
         assert APPLICATION_TABLES <= set(inspect(database_engine).get_table_names())
         assert LEGACY_ONLY_INDEXES <= _all_index_names(database_engine)
@@ -293,7 +312,7 @@ def test_fresh_upgrade_is_idempotent() -> None:
 
         assert first_outcome.status == "upgraded"
         assert second_outcome.status == "current"
-        assert _current_revision(database_engine) == BASELINE_REVISION
+        assert _current_revision(database_engine) == ROSTER_GATED_REVISION
         assert _all_index_names(database_engine) == first_indexes
 
 
@@ -318,8 +337,8 @@ def test_delayed_unversioned_adopter_compares_baseline_then_reaches_head(
 ) -> None:
     migration_module = _migration_module()
     with _isolated_postgres_database() as database_engine:
-        migration_module.migrate_database(database_engine)
         with database_engine.begin() as connection:
+            command.upgrade(_alembic_config(connection), BASELINE_REVISION)
             connection.execute(text("DROP TABLE alembic_version"))
 
         _install_post_baseline_test_runtime(tmp_path)
@@ -347,17 +366,18 @@ def test_sequence_settings_are_part_of_schema_parity() -> None:
         ] == ["sequences['place_id_seq']"]
 
 
-def test_current_unversioned_schema_is_repaired_and_adopted() -> None:
+def test_baseline_unversioned_schema_is_repaired_and_adopted() -> None:
     migration_module = _migration_module()
     with _isolated_postgres_database() as database_engine:
         with database_engine.begin() as connection:
             connection.execute(text("CREATE EXTENSION vector"))
-        Base.metadata.create_all(database_engine)
+            command.upgrade(_alembic_config(connection), BASELINE_REVISION)
+            connection.execute(text("DROP TABLE alembic_version"))
 
         migration_outcome = migration_module.migrate_database(database_engine)
 
         assert migration_outcome.status == "adopted"
-        assert _current_revision(database_engine) == BASELINE_REVISION
+        assert _current_revision(database_engine) == ROSTER_GATED_REVISION
         assert _reference_schema_names(database_engine) == set()
 
 
@@ -365,6 +385,8 @@ def test_pgvector_sqlalchemy_round_trip_returns_list() -> None:
     migration_module = _migration_module()
     expected_embedding = [PGVECTOR_CONTRACT_VALUE] * PGVECTOR_CONTRACT_DIMENSION
     with _isolated_postgres_database() as database_engine:
+        from pipeline.models import Base
+
         migration_module.migrate_database(database_engine)
         catalog_table = Base.metadata.tables["catalog"]
         semantic_embedding_table = Base.metadata.tables["semantic_embedding"]
@@ -393,10 +415,9 @@ def test_pgvector_sqlalchemy_round_trip_returns_list() -> None:
 
 
 def test_direct_migration_cli_reports_retired_catalog_vectors() -> None:
-    migration_module = _migration_module()
     with _isolated_postgres_database() as database_engine:
-        migration_module.migrate_database(database_engine)
         with database_engine.begin() as connection:
+            command.upgrade(_alembic_config(connection), BASELINE_REVISION)
             connection.execute(text("DROP TABLE alembic_version"))
             connection.execute(
                 text("ALTER TABLE catalog ADD COLUMN semantic_embedding VECTOR(384)")
@@ -430,9 +451,9 @@ def test_direct_migration_cli_reports_retired_catalog_vectors() -> None:
         assert completed_cli.returncode == 0
         assert "database_migration_complete" in completed_cli.stderr
         assert "status=adopted" in completed_cli.stderr
-        assert f"revision={BASELINE_REVISION}" in completed_cli.stderr
+        assert f"revision={ROSTER_GATED_REVISION}" in completed_cli.stderr
         assert "retired_catalog_vector_count=1" in completed_cli.stderr
-        assert _current_revision(database_engine) == BASELINE_REVISION
+        assert _current_revision(database_engine) == ROSTER_GATED_REVISION
         assert not any(
             column["name"] == "semantic_embedding"
             for column in inspect(database_engine).get_columns("catalog")
@@ -442,8 +463,8 @@ def test_direct_migration_cli_reports_retired_catalog_vectors() -> None:
 def test_unversioned_drift_aborts_without_stamp_or_data_loss() -> None:
     migration_module = _migration_module()
     with _isolated_postgres_database() as database_engine:
-        migration_module.migrate_database(database_engine)
         with database_engine.begin() as connection:
+            command.upgrade(_alembic_config(connection), BASELINE_REVISION)
             connection.execute(
                 text(
                     """
@@ -506,8 +527,8 @@ def test_unversioned_drift_aborts_without_stamp_or_data_loss() -> None:
 def test_unversioned_adoption_repairs_legacy_indexes_before_stamp() -> None:
     migration_module = _migration_module()
     with _isolated_postgres_database() as database_engine:
-        migration_module.migrate_database(database_engine)
         with database_engine.begin() as connection:
+            command.upgrade(_alembic_config(connection), BASELINE_REVISION)
             connection.execute(text("DROP TABLE alembic_version"))
             for index_name in sorted(LEGACY_ONLY_INDEXES):
                 quoted_index = connection.dialect.identifier_preparer.quote_identifier(
@@ -518,7 +539,7 @@ def test_unversioned_adoption_repairs_legacy_indexes_before_stamp() -> None:
         migration_outcome = migration_module.migrate_database(database_engine)
 
         assert migration_outcome.status == "adopted"
-        assert _current_revision(database_engine) == BASELINE_REVISION
+        assert _current_revision(database_engine) == ROSTER_GATED_REVISION
         assert LEGACY_ONLY_INDEXES <= _all_index_names(database_engine)
 
 
@@ -557,7 +578,7 @@ def test_baseline_downgrade_fails_before_schema_or_data_changes() -> None:
             with pytest.raises(RuntimeError, match="baseline"):
                 command.downgrade(_alembic_config(connection), "base")
 
-        assert _current_revision(database_engine) == BASELINE_REVISION
+        assert _current_revision(database_engine) == ROSTER_GATED_REVISION
         assert APPLICATION_TABLES <= set(inspect(database_engine).get_table_names())
         with database_engine.connect() as connection:
             assert connection.scalar(
@@ -568,3 +589,184 @@ def test_baseline_downgrade_fails_before_schema_or_data_changes() -> None:
                     """
                 )
             ) == 1
+
+
+@pytest.mark.parametrize(
+    ("legacy_counts", "expected_detail"),
+    [
+        (
+            {
+                "person": 1,
+                "membership": 0,
+                "catalog": 0,
+            },
+            "person_rows=1",
+        ),
+        (
+            {
+                "person": 0,
+                "membership": 1,
+                "catalog": 0,
+            },
+            "membership_rows=1",
+        ),
+        (
+            {
+                "person": 0,
+                "membership": 0,
+                "catalog": 1,
+            },
+            "catalogs_with_person_entities=1",
+        ),
+    ],
+)
+def test_roster_migration_refuses_each_legacy_person_source(
+    monkeypatch: pytest.MonkeyPatch,
+    legacy_counts: dict[str, int],
+    expected_detail: str,
+) -> None:
+    migration = _roster_migration_module()
+
+    class LegacyCountConnection:
+        def execute(self, statement: object) -> None:
+            assert "LOCK TABLE" in str(statement)
+
+        def scalar(self, statement: object) -> int:
+            statement_text = str(statement)
+            if "FROM person" in statement_text:
+                return legacy_counts["person"]
+            if "FROM membership" in statement_text:
+                return legacy_counts["membership"]
+            if "FROM catalog" in statement_text:
+                return legacy_counts["catalog"]
+            raise AssertionError(f"unexpected migration query: {statement_text}")
+
+    monkeypatch.setattr(migration.op, "get_bind", LegacyCountConnection)
+
+    with pytest.raises(
+        RuntimeError,
+        match=(
+            "T-GOV-2A migration blocked.*"
+            f"{expected_detail}.*"
+            "remediate_legacy_people.py --apply"
+        ),
+    ):
+        migration.upgrade()
+
+
+def test_roster_migration_rejects_unsafe_downgrade() -> None:
+    migration = _roster_migration_module()
+
+    with pytest.raises(RuntimeError, match="Roll forward"):
+        migration.downgrade()
+
+
+def test_roster_migration_refuses_legacy_data_before_schema_changes() -> None:
+    with _isolated_postgres_database() as database_engine:
+        with database_engine.begin() as connection:
+            command.upgrade(_alembic_config(connection), BASELINE_REVISION)
+            connection.execute(
+                text(
+                    """
+                    INSERT INTO person (name)
+                    VALUES ('Legacy Person')
+                    """
+                )
+            )
+            connection.execute(
+                text(
+                    """
+                    INSERT INTO catalog (url_hash, entities)
+                    VALUES (
+                        'legacy-person-entities',
+                        '{"persons": ["Legacy Person"], "orgs": ["Council"]}'::json
+                    )
+                    """
+                )
+            )
+
+        with database_engine.begin() as connection:
+            with pytest.raises(
+                RuntimeError,
+                match=(
+                    "T-GOV-2A migration blocked.*"
+                    "person_rows=1.*"
+                    "catalogs_with_person_entities=1.*"
+                    "remediate_legacy_people.py --apply"
+                ),
+            ):
+                command.upgrade(
+                    _alembic_config(connection),
+                    ROSTER_GATED_REVISION,
+                )
+
+        assert _current_revision(database_engine) == BASELINE_REVISION
+        assert "legistar_client" not in {
+            column["name"]
+            for column in inspect(database_engine).get_columns("person")
+        }
+
+
+def test_roster_migration_matches_authoritative_person_schema() -> None:
+    migration_module = _migration_module()
+    with _isolated_postgres_database() as database_engine:
+        migration_outcome = migration_module.migrate_database(database_engine)
+
+        assert migration_outcome.revision == ROSTER_GATED_REVISION
+        database_inspector = inspect(database_engine)
+        organization_columns = {
+            column["name"]: column
+            for column in database_inspector.get_columns("organization")
+        }
+        person_columns = {
+            column["name"]: column
+            for column in database_inspector.get_columns("person")
+        }
+        membership_columns = {
+            column["name"]: column
+            for column in database_inspector.get_columns("membership")
+        }
+        unique_constraints = {
+            constraint["name"]
+            for table_name in ("organization", "person", "membership")
+            for constraint in database_inspector.get_unique_constraints(
+                table_name
+            )
+        }
+
+        assert {
+            "legistar_body_id",
+            "legistar_body_guid",
+            "roster_source_url",
+            "roster_synced_at",
+        } <= organization_columns.keys()
+        assert {
+            "legistar_client",
+            "legistar_person_id",
+            "roster_source_url",
+            "roster_synced_at",
+        } <= person_columns.keys()
+        assert {
+            "legistar_client",
+            "legistar_office_record_id",
+            "legistar_office_record_guid",
+            "roster_source_url",
+            "roster_last_modified_at",
+            "roster_synced_at",
+        } <= membership_columns.keys()
+        assert person_columns["legistar_client"]["nullable"] is False
+        assert person_columns["legistar_person_id"]["nullable"] is False
+        assert membership_columns["start_date"]["nullable"] is False
+        assert {
+            "image_url",
+            "biography",
+            "current_role",
+            "is_elected",
+            "person_type",
+        }.isdisjoint(person_columns)
+        assert {
+            "uq_organization_place_legistar_body",
+            "uq_person_legistar_identity",
+            "uq_membership_legistar_identity",
+        } <= unique_constraints
+        assert migration_module.check_database_parity(database_engine) == ()

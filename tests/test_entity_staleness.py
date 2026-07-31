@@ -56,7 +56,7 @@ def test_select_catalog_ids_for_entity_backfill_skips_fresh_rows(db_session):
         filename="fresh.pdf",
         content=content,
         content_hash=content_hash,
-        entities={"persons": ["Jane Smith"], "orgs": [], "locs": []},
+        entities={"orgs": ["Sample Council"], "locs": []},
         entities_source_hash=content_hash,
     )
     stale_catalog = Catalog(
@@ -66,7 +66,7 @@ def test_select_catalog_ids_for_entity_backfill_skips_fresh_rows(db_session):
         filename="stale.pdf",
         content=content,
         content_hash=content_hash,
-        entities={"persons": ["Jane Smith"], "orgs": [], "locs": []},
+        entities={"orgs": ["Sample Council"], "locs": []},
         entities_source_hash="oldhash",
     )
     db_session.add_all([fresh_catalog, stale_catalog])

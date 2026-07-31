@@ -175,7 +175,7 @@ def test_process_entity_chunk_marks_low_signal_docs_fresh_without_spacy(db_sessi
     assert counts["complete"] == 1
     assert counts["ner_processed"] == 0
     assert counts["ner_skipped_low_signal"] == 1
-    assert refreshed.entities == {"orgs": [], "locs": [], "persons": []}
+    assert refreshed.entities == {"orgs": [], "locs": []}
     assert refreshed.entities_source_hash == compute_content_hash(refreshed.content)
     extract_spy.assert_not_called()
 
@@ -204,7 +204,7 @@ def test_process_entity_chunk_backfills_missing_entities_source_hash_without_rer
         filename="missing-entity-hash.pdf",
         content=content,
         content_hash=compute_content_hash(content),
-        entities={"persons": ["Jane Smith", "Alex Brown"], "orgs": [], "locs": []},
+        entities={"orgs": ["Sample Council"], "locs": []},
         entities_source_hash=None,
     )
     db_session.add(catalog)

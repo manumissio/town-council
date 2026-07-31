@@ -2,47 +2,54 @@ import datetime
 from types import SimpleNamespace
 
 
-def _person(name, person_type="official"):
-    return SimpleNamespace(id=1, ocd_id="ocd", name=name, person_type=person_type)
+def _meeting_document():
+    document = SimpleNamespace(id=10, category="minutes")
+    catalog = SimpleNamespace(
+        id=20,
+        filename="minutes.pdf",
+        url="https://example.test/minutes.pdf",
+        content="Meeting minutes",
+        summary=None,
+        summary_extractive=None,
+        topics=None,
+        summary_source_hash=None,
+        content_hash=None,
+        topics_source_hash=None,
+        related_ids=None,
+        lineage_id=None,
+        lineage_confidence=None,
+        agenda_items_hash=None,
+        agenda_segmentation_status=None,
+    )
+    event = SimpleNamespace(
+        ocd_id="ocd-event/1",
+        name="Regular Meeting",
+        meeting_type="Regular",
+        record_date=datetime.date(2026, 7, 1),
+    )
+    place = SimpleNamespace(display_name="Test", name="test", state="CA")
+    organization = SimpleNamespace(
+        name="City Council",
+        legistar_body_id=777,
+        legistar_body_guid="00000000-0000-0000-0000-000000000777",
+        roster_source_url="https://webapi.legistar.com/v1/Test/Bodies/777/OfficeRecords",
+        roster_synced_at=datetime.datetime(2026, 7, 31, tzinfo=datetime.UTC),
+        memberships=[
+            SimpleNamespace(
+                person=SimpleNamespace(id=1, ocd_id="ocd-person/1", name="Roster Member"),
+                start_date=datetime.date(2024, 1, 1),
+                end_date=None,
+            )
+        ],
+    )
+    return document, catalog, event, place, organization
 
 
-def _membership(person, start_date=None, end_date=None):
-    return SimpleNamespace(person=person, start_date=start_date, end_date=end_date)
+def test_meeting_index_omits_people_until_events_have_authoritative_body_linkage():
+    from pipeline.indexer_documents import _build_meeting_search_doc
 
+    document, catalog, event, place, organization = _meeting_document()
+    search_document = _build_meeting_search_doc(document, catalog, event, place, organization)
 
-def test_indexer_filters_officials_by_meeting_date_when_term_dates_exist():
-    """
-    If term dates exist, we should prefer the roster active on the meeting date.
-    """
-    meeting_date = datetime.date(2022, 9, 20)
-
-    old = _membership(_person("Old Member"), start_date=datetime.date(2020, 1, 1), end_date=datetime.date(2022, 1, 1))
-    active = _membership(_person("Active Member"), start_date=datetime.date(2022, 1, 2), end_date=None)
-    mentioned = _membership(_person("Mentioned Name", person_type="mentioned"), start_date=datetime.date(2022, 1, 2), end_date=None)
-
-    org = SimpleNamespace(memberships=[old, active, mentioned])
-
-    from pipeline.indexer import _select_official_memberships_for_event
-
-    chosen = _select_official_memberships_for_event(org, meeting_date)
-    names = [m.person.name for m in chosen]
-
-    assert names == ["Active Member"]
-
-
-def test_indexer_falls_back_to_undated_officials_when_no_term_dates_are_present():
-    """
-    If we have no term dates at all, don't return an empty roster; show undated official memberships.
-    """
-    meeting_date = datetime.date(2022, 9, 20)
-
-    undated_a = _membership(_person("Undated A"))
-    undated_b = _membership(_person("Undated B"))
-    org = SimpleNamespace(memberships=[undated_a, undated_b])
-
-    from pipeline.indexer import _select_official_memberships_for_event
-
-    chosen = _select_official_memberships_for_event(org, meeting_date)
-    names = [m.person.name for m in chosen]
-
-    assert names == ["Undated A", "Undated B"]
+    assert "people_metadata" not in search_document
+    assert "people" not in search_document

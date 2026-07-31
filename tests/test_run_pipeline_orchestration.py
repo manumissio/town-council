@@ -182,7 +182,6 @@ def test_main_skips_non_gating_steps_in_onboarding_fast_profile(mocker):
     assert ("Table Extraction", ("python", "table_worker.py")) not in calls
     assert ("Backfill Organizations", ("python", "backfill_orgs.py")) not in calls
     assert ("Topic Modeling", ("python", "topic_worker.py")) not in calls
-    assert ("People Linking", ("python", "person_linker.py")) not in calls
 
 
 def test_main_skips_ingest_prelude_in_workload_only_profile(mocker):
@@ -236,11 +235,6 @@ def test_run_batch_enrichment_runs_heavy_steps_in_expected_order(mocker):
         "pipeline.run_batch_enrichment.run_topic_hydration_backfill",
         return_value={"selected": 2, "complete": 2, "cached": 0, "stale": 0, "blocked_low_signal": 0, "error": 0, "other": 0},
     )
-    people_spy = mocker.patch(
-        "pipeline.run_batch_enrichment.run_people_linking",
-        return_value={"selected": 1, "people_created": 1, "memberships_created": 1, "reindexed": 1, "failed_reindex": 0},
-    )
-
     run_batch_enrichment.main()
 
     assert calls == [
@@ -248,12 +242,10 @@ def test_run_batch_enrichment_runs_heavy_steps_in_expected_order(mocker):
         ("Table Extraction", ("python", "table_worker.py")),
         ("Backfill Organizations", "pipeline-batch"),
         ("Topic Modeling", "topic_modeling"),
-        ("People Linking", "people_linking"),
     ]
     entity_spy.assert_called_once_with()
     org_spy.assert_called_once_with()
     topic_backfill_spy.assert_called_once_with(catalog_ids=[2, 3])
-    people_spy.assert_called_once_with(catalog_ids=[10])
 
 
 def test_run_batch_callable_step_records_failure_context_before_exit(
@@ -301,11 +293,6 @@ def test_run_batch_enrichment_skips_noop_topic_and_table_steps(mocker):
         return_value={"selected": 0, "linked": 0, "reindexed": 0, "failed_reindex": 0},
     )
     topic_backfill_spy = mocker.patch("pipeline.run_batch_enrichment.run_topic_hydration_backfill")
-    people_spy = mocker.patch(
-        "pipeline.run_batch_enrichment.run_people_linking",
-        return_value={"selected": 0, "people_created": 0, "memberships_created": 0, "reindexed": 0, "failed_reindex": 0},
-    )
-
     run_batch_enrichment.main()
 
     assert ("Table Extraction", ("python", "table_worker.py")) not in calls
@@ -317,7 +304,6 @@ def test_run_batch_enrichment_skips_noop_topic_and_table_steps(mocker):
     entity_spy.assert_called_once_with()
     org_spy.assert_called_once_with()
     topic_backfill_spy.assert_not_called()
-    people_spy.assert_not_called()
 
 
 def test_run_batch_enrichment_help_exits_before_work(mocker):
