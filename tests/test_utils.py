@@ -19,7 +19,6 @@ def test_pipeline_utils_facade_exports_public_contract():
     import pipeline.utils as utils
 
     expected_exports = {
-        "find_best_person_match",
         "find_text_coordinates",
         "generate_ocd_id",
         "is_likely_human_name",

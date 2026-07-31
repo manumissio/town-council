@@ -55,7 +55,7 @@ export default function PersonProfile({ personId, onClose }) {
             </div>
             <div>
               <h2 className="text-3xl font-bold tracking-tight">{loading ? "Loading..." : data?.name}</h2>
-              <p className="text-blue-100 font-medium mt-1">{data?.current_role || "Public Official"}</p>
+              <p className="text-blue-100 font-medium mt-1">Verified public roster</p>
             </div>
           </div>
         </div>
@@ -97,7 +97,7 @@ export default function PersonProfile({ personId, onClose }) {
                 <div className="flex items-start gap-3 p-4 bg-gray-50 rounded-2xl">
                   <Info className="w-4 h-4 text-gray-400 mt-0.5" />
                   <p className="text-xs text-gray-500 leading-relaxed italic">
-                    Note: Memberships and roles are extracted automatically from official meeting minutes using AI logic based on the Open Civic Data standard.
+                    Memberships and roles come from an independently approved public roster source.
                   </p>
                 </div>
               </div>

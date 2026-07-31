@@ -1,8 +1,0 @@
-{
-  "id": 3,
-  "name": "Committee Chair",
-  "current_role": "Environmental Review Committee",
-  "roles": [
-    {"body": "Environmental Review Committee", "city": "CA_CUPERTINO", "role": "Chair"}
-  ]
-}

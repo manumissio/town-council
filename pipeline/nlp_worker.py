@@ -8,7 +8,6 @@ from pipeline.nlp_entity_candidates import (
     empty_entities_payload,
 )
 from pipeline.nlp_entity_extraction import extract_entities as _extract_entities
-from pipeline.nlp_entity_model import scrub_municipal_noise
 
 __all__ = [
     "_CAPITALIZED_NAME_RE",
@@ -21,7 +20,6 @@ __all__ = [
     "empty_entities_payload",
     "extract_entities",
     "get_municipal_nlp_model",
-    "scrub_municipal_noise",
 ]
 
 # Compatibility surface for tests and callers that reset or inspect the cache

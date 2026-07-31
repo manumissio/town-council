@@ -85,6 +85,14 @@ agenda/minutes links from meeting detail pages when API rows are partial. Summar
 backfill and empty-agenda fallback behavior are implemented; final completion
 evidence belongs in the active Sunnyvale finalization item below.
 
+### Roster-Gated Person Governance
+
+People and memberships now come only from currently approved Legistar
+OfficeRecords rosters. Document-derived, title-inferred, and fuzzy person
+linking has been retired. Cities without current roster approval fail closed,
+and meeting search records omit `people_metadata` while event-to-body linkage
+remains heuristic.
+
 ## Active
 
 ### Sunnyvale Finalization
@@ -131,6 +139,8 @@ Goal: confirm the system is ready to resume city expansion without compounding
 runtime or data-quality failures.
 
 Exit criteria:
+- the `baseline_representative_v2` expected-baseline PR contains a valid,
+  reproducible post-roster-gate run and has merged;
 - rollout registry and onboarding status identify the next city wave;
 - crawl and derived-state quality gates are measurable for the wave;
 - queue/API/search behavior remains within the documented conservative-profile
@@ -146,7 +156,8 @@ membership and enabled status should come from the rollout registry, not from
 hardcoded roadmap lists.
 
 Start criteria:
-- T-GOV-2A roster-gated person linking is complete and verified.
+- roster-gated person governance remains enforced;
+- a valid `baseline_representative_v2` expected-baseline PR has merged.
 
 Quality gates stay outcome-based:
 - crawl success is high enough for repeatable ingestion;

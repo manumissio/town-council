@@ -11,7 +11,6 @@ from pipeline.profile_manifest_contracts import (
     PHASE_ENTITY,
     PHASE_EXTRACT,
     PHASE_ORG,
-    PHASE_PEOPLE,
     PHASE_SEGMENT,
     PHASE_SUMMARY,
     PROFILE_MANIFEST_PHASES,
@@ -37,6 +36,10 @@ def build_manifest_package(
 
 
 def _normalized_phase_quotas(quotas: dict[str, int] | None) -> dict[str, int]:
+    unsupported_phases = set(quotas or {}) - set(PROFILE_MANIFEST_PHASES)
+    if unsupported_phases:
+        phase_names = ", ".join(sorted(unsupported_phases))
+        raise ValueError(f"unsupported manifest phases: {phase_names}")
     target_quotas = {**DEFAULT_PHASE_QUOTAS, **(quotas or {})}
     for phase, value in target_quotas.items():
         target_quotas[phase] = max(0, int(value))
@@ -112,8 +115,6 @@ def _build_package_payload(
     candidates_by_phase: dict[str, list[ManifestCandidate]],
     picked_by_phase: dict[str, list[ManifestCandidate]],
 ) -> JsonPayload:
-    picked_entity = picked_by_phase[PHASE_ENTITY]
-    picked_people = picked_by_phase[PHASE_PEOPLE]
     return {
         "schema_version": MANIFEST_PACKAGE_SCHEMA_VERSION,
         "manifest_name": name,
@@ -129,23 +130,14 @@ def _build_package_payload(
             {"catalog_id": int(candidate["catalog_id"]), "event_id": int(candidate["event_id"])}
             for candidate in picked_by_phase[PHASE_ORG]
         ],
-        "people_reset_names": [
-            {
-                "catalog_id": int(candidate["catalog_id"]),
-                "names": list(candidate["reset_names"]),
-            }
-            for candidate in picked_people
-        ],
         "expected_phase_coverage": {
             PHASE_EXTRACT: len(picked_by_phase[PHASE_EXTRACT]),
             PHASE_SEGMENT: len(picked_by_phase[PHASE_SEGMENT]),
             PHASE_SUMMARY: len(picked_by_phase[PHASE_SUMMARY]),
-            PHASE_ENTITY: len(picked_entity) + len(picked_people),
+            PHASE_ENTITY: len(picked_by_phase[PHASE_ENTITY]),
             PHASE_ORG: len(picked_by_phase[PHASE_ORG]),
-            PHASE_PEOPLE: len(picked_people),
         },
         "safety": {
             "org_reset_requires_single_document_event": True,
-            "people_reset_mode": "mentioned_exact_name_without_memberships",
         },
     }

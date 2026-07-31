@@ -11,14 +11,18 @@ Use each entry to record:
 ## 2026-07-26: Roster-gated person linking
 
 - Status: Accepted
+- Implemented: 2026-07-31
 - Decision:
-  - Only names matched to independently authoritative official membership data
-    for the relevant municipality, governing body, and meeting date may become
-    person entities, profiles, memberships, or vote attributions.
-  - Title inference, source-document mentions, and linker-created memberships
-    are not roster authority.
+  - Only records from a currently approved Legistar OfficeRecords roster for
+    the municipality and governing body may become people, profiles,
+    memberships, or vote attributions.
+  - Title inference, fuzzy matching, and source-document mentions are not
+    roster authority. Their person-linking implementation is removed.
   - Non-roster names remain searchable municipal source text, but they do not
     become people metadata or cross-document person aggregation.
+  - Meeting `people_metadata` is omitted because current event-to-body linkage
+    is heuristic.
+  - Cities without a current approved roster source fail closed.
   - Outside enrichment of private individuals remains prohibited.
   - Corrections remove or repair derived records and indexes. Source documents
     are not modified.
@@ -29,12 +33,24 @@ Use each entry to record:
     focused on officials acting in public roles.
   - Preserving source text maintains the municipal record while minimizing
     derived exposure.
-- Current state:
-  - Town Council does not yet enforce this policy. Existing entity linking can
-    create mention-only people and infer memberships from document content.
-  - T-GOV-2A owns authoritative roster input, runtime gating, existing
-    derived-data remediation, reindexing, and prevention of re-derivation.
-  - City Coverage Expansion remains blocked until T-GOV-2A is complete.
+- Source and failure semantics:
+  - A structurally valid empty OfficeRecords roster clears the approved
+    governing body's roster-backed records.
+  - A transient or invalid source response preserves the last verified
+    database snapshot.
+  - Current registry revocation depublishes stored records even when their
+    last verified provenance remains in the database. Revocation commits before
+    unrelated authorized-source fetches so provider failure cannot preserve
+    publication after authorization is removed.
+  - A successful governing-body change atomically depublishes the superseded
+    body's roster.
+- Baseline transition:
+  - `baseline_representative_v1` is immutable historical evidence and is
+    non-comparable with the roster-gated pipeline.
+  - `baseline_representative_v2` is the new workload contract. Its expected
+    baseline remains pending a separate PR with valid reproduced evidence.
+  - City Coverage Expansion remains blocked until that expected-baseline PR
+    merges.
 - Affected boundaries:
   - This decision governs person creation, people metadata, profiles,
     memberships, vote attribution, correction, and derived-data retention.
@@ -178,9 +194,10 @@ Use each entry to record:
     stamping.
   - Fresh PostgreSQL upgrades create the pgvector extension before baseline
     table DDL creates vector columns.
-  - The baseline is the downgrade floor. Its downgrade path must fail before
-    DDL so a stamped existing database cannot lose pre-existing tables or data.
-    Post-baseline revisions may downgrade only to the baseline.
+  - The baseline is the initial downgrade floor. Its downgrade path must fail
+    before DDL so a stamped existing database cannot lose pre-existing tables
+    or data. A later governance migration may establish a newer floor when
+    restoring the old schema would re-enable prohibited behavior.
   - No migration or schema change occurs from this decision record alone.
 - Canonical references:
   - [Town Council remediation plan](plans/TOWN_COUNCIL_REMEDIATION_PLAN.md)
@@ -424,15 +441,16 @@ Use each entry to record:
 ## 2026-05-09: Split parallel Wave 1 legacy cleanup seams behind stable entrypoints
 
 - Status: Accepted
+- Superseded in part: the document-derived person work described by this entry
+  was retired by the 2026-07-26 roster-gated person decision.
 - Decision:
   - Profiling and soak-reporting scripts remain CLI entrypoints while shared artifact loading, metric deltas, baseline comparison, and report rendering move behind focused `scripts/operator_profile_*` and `scripts/pipeline_profile_*` helpers.
   - `pipeline/http_inference_provider.py` remains the HTTP provider compatibility surface while retry attempts, payload parsing, provider policy, typed errors, and telemetry helpers move behind focused `pipeline/http_inference_*` modules.
-  - `pipeline/utils.py` and `pipeline/person_linker.py` remain public import surfaces while OCD ID helpers, name policy, fuzzy matching, PDF coordinates, person selection, mutation, and cache helpers move behind focused `pipeline/utils_*` and `pipeline/person_*` modules.
 - Why:
-  - The largest remaining cleanup targets were independent enough to split in parallel without touching `pipeline/tasks.py`, hydration/repair scripts, or `pipeline/models.py`.
-  - Existing operator output, provider import seams, and person-linking side effects must stay stable while reducing module size and review risk.
+  - The cleanup targets were independent enough to split in parallel without touching `pipeline/tasks.py`, hydration/repair scripts, or `pipeline/models.py`.
+  - Existing operator output and provider import seams stayed stable while reducing module size and review risk.
 - Affected boundaries:
-  - CLI JSON/stdout contracts, provider timeout/retry/error mapping, telemetry labels, person matching thresholds, reindex behavior, and DB session ownership stay unchanged.
+  - CLI JSON/stdout contracts, provider timeout/retry/error mapping, telemetry labels, and DB session ownership stayed unchanged.
   - Guardrails track the new helper families under the 300-line cleanup target.
 - Canonical references:
   - [ARCHITECTURE.md](../ARCHITECTURE.md)

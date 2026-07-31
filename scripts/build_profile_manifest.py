@@ -26,7 +26,6 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser.add_argument("--summary-quota", type=int, default=DEFAULT_PHASE_QUOTAS["summary"])
     parser.add_argument("--entity-quota", type=int, default=DEFAULT_PHASE_QUOTAS["entity"])
     parser.add_argument("--org-quota", type=int, default=DEFAULT_PHASE_QUOTAS["org"])
-    parser.add_argument("--people-quota", type=int, default=DEFAULT_PHASE_QUOTAS["people"])
     return parser.parse_args(argv)
 
 
@@ -97,7 +96,6 @@ def main(argv: list[str] | None = None) -> int:
             "summary": args.summary_quota,
             "entity": args.entity_quota,
             "org": args.org_quota,
-            "people": args.people_quota,
         },
     )
     manifest_path, sidecar_path = _manifest_paths(output_dir, args.name)

@@ -1,27 +1,5 @@
 from pipeline.config import NLP_MAX_TEXT_LENGTH
 from pipeline.nlp_entity_candidates import empty_entities_payload
-from pipeline.utils import is_likely_human_name
-
-_TITLE_PREFIXES = [
-    "moved by",
-    "seconded by",
-    "mayor",
-    "councilmember",
-    "vice mayor",
-    "chair",
-    "director",
-    "ayes :",
-    "noes :",
-]
-
-
-def _strip_municipal_prefix(name):
-    has_prefix = False
-    for prefix in _TITLE_PREFIXES:
-        if name.lower().startswith(prefix):
-            name = name[len(prefix) :].strip()
-            has_prefix = True
-    return name, has_prefix
 
 
 def extract_entities(text, *, nlp_loader):
@@ -43,17 +21,11 @@ def extract_entities(text, *, nlp_loader):
             continue
 
         name = ent.text.strip().replace("\n", " ")
-        name, has_prefix = _strip_municipal_prefix(name)
 
         if len(name) < 2 or len(name) > 100:
             continue
 
-        if ent.label_ == "PERSON":
-            if not is_likely_human_name(name, allow_single_word=has_prefix):
-                continue
-            if name not in entities["persons"]:
-                entities["persons"].append(name)
-        elif ent.label_ == "ORG" and name not in entities["orgs"]:
+        if ent.label_ == "ORG" and name not in entities["orgs"]:
             entities["orgs"].append(name)
         elif ent.label_ in ["GPE", "LOC"] and name not in entities["locs"]:
             entities["locs"].append(name)

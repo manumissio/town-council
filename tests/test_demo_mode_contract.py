@@ -3,6 +3,8 @@ from pathlib import Path
 
 
 DEMO_DIR = Path("frontend/public/demo")
+DEMO_API_MODULE = Path("frontend/lib/api.js")
+RETIRED_PERSON_FIXTURES = tuple(f"person_{person_id}.json" for person_id in range(1, 5))
 
 
 def _load_json(name):
@@ -19,25 +21,30 @@ def test_demo_fixture_files_exist():
         "catalog_701_derived_status.json",
         "catalog_702_derived_status.json",
         "catalog_703_derived_status.json",
-        "person_1.json",
-        "person_2.json",
-        "person_3.json",
-        "person_4.json",
         "catalog_batch.json",
     ]
     for file_name in expected_files:
         assert (DEMO_DIR / file_name).exists(), f"Missing demo fixture: {file_name}"
 
 
+def test_demo_mode_has_no_people_detail_routes_or_fixtures():
+    demo_api_source = DEMO_API_MODULE.read_text(encoding="utf-8")
+
+    assert "/person/" not in demo_api_source
+    for person_fixture in RETIRED_PERSON_FIXTURES:
+        assert not (DEMO_DIR / person_fixture).exists()
+
+
 def test_search_fixture_has_required_hit_keys():
-    data = _load_json("search.json")
-    assert "hits" in data
-    assert isinstance(data["hits"], list)
-    assert data["hits"], "search.json must contain at least one hit"
+    search_fixture = _load_json("search.json")
+    assert "hits" in search_fixture
+    assert isinstance(search_fixture["hits"], list)
+    assert search_fixture["hits"], "search.json must contain at least one hit"
 
     required_hit_keys = {"id", "catalog_id", "event_name", "city", "date", "filename", "url", "content"}
-    for hit in data["hits"]:
+    for hit in search_fixture["hits"]:
         assert required_hit_keys.issubset(hit.keys())
+        assert "people_metadata" not in hit
 
 
 def test_derived_status_fixtures_have_state_flags():

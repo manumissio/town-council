@@ -12,11 +12,12 @@ class _FakeDoc:
         self.ents = ents
 
 
-def test_extract_entities_strips_municipal_title_prefixes(mocker):
+def test_extract_entities_ignores_titled_people(mocker):
     fake_doc = _FakeDoc(
         [
             _FakeEnt("Mayor Jesse Arreguin", "PERSON"),
             _FakeEnt("Councilmember Terry Taplin", "PERSON"),
+            _FakeEnt("Berkeley City Council", "ORG"),
         ]
     )
     fake_nlp = mocker.Mock(return_value=fake_doc)
@@ -24,12 +25,10 @@ def test_extract_entities_strips_municipal_title_prefixes(mocker):
 
     entities = nlp_worker.extract_entities("Motion led by municipal officials.")
 
-    assert "Jesse Arreguin" in entities["persons"]
-    assert "Terry Taplin" in entities["persons"]
-    assert "Mayor Jesse Arreguin" not in entities["persons"]
+    assert entities == {"orgs": ["Berkeley City Council"], "locs": []}
 
 
-def test_extract_entities_supports_vote_style_prefixes(mocker):
+def test_extract_entities_ignores_vote_style_people(mocker):
     fake_doc = _FakeDoc(
         [
             _FakeEnt("Ayes : Harrison", "PERSON"),
@@ -41,5 +40,4 @@ def test_extract_entities_supports_vote_style_prefixes(mocker):
 
     entities = nlp_worker.extract_entities("Ayes and Noes were recorded.")
 
-    assert "Harrison" in entities["persons"]
-    assert "Robinson" in entities["persons"]
+    assert entities == {"orgs": [], "locs": []}

@@ -1,8 +1,6 @@
-import pytest
 import json
 import orjson
 import re
-from pipeline.utils import find_best_person_match
 
 # --------------------------------------------------------------------------
 # NOVICE DEVELOPER NOTE:
@@ -11,23 +9,6 @@ from pipeline.utils import find_best_person_match
 # We use the 'benchmark' fixture to run the same code many times and 
 # calculate the average speed.
 # --------------------------------------------------------------------------
-
-class MockPerson:
-    def __init__(self, name):
-        self.name = name
-
-def test_benchmark_fuzzy_matching(benchmark):
-    """
-    Measures how quickly we can compare names to find duplicates.
-    Why: If this is slow, the nightly pipeline will hang.
-    """
-    # Create a pool of 200 "Officials"
-    base_names = ["Jesse Arreguin", "Rashi Kesarwani", "Terry Taplin", "Sophie Hahn", "Ben Bartlett"]
-    existing_people = [MockPerson(name + str(i)) for i, name in enumerate(base_names * 40)]
-    
-    # We ask the benchmark tool to measure this specific function
-    result = benchmark(find_best_person_match, "Jesse Arreguin", existing_people)
-    assert result is not None
 
 def test_benchmark_regex_extraction(benchmark):
     """

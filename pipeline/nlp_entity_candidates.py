@@ -33,7 +33,6 @@ def empty_entities_payload():
     return {
         "orgs": [],
         "locs": [],
-        "persons": [],
     }
 
 

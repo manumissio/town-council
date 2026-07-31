@@ -21,36 +21,8 @@ def _strip_any_html(value: str | None) -> str | None:
 
 
 def _select_official_memberships_for_event(organization, record_date):
-    """
-    Choose which officials to show for a meeting.
-
-    Rule:
-    - If membership term dates are present, prefer the roster active on record_date.
-    - If term dates are missing, fall back to all official memberships so the UI
-      doesn't show an empty list.
-    """
-    if not organization:
-        return []
-
-    eligible = []
-    undated_fallback = []
-    for membership in getattr(organization, "memberships", None) or []:
-        person = getattr(membership, "person", None)
-        if not person:
-            continue
-        if getattr(person, "person_type", None) != "official":
-            continue
-
-        has_term_dates = bool(getattr(membership, "start_date", None) or getattr(membership, "end_date", None))
-        if record_date and has_term_dates:
-            starts_before = membership.start_date is None or membership.start_date <= record_date
-            ends_after = membership.end_date is None or record_date <= membership.end_date
-            if starts_before and ends_after:
-                eligible.append(membership)
-        else:
-            undated_fallback.append(membership)
-
-    return eligible or undated_fallback
+    # Event.organization_id is heuristic, so it cannot authorize people in search results.
+    return []
 
 
 def _truncate_content_for_index(content: str | None) -> tuple[str | None, bool, int, int]:
@@ -89,10 +61,6 @@ def _build_meeting_search_doc(
     meeting_category_resolver=_meeting_category,
 ) -> dict:
     indexed_content, is_content_truncated, original_chars, indexed_chars = content_truncator(catalog.content)
-    people_list = []
-    if organization:
-        chosen = membership_selector(organization, event.record_date)
-        people_list = [{"id": m.person.id, "ocd_id": m.person.ocd_id, "name": m.person.name} for m in chosen]
 
     return {
         "id": f"doc_{doc.id}",
@@ -124,8 +92,6 @@ def _build_meeting_search_doc(
         "related_ids": catalog.related_ids,
         "lineage_id": catalog.lineage_id,
         "lineage_confidence": catalog.lineage_confidence,
-        "people_metadata": people_list,
-        "people": [person["name"] for person in people_list],
         "event_name": event.name,
         "meeting_category": meeting_category_resolver(event),
         "organization": organization.name if organization else "City Council",

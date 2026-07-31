@@ -6,8 +6,8 @@ itself justify every derived use: aggregation, entity linking, and search
 change the accessibility of information about identifiable people. This
 document states the project's handling policy.
 
-Status: effective. Decision G4 was approved on 2026-07-26. Runtime enforcement
-remains pending under T-GOV-2A.
+Status: effective. Decision G4 was approved on 2026-07-26 and runtime
+enforcement landed under T-GOV-2A on 2026-07-31.
 
 ## 1. Data classes
 
@@ -36,24 +36,31 @@ remains pending under T-GOV-2A.
 
 ## 3. Roster-gated person entities
 
-Only names matched to independently authoritative official membership data
-for the relevant municipality, governing body, and meeting date may become
-person entities. Covered officials may receive profiles, memberships, and vote
-attribution only after that match.
+Only records from a currently approved Legistar OfficeRecords roster for the
+relevant municipality and governing body may become person entities. Covered
+officials may receive profiles, memberships, and vote attribution only from
+that roster evidence.
 
-Title inference, source-document mentions, and memberships created by the
-entity linker are derived evidence, not roster authority. They cannot
-authorize person creation or people-facing records.
+Title inference, fuzzy matching, and source-document mentions are not roster
+authority. The document-derived person-linking path is removed.
 
 Non-roster names remain searchable source text. They do not become person
 entities, people metadata, profiles, memberships, vote attribution, or
 cross-document aggregation. Outside enrichment of private individuals remains
 forbidden.
 
+Cities without a current approved roster source fail closed. Current registry
+revocation depublishes previously stored roster records. A structurally valid
+empty approved roster clears that governing body's roster; a transient or
+invalid source response preserves the last verified database snapshot. When
+the approved governing body changes, a successful sync depublishes the
+superseded body's roster.
+
+Meeting search records omit `people_metadata` because current event-to-body
+linkage is heuristic and cannot establish roster authority.
+
 Corrections apply to derived records and indexes. Source documents are not
-modified. Current runtime behavior does not yet enforce this policy; T-GOV-2A
-owns authoritative roster input, runtime gating, existing derived-data
-remediation, reindexing, and prevention of re-derivation.
+modified.
 
 ## 4. Correction and takedown
 
@@ -79,8 +86,8 @@ so decisions are auditable.
 - Source documents and extraction outputs: retained indefinitely (archival
   civic record).
 - Derived person-level data for non-roster people: not retained. Existing
-  records remain remediation debt until T-GOV-2A removes them and prevents
-  re-derivation through roster gating.
+  inferred records are removed during the roster-gate transition and cannot be
+  re-derived.
 - Operational telemetry: per `docs/OPERATIONS.md`; no person-level data in
   metrics.
 

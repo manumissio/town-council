@@ -126,7 +126,6 @@ def _meeting_hit(doc: Document, catalog: Catalog, event: Event, place: Place, or
         "topics_is_stale": bool(
             catalog.topics is not None and (not catalog.content_hash or catalog.topics_source_hash != catalog.content_hash)
         ),
-        "people_metadata": [],
         "event_name": event.name,
         "meeting_category": event.meeting_type or "Other",
         "organization": organization.name if organization else "City Council",

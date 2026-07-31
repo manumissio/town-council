@@ -1,5 +1,4 @@
 from pipeline import nlp_worker
-from pipeline.utils import is_likely_human_name
 
 
 class _FakeEnt:
@@ -13,12 +12,13 @@ class _FakeDoc:
         self.ents = ents
 
 
-def test_noise_reduction_filters_non_human_person_entities(mocker):
+def test_entity_extraction_ignores_person_entities(mocker):
     fake_doc = _FakeDoc(
         [
             _FakeEnt("City Manager", "PERSON"),
             _FakeEnt("Page 2", "PERSON"),
             _FakeEnt("Jesse Arreguin", "PERSON"),
+            _FakeEnt("Planning Commission", "ORG"),
             _FakeEnt("City Hall", "GPE"),
         ]
     )
@@ -27,19 +27,7 @@ def test_noise_reduction_filters_non_human_person_entities(mocker):
 
     entities = nlp_worker.extract_entities("Presented by City Manager on Page 2.")
 
-    assert "City Manager" not in entities["persons"]
-    assert "Page 2" not in entities["persons"]
-    assert "Jesse Arreguin" in entities["persons"]
-    assert "City Hall" in entities["locs"]
-
-
-def test_name_bouncer_rejects_known_noise_strings():
-    noisy_values = [
-        "Berkeley CA",
-        "Order N-29-20",
-        "Page 2",
-        "City of Berkeley",
-        "County of Alameda",
-    ]
-    for value in noisy_values:
-        assert not is_likely_human_name(value)
+    assert entities == {
+        "orgs": ["Planning Commission"],
+        "locs": ["City Hall"],
+    }

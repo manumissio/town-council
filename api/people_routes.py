@@ -1,47 +1,188 @@
 import logging
-from typing import Any, Callable
+from collections.abc import Callable
 
 from fastapi import APIRouter, Depends, HTTPException, Path, Query
+from sqlalchemy import and_, false
 from sqlalchemy.exc import SQLAlchemyError
+from sqlalchemy.orm import Query as SQLAlchemyQuery
 from sqlalchemy.orm import Session as SQLAlchemySession, joinedload
 
-from pipeline.models import Membership, Organization, Person
+from pipeline.models import Membership, Organization, Person, Place
+from pipeline.rollout_registry import CITY_METADATA_ALIASES, load_rollout_registry
+from pipeline.roster_contracts import normalize_roster_body_name
 
 logger = logging.getLogger("town-council-api")
 
 PEOPLE_DATABASE_ERROR_DETAIL = "Database error"
 PERSON_NOT_FOUND_DETAIL = "Official not found"
+ROSTER_AUTHORIZATION_ERROR_DETAIL = "Roster authorization unavailable"
 DEFAULT_PEOPLE_LIMIT = 50
 MAX_PEOPLE_LIMIT = 200
 
 
-def build_people_router(get_db_dependency: Callable[..., Any]) -> APIRouter:
+def _authorized_roster_bodies() -> set[tuple[str, str]]:
+    authorized_roster_bodies: set[tuple[str, str]] = set()
+    for rollout_entry in load_rollout_registry():
+        if not rollout_entry.roster_authorized:
+            continue
+        city_slug = CITY_METADATA_ALIASES.get(rollout_entry.city_slug, rollout_entry.city_slug)
+        authorized_roster_bodies.add(
+            (city_slug, normalize_roster_body_name(rollout_entry.roster_body_name))
+        )
+    return authorized_roster_bodies
+
+
+def _membership_has_roster_evidence(membership: Membership) -> bool:
+    person = membership.person
+    organization = membership.organization
+    return bool(
+        person
+        and organization
+        and organization.place
+        and person.legistar_client
+        and person.legistar_person_id is not None
+        and person.roster_source_url
+        and person.roster_synced_at
+        and membership.legistar_client
+        and membership.legistar_office_record_id is not None
+        and membership.legistar_office_record_guid
+        and membership.roster_source_url
+        and membership.roster_last_modified_at
+        and membership.roster_synced_at
+        and membership.start_date
+        and organization.legistar_body_id is not None
+        and organization.legistar_body_guid
+        and organization.roster_source_url
+        and organization.roster_synced_at
+        and person.legistar_client == membership.legistar_client
+        and membership.legistar_client == organization.place.legistar_client
+    )
+
+
+def _organization_matches_authorization(
+    organization: Organization,
+    authorized_roster_bodies: set[tuple[str, str]],
+) -> bool:
+    if organization.place is None:
+        return False
+    return any(
+        organization.place.ocd_division_id.endswith(f"/place:{city_slug}")
+        and normalize_roster_body_name(organization.name) == roster_body_name
+        for city_slug, roster_body_name in authorized_roster_bodies
+    )
+
+
+def _authorized_memberships(
+    person: Person,
+    authorized_roster_bodies: set[tuple[str, str]],
+) -> list[Membership]:
+    return [
+        membership
+        for membership in person.memberships
+        if _membership_has_roster_evidence(membership)
+        and _organization_matches_authorization(
+            membership.organization,
+            authorized_roster_bodies,
+        )
+    ]
+
+
+def _load_authorized_roster_bodies() -> set[tuple[str, str]]:
+    try:
+        return _authorized_roster_bodies()
+    except (OSError, ValueError) as error:
+        logger.error("Failed to load roster authorization registry: %s", error, exc_info=True)
+        raise HTTPException(status_code=503, detail=ROSTER_AUTHORIZATION_ERROR_DETAIL) from error
+
+
+def _authorized_people_query(
+    db: SQLAlchemySession,
+    authorized_roster_bodies: set[tuple[str, str]],
+) -> SQLAlchemyQuery[Person]:
+    authorized_organization_ids = _authorized_organization_ids(
+        db,
+        authorized_roster_bodies,
+    )
+    roster_authorization_filter = false()
+    if authorized_organization_ids:
+        roster_authorization_filter = Person.memberships.any(
+            and_(
+                Membership.legistar_client == Person.legistar_client,
+                Membership.legistar_office_record_id.is_not(None),
+                Membership.legistar_office_record_guid.is_not(None),
+                Membership.roster_source_url.is_not(None),
+                Membership.roster_last_modified_at.is_not(None),
+                Membership.roster_synced_at.is_not(None),
+                Membership.start_date.is_not(None),
+                Membership.organization_id.in_(authorized_organization_ids),
+                Membership.organization.has(
+                    Organization.place.has(
+                        Place.legistar_client == Person.legistar_client,
+                    )
+                ),
+            )
+        )
+    return db.query(Person).filter(
+        Person.legistar_client.is_not(None),
+        Person.legistar_person_id.is_not(None),
+        Person.roster_source_url.is_not(None),
+        Person.roster_synced_at.is_not(None),
+        roster_authorization_filter,
+    )
+
+
+def _authorized_organization_ids(
+    db: SQLAlchemySession,
+    authorized_roster_bodies: set[tuple[str, str]],
+) -> set[int]:
+    roster_organizations = (
+        db.query(Organization)
+        .options(joinedload(Organization.place))
+        .filter(
+            Organization.legistar_body_id.is_not(None),
+            Organization.legistar_body_guid.is_not(None),
+            Organization.roster_source_url.is_not(None),
+            Organization.roster_synced_at.is_not(None),
+        )
+        .all()
+    )
+    return {
+        int(organization.id)
+        for organization in roster_organizations
+        if _organization_matches_authorization(
+            organization,
+            authorized_roster_bodies,
+        )
+    }
+
+
+def build_people_router(get_db_dependency: Callable[..., object]) -> APIRouter:
     router = APIRouter()
 
     @router.get("/people")
     def list_people(
         limit: int = Query(DEFAULT_PEOPLE_LIMIT, ge=1, le=MAX_PEOPLE_LIMIT),
         offset: int = Query(0, ge=0),
-        include_mentions: bool = Query(False, description="Include mention-only names for diagnostics"),
         db: SQLAlchemySession = Depends(get_db_dependency),
-    ):
+    ) -> dict[str, object]:
         """
-        Returns a paginated list of identified officials.
+        Returns roster-authorized officials.
         """
+        authorized_roster_bodies = _load_authorized_roster_bodies()
         try:
-            # Mention-only names are available via include_mentions=true for diagnostics.
-            people_query = db.query(Person)
-            if not include_mentions:
-                people_query = people_query.filter(Person.person_type == "official")
-
+            people_query = _authorized_people_query(db, authorized_roster_bodies)
             total = people_query.count()
-            people = people_query.order_by(Person.name).limit(limit).offset(offset).all()
+            people = (
+                people_query.order_by(Person.name, Person.id)
+                .limit(limit)
+                .offset(offset)
+                .all()
+            )
             return {
                 "total": total,
                 "limit": limit,
                 "offset": offset,
-                "include_mentions": include_mentions,
-                "results": people,
+                "results": [{"id": person.id, "name": person.name} for person in people],
             }
         except SQLAlchemyError as error:
             logger.error("Failed to list people: %s", error, exc_info=True)
@@ -51,10 +192,11 @@ def build_people_router(get_db_dependency: Callable[..., Any]) -> APIRouter:
     def get_person_history(
         person_id: int = Path(..., ge=1),
         db: SQLAlchemySession = Depends(get_db_dependency),
-    ):
+    ) -> dict[str, object]:
         """
-        Returns a person's full profile and roles.
+        Returns a roster-authorized person's role history.
         """
+        authorized_roster_bodies = _load_authorized_roster_bodies()
         person = (
             db.query(Person)
             .options(joinedload(Person.memberships).joinedload(Membership.organization).joinedload(Organization.place))
@@ -65,21 +207,22 @@ def build_people_router(get_db_dependency: Callable[..., Any]) -> APIRouter:
         if not person:
             raise HTTPException(status_code=404, detail=PERSON_NOT_FOUND_DETAIL)
 
-        role_history = []
-        for membership in person.memberships:
-            role_history.append(
+        authorized_memberships = _authorized_memberships(person, authorized_roster_bodies)
+        if not authorized_memberships:
+            raise HTTPException(status_code=404, detail=PERSON_NOT_FOUND_DETAIL)
+
+        return {
+            "name": person.name,
+            "roles": [
                 {
                     "body": membership.organization.name,
                     "city": membership.organization.place.name.title(),
                     "role": membership.label or "Member",
+                    "start_date": membership.start_date.isoformat(),
+                    "end_date": membership.end_date.isoformat() if membership.end_date else None,
                 }
-            )
-
-        return {
-            "name": person.name,
-            "bio": person.biography,
-            "current_role": person.current_role,
-            "roles": role_history,
+                for membership in authorized_memberships
+            ],
         }
 
     return router

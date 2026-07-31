@@ -89,7 +89,6 @@ APPROVED_PIPELINE_PRINT_PATHS = {
     "pipeline/indexer.py",
     "pipeline/indexer_meilisearch.py",
     "pipeline/monitor.py",
-    "pipeline/person_linker.py",
     "pipeline/reindex_semantic.py",
     "pipeline/run_agenda_qa.py",
     "pipeline/run_pipeline_extraction.py",
@@ -181,6 +180,9 @@ TYPED_SUBTREE_PATHS = (
     "pipeline/model_events.py",
     "pipeline/model_records.py",
     "pipeline/profiling.py",
+    "pipeline/legistar_roster.py",
+    "pipeline/roster_contracts.py",
+    "pipeline/roster_sync.py",
     "pipeline/rollout_registry.py",
     "pipeline/runtime_guardrails.py",
     "pipeline/summary_hydration_diagnostics.py",
@@ -193,7 +195,6 @@ TYPED_SUBTREE_PATHS = (
     "pipeline/profile_manifest_contracts.py",
     "pipeline/profile_manifest_io.py",
     "pipeline/profile_manifest_candidates.py",
-    "pipeline/profile_manifest_people.py",
     "pipeline/profile_manifest_builder.py",
     "pipeline/profile_manifest_preconditioning.py",
     "pipeline/topic_generation.py",
@@ -4030,25 +4031,25 @@ def test_g4_roster_gated_policy_is_aligned() -> None:
     )
 
     assert "- Status: Accepted" in g4_decision
-    assert "independently authoritative official membership data" in g4_decision
-    assert "municipality, governing body, and meeting date" in g4_decision
+    assert "- Implemented: 2026-07-31" in g4_decision
+    assert "currently approved Legistar OfficeRecords roster" in g4_decision
+    assert "municipality and governing body" in g4_decision
     normalized_g4_decision = " ".join(g4_decision.split())
     assert (
-        "Title inference, source-document mentions, and linker-created memberships "
-        "are not roster authority."
+        "Title inference, fuzzy matching, and source-document mentions are not "
+        "roster authority. Their person-linking implementation is removed."
         in normalized_g4_decision
     )
-    assert "does not yet enforce" in g4_decision
-    assert "T-GOV-2A" in g4_decision
+    assert "Meeting `people_metadata` is omitted" in g4_decision
+    assert "baseline_representative_v2" in g4_decision
 
     assert "Status: effective." in data_governance
-    assert "independently authoritative official membership data" in person_policy
-    assert "municipality, governing body, and meeting date" in person_policy
+    assert "currently approved Legistar OfficeRecords roster" in person_policy
+    assert "municipality and governing body" in person_policy
     normalized_person_policy = " ".join(person_policy.split())
     assert (
-        "Title inference, source-document mentions, and memberships created by the "
-        "entity linker are derived evidence, not roster authority. They cannot "
-        "authorize person creation or people-facing records."
+        "Title inference, fuzzy matching, and source-document mentions are not "
+        "roster authority. The document-derived person-linking path is removed."
         in normalized_person_policy
     )
     assert (
@@ -4061,11 +4062,11 @@ def test_g4_roster_gated_policy_is_aligned() -> None:
 
     normalized_agent_policy = " ".join(agent_policy.split())
     assert (
-        "Create person entities and people-facing records only from independently "
-        "authoritative official membership data scoped to municipality, governing "
-        "body, and meeting date. Title inference, source-document mentions, and "
-        "linker-created memberships are not roster authority. Do not start City "
-        "Coverage Expansion before T-GOV-2A is complete and verified."
+        "Create person entities and people-facing records only from a currently "
+        "approved Legistar OfficeRecords roster scoped to municipality and governing "
+        "body. Cities without a current approved roster source fail closed. Title "
+        "inference, fuzzy matching, and source-document mentions are not roster "
+        "authority."
         in normalized_agent_policy
     )
     active_g4_policy = " ".join(
@@ -4082,14 +4083,14 @@ def test_g4_roster_gated_policy_is_aligned() -> None:
     )
     assert not _g4_policy_has_contradiction(active_g4_policy)
     assert "status: complete and verified" in t_gov_2_entry
-    assert "status: pending" in t_gov_2a_entry
-    assert "City Coverage Expansion remains blocked until T-GOV-2A completes" in g4_entry
+    assert "status: complete and verified" in t_gov_2a_entry
+    assert "baseline_representative_v2" in g4_entry
     assert (
-        "T-GOV-2A roster-gated person linking is complete and verified"
+        "a valid `baseline_representative_v2` expected-baseline PR has merged"
         in city_coverage_plan
     )
     assert _remediation_task_states(remediation_ledger, "T-GOV-2") == ["Complete"]
-    assert _remediation_task_states(remediation_ledger, "T-GOV-2A") == ["Pending"]
+    assert _remediation_task_states(remediation_ledger, "T-GOV-2A") == ["Complete"]
 
 
 def test_g2_visitor_access_policy_is_aligned_after_t_sec_4_delivery():
