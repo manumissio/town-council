@@ -1,6 +1,6 @@
 # Town Council Remediation Plan (Codex Multi-Agent)
 
-version: 3.75
+version: 3.76
 generated: 2026-07-26
 source: Four-pass external code review (security, architecture, smells, process)
 source_artifact: [Town Council architecture review](../reviews/architecture-review-2026-07-19.html)
@@ -10,6 +10,9 @@ remains in force; where this plan is stricter, this plan wins for these tasks.
 
 ## Changelog
 
+- **v3.76:** Expands T-GOV-3B ownership to `AGENTS.md` and synchronizes the
+  binding contributor policy with active SQLAlchemy interpolation and
+  wildcard-import enforcement.
 - **v3.75:** Completes T-GOV-3B and umbrella T-GOV-3 after enforcing four
   dependency directions, top-level private synchronization-function rejection,
   and direct SQLAlchemy f-string rejection with no structural allowlist.
@@ -1712,7 +1715,8 @@ files (GED-5 grant).
 - scope_authorization: Operator-approved 2026-07-30.
 - files_owned: `docs/plans/T_GOV_3B_STRUCTURAL_GUARDRAILS_PLAN.md`,
   `docs/plans/TOWN_COUNCIL_REMEDIATION_PLAN.md`,
-  `docs/ENGINEERING_GUARDRAILS.md`, `tests/test_repository_guardrails.py`,
+  `AGENTS.md`, `docs/ENGINEERING_GUARDRAILS.md`,
+  `tests/test_repository_guardrails.py`,
   `tests/test_api_startup_security.py`,
   `tests/test_inference_provider_protocol_contract.py`
 - do: Register four helper relationships made clean by T-DC-1 and revised

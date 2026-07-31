@@ -34,6 +34,7 @@ and reject direct f-string interpolation passed to SQLAlchemy `text(...)`.
 
 - `docs/plans/T_GOV_3B_STRUCTURAL_GUARDRAILS_PLAN.md`
 - `docs/plans/TOWN_COUNCIL_REMEDIATION_PLAN.md`
+- `AGENTS.md`
 - `docs/ENGINEERING_GUARDRAILS.md`
 - `tests/test_repository_guardrails.py`
 - `tests/test_api_startup_security.py`
@@ -44,7 +45,8 @@ file may change.
 
 **d) Decision gates.** G3 is satisfied. T-DC-1 and revised T-DE-1 are complete.
 The operator approved T-GOV-3B planning, ownership, and implementation on
-2026-07-30. No G1-G5 decision remains.
+2026-07-30, including the review-driven `AGENTS.md` policy synchronization.
+No G1-G5 decision remains.
 
 ## 2. Design
 
@@ -310,6 +312,6 @@ coverage totals, planning and pre-commit review findings, commits, PR URL,
 unresolved thread count, and final CI state. Mark unrun checks `NOT VERIFIED`.
 
 **z) Deviations.** Expected deviation is the approved activation and completion
-of T-GOV-3B and six-file ownership needed to retire superseded domain-specific
+of T-GOV-3B and seven-file ownership needed to retire superseded domain-specific
 assertions. Any extra file, production behavior change, policy exception,
 skipped review, unresolved P1/P2, or unrun required gate blocks delivery.
