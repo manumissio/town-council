@@ -77,12 +77,8 @@ def test_api_startup_has_one_implementation_owner() -> None:
     from api import main as api_main
 
     main_source = Path(api_main.__file__).read_text(encoding="utf-8")
-    app_setup_source = Path(app_setup.__file__).read_text(encoding="utf-8")
 
-    assert "_sync_app_setup_from_facade" not in main_source
-    assert "_sync_facade_from_app_setup" not in main_source
     assert "hmac = app_setup.hmac" not in main_source
-    assert "from api import main" not in app_setup_source
     assert not hasattr(api_main, "SessionLocal")
     assert not hasattr(api_main, "_db_init_error")
     assert not hasattr(api_main, "db_connect")

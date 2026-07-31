@@ -31,10 +31,11 @@ extend-exclude = [
 
 [lint]
 # E722  bare except                    F401/F841  unused imports/locals
+# F403  wildcard imports
 # B     bugbear bug patterns           BLE001     blind except Exception
 # C901  complexity ceiling (mccabe)    DTZ        naive-datetime usage
-# S     bandit security checks (api/pipeline only; see per-file ignores)
-select = ["E722", "F401", "F841", "B", "BLE001", "C901", "DTZ", "S"]
+# S     bandit security checks (tests excluded; scripts retain narrow debts)
+select = ["E722", "F401", "F403", "F841", "B", "BLE001", "C901", "DTZ", "S"]
 
 [lint.mccabe]
 # T-GOV-3 structural rule. Current offenders are allowlisted below and
@@ -46,9 +47,9 @@ max-complexity = 10
 extend-immutable-calls = ["fastapi.Depends", "fastapi.Query", "fastapi.Path", "fastapi.Header", "fastapi.Body"]
 
 [lint.per-file-ignores]
-# Blanket scopes: operator scripts skip bandit + unused-symbol hygiene noise;
-# tests additionally skip complexity and naive-datetime fixtures.
-"scripts/*.py" = ["F401", "S"]
+# Blanket scopes: operator scripts skip unused-symbol hygiene noise and retain
+# narrow security debts; tests skip security, complexity, and datetime fixtures.
+"scripts/*.py" = ["F401", "S101", "S105", "S112", "S310", "S311", "S324", "S603", "S607"]
 "tests/*.py" = ["F401", "B007", "S", "DTZ", "C901"]
 
 "api/cache.py" = ["BLE001"]

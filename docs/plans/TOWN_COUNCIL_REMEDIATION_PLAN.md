@@ -1,6 +1,6 @@
 # Town Council Remediation Plan (Codex Multi-Agent)
 
-version: 3.73
+version: 3.79
 generated: 2026-07-26
 source: Four-pass external code review (security, architecture, smells, process)
 source_artifact: [Town Council architecture review](../reviews/architecture-review-2026-07-19.html)
@@ -10,6 +10,27 @@ remains in force; where this plan is stricter, this plan wins for these tasks.
 
 ## Changelog
 
+- **v3.79:** Deletes T-GOV-3B's remaining custom SQLAlchemy matcher after
+  review found another qualifier gap. Ruff `S608` and `F403` now own dynamic
+  SQL and wildcard-import enforcement without project-specific name resolution;
+  an isolated Ruff ratchet scans Ruff's discovered production files without
+  configured or inline rule suppressions.
+- **v3.78:** Narrows T-GOV-3B after pre-commit review: activates Ruff `S608`
+  for scripts by replacing their wildcard security exemption with eight
+  current debt codes, and limits shadowing policy to interpolated calls.
+- **v3.77:** Simplifies T-GOV-3B after independent review: deletes the partial
+  lexical resolver, moves wildcard-import enforcement to Ruff `F403`, and
+  preserves direct SQLAlchemy interpolation enforcement through a conservative
+  file-level binding convention.
+- **v3.76:** Expands T-GOV-3B ownership to `AGENTS.md` and synchronizes the
+  binding contributor policy with active SQLAlchemy interpolation and
+  wildcard-import enforcement.
+- **v3.75:** Completes T-GOV-3B and umbrella T-GOV-3 after enforcing four
+  dependency directions, top-level private synchronization-function rejection,
+  and direct SQLAlchemy f-string rejection with no structural allowlist.
+- **v3.74:** Marks T-PLAT-2C complete after PR #205 and activates T-GOV-3B
+  with six-file ownership for final structural enforcement and removal of
+  superseded domain-specific assertions.
 - **v3.73:** Registers T-PLAT-2C to migrate Celery from 5.3.4 to 5.6.3 with
   exact dependency contracts, four image builds, and isolated Redis worker
   acceptance before superseding Dependabot PR #194.
@@ -349,10 +370,8 @@ remains in force; where this plan is stricter, this plan wins for these tasks.
 
 | State | Tasks |
 |---|---|
-| **Complete** | T-CI-0, T-CI-1, T-CI-1A, T-CI-2, T-CI-2A, T-CI-3, T-CI-4, T-CI-5, T-SEC-1, T-SEC-2, T-SEC-3, T-SEC-3C, T-SEC-4, T-SEC-4A, T-SEC-5, T-SEC-6, T-TIME-1, T-TIME-2, T-TIME-3, T-CRAWL-1, T-CRAWL-2, T-PLAT-1, T-PLAT-1A, T-PLAT-2, T-PLAT-2A, T-PLAT-2B, T-PLAT-3, T-GOV-1, T-GOV-2, T-GOV-3A, T-GOV-4, T-GOV-5, T-GOV-6, T-DA-1, T-DB-1A, T-DB-1, T-DB-1B, T-DC-1, T-DD-1A, T-DD-1B, T-DE-1 |
-| **In progress** | T-PLAT-2C |
-| **Partially landed; acceptance incomplete** | T-GOV-3 |
-| **Pending** | T-PLAT-4, T-GOV-2A, T-GOV-3B |
+| **Complete** | T-CI-0, T-CI-1, T-CI-1A, T-CI-2, T-CI-2A, T-CI-3, T-CI-4, T-CI-5, T-SEC-1, T-SEC-2, T-SEC-3, T-SEC-3C, T-SEC-4, T-SEC-4A, T-SEC-5, T-SEC-6, T-TIME-1, T-TIME-2, T-TIME-3, T-CRAWL-1, T-CRAWL-2, T-PLAT-1, T-PLAT-1A, T-PLAT-2, T-PLAT-2A, T-PLAT-2B, T-PLAT-2C, T-PLAT-3, T-GOV-1, T-GOV-2, T-GOV-3, T-GOV-3A, T-GOV-3B, T-GOV-4, T-GOV-5, T-GOV-6, T-DA-1, T-DB-1A, T-DB-1, T-DB-1B, T-DC-1, T-DD-1A, T-DD-1B, T-DE-1 |
+| **Pending** | T-PLAT-4, T-GOV-2A |
 
 ---
 
@@ -1523,7 +1542,7 @@ files (GED-5 grant).
 
 ### T-PLAT-2C: Migrate Celery to 5.6.3
 - priority: P1
-- status: in progress
+- status: complete and verified 2026-07-30 (PR #205)
 - depends_on: T-PLAT-2 and PR #196 merge (ledger serialization only)
 - implementation_plan: `docs/plans/T_PLAT_2C_CELERY_MIGRATION_PLAN.md`
 - scope_authorization: Operator-approved 2026-07-30.
@@ -1666,14 +1685,13 @@ files (GED-5 grant).
 
 ### T-GOV-3: Redesign the guardrail regime
 - priority: P2
-- status: partially landed; acceptance incomplete
+- status: complete and verified 2026-07-30
 - prerequisite: at least two Phase 2 tasks merged (satisfied by T-DA-1,
   T-DB-1A, T-DB-1, and T-DB-1B)
 - delivered: Ruff C901 with max-complexity 10 and ratcheting path-specific
   exceptions; T-GOV-3A retirement of the file-length proxy and consolidation
-  of existing dependency rules.
-- remaining: T-GOV-3B adds the final sync-global and interpolated-SQL checks
-  after T-DC-1 and revised T-DE-1 remove the active reverse dependencies.
+  of existing dependency rules; T-GOV-3B enforcement of the remaining
+  dependency directions, sync-global convention, and interpolated-SQL rule.
 - accept: T-GOV-3A and T-GOV-3B complete; the structural transition marker is
   removed only after every replacement rule is enforced.
 
@@ -1703,20 +1721,30 @@ files (GED-5 grant).
 
 ### T-GOV-3B: Enforce remaining structural smells
 - priority: P2
-- status: pending
+- status: complete and verified 2026-07-30
 - depends_on: T-DC-1 and revised T-DE-1
-- files_owned: to be named in a separate Full plan after both dependencies
-  merge
-- do: Register helper relationships made clean by T-DC-1 and revised T-DE-1;
-  add checks banning bidirectional `_sync_*_from_*` global reconciliation and
-  f-string interpolation inside SQLAlchemy `text(...)` DDL/DML; remove the
-  `[transition: T-GOV-3]` marker only after all checks pass.
+- implementation_plan: `docs/plans/T_GOV_3B_STRUCTURAL_GUARDRAILS_PLAN.md`
+- scope_authorization: Operator-approved 2026-07-30.
+- files_owned: `docs/plans/T_GOV_3B_STRUCTURAL_GUARDRAILS_PLAN.md`,
+  `docs/plans/TOWN_COUNCIL_REMEDIATION_PLAN.md`,
+  `AGENTS.md`, `docs/ENGINEERING_GUARDRAILS.md`,
+  `ruff.toml`,
+  `tests/test_repository_guardrails.py`,
+  `tests/test_api_startup_security.py`,
+  `tests/test_inference_provider_protocol_contract.py`
+- do: Register four helper relationships made clean by T-DC-1 and revised
+  T-DE-1; add checks banning top-level private `_sync_*_from_*` functions and
+  select Ruff `F403` for wildcard imports; activate Ruff `S608` for scripts by
+  narrowing their security debt list; remove the partial SQLAlchemy matcher,
+  superseded domain-specific assertions, and the `[transition: T-GOV-3]`
+  marker only after all checks pass.
 - note: T-DD-1B introduces no current facade rule and remains outside the
   dependency registry.
 - accept: Remaining structural rules are mechanically enforced, no pending
   reverse dependencies are hidden by an allowlist, and T-GOV-3 is complete.
-- verify: Separate tests-first Full plan, repository guardrails, and complete
-  Python suite.
+- verify: Follow the Full T-GOV-3B plan, including tests-first AST examples,
+  repository guardrails, docs links, coverage-gated complete Python suite,
+  independent review, and PR CI.
 
 ### T-GOV-4: Land the revised AGENTS.md
 - priority: P1

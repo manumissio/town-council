@@ -1,5 +1,4 @@
 import threading
-from pathlib import Path
 
 from pipeline import llm as llm_mod
 from pipeline import http_inference_provider, llm_provider, provider_telemetry
@@ -345,17 +344,6 @@ def test_provider_facade_excludes_test_only_rebinding_names():
 
     assert removed_names.isdisjoint(llm_provider.__all__)
     assert all(not hasattr(llm_provider, name) for name in removed_names)
-
-
-def test_provider_implementation_modules_do_not_import_compatibility_facade():
-    provider_implementation_paths = (
-        Path("pipeline/http_inference_provider.py"),
-        Path("pipeline/provider_telemetry.py"),
-        Path("pipeline/agenda_segmentation_maintenance.py"),
-    )
-
-    for provider_implementation_path in provider_implementation_paths:
-        assert "llm_provider" not in provider_implementation_path.read_text()
 
 
 def test_local_ai_defaults_to_http_provider_when_backend_unset(monkeypatch):

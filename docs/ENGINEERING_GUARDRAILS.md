@@ -4,8 +4,8 @@ Town Council uses a layered guardrail system to reduce low-signal code smells
 before they land in `master`.
 
 Status: active. Config-owned lint, formatter, typing, coverage, smell-test,
-and CI scopes are live, including the C901 complexity ceiling. The structural
-rules header retains `[transition: T-GOV-3]` until its remaining rules land.
+and CI scopes are live, including the C901 complexity ceiling and structural
+rules below.
 
 ## Single-source rule for scopes
 
@@ -64,7 +64,7 @@ PYTHONPATH=. .venv/bin/python -m pytest -q --cov \
 The pass is intentionally moderate: it blocks lazy hygiene regressions
 without forcing a repo-wide style migration.
 
-## Structural rules `[transition: T-GOV-3]`
+## Structural rules
 
 These replace the per-file 300-line lists. Rationale: line caps measured a
 proxy and drove mechanical facade+helper splits whose sync machinery was
@@ -79,11 +79,14 @@ long as their content is cohesive.
 2. Import direction: helper modules must not import their facade/route
    module. Generalized from the `semantic_service` rule to every
    facade+helpers family registered in the guardrail test constants.
-3. Banned structures (mechanically checked): bidirectional
-   `_sync_*_from_*` global-reconciliation functions; f-string interpolation
-   inside SQLAlchemy `text(...)` DDL/DML; duplicated module-global state
-   synchronized by convention. See `AGENTS.md` `<known_antipatterns>` for
-   the full rationale.
+3. Banned structures (mechanically checked):
+   top-level private `_sync_*_from_*` functions used to reconcile duplicated
+   module globals.
+   Ruff `S608` rejects SQL-looking string interpolation across maintained
+   production Python; inline or configured suppressions are not permitted.
+   Ruff `F403` rejects new wildcard imports; an existing documented
+   compatibility facade retains its explicit suppression.
+   See `AGENTS.md` `<known_antipatterns>` for the full rationale.
 4. Retired: all per-file line-count assertions. Ruff C901 and registered
    helper-to-facade relationships preserve complexity and dependency
    direction without treating source length as an architecture proxy.
@@ -109,6 +112,10 @@ cd <REPO_ROOT>
 - no import-time logging configuration in reusable pipeline modules
 - no raw `print(...)` in non-CLI pipeline modules
 - no silent broad exception handlers or broad-exception allowlist drift
+- no top-level private `_sync_*_from_*` synchronization functions
+- no SQL-looking string interpolation reported by Ruff `S608` in production
+  Python
+- no new wildcard imports without a documented Ruff `F403` exception
 - fail-fast runtime behavior, freshness contracts, and profile comparability
   (existing Town Council policy tests)
 - the structural rules above, as they are adopted

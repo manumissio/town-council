@@ -66,6 +66,15 @@ TEXT_FILE_SUFFIXES = {
 }
 GUARDRAIL_SCAN_PREFIXES = {"api", "pipeline", "scripts", "tests", "docs", "ops", "experiments"}
 FACADE_IMPORT_PACKAGE_ROOTS = ("api", "pipeline", "scripts", "semantic_service", "tests")
+STRUCTURAL_SCAN_EXCLUDED_PREFIXES = {"tests"}
+SYNC_GLOBAL_FUNCTION_NAME = re.compile(r"^_sync_.+_from_.+$")
+LEXICAL_SCOPE_NODES = (
+    ast.Module,
+    ast.FunctionDef,
+    ast.AsyncFunctionDef,
+    ast.ClassDef,
+    ast.Lambda,
+)
 PERSONAL_PATH_PATTERNS = (
     re.compile(r"/Users/[^/\s]+/"),
     re.compile(r"/home/[^/\s]+/"),
@@ -210,6 +219,13 @@ TYPED_SUBTREE_PATHS = (
 )
 CONFIG_OWNED_FORMATTER_COMMAND = "./.venv/bin/ruff format --check . --config ruff-format.toml"
 HELPER_FACADE_IMPORT_RULES = (
+    ("api/app_setup.py", ("api.main",)),
+    (
+        "pipeline/agenda_segmentation_maintenance.py",
+        ("pipeline.llm_provider",),
+    ),
+    ("pipeline/http_inference_provider.py", ("pipeline.llm_provider",)),
+    ("pipeline/provider_telemetry.py", ("pipeline.llm_provider",)),
     (
         "pipeline/summary_hydration_diagnostic_samples.py",
         (
@@ -575,6 +591,38 @@ def _forbidden_imports(module_path: Path, forbidden_modules: set[str]) -> list[s
     return found_imports
 
 
+def _top_level_sync_function_lines(module_path: Path) -> list[int]:
+    module_tree = ast.parse(
+        module_path.read_text(encoding="utf-8"),
+        filename=str(module_path),
+    )
+    return sorted(
+        statement.lineno
+        for statement in _nodes_in_lexical_scope(module_tree)
+        if isinstance(statement, (ast.FunctionDef, ast.AsyncFunctionDef))
+        and SYNC_GLOBAL_FUNCTION_NAME.fullmatch(statement.name)
+    )
+
+
+def _nodes_in_lexical_scope(scope_node: ast.AST) -> list[ast.AST]:
+    scope_body = scope_node.body if hasattr(scope_node, "body") else []
+    pending_nodes = list(scope_body) if isinstance(scope_body, list) else [scope_body]
+    scope_nodes: list[ast.AST] = []
+
+    while pending_nodes:
+        current_node = pending_nodes.pop()
+        scope_nodes.append(current_node)
+        if isinstance(current_node, LEXICAL_SCOPE_NODES[1:]):
+            continue
+        pending_nodes.extend(ast.iter_child_nodes(current_node))
+
+    return scope_nodes
+
+
+def _is_production_structural_path(relative_source_path: Path) -> bool:
+    return relative_source_path.parts[0] not in STRUCTURAL_SCAN_EXCLUDED_PREFIXES
+
+
 def test_tracked_text_files_do_not_contain_personal_absolute_paths():
     offending_files: list[str] = []
     for tracked_path in _tracked_files():
@@ -630,7 +678,11 @@ def test_ruff_guardrail_config_keeps_scope_and_exceptions_narrow():
     config_text = (ROOT / "ruff.toml").read_text(encoding="utf-8")
 
     assert 'src = ["api", "council_crawler", "pipeline", "scripts", "semantic_service", "tests"]' in config_text
-    assert 'select = ["E722", "F401", "F841", "B", "BLE001", "C901", "DTZ", "S"]' in config_text
+    assert 'select = ["E722", "F401", "F403", "F841", "B", "BLE001", "C901", "DTZ", "S"]' in config_text
+    assert (
+        '"scripts/*.py" = ["F401", "S101", "S105", "S112", "S310", "S311", '
+        '"S324", "S603", "S607"]'
+    ) in config_text
     assert "pipeline/*.py" not in config_text
     assert "api/*.py" not in config_text
 
@@ -754,6 +806,71 @@ def test_ruff_per_file_ignore_selectors_cover_current_violations():
     )
 
     assert stale_ignore_selectors == []
+
+
+def test_ruff_rejects_wildcard_imports_and_sql_interpolation() -> None:
+    planted_violations = subprocess.run(
+        [
+            sys.executable,
+            "-m",
+            "ruff",
+            "check",
+            "--stdin-filename",
+            "scripts/t_gov_3b_probe.py",
+            "-",
+        ],
+        cwd=ROOT,
+        input=(
+            "from sqlalchemy import *\n"
+            'table_name = "catalog"\n'
+            'query = f"SELECT * FROM {table_name}"\n'
+        ),
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+
+    assert planted_violations.returncode == RUFF_VIOLATION_EXIT
+    assert "F403" in planted_violations.stdout
+    assert "S608" in planted_violations.stdout
+
+
+def test_ruff_structural_rule_suppressions_stay_explicit() -> None:
+    structural_rule_targets = [
+        str(source_path.relative_to(ROOT))
+        for source_path in _broad_exception_scan_files()
+        if _is_production_structural_path(source_path.relative_to(ROOT))
+    ]
+    structural_rule_check = subprocess.run(
+        [
+            sys.executable,
+            "-m",
+            "ruff",
+            "check",
+            "--isolated",
+            "--ignore-noqa",
+            "--select",
+            "F403,S608",
+            "--output-format",
+            "json",
+            *structural_rule_targets,
+        ],
+        cwd=ROOT,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+
+    assert structural_rule_check.returncode == RUFF_VIOLATION_EXIT
+    structural_rule_violations = json.loads(structural_rule_check.stdout)
+    assert [
+        (
+            str(Path(violation["filename"]).relative_to(ROOT)),
+            violation["location"]["row"],
+            violation["code"],
+        )
+        for violation in structural_rule_violations
+    ] == [("pipeline/metrics.py", 12, "F403")]
 
 
 def test_typed_subtree_config_stays_explicit_and_aligned():
@@ -1597,6 +1714,73 @@ def test_registered_helpers_do_not_import_facades():
             dependency_violations[helper_relative_path] = forbidden_imports
 
     assert dependency_violations == {}
+
+
+def test_sync_global_guardrail_detects_top_level_functions(
+    tmp_path: Path,
+) -> None:
+    sync_source = tmp_path / "sync_source.py"
+    sync_source.write_text(
+        "def _sync_owner_from_facade():\n"
+        "    pass\n"
+        "\n"
+        "def _sync_facade_from_owner():\n"
+        "    pass\n"
+        "\n"
+        "async def _sync_async_from_owner():\n"
+        "    pass\n"
+        "\n"
+        "def _sync_worker_config():\n"
+        "    pass\n"
+        "\n"
+        "def _sync_helper_test_hooks():\n"
+        "    pass\n"
+        "\n"
+        "def sync_rows_from_db():\n"
+        "    pass\n"
+        "\n"
+        "def outer():\n"
+        "    def _sync_nested_from_owner():\n"
+        "        pass\n"
+        "\n"
+        "class Owner:\n"
+        "    def _sync_method_from_owner(self):\n"
+        "        pass\n"
+        "\n"
+        "if enabled:\n"
+        "    def _sync_conditional_from_owner():\n"
+        "        pass\n"
+        "\n"
+        "try:\n"
+        "    async def _sync_guarded_from_owner():\n"
+        "        pass\n"
+        "except ImportError:\n"
+        "    pass\n",
+        encoding="utf-8",
+    )
+
+    assert _top_level_sync_function_lines(sync_source) == [1, 4, 7, 28, 32]
+
+
+def test_structural_scan_scope_covers_production_python_only() -> None:
+    assert _is_production_structural_path(Path("root_module.py"))
+    assert _is_production_structural_path(Path("alembic/versions/0001.py"))
+    assert _is_production_structural_path(Path("pipeline/tasks.py"))
+    assert not _is_production_structural_path(Path("tests/test_tasks.py"))
+
+
+def test_production_python_has_no_banned_structural_smells() -> None:
+    sync_violations: dict[str, list[int]] = {}
+
+    for source_path in _broad_exception_scan_files():
+        relative_source_path = source_path.relative_to(ROOT)
+        if not _is_production_structural_path(relative_source_path):
+            continue
+        sync_lines = _top_level_sync_function_lines(source_path)
+        if sync_lines:
+            sync_violations[str(relative_source_path)] = sync_lines
+
+    assert sync_violations == {}
 
 
 def test_broad_exception_allowlist_stays_explicit():
@@ -4224,7 +4408,7 @@ def test_t_gov_4_agents_policy_is_complete():
     assert "docs/TESTING.MD" in known_antipatterns
 
 
-def test_t_gov_3a_retires_line_limits_without_closing_t_gov_3():
+def test_t_gov_3_closes_after_structural_rules_land():
     guardrail_policy = (
         ROOT / "docs" / "ENGINEERING_GUARDRAILS.md"
     ).read_text(encoding="utf-8")
@@ -4247,25 +4431,35 @@ def test_t_gov_3a_retires_line_limits_without_closing_t_gov_3():
         "\n### T-GOV-4:",
     )
 
-    assert _remediation_task_states(remediation_ledger, "T-GOV-3") == [
-        "Partially landed; acceptance incomplete"
-    ]
+    assert _remediation_task_states(remediation_ledger, "T-GOV-3") == ["Complete"]
     assert _remediation_task_states(remediation_ledger, "T-GOV-3A") == [
         "Complete"
     ]
-    assert _remediation_task_states(remediation_ledger, "T-GOV-3B") == [
-        "Pending"
-    ]
-    assert "status: partially landed; acceptance incomplete" in t_gov_3_entry
+    assert _remediation_task_states(remediation_ledger, "T-GOV-3B") == ["Complete"]
+    assert "status: complete and verified 2026-07-30" in t_gov_3_entry
     assert "delivered:" in t_gov_3_entry
     assert "T-GOV-3A retirement" in t_gov_3_entry
-    assert "remaining: T-GOV-3B" in t_gov_3_entry
-    assert "remaining: T-GOV-3A" not in t_gov_3_entry
+    assert "remaining:" not in t_gov_3_entry
     assert "status: complete and verified 2026-07-26" in t_gov_3a_entry
     assert "depends_on: T-DC-1 and revised T-DE-1" in t_gov_3b_entry
-    assert "## Structural rules `[transition: T-GOV-3]`" in guardrail_policy
+    assert "status: complete and verified 2026-07-30" in t_gov_3b_entry
+    assert "## Structural rules\n" in guardrail_policy
+    assert "[transition: T-GOV-3]" not in guardrail_policy
+    assert "duplicated module-global state synchronized by convention" not in guardrail_policy
+    assert "Ruff `S608` rejects SQL-looking string interpolation" in guardrail_policy
+    assert "Ruff `F403` rejects new wildcard imports" in guardrail_policy
+    assert "top-level private `_sync_*_from_*` functions" in guardrail_policy
     assert "Retired: all per-file line-count assertions." in guardrail_policy
     assert "Remaining line assertions are deleted" not in guardrail_policy
+    assert {
+        ("api/app_setup.py", ("api.main",)),
+        (
+            "pipeline/agenda_segmentation_maintenance.py",
+            ("pipeline.llm_provider",),
+        ),
+        ("pipeline/http_inference_provider.py", ("pipeline.llm_provider",)),
+        ("pipeline/provider_telemetry.py", ("pipeline.llm_provider",)),
+    }.issubset(set(HELPER_FACADE_IMPORT_RULES))
 
 
 def test_t_gov_5_engineering_guardrails_is_complete():
@@ -4286,7 +4480,7 @@ def test_t_gov_5_engineering_guardrails_is_complete():
     )
     structural_rules = _required_markdown_section(
         guardrail_policy,
-        "## Structural rules `[transition: T-GOV-3]`",
+        "## Structural rules",
         "\n## Optional local dead-code and complexity audit",
     )
     exception_process = _required_markdown_section(
