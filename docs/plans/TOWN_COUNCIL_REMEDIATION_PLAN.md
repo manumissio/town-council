@@ -1,6 +1,6 @@
 # Town Council Remediation Plan (Codex Multi-Agent)
 
-version: 3.81
+version: 3.83
 generated: 2026-07-26
 source: Four-pass external code review (security, architecture, smells, process)
 source_artifact: [Town Council architecture review](../reviews/architecture-review-2026-07-19.html)
@@ -10,6 +10,16 @@ remains in force; where this plan is stricter, this plan wins for these tasks.
 
 ## Changelog
 
+- **v3.83:** Marks T-GOV-2A complete after roster-gated persistence,
+  fail-closed publication, legacy remediation, migration, and baseline-v2
+  workload verification. City Coverage Expansion remains blocked until the
+  separate expected-baseline PR merges.
+- **v3.82:** Activates T-GOV-2A with exact ownership for authoritative
+  OfficeRecords ingestion, Alembic remediation, fail-closed API/index
+  behavior, deletion of document-derived person linking, and the approved
+  performance-baseline transition. `baseline_representative_v1` remains
+  immutable historical evidence; v2 removes the people-linking phase and
+  receives a new expected baseline only after a post-change valid run.
 - **v3.81:** Reconciles the active ledger with merged work and the architecture
   review. Marks T-PLAT-4 complete after PR #207, corrects the stale T-TIME-1
   and T-TIME-2 in-progress labels, and registers seven narrow deletion tasks:
@@ -382,8 +392,8 @@ remains in force; where this plan is stricter, this plan wins for these tasks.
 
 | State | Tasks |
 |---|---|
-| **Complete** | T-CI-0, T-CI-1, T-CI-1A, T-CI-2, T-CI-2A, T-CI-3, T-CI-4, T-CI-5, T-SEC-1, T-SEC-2, T-SEC-3, T-SEC-3C, T-SEC-4, T-SEC-4A, T-SEC-5, T-SEC-6, T-TIME-1, T-TIME-2, T-TIME-3, T-CRAWL-1, T-CRAWL-2, T-PLAT-1, T-PLAT-1A, T-PLAT-2, T-PLAT-2A, T-PLAT-2B, T-PLAT-2C, T-PLAT-3, T-PLAT-4, T-GOV-1, T-GOV-2, T-GOV-3, T-GOV-3A, T-GOV-3B, T-GOV-4, T-GOV-5, T-GOV-6, T-DA-1, T-DB-1A, T-DB-1, T-DB-1B, T-DC-1, T-DD-1A, T-DD-1B, T-DE-1 |
-| **Pending** | T-GOV-2A, T-DE-2, T-DC-2A, T-DC-2B, T-TASK-1, T-SEM-1, T-IDX-1, T-FE-1 |
+| **Complete** | T-CI-0, T-CI-1, T-CI-1A, T-CI-2, T-CI-2A, T-CI-3, T-CI-4, T-CI-5, T-SEC-1, T-SEC-2, T-SEC-3, T-SEC-3C, T-SEC-4, T-SEC-4A, T-SEC-5, T-SEC-6, T-TIME-1, T-TIME-2, T-TIME-3, T-CRAWL-1, T-CRAWL-2, T-PLAT-1, T-PLAT-1A, T-PLAT-2, T-PLAT-2A, T-PLAT-2B, T-PLAT-2C, T-PLAT-3, T-PLAT-4, T-GOV-1, T-GOV-2, T-GOV-2A, T-GOV-3, T-GOV-3A, T-GOV-3B, T-GOV-4, T-GOV-5, T-GOV-6, T-DA-1, T-DB-1A, T-DB-1, T-DB-1B, T-DC-1, T-DD-1A, T-DD-1B, T-DE-1 |
+| **Pending** | T-DE-2, T-DC-2A, T-DC-2B, T-TASK-1, T-SEM-1, T-IDX-1, T-FE-1 |
 
 ---
 
@@ -431,11 +441,12 @@ remains in force; where this plan is stricter, this plan wins for these tasks.
   public API. Phase 2 is unblocked, subject to each task's own sequencing and
   ownership.
 - G4 pii_policy: **Approved 2026-07-26.** Use roster-gated person linking.
-  Only names matched to independently authoritative official membership data
-  may become person entities or people-facing derived records. Title inference
-  and linker-created memberships are not roster authority. T-GOV-2 records
-  the decision; T-GOV-2A implements and remediates it. City Coverage Expansion
-  remains blocked until T-GOV-2A completes.
+  Only current approved Legistar OfficeRecords roster entries may become
+  person entities or people-facing derived records. Title inference, fuzzy
+  matching, and source-document mentions are not roster authority. T-GOV-2
+  records the decision; T-GOV-2A implements and remediates it. City Coverage
+  Expansion remains blocked until a valid `baseline_representative_v2`
+  expected-baseline PR merges.
 - G5 migration_tooling: **Approved 2026-07-24.** Adopt Alembic through
   T-PLAT-1 after T-TIME-1 and T-TIME-2. Freeze the readable `migrate_v*`
   chain after the baseline; author all later schema changes as Alembic
@@ -1426,9 +1437,9 @@ files (GED-5 grant).
 
 ### T-IDX-1: Delete obsolete people index projections
 - priority: P1
-- status: pending T-GOV-2A and a separate Full plan
+- status: pending a separate Full plan; T-GOV-2A dependency satisfied
 - depends_on: T-GOV-2A
-- files_owned: to be named in a separate Full plan after T-GOV-2A
+- files_owned: to be named in a separate Full plan
 - do: Remove people-index projection paths and compatibility fields made
   obsolete by roster-gated person linking. Keep only projections backed by
   authoritative roster membership and delete superseded title-inference
@@ -1438,8 +1449,8 @@ files (GED-5 grant).
 - accept: Search indexes and API responses cannot expose document-inferred
   people as officials; obsolete projection code and fields are deleted in the
   same task.
-- forbidden: Implementation before T-GOV-2A, new person inference,
-  hardcoded city roster status, or preserving obsolete fields as aliases.
+- forbidden: New person inference, hardcoded city roster status, or preserving
+  obsolete fields as aliases.
 
 ### T-FE-1: Delete proven ResultCard task lifecycle duplication
 - priority: P2
@@ -1816,21 +1827,68 @@ files (GED-5 grant).
   `files_owned`.
 - accept: ADR and Data Governance agree on the approved policy; live G4 option
   and working-default language is gone; AGENTS names the binding roster
-  authority and T-GOV-2A expansion gate; T-GOV-2A is pending; City Coverage
-  Expansion names verified T-GOV-2A completion as a start criterion;
+  authority and T-GOV-2A expansion gate; T-GOV-2A is complete; City Coverage
+  Expansion names the valid v2 expected-baseline PR as a start criterion;
   repository guardrails, docs links, and the complete suite pass.
 - verify: Follow the Full T-GOV-2 plan; Ruff, Mypy, repository guardrails, docs
   links, complete Python suite, independent review, and PR CI.
 
 ### T-GOV-2A: Enforce roster-gated person linking
 - priority: P1
-- status: pending; roster authority approved, Full plan and data inventory required
+- status: complete and verified 2026-07-31
 - depends_on: T-GOV-2
+- implementation_plan: `docs/plans/T_GOV_2A_ROSTER_GATED_LINKING_PLAN.md`
 - authoritative_source: Legistar OfficeRecords membership records, resolved
   through the owning city's approved Legistar body rather than a hardcoded
   body identifier
-- files_owned: to be named in a separate Full plan after current derived person
-  records and roster availability are inventoried
+- files_owned: `docs/plans/T_GOV_2A_ROSTER_GATED_LINKING_PLAN.md`,
+  `docs/plans/TOWN_COUNCIL_REMEDIATION_PLAN.md`, `AGENTS.md`,
+  `README.md`, `ARCHITECTURE.md`, `ROADMAP.md`, `docs/ADR.md`,
+  `docs/DATA_GOVERNANCE.md`, `docs/OPERATIONS.md`, `docs/PIPELINE.md`,
+  `docs/PERFORMANCE.md`, `mypy.ini`, `ruff.toml`, `ruff-format.toml`,
+  `city_metadata/city_rollout_registry.csv`,
+  `alembic/versions/0002_roster_gated_people.py`, `api/people_routes.py`,
+  `pipeline/model_civic.py`, `pipeline/roster_contracts.py`,
+  `pipeline/legistar_roster.py`, `pipeline/roster_sync.py`,
+  `scripts/build_profile_manifest.py`, `scripts/remediate_legacy_people.py`,
+  `scripts/sync_rosters.py`,
+  `pipeline/rollout_registry.py`, `pipeline/run_batch_enrichment.py`,
+  `pipeline/run_pipeline_steps.py`, `pipeline/indexer_documents.py`,
+  `pipeline/nlp_entity_candidates.py`, `pipeline/nlp_entity_extraction.py`,
+  `pipeline/nlp_entity_model.py`, `pipeline/nlp_worker.py`,
+  `pipeline/profile_manifest.py`, `pipeline/profile_manifest_builder.py`,
+  `pipeline/profile_manifest_contracts.py`,
+  `pipeline/profile_manifest_preconditioning.py`, `pipeline/utils.py`,
+  `pipeline/person_cache.py`, `pipeline/person_linker.py`,
+  `pipeline/person_mutations.py`, `pipeline/person_names.py`,
+  `pipeline/person_selectors.py`, `pipeline/profile_manifest_people.py`,
+  `pipeline/utils_matching.py`,
+  `profiling/manifests/baseline_representative_v2.json`,
+  `profiling/manifests/baseline_representative_v2.txt`,
+  `profiling/manifests/README.md`,
+  `frontend/components/PersonProfile.js`, `frontend/lib/api.js`,
+  `frontend/public/demo/search.json`,
+  `frontend/public/demo/person_1.json`, `frontend/public/demo/person_2.json`,
+  `frontend/public/demo/person_3.json`, `frontend/public/demo/person_4.json`,
+  `tests/test_alembic_migrations.py`, `tests/test_benchmarks.py`,
+  `tests/test_demo_mode_contract.py`,
+  `tests/test_database.py`, `tests/test_fuzzy_matcher.py`,
+  `tests/test_entity_staleness.py`,
+  `tests/test_indexer_official_roster.py`,
+  `tests/test_legistar_roster.py`, `tests/test_people_endpoint_filters.py`,
+  `tests/test_person_classification.py`,
+  `tests/test_person_promotion_rules.py`,
+  `tests/test_pipeline_idempotency.py`,
+  `tests/test_pipeline_integration.py`,
+  `tests/test_pipeline_batching.py`, `tests/test_noise_reduction.py`,
+  `tests/test_person_remediation.py`,
+  `tests/test_profile_manifest_builder.py`,
+  `tests/test_profile_pipeline_cli.py`,
+  `tests/test_rollout_registry.py`, `tests/test_rule_ruler.py`,
+  `tests/test_run_pipeline_orchestration.py`,
+  `tests/test_roster_sync.py`, `tests/test_roster_sync_cli.py`,
+  `tests/test_utils.py`, `tests/test_validation.py`,
+  `tests/test_repository_guardrails.py`
 - do: Ingest independently authoritative OfficeRecords membership evidence;
   gate person creation and people-facing derived records; remediate existing
   non-roster entities and memberships; reindex affected catalogs; and prevent
@@ -1842,8 +1900,9 @@ files (GED-5 grant).
   for cities without an approved roster source; implementing without an
   approved Full person-data plan.
 - accept: Runtime behavior and existing derived data conform to the accepted G4
-  policy; correction and reindexing are repeatable; City Coverage Expansion is
-  unblocked only after verification.
+  policy; correction and reindexing are repeatable; City Coverage Expansion
+  remains blocked until a baseline-valid v2 capture is reproduced and its
+  expected-baseline PR merges.
 
 ### T-GOV-3: Redesign the guardrail regime
 - priority: P2
@@ -2011,10 +2070,11 @@ Next:    Serialize each task's Full-plan registration through this ledger.
          T-TASK-1 separately.
 Phase 3: agent-plat [T-PLAT-1 after T-TIME-1 and T-TIME-2, T-PLAT-1A
          closure, T-PLAT-2B security patch, then T-PLAT-2..4; complete]
-         || agent-gov [T-GOV-2 policy complete; T-GOV-2A pending with approved
-         OfficeRecords authority; T-GOV-3A/B and T-GOV-5 complete]
-After:   T-IDX-1 remains blocked until verified T-GOV-2A; T-FE-1 follows
-         behavior-test design.
+         || agent-gov [T-GOV-2 policy and T-GOV-2A runtime enforcement
+         complete; T-GOV-3A/B and T-GOV-5 complete]
+After:   T-IDX-1 awaits its separate Full plan; T-FE-1 follows behavior-test
+         design. City Coverage Expansion awaits the valid v2 expected-baseline
+         PR.
 ```
 
 Merge policy: one task = one PR, except operator-approved T-TIME-1 +

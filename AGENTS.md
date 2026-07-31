@@ -23,11 +23,14 @@ Do:
 - Treat optional remote acceleration as personal opt-in only.
 - Fail fast when remote inference is unreachable.
 - Preserve soak comparability unless the task explicitly changes baseline policy.
-- Create person entities and people-facing records only from independently
-  authoritative official membership data scoped to municipality, governing
-  body, and meeting date. Title inference, source-document mentions, and
-  linker-created memberships are not roster authority. Do not start City
-  Coverage Expansion before T-GOV-2A is complete and verified.
+- Create person entities and people-facing records only from a currently
+  approved Legistar OfficeRecords roster scoped to municipality and governing
+  body. Cities without a current approved roster source fail closed. Title
+  inference, fuzzy matching, and source-document mentions are not roster
+  authority.
+- Omit meeting `people_metadata` until event-to-governing-body identity is
+  independently authoritative. Do not start City Coverage Expansion until a
+  valid `baseline_representative_v2` expected-baseline PR has merged.
 
 Don't:
 - Do not silently fall back from remote to local inference.

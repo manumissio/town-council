@@ -1,6 +1,6 @@
 # Town Council Architecture (2026)
 
-Last updated: 2026-07-26
+Last updated: 2026-07-31
 
 ## 1) System Overview
 
@@ -140,13 +140,21 @@ flowchart LR
 #### Batch enrichment
 1. Extraction writes canonical text to `catalog.content` and computes `content_hash`.
 2. Agenda segmentation and summary hydration derive structured agenda state and summary state from the extracted corpus.
-3. Entity/topic/org/people stages enrich records after the core derived states exist.
+3. Entity, topic, and organization stages enrich records after the core derived states exist. Person extraction and document-derived person linking are not enrichment stages.
 4. Search freshness is maintained through both broad batch hydration and task-driven targeted reindex of changed catalogs.
 5. Semantic embedding hydration populates `semantic_embedding`.
 6. Maintenance hydration has three supported paths with different scopes:
    - `pipeline/run_pipeline.py` facade plus `pipeline/run_pipeline_*` modules for broad corpus hydration
    - staged city hydration for large unresolved city backlogs through `scripts/staged_hydrate_cities.py` plus focused hydration helpers
    - repaired-city hydration for recovered agenda catalogs through `scripts/hydrate_repaired_city_catalogs.py` plus focused hydration helpers
+
+#### Authoritative roster synchronization
+1. `city_metadata/city_rollout_registry.csv` authorizes a roster source and governing-body name independently of city enablement.
+2. `pipeline/legistar_roster.py` resolves that body through Legistar and validates its OfficeRecords payload before any database write.
+3. `pipeline/roster_sync.py` atomically reconciles roster-backed people and memberships for the approved body.
+4. A valid empty OfficeRecords roster clears the approved body. Transport failures and invalid payloads preserve the last verified database snapshot.
+5. Current registry revocation depublishes stored roster rows immediately. Cities without current approval fail closed.
+6. Meeting search documents omit `people_metadata` because event-to-body linkage is heuristic and therefore cannot establish roster authority.
 
 #### City onboarding and rollout evaluation
 1. `scripts/onboard_city_wave.sh` runs wave-scoped crawl attempts and records per-run artifacts.
@@ -413,6 +421,12 @@ Owners:
 
 #### Data integrity and authority
 - `manual` and `legistar` vote/source writes are authoritative and not overwritten by LLM extraction.
+- People and memberships are authoritative only when backed by a currently
+  approved Legistar OfficeRecords roster. Document mentions, title inference,
+  and fuzzy matching never create or authorize person records.
+- A valid empty approved roster clears its body. A transient or invalid source
+  response preserves the last verified database snapshot, while registry
+  revocation prevents publication regardless of stored provenance.
 - Hash-based staleness (`content_hash`, source-hash fields) governs regeneration correctness.
 
 Owners:
@@ -439,7 +453,7 @@ Owners:
 
 | Contract | Routes | Auth | Async | Primary owners |
 |---|---|---|---|---|
-| Search/read | `GET /search`, `GET /search/semantic`, `GET /metadata`, `GET /catalog/{id}/lineage`, `GET /lineage/{lineage_id}`, `GET /people`, `GET /person/{person_id}` | none | no | `api/main.py`, `api/search_routes.py`, `api/search_read_routes.py` facade plus focused `api/search_read_*` helpers, `api/search_semantic_routes.py`, `api/lineage_routes.py`, `api/people_routes.py`, `api/search/query_builder.py` |
+| Search/read | `GET /search`, `GET /search/semantic`, `GET /metadata`, `GET /catalog/{id}/lineage`, `GET /lineage/{lineage_id}`, `GET /people`, `GET /person/{person_id}` | none | no | `api/main.py`, `api/search_routes.py`, `api/search_read_routes.py` facade plus focused `api/search_read_*` helpers, `api/search_semantic_routes.py`, `api/lineage_routes.py`, `api/people_routes.py`, `api/search/query_builder.py`; people reads fail closed against current roster approval |
 | Trends reads/export | `GET /trends/topics`, `GET /trends/compare`, `GET /trends/export` | none | no | `api/main.py`, `api/search_routes.py`, `api/trends_routes.py`, `api/search/query_builder.py` |
 | Protected generation writes | `POST /summarize/{catalog_id}`, `POST /segment/{catalog_id}`, `POST /topics/{catalog_id}`, `POST /extract/{catalog_id}`, `POST /votes/{catalog_id}` | `X-API-Key` | yes (task id returned) | `api/main.py`, `api/task_routes.py`, `pipeline/tasks.py` |
 | Task lifecycle | `GET /tasks/{task_id}` | none | n/a | `api/main.py`, `api/task_routes.py`, Celery task backend |
@@ -457,6 +471,8 @@ Owners:
 | `catalog.topics_source_hash` | Hash of source text used to generate current topics | `pipeline/topic_generation.py` facade plus focused `pipeline/topic_generation_*` modules, `pipeline/enrichment_tasks.py`, `pipeline/topic_worker.py`, `api/task_routes.py`, `api/catalog_routes.py` |
 | `agenda_item.result` | Normalized outcome field for agenda/vote interpretation | `pipeline/models.py` facade plus focused `pipeline/model_*` modules, `pipeline/tasks.py` |
 | `agenda_item.votes` | Structured vote payload with extraction metadata | `pipeline/models.py` facade plus focused `pipeline/model_*` modules, `pipeline/tasks.py` |
+| `organization`, `person`, `membership` roster provenance | Legistar body, person, and OfficeRecord identities plus source URL and UTC synchronization metadata; publication also requires current registry approval | `pipeline/model_civic.py`, `pipeline/legistar_roster.py`, `pipeline/roster_sync.py`, `api/people_routes.py` |
+| Meeting `people_metadata` | Omitted until events have independently authoritative governing-body identity | `pipeline/indexer_documents.py` |
 | `catalog.lineage_id`, `catalog.lineage_confidence`, `catalog.lineage_updated_at` | Meeting-level lineage identity and confidence | `pipeline/lineage_service.py` facade plus focused `pipeline/lineage_*` helpers, `api/main.py`, `api/lineage_routes.py` |
 | `semantic_embedding` | pgvector-backed embedding storage for hybrid semantic retrieval | `pipeline/models.py` facade plus focused `pipeline/model_*` modules, `pipeline/semantic_index.py`, `pipeline/semantic_pgvector_backend.py`, focused semantic backend helpers, `pipeline/tasks.py` |
 

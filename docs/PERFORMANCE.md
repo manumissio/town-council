@@ -1,6 +1,6 @@
 # Performance
 
-Last updated: 2026-05-17
+Last updated: 2026-07-31
 
 This page describes how to interpret and reproduce performance evidence for local Docker runs.
 For operational troubleshooting and sorting diagnostics, use `docs/OPERATIONS.md`.
@@ -126,7 +126,12 @@ Interpretation rule:
 - if a baseline manifest has a `.json` sidecar, the harness applies controlled preconditioning to only the selected workload before the run so the baseline still contains real pending work
 - use `--dry-run-prepare` to inspect that preconditioning plan before mutating the selected workload
 - use `--compare-to` to guard steady-state baselines against regressions in elapsed time, top bottleneck phases, and stable workload-shape counters
-- the checked-in baseline expectation for the representative workload lives at `profiling/baselines/baseline_representative_v1.json`
+- `baseline_representative_v1` and its checked-in expectation are immutable
+  historical evidence for the retired document-derived person pipeline; they
+  are non-comparable with roster-gated runs
+- `baseline_representative_v2` is the current representative workload package;
+  its expected baseline remains pending a separate PR with valid reproduced
+  post-transition evidence
 - compare policy:
   - timings use percentage tolerances to absorb normal host variance
   - stable counters from `commands.log` are compared exactly
@@ -141,10 +146,17 @@ Baseline compare report:
 
 ### Latest runtime optimization note
 
+- The measurements below that use `baseline_representative_v1` are historical
+  only. They explain earlier optimization work but cannot establish current
+  regressions or promotion readiness.
+- Roster-gated person governance removes document-derived person work from the
+  profiled pipeline. No v1-to-v2 timing or counter comparison is valid.
 - The default core pipeline and batch enrichment paths no longer shell into full `python indexer.py` rebuilds.
 - Search freshness now comes from targeted `reindex_catalog(...)` hooks in the writers that mutate indexed fields.
 - Keep `python reindex_only.py` as the manual repair path for schema/settings changes or explicit full rebuilds.
-- The default core and batch snapshot backfills now invoke summary/agenda/entity/org/people runners in-process instead of paying Python subprocess startup on every run.
+- The default core and batch snapshot backfills invoke summary, agenda, entity,
+  and organization runners in-process instead of paying Python subprocess
+  startup on every run.
 - That change is mainly a profiling-fidelity and orchestration win: zero-work backlog phases should now be nearly free, which makes the next triage report more representative of actual useful work.
 - The default batch topic path now hydrates only missing/stale catalogs through the single-catalog topic task instead of sweeping every content-bearing catalog.
 - The default batch table path now preflights eligibility and skips the heavy Camelot subprocess on zero-work runs.
@@ -158,13 +170,14 @@ Baseline compare report:
 - The next summary-focused pass made maintenance agenda summaries deterministic-first instead of paying for an LLM call that grounding checks often replaced anyway.
 - On the same `baseline_representative_v1` manifest, that reduced combined elapsed time again from `85.202s` in `pipeline_profile_baseline_20260402_023734` to `17.165s` in `pipeline_profile_baseline_20260402_025623`.
 - In that run, `summary_hydration_backfill` reported `agenda_deterministic_complete=12`, `llm_complete=0`, and `deterministic_fallback_complete=0`, and maintenance `summarize_agenda_items` provider calls disappeared from `commands.log`.
-- After that change, the remaining top bottlenecks are `entity_backfill` (`6.849s`), `people_linking` (`5.277s`), and `summarize` (`2.764s`).
-- The next batch-focused pass collapsed entity extraction and people linking into one delta-oriented path:
+- After that change, the remaining measured work was led by entity backfill
+  and summarization.
+- The next batch-focused pass made entity extraction delta-oriented:
   - `entity_backfill` now keeps small snapshots in-process and commits once per chunk
-  - `people_linking` now scopes itself to the catalogs whose entity payloads changed in that same run
 - On the same `baseline_representative_v1` manifest, that reduced combined elapsed time from `17.165s` in `pipeline_profile_baseline_20260402_025623` to `12.391s` in `pipeline_profile_baseline_20260402_110906`.
-- In that run, `entity_backfill` reported `selected=8 complete=8 changed_catalogs=8 execution_mode=in_process chunks=1`, and `people_linking_preflight` selected `8` catalogs instead of the previous full rescan of `30`.
-- After that change, the top 3 shifted to `entity_backfill` (`6.060s`), `summarize` (`2.611s`), and `people_linking` (`1.433s`).
+- In that run, `entity_backfill` reported `selected=8 complete=8 changed_catalogs=8 execution_mode=in_process chunks=1`.
+- After that change, entity backfill and summarization remained the leading
+  measured phases.
 - The next entity-focused pass makes NER staleness-aware and cheap-first:
   - `catalog.entities_source_hash` now mirrors the freshness contract already used for summaries/topics
   - entity backfill now selects missing or stale rows instead of relying on `entities is null` only
@@ -172,7 +185,8 @@ Baseline compare report:
   - clearly low-signal docs can be marked fresh with an empty entity payload instead of repeatedly paying for the full NER pass
 - On the same `baseline_representative_v1` manifest, that reduced combined elapsed time from `12.391s` in `pipeline_profile_baseline_20260402_110906` to `9.199s` in `pipeline_profile_baseline_20260402_220500`.
 - In that run, `entity_backfill` reported `selected=8 complete=8 changed_catalogs=8 execution_mode=in_process chunks=1 ner_processed=8 ner_skipped_low_signal=0 freshness_advanced=8 candidate_slice_fallback_prefix=0`.
-- After that change, the top 3 shifted to `summarize` (`3.647s`), `entity_backfill` (`1.486s`), and `people_linking` (`0.967s`).
+- After that change, summarization and entity backfill remained the leading
+  measured phases.
 - The next summary-focused pass batched deterministic agenda summary hydration and fixed the profile analyzer so deterministic summary runs are not mislabeled as provider-bound work:
   - maintenance agenda summaries now preload agenda items for the selected snapshot and persist changed rows before one targeted reindex/embed pass
   - the profiler now uses `summary_hydration_backfill` evidence from `commands.log` before classifying `summarize` as `inference/provider`
@@ -181,17 +195,15 @@ Baseline compare report:
 - After that change, `summarize` remained the top bottleneck, but the report now classifies it as `CPU/parsing` with stage-local `provider_requests_total=0.0`, which matches the deterministic-only workload:
   - `summarize` `3.385s`
   - `entity_backfill` `1.532s`
-  - `people_linking` `0.969s`
 - The next summary-freshness pass made agenda summary hydration stale-aware via structured-input hashing:
   - `Catalog.agenda_items_hash` now fingerprints the normalized `AgendaItem` payload that deterministic agenda summaries actually depend on
   - deterministic agenda summaries now store `summary_source_hash = agenda_items_hash` instead of `content_hash`, except empty-segmented agendas whose deterministic fallback summary stays keyed to `content_hash`
   - the profiling harness now runs `pipeline/backfill_catalog_hashes.py` before baseline preconditioning so legacy agenda summaries are measured in steady state instead of one-time migration churn
 - On the same `baseline_representative_v1` manifest, the rollout-skewed first run (`pipeline_profile_baseline_20260403_003945`) selected `21` agenda summaries because old rows were missing the new agenda hash metadata, but the steady-state baseline after backfill (`pipeline_profile_baseline_20260403_004122`) returned to `selected=12`.
 - In the steady-state run, `summary_hydration_backfill` reported `selected=12 complete=12 changed_catalogs=12 agenda_deterministic_complete=12 llm_complete=0 deterministic_fallback_complete=0 reindexed=12 reindex_failed=0 embed_enqueued=12 embed_dispatch_failed=0`.
-- After that change, the top 3 remained:
+- After that change, the leading measured phases remained:
   - `summarize` `3.601s`
   - `entity_backfill` `1.576s`
-  - `people_linking` `0.987s`
 - This pass did not make deterministic agenda summaries dramatically cheaper per rebuild; it made the freshness contract correct so already-fresh agenda summaries can now be skipped once their structured input is unchanged.
 
 ### Other Performance-Related Changes
@@ -326,6 +338,14 @@ Soak confidence signals:
 
 ## Baseline interpretation
 
+- `baseline_representative_v1`:
+  - immutable historical evidence
+  - includes the retired document-derived person phase
+  - non-comparable with roster-gated pipeline runs
+- `baseline_representative_v2`:
+  - current representative workload without document-derived person work
+  - expected baseline pending a separate valid, reproduced evidence PR
+  - City Coverage Expansion remains blocked until that PR merges
 - `baseline-valid` runs:
   - consistent local baseline conditions across the soak window
   - `run_manifest.json` present for each day
@@ -384,7 +404,6 @@ docker compose run --rm pipeline pytest ../tests/test_benchmarks.py -q
 | Benchmark | Mean | Throughput |
 | :--- | ---: | ---: |
 | `test_benchmark_orjson_serialization` | 17.53 us | 57.04 K ops/s |
-| `test_benchmark_fuzzy_matching` | 48.48 us | 20.63 K ops/s |
 | `test_benchmark_standard_json_serialization` | 168.55 us | 5.93 K ops/s |
 | `test_benchmark_regex_extraction` | 766.74 us | 1.30 K ops/s |
 

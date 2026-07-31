@@ -297,6 +297,10 @@ exit nonzero without stamping the database. Do not run an unguarded
 `alembic stamp`. The baseline is the downgrade floor; restore the verified
 backup instead of attempting to downgrade below it.
 
+Revision `0002_roster_gated_people` establishes a newer governance floor. Its
+downgrade fails before DDL because restoring document-derived people fields
+could re-enable prohibited publication.
+
 Verify the migrated database against the current Alembic head:
 
 ```bash
@@ -638,6 +642,86 @@ before restarting that previous release.
 Do not reverse-convert a database that accepted post-migration writes. Restore
 the backup through the rollback release instead.
 
+#### T-GOV-2A roster-gate transition
+
+People publication is authorized only by current
+`city_metadata/city_rollout_registry.csv` roster fields and validated Legistar
+OfficeRecords. City enablement alone is not authorization. Cities without a
+current approved roster source fail closed.
+
+Roster synchronization has two distinct source outcomes:
+
+- a structurally valid empty OfficeRecords response is authoritative and
+  clears the approved governing body's roster;
+- a timeout, transport failure, malformed payload, missing body, or ambiguous
+  body preserves the last verified database snapshot and fails the sync;
+- registry revocation is current policy, so it depublishes stored records even
+  when the last verified snapshot remains in PostgreSQL. Revocations commit
+  before unrelated authorized-source fetches, so another city's provider
+  outage cannot roll them back.
+- a successful governing-body change depublishes the superseded body's roster
+  in the same transaction as the replacement roster.
+
+Meeting search records omit `people_metadata`. Current event-to-governing-body
+linkage is heuristic and cannot authorize meeting-specific person publication.
+
+Use one maintenance window for the transition. Stop every writer, verify the
+backup, confirm the dry-run and apply inventories are identical, migrate,
+check schema parity, synchronize approved rosters, replace the complete search
+index, and only then restart:
+
+```bash
+set -euo pipefail
+BACKUP_PATH="<BACKUP_PATH>/town_council_pre_roster_gate.dump"
+ROSTER_COMPOSE=(docker compose -f docker-compose.yml -f docker-compose.dev.yml)
+
+"${ROSTER_COMPOSE[@]}" stop \
+  api crawler pipeline pipeline-batch extractor worker enrichment-worker \
+  semantic-worker nlp tables topics
+"${ROSTER_COMPOSE[@]}" up -d postgres
+
+bash ./scripts/backup_db.sh "$BACKUP_PATH"
+"${ROSTER_COMPOSE[@]}" exec -T postgres \
+  pg_restore --list < "$BACKUP_PATH" >/dev/null
+
+DRY_RUN_INVENTORY="$(
+  "${ROSTER_COMPOSE[@]}" run --rm --build --no-deps pipeline \
+    python /app/scripts/remediate_legacy_people.py
+)"
+APPLY_INVENTORY="$(
+  "${ROSTER_COMPOSE[@]}" run --rm --no-deps pipeline \
+    python /app/scripts/remediate_legacy_people.py --apply
+)"
+test "$DRY_RUN_INVENTORY" = "$APPLY_INVENTORY"
+printf '%s\n' "$APPLY_INVENTORY"
+
+"${ROSTER_COMPOSE[@]}" run --rm --no-deps pipeline python db_migrate.py
+"${ROSTER_COMPOSE[@]}" run --rm --no-deps pipeline \
+  python /app/scripts/check_schema_parity.py
+
+"${ROSTER_COMPOSE[@]}" run --rm --no-deps pipeline \
+  python /app/scripts/sync_rosters.py --dry-run
+"${ROSTER_COMPOSE[@]}" run --rm --no-deps pipeline \
+  python /app/scripts/sync_rosters.py --apply
+
+"${ROSTER_COMPOSE[@]}" up -d postgres redis meilisearch
+"${ROSTER_COMPOSE[@]}" run --rm --no-deps pipeline \
+  python reindex_only.py --replace-all
+STARTUP_PURGE_DERIVED=false "${ROSTER_COMPOSE[@]}" up -d --build
+```
+
+The dry-run/apply inventory equality check proves the destructive command
+acted on exactly the reviewed legacy set. Any difference, migration failure,
+schema difference, roster failure, or reindex failure blocks restart.
+
+Rollback is roll-forward. Do not restart an old release against the serving
+database because it can re-derive prohibited people. If recovery cannot finish,
+publish a current-code registry revision with all roster approvals cleared,
+run `sync_rosters.py --apply`, perform another `reindex_only.py --replace-all`,
+and keep people publication disabled until authoritative roster recovery
+succeeds. A pre-transition backup or old release may be restored only in an
+isolated forensic environment; source documents are unchanged.
+
 Why the explicit model bootstrap exists:
 - local model downloads no longer happen during Docker image builds
 - rebuilds stay faster because large model artifacts are stored in the shared `models_data` volume instead
@@ -724,12 +808,11 @@ docker compose run --rm topics
 
 Batch runtime notes:
 - default core generation backfills now invoke agenda segmentation and summary hydration in-process; `scripts/backfill_agenda_segmentation.py` and `scripts/backfill_summaries.py` remain manual entrypoints
-- default batch enrichment now invokes entity/org/people backlog runners in-process; `backfill_entities.py`, `backfill_orgs.py`, and `person_linker.py` remain operator tools when you want to run those steps directly
+- default batch enrichment invokes entity and organization backlog runners in-process; `backfill_entities.py` and `backfill_orgs.py` remain direct operator tools
 - entity backfill now reports `changed_catalogs`, `execution_mode`, and `chunks`; small snapshots use an in-process fast path instead of spawning a process pool
 - entity backfill now tracks freshness with `entities_source_hash`; rows are eligible when entities are missing or stale relative to `content_hash`
 - entity backfill now reports `ner_processed`, `ner_skipped_low_signal`, `freshness_advanced`, and `candidate_slice_fallback_prefix`
-- default people linking is now driven by the entity delta from the same batch run rather than rescanning every entity-bearing catalog
-- people linking now reports `catalogs_with_people`, `catalogs_changed`, `exact_matches`, `fuzzy_matches`, and `cities_loaded`
+- person extraction and document-derived person linking are not batch enrichment stages; run the explicit roster synchronization procedure when authoritative OfficeRecords change
 - agenda summaries now use structured-input freshness: deterministic agenda summaries store `summary_source_hash = agenda_items_hash`, while empty-segmented agenda summaries and non-agenda summaries key freshness to `content_hash`
 - `agenda_items_hash` is maintained when agenda rows are persisted and lets summary hydration skip already-fresh agenda summaries instead of rebuilding them every run
 - default `run_batch_enrichment.py` now snapshots eligible topic/table work before invoking heavy steps
@@ -787,19 +870,25 @@ find experiments/results/maintenance -maxdepth 4 -type f | sort
 ```
 
 ### Baseline profile guardrail
-- Use the checked-in expectation in `profiling/baselines/baseline_representative_v1.json` to compare a fresh baseline-valid run against the current steady-state bottleneck shape.
+- `baseline_representative_v1` is immutable historical evidence from the
+  retired document-derived person pipeline. It is non-comparable with current
+  runs and must not be used as a regression or promotion gate.
+- Use `baseline_representative_v2` for post-roster-gate captures. Its checked-in
+  expected baseline is pending a separate evidence PR.
 - The compare flow guards:
   - total elapsed time
   - top bottleneck phase durations
   - stable workload-shape counters from `commands.log`
 - Counter drift is treated more strictly than timing drift; reduced-confidence runs are reported as non-comparable rather than clean passes.
-- Example:
+- Capture a v2 candidate:
 ```bash
 PYTHONPATH=. .venv/bin/python scripts/profile_pipeline.py \
   --mode baseline \
-  --manifest profiling/manifests/baseline_representative_v1.txt \
-  --compare-to profiling/baselines/baseline_representative_v1.json
+  --manifest profiling/manifests/baseline_representative_v2.txt
 ```
+
+Do not compare v1 with v2. City Coverage Expansion remains blocked until a
+valid, reproduced v2 expected-baseline PR merges.
 
 ### Maintenance salvage helper for flaky Laserfiche agenda PDFs
 - `scripts/repair_san_mateo_laserfiche_backlog.py` now distinguishes generated-PDF transport failures from permanent failures.
@@ -933,7 +1022,7 @@ Current archive note:
 - `PIPELINE_RUNTIME_PROFILE=onboarding_fast` now keeps onboarding on the gating path only:
   - the `run_pipeline.py` subprocess only crawls plus downloads/extracts staged URLs for the current city and run window
   - `scripts/onboard_city_wave.sh` then runs city-scoped segmentation and the search smoke check explicitly
-  - skips table extraction, organization backfill, topic modeling, and people linking during onboarding validation runs
+  - skips table extraction, organization backfill, topic modeling, and roster synchronization during onboarding validation runs
 - `scripts/onboard_city_wave.sh` now performs an explicit crawler image preflight before running a city crawl.
   - it resolves the crawler image name from `docker compose config --images`
   - it fails fast with a rebuild instruction if that image is missing
@@ -2010,7 +2099,7 @@ LOCAL_AI_BACKEND=http LOCAL_AI_HTTP_MODEL=gemma-3-270m-custom \
   LOCAL_AI_HTTP_PROFILE=conservative WORKER_CONCURRENCY=3 WORKER_POOL=prefork \
   docker compose -f docker-compose.yml -f docker-compose.dev.yml \
   up -d --build inference worker api pipeline enrichment-worker
-sleep 1 && PYTHONPATH=. .venv/bin/python scripts/profile_pipeline.py --mode baseline --manifest profiling/manifests/baseline_representative_v1.txt
+sleep 1 && PYTHONPATH=. .venv/bin/python scripts/profile_pipeline.py --mode baseline --manifest profiling/manifests/baseline_representative_v2.txt
 ```
 
 Treatment:
@@ -2019,7 +2108,7 @@ LOCAL_AI_BACKEND=http LOCAL_AI_HTTP_MODEL=gemma4:e2b \
   LOCAL_AI_HTTP_PROFILE=conservative WORKER_CONCURRENCY=3 WORKER_POOL=prefork \
   docker compose -f docker-compose.yml -f docker-compose.dev.yml \
   up -d --build inference worker api pipeline enrichment-worker
-sleep 1 && PYTHONPATH=. .venv/bin/python scripts/profile_pipeline.py --mode baseline --manifest profiling/manifests/baseline_representative_v1.txt
+sleep 1 && PYTHONPATH=. .venv/bin/python scripts/profile_pipeline.py --mode baseline --manifest profiling/manifests/baseline_representative_v2.txt
 ```
 
 5) Compare the treatment profile directly against the control run instead of the

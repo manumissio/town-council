@@ -146,10 +146,12 @@ Interpretation:
 - `--dry-run-prepare` shows the exact preconditioning plan without mutating the workload.
 - queue wait is tracked separately from task execution so the report can distinguish worker backlog from slow execution.
 - default core and batch pipeline runs now keep search fresh with targeted per-catalog reindex hooks; use the manual reindex command below only when you changed indexing logic or need a repair rebuild.
-- default snapshot backfills now run in-process on the hot path, so zero-work summary/agenda/entity/org/people phases do not pay Python subprocess startup tax.
+- default snapshot backfills now run in-process on the hot path, so zero-work summary, agenda, entity, and organization phases do not pay Python subprocess startup tax.
 - the script entrypoints for those backfills still exist as manual/operator tools; the pipeline just no longer shells into them by default.
 - default pipeline maintenance backfills now use backlog-specific routing: agenda segmentation runs heuristic-first with a shorter maintenance timeout, and agenda summary hydration is deterministic-first while non-agenda summary hydration keeps the shorter maintenance timeout plus deterministic fallback on provider failure.
-- default batch enrichment is now delta-oriented across entity extraction and people linking: small entity snapshots stay in-process, and people linking scopes itself to the catalogs whose entity payloads changed in that run.
+- default batch enrichment is delta-oriented: small entity snapshots stay
+  in-process, while person data is synchronized separately from approved
+  OfficeRecords rosters.
 - entity enrichment is now freshness-aware like summaries/topics: unchanged rows can stay cached via `entities_source_hash`, and agenda-heavy documents send a smaller candidate slice into spaCy before the expensive NER pass.
 - default batch topic modeling now hydrates only missing/stale topics via the single-catalog topic task, and table extraction is preflighted so zero-work runs skip the heavy Camelot subprocess entirely.
 
@@ -296,6 +298,19 @@ Diagnostic model-evaluation tooling:
 
 Use these scripts for local experiments only. Gemma 4 remains diagnostic or
 opt-in until a separate model-policy decision changes the roadmap/runbook.
+
+## Person Data Policy
+
+Town Council publishes people and memberships only from a currently approved
+Legistar OfficeRecords roster. Cities without an approved current roster
+source fail closed: their municipal source documents remain searchable, but
+people-facing derived data is not published. Document mentions, titles, and
+fuzzy name matches do not create people or memberships.
+
+Meeting search records omit `people_metadata` because current event-to-body
+linkage is heuristic. See
+[`docs/DATA_GOVERNANCE.md`](docs/DATA_GOVERNANCE.md) for policy and
+[`docs/OPERATIONS.md`](docs/OPERATIONS.md) for roster transition and recovery.
 
 ## GitHub Pages Demo
 

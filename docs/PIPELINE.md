@@ -1,6 +1,6 @@
 # Town Council Pipeline Guide
 
-Last updated: 2026-07-26
+Last updated: 2026-07-31
 
 ## 1) Purpose and Boundaries
 
@@ -115,13 +115,17 @@ Operational commands and troubleshooting stay in [`docs/OPERATIONS.md`](OPERATIO
 - `table_worker.py`
 - `run_batch_enrichment.py`
 - `topic_worker.py` (CLI/backfill facade) and `topic_generation.py` facade plus focused `topic_generation_*` modules
-- `person_linker.py` facade plus focused `person_*` helpers
 - `indexer.py` facade plus `indexer_documents.py` and `indexer_meilisearch.py`
 
 Why this exists:
 - These depend on extracted/normalized content from earlier stages.
-- Entity enrichment and later linking now happen after the core extract -> segment -> summarize path instead of inside extraction chunk workers.
+- Entity enrichment happens after the core extract -> segment -> summarize path instead of inside extraction chunk workers.
 - Search and UI behavior depends on this final indexing step.
+
+Person records are not derived from meeting documents. The explicit
+`scripts/sync_rosters.py` operator path ingests independently approved roster
+sources outside the profiled batch pipeline. Cities without current roster
+authorization expose source records but no people-facing data.
 
 ## 4) Async Task Pipeline Walkthrough (`api/main.py` -> `pipeline/tasks.py`)
 
