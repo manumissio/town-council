@@ -1,9 +1,9 @@
+from time import monotonic
 from typing import Any, Optional
 
 from fastapi import APIRouter, HTTPException, Query
 from meilisearch.errors import MeilisearchCommunicationError, MeilisearchError, MeilisearchTimeoutError
 
-from api.cache import cached
 from api import search_support
 from api.search_read_meilisearch import run_lexical_search
 from api.search_read_params import SEARCH_LIMIT_DEFAULT, SEARCH_LIMIT_MAX, build_lexical_search_params, validate_search_date_range
@@ -11,7 +11,12 @@ from api.search_read_results import truncate_people_metadata
 from api.search_semantic_routes import search_documents_semantic
 
 SEARCH_METADATA_CACHE_SECONDS = 3600
-SEARCH_METADATA_CACHE_KEY = "metadata"
+EMPTY_SEARCH_METADATA = {"cities": [], "organizations": [], "meeting_types": []}
+
+MetadataPayload = dict[str, list[str]]
+MetadataCacheEntry = tuple[float, MetadataPayload]
+
+_metadata_cache_entry: MetadataCacheEntry | None = None
 
 router = APIRouter()
 
@@ -72,8 +77,19 @@ def search_documents(
 
 
 @router.get("/metadata")
-@cached(expire=SEARCH_METADATA_CACHE_SECONDS, key_prefix=SEARCH_METADATA_CACHE_KEY)
-def get_metadata() -> dict[str, list[str]]:
+def get_metadata() -> MetadataPayload:
+    global _metadata_cache_entry
+
+    cache_entry = _metadata_cache_entry
+    if cache_entry is not None and monotonic() < cache_entry[0]:
+        return cache_entry[1]
+
+    metadata_payload = _load_search_metadata()
+    _metadata_cache_entry = (monotonic() + SEARCH_METADATA_CACHE_SECONDS, metadata_payload)
+    return metadata_payload
+
+
+def _load_search_metadata() -> MetadataPayload:
     try:
         index = search_support.search_client().index(search_support.DOCUMENT_INDEX_NAME)
         metadata_response = index.search("", {"facets": search_support.METADATA_FACETS, "limit": 0})
@@ -90,4 +106,4 @@ def get_metadata() -> dict[str, list[str]]:
         }
     except (MeilisearchCommunicationError, MeilisearchTimeoutError, MeilisearchError, RuntimeError, ValueError) as exc:
         search_support.logger.error("Metadata retrieval failed: %s", exc)
-        return {"cities": [], "organizations": [], "meeting_types": []}
+        return EMPTY_SEARCH_METADATA

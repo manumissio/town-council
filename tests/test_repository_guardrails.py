@@ -101,7 +101,6 @@ REUSABLE_PIPELINE_MODULES = (
     "pipeline.verification_service",
 )
 APPROVED_BROAD_EXCEPTION_PATHS = {
-    "api/cache.py",
     "api/main.py",
     "pipeline/agenda_legistar.py",
     "pipeline/agenda_worker.py",

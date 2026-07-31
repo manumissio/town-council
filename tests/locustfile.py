@@ -26,7 +26,7 @@ class TownCouncilUser(HttpUser):
 
     @task(10)
     def get_metadata(self):
-        """Users look at the city/org filters (This should be fast due to Redis)"""
+        """Users look at the cached city and organization filters."""
         self.client.get("/metadata", headers=self.headers)
 
     @task(3)

@@ -1,4 +1,5 @@
 import pytest
+from pytest_mock import MockerFixture
 from fastapi.testclient import TestClient
 from fastapi import HTTPException
 from datetime import UTC, datetime
@@ -20,6 +21,38 @@ from api.main import agenda_items_look_low_quality, app
 
 client = TestClient(app)
 VALID_KEY = "dev_secret_key_change_me"
+BERKELEY_METADATA_FACETS = {
+    "facetDistribution": {
+        "city": {"ca_dublin": 5, "ca_berkeley": 10},
+        "organization": {"Planning Commission": 5, "City Council": 10},
+        "meeting_category": {"Special": 5, "Regular": 10},
+    }
+}
+DUBLIN_METADATA_FACETS = {
+    "facetDistribution": {
+        "city": {"ca_dublin": 5},
+        "organization": {"Planning Commission": 5},
+        "meeting_category": {"Special": 5},
+    }
+}
+EMPTY_METADATA = {"cities": [], "organizations": [], "meeting_types": []}
+
+
+@pytest.fixture
+def metadata_cache_runtime(
+    mocker: MockerFixture,
+    monkeypatch: pytest.MonkeyPatch,
+) -> tuple[list[float], MagicMock]:
+    from api import search_read_routes
+
+    monkeypatch.setattr(search_read_routes, "_metadata_cache_entry", None)
+    metadata_time = [100.0]
+    mocker.patch("api.search_read_routes.monotonic", side_effect=lambda: metadata_time[0])
+    metadata_index = mocker.Mock()
+    metadata_index.search.return_value = BERKELEY_METADATA_FACETS
+    mocker.patch("api.search.support_core.client.index", return_value=metadata_index)
+    return metadata_time, metadata_index
+
 
 def test_read_root():
     """Test the root endpoint of the API."""
@@ -90,26 +123,46 @@ def test_stats_failure_returns_503(mocker):
     assert response.json() == {"detail": "Search engine unreachable"}
 
 
-def test_metadata_endpoint(mocker):
-    """Test the /metadata endpoint correctly parses search engine facets."""
-    mock_index = mocker.Mock()
-    mock_index.search.return_value = {
-        "facetDistribution": {
-            "city": {"ca_berkeley": 10, "ca_dublin": 5},
-            "organization": {"City Council": 15},
-            "meeting_category": {"Regular": 10}
-        }
+@pytest.mark.parametrize(
+    ("second_request_time", "expected_cities"),
+    [(3699.0, ["Berkeley", "Dublin"]), (3700.0, ["Dublin"])],
+    ids=["before-expiry", "at-expiry"],
+)
+def test_metadata_endpoint_uses_snapshot_until_expiry(
+    metadata_cache_runtime: tuple[list[float], MagicMock],
+    second_request_time: float,
+    expected_cities: list[str],
+) -> None:
+    metadata_time, metadata_index = metadata_cache_runtime
+    first_response = client.get("/metadata", headers={"X-API-Key": VALID_KEY})
+    metadata_index.search.return_value = DUBLIN_METADATA_FACETS
+    metadata_time[0] = second_request_time
+    second_response = client.get("/metadata", headers={"X-API-Key": VALID_KEY})
+
+    assert first_response.status_code == 200
+    assert first_response.json() == {
+        "cities": ["Berkeley", "Dublin"],
+        "organizations": ["City Council", "Planning Commission"],
+        "meeting_types": ["Regular", "Special"],
     }
-    mocker.patch("api.main.client.index", return_value=mock_index)
-    
-    response = client.get("/metadata", headers={"X-API-Key": VALID_KEY})
-    assert response.status_code == 200
-    data = response.json()
-    
-    # Check if cities are capitalized for the UI
-    assert "Berkeley" in data["cities"]
-    assert "Dublin" in data["cities"]
-    assert "City Council" in data["organizations"]
+    assert second_response.status_code == 200
+    assert second_response.json()["cities"] == expected_cities
+
+
+def test_metadata_endpoint_caches_failure_payload_until_expiry(
+    metadata_cache_runtime: tuple[list[float], MagicMock],
+) -> None:
+    metadata_time, metadata_index = metadata_cache_runtime
+    metadata_index.search.side_effect = MeilisearchCommunicationError("unavailable")
+    failed_response = client.get("/metadata", headers={"X-API-Key": VALID_KEY})
+    metadata_index.search.side_effect = None
+    metadata_time[0] = 3699.0
+    cached_response = client.get("/metadata", headers={"X-API-Key": VALID_KEY})
+
+    assert failed_response.status_code == 200
+    assert failed_response.json() == EMPTY_METADATA
+    assert cached_response.json() == EMPTY_METADATA
+
 
 def test_search_endpoint_params(mocker):
     """Test the /search endpoint handles query parameters correctly and builds filters."""

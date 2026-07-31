@@ -443,9 +443,7 @@ services:
       retries: 3
       start_period: 45s
 
-  # PERFORMANCE: Redis Caching Layer
-  # Stores frequently accessed data (like city lists) in RAM for instant access.
-  # This reduces database load by ~95% for read-heavy operations.
+  # Redis stores Celery broker/results state and prefork provider metrics.
   redis:
     image: redis:7-alpine
     environment:
@@ -661,7 +659,7 @@ volumes:
   # Persistent storage for monitoring data
   prometheus_data:
   grafana_data:
-  # Persistent storage for Redis cache
+  # Persistent storage for Redis data
   redis_data:
   # Persistent storage for local model artifacts shared across Python and inference services
   models_data:
