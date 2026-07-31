@@ -1,4 +1,5 @@
 def test_segmentation_mode_switch_changes_llm_acceptance(monkeypatch):
+    import pipeline.http_inference_provider as http_provider_mod
     import pipeline.llm as llm_mod
     from pipeline.llm import LocalAI
 
@@ -8,7 +9,7 @@ def test_segmentation_mode_switch_changes_llm_acceptance(monkeypatch):
 
     LocalAI._instance = None
     monkeypatch.setattr(llm_mod, "LOCAL_AI_BACKEND", "http")
-    monkeypatch.setattr(llm_mod.HttpInferenceProvider, "extract_agenda", _fake_extract)
+    monkeypatch.setattr(http_provider_mod.HttpInferenceProvider, "extract_agenda", _fake_extract)
     ai = LocalAI()
 
     monkeypatch.setattr(llm_mod, "AGENDA_SEGMENTATION_MODE", "aggressive")

@@ -19,11 +19,12 @@ def _fake_agenda_text(_self, prompt, max_tokens, temperature):
 
 
 def _run(backend, monkeypatch):
+    from pipeline import http_inference_provider, inprocess_inference_provider
     from pipeline import llm as llm_mod
 
     monkeypatch.setattr(llm_mod, "LOCAL_AI_BACKEND", backend)
-    monkeypatch.setattr(llm_mod.InProcessLlamaProvider, "extract_agenda", _fake_agenda_text)
-    monkeypatch.setattr(llm_mod.HttpInferenceProvider, "extract_agenda", _fake_agenda_text)
+    monkeypatch.setattr(inprocess_inference_provider.InProcessLlamaProvider, "extract_agenda", _fake_agenda_text)
+    monkeypatch.setattr(http_inference_provider.HttpInferenceProvider, "extract_agenda", _fake_agenda_text)
     _reset_local_ai_singleton()
 
     ai = llm_mod.LocalAI()

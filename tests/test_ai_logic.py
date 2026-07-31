@@ -16,6 +16,7 @@ def _reset_local_ai_singleton():
 
 
 def _patch_extract_agenda_provider(monkeypatch, response_text: str):
+    from pipeline import http_inference_provider
     from pipeline import llm as llm_mod
 
     def _fake_extract(_self, prompt, *, temperature, max_tokens):
@@ -23,7 +24,7 @@ def _patch_extract_agenda_provider(monkeypatch, response_text: str):
         return response_text
 
     monkeypatch.setattr(llm_mod, "LOCAL_AI_BACKEND", "http")
-    monkeypatch.setattr(llm_mod.HttpInferenceProvider, "extract_agenda", _fake_extract)
+    monkeypatch.setattr(http_inference_provider.HttpInferenceProvider, "extract_agenda", _fake_extract)
 
 
 def test_local_ai_singleton():
@@ -35,13 +36,11 @@ def test_local_ai_singleton():
     assert ai1 is ai2
 
 
-def test_llm_facade_exports_local_ai_compatibility_surface():
+def test_llm_exports_local_ai_product_policy_surface():
     from pipeline import llm as llm_mod
 
     expected_names = [
         "LocalAI",
-        "HttpInferenceProvider",
-        "InProcessLlamaProvider",
         "LocalAIConfigError",
         "LOCAL_AI_BACKEND",
         "_agenda_items_summary_is_too_short",
@@ -52,6 +51,8 @@ def test_llm_facade_exports_local_ai_compatibility_surface():
     ]
 
     assert all(hasattr(llm_mod, name) for name in expected_names)
+    assert not hasattr(llm_mod, "HttpInferenceProvider")
+    assert not hasattr(llm_mod, "InProcessLlamaProvider")
 
 
 def test_local_ai_helper_modules_do_not_import_facade():

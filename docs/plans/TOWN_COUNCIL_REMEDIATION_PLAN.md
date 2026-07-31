@@ -1,6 +1,6 @@
 # Town Council Remediation Plan (Codex Multi-Agent)
 
-version: 3.86
+version: 3.88
 generated: 2026-07-26
 source: Four-pass external code review (security, architecture, smells, process)
 source_artifact: [Town Council architecture review](../reviews/architecture-review-2026-07-19.html)
@@ -10,6 +10,14 @@ remains in force; where this plan is stricter, this plan wins for these tasks.
 
 ## Changelog
 
+- **v3.88:** Completes T-DE-2 after deleting the provider compatibility
+  facade, repointing production and test imports to direct owners, removing
+  provider-class re-exports from `pipeline.llm`, and passing the provider,
+  guardrail, coverage, and complete-suite gates.
+- **v3.87:** Activates T-DE-2 with exact ownership to delete the provider
+  compatibility facade, repoint imports to the contract and adapter owners,
+  retire obsolete structural registrations, and synchronize canonical
+  provider-boundary documentation without changing runtime policy.
 - **v3.86:** Completes governing-body normalization at the people-list query
   boundary by authorizing stable organization IDs after applying the shared
   case-and-whitespace contract to stored names.
@@ -402,8 +410,8 @@ remains in force; where this plan is stricter, this plan wins for these tasks.
 
 | State | Tasks |
 |---|---|
-| **Complete** | T-CI-0, T-CI-1, T-CI-1A, T-CI-2, T-CI-2A, T-CI-3, T-CI-4, T-CI-5, T-SEC-1, T-SEC-2, T-SEC-3, T-SEC-3C, T-SEC-4, T-SEC-4A, T-SEC-5, T-SEC-6, T-TIME-1, T-TIME-2, T-TIME-3, T-CRAWL-1, T-CRAWL-2, T-PLAT-1, T-PLAT-1A, T-PLAT-2, T-PLAT-2A, T-PLAT-2B, T-PLAT-2C, T-PLAT-3, T-PLAT-4, T-GOV-1, T-GOV-2, T-GOV-2A, T-GOV-3, T-GOV-3A, T-GOV-3B, T-GOV-4, T-GOV-5, T-GOV-6, T-DA-1, T-DB-1A, T-DB-1, T-DB-1B, T-DC-1, T-DD-1A, T-DD-1B, T-DE-1 |
-| **Pending** | T-DE-2, T-DC-2A, T-DC-2B, T-TASK-1, T-SEM-1, T-IDX-1, T-FE-1 |
+| **Complete** | T-CI-0, T-CI-1, T-CI-1A, T-CI-2, T-CI-2A, T-CI-3, T-CI-4, T-CI-5, T-SEC-1, T-SEC-2, T-SEC-3, T-SEC-3C, T-SEC-4, T-SEC-4A, T-SEC-5, T-SEC-6, T-TIME-1, T-TIME-2, T-TIME-3, T-CRAWL-1, T-CRAWL-2, T-PLAT-1, T-PLAT-1A, T-PLAT-2, T-PLAT-2A, T-PLAT-2B, T-PLAT-2C, T-PLAT-3, T-PLAT-4, T-GOV-1, T-GOV-2, T-GOV-2A, T-GOV-3, T-GOV-3A, T-GOV-3B, T-GOV-4, T-GOV-5, T-GOV-6, T-DA-1, T-DB-1A, T-DB-1, T-DB-1B, T-DC-1, T-DD-1A, T-DD-1B, T-DE-1, T-DE-2 |
+| **Pending** | T-DC-2A, T-DC-2B, T-TASK-1, T-SEM-1, T-IDX-1, T-FE-1 |
 
 ---
 
@@ -1361,9 +1369,28 @@ files (GED-5 grant).
 
 ### T-DE-2: Delete the provider compatibility facade
 - priority: P2
-- status: pending Full plan and exact ownership
+- status: complete and verified 2026-07-31
 - depends_on: T-DE-1 (satisfied by PR #158)
-- files_owned: to be named in a separate Full plan before implementation
+- implementation_plan: `docs/plans/T_DE_2_PROVIDER_FACADE_DELETION_PLAN.md`
+- files_owned: the implementation plan and ledger; `pipeline/llm_provider.py`
+  (delete); `pipeline/llm.py`; `pipeline/local_ai_runtime.py`;
+  `pipeline/local_ai_provider_calls.py`;
+  `tests/test_http_provider_operation_timeout_selection.py`;
+  `tests/test_inference_provider_protocol_contract.py`;
+  `tests/test_task_provider_retry_semantics.py`;
+  `tests/test_provider_error_mapping_retry_vs_fallback.py`;
+  `tests/test_pipeline_batching.py`; `tests/test_repository_guardrails.py`;
+  `tests/test_agenda_segmentation_llm_proclamation_noise_rejection.py`;
+  `tests/test_agenda_segmentation_mode_switch.py`; `tests/test_ai_logic.py`;
+  `tests/test_extract_agenda_prompt_budget.py`; `tests/test_final_polish.py`;
+  `tests/test_llm_backend_parity_agenda_segmentation.py`;
+  `tests/test_llm_backend_parity_grounding.py`;
+  `tests/test_llm_backend_parity_summary.py`;
+  `AGENTS.md`; `ARCHITECTURE.md`; `docs/PIPELINE.md`; `docs/ADR.md`
+- delivered: Deleted the facade and provider-class re-exports, repointed all
+  maintained callers to direct contract/adapter owners, retired three obsolete
+  helper-to-facade registrations, and added a repository-wide deletion/import
+  guardrail. Provider, static, coverage, and complete Python gates pass.
 - do: Delete `pipeline/llm_provider.py`. Repoint production callers and tests
   to `pipeline/inference_provider_contract.py`,
   `pipeline/http_inference_provider.py`, and

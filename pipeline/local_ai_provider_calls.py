@@ -3,7 +3,11 @@ from __future__ import annotations
 from collections.abc import Callable
 import logging
 
-from pipeline.llm_provider import ProviderResponseError, ProviderTimeoutError, ProviderUnavailableError
+from pipeline.inference_provider_contract import (
+    ProviderResponseError,
+    ProviderTimeoutError,
+    ProviderUnavailableError,
+)
 
 
 def log_provider_failure(logger: logging.Logger, operation_label: str, error: Exception) -> None:

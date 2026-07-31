@@ -1,4 +1,5 @@
 def test_llm_path_rejects_proclamation_and_conduct_notice_lines(monkeypatch):
+    import pipeline.http_inference_provider as http_provider_mod
     import pipeline.llm as llm_mod
     from pipeline.llm import LocalAI
 
@@ -16,7 +17,7 @@ def test_llm_path_rejects_proclamation_and_conduct_notice_lines(monkeypatch):
             "(Page 2) - Review the completed Re-Weighted Range Voting rankings and adopt a resolution."
         )
 
-    monkeypatch.setattr(llm_mod.HttpInferenceProvider, "extract_agenda", _fake_extract)
+    monkeypatch.setattr(http_provider_mod.HttpInferenceProvider, "extract_agenda", _fake_extract)
 
     ai = LocalAI()
     items = ai.extract_agenda("dummy")

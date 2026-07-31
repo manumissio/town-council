@@ -1,12 +1,11 @@
 import threading
 
 from pipeline import llm as llm_mod
-from pipeline import http_inference_provider, llm_provider, provider_telemetry
+from pipeline import http_inference_provider, provider_telemetry
 from pipeline.http_inference_payloads import parse_openai_compatible_response_payload
 from pipeline.http_inference_provider import HttpInferenceProvider as DirectHttpInferenceProvider
 from pipeline.inference_provider_contract import InferenceProvider, ProviderResponseError
 from pipeline.inprocess_inference_provider import InProcessLlamaProvider
-from pipeline.llm_provider import HttpInferenceProvider
 from pipeline.provider_telemetry import TOKEN_METRIC_COMPLETION_TOKENS, TOKEN_METRIC_PROMPT_TOKENS
 
 
@@ -307,7 +306,7 @@ def test_inprocess_provider_maps_model_os_failure_to_response_error():
 
 
 def test_http_provider_has_protocol_methods():
-    provider = HttpInferenceProvider()
+    provider = DirectHttpInferenceProvider()
     assert isinstance(provider, InferenceProvider)
     assert hasattr(provider, "extract_agenda")
     assert hasattr(provider, "summarize_agenda_items")
@@ -316,42 +315,12 @@ def test_http_provider_has_protocol_methods():
     assert hasattr(provider, "generate_json")
 
 
-def test_http_provider_import_contract_preserves_llm_provider_facade():
-    assert llm_provider.HttpInferenceProvider is DirectHttpInferenceProvider
-    assert HttpInferenceProvider is DirectHttpInferenceProvider
-
-
-def test_provider_facade_excludes_test_only_rebinding_names():
-    removed_names = {
-        "LOCAL_AI_HTTP_BASE_URL",
-        "LOCAL_AI_HTTP_API",
-        "LOCAL_AI_HTTP_MAX_RETRIES",
-        "LOCAL_AI_HTTP_MODEL",
-        "LOCAL_AI_HTTP_PROFILE",
-        "LOCAL_AI_HTTP_TIMEOUT_SECONDS",
-        "LOCAL_AI_HTTP_TIMEOUT_SEGMENT_SECONDS",
-        "LOCAL_AI_HTTP_TIMEOUT_SUMMARY_SECONDS",
-        "LOCAL_AI_HTTP_TIMEOUT_TOPICS_SECONDS",
-        "LLM_CONTEXT_WINDOW",
-        "record_provider_request",
-        "record_provider_retry",
-        "record_provider_timeout",
-        "record_provider_token_counts",
-        "record_provider_tokens_per_sec",
-        "record_provider_ttft",
-        "requests",
-    }
-
-    assert removed_names.isdisjoint(llm_provider.__all__)
-    assert all(not hasattr(llm_provider, name) for name in removed_names)
-
-
 def test_local_ai_defaults_to_http_provider_when_backend_unset(monkeypatch):
     llm_mod.LocalAI._instance = None
     monkeypatch.setattr(llm_mod, "LOCAL_AI_BACKEND", "")
     ai = llm_mod.LocalAI()
     provider = ai._get_provider()
-    assert isinstance(provider, HttpInferenceProvider)
+    assert isinstance(provider, DirectHttpInferenceProvider)
 
 
 def test_local_ai_invalid_backend_normalizes_to_http_provider(monkeypatch):
@@ -359,4 +328,22 @@ def test_local_ai_invalid_backend_normalizes_to_http_provider(monkeypatch):
     monkeypatch.setattr(llm_mod, "LOCAL_AI_BACKEND", "bogus")
     ai = llm_mod.LocalAI()
     provider = ai._get_provider()
-    assert isinstance(provider, HttpInferenceProvider)
+    assert isinstance(provider, DirectHttpInferenceProvider)
+
+
+def test_local_ai_selects_inprocess_provider(monkeypatch):
+    llm_mod.LocalAI._instance = None
+    monkeypatch.setattr(llm_mod, "LOCAL_AI_BACKEND", "inprocess")
+    ai = llm_mod.LocalAI()
+    provider = ai._get_provider()
+
+    assert isinstance(provider, InProcessLlamaProvider)
+    assert isinstance(provider, InferenceProvider)
+
+
+def test_local_ai_reuses_provider_for_the_selected_backend(monkeypatch):
+    llm_mod.LocalAI._instance = None
+    monkeypatch.setattr(llm_mod, "LOCAL_AI_BACKEND", "http")
+    ai = llm_mod.LocalAI()
+
+    assert ai._get_provider() is ai._get_provider()

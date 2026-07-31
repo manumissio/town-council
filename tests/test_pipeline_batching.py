@@ -22,7 +22,7 @@ from pipeline.agenda_summary_contracts import (
 from pipeline.agenda_summary_empty import EMPTY_AGENDA_SUMMARY_TEXT
 from pipeline.inference_provider_contract import InferenceProvider
 from pipeline.local_ai_runtime import LocalAIConfigError
-from pipeline.llm_provider import ProviderResponseError
+from pipeline.inference_provider_contract import ProviderResponseError
 from pipeline.non_agenda_summary_fallback import (
     NON_AGENDA_FALLBACK_COMPLETION_MODE,
     NON_AGENDA_FALLBACK_NOTE,

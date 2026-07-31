@@ -84,7 +84,8 @@ Require explicit user confirmation before running:
 
 <path_policy>
 Do:
-- Use repo-relative paths in guidance, for example `pipeline/llm_provider.py`.
+- Use repo-relative paths in guidance, for example
+  `pipeline/inference_provider_contract.py`.
 - Use `<REPO_ROOT>` placeholders in command templates.
 - Keep machine-specific runtime paths in untracked local files or checked-in `.example` templates.
 
@@ -246,7 +247,9 @@ Pipeline/task orchestration changes (`pipeline/tasks.py`, worker flow):
 - `PYTHONPATH=. .venv/bin/pytest -q tests/test_pipeline_batching.py`
 - `PYTHONPATH=. .venv/bin/pytest -q tests/test_task_metrics.py`
 
-Inference backend/provider/policy changes (`pipeline/llm.py`, `pipeline/llm_provider.py`, `pipeline/config.py`):
+Inference backend/provider/policy changes (`pipeline/llm.py`,
+`pipeline/inference_provider_contract.py`, `pipeline/http_inference_provider.py`,
+`pipeline/inprocess_inference_provider.py`, `pipeline/config.py`):
 - `PYTHONPATH=. .venv/bin/pytest -q tests/test_inference_provider_protocol_contract.py`
 - `PYTHONPATH=. .venv/bin/pytest -q tests/test_provider_error_mapping_retry_vs_fallback.py`
 - `PYTHONPATH=. .venv/bin/pytest -q tests/test_llm_backend_parity_*.py`

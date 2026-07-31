@@ -223,12 +223,10 @@ Why this exists:
 ## 6) Inference Layer and Policy
 
 ### Core modules
-- `pipeline/llm.py`: LocalAI facade for orchestration policy and compatibility exports
+- `pipeline/llm.py`: LocalAI facade for product and fallback policy
 - `pipeline/local_ai_agenda_compat.py`, `pipeline/local_ai_provider_calls.py`: focused LocalAI compatibility and provider-call helpers
 - `pipeline/agenda_extraction.py`: agenda-extraction facade for prompt/parser/fallback compatibility
 - `pipeline/agenda_extraction_parser.py`, `pipeline/agenda_extraction_fallback.py`, `pipeline/agenda_extraction_acceptance.py`, `pipeline/agenda_extraction_pages.py`, `pipeline/agenda_extraction_noise.py`, `pipeline/agenda_extraction_numbered.py`, `pipeline/agenda_extraction_paragraphs.py`, `pipeline/agenda_extraction_diagnostics.py`: focused agenda-extraction implementation modules
-- `pipeline/llm_provider.py`: provider class, protocol, response-field, and
-  typed-error import compatibility
 - `pipeline/http_inference_provider.py`: HTTP/Ollama transport adapter backed by
   focused `pipeline/http_inference_*` helpers
 - `pipeline/inprocess_inference_provider.py`: in-process llama transport abstraction
@@ -238,7 +236,7 @@ Why this exists:
 
 HTTP retries remain transport-local in `pipeline/http_inference_attempts.py`.
 Tests patch HTTP, configuration, and telemetry names at their implementation
-modules rather than through `pipeline/llm_provider.py`.
+modules and fake the provider protocol at `pipeline/inference_provider_contract.py`.
 
 ### Typed provider errors
 - `ProviderTimeoutError`
@@ -344,11 +342,10 @@ Use these files as primary references:
 - Agenda extraction: `pipeline/agenda_extraction.py` facade plus `pipeline/agenda_extraction_*` implementation modules
 - Runtime agenda summaries: `pipeline/agenda_summary.py` facade plus `pipeline/agenda_summary_items.py`, `pipeline/agenda_summary_scaffold.py`, `pipeline/agenda_summary_prompting.py`, `pipeline/agenda_summary_rendering.py`, `pipeline/agenda_summary_counters.py`, and `pipeline/agenda_summary_pipeline.py`
 - Agenda-summary maintenance: `pipeline/agenda_summary_fallback.py` routes maintenance requests; `pipeline/agenda_summary_contracts.py` and `pipeline/agenda_summary_inputs.py` own contracts and inputs; `pipeline/agenda_summary_batch.py` and `pipeline/non_agenda_summary_fallback.py` own deterministic writes; `pipeline/agenda_summary_side_effects.py` owns post-commit effects
-- Provider import compatibility: `pipeline/llm_provider.py`
-- Provider transport + typed errors: `pipeline/http_inference_provider.py`
-  adapter plus focused `pipeline/http_inference_*` helpers,
-  `pipeline/inprocess_inference_provider.py`,
-  `pipeline/inference_provider_contract.py`
+- Provider contract and typed errors: `pipeline/inference_provider_contract.py`
+- Provider transport: `pipeline/http_inference_provider.py` adapter plus
+  focused `pipeline/http_inference_*` helpers and
+  `pipeline/inprocess_inference_provider.py`
 - Extraction freshness/hash: `pipeline/extraction_service.py`, `pipeline/content_hash.py`
 - Metrics: `pipeline/metrics.py` (facade), `pipeline/metrics_definitions.py`, `pipeline/metrics_provider_keys.py`, `pipeline/metrics_redis_backend.py`, `pipeline/metrics_provider_recorders.py`, `pipeline/metrics_provider_collector.py`, `pipeline/metrics_task_recorders.py`, `pipeline/metrics_celery_signals.py`, `pipeline/metrics_profile_events.py`
 - Summary text runtime: `pipeline/text_generation.py` facade plus `pipeline/summary_text_formatting.py`, `pipeline/summary_text_prompting.py`, `pipeline/summary_source_quality.py`, `pipeline/summary_grounding.py`, and `pipeline/summary_backfill_*` helpers

@@ -11,6 +11,7 @@ def _reset_local_ai_singleton():
 
 
 def test_extract_agenda_truncates_prompt_to_agenda_budget(monkeypatch):
+    from pipeline import http_inference_provider
     from pipeline import llm as llm_mod
 
     captured = {}
@@ -21,7 +22,7 @@ def test_extract_agenda_truncates_prompt_to_agenda_budget(monkeypatch):
 
     monkeypatch.setattr(llm_mod, "LOCAL_AI_BACKEND", "http")
     monkeypatch.setattr(llm_mod, "LLM_AGENDA_MAX_TEXT", 40)
-    monkeypatch.setattr(llm_mod.HttpInferenceProvider, "extract_agenda", _fake_extract)
+    monkeypatch.setattr(http_inference_provider.HttpInferenceProvider, "extract_agenda", _fake_extract)
     _reset_local_ai_singleton()
 
     ai = llm_mod.LocalAI()
@@ -33,14 +34,16 @@ def test_extract_agenda_truncates_prompt_to_agenda_budget(monkeypatch):
 
 
 def test_extract_agenda_provider_timeout_falls_back_to_heuristics(monkeypatch):
+    from pipeline import http_inference_provider
     from pipeline import llm as llm_mod
+    from pipeline.inference_provider_contract import ProviderTimeoutError
 
     monkeypatch.setattr(llm_mod, "LOCAL_AI_BACKEND", "http")
 
     def _timeout(*_args, **_kwargs):
-        raise llm_mod.ProviderTimeoutError("timed out")
+        raise ProviderTimeoutError("timed out")
 
-    monkeypatch.setattr(llm_mod.HttpInferenceProvider, "extract_agenda", _timeout)
+    monkeypatch.setattr(http_inference_provider.HttpInferenceProvider, "extract_agenda", _timeout)
     _reset_local_ai_singleton()
 
     ai = llm_mod.LocalAI()

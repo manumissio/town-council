@@ -35,13 +35,7 @@ from pipeline.config import (
     LOCAL_AI_BACKEND,
     LOCAL_AI_REQUIRE_SOLO_POOL,
 )
-from pipeline.llm_provider import (
-    HttpInferenceProvider as _HttpInferenceProvider,
-    InProcessLlamaProvider as _InProcessLlamaProvider,
-    ProviderResponseError,
-    ProviderTimeoutError,
-    ProviderUnavailableError,
-)
+from pipeline import inference_provider_contract
 from pipeline.local_ai_agenda_compat import (
     agenda_items_summary_is_too_short as _agenda_items_summary_is_too_short_impl,
     deterministic_agenda_items_summary as _legacy_deterministic_agenda_items_summary_impl,
@@ -71,8 +65,6 @@ from pipeline.text_generation import (
 
 logger = logging.getLogger("local-ai")
 
-HttpInferenceProvider = _HttpInferenceProvider
-InProcessLlamaProvider = _InProcessLlamaProvider
 LocalAIConfigError = _LocalAIConfigError
 prepare_summary_prompt = _prepare_summary_prompt
 prepare_agenda_items_summary_prompt = _prepare_agenda_items_summary_prompt
@@ -193,7 +185,7 @@ class LocalAI:
                 items=items,
                 truncation_meta=truncation_meta,
             )
-        except ProviderResponseError as error:
+        except inference_provider_contract.ProviderResponseError as error:
             logger.error("AI Agenda Items Summarization failed (response): %s", error)
             logger.info("agenda_summary.counters agenda_summary_fallback_deterministic=%s", 1)
             return _deterministic_agenda_items_summary_impl(
@@ -201,7 +193,10 @@ class LocalAI:
                 max_bullets=AGENDA_SUMMARY_MAX_BULLETS,
                 truncation_meta=truncation_meta,
             )
-        except (ProviderTimeoutError, ProviderUnavailableError) as error:
+        except (
+            inference_provider_contract.ProviderTimeoutError,
+            inference_provider_contract.ProviderUnavailableError,
+        ) as error:
             self._log_provider_failure("AI Agenda Items Summarization", error)
             return None
         except Exception as error:
@@ -248,7 +243,11 @@ class LocalAI:
                 )
                 or ""
             ).strip()
-        except (ProviderTimeoutError, ProviderUnavailableError, ProviderResponseError) as error:
+        except (
+            inference_provider_contract.ProviderTimeoutError,
+            inference_provider_contract.ProviderUnavailableError,
+            inference_provider_contract.ProviderResponseError,
+        ) as error:
             logger.error("%s failed: %s", "AI Agenda Extraction", error)
         except Exception as error:
             # Provider/runtime extraction failures should preserve heuristic fallback behavior.
