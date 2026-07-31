@@ -82,9 +82,11 @@ long as their content is cohesive.
 3. Banned structures (mechanically checked):
    top-level private `_sync_*_from_*` functions used to reconcile duplicated
    module globals.
-   The scan rejects all direct f-string interpolation passed to SQLAlchemy `text(...)`.
-   SQLAlchemy wildcard imports are rejected because their exported bindings
-   cannot be resolved reliably by the static guardrail.
+   A conservative file-level scan rejects direct f-string interpolation passed
+   through imported SQLAlchemy `text` bindings. Shadowing a matching imported
+   binding does not exempt an interpolated call.
+   Ruff `F403` rejects new wildcard imports; an existing documented
+   compatibility facade retains its explicit suppression.
    See `AGENTS.md` `<known_antipatterns>` for the full rationale.
 4. Retired: all per-file line-count assertions. Ruff C901 and registered
    helper-to-facade relationships preserve complexity and dependency
@@ -112,8 +114,9 @@ cd <REPO_ROOT>
 - no raw `print(...)` in non-CLI pipeline modules
 - no silent broad exception handlers or broad-exception allowlist drift
 - no top-level private `_sync_*_from_*` synchronization functions
-- no direct SQLAlchemy `text(f"...")` interpolation in production Python
-- no SQLAlchemy wildcard imports in production Python
+- no direct SQLAlchemy `text(f"...")` interpolation through matching imported
+  bindings in production Python
+- no new wildcard imports without a documented Ruff `F403` exception
 - fail-fast runtime behavior, freshness contracts, and profile comparability
   (existing Town Council policy tests)
 - the structural rules above, as they are adopted

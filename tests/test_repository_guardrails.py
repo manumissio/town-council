@@ -66,7 +66,7 @@ TEXT_FILE_SUFFIXES = {
 }
 GUARDRAIL_SCAN_PREFIXES = {"api", "pipeline", "scripts", "tests", "docs", "ops", "experiments"}
 FACADE_IMPORT_PACKAGE_ROOTS = ("api", "pipeline", "scripts", "semantic_service", "tests")
-STRUCTURAL_SCAN_EXCLUDED_PREFIXES = {"archive", "experiments", "tests"}
+STRUCTURAL_SCAN_EXCLUDED_PREFIXES = {"tests"}
 SYNC_GLOBAL_FUNCTION_NAME = re.compile(r"^_sync_.+_from_.+$")
 SQLALCHEMY_MODULE = "sqlalchemy"
 SQLALCHEMY_TEXT_NAME = "text"
@@ -76,12 +76,6 @@ LEXICAL_SCOPE_NODES = (
     ast.AsyncFunctionDef,
     ast.ClassDef,
     ast.Lambda,
-)
-LOCAL_BINDING_NESTED_SCOPES = LEXICAL_SCOPE_NODES[1:] + (
-    ast.ListComp,
-    ast.SetComp,
-    ast.DictComp,
-    ast.GeneratorExp,
 )
 PERSONAL_PATH_PATTERNS = (
     re.compile(r"/Users/[^/\s]+/"),
@@ -637,204 +631,49 @@ def _nodes_in_lexical_scope(scope_node: ast.AST) -> list[ast.AST]:
     return scope_nodes
 
 
-def _sqlalchemy_module_text_suffixes(module_name: str) -> set[str]:
-    if module_name == SQLALCHEMY_MODULE:
-        return {SQLALCHEMY_TEXT_NAME, "sql.text", "sql.expression.text"}
-    if module_name == f"{SQLALCHEMY_MODULE}.sql":
-        return {SQLALCHEMY_TEXT_NAME, "expression.text"}
-    if module_name.startswith(f"{SQLALCHEMY_MODULE}.sql."):
-        return {SQLALCHEMY_TEXT_NAME}
-    return set()
+def _sqlalchemy_text_call_names(module_tree: ast.Module) -> set[str]:
+    text_call_names: set[str] = set()
 
-
-def _sqlalchemy_import_bindings(
-    import_node: ast.Import | ast.ImportFrom,
-) -> dict[str, set[str]]:
-    sqlalchemy_bindings: dict[str, set[str]] = {}
-
-    if isinstance(import_node, ast.Import):
-        for imported_name in import_node.names:
-            text_suffixes = _sqlalchemy_module_text_suffixes(imported_name.name)
-            if (
-                imported_name.asname is None
-                and imported_name.name.startswith(f"{SQLALCHEMY_MODULE}.")
-            ):
-                module_suffix = imported_name.name.removeprefix(
-                    f"{SQLALCHEMY_MODULE}."
-                )
-                qualified_text_suffixes = {
-                    f"{module_suffix}.{text_suffix}" for text_suffix in text_suffixes
-                }
-                sqlalchemy_bindings.setdefault(SQLALCHEMY_MODULE, set()).update(
-                    {SQLALCHEMY_TEXT_NAME, *qualified_text_suffixes}
-                )
-                continue
-            if not text_suffixes:
-                continue
-            binding_name = imported_name.asname or SQLALCHEMY_MODULE
-            sqlalchemy_bindings.setdefault(binding_name, set()).update(text_suffixes)
-        return sqlalchemy_bindings
-
-    if import_node.module is None or import_node.level != 0:
-        return sqlalchemy_bindings
-    for imported_name in import_node.names:
-        binding_name = imported_name.asname or imported_name.name
-        if (
-            imported_name.name == SQLALCHEMY_TEXT_NAME
+    for import_node in ast.walk(module_tree):
+        if isinstance(import_node, ast.Import):
+            for imported_name in import_node.names:
+                if imported_name.name == SQLALCHEMY_MODULE:
+                    module_binding = imported_name.asname or SQLALCHEMY_MODULE
+                    text_call_names.add(f"{module_binding}.{SQLALCHEMY_TEXT_NAME}")
+                elif imported_name.name.startswith(f"{SQLALCHEMY_MODULE}."):
+                    module_binding = imported_name.asname or SQLALCHEMY_MODULE
+                    text_call_names.add(f"{module_binding}.{SQLALCHEMY_TEXT_NAME}")
+                    if imported_name.asname is None:
+                        text_call_names.add(
+                            f"{imported_name.name}.{SQLALCHEMY_TEXT_NAME}"
+                        )
+        elif (
+            isinstance(import_node, ast.ImportFrom)
+            and import_node.level == 0
+            and import_node.module is not None
             and (
                 import_node.module == SQLALCHEMY_MODULE
                 or import_node.module.startswith(f"{SQLALCHEMY_MODULE}.")
             )
         ):
-            sqlalchemy_bindings.setdefault(binding_name, set()).add("")
-            continue
-        imported_module = f"{import_node.module}.{imported_name.name}"
-        text_suffixes = _sqlalchemy_module_text_suffixes(imported_module)
-        if text_suffixes:
-            sqlalchemy_bindings.setdefault(binding_name, set()).update(text_suffixes)
-    return sqlalchemy_bindings
+            for imported_name in import_node.names:
+                binding_name = imported_name.asname or imported_name.name
+                if imported_name.name == SQLALCHEMY_TEXT_NAME:
+                    text_call_names.add(binding_name)
+                elif imported_name.name in {"sql", "expression"}:
+                    text_call_names.add(f"{binding_name}.{SQLALCHEMY_TEXT_NAME}")
 
-
-def _scope_sqlalchemy_text_bindings(
-    scope_node: ast.AST,
-) -> dict[str, set[str]]:
-    sqlalchemy_bindings: dict[str, set[str]] = {}
-
-    for scope_member in _nodes_in_lexical_scope(scope_node):
-        if isinstance(scope_member, (ast.Import, ast.ImportFrom)):
-            imported_bindings = _sqlalchemy_import_bindings(scope_member)
-            for binding_name, text_suffixes in imported_bindings.items():
-                sqlalchemy_bindings.setdefault(binding_name, set()).update(text_suffixes)
-
-    return sqlalchemy_bindings
-
-
-def _scope_argument_names(scope_node: ast.AST) -> set[str]:
-    if not isinstance(scope_node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.Lambda)):
-        return set()
-    function_arguments = scope_node.args
-    argument_nodes = (
-        *function_arguments.posonlyargs,
-        *function_arguments.args,
-        *function_arguments.kwonlyargs,
-    )
-    argument_names = {argument.arg for argument in argument_nodes}
-    if function_arguments.vararg is not None:
-        argument_names.add(function_arguments.vararg.arg)
-    if function_arguments.kwarg is not None:
-        argument_names.add(function_arguments.kwarg.arg)
-    return argument_names
-
-
-def _scope_local_binding_names(scope_node: ast.AST) -> set[str]:
-    scope_body = scope_node.body if hasattr(scope_node, "body") else []
-    pending_nodes = list(scope_body) if isinstance(scope_body, list) else [scope_body]
-    binding_names = _scope_argument_names(scope_node)
-    external_binding_names: set[str] = set()
-
-    while pending_nodes:
-        current_node = pending_nodes.pop()
-        if isinstance(current_node, (ast.Global, ast.Nonlocal)):
-            external_binding_names.update(current_node.names)
-            continue
-        if isinstance(current_node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
-            binding_names.add(current_node.name)
-            continue
-        if isinstance(current_node, LOCAL_BINDING_NESTED_SCOPES):
-            continue
-        if isinstance(current_node, ast.Name) and isinstance(current_node.ctx, ast.Store):
-            binding_names.add(current_node.id)
-        elif isinstance(current_node, ast.Import):
-            binding_names.update(
-                imported_name.asname or imported_name.name.partition(".")[0]
-                for imported_name in current_node.names
-            )
-        elif isinstance(current_node, ast.ImportFrom):
-            binding_names.update(
-                imported_name.asname or imported_name.name
-                for imported_name in current_node.names
-            )
-        elif isinstance(current_node, ast.ExceptHandler) and current_node.name:
-            binding_names.add(current_node.name)
-        pending_nodes.extend(ast.iter_child_nodes(current_node))
-
-    return binding_names - external_binding_names
-
-
-def _lexical_scopes(
-    source_node: ast.AST,
-    parent_nodes: dict[ast.AST, ast.AST],
-) -> list[ast.AST]:
-    lexical_scopes: list[ast.AST] = []
-    current_node: ast.AST | None = source_node
-
-    while current_node is not None:
-        if isinstance(current_node, LEXICAL_SCOPE_NODES) and _executes_in_scope_body(
-            source_node,
-            current_node,
-            parent_nodes,
-        ):
-            lexical_scopes.append(current_node)
-        current_node = parent_nodes.get(current_node)
-    return lexical_scopes
-
-
-def _executes_in_scope_body(
-    source_node: ast.AST,
-    scope_node: ast.AST,
-    parent_nodes: dict[ast.AST, ast.AST],
-) -> bool:
-    scope_child = source_node
-    while parent_nodes.get(scope_child) is not scope_node:
-        scope_parent = parent_nodes.get(scope_child)
-        if scope_parent is None:
-            return False
-        scope_child = scope_parent
-
-    scope_body = scope_node.body if hasattr(scope_node, "body") else None
-    if isinstance(scope_body, list):
-        return scope_child in scope_body
-    return scope_child is scope_body
-
-
-def _is_sqlalchemy_text_call(
-    call_node: ast.Call,
-    *,
-    parent_nodes: dict[ast.AST, ast.AST],
-) -> bool:
-    function_name = _dotted_expression_name(call_node.func)
-    if function_name is None:
-        return False
-    binding_name, _, function_suffix = function_name.partition(".")
-    nested_in_function = False
-
-    for scope_node in _lexical_scopes(call_node, parent_nodes):
-        if isinstance(scope_node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.Lambda)):
-            nested_in_function = True
-        if isinstance(scope_node, ast.ClassDef) and nested_in_function:
-            continue
-        sqlalchemy_bindings = _scope_sqlalchemy_text_bindings(scope_node)
-        if binding_name in sqlalchemy_bindings:
-            return function_suffix in sqlalchemy_bindings[binding_name]
-        if binding_name in _scope_local_binding_names(scope_node):
-            return False
-    return False
+    return text_call_names
 
 
 def _call_has_interpolated_text(call_node: ast.Call) -> bool:
     return any(
-        _expression_has_joined_string(argument_expression)
+        isinstance(expression_node, ast.JoinedStr)
         for argument_expression in (
             *call_node.args,
             *(keyword.value for keyword in call_node.keywords),
         )
-    )
-
-
-def _expression_has_joined_string(expression: ast.expr) -> bool:
-    return any(
-        isinstance(expression_node, ast.JoinedStr)
-        for expression_node in ast.walk(expression)
+        for expression_node in ast.walk(argument_expression)
     )
 
 
@@ -843,39 +682,13 @@ def _interpolated_sqlalchemy_text_lines(module_path: Path) -> list[int]:
         module_path.read_text(encoding="utf-8"),
         filename=str(module_path),
     )
-    parent_nodes = {
-        child_node: parent_node
-        for parent_node in ast.walk(module_tree)
-        for child_node in ast.iter_child_nodes(parent_node)
-    }
+    text_call_names = _sqlalchemy_text_call_names(module_tree)
     return sorted(
         statement.lineno
         for statement in ast.walk(module_tree)
         if isinstance(statement, ast.Call)
         and _call_has_interpolated_text(statement)
-        and _is_sqlalchemy_text_call(
-            statement,
-            parent_nodes=parent_nodes,
-        )
-    )
-
-
-def _sqlalchemy_wildcard_import_lines(module_path: Path) -> list[int]:
-    module_tree = ast.parse(
-        module_path.read_text(encoding="utf-8"),
-        filename=str(module_path),
-    )
-    return sorted(
-        statement.lineno
-        for statement in ast.walk(module_tree)
-        if isinstance(statement, ast.ImportFrom)
-        and statement.module is not None
-        and statement.level == 0
-        and (
-            statement.module == SQLALCHEMY_MODULE
-            or statement.module.startswith(f"{SQLALCHEMY_MODULE}.")
-        )
-        and any(imported_name.name == "*" for imported_name in statement.names)
+        and _dotted_expression_name(statement.func) in text_call_names
     )
 
 
@@ -938,7 +751,11 @@ def test_ruff_guardrail_config_keeps_scope_and_exceptions_narrow():
     config_text = (ROOT / "ruff.toml").read_text(encoding="utf-8")
 
     assert 'src = ["api", "council_crawler", "pipeline", "scripts", "semantic_service", "tests"]' in config_text
-    assert 'select = ["E722", "F401", "F841", "B", "BLE001", "C901", "DTZ", "S"]' in config_text
+    assert 'select = ["E722", "F401", "F403", "F841", "B", "BLE001", "C901", "DTZ", "S"]' in config_text
+    assert (
+        '"scripts/*.py" = ["F401", "S101", "S105", "S112", "S310", "S311", '
+        '"S324", "S603", "S607"]'
+    ) in config_text
     assert "pipeline/*.py" not in config_text
     assert "api/*.py" not in config_text
 
@@ -1062,6 +879,33 @@ def test_ruff_per_file_ignore_selectors_cover_current_violations():
     )
 
     assert stale_ignore_selectors == []
+
+
+def test_ruff_rejects_wildcard_imports_and_sql_interpolation() -> None:
+    planted_violations = subprocess.run(
+        [
+            sys.executable,
+            "-m",
+            "ruff",
+            "check",
+            "--stdin-filename",
+            "scripts/t_gov_3b_probe.py",
+            "-",
+        ],
+        cwd=ROOT,
+        input=(
+            "from sqlalchemy import *\n"
+            'table_name = "catalog"\n'
+            'query = f"SELECT * FROM {table_name}"\n'
+        ),
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+
+    assert planted_violations.returncode == RUFF_VIOLATION_EXIT
+    assert "F403" in planted_violations.stdout
+    assert "S608" in planted_violations.stdout
 
 
 def test_typed_subtree_config_stays_explicit_and_aligned():
@@ -1996,7 +1840,7 @@ def test_sync_global_guardrail_detects_top_level_functions(
         ),
     ),
 )
-def test_sqlalchemy_text_guardrail_detects_direct_interpolation(
+def test_sqlalchemy_text_guardrail_detects_matching_imports(
     tmp_path: Path,
     sqlalchemy_import: str,
     interpolated_call: str,
@@ -2033,26 +1877,7 @@ def test_sqlalchemy_text_guardrail_allows_safe_and_unrelated_calls(
     assert _interpolated_sqlalchemy_text_lines(sql_source) == []
 
 
-def test_sqlalchemy_text_guardrail_respects_lexical_scope(
-    tmp_path: Path,
-) -> None:
-    sql_source = tmp_path / "scoped_sql_source.py"
-    sql_source.write_text(
-        "def build_sql(value):\n"
-        "    from sqlalchemy import text\n"
-        '    return text(f"SELECT {value}")\n'
-        "\n"
-        "def render_message(value):\n"
-        "    def text(statement):\n"
-        "        return statement\n"
-        '    return text(f"Value: {value}")\n',
-        encoding="utf-8",
-    )
-
-    assert _interpolated_sqlalchemy_text_lines(sql_source) == [3]
-
-
-def test_sqlalchemy_text_guardrail_respects_nearer_local_bindings(
+def test_sqlalchemy_text_guardrail_shadowing_does_not_exempt_interpolation(
     tmp_path: Path,
 ) -> None:
     sql_source = tmp_path / "shadowed_sql_source.py"
@@ -2069,71 +1894,7 @@ def test_sqlalchemy_text_guardrail_respects_nearer_local_bindings(
         encoding="utf-8",
     )
 
-    assert _interpolated_sqlalchemy_text_lines(sql_source) == []
-
-
-@pytest.mark.parametrize(
-    "definition_source",
-    (
-        'def query(statement=text(f"SELECT {value}")):\n'
-        "    from sqlalchemy import text\n",
-        '@text(f"SELECT {value}")\n'
-        "def query():\n"
-        "    from sqlalchemy import text\n",
-        'class Query(text(f"SELECT {value}")):\n'
-        "    from sqlalchemy import text\n",
-    ),
-)
-def test_sqlalchemy_text_guardrail_uses_definition_execution_scope(
-    tmp_path: Path,
-    definition_source: str,
-) -> None:
-    sql_source = tmp_path / "definition_scope_sql_source.py"
-    sql_source.write_text(
-        "def text(statement):\n"
-        "    return statement\n"
-        f"{definition_source}",
-        encoding="utf-8",
-    )
-
-    assert _interpolated_sqlalchemy_text_lines(sql_source) == []
-
-
-@pytest.mark.parametrize(
-    "sql_source_text, expected_lines",
-    (
-        (
-            "from sqlalchemy import text\n"
-            'query = text(f"SELECT {value}")\n'
-            "text = other_callable\n",
-            [2],
-        ),
-        (
-            "def query(value):\n"
-            "    from sqlalchemy import text\n"
-            '    statement = text(f"SELECT {value}")\n'
-            "    text = other_callable\n",
-            [3],
-        ),
-        (
-            "from sqlalchemy import text\n"
-            'def query(text=text(f"SELECT {value}")):\n'
-            "    return text\n"
-            'statement = text(f"SELECT {value}")\n'
-            "values = [value for text in sources]\n",
-            [2, 4],
-        ),
-    ),
-)
-def test_sqlalchemy_text_guardrail_does_not_lose_calls_to_rebinding(
-    tmp_path: Path,
-    sql_source_text: str,
-    expected_lines: list[int],
-) -> None:
-    sql_source = tmp_path / "binding_sql_source.py"
-    sql_source.write_text(sql_source_text, encoding="utf-8")
-
-    assert _interpolated_sqlalchemy_text_lines(sql_source) == expected_lines
+    assert _interpolated_sqlalchemy_text_lines(sql_source) == [4, 9]
 
 
 def test_structural_scan_scope_covers_production_python_only() -> None:
@@ -2141,29 +1902,11 @@ def test_structural_scan_scope_covers_production_python_only() -> None:
     assert _is_production_structural_path(Path("alembic/versions/0001.py"))
     assert _is_production_structural_path(Path("pipeline/tasks.py"))
     assert not _is_production_structural_path(Path("tests/test_tasks.py"))
-    assert not _is_production_structural_path(Path("archive/scripts/old.py"))
-    assert not _is_production_structural_path(Path("experiments/probe.py"))
-
-
-def test_sqlalchemy_wildcard_guardrail_rejects_only_sqlalchemy_imports(
-    tmp_path: Path,
-) -> None:
-    wildcard_source = tmp_path / "wildcard_source.py"
-    wildcard_source.write_text(
-        "from sqlalchemy import *\n"
-        "from sqlalchemy.sql import *\n"
-        "from unrelated import *\n"
-        "from .sqlalchemy import *\n",
-        encoding="utf-8",
-    )
-
-    assert _sqlalchemy_wildcard_import_lines(wildcard_source) == [1, 2]
 
 
 def test_production_python_has_no_banned_structural_smells() -> None:
     sync_violations: dict[str, list[int]] = {}
     sql_violations: dict[str, list[int]] = {}
-    sqlalchemy_wildcard_violations: dict[str, list[int]] = {}
 
     for source_path in _broad_exception_scan_files():
         relative_source_path = source_path.relative_to(ROOT)
@@ -2175,13 +1918,9 @@ def test_production_python_has_no_banned_structural_smells() -> None:
         sql_lines = _interpolated_sqlalchemy_text_lines(source_path)
         if sql_lines:
             sql_violations[str(relative_source_path)] = sql_lines
-        wildcard_lines = _sqlalchemy_wildcard_import_lines(source_path)
-        if wildcard_lines:
-            sqlalchemy_wildcard_violations[str(relative_source_path)] = wildcard_lines
 
     assert sync_violations == {}
     assert sql_violations == {}
-    assert sqlalchemy_wildcard_violations == {}
 
 
 def test_broad_exception_allowlist_stays_explicit():
@@ -4847,7 +4586,9 @@ def test_t_gov_3_closes_after_structural_rules_land():
     assert "## Structural rules\n" in guardrail_policy
     assert "[transition: T-GOV-3]" not in guardrail_policy
     assert "duplicated module-global state synchronized by convention" not in guardrail_policy
-    assert "all direct f-string interpolation passed to SQLAlchemy `text(...)`" in guardrail_policy
+    assert "conservative file-level scan rejects direct f-string interpolation" in guardrail_policy
+    assert "Shadowing a matching imported" in guardrail_policy
+    assert "Ruff `F403` rejects new wildcard imports" in guardrail_policy
     assert "top-level private `_sync_*_from_*` functions" in guardrail_policy
     assert "Retired: all per-file line-count assertions." in guardrail_policy
     assert "Remaining line assertions are deleted" not in guardrail_policy

@@ -1,6 +1,6 @@
 # Town Council Remediation Plan (Codex Multi-Agent)
 
-version: 3.76
+version: 3.78
 generated: 2026-07-26
 source: Four-pass external code review (security, architecture, smells, process)
 source_artifact: [Town Council architecture review](../reviews/architecture-review-2026-07-19.html)
@@ -10,6 +10,13 @@ remains in force; where this plan is stricter, this plan wins for these tasks.
 
 ## Changelog
 
+- **v3.78:** Narrows T-GOV-3B after pre-commit review: activates Ruff `S608`
+  for scripts by replacing their wildcard security exemption with eight
+  current debt codes, and limits shadowing policy to interpolated calls.
+- **v3.77:** Simplifies T-GOV-3B after independent review: deletes the partial
+  lexical resolver, moves wildcard-import enforcement to Ruff `F403`, and
+  preserves direct SQLAlchemy interpolation enforcement through a conservative
+  file-level binding convention.
 - **v3.76:** Expands T-GOV-3B ownership to `AGENTS.md` and synchronizes the
   binding contributor policy with active SQLAlchemy interpolation and
   wildcard-import enforcement.
@@ -1716,14 +1723,17 @@ files (GED-5 grant).
 - files_owned: `docs/plans/T_GOV_3B_STRUCTURAL_GUARDRAILS_PLAN.md`,
   `docs/plans/TOWN_COUNCIL_REMEDIATION_PLAN.md`,
   `AGENTS.md`, `docs/ENGINEERING_GUARDRAILS.md`,
+  `ruff.toml`,
   `tests/test_repository_guardrails.py`,
   `tests/test_api_startup_security.py`,
   `tests/test_inference_provider_protocol_contract.py`
 - do: Register four helper relationships made clean by T-DC-1 and revised
   T-DE-1; add checks banning top-level private `_sync_*_from_*` functions and
-  direct f-string interpolation in SQLAlchemy `text(...)`; remove superseded
-  domain-specific assertions and the `[transition: T-GOV-3]` marker only after
-  all checks pass.
+  direct f-string interpolation through matching SQLAlchemy `text` import
+  bindings; select Ruff `F403` for wildcard imports; activate Ruff `S608` for
+  scripts by narrowing their security debt list; remove superseded domain-
+  specific assertions and the `[transition: T-GOV-3]` marker only after all
+  checks pass.
 - note: T-DD-1B introduces no current facade rule and remains outside the
   dependency registry.
 - accept: Remaining structural rules are mechanically enforced, no pending
