@@ -758,11 +758,12 @@ def _is_sqlalchemy_text_call(
 
 
 def _call_has_interpolated_text(call_node: ast.Call) -> bool:
-    if call_node.args and _expression_has_joined_string(call_node.args[0]):
-        return True
     return any(
-        _keyword_has_interpolated_text(keyword)
-        for keyword in call_node.keywords
+        _expression_has_joined_string(argument_expression)
+        for argument_expression in (
+            *call_node.args,
+            *(keyword.value for keyword in call_node.keywords),
+        )
     )
 
 
@@ -770,23 +771,6 @@ def _expression_has_joined_string(expression: ast.expr) -> bool:
     return any(
         isinstance(expression_node, ast.JoinedStr)
         for expression_node in ast.walk(expression)
-    )
-
-
-def _keyword_has_interpolated_text(keyword: ast.keyword) -> bool:
-    if keyword.arg == SQLALCHEMY_TEXT_NAME:
-        return _expression_has_joined_string(keyword.value)
-    if keyword.arg is not None or not isinstance(keyword.value, ast.Dict):
-        return False
-    return any(
-        isinstance(keyword_name, ast.Constant)
-        and keyword_name.value == SQLALCHEMY_TEXT_NAME
-        and _expression_has_joined_string(keyword_value)
-        for keyword_name, keyword_value in zip(
-            keyword.value.keys,
-            keyword.value.values,
-            strict=True,
-        )
     )
 
 
@@ -1925,6 +1909,10 @@ def test_sync_global_guardrail_detects_top_level_functions(
         (
             "from sqlalchemy import text",
             'text(**{"text": f"SELECT {value}"})',
+        ),
+        (
+            "from sqlalchemy import text",
+            'text(**dict(text=f"SELECT {value}"))',
         ),
     ),
 )
