@@ -149,7 +149,8 @@ site. Expected production and test net change is approximately minus 54 lines.
 3. A request exactly at expiry refreshes and returns changed facets.
 4. A Meilisearch failure returns the existing empty payload and caches it until
    expiry.
-5. Cache state does not leak between endpoint tests.
+5. Endpoint tests isolate cache lifetimes through non-overlapping clock epochs
+   without patching private cache state.
 6. The deleted module has no remaining import or Ruff exception.
 7. Redis remains configured for non-API workloads.
 8. Supported Compose runs one API process; a custom multi-process deployment
@@ -172,8 +173,10 @@ coverage.
 
 **s) Fakes and mocks.** Tests patch the Meilisearch client in
 `api/search/support_core.py` and the monotonic clock where the route looks it
-up. These are approved Meilisearch and clock boundaries in `docs/TESTING.MD`.
-No facade, re-export, private helper, or production reset seam is patched.
+up. Non-overlapping test clock epochs expire prior snapshots without patching
+private storage. These are approved Meilisearch and clock boundaries in
+`docs/TESTING.MD`. No facade, re-export, private helper, cache state, or
+production reset seam is patched.
 
 **t) Verification rows.** Apply API/search behavior, guardrail/tooling,
 security-sensitive Compose, and docs-only verification. Run the complete

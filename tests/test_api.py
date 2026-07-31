@@ -3,8 +3,10 @@ from pytest_mock import MockerFixture
 from fastapi.testclient import TestClient
 from fastapi import HTTPException
 from datetime import UTC, datetime
+from itertools import count
 import sys
 import os
+from time import monotonic
 from unittest.mock import MagicMock
 from kombu.exceptions import OperationalError
 from meilisearch.errors import MeilisearchCommunicationError, MeilisearchError, MeilisearchTimeoutError
@@ -36,17 +38,14 @@ DUBLIN_METADATA_FACETS = {
     }
 }
 EMPTY_METADATA = {"cities": [], "organizations": [], "meeting_types": []}
+METADATA_TEST_EPOCHS = count(start=monotonic() + 10_000.0, step=10_000.0)
 
 
 @pytest.fixture
 def metadata_cache_runtime(
     mocker: MockerFixture,
-    monkeypatch: pytest.MonkeyPatch,
 ) -> tuple[list[float], MagicMock]:
-    from api import search_read_routes
-
-    monkeypatch.setattr(search_read_routes, "_metadata_cache_entry", None)
-    metadata_time = [100.0]
+    metadata_time = [next(METADATA_TEST_EPOCHS)]
     mocker.patch("api.search_read_routes.monotonic", side_effect=lambda: metadata_time[0])
     metadata_index = mocker.Mock()
     metadata_index.search.return_value = BERKELEY_METADATA_FACETS
@@ -124,19 +123,20 @@ def test_stats_failure_returns_503(mocker):
 
 
 @pytest.mark.parametrize(
-    ("second_request_time", "expected_cities"),
-    [(3699.0, ["Berkeley", "Dublin"]), (3700.0, ["Dublin"])],
+    ("elapsed_seconds", "expected_cities"),
+    [(3599.0, ["Berkeley", "Dublin"]), (3600.0, ["Dublin"])],
     ids=["before-expiry", "at-expiry"],
 )
 def test_metadata_endpoint_uses_snapshot_until_expiry(
     metadata_cache_runtime: tuple[list[float], MagicMock],
-    second_request_time: float,
+    elapsed_seconds: float,
     expected_cities: list[str],
 ) -> None:
     metadata_time, metadata_index = metadata_cache_runtime
+    first_request_time = metadata_time[0]
     first_response = client.get("/metadata", headers={"X-API-Key": VALID_KEY})
     metadata_index.search.return_value = DUBLIN_METADATA_FACETS
-    metadata_time[0] = second_request_time
+    metadata_time[0] = first_request_time + elapsed_seconds
     second_response = client.get("/metadata", headers={"X-API-Key": VALID_KEY})
 
     assert first_response.status_code == 200
@@ -156,7 +156,7 @@ def test_metadata_endpoint_caches_failure_payload_until_expiry(
     metadata_index.search.side_effect = MeilisearchCommunicationError("unavailable")
     failed_response = client.get("/metadata", headers={"X-API-Key": VALID_KEY})
     metadata_index.search.side_effect = None
-    metadata_time[0] = 3699.0
+    metadata_time[0] += 3599.0
     cached_response = client.get("/metadata", headers={"X-API-Key": VALID_KEY})
 
     assert failed_response.status_code == 200
