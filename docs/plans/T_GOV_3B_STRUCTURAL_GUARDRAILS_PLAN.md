@@ -72,7 +72,7 @@ The operator approved T-GOV-3B planning, ownership, and implementation on
    methods, and names outside that private convention remain allowed.
 6. Add test-local AST helpers that resolve direct and module-qualified
    SQLAlchemy `text` imports in each call's ancestor lexical scopes and report
-   positional or `text=` f-string arguments. Scan
+   f-string descendants in any direct call argument expression. Scan
    Ruff-discovered production Python files, including repository-root modules
    and `alembic/**`, while excluding tests, archive, and experiments. Treat all
    direct SQLAlchemy `text(f"...")` calls as prohibited because static segments
@@ -86,7 +86,8 @@ The operator approved T-GOV-3B planning, ownership, and implementation on
      `from sqlalchemy.sql import text`, aliased `sqlalchemy.sql` imports,
      `import sqlalchemy`, `import sqlalchemy as sa`,
      `import sqlalchemy.sql as sql`, and deeper qualified module aliases all
-     reject direct positional or keyword `text(f"...")` calls;
+     reject direct positional, keyword, concatenated, or unpacked
+     `text(f"...")` calls;
    - later assignments, function defaults, and comprehension targets cannot
      hide an earlier direct SQLAlchemy call;
    - literal SQL, non-SQLAlchemy helpers, and directive text inside strings do
