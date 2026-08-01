@@ -24,7 +24,8 @@ invented for tests.
 | Boundary              | Substitute via                                          |
 |-----------------------|---------------------------------------------------------|
 | Database              | Session factory injection / test sessionmaker; SQLite or a test Postgres per existing conftest patterns |
-| Celery dispatch       | Patch `celery_app.send_task` / task `.delay` at `api/task_dispatch.py` or use Celery eager mode |
+| Celery dispatch       | Patch `api.task_dispatch.celery_app.send_task` or use Celery eager mode |
+| Celery result backend | Patch `api.task_route_support.AsyncResult`                  |
 | Inference / LLM       | Fake provider implementing `pipeline/inference_provider_contract.py` |
 | Meilisearch           | Patch the client object where it is constructed (`api/search/support_core.py`, `pipeline/indexer.py`) |
 | Outbound HTTP         | `httpx`/`requests` transport mocks at the call site      |

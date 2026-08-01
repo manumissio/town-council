@@ -2,17 +2,17 @@ import logging
 import uuid
 from typing import Any
 
+from celery.result import AsyncResult
 from fastapi import HTTPException
 
 from api.task_dispatch import INVALID_TASK_ID_DETAIL
+from pipeline.celery_app import app as celery_app
+
+logger = logging.getLogger("town-council-api")
 
 
 def get_task_status_payload(
-    task_facade: Any,
     task_id: str,
-    *,
-    celery_app: Any,
-    logger: logging.Logger,
 ) -> dict[str, Any]:
     try:
         uuid.UUID(task_id)
@@ -20,7 +20,7 @@ def get_task_status_payload(
         logger.warning("Invalid task status request", extra={"task_id": task_id})
         raise HTTPException(status_code=400, detail=INVALID_TASK_ID_DETAIL)
 
-    task = task_facade.AsyncResult(task_id, app=celery_app)
+    task = AsyncResult(task_id, app=celery_app)
     if not task.ready():
         return {"status": "processing"}
 

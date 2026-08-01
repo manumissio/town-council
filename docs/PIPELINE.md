@@ -336,8 +336,11 @@ Most regressions come from partial stage additions (route without durable write 
 Use these files as primary references:
 - Batch orchestration: `pipeline/run_pipeline.py` facade plus `pipeline/run_pipeline_steps.py`, `pipeline/run_pipeline_onboarding.py`, `pipeline/run_pipeline_selectors.py`, `pipeline/run_pipeline_extraction.py`, and `pipeline/run_pipeline_parallel.py`
 - Async orchestration: `pipeline/tasks.py` facade plus focused `pipeline/task_*` helpers
-- API task dispatch: `api/task_routes.py` facade plus focused `api/task_*` helpers
-- API task entrypoints: `api/main.py`
+- API task routes: `api/task_routes.py` assembly plus focused
+  `api/task_route_*` helpers
+- API task dispatch: `api/task_dispatch.py` owns named Celery sends and broker
+  failure mapping
+- API app assembly: `api/main.py`
 - Inference policy: `pipeline/llm.py` facade plus focused `pipeline/local_ai_*` helpers
 - Agenda extraction: `pipeline/agenda_extraction.py` facade plus `pipeline/agenda_extraction_*` implementation modules
 - Runtime agenda summaries: `pipeline/agenda_summary.py` facade plus `pipeline/agenda_summary_items.py`, `pipeline/agenda_summary_scaffold.py`, `pipeline/agenda_summary_prompting.py`, `pipeline/agenda_summary_rendering.py`, `pipeline/agenda_summary_counters.py`, and `pipeline/agenda_summary_pipeline.py`

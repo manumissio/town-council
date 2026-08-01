@@ -1,5 +1,6 @@
 import pytest
 from fastapi.testclient import TestClient
+from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
 import sys
 import os
@@ -48,16 +49,18 @@ def test_api_task_routes_work_when_app_imported_as_main(monkeypatch):
         mock_db.get.return_value = mock_catalog
         docker_main.app.dependency_overrides[docker_main.get_db] = lambda: mock_db
 
-        mock_task = MagicMock()
-        mock_task.id = "docker-task-uuid"
-        docker_main.generate_summary_task.delay = MagicMock(return_value=mock_task)
-
-        response = docker_client.post("/summarize/1", headers={"X-API-Key": VALID_KEY})
+        mock_task = MagicMock(id="docker-task-uuid")
+        with patch("api.task_dispatch.celery_app.send_task", return_value=mock_task) as send_task:
+            response = docker_client.post("/summarize/1", headers={"X-API-Key": VALID_KEY})
 
         assert response.status_code == 200
         assert response.json()["status"] == "processing"
         assert response.json()["task_id"] == "docker-task-uuid"
-        docker_main.generate_summary_task.delay.assert_called_once_with(1, force=False)
+        send_task.assert_called_once_with(
+            "pipeline.tasks.generate_summary_task",
+            args=(1,),
+            kwargs={"force": False},
+        )
 
         content_response = docker_client.get("/catalog/1/content", headers={"X-API-Key": VALID_KEY})
 
@@ -73,13 +76,13 @@ def test_api_task_routes_work_when_app_imported_as_main(monkeypatch):
                 MagicMock(display_name="Springfield", name="springfield"),
             )
         ]
-        docker_main._lineage_rows = MagicMock(return_value=lineage_rows)
+        lineage_query = mock_db.query.return_value.join.return_value.join.return_value.join.return_value
+        lineage_query.filter.return_value.order_by.return_value.all.return_value = lineage_rows
 
         lineage_response = docker_client.get("/lineage/lin-1")
 
         assert lineage_response.status_code == 200
         assert lineage_response.json()["lineage_id"] == "lin-1"
-        docker_main._lineage_rows.assert_called_once()
     finally:
         if "docker_main" in locals():
             docker_main.app.dependency_overrides.clear()
@@ -104,30 +107,25 @@ def test_async_summarization_flow(mocker):
     
     app.dependency_overrides[get_db] = lambda: mock_db
     
-    # 2. Mock Celery Task
-    # We need to mock the 'delay' method of the imported task
     mock_task = MagicMock()
     mock_task.id = "test-task-uuid"
-    
-    # Patch the task in the API module where it is imported
-    with patch("api.main.generate_summary_task") as mock_generate_task:
-        mock_generate_task.delay.return_value = mock_task
-        
-        # 3. Action: Call the API
+
+    with patch("api.task_dispatch.celery_app.send_task", return_value=mock_task) as send_task:
         response = client.post(
             "/summarize/1", 
             headers={"X-API-Key": VALID_KEY}
         )
-        
-        # 4. Verify
+
         assert response.status_code == 200
         data = response.json()
         assert data["status"] == "processing"
         assert data["task_id"] == "test-task-uuid"
         assert "/tasks/test-task-uuid" in data["poll_url"]
-        
-        # Ensure the task was actually called
-        mock_generate_task.delay.assert_called_once_with(1, force=False)
+        send_task.assert_called_once_with(
+            "pipeline.tasks.generate_summary_task",
+            args=(1,),
+            kwargs={"force": False},
+        )
         
     del app.dependency_overrides[get_db]
 
@@ -142,8 +140,7 @@ def test_async_summarization_returns_503_when_enqueue_fails(mocker):
     mock_db.get.return_value = mock_catalog
     app.dependency_overrides[get_db] = lambda: mock_db
 
-    with patch("api.main.generate_summary_task") as mock_generate_task:
-        mock_generate_task.delay.side_effect = OperationalError("broker down")
+    with patch("api.task_dispatch.celery_app.send_task", side_effect=OperationalError("broker down")):
 
         response = client.post("/summarize/1", headers={"X-API-Key": VALID_KEY})
 
@@ -163,8 +160,7 @@ def test_async_summarization_returns_503_when_enqueue_times_out(mocker):
     mock_db.get.return_value = mock_catalog
     app.dependency_overrides[get_db] = lambda: mock_db
 
-    with patch("api.main.generate_summary_task") as mock_generate_task:
-        mock_generate_task.delay.side_effect = TimeoutError("broker timed out")
+    with patch("api.task_dispatch.celery_app.send_task", side_effect=TimeoutError("broker timed out")):
 
         response = client.post("/summarize/1", headers={"X-API-Key": VALID_KEY})
 
@@ -184,10 +180,10 @@ def test_async_summarization_returns_503_when_task_id_missing(mocker):
     mock_db.get.return_value = mock_catalog
     app.dependency_overrides[get_db] = lambda: mock_db
 
-    with patch("api.main.generate_summary_task") as mock_generate_task:
+    with patch("api.task_dispatch.celery_app.send_task") as send_task:
         mock_task = MagicMock()
         mock_task.id = ""
-        mock_generate_task.delay.return_value = mock_task
+        send_task.return_value = mock_task
 
         response = client.post("/summarize/1", headers={"X-API-Key": VALID_KEY})
 
@@ -207,8 +203,7 @@ def test_async_summarization_does_not_mask_unexpected_enqueue_error(mocker):
     mock_db.get.return_value = mock_catalog
     app.dependency_overrides[get_db] = lambda: mock_db
 
-    with patch("api.main.generate_summary_task") as mock_generate_task:
-        mock_generate_task.delay.side_effect = ValueError("programmer error")
+    with patch("api.task_dispatch.celery_app.send_task", side_effect=ValueError("programmer error")):
 
         response = client.post("/summarize/1", headers={"X-API-Key": VALID_KEY})
 
@@ -222,8 +217,7 @@ def test_task_status_polling():
     """
     Test: Does the polling endpoint return the task status?
     """
-    # Mock AsyncResult within api.main
-    with patch("api.main.AsyncResult") as MockResult:
+    with patch("api.task_route_support.AsyncResult") as MockResult:
         # Case 1: Processing
         mock_pending = MagicMock()
         mock_pending.ready.return_value = False
@@ -327,12 +321,12 @@ def test_segment_returns_cached_items_when_quality_is_good():
     app.dependency_overrides[get_db] = lambda: mock_db
 
     try:
-        with patch("api.main.segment_agenda_task") as mock_segment_task:
+        with patch("api.task_dispatch.celery_app.send_task") as send_task:
             response = client.post("/segment/1", headers={"X-API-Key": VALID_KEY})
             assert response.status_code == 200
             data = response.json()
             assert data["status"] == "cached"
-            mock_segment_task.delay.assert_not_called()
+            send_task.assert_not_called()
     finally:
         del app.dependency_overrides[get_db]
 
@@ -345,15 +339,29 @@ def test_segment_regenerates_when_cached_items_look_low_quality():
     mock_catalog.id = 1
     mock_catalog.content = "Agenda text"
 
-    low_quality_item_1 = MagicMock()
-    low_quality_item_1.title = "Special Closed Meeting 10/03/11"
-    low_quality_item_1.page_number = 1
-    low_quality_item_2 = MagicMock()
-    low_quality_item_2.title = "P R O C L A M A T I O N"
-    low_quality_item_2.page_number = 1
+    low_quality_items = [
+        SimpleNamespace(
+            title="Special Closed Meeting 10/03/11",
+            page_number=1,
+            description=None,
+            result=None,
+        ),
+        SimpleNamespace(
+            title="P R O C L A M A T I O N",
+            page_number=1,
+            description=None,
+            result=None,
+        ),
+        SimpleNamespace(
+            title="Call to Order",
+            page_number=1,
+            description=None,
+            result=None,
+        ),
+    ]
 
     mock_query = MagicMock()
-    mock_query.filter_by.return_value.order_by.return_value.all.return_value = [low_quality_item_1, low_quality_item_2]
+    mock_query.filter_by.return_value.order_by.return_value.all.return_value = low_quality_items
 
     mock_db = MagicMock()
     mock_db.get.return_value = mock_catalog
@@ -364,17 +372,17 @@ def test_segment_regenerates_when_cached_items_look_low_quality():
     fake_task.id = "regen-task-id"
 
     try:
-        with patch("api.main.segment_agenda_task") as mock_segment_task, patch(
-            "api.main.agenda_items_look_low_quality", return_value=True
-        ):
-            mock_segment_task.delay.return_value = fake_task
-
+        with patch("api.task_dispatch.celery_app.send_task", return_value=fake_task) as send_task:
             response = client.post("/segment/1", headers={"X-API-Key": VALID_KEY})
             assert response.status_code == 200
             data = response.json()
             assert data["status"] == "processing"
             assert data["task_id"] == "regen-task-id"
-            mock_segment_task.delay.assert_called_once_with(1)
+            send_task.assert_called_once_with(
+                "pipeline.tasks.segment_agenda_task",
+                args=(1,),
+                kwargs={},
+            )
     finally:
         del app.dependency_overrides[get_db]
 

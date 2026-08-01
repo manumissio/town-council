@@ -19,7 +19,8 @@ sys.path.append(os.path.join(os.path.dirname(__file__), '..', 'api'))
 # Mock heavy AI dependency before importing api.main
 sys.modules["llama_cpp"] = MagicMock()
 
-from api.main import agenda_items_look_low_quality, app
+from api.main import app
+from pipeline.agenda_resolver import agenda_items_look_low_quality
 
 client = TestClient(app)
 VALID_KEY = "dev_secret_key_change_me"
@@ -458,7 +459,14 @@ def test_task_status_rejects_invalid_uuid():
     assert response.json()["detail"] == "Invalid task_id format"
 
 
-def test_lineage_endpoint_not_gated_by_trends_flag(mocker):
+@pytest.mark.parametrize("route", ["/summarize/1", "/segment/1", "/votes/1", "/topics/1", "/extract/1"])
+def test_task_mutation_routes_require_api_key(route):
+    response = client.post(route)
+
+    assert response.status_code == 401
+
+
+def test_lineage_endpoint_not_gated_by_trends_flag():
     from api.main import get_db
 
     rows = [
@@ -469,10 +477,12 @@ def test_lineage_endpoint_not_gated_by_trends_flag(mocker):
             MagicMock(display_name="ca_berkeley", name="Berkeley"),
         )
     ]
-    mocker.patch("api.main._lineage_rows", return_value=rows)
+    db = MagicMock()
+    lineage_query = db.query.return_value.join.return_value.join.return_value.join.return_value
+    lineage_query.filter.return_value.order_by.return_value.all.return_value = rows
 
     def _get_db():
-        yield MagicMock()
+        yield db
 
     app.dependency_overrides[get_db] = _get_db
     try:
@@ -484,7 +494,7 @@ def test_lineage_endpoint_not_gated_by_trends_flag(mocker):
         del app.dependency_overrides[get_db]
 
 
-def test_lineage_endpoint_emits_offset_bearing_timestamp(mocker):
+def test_lineage_endpoint_emits_offset_bearing_timestamp():
     from api.main import get_db
 
     rows = [
@@ -501,10 +511,12 @@ def test_lineage_endpoint_emits_offset_bearing_timestamp(mocker):
             MagicMock(display_name="ca_berkeley", name="Berkeley"),
         )
     ]
-    mocker.patch("api.main._lineage_rows", return_value=rows)
+    db = MagicMock()
+    lineage_query = db.query.return_value.join.return_value.join.return_value.join.return_value
+    lineage_query.filter.return_value.order_by.return_value.all.return_value = rows
 
     def _get_db():
-        yield MagicMock()
+        yield db
 
     app.dependency_overrides[get_db] = _get_db
     try:
@@ -534,8 +546,6 @@ def test_segment_force_bypasses_cache(mocker):
     If cached agenda items exist, `force=true` should still enqueue regeneration.
     """
     from api.main import get_db
-    from pipeline.models import AgendaItem, Catalog
-
     catalog = MagicMock(id=401, content="City council meeting discussed budget updates and adopted multiple motions after public comment.")
 
     db = MagicMock()
@@ -549,10 +559,9 @@ def test_segment_force_bypasses_cache(mocker):
         yield db
 
     app.dependency_overrides[get_db] = _mock_get_db
-    mocker.patch("api.main.agenda_items_look_low_quality", return_value=False)
     mock_task = MagicMock()
     mock_task.id = "task123"
-    mocker.patch("api.main.segment_agenda_task.delay", return_value=mock_task)
+    send_task = mocker.patch("api.task_dispatch.celery_app.send_task", return_value=mock_task)
 
     try:
         resp = client.post("/segment/401?force=true", headers={"X-API-Key": VALID_KEY})
@@ -560,6 +569,11 @@ def test_segment_force_bypasses_cache(mocker):
         payload = resp.json()
         assert payload["status"] == "processing"
         assert payload["task_id"] == "task123"
+        send_task.assert_called_once_with(
+            "pipeline.tasks.segment_agenda_task",
+            args=(401,),
+            kwargs={},
+        )
     finally:
         del app.dependency_overrides[get_db]
 
@@ -582,14 +596,14 @@ def test_segment_returns_cached_when_not_forced_and_quality_ok(mocker):
         yield db
 
     app.dependency_overrides[get_db] = _mock_get_db
-    mocker.patch("api.main.agenda_items_look_low_quality", return_value=False)
-    mocker.patch("api.main.segment_agenda_task.delay")
+    send_task = mocker.patch("api.task_dispatch.celery_app.send_task")
 
     try:
         resp = client.post("/segment/401", headers={"X-API-Key": VALID_KEY})
         assert resp.status_code == 200
         payload = resp.json()
         assert payload["status"] == "cached"
+        send_task.assert_not_called()
     finally:
         del app.dependency_overrides[get_db]
 
@@ -607,13 +621,18 @@ def test_votes_endpoint_enqueues_async_task(mocker):
     app.dependency_overrides[get_db] = _mock_get_db
     fake_task = MagicMock()
     fake_task.id = "task-votes-777"
-    mocker.patch("api.main.extract_votes_task.delay", return_value=fake_task)
+    send_task = mocker.patch("api.task_dispatch.celery_app.send_task", return_value=fake_task)
     try:
         resp = client.post("/votes/777", headers={"X-API-Key": VALID_KEY})
         assert resp.status_code == 200
         payload = resp.json()
         assert payload["status"] == "processing"
         assert payload["task_id"] == "task-votes-777"
+        send_task.assert_called_once_with(
+            "pipeline.tasks.extract_votes_task",
+            args=(777,),
+            kwargs={"force": False},
+        )
     finally:
         del app.dependency_overrides[get_db]
 
@@ -629,7 +648,7 @@ def test_votes_endpoint_returns_503_when_enqueue_fails(mocker):
         yield db
 
     app.dependency_overrides[get_db] = _mock_get_db
-    mocker.patch("api.main.extract_votes_task.delay", side_effect=OperationalError("broker down"))
+    mocker.patch("api.task_dispatch.celery_app.send_task", side_effect=OperationalError("broker down"))
     try:
         resp = client.post("/votes/777", headers={"X-API-Key": VALID_KEY})
         assert resp.status_code == 503
@@ -659,7 +678,7 @@ def test_summarize_force_bypasses_cache(mocker):
     app.dependency_overrides[get_db] = _mock_get_db
     mock_task = MagicMock()
     mock_task.id = "task_summary_1"
-    mocker.patch("api.main.generate_summary_task.delay", return_value=mock_task)
+    send_task = mocker.patch("api.task_dispatch.celery_app.send_task", return_value=mock_task)
 
     try:
         resp = client.post("/summarize/401?force=true", headers={"X-API-Key": VALID_KEY})
@@ -667,6 +686,11 @@ def test_summarize_force_bypasses_cache(mocker):
         payload = resp.json()
         assert payload["status"] == "processing"
         assert payload["task_id"] == "task_summary_1"
+        send_task.assert_called_once_with(
+            "pipeline.tasks.generate_summary_task",
+            args=(401,),
+            kwargs={"force": True},
+        )
     finally:
         del app.dependency_overrides[get_db]
 
@@ -682,14 +706,14 @@ def test_summarize_returns_blocked_low_signal_without_queueing(mocker):
         yield db
 
     app.dependency_overrides[get_db] = _mock_get_db
-    delay = mocker.patch("api.main.generate_summary_task.delay")
+    send_task = mocker.patch("api.task_dispatch.celery_app.send_task")
     try:
         resp = client.post("/summarize/909", headers={"X-API-Key": VALID_KEY})
         assert resp.status_code == 200
         payload = resp.json()
         assert payload["status"] == "blocked_low_signal"
         assert "Not enough extracted text" in payload["reason"]
-        delay.assert_not_called()
+        send_task.assert_not_called()
     finally:
         del app.dependency_overrides[get_db]
 
@@ -707,6 +731,17 @@ def test_summarize_empty_agenda_bypasses_low_signal_gate(mocker):
     )
     db = MagicMock()
     db.get.return_value = catalog
+    from pipeline.models import AgendaItem, Document
+
+    def _query_side_effect(model):
+        query = MagicMock()
+        if model is Document:
+            query.filter_by.return_value.first.return_value = MagicMock(category="agenda")
+        elif model is AgendaItem:
+            query.filter_by.return_value.order_by.return_value.all.return_value = []
+        return query
+
+    db.query.side_effect = _query_side_effect
 
     def _mock_get_db():
         yield db
@@ -714,15 +749,18 @@ def test_summarize_empty_agenda_bypasses_low_signal_gate(mocker):
     app.dependency_overrides[get_db] = _mock_get_db
     mock_task = MagicMock()
     mock_task.id = "task_summary_empty_agenda"
-    delay = mocker.patch("api.main.generate_summary_task.delay", return_value=mock_task)
-    mocker.patch("api.main._summary_doc_kind_and_hashes", return_value=("agenda", "h1", None))
+    send_task = mocker.patch("api.task_dispatch.celery_app.send_task", return_value=mock_task)
     try:
         resp = client.post("/summarize/910", headers={"X-API-Key": VALID_KEY})
         assert resp.status_code == 200
         payload = resp.json()
         assert payload["status"] == "processing"
         assert payload["task_id"] == "task_summary_empty_agenda"
-        delay.assert_called_once()
+        send_task.assert_called_once_with(
+            "pipeline.tasks.generate_summary_task",
+            args=(910,),
+            kwargs={"force": False},
+        )
     finally:
         del app.dependency_overrides[get_db]
 
@@ -738,7 +776,7 @@ def test_topics_returns_blocked_low_signal_without_queueing(mocker):
         yield db
 
     app.dependency_overrides[get_db] = _mock_get_db
-    delay = mocker.patch("api.main.generate_topics_task.delay")
+    send_task = mocker.patch("api.task_dispatch.celery_app.send_task")
     try:
         resp = client.post("/topics/909", headers={"X-API-Key": VALID_KEY})
         assert resp.status_code == 200
@@ -746,7 +784,47 @@ def test_topics_returns_blocked_low_signal_without_queueing(mocker):
         assert payload["status"] == "blocked_low_signal"
         assert "Not enough extracted text" in payload["reason"]
         assert payload["topics"] == []
-        delay.assert_not_called()
+        send_task.assert_not_called()
+    finally:
+        del app.dependency_overrides[get_db]
+
+
+def test_topics_endpoint_enqueues_async_task(mocker):
+    from api.main import get_db
+
+    catalog = MagicMock(
+        id=911,
+        content=(
+            "City council meeting discussed budget updates, transportation allocations, housing projects, "
+            "public safety staffing, and adopted multiple motions after extended public comment."
+        ),
+        topics=None,
+        content_hash="topics-hash",
+        topics_source_hash=None,
+    )
+    db = MagicMock()
+    db.get.return_value = catalog
+
+    def _mock_get_db():
+        yield db
+
+    app.dependency_overrides[get_db] = _mock_get_db
+    task = MagicMock(id="task-topics-911")
+    send_task = mocker.patch("api.task_dispatch.celery_app.send_task", return_value=task)
+    try:
+        response = client.post("/topics/911?force=true", headers={"X-API-Key": VALID_KEY})
+
+        assert response.status_code == 200
+        assert response.json() == {
+            "status": "processing",
+            "task_id": "task-topics-911",
+            "poll_url": "/tasks/task-topics-911",
+        }
+        send_task.assert_called_once_with(
+            "enrichment.generate_topics",
+            args=(911,),
+            kwargs={"force": True},
+        )
     finally:
         del app.dependency_overrides[get_db]
 
