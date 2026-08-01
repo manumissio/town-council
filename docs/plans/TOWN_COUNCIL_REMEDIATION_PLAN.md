@@ -1,6 +1,6 @@
 # Town Council Remediation Plan (Codex Multi-Agent)
 
-version: 3.94
+version: 3.95
 generated: 2026-07-26
 source: Four-pass external code review (security, architecture, smells, process)
 source_artifact: [Town Council architecture review](../reviews/architecture-review-2026-07-19.html)
@@ -10,6 +10,9 @@ remains in force; where this plan is stricter, this plan wins for these tasks.
 
 ## Changelog
 
+- **v3.95:** Adds T-SEM-1A as a separate policy prerequisite that approves the
+  typed semantic backend/runtime fake boundary required before T-SEM-1 can
+  delete facade patch points. T-SEM-1 remains pending its corrected Full plan.
 - **v3.94:** Completes T-TASK-1 after deleting the task facade helper layer,
   global dependency bags, callable injection, the agenda segmentation service
   bag, and obsolete task-level provider catches. Celery identities, retry
@@ -438,7 +441,7 @@ remains in force; where this plan is stricter, this plan wins for these tasks.
 | State | Tasks |
 |---|---|
 | **Complete** | T-CI-0, T-CI-1, T-CI-1A, T-CI-2, T-CI-2A, T-CI-3, T-CI-4, T-CI-5, T-SEC-1, T-SEC-2, T-SEC-3, T-SEC-3C, T-SEC-4, T-SEC-4A, T-SEC-5, T-SEC-6, T-TIME-1, T-TIME-2, T-TIME-3, T-CRAWL-1, T-CRAWL-2, T-PLAT-1, T-PLAT-1A, T-PLAT-2, T-PLAT-2A, T-PLAT-2B, T-PLAT-2C, T-PLAT-3, T-PLAT-4, T-GOV-1, T-GOV-2, T-GOV-2A, T-GOV-3, T-GOV-3A, T-GOV-3B, T-GOV-4, T-GOV-5, T-GOV-6, T-DA-1, T-DB-1A, T-DB-1, T-DB-1B, T-DC-1, T-DC-2A, T-DC-2B, T-DD-1A, T-DD-1B, T-DE-1, T-DE-2, T-TASK-1 |
-| **In progress** | None |
+| **In progress** | T-SEM-1A |
 | **Pending** | T-SEM-1, T-IDX-1, T-FE-1 |
 
 ---
@@ -1527,10 +1530,27 @@ files (GED-5 grant).
 - forbidden: Task identity drift, new wrappers or compatibility exports,
   orchestration redesign, or implementation without exact ownership.
 
+### T-SEM-1A: Approve the semantic test boundary
+- priority: P1 prerequisite
+- status: in progress under
+  [T-SEM-1A implementation plan](T_SEM_1A_SEMANTIC_TEST_BOUNDARY_PLAN.md)
+- depends_on: G3 (satisfied by T-GOV-1)
+- files_owned: `docs/plans/T_SEM_1A_SEMANTIC_TEST_BOUNDARY_PLAN.md`;
+  `docs/plans/TOWN_COUNCIL_REMEDIATION_PLAN.md`; `docs/TESTING.MD`
+- do: Approve patching `semantic_backend_runtime.get_semantic_backend` to
+  return a `SemanticBackend` fake, then permit optional FAISS and
+  SentenceTransformer substitution there only after T-SEM-1 establishes that
+  ownership.
+- preserve: Every existing approved fake boundary and the prohibition on
+  facade/private-method patch targets.
+- accept: T-SEM-1 can migrate semantic tests without preserving facade seams.
+- forbidden: Production changes, a fixture framework, private-method fakes, or
+  implementation mixed into this policy PR.
+
 ### T-SEM-1: Delete reverse semantic-index facade lookups
 - priority: P2
-- status: pending Full plan and exact ownership
-- depends_on: G3 (satisfied by T-GOV-1)
+- status: pending corrected Full plan and exact ownership after T-SEM-1A
+- depends_on: G3 (satisfied by T-GOV-1), T-SEM-1A
 - files_owned: to be named in a separate Full plan before implementation
 - do: Delete `_semantic_index_facade` lookups and implementation-callable
   exposure across semantic backends, row builders, artifact handling,
@@ -2175,7 +2195,7 @@ Gate:    G3 satisfied (T-GOV-1 Accepted ADR + active docs/TESTING.MD)
 Phase 2: completed foundations [T-DA-1, T-DB-1A, T-DB-1, T-DB-1B,
          T-DC-1, T-DD-1A, T-DD-1B, T-DE-1]
 Next:    Serialize each task's Full-plan registration through this ledger.
-         T-SEM-1 is next and requires its separate ownership review.
+         T-SEM-1A is active; T-SEM-1 follows after its policy prerequisite.
 Phase 3: agent-plat [T-PLAT-1 after T-TIME-1 and T-TIME-2, T-PLAT-1A
          closure, T-PLAT-2B security patch, then T-PLAT-2..4; complete]
          || agent-gov [T-GOV-2 policy and T-GOV-2A runtime enforcement
