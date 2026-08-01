@@ -1,103 +1,187 @@
+from datetime import date
 from unittest.mock import MagicMock
 
+import pytest
+from sqlalchemy.orm import sessionmaker
 
-def test_extract_text_task_returns_error_without_retry_for_missing_file(mocker):
-    """
-    Missing files are not transient; we should return an error without retrying.
-    """
-    import pipeline.tasks as tasks
-
-    db = MagicMock()
-    catalog = MagicMock(id=10, extraction_attempt_count=0, extraction_status="pending")
-    db.get.return_value = catalog
-    mocker.patch.object(tasks, "SessionLocal", return_value=db)
-    mocker.patch("pipeline.tasks.reextract_catalog_content", return_value={"error": "File not found on disk"})
-    mocker.patch("pipeline.tasks.reindex_catalog")
-
-    result = tasks.extract_text_task.run(10, force=True, ocr_fallback=True)
-    assert "error" in result
-    assert "File not found" in result["error"]
-    db.commit.assert_not_called()
+from pipeline import extractor, indexer, task_runtime, tasks
+from pipeline.models import Catalog, Document, Event, Place
 
 
-def test_extract_text_task_updates_db_and_attempts_reindex(mocker):
-    import pipeline.tasks as tasks
-
-    db = MagicMock()
-    catalog = MagicMock(id=10, extraction_attempt_count=0, extraction_status="pending")
-    db.get.return_value = catalog
-    mocker.patch.object(tasks, "SessionLocal", return_value=db)
-    mocker.patch("pipeline.tasks.reextract_catalog_content", return_value={"status": "updated", "catalog_id": 10, "chars": 1234})
-    reindex = mocker.patch("pipeline.tasks.reindex_catalog", return_value={"status": "ok"})
-
-    result = tasks.extract_text_task.run(10, force=True, ocr_fallback=False)
-    assert result["status"] == "updated"
-    db.commit.assert_called_once()
-    reindex.assert_called_once_with(10)
+EXTRACTED_TEXT = "Council reviewed the budget amendment and adopted the revised allocation. " * 20
 
 
-def test_extract_text_task_retries_for_transient_empty_text(mocker):
-    import pipeline.tasks as tasks
-
-    db = MagicMock()
-    catalog = MagicMock(id=10, extraction_attempt_count=0, extraction_status="pending")
-    db.get.return_value = catalog
-    mocker.patch.object(tasks, "SessionLocal", return_value=db)
-    mocker.patch(
-        "pipeline.tasks.reextract_catalog_content",
-        return_value={"error": "extraction returned empty text"},
+def _seed_catalog(db_session, catalog_path: str, *, catalog_id: int = 10) -> Catalog:
+    place = Place(
+        name=f"extract-place-{catalog_id}",
+        state="CA",
+        ocd_division_id=f"ocd-division/country:us/state:ca/place:extract-{catalog_id}",
     )
-    retry = mocker.patch.object(tasks.extract_text_task, "retry", side_effect=RuntimeError("retry requested"))
+    event = Event(
+        ocd_id=f"ocd-event/extract-{catalog_id}",
+        place=place,
+        name="City Council",
+        record_date=date(2026, 1, 10),
+    )
+    catalog = Catalog(
+        id=catalog_id,
+        url_hash=f"extract-{catalog_id}",
+        location=catalog_path,
+        filename=f"extract-{catalog_id}.pdf",
+        extraction_attempt_count=0,
+        extraction_status="pending",
+    )
+    document = Document(
+        place=place,
+        event=event,
+        catalog=catalog,
+        category="minutes",
+    )
+    db_session.add_all([place, event, catalog, document])
+    db_session.commit()
+    return catalog
 
-    try:
+
+def _patch_task_session(mocker, shared_engine) -> None:
+    task_db = sessionmaker(bind=shared_engine)()
+    mocker.patch.object(task_runtime, "task_session", return_value=task_db)
+
+
+def _patch_successful_tika(mocker) -> None:
+    mocker.patch.object(extractor.parser, "from_file", return_value={"content": EXTRACTED_TEXT})
+
+
+def _patch_meilisearch_client(mocker) -> MagicMock:
+    search_client = MagicMock()
+    search_client.index.return_value.delete_documents.return_value = {"taskUid": 17}
+    mocker.patch.object(indexer.meilisearch, "Client", return_value=search_client)
+    return search_client
+
+
+def test_extract_text_task_returns_error_without_retry_for_missing_file(
+    mocker,
+    tmp_path,
+    monkeypatch,
+    db_session,
+    shared_engine,
+):
+    missing_path = tmp_path / "missing.pdf"
+    monkeypatch.setenv("DATA_DIR", str(tmp_path))
+    _seed_catalog(db_session, str(missing_path))
+    _patch_task_session(mocker, shared_engine)
+
+    extraction_result = tasks.extract_text_task.run(10, force=True, ocr_fallback=True)
+
+    assert extraction_result["error"] == "File not found on disk"
+    persisted_catalog = db_session.get(Catalog, 10)
+    db_session.refresh(persisted_catalog)
+    assert persisted_catalog.extraction_status == "pending"
+
+
+def test_extract_text_task_updates_db_and_attempts_reindex(
+    mocker,
+    tmp_path,
+    monkeypatch,
+    db_session,
+    shared_engine,
+):
+    catalog_path = tmp_path / "minutes.pdf"
+    catalog_path.write_bytes(b"test document")
+    monkeypatch.setenv("DATA_DIR", str(tmp_path))
+    _seed_catalog(db_session, str(catalog_path))
+    _patch_task_session(mocker, shared_engine)
+    _patch_successful_tika(mocker)
+    search_client = _patch_meilisearch_client(mocker)
+
+    extraction_result = tasks.extract_text_task.run(10, force=True, ocr_fallback=False)
+
+    assert extraction_result["status"] == "updated"
+    persisted_catalog = db_session.get(Catalog, 10)
+    db_session.refresh(persisted_catalog)
+    assert "budget amendment" in persisted_catalog.content
+    assert persisted_catalog.extraction_status == "complete"
+    assert search_client.index.return_value.add_documents.called
+
+
+def test_extract_text_task_retries_for_transient_empty_text(
+    mocker,
+    tmp_path,
+    monkeypatch,
+):
+    catalog_path = tmp_path / "empty.pdf"
+    catalog_path.write_bytes(b"test document")
+    monkeypatch.setenv("DATA_DIR", str(tmp_path))
+    catalog = Catalog(
+        id=10,
+        url_hash="extract-empty",
+        location=str(catalog_path),
+        extraction_attempt_count=0,
+        extraction_status="pending",
+    )
+    task_db = MagicMock()
+    task_db.get.return_value = catalog
+    mocker.patch.object(task_runtime, "task_session", return_value=task_db)
+    mocker.patch.object(extractor.parser, "from_file", return_value={"content": ""})
+    mocker.patch.object(extractor.time, "sleep")
+    retry_error = RuntimeError("retry requested")
+    retry = mocker.patch.object(tasks.extract_text_task, "retry", side_effect=retry_error)
+
+    with pytest.raises(RuntimeError, match="retry requested"):
         tasks.extract_text_task.run(10, force=True, ocr_fallback=False)
-    except RuntimeError as exc:
-        assert str(exc) == "retry requested"
-    else:
-        raise AssertionError("expected extract_text_task to retry on transient empty-text extraction")
 
-    db.rollback.assert_called_once()
-    retry.assert_called_once()
-    retry_exception = retry.call_args.kwargs["exc"]
-    assert isinstance(retry_exception, RuntimeError)
-    assert str(retry_exception) == "extraction returned empty text"
+    task_db.rollback.assert_called_once()
+    task_db.close.assert_called_once()
+    assert retry.call_args.kwargs["countdown"] == 60
+    assert str(retry.call_args.kwargs["exc"]) == "Extraction returned empty text"
 
 
-def test_extract_text_task_returns_reindex_error_after_successful_commit(mocker):
-    import pipeline.tasks as tasks
+def test_extract_text_task_returns_reindex_error_after_successful_commit(
+    mocker,
+    tmp_path,
+    monkeypatch,
+    db_session,
+    shared_engine,
+):
+    catalog_path = tmp_path / "reindex-failure.pdf"
+    catalog_path.write_bytes(b"test document")
+    monkeypatch.setenv("DATA_DIR", str(tmp_path))
+    _seed_catalog(db_session, str(catalog_path))
+    _patch_task_session(mocker, shared_engine)
+    _patch_successful_tika(mocker)
+    mocker.patch.object(indexer.meilisearch, "Client", side_effect=ConnectionError("search unavailable"))
 
-    db = MagicMock()
-    catalog = MagicMock(id=10, extraction_attempt_count=0, extraction_status="pending")
-    db.get.return_value = catalog
-    mocker.patch.object(tasks, "SessionLocal", return_value=db)
-    mocker.patch(
-        "pipeline.tasks.reextract_catalog_content",
-        return_value={"status": "updated", "catalog_id": 10, "chars": 1234},
-    )
-    mocker.patch("pipeline.tasks.reindex_catalog", side_effect=RuntimeError("search unavailable"))
+    extraction_result = tasks.extract_text_task.run(10, force=True, ocr_fallback=False)
 
-    result = tasks.extract_text_task.run(10, force=True, ocr_fallback=False)
-
-    assert result["status"] == "updated"
-    assert result["reindex_error"] == "search unavailable"
-    db.commit.assert_called_once()
+    assert extraction_result["status"] == "updated"
+    assert extraction_result["reindex_error"] == "search unavailable"
+    persisted_catalog = db_session.get(Catalog, 10)
+    db_session.refresh(persisted_catalog)
+    assert persisted_catalog.extraction_status == "complete"
 
 
-def test_extract_text_task_force_bypasses_terminal_failure_state(mocker):
-    import pipeline.tasks as tasks
+def test_extract_text_task_force_bypasses_terminal_failure_state(
+    mocker,
+    tmp_path,
+    monkeypatch,
+    db_session,
+    shared_engine,
+):
+    catalog_path = tmp_path / "terminal.pdf"
+    catalog_path.write_bytes(b"test document")
+    monkeypatch.setenv("DATA_DIR", str(tmp_path))
+    catalog = _seed_catalog(db_session, str(catalog_path))
+    catalog.content = "Old extracted content that should be replaced."
+    catalog.extraction_attempt_count = 3
+    catalog.extraction_status = "failed_terminal"
+    db_session.commit()
+    _patch_task_session(mocker, shared_engine)
+    _patch_successful_tika(mocker)
+    _patch_meilisearch_client(mocker)
 
-    db = MagicMock()
-    catalog = MagicMock(id=10, extraction_attempt_count=3, extraction_status="failed_terminal")
-    db.get.return_value = catalog
-    mocker.patch.object(tasks, "SessionLocal", return_value=db)
-    extractor = mocker.patch(
-        "pipeline.tasks.reextract_catalog_content",
-        return_value={"status": "updated", "catalog_id": 10, "chars": 555},
-    )
-    mocker.patch("pipeline.tasks.reindex_catalog", return_value={"status": "ok"})
+    extraction_result = tasks.extract_text_task.run(10, force=True, ocr_fallback=False)
 
-    result = tasks.extract_text_task.run(10, force=True, ocr_fallback=False)
-
-    assert result["status"] == "updated"
-    extractor.assert_called_once()
-    assert extractor.call_args.kwargs["force"] is True
+    assert extraction_result["status"] == "updated"
+    persisted_catalog = db_session.get(Catalog, 10)
+    db_session.refresh(persisted_catalog)
+    assert persisted_catalog.extraction_status == "complete"
+    assert "budget amendment" in persisted_catalog.content

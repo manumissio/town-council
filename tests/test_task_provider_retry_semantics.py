@@ -10,21 +10,52 @@ from pipeline import llm as llm_mod
 from pipeline import indexer
 from pipeline import enrichment_tasks
 from pipeline import semantic_tasks
+from pipeline import task_runtime
 from pipeline import tasks
 from pipeline.inference_provider_contract import ProviderResponseError, ProviderTimeoutError
 from pipeline.models import AgendaItem, Document
 
 
 class _AgendaResponseErrorProvider:
+    def health_check(self) -> bool:
+        return True
+
+    def extract_agenda(self, prompt: str, *, temperature: float, max_tokens: int) -> str | None:
+        raise AssertionError("Agenda extraction is outside summary generation")
+
     def summarize_agenda_items(self, prompt, *, temperature, max_tokens):
         _ = (prompt, temperature, max_tokens)
         raise ProviderResponseError("bad payload")
 
+    def summarize_text(self, prompt: str, *, temperature: float, max_tokens: int) -> str | None:
+        raise AssertionError("Text summarization is outside agenda summary generation")
+
+    def generate_topics(self, prompt: str, *, temperature: float, max_tokens: int) -> str | None:
+        raise AssertionError("Topic generation is outside summary generation")
+
+    def generate_json(self, prompt: str, *, max_tokens: int) -> str | None:
+        raise AssertionError("JSON generation is outside summary generation")
+
 
 class _AgendaTimeoutProvider:
+    def health_check(self) -> bool:
+        return True
+
+    def extract_agenda(self, prompt: str, *, temperature: float, max_tokens: int) -> str | None:
+        raise AssertionError("Agenda extraction is outside summary generation")
+
     def summarize_agenda_items(self, prompt, *, temperature, max_tokens):
         _ = (prompt, temperature, max_tokens)
         raise ProviderTimeoutError("timeout")
+
+    def summarize_text(self, prompt: str, *, temperature: float, max_tokens: int) -> str | None:
+        raise AssertionError("Text summarization is outside agenda summary generation")
+
+    def generate_topics(self, prompt: str, *, temperature: float, max_tokens: int) -> str | None:
+        raise AssertionError("Topic generation is outside summary generation")
+
+    def generate_json(self, prompt: str, *, max_tokens: int) -> str | None:
+        raise AssertionError("JSON generation is outside summary generation")
 
 
 def _mock_agenda_summary_db():
@@ -62,11 +93,10 @@ def _mock_agenda_summary_db():
 
 def test_generate_summary_task_uses_deterministic_fallback_for_provider_response_errors(mocker):
     mock_db = _mock_agenda_summary_db()
-    mocker.patch.object(tasks, "SessionLocal", return_value=mock_db)
+    mocker.patch.object(task_runtime, "task_session", return_value=mock_db)
     mocker.patch.object(indexer.meilisearch, "Client", side_effect=RuntimeError("search unavailable"))
     mocker.patch.object(semantic_tasks.embed_catalog_task, "delay", return_value=None)
 
-    llm_mod.LocalAI._instance = None
     mocker.patch.object(llm_mod, "get_runtime_provider", return_value=_AgendaResponseErrorProvider())
 
     retry_mock = mocker.patch.object(tasks.generate_summary_task, "retry")
@@ -79,11 +109,10 @@ def test_generate_summary_task_uses_deterministic_fallback_for_provider_response
 
 def test_generate_summary_task_retries_for_provider_timeout_errors(mocker):
     mock_db = _mock_agenda_summary_db()
-    mocker.patch.object(tasks, "SessionLocal", return_value=mock_db)
+    mocker.patch.object(task_runtime, "task_session", return_value=mock_db)
     mocker.patch.object(indexer.meilisearch, "Client", side_effect=RuntimeError("search unavailable"))
     mocker.patch.object(semantic_tasks.embed_catalog_task, "delay", return_value=None)
 
-    llm_mod.LocalAI._instance = None
     mocker.patch.object(llm_mod, "get_runtime_provider", return_value=_AgendaTimeoutProvider())
 
     retry_exc = RuntimeError("retry-called")

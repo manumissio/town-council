@@ -1,8 +1,14 @@
-from collections.abc import Callable
-from dataclasses import dataclass
 from datetime import datetime, timezone
 from typing import Any
 
+from pipeline import (
+    agenda_resolver,
+    agenda_service,
+    config,
+    indexer,
+    laserfiche_error_pages,
+    vote_extractor,
+)
 from pipeline.llm import LocalAI
 from pipeline.models import AgendaItem, Catalog, Document
 from pipeline.task_runtime import logger
@@ -14,17 +20,6 @@ SEGMENTATION_COMPLETE_STATUS = "complete"
 SEGMENTATION_EMPTY_STATUS = "empty"
 SEGMENTATION_ERROR_PAYLOAD_STATUS = "error"
 SEGMENTATION_FAILURE_ERROR_LIMIT = 500
-
-
-@dataclass(frozen=True)
-class AgendaSegmentationTaskServices:
-    classify_catalog_bad_content: Callable[..., object]
-    has_viable_structured_agenda_source: Callable[..., bool]
-    resolve_agenda_items: Callable[..., dict[str, Any]]
-    persist_agenda_items: Callable[..., list[AgendaItem]]
-    run_vote_extraction_for_catalog: Callable[..., dict[str, Any]]
-    reindex_catalog: Callable[[int], object]
-    vote_extraction_enabled: bool
 
 
 def record_agenda_segmentation_status(
@@ -84,16 +79,15 @@ def run_post_segmentation_vote_extraction(
     catalog: Catalog,
     doc: Document,
     created_items: list[AgendaItem],
-    services: AgendaSegmentationTaskServices,
 ) -> dict[str, Any]:
     """
     Vote extraction remains a non-gating post-segmentation stage in this task family.
     """
-    if not services.vote_extraction_enabled:
+    if not config.ENABLE_VOTE_EXTRACTION:
         return _vote_extraction_disabled_payload()
 
     try:
-        vote_counters = services.run_vote_extraction_for_catalog(
+        vote_counters = vote_extractor.run_vote_extraction_for_catalog(
             db,
             local_ai,
             catalog,
@@ -151,7 +145,6 @@ def run_segment_agenda_task_family(
     catalog_id: int,
     *,
     local_ai: LocalAI,
-    services: AgendaSegmentationTaskServices,
 ) -> dict[str, Any]:
     """
     Run agenda segmentation for one catalog while leaving retries and failure persistence to the task.
@@ -165,11 +158,11 @@ def run_segment_agenda_task_family(
     if not doc:
         return {"error": "Document not linked to event"}
 
-    classification = services.classify_catalog_bad_content(
+    classification = laserfiche_error_pages.classify_catalog_bad_content(
         catalog,
         document_category=getattr(doc, "category", None),
         include_document_shape=True,
-        has_viable_structured_source=services.has_viable_structured_agenda_source(db, catalog, doc),
+        has_viable_structured_source=agenda_resolver.has_viable_structured_agenda_source(db, catalog, doc),
     )
     if classification:
         record_agenda_segmentation_status(
@@ -181,13 +174,13 @@ def run_segment_agenda_task_family(
         db.commit()
         return {"status": SEGMENTATION_ERROR_PAYLOAD_STATUS, "error": classification.reason}
 
-    resolved = services.resolve_agenda_items(db, catalog, doc, local_ai)
+    resolved = agenda_resolver.resolve_agenda_items(db, catalog, doc, local_ai)
     items_data = resolved["items"]
 
     item_count = 0
     items_to_return = []
     if items_data:
-        created_items = services.persist_agenda_items(db, catalog_id, doc.event_id, items_data)
+        created_items = agenda_service.persist_agenda_items(db, catalog_id, doc.event_id, items_data)
         items_to_return = _agenda_items_payload(created_items, resolved["source_used"])
         item_count = len(items_to_return)
         vote_extraction = run_post_segmentation_vote_extraction(
@@ -196,7 +189,6 @@ def run_segment_agenda_task_family(
             catalog=catalog,
             doc=doc,
             created_items=created_items,
-            services=services,
         )
         record_agenda_segmentation_status(
             catalog,
@@ -206,7 +198,7 @@ def run_segment_agenda_task_family(
         )
         db.commit()
         try:
-            services.reindex_catalog(catalog_id)
+            indexer.reindex_catalog(catalog_id)
         except REINDEX_FAILURE_EXCEPTIONS as reindex_error:
             # Agenda items are already persisted, so targeted reindex remains best-effort.
             logger.warning("agenda_segmentation.reindex_failed catalog_id=%s error=%s", catalog_id, reindex_error)

@@ -1519,3 +1519,36 @@ Use each entry to record:
   - [docs/TESTING.MD](TESTING.MD)
   - [SECURITY.md](../SECURITY.md)
   - [T-DC-2B implementation plan](plans/T_DC_2B_API_ROUTER_FACADE_DELETION_PLAN.md)
+
+## 2026-07-31: Delete the task facade helper layer
+
+- Status: Accepted
+- Decision:
+  - `pipeline/tasks.py` keeps the six registered Celery tasks and worker-ready
+    signal receiver while importing task-family modules directly.
+  - `pipeline/task_runtime.py` owns lazy task sessions; task-family modules
+    call configuration, extraction, agenda, vote, index, guardrail, and purge
+    owners directly.
+  - Delete `pipeline/task_facade_helpers.py`, `globals()` dependency bags,
+    callable injection, the agenda segmentation service bag, and the
+    agenda-title test re-export.
+  - Tests use the approved database, inference-provider, Celery, Meilisearch,
+    outbound-HTTP, and filesystem boundaries rather than `pipeline.tasks`
+    compatibility names.
+- Why:
+  - The helper layer existed to preserve historical monkeypatch targets and
+    obscured the module that owned each operation.
+  - Direct module ownership removes mutable dependency bags without changing
+    task names, retry limits, persistence ordering, or payloads.
+  - G3 makes test patch points non-public and requires superseded seams to be
+    deleted rather than replaced.
+- Supersedes:
+  - Compatibility and monkeypatch-surface portions of the 2026-04-08 task
+    extraction decisions and the 2026-04-26 through 2026-04-28 task-family
+    cleanup decisions. Their task-family allocation and runtime contracts
+    remain active.
+- Canonical references:
+  - [ARCHITECTURE.md](../ARCHITECTURE.md)
+  - [docs/PIPELINE.md](PIPELINE.md)
+  - [docs/TESTING.MD](TESTING.MD)
+  - [T-TASK-1 implementation plan](plans/T_TASK_1_TASK_FACADE_DELETION_PLAN.md)

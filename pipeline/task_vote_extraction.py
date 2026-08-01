@@ -1,6 +1,6 @@
-from collections.abc import Callable
 from typing import Any
 
+from pipeline import config, indexer, vote_extractor
 from pipeline.llm import LocalAI
 from pipeline.models import AgendaItem, Catalog, Document
 from pipeline.task_runtime import logger
@@ -37,9 +37,6 @@ def run_extract_votes_task_family(
     *,
     force: bool,
     local_ai: LocalAI,
-    vote_extraction_enabled: bool,
-    run_vote_extraction_for_catalog_callable: Callable[..., dict[str, Any]],
-    reindex_catalog_callable: Callable[[int], object],
 ) -> dict[str, Any]:
     """
     Run vote extraction for one catalog while leaving retries and session cleanup to the task.
@@ -52,7 +49,7 @@ def run_extract_votes_task_family(
     if not doc:
         return {"error": "Document not linked to catalog"}
 
-    if not vote_extraction_enabled and not force:
+    if not config.ENABLE_VOTE_EXTRACTION and not force:
         return _vote_extraction_disabled_payload()
 
     existing_items = (
@@ -64,7 +61,7 @@ def run_extract_votes_task_family(
     if not existing_items:
         return _vote_extraction_not_ready_payload()
 
-    counters = run_vote_extraction_for_catalog_callable(
+    counters = vote_extractor.run_vote_extraction_for_catalog(
         db,
         local_ai,
         catalog,
@@ -75,7 +72,7 @@ def run_extract_votes_task_family(
     db.commit()
 
     try:
-        reindex_catalog_callable(catalog_id)
+        indexer.reindex_catalog(catalog_id)
     except REINDEX_FAILURE_EXCEPTIONS as reindex_error:
         # Vote extraction updates are already persisted, so targeted reindex remains best-effort.
         logger.warning("summary_generation.reindex_failed catalog_id=%s error=%s", catalog_id, reindex_error)

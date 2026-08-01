@@ -1,6 +1,6 @@
 # Town Council Remediation Plan (Codex Multi-Agent)
 
-version: 3.92
+version: 3.94
 generated: 2026-07-26
 source: Four-pass external code review (security, architecture, smells, process)
 source_artifact: [Town Council architecture review](../reviews/architecture-review-2026-07-19.html)
@@ -10,6 +10,15 @@ remains in force; where this plan is stricter, this plan wins for these tasks.
 
 ## Changelog
 
+- **v3.94:** Completes T-TASK-1 after deleting the task facade helper layer,
+  global dependency bags, callable injection, the agenda segmentation service
+  bag, and obsolete task-level provider catches. Celery identities, retry
+  rules, session cleanup, persistence ordering, and task payloads remain
+  protected by direct contract tests.
+- **v3.93:** Activates T-TASK-1 with exact 23-file ownership to delete the task
+  facade helper, `globals()` dependency bags, callable injection, and the
+  agenda segmentation service bag while preserving Celery identities, retry
+  rules, session lifecycle, persistence ordering, and task payloads.
 - **v3.92:** Completes T-DC-2B after deleting API router module-object and
   callable bags, removing task proxy and search compatibility exports,
   repointing tests to database and Celery runtime boundaries, and adding exact
@@ -428,8 +437,9 @@ remains in force; where this plan is stricter, this plan wins for these tasks.
 
 | State | Tasks |
 |---|---|
-| **Complete** | T-CI-0, T-CI-1, T-CI-1A, T-CI-2, T-CI-2A, T-CI-3, T-CI-4, T-CI-5, T-SEC-1, T-SEC-2, T-SEC-3, T-SEC-3C, T-SEC-4, T-SEC-4A, T-SEC-5, T-SEC-6, T-TIME-1, T-TIME-2, T-TIME-3, T-CRAWL-1, T-CRAWL-2, T-PLAT-1, T-PLAT-1A, T-PLAT-2, T-PLAT-2A, T-PLAT-2B, T-PLAT-2C, T-PLAT-3, T-PLAT-4, T-GOV-1, T-GOV-2, T-GOV-2A, T-GOV-3, T-GOV-3A, T-GOV-3B, T-GOV-4, T-GOV-5, T-GOV-6, T-DA-1, T-DB-1A, T-DB-1, T-DB-1B, T-DC-1, T-DC-2A, T-DC-2B, T-DD-1A, T-DD-1B, T-DE-1, T-DE-2 |
-| **Pending** | T-TASK-1, T-SEM-1, T-IDX-1, T-FE-1 |
+| **Complete** | T-CI-0, T-CI-1, T-CI-1A, T-CI-2, T-CI-2A, T-CI-3, T-CI-4, T-CI-5, T-SEC-1, T-SEC-2, T-SEC-3, T-SEC-3C, T-SEC-4, T-SEC-4A, T-SEC-5, T-SEC-6, T-TIME-1, T-TIME-2, T-TIME-3, T-CRAWL-1, T-CRAWL-2, T-PLAT-1, T-PLAT-1A, T-PLAT-2, T-PLAT-2A, T-PLAT-2B, T-PLAT-2C, T-PLAT-3, T-PLAT-4, T-GOV-1, T-GOV-2, T-GOV-2A, T-GOV-3, T-GOV-3A, T-GOV-3B, T-GOV-4, T-GOV-5, T-GOV-6, T-DA-1, T-DB-1A, T-DB-1, T-DB-1B, T-DC-1, T-DC-2A, T-DC-2B, T-DD-1A, T-DD-1B, T-DE-1, T-DE-2, T-TASK-1 |
+| **In progress** | None |
+| **Pending** | T-SEM-1, T-IDX-1, T-FE-1 |
 
 ---
 
@@ -1488,9 +1498,23 @@ files (GED-5 grant).
 
 ### T-TASK-1: Delete the task facade helper layer
 - priority: P1
-- status: pending Full plan and exact ownership
+- status: complete under
+  [T-TASK-1 implementation plan](T_TASK_1_TASK_FACADE_DELETION_PLAN.md)
 - depends_on: T-DB-1B (satisfied by PR #146)
-- files_owned: to be named in a separate Full plan before implementation
+- files_owned: `docs/plans/T_TASK_1_TASK_FACADE_DELETION_PLAN.md`;
+  `docs/plans/TOWN_COUNCIL_REMEDIATION_PLAN.md`; `pipeline/tasks.py`;
+  `pipeline/task_facade_helpers.py` (delete);
+  `pipeline/task_agenda_segmentation.py`; `pipeline/task_text_extraction.py`;
+  `pipeline/task_vote_extraction.py`; `pipeline/task_startup.py`;
+  `tests/test_repository_guardrails.py`; `tests/test_task_facade_cleanup.py`;
+  `tests/test_extract_task.py`; `tests/test_tasks_vote_extraction_flow.py`;
+  `tests/test_async_flow.py`; `tests/test_summary_generation_operation.py`;
+  `tests/test_summary_blocking.py`;
+  `tests/test_task_provider_retry_semantics.py`;
+  `tests/test_tasks_lineage_flow.py`;
+  `tests/test_worker_ready_concurrency_guardrail.py`; `ARCHITECTURE.md`;
+  `tests/test_agenda_title_extraction.py`;
+  `docs/ADR.md`; `docs/PIPELINE.md`; `docs/TESTING.MD`
 - do: Delete `pipeline/task_facade_helpers.py` and the remaining `globals()`
   service bags, callable injection, and forwarding wrappers in
   `pipeline/tasks.py`. Move each operation to its existing domain owner and
@@ -2151,7 +2175,7 @@ Gate:    G3 satisfied (T-GOV-1 Accepted ADR + active docs/TESTING.MD)
 Phase 2: completed foundations [T-DA-1, T-DB-1A, T-DB-1, T-DB-1B,
          T-DC-1, T-DD-1A, T-DD-1B, T-DE-1]
 Next:    Serialize each task's Full-plan registration through this ledger.
-         T-TASK-1 is next; T-SEM-1 follows its separate ownership review.
+         T-SEM-1 is next and requires its separate ownership review.
 Phase 3: agent-plat [T-PLAT-1 after T-TIME-1 and T-TIME-2, T-PLAT-1A
          closure, T-PLAT-2B security patch, then T-PLAT-2..4; complete]
          || agent-gov [T-GOV-2 policy and T-GOV-2A runtime enforcement

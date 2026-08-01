@@ -319,7 +319,8 @@ Primary owners:
   - `api/main.py` (FastAPI app assembly and security middleware)
   - `api/task_routes.py` route assembly, `api/task_dispatch.py` broker boundary,
     and focused `api/task_route_*` helpers
-  - `pipeline/tasks.py` facade plus focused `pipeline/task_*` helpers
+  - `pipeline/tasks.py` Celery entrypoints plus focused `pipeline/task_*`
+    operation owners
   - `frontend/components/ResultCard.js` (polling/status UI)
 - Adjust lineage recompute behavior:
   - `pipeline/lineage_service.py` facade plus focused `pipeline/lineage_*` helpers
@@ -337,7 +338,10 @@ Primary owners:
 
 - Ingestion and promotion: `council_crawler/`, `crawler/promote_stage.py`
 - Canonical extraction/content hashing: `pipeline/extraction_service.py`, `pipeline/content_hash.py`
-- Async orchestration and writes: `pipeline/tasks.py` facade plus focused `pipeline/task_*` helpers, vote extraction through `pipeline/vote_extractor.py` plus focused `pipeline/vote_extraction_*` helpers
+- Async orchestration and writes: `pipeline/tasks.py` owns Celery identities,
+  retries, and sessions; focused `pipeline/task_*` modules own task-family
+  operations; vote extraction runs through `pipeline/vote_extractor.py` plus
+  focused `pipeline/vote_extraction_*` helpers
 - Inference abstraction and provider telemetry: `pipeline/llm.py` product-policy facade plus focused `pipeline/local_ai_*` helpers, `pipeline/agenda_extraction.py`, `pipeline/inference_provider_contract.py`, `pipeline/http_inference_provider.py` adapter plus focused `pipeline/http_inference_*` helpers, `pipeline/inprocess_inference_provider.py`, `pipeline/provider_telemetry.py`, `pipeline/metrics.py`, `pipeline/metrics_provider_recorders.py`, `pipeline/metrics_redis_backend.py`
 - API surface and auth: `api/main.py`, `api/app_setup.py`, `api/search_routes.py` router aggregation, `api/search_read_routes.py` facade plus focused `api/search_read_*` helpers, `api/task_routes.py` route assembly, `api/task_dispatch.py`, focused `api/task_route_*` helpers, focused `api/search/*_support.py` helpers, `api/search/query_builder.py`, `api/metrics.py`
 - Semantic retrieval and embeddings: `semantic_service/main.py` route facade plus focused `semantic_service/*` helpers, `pipeline/semantic_index.py`, `pipeline/semantic_faiss_backend.py`, `pipeline/semantic_pgvector_backend.py`, focused semantic backend helpers, `pipeline/models.py` facade plus focused `pipeline/model_*` modules
@@ -462,17 +466,17 @@ Owners:
 
 | Entity/field | Contract | Primary owners |
 |---|---|---|
-| `catalog.content_hash` | Canonical hash for extracted text used to detect staleness | `pipeline/content_hash.py`, `pipeline/extraction_service.py`, `pipeline/tasks.py` |
+| `catalog.content_hash` | Canonical hash for extracted text used to detect staleness | `pipeline/content_hash.py`, `pipeline/extraction_service.py`, `pipeline/task_text_extraction.py` |
 | `catalog.entities_source_hash` | Hash of source text used to generate current entities | `pipeline/backfill_entities.py`, `pipeline/nlp_worker.py` facade plus focused `pipeline/nlp_entity_*` modules |
-| `catalog.agenda_items_hash` | Hash of the normalized structured agenda payload used for agenda-summary freshness | `pipeline/agenda_service.py`, `pipeline/summary_freshness.py`, `pipeline/tasks.py` |
-| `catalog.summary_source_hash` | Hash of the governing summary input; `content_hash` for non-agenda summaries, `agenda_items_hash` for agenda summaries, and `content_hash` for deterministic summaries of agendas whose segmentation status is `empty` | `pipeline/tasks.py`, `api/main.py`, `api/task_routes.py`, `api/catalog_routes.py`, `pipeline/summary_freshness.py` |
+| `catalog.agenda_items_hash` | Hash of the normalized structured agenda payload used for agenda-summary freshness | `pipeline/agenda_service.py`, `pipeline/summary_freshness.py`, `pipeline/task_agenda_segmentation.py`, `pipeline/task_summary_generation_flow.py` |
+| `catalog.summary_source_hash` | Hash of the governing summary input; `content_hash` for non-agenda summaries, `agenda_items_hash` for agenda summaries, and `content_hash` for deterministic summaries of agendas whose segmentation status is `empty` | `pipeline/task_summary_generation_persistence.py`, `pipeline/agenda_summary_batch.py`, `pipeline/non_agenda_summary_fallback.py`, `pipeline/summary_freshness.py` |
 | `catalog.topics_source_hash` | Hash of source text used to generate current topics | `pipeline/topic_generation.py` facade plus focused `pipeline/topic_generation_*` modules, `pipeline/enrichment_tasks.py`, `pipeline/topic_worker.py`, `api/task_routes.py`, `api/catalog_routes.py` |
-| `agenda_item.result` | Normalized outcome field for agenda/vote interpretation | `pipeline/models.py` facade plus focused `pipeline/model_*` modules, `pipeline/tasks.py` |
-| `agenda_item.votes` | Structured vote payload with extraction metadata | `pipeline/models.py` facade plus focused `pipeline/model_*` modules, `pipeline/tasks.py` |
+| `agenda_item.result` | Normalized outcome field for agenda/vote interpretation | `pipeline/models.py` facade plus focused `pipeline/model_*` modules, `pipeline/vote_extractor.py`, `pipeline/task_vote_extraction.py`, `pipeline/task_agenda_segmentation.py` |
+| `agenda_item.votes` | Structured vote payload with extraction metadata | `pipeline/models.py` facade plus focused `pipeline/model_*` modules, `pipeline/vote_extractor.py`, `pipeline/task_vote_extraction.py`, `pipeline/task_agenda_segmentation.py` |
 | `organization`, `person`, `membership` roster provenance | Legistar body, person, and OfficeRecord identities plus source URL and UTC synchronization metadata; publication also requires current registry approval | `pipeline/model_civic.py`, `pipeline/legistar_roster.py`, `pipeline/roster_sync.py`, `api/people_routes.py` |
 | Meeting `people_metadata` | Omitted until events have independently authoritative governing-body identity | `pipeline/indexer_documents.py` |
 | `catalog.lineage_id`, `catalog.lineage_confidence`, `catalog.lineage_updated_at` | Meeting-level lineage identity and confidence | `pipeline/lineage_service.py` facade plus focused `pipeline/lineage_*` helpers, `api/main.py`, `api/lineage_routes.py` |
-| `semantic_embedding` | pgvector-backed embedding storage for hybrid semantic retrieval | `pipeline/models.py` facade plus focused `pipeline/model_*` modules, `pipeline/semantic_index.py`, `pipeline/semantic_pgvector_backend.py`, focused semantic backend helpers, `pipeline/tasks.py` |
+| `semantic_embedding` | pgvector-backed embedding storage for hybrid semantic retrieval | `pipeline/models.py` facade plus focused `pipeline/model_*` modules, `pipeline/semantic_index.py`, `pipeline/semantic_pgvector_backend.py`, focused semantic backend helpers, `pipeline/semantic_tasks.py` |
 
 ### Observability Contract
 

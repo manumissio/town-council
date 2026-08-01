@@ -1,6 +1,6 @@
-from collections.abc import Callable
 from typing import Any
 
+from pipeline import config, extraction_service, indexer
 from pipeline.models import Catalog
 from pipeline.task_side_effects import REINDEX_FAILURE_EXCEPTIONS
 
@@ -25,19 +25,16 @@ def run_extract_text_task_family(
     *,
     force: bool,
     ocr_fallback: bool,
-    min_chars: int,
-    reextract_catalog_content_callable: Callable[..., dict[str, Any]],
-    reindex_catalog_callable: Callable[[int], object],
 ) -> dict[str, Any]:
     """
     Run the single-catalog text re-extraction flow while leaving retry ownership to the task.
     """
     catalog = db.get(Catalog, catalog_id)
-    result = reextract_catalog_content_callable(
+    result = extraction_service.reextract_catalog_content(
         catalog,
         force=force,
         ocr_fallback=ocr_fallback,
-        min_chars=min_chars,
+        min_chars=config.TIKA_MIN_EXTRACTED_CHARS_FOR_NO_OCR,
     )
     if "error" in result:
         error_message = str(result["error"])
@@ -49,7 +46,7 @@ def run_extract_text_task_family(
 
     # The DB write is already durable here, so targeted reindex stays best-effort.
     try:
-        reindex_catalog_callable(catalog_id)
+        indexer.reindex_catalog(catalog_id)
     except REINDEX_FAILURE_EXCEPTIONS as reindex_error:
         return {**result, "reindex_error": str(reindex_error)}
 

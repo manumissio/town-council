@@ -142,6 +142,11 @@ authorization expose source records but no people-facing data.
 - `topics`: writes topic outputs and source-hash linkage.
 - `votes`: runs vote extraction/update logic over agenda items.
 
+`pipeline/tasks.py` owns registered Celery task identities, retry handling, and
+session lifecycle. The focused `pipeline/task_*` modules call their domain
+owners directly; no task facade bag or injected callable layer sits between
+the entrypoint and the task family.
+
 Why this exists:
 - Heavy extraction/generation work is isolated from synchronous API reads.
 - Task lifecycle makes long-running work observable and retryable.
@@ -335,7 +340,8 @@ Most regressions come from partial stage additions (route without durable write 
 
 Use these files as primary references:
 - Batch orchestration: `pipeline/run_pipeline.py` facade plus `pipeline/run_pipeline_steps.py`, `pipeline/run_pipeline_onboarding.py`, `pipeline/run_pipeline_selectors.py`, `pipeline/run_pipeline_extraction.py`, and `pipeline/run_pipeline_parallel.py`
-- Async orchestration: `pipeline/tasks.py` facade plus focused `pipeline/task_*` helpers
+- Async orchestration: `pipeline/tasks.py` Celery entrypoints plus focused
+  `pipeline/task_*` operation owners
 - API task routes: `api/task_routes.py` assembly plus focused
   `api/task_route_*` helpers
 - API task dispatch: `api/task_dispatch.py` owns named Celery sends and broker
