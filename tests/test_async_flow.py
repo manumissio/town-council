@@ -1,5 +1,6 @@
 import pytest
 from fastapi.testclient import TestClient
+from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
 import sys
 import os
@@ -338,15 +339,29 @@ def test_segment_regenerates_when_cached_items_look_low_quality():
     mock_catalog.id = 1
     mock_catalog.content = "Agenda text"
 
-    low_quality_item_1 = MagicMock()
-    low_quality_item_1.title = "Special Closed Meeting 10/03/11"
-    low_quality_item_1.page_number = 1
-    low_quality_item_2 = MagicMock()
-    low_quality_item_2.title = "P R O C L A M A T I O N"
-    low_quality_item_2.page_number = 1
+    low_quality_items = [
+        SimpleNamespace(
+            title="Special Closed Meeting 10/03/11",
+            page_number=1,
+            description=None,
+            result=None,
+        ),
+        SimpleNamespace(
+            title="P R O C L A M A T I O N",
+            page_number=1,
+            description=None,
+            result=None,
+        ),
+        SimpleNamespace(
+            title="Call to Order",
+            page_number=1,
+            description=None,
+            result=None,
+        ),
+    ]
 
     mock_query = MagicMock()
-    mock_query.filter_by.return_value.order_by.return_value.all.return_value = [low_quality_item_1, low_quality_item_2]
+    mock_query.filter_by.return_value.order_by.return_value.all.return_value = low_quality_items
 
     mock_db = MagicMock()
     mock_db.get.return_value = mock_catalog
