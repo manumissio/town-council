@@ -27,7 +27,7 @@ invented for tests.
 | Celery dispatch       | Patch `api.task_dispatch.celery_app.send_task` or use Celery eager mode |
 | Celery result backend | Patch `api.task_route_support.AsyncResult`                  |
 | Inference / LLM       | Fake provider implementing `pipeline/inference_provider_contract.py` |
-| Semantic backend/runtime | Patch `pipeline.semantic_backend_runtime.get_semantic_backend` to return a fake implementing `pipeline.semantic_backend_types.SemanticBackend`; after T-SEM-1 moves optional FAISS and SentenceTransformer ownership there, substitute those adapters only in that module; never patch backend private methods |
+| Semantic backend/runtime | Patch `pipeline.semantic_backend_runtime.get_semantic_backend` to return a fake implementing `pipeline.semantic_backend_types.SemanticBackend`; pgvector retrieval fakes also implement the public `rerank_candidates_with_diagnostics` or `rerank_candidates` capability exercised by the test; after T-SEM-1 moves optional FAISS and SentenceTransformer ownership there, substitute those adapters only in that module; never patch backend private methods |
 | Meilisearch           | Patch the client object where it is constructed (`api/search/support_core.py`, `pipeline/indexer.py`) |
 | Outbound HTTP         | `httpx`/`requests` transport mocks at the call site      |
 | Clock                 | Pass/patch time at the function under test, not globally |

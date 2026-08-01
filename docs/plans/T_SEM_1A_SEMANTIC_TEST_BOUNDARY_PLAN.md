@@ -42,12 +42,15 @@ depend on or foreclose G1, G2, G4, or G5.
 2. Add one approved fake-boundary row for semantic backend/runtime behavior.
 3. Permit patching `pipeline.semantic_backend_runtime.get_semantic_backend` to
    return a fake implementing the existing `SemanticBackend` contract.
-4. Permit optional FAISS and SentenceTransformer substitution only after
+4. Require pgvector retrieval fakes to implement the public
+   `rerank_candidates_with_diagnostics` or `rerank_candidates` capability
+   exercised by the test.
+5. Permit optional FAISS and SentenceTransformer substitution only after
    T-SEM-1 moves their ownership to `pipeline.semantic_backend_runtime`.
-5. Explicitly prohibit patching backend private methods.
-6. Keep database, filesystem, Meilisearch, HTTP, clock, and inference rows
+6. Explicitly prohibit patching backend private methods.
+7. Keep database, filesystem, Meilisearch, HTTP, clock, and inference rows
    unchanged.
-7. Verify docs links, review independently, commit, push, merge, then return to
+8. Verify docs links, review independently, commit, push, merge, then return to
    a corrected T-SEM-1 Full plan.
 
 No runtime code, test seam, helper, environment variable, or dependency is
@@ -58,7 +61,10 @@ the current approved-boundary table. No second testing policy, adapter class,
 fixture framework, or compatibility layer is introduced.
 
 **g) Data contracts.** The existing `SemanticBackend` contract remains
-unchanged. The policy authorizes substitution; it does not alter the contract.
+unchanged. Pgvector retrieval also consumes the public
+`rerank_candidates_with_diagnostics` or `rerank_candidates` capability. The
+policy authorizes fakes that match the production path exercised by a test; it
+does not alter either runtime contract.
 
 **h) Schema/migration impact.** None.
 
@@ -101,14 +107,16 @@ T-SEM-1 remains responsible for deleting the facade and old patch targets.
 
 1. The boundary must name the typed backend contract and runtime selection
    function, not a facade.
-2. Optional runtime substitutions must remain future-effective until T-SEM-1
+2. Pgvector retrieval tests must fake the public rerank capability they
+   exercise rather than a backend private method.
+3. Optional runtime substitutions must remain future-effective until T-SEM-1
    establishes the named direct owner.
-3. The row must not authorize patching backend private methods.
-4. Existing approved boundaries must remain unchanged.
-5. Links between the ledger, plan, and testing policy must resolve.
+4. The row must not authorize patching backend private methods.
+5. Existing approved boundaries must remain unchanged.
+6. Links between the ledger, plan, and testing policy must resolve.
 
 **r) Tests added or updated.** No test code changes. `tests/test_docs_links.py`
-verifies scenario 5. Independent review verifies scenarios 1-4 against the
+verifies scenario 6. Independent review verifies scenarios 1-5 against the
 policy text and checked-in owners.
 
 **s) Fakes and mocks.** None are used in this docs-only PR. The policy row
