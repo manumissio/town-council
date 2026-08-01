@@ -6,7 +6,7 @@ from unittest.mock import MagicMock
 
 sys.modules["llama_cpp"] = MagicMock()
 
-from pipeline import config, indexer, llm as llm_module, semantic_tasks, task_summary_generation
+from pipeline import config, indexer, llm as llm_module, semantic_tasks, task_runtime, task_summary_generation
 from pipeline import tasks
 from pipeline.llm import LocalAIConfigError
 from pipeline.models import AgendaItem, Document
@@ -76,7 +76,6 @@ def _summary_db(
 
 
 def _install_summary_boundaries(mocker, provider: SummaryProvider) -> None:
-    llm_module.LocalAI._instance = None
     mocker.patch.object(llm_module, "get_runtime_provider", return_value=provider)
     mocker.patch.object(indexer.meilisearch, "Client", side_effect=RuntimeError("search unavailable"))
     mocker.patch.object(semantic_tasks.embed_catalog_task, "delay", return_value=None)
@@ -162,7 +161,7 @@ def test_generate_summary_task_applies_configured_agenda_payload_budget(mocker):
         for agenda_item_number in range(1, 25)
     ]
     summary_db = _summary_db(catalog, document, agenda_items)
-    mocker.patch.object(tasks, "SessionLocal", return_value=summary_db)
+    mocker.patch.object(task_runtime, "task_session", return_value=summary_db)
     mocker.patch.object(config, "AGENDA_SUMMARY_MAX_INPUT_CHARS", 1200)
     mocker.patch.object(config, "AGENDA_SUMMARY_MIN_RESERVED_OUTPUT_CHARS", 200)
 
@@ -194,7 +193,7 @@ def test_generate_summary_task_rolls_back_and_closes_on_provider_configuration_e
         )
     )
     summary_db = _summary_db(catalog, MagicMock(category="minutes"))
-    mocker.patch.object(tasks, "SessionLocal", return_value=summary_db)
+    mocker.patch.object(task_runtime, "task_session", return_value=summary_db)
     mocker.patch.object(
         llm_module,
         "get_runtime_provider",

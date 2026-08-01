@@ -51,6 +51,11 @@ under test is reaching through a boundary it shouldn't.
 4. One behavior per test; name the test after the behavior, matching the
    existing `test_<area>_<behavior>` convention.
 
+Task tests patch `pipeline.task_runtime.task_session`, use an inference fake
+that implements `pipeline.inference_provider_contract.InferenceProvider`, or
+observe the actual Celery task object's retry boundary. They execute the real
+task-family operation rather than patching names copied into `pipeline.tasks`.
+
 ## Test taxonomy and where things live
 
 - `tests/` is flat and behavior-named; keep it that way.

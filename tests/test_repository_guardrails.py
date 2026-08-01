@@ -352,17 +352,12 @@ def test_summary_generation_uses_direct_operation_boundaries() -> None:
         summary_module_path.read_text(encoding="utf-8")
         for summary_module_path in summary_module_paths
     )
-    task_facade_source = (ROOT / "pipeline/task_facade_helpers.py").read_text(
-        encoding="utf-8"
-    )
     tasks_source = (ROOT / "pipeline/tasks.py").read_text(encoding="utf-8")
 
     assert "SummaryGenerationTaskServices" not in combined_source
     assert "run_generate_summary_task_family" not in combined_source
     assert "backlog_maintenance" not in combined_source
     assert "agenda_summary_maintenance" not in combined_source
-    assert "summary_generation_task_services" not in task_facade_source
-    assert "run_generate_summary_task_family" not in task_facade_source
     assert "_summary_generation_task_services" not in tasks_source
     assert "_run_generate_summary_task_family" not in tasks_source
 
@@ -381,6 +376,62 @@ def test_summary_generation_uses_direct_operation_boundaries() -> None:
         str(summary_module_path.relative_to(ROOT)): []
         for summary_module_path in lower_module_paths
     }
+
+
+def test_task_facade_helper_layer_is_deleted() -> None:
+    helper_path = ROOT / "pipeline/task_facade_helpers.py"
+    tasks_path = ROOT / "pipeline/tasks.py"
+    tasks_tree = ast.parse(tasks_path.read_text(encoding="utf-8"))
+
+    assert not helper_path.exists()
+    assert not {
+        "SessionLocal",
+        "_TASK_FACADE_DEPENDENCIES",
+        "_agenda_segmentation_task_services",
+        "_extract_agenda_titles_from_text",
+        "_persist_agenda_segmentation_failure_status",
+        "_record_agenda_segmentation_status",
+        "_run_extract_text_task_family",
+        "_run_extract_votes_task_family",
+        "_run_post_segmentation_vote_extraction",
+        "_run_segment_agenda_task_family",
+    } & _top_level_bound_names(tasks_tree)
+    assert not any(
+        isinstance(node, ast.Call)
+        and isinstance(node.func, ast.Name)
+        and node.func.id == "globals"
+        for node in ast.walk(tasks_tree)
+    )
+
+    expected_family_parameters = {
+        "pipeline/task_text_extraction.py": {
+            "run_extract_text_task_family": {"db", "catalog_id", "force", "ocr_fallback"},
+        },
+        "pipeline/task_vote_extraction.py": {
+            "run_extract_votes_task_family": {"db", "catalog_id", "force", "local_ai"},
+        },
+        "pipeline/task_agenda_segmentation.py": {
+            "persist_agenda_segmentation_failure_status": {"db", "catalog_id", "error_message"},
+            "record_agenda_segmentation_status": {"catalog", "status", "item_count", "error_message"},
+            "run_post_segmentation_vote_extraction": {"db", "local_ai", "catalog", "doc", "created_items"},
+            "run_segment_agenda_task_family": {"db", "catalog_id", "local_ai"},
+        },
+        "pipeline/task_startup.py": {
+            "run_startup_purge_on_worker_ready": {"sender"},
+        },
+    }
+    for relative_path, function_contracts in expected_family_parameters.items():
+        module_path = ROOT / relative_path
+        module_tree = ast.parse(module_path.read_text(encoding="utf-8"))
+        module_functions = {
+            node.name: node
+            for node in module_tree.body
+            if isinstance(node, ast.FunctionDef | ast.AsyncFunctionDef)
+        }
+        assert "AgendaSegmentationTaskServices" not in _top_level_bound_names(module_tree)
+        assert _forbidden_imports(module_path, {"pipeline.tasks", "pipeline.task_facade_helpers"}) == []
+        for function_name, expected_parameters in function_contracts.items():
+            assert _function_parameter_names(module_functions[function_name]) == expected_parameters
 
 
 def _python_module_paths(prefix: str) -> list[Path]:
@@ -2677,9 +2728,6 @@ def test_summary_backfill_runner_is_the_direct_operation_boundary() -> None:
         for module_path in backfill_module_paths
     }
 
-    task_facade_source = (ROOT / "pipeline/task_facade_helpers.py").read_text(
-        encoding="utf-8"
-    )
     tasks_source = (ROOT / "pipeline/tasks.py").read_text(encoding="utf-8")
     for obsolete_name in (
         "_summary_doc_kind_subquery",
@@ -2688,7 +2736,6 @@ def test_summary_backfill_runner_is_the_direct_operation_boundary() -> None:
         "_enqueue_embed_catalogs",
         "run_summary_hydration_backfill",
     ):
-        assert obsolete_name not in task_facade_source
         assert obsolete_name not in tasks_source
 
 

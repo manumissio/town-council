@@ -1,8 +1,8 @@
 from __future__ import annotations
 
 import sys
-from typing import Any, Callable
 
+from pipeline import config, runtime_guardrails, startup_purge
 from pipeline.task_runtime import logger
 
 
@@ -26,32 +26,27 @@ def get_celery_pool_from_argv(argv: list[str]) -> str | None:
 
 def run_startup_purge_on_worker_ready(
     sender=None,
-    *,
-    backend: str | None,
-    allow_multiprocess: bool,
-    require_solo_pool: bool,
-    guardrail_message_builder: Callable[..., str | None],
-    startup_purge_callable: Callable[[], Any],
 ) -> None:
     """
     Keep worker startup policy in one place while leaving the signal binding in tasks.py.
     """
     try:
-        normalized_backend = (backend or "inprocess").strip().lower()
+        normalized_backend = (config.LOCAL_AI_BACKEND or "inprocess").strip().lower()
         concurrency = getattr(sender, "concurrency", None)
         if concurrency is None and sender is not None:
-            concurrency = getattr(getattr(sender, "app", None), "conf", {}).get("worker_concurrency")  # type: ignore[attr-defined]
+            sender_config = getattr(getattr(sender, "app", None), "conf", {})
+            concurrency = sender_config.get("worker_concurrency")
         try:
             if concurrency is not None:
                 concurrency = int(concurrency)
         except (TypeError, ValueError):
             concurrency = None
 
-        pool = get_celery_pool_from_argv(getattr(sender, "argv", None) or sys.argv)  # type: ignore[arg-type]
-        guardrail_message = guardrail_message_builder(
+        pool = get_celery_pool_from_argv(getattr(sender, "argv", None) or sys.argv)
+        guardrail_message = runtime_guardrails.local_ai_runtime_guardrail_message(
             backend=normalized_backend,
-            allow_multiprocess=allow_multiprocess,
-            require_solo_pool=require_solo_pool,
+            allow_multiprocess=config.LOCAL_AI_ALLOW_MULTIPROCESS,
+            require_solo_pool=config.LOCAL_AI_REQUIRE_SOLO_POOL,
             concurrency=concurrency,
             pool=pool,
         )
@@ -65,5 +60,5 @@ def run_startup_purge_on_worker_ready(
         # guardrail failures so a bad environment never disappears silently.
         logger.warning("worker_ready.guardrail_check_failed error=%s", guardrail_error)
 
-    result = startup_purge_callable()
+    result = startup_purge.run_startup_purge_if_enabled()
     logger.info("startup_purge_result=%s", result)

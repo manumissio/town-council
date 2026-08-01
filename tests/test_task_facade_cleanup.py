@@ -1,4 +1,6 @@
+import ast
 import sys
+import inspect
 import logging
 from pathlib import Path
 from unittest.mock import MagicMock, patch
@@ -10,8 +12,8 @@ from kombu.exceptions import OperationalError
 sys.modules["llama_cpp"] = MagicMock()
 
 
-def test_summary_backfill_operation_is_not_exported_through_task_facades():
-    from pipeline import task_facade_helpers, tasks
+def test_task_facade_helper_module_is_deleted():
+    from pipeline import tasks
 
     obsolete_exports = (
         "_summary_doc_kind_subquery",
@@ -22,8 +24,98 @@ def test_summary_backfill_operation_is_not_exported_through_task_facades():
     )
 
     for obsolete_export in obsolete_exports:
-        assert not hasattr(task_facade_helpers, obsolete_export)
         assert not hasattr(tasks, obsolete_export)
+
+
+
+def _celery_task_source_contract(
+    tasks_path: Path,
+    task_name: str,
+) -> tuple[bool, int, tuple[int, ...]]:
+    tasks_tree = ast.parse(tasks_path.read_text(encoding="utf-8"))
+    task_function = next(
+        node
+        for node in tasks_tree.body
+        if isinstance(node, ast.FunctionDef) and node.name == task_name
+    )
+    task_decorator = next(
+        decorator
+        for decorator in task_function.decorator_list
+        if isinstance(decorator, ast.Call)
+        and isinstance(decorator.func, ast.Attribute)
+        and decorator.func.attr == "task"
+    )
+    decorator_values = {
+        keyword.arg: keyword.value.value
+        for keyword in task_decorator.keywords
+        if keyword.arg is not None and isinstance(keyword.value, ast.Constant)
+    }
+    retry_countdowns = tuple(
+        keyword.value.value
+        for call in ast.walk(task_function)
+        if isinstance(call, ast.Call)
+        and isinstance(call.func, ast.Attribute)
+        and call.func.attr == "retry"
+        for keyword in call.keywords
+        if keyword.arg == "countdown" and isinstance(keyword.value, ast.Constant)
+    )
+    return bool(decorator_values["bind"]), int(decorator_values["max_retries"]), retry_countdowns
+
+
+def test_celery_task_contracts_remain_stable():
+    from pipeline import tasks
+
+    task_contracts = {
+        "generate_summary_task": (
+            "pipeline.tasks.generate_summary_task",
+            3,
+            {"catalog_id": inspect.Parameter.empty, "force": False},
+            (60,),
+        ),
+        "segment_agenda_task": (
+            "pipeline.tasks.segment_agenda_task",
+            3,
+            {"catalog_id": inspect.Parameter.empty},
+            (60,),
+        ),
+        "extract_votes_task": (
+            "pipeline.tasks.extract_votes_task",
+            3,
+            {"catalog_id": inspect.Parameter.empty, "force": False},
+            (60,),
+        ),
+        "extract_text_task": (
+            "pipeline.tasks.extract_text_task",
+            3,
+            {
+                "catalog_id": inspect.Parameter.empty,
+                "force": False,
+                "ocr_fallback": False,
+            },
+            (60,),
+        ),
+        "compute_lineage_task": (
+            "pipeline.tasks.compute_lineage_task",
+            3,
+            {},
+            (30,),
+        ),
+        "compute_lineage_for_catalog_task": (
+            "pipeline.tasks.compute_lineage_for_catalog_task",
+            1,
+            {"catalog_id": inspect.Parameter.empty},
+            (),
+        ),
+    }
+
+    tasks_path = Path(tasks.__file__)
+    for task_name, (registered_name, max_retries, parameter_defaults, retry_countdowns) in task_contracts.items():
+        celery_task = getattr(tasks, task_name)
+        assert celery_task.name == registered_name
+        assert celery_task.max_retries == max_retries
+        run_parameters = inspect.signature(celery_task.run).parameters
+        assert {name: parameter.default for name, parameter in run_parameters.items()} == parameter_defaults
+        assert _celery_task_source_contract(tasks_path, task_name) == (True, max_retries, retry_countdowns)
 
 
 def test_api_task_routes_do_not_export_dispatch_patch_points():

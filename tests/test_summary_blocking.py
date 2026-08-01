@@ -3,7 +3,7 @@ from unittest.mock import MagicMock
 
 sys.modules["llama_cpp"] = MagicMock()
 
-from pipeline import indexer, llm as llm_module, semantic_tasks, tasks
+from pipeline import indexer, llm as llm_module, semantic_tasks, task_runtime, tasks
 from pipeline.inference_provider_contract import InferenceProvider
 
 
@@ -22,7 +22,7 @@ def test_generate_summary_task_blocks_low_signal_input(mocker):
     mock_doc_query.filter_by.return_value.first.return_value = MagicMock(category="minutes")
     mock_db.query.return_value = mock_doc_query
 
-    mocker.patch.object(tasks, "SessionLocal", return_value=mock_db)
+    mocker.patch.object(task_runtime, "task_session", return_value=mock_db)
 
     result = tasks.generate_summary_task.run(1, force=True)
     assert result["status"] == "blocked_low_signal"
@@ -47,7 +47,7 @@ def test_generate_summary_task_keeps_success_when_reindex_and_embed_dispatch_fai
     mock_doc_query.filter_by.return_value.first.return_value = MagicMock(category="minutes")
     mock_db.query.return_value = mock_doc_query
 
-    mocker.patch.object(tasks, "SessionLocal", return_value=mock_db)
+    mocker.patch.object(task_runtime, "task_session", return_value=mock_db)
     summary_provider = MagicMock(spec=InferenceProvider)
     summary_provider.summarize_text.return_value = "BLUF: Council advanced budget and housing work."
     mocker.patch.object(llm_module, "get_runtime_provider", return_value=summary_provider)

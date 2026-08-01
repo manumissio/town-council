@@ -1,5 +1,5 @@
 def test_extract_agenda_titles_skips_attendance_boilerplate_and_matches_numbered_items():
-    from pipeline.tasks import _extract_agenda_titles_from_text
+    from pipeline.task_agenda_titles import _extract_agenda_titles_from_text
 
     text = """
     [PAGE 1]
@@ -14,4 +14,3 @@ def test_extract_agenda_titles_skips_attendance_boilerplate_and_matches_numbered
 
     titles = _extract_agenda_titles_from_text(text, max_titles=3)
     assert titles == ["Budget Amendment Vote: All Ayes.", "Housing Element Update"]
-

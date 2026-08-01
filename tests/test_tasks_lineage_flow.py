@@ -4,7 +4,7 @@ from unittest.mock import MagicMock
 import pytest
 from sqlalchemy.exc import SQLAlchemyError
 
-from pipeline import tasks
+from pipeline import task_runtime, tasks
 
 
 def _postgres_db(first_row):
@@ -16,17 +16,18 @@ def _postgres_db(first_row):
 
 def test_compute_lineage_task_skips_when_recompute_already_running(mocker):
     mock_db = _postgres_db((False,))
-    mocker.patch.object(tasks, "SessionLocal", return_value=mock_db)
+    mocker.patch.object(task_runtime, "task_session", return_value=mock_db)
 
     result = tasks.compute_lineage_task.run()
 
     assert result == {"status": "skipped", "reason": "lineage_recompute_in_progress"}
+    mock_db.close.assert_called_once()
 
 
 def test_compute_lineage_task_retries_on_retryable_errors(mocker):
     mock_db = MagicMock()
-    mocker.patch.object(tasks, "SessionLocal", return_value=mock_db)
-    mocker.patch.object(tasks, "run_lineage_recompute", side_effect=ValueError("broken lineage"))
+    mocker.patch.object(task_runtime, "task_session", return_value=mock_db)
+    mock_db.get_bind.side_effect = ValueError("broken lineage")
     retry_exc = RuntimeError("retry-called")
     mocker.patch.object(tasks.compute_lineage_task, "retry", side_effect=retry_exc)
 
@@ -34,6 +35,7 @@ def test_compute_lineage_task_retries_on_retryable_errors(mocker):
         tasks.compute_lineage_task.run()
 
     mock_db.rollback.assert_called_once()
+    mock_db.close.assert_called_once()
 
 
 def test_compute_lineage_for_catalog_task_preserves_full_recompute_wrapper(mocker):

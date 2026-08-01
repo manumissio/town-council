@@ -1,11 +1,14 @@
-import pytest
-from fastapi.testclient import TestClient
+from datetime import date
+import importlib
+import os
+import sys
 from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
-import sys
-import os
-import importlib
+
+import pytest
+from fastapi.testclient import TestClient
 from kombu.exceptions import OperationalError
+from sqlalchemy.orm import sessionmaker
 
 # Setup mocks for dependencies we don't want to load
 sys.modules["llama_cpp"] = MagicMock()
@@ -15,11 +18,74 @@ sys.modules["redis"] = MagicMock()
 # We will patch the tasks dynamically.
 
 from api.main import app, get_db
-from pipeline import llm as llm_module, tasks
-from pipeline.inference_provider_contract import InferenceProvider
+from pipeline import config, indexer, llm as llm_module, task_runtime, tasks
+from pipeline.inference_provider_contract import InferenceProvider, ProviderResponseError
+from pipeline.models import AgendaItem, Catalog, Document, Event, Place
 
 client = TestClient(app)
 VALID_KEY = "dev_secret_key_change_me"
+AGENDA_PROVIDER_TEXT = "Budget Amendment (Page 7) - Approve revised allocations"
+
+
+def _seed_agenda_catalog(
+    db_session,
+    *,
+    catalog_id: int,
+    content: str = "Agenda text for the city council budget amendment.",
+    location: str | None = None,
+    url: str | None = None,
+) -> Catalog:
+    place = Place(
+        name=f"agenda-place-{catalog_id}",
+        state="CA",
+        ocd_division_id=f"ocd-division/country:us/state:ca/place:agenda-{catalog_id}",
+    )
+    event = Event(
+        ocd_id=f"ocd-event/agenda-{catalog_id}",
+        place=place,
+        name="City Council",
+        record_date=date(2026, 1, 10),
+    )
+    catalog = Catalog(
+        id=catalog_id,
+        url_hash=f"agenda-{catalog_id}",
+        content=content,
+        location=location,
+        url=url,
+        filename=f"agenda-{catalog_id}.pdf",
+    )
+    document = Document(
+        place=place,
+        event=event,
+        catalog=catalog,
+        category="agenda",
+    )
+    db_session.add_all([place, event, catalog, document])
+    db_session.commit()
+    return catalog
+
+
+def _patch_task_session(mocker, shared_engine) -> None:
+    task_db = sessionmaker(bind=shared_engine)()
+    mocker.patch.object(task_runtime, "task_session", return_value=task_db)
+
+
+def _patch_agenda_provider(
+    mocker,
+    *,
+    agenda_text: str = AGENDA_PROVIDER_TEXT,
+) -> MagicMock:
+    agenda_provider = MagicMock(spec=InferenceProvider)
+    agenda_provider.extract_agenda.return_value = agenda_text
+    mocker.patch.object(llm_module, "get_runtime_provider", return_value=agenda_provider)
+    return agenda_provider
+
+
+def _patch_meilisearch_client(mocker) -> MagicMock:
+    search_client = MagicMock()
+    search_client.index.return_value.delete_documents.return_value = {"taskUid": 41}
+    mocker.patch.object(indexer.meilisearch, "Client", return_value=search_client)
+    return search_client
 
 
 def test_api_task_routes_work_when_app_imported_as_main(monkeypatch):
@@ -247,7 +313,7 @@ def test_generate_summary_retries_when_ai_returns_none(mocker):
     mock_catalog.summary = None
     mock_db.get.return_value = mock_catalog
 
-    mocker.patch.object(tasks, "SessionLocal", return_value=mock_db)
+    mocker.patch.object(task_runtime, "task_session", return_value=mock_db)
     summary_provider = MagicMock(spec=InferenceProvider)
     summary_provider.summarize_text.return_value = None
     mocker.patch.object(llm_module, "get_runtime_provider", return_value=summary_provider)
@@ -387,239 +453,113 @@ def test_segment_regenerates_when_cached_items_look_low_quality():
         del app.dependency_overrides[get_db]
 
 
-def test_segment_task_keeps_page_number_in_results(mocker):
-    """
-    Regression: async segmentation should persist and return page_number.
-    """
-    mock_db = MagicMock()
-    mock_catalog = MagicMock()
-    mock_catalog.content = "Agenda text"
-    mock_db.get.return_value = mock_catalog
+def test_segment_task_keeps_page_number_in_results(mocker, db_session, shared_engine):
+    _seed_agenda_catalog(db_session, catalog_id=1)
+    _patch_task_session(mocker, shared_engine)
+    _patch_agenda_provider(mocker)
+    _patch_meilisearch_client(mocker)
 
-    mock_doc = MagicMock()
-    mock_doc.event_id = 42
-    mock_doc_query = MagicMock()
-    mock_doc_query.filter_by.return_value.first.return_value = mock_doc
+    segmentation_result = tasks.segment_agenda_task.run(1)
 
-    def query_side_effect(model):
-        if model is tasks.Document:
-            return mock_doc_query
-        return MagicMock()
-
-    mock_db.query.side_effect = query_side_effect
-
-    mocker.patch.object(tasks, "SessionLocal", return_value=mock_db)
-    mocker.patch.object(tasks, "LocalAI", return_value=MagicMock())
-    mocker.patch.object(tasks, "resolve_agenda_items", return_value={
-        "items": [{
-            "order": 1,
-            "title": "Budget Amendment",
-            "description": "Approve revised allocations",
-            "classification": "Agenda Item",
-            "result": "",
-            "page_number": 7,
-            "legistar_matter_id": 321,
-        }],
-        "source_used": "legistar",
-        "quality_score": 82,
-        "confidence": "high",
-    })
-
-    result = tasks.segment_agenda_task.run(1)
-
-    assert result["status"] == "complete"
-    assert result["item_count"] == 1
-    assert result["items"][0]["page_number"] == 7
-    assert result["source_used"] == "legistar"
+    assert segmentation_result["status"] == "complete"
+    assert segmentation_result["item_count"] == 1
+    assert segmentation_result["items"][0]["page_number"] == 7
+    assert segmentation_result["source_used"] == "llm"
+    persisted_item = db_session.query(AgendaItem).filter_by(catalog_id=1).one()
+    assert persisted_item.page_number == 7
 
 
-def test_segment_task_reindexes_catalog_after_success(mocker):
-    mock_db = MagicMock()
-    mock_catalog = MagicMock()
-    mock_catalog.content = "Agenda text"
-    mock_db.get.return_value = mock_catalog
+def test_segment_task_reindexes_catalog_after_success(mocker, db_session, shared_engine):
+    _seed_agenda_catalog(db_session, catalog_id=2)
+    _patch_task_session(mocker, shared_engine)
+    _patch_agenda_provider(mocker)
+    search_client = _patch_meilisearch_client(mocker)
 
-    mock_doc = MagicMock()
-    mock_doc.event_id = 42
-    mock_doc_query = MagicMock()
-    mock_doc_query.filter_by.return_value.first.return_value = mock_doc
+    segmentation_result = tasks.segment_agenda_task.run(2)
 
-    def query_side_effect(model):
-        if model is tasks.Document:
-            return mock_doc_query
-        return MagicMock()
-
-    mock_db.query.side_effect = query_side_effect
-
-    mocker.patch.object(tasks, "SessionLocal", return_value=mock_db)
-    mocker.patch.object(tasks, "LocalAI", return_value=MagicMock())
-    mocker.patch.object(tasks, "resolve_agenda_items", return_value={
-        "items": [{
-            "order": 1,
-            "title": "Budget Amendment",
-            "description": "Approve revised allocations",
-            "classification": "Agenda Item",
-            "result": "",
-            "page_number": 7,
-            "legistar_matter_id": 321,
-        }],
-        "source_used": "legistar",
-        "quality_score": 82,
-        "confidence": "high",
-    })
-    reindex = mocker.patch.object(tasks, "reindex_catalog")
-
-    tasks.segment_agenda_task.run(1)
-
-    reindex.assert_called_once_with(1)
+    assert segmentation_result["status"] == "complete"
+    indexed_documents = search_client.index.return_value.add_documents.call_args.args[0]
+    assert any(document["catalog_id"] == 2 for document in indexed_documents)
 
 
-def test_segment_task_classification_failure_persists_failed_status(mocker):
-    mock_db = MagicMock()
-    mock_catalog = MagicMock()
-    mock_catalog.content = "Agenda text"
-    mock_db.get.return_value = mock_catalog
-
-    mock_doc = MagicMock()
-    mock_doc.event_id = 42
-    mock_doc_query = MagicMock()
-    mock_doc_query.filter_by.return_value.first.return_value = mock_doc
-
-    def query_side_effect(model):
-        if model is tasks.Document:
-            return mock_doc_query
-        return MagicMock()
-
-    mock_db.query.side_effect = query_side_effect
-
-    mocker.patch.object(tasks, "SessionLocal", return_value=mock_db)
-    mocker.patch.object(tasks, "LocalAI", return_value=MagicMock())
-    mocker.patch.object(
-        tasks,
-        "classify_catalog_bad_content",
-        return_value=MagicMock(reason="laserfiche_error_page_detected"),
+def test_segment_task_classification_failure_persists_failed_status(
+    mocker,
+    db_session,
+    shared_engine,
+    tmp_path,
+):
+    portal_path = tmp_path / "laserfiche.html"
+    portal_path.write_text("not structured agenda html", encoding="utf-8")
+    catalog = _seed_agenda_catalog(
+        db_session,
+        catalog_id=3,
+        content=(
+            "The system has encountered an error and could not complete your request. "
+            "If the problem persists, please contact the site administrator."
+        ),
+        location=str(portal_path),
+        url="https://portal.laserfiche.com/portal/DocView.aspx?id=3",
     )
+    _patch_task_session(mocker, shared_engine)
+    _patch_agenda_provider(mocker)
 
-    result = tasks.segment_agenda_task.run(1)
+    segmentation_result = tasks.segment_agenda_task.run(3)
 
-    assert result == {"status": "error", "error": "laserfiche_error_page_detected"}
-    assert mock_catalog.agenda_segmentation_status == "failed"
-    assert mock_catalog.agenda_segmentation_item_count == 0
-    assert mock_catalog.agenda_segmentation_error == "laserfiche_error_page_detected"
-    assert mock_catalog.agenda_segmentation_attempted_at is not None
-    mock_db.commit.assert_called_once()
+    assert segmentation_result == {"status": "error", "error": "laserfiche_error_page_detected"}
+    db_session.refresh(catalog)
+    assert catalog.agenda_segmentation_status == "failed"
+    assert catalog.agenda_segmentation_item_count == 0
+    assert catalog.agenda_segmentation_error == "laserfiche_error_page_detected"
+    assert catalog.agenda_segmentation_attempted_at is not None
 
 
-def test_segment_task_vote_extraction_failure_is_non_gating(mocker):
-    mock_db = MagicMock()
-    mock_catalog = MagicMock()
-    mock_catalog.id = 1
-    mock_catalog.content = "Agenda text"
-    mock_db.get.return_value = mock_catalog
-
-    mock_doc = MagicMock()
-    mock_doc.event_id = 42
-    mock_doc_query = MagicMock()
-    mock_doc_query.filter_by.return_value.first.return_value = mock_doc
-
-    created_item = MagicMock()
-    created_item.title = "Budget Amendment"
-    created_item.description = "Approve revised allocations"
-    created_item.order = 1
-    created_item.classification = "Agenda Item"
-    created_item.result = ""
-    created_item.page_number = 7
-
-    def query_side_effect(model):
-        if model is tasks.Document:
-            return mock_doc_query
-        return MagicMock()
-
-    mock_db.query.side_effect = query_side_effect
-
-    mocker.patch.object(tasks, "SessionLocal", return_value=mock_db)
-    mocker.patch.object(tasks, "LocalAI", return_value=MagicMock())
-    mocker.patch.object(
-        tasks,
-        "resolve_agenda_items",
-        return_value={
-            "items": [{
-                "order": 1,
-                "title": "Budget Amendment",
-                "description": "Approve revised allocations",
-                "classification": "Agenda Item",
-                "result": "",
-                "page_number": 7,
-            }],
-            "source_used": "legistar",
-            "quality_score": 82,
-            "confidence": "high",
-        },
+def test_segment_task_vote_provider_failure_is_non_gating(mocker, db_session, shared_engine):
+    catalog = _seed_agenda_catalog(
+        db_session,
+        catalog_id=4,
+        content=(
+            "Budget Amendment. The council considered the revised allocation. "
+            "A motion was made and seconded. The motion passed by a vote of five to zero. "
+        )
+        * 5,
     )
-    mocker.patch.object(tasks, "persist_agenda_items", return_value=[created_item])
-    mocker.patch.object(tasks, "ENABLE_VOTE_EXTRACTION", True)
-    mocker.patch.object(tasks, "run_vote_extraction_for_catalog", side_effect=RuntimeError("vote parse failed"))
+    _patch_task_session(mocker, shared_engine)
+    agenda_provider = _patch_agenda_provider(mocker)
+    mocker.patch.object(config, "ENABLE_VOTE_EXTRACTION", True)
+    agenda_provider.generate_json.side_effect = ProviderResponseError("bad vote payload")
+    _patch_meilisearch_client(mocker)
 
-    result = tasks.segment_agenda_task.run(1)
+    segmentation_result = tasks.segment_agenda_task.run(4)
 
-    assert result["status"] == "complete"
-    assert result["vote_extraction"]["status"] == "failed"
-    assert result["vote_extraction"]["error"] == "RuntimeError"
-    assert mock_catalog.agenda_segmentation_status == "complete"
-    mock_db.commit.assert_called_once()
-
-
-def test_segment_task_local_ai_config_error_persists_failed_status_without_retry(mocker):
-    mock_db = MagicMock()
-    mock_catalog = MagicMock()
-    mock_catalog.content = "Agenda text"
-    mock_db.get.return_value = mock_catalog
-
-    mocker.patch.object(tasks, "SessionLocal", return_value=mock_db)
-    mocker.patch.object(tasks, "LocalAI", side_effect=tasks.LocalAIConfigError("missing backend config"))
-    retry = mocker.patch.object(tasks.segment_agenda_task, "retry")
-
-    result = tasks.segment_agenda_task.run(1)
-
-    assert result == {"status": "error", "error": "missing backend config"}
-    retry.assert_not_called()
-    mock_db.rollback.assert_called_once()
-    assert mock_catalog.agenda_segmentation_status == "failed"
-    assert mock_catalog.agenda_segmentation_item_count == 0
-    assert mock_catalog.agenda_segmentation_error == "missing backend config"
-    mock_db.commit.assert_called_once()
+    assert segmentation_result["status"] == "complete"
+    assert segmentation_result["vote_extraction"]["status"] == "complete"
+    assert segmentation_result["vote_extraction"]["failed_items"] == 1
+    assert agenda_provider.generate_json.called
+    db_session.refresh(catalog)
+    assert catalog.agenda_segmentation_status == "complete"
 
 
 def test_segment_task_retryable_error_persists_failed_status_before_retry(mocker):
-    mock_db = MagicMock()
-    mock_catalog = MagicMock()
-    mock_catalog.content = "Agenda text"
-    mock_db.get.return_value = mock_catalog
-
-    mock_doc = MagicMock()
-    mock_doc.event_id = 42
-    mock_doc_query = MagicMock()
-    mock_doc_query.filter_by.return_value.first.return_value = mock_doc
-
-    def query_side_effect(model):
-        if model is tasks.Document:
-            return mock_doc_query
-        return MagicMock()
-
-    mock_db.query.side_effect = query_side_effect
-
-    mocker.patch.object(tasks, "SessionLocal", return_value=mock_db)
-    mocker.patch.object(tasks, "LocalAI", return_value=MagicMock())
-    mocker.patch.object(tasks, "resolve_agenda_items", side_effect=RuntimeError("resolver exploded"))
-    retry_exc = RuntimeError("retry-called")
-    retry = mocker.patch.object(tasks.segment_agenda_task, "retry", side_effect=retry_exc)
+    catalog = Catalog(
+        id=5,
+        url_hash="agenda-retry-5",
+        content="Agenda text",
+    )
+    task_db = MagicMock()
+    task_db.get.side_effect = [RuntimeError("database unavailable"), catalog]
+    mocker.patch.object(task_runtime, "task_session", return_value=task_db)
+    _patch_agenda_provider(mocker)
+    retry_error = RuntimeError("retry-called")
+    retry = mocker.patch.object(tasks.segment_agenda_task, "retry", side_effect=retry_error)
 
     with pytest.raises(RuntimeError, match="retry-called"):
-        tasks.segment_agenda_task.run(1)
+        tasks.segment_agenda_task.run(5)
 
-    retry.assert_called_once()
-    mock_db.rollback.assert_called_once()
-    assert mock_catalog.agenda_segmentation_status == "failed"
-    assert mock_catalog.agenda_segmentation_item_count == 0
-    assert mock_catalog.agenda_segmentation_error == "resolver exploded"
-    mock_db.commit.assert_called_once()
+    assert str(retry.call_args.kwargs["exc"]) == "database unavailable"
+    assert retry.call_args.kwargs["countdown"] == 60
+    assert task_db.rollback.call_count == 1
+    assert catalog.agenda_segmentation_status == "failed"
+    assert catalog.agenda_segmentation_item_count == 0
+    assert catalog.agenda_segmentation_error == "database unavailable"
+    task_db.commit.assert_called_once()
+    task_db.close.assert_called_once()
