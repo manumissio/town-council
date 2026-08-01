@@ -10,8 +10,9 @@ remains in force; where this plan is stricter, this plan wins for these tasks.
 
 ## Changelog
 
-- **v3.96:** Extends T-SEM-1A's approved fake contract to include the public
-  pgvector reranking capability consumed by semantic retrieval tests.
+- **v3.96:** Extends T-SEM-1A's future-effective fake contract to include the
+  public pgvector reranking capability consumed by semantic retrieval tests
+  and records that T-SEM-1 must make consumers resolve the runtime owner.
 - **v3.95:** Adds T-SEM-1A as a separate policy prerequisite that approves the
   typed semantic backend/runtime fake boundary required before T-SEM-1 can
   delete facade patch points. T-SEM-1 remains pending its corrected Full plan.
@@ -1539,12 +1540,13 @@ files (GED-5 grant).
 - depends_on: G3 (satisfied by T-GOV-1)
 - files_owned: `docs/plans/T_SEM_1A_SEMANTIC_TEST_BOUNDARY_PLAN.md`;
   `docs/plans/TOWN_COUNCIL_REMEDIATION_PLAN.md`; `docs/TESTING.MD`
-- do: Approve patching `semantic_backend_runtime.get_semantic_backend` to
-  return a `SemanticBackend` fake; pgvector retrieval fakes also implement the
-  public `rerank_candidates_with_diagnostics` or `rerank_candidates`
-  capability exercised by the test. Permit optional FAISS and
-  SentenceTransformer substitution there only after T-SEM-1 establishes that
-  ownership.
+- do: After T-SEM-1 repoints consumers to resolve backend selection through
+  the owner module, approve patching
+  `semantic_backend_runtime.get_semantic_backend` to return a
+  `SemanticBackend` fake. Pgvector retrieval fakes also implement the public
+  `rerank_candidates_with_diagnostics` or `rerank_candidates` capability
+  exercised by the test. Permit optional FAISS and SentenceTransformer
+  substitution there only after T-SEM-1 establishes that ownership.
 - preserve: Every existing approved fake boundary and the prohibition on
   facade/private-method patch targets.
 - accept: T-SEM-1 can migrate semantic tests without preserving facade seams.

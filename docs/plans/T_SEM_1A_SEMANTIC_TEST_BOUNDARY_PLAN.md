@@ -40,8 +40,10 @@ depend on or foreclose G1, G2, G4, or G5.
 
 1. Register T-SEM-1A before T-SEM-1 in the remediation ledger.
 2. Add one approved fake-boundary row for semantic backend/runtime behavior.
-3. Permit patching `pipeline.semantic_backend_runtime.get_semantic_backend` to
-   return a fake implementing the existing `SemanticBackend` contract.
+3. After T-SEM-1 repoints consumers to resolve backend selection through the
+   owner module, permit patching
+   `pipeline.semantic_backend_runtime.get_semantic_backend` to return a fake
+   implementing the existing `SemanticBackend` contract.
 4. Require pgvector retrieval fakes to implement the public
    `rerank_candidates_with_diagnostics` or `rerank_candidates` capability
    exercised by the test.
@@ -106,7 +108,8 @@ T-SEM-1 remains responsible for deleting the facade and old patch targets.
 **q) Edge cases and failure scenarios.**
 
 1. The boundary must name the typed backend contract and runtime selection
-   function, not a facade.
+   function, not a facade, and remain future-effective until consumers resolve
+   that owner directly in T-SEM-1.
 2. Pgvector retrieval tests must fake the public rerank capability they
    exercise rather than a backend private method.
 3. Optional runtime substitutions must remain future-effective until T-SEM-1
