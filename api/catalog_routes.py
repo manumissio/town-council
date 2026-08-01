@@ -3,16 +3,15 @@ from typing import Any, Callable
 from fastapi import APIRouter, Depends, HTTPException, Path, Query
 from sqlalchemy.orm import Session as SQLAlchemySession
 
-from pipeline.content_hash import compute_content_hash
-from pipeline.document_kinds import normalize_summary_doc_kind
 from pipeline.models import AgendaItem, Catalog, Document, Event, Place
-from pipeline.summary_freshness import compute_agenda_items_hash, is_summary_stale
+from pipeline.summary_freshness import is_summary_stale
 from pipeline.summary_quality import (
     analyze_source_text,
     build_low_signal_message,
     is_source_summarizable,
     is_source_topicable,
 )
+from api.catalog_summary_state import resolve_summary_source_hashes
 
 BATCH_REQUEST_LIMIT = 50
 BATCH_REQUEST_TOO_LARGE_DETAIL = "Batch request too large. Limit is 50 IDs."
@@ -41,26 +40,6 @@ def _agenda_item_payload(item: AgendaItem, *, source: str) -> dict[str, Any]:
         "votes": item.votes,
         "source": source,
     }
-
-
-def _summary_doc_kind_and_hashes(
-    db: SQLAlchemySession,
-    catalog_id: int,
-    catalog: Catalog,
-) -> tuple[str, str | None, str | None]:
-    doc = db.query(Document).filter_by(catalog_id=catalog_id).first()
-    doc_kind = normalize_summary_doc_kind(doc.category if doc else "unknown")
-    content_hash = catalog.content_hash or (compute_content_hash(catalog.content) if catalog.content else None)
-    agenda_items_hash = catalog.agenda_items_hash
-    if doc_kind == "agenda":
-        agenda_items = (
-            db.query(AgendaItem)
-            .filter_by(catalog_id=catalog_id)
-            .order_by(AgendaItem.order)
-            .all()
-        )
-        agenda_items_hash = compute_agenda_items_hash(agenda_items)
-    return doc_kind, content_hash, agenda_items_hash
 
 
 def build_catalog_router(
@@ -163,7 +142,7 @@ def build_catalog_router(
         if not catalog:
             raise HTTPException(status_code=404, detail=DOCUMENT_NOT_FOUND_DETAIL)
 
-        doc_kind, content_hash, agenda_items_hash = _summary_doc_kind_and_hashes(db, catalog_id, catalog)
+        doc_kind, content_hash, agenda_items_hash = resolve_summary_source_hashes(db, catalog_id, catalog)
         summary_is_stale = is_summary_stale(
             doc_kind,
             summary=catalog.summary,

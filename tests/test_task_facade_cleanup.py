@@ -1,6 +1,11 @@
 import sys
+import logging
 from pathlib import Path
-from unittest.mock import MagicMock
+from unittest.mock import MagicMock, patch
+
+import pytest
+from fastapi import HTTPException
+from kombu.exceptions import OperationalError
 
 sys.modules["llama_cpp"] = MagicMock()
 
@@ -21,20 +26,22 @@ def test_summary_backfill_operation_is_not_exported_through_task_facades():
         assert not hasattr(tasks, obsolete_export)
 
 
-def test_api_task_routes_reexports_dispatch_facade():
-    from api import task_dispatch, task_routes
+def test_api_task_routes_do_not_export_dispatch_patch_points():
+    from api import task_routes
 
-    assert task_routes.INVALID_TASK_ID_DETAIL == task_dispatch.INVALID_TASK_ID_DETAIL
-    assert task_routes.GENERATE_SUMMARY_TASK_NAME == task_dispatch.GENERATE_SUMMARY_TASK_NAME
-    assert task_routes.GENERATE_TOPICS_TASK_NAME == task_dispatch.GENERATE_TOPICS_TASK_NAME
-    assert task_routes.SEGMENT_AGENDA_TASK_NAME == task_dispatch.SEGMENT_AGENDA_TASK_NAME
-    assert task_routes.EXTRACT_VOTES_TASK_NAME == task_dispatch.EXTRACT_VOTES_TASK_NAME
-    assert task_routes.EXTRACT_TEXT_TASK_NAME == task_dispatch.EXTRACT_TEXT_TASK_NAME
-    assert task_routes.TASK_DISPATCH_ERRORS == task_dispatch.TASK_DISPATCH_ERRORS
-    assert task_routes._CeleryTaskProxy is task_dispatch._CeleryTaskProxy
-    assert task_routes._enqueue_task is task_dispatch._enqueue_task
-    assert task_routes.generate_summary_task is task_dispatch.generate_summary_task
-    assert task_routes.extract_text_task is task_dispatch.extract_text_task
+    obsolete_exports = (
+        "AsyncResult",
+        "_CeleryTaskProxy",
+        "_enqueue_task",
+        "extract_text_task",
+        "extract_votes_task",
+        "generate_summary_task",
+        "generate_topics_task",
+        "segment_agenda_task",
+    )
+
+    for obsolete_export in obsolete_exports:
+        assert not hasattr(task_routes, obsolete_export)
 
 
 def test_api_task_route_helpers_do_not_import_main():
@@ -51,36 +58,44 @@ def test_api_task_route_helpers_do_not_import_main():
         assert "api.main" not in module_path.read_text(encoding="utf-8")
 
 
-def test_summary_helper_uses_injected_task_facade_patch_seam():
-    from api.task_route_summary import summarize_document_request
+def test_failed_task_polling_returns_exception_message():
+    from api.task_route_support import get_task_status_payload
 
-    db = MagicMock()
-    catalog = MagicMock(
-        content="City council meeting discussed budget updates and adopted multiple motions after public comment.",
-        summary=None,
-        summary_source_hash=None,
-    )
-    db.get.return_value = catalog
-    facade = MagicMock()
-    facade._summary_doc_kind_and_hashes.return_value = ("minutes", "content-hash", None)
-    facade._enqueue_task.return_value = "summary-task"
+    failed_task = MagicMock(ready=lambda: True, result=RuntimeError("worker failed"))
+    task_id = "adf53fd7-c74f-401d-9cb2-b93332290550"
 
-    payload = summarize_document_request(
-        task_facade=facade,
-        db=db,
-        catalog_id=123,
-        force=False,
-        catalog_model=MagicMock,
-        analyze_source_text=lambda text: {"text": text},
-        build_low_signal_message=lambda _quality: "low signal",
-        is_summary_fresh=lambda *_args, **_kwargs: False,
-        is_source_summarizable=lambda _quality: True,
-    )
+    with patch("api.task_route_support.AsyncResult", return_value=failed_task):
+        payload = get_task_status_payload(task_id)
 
-    assert payload == {"status": "processing", "task_id": "summary-task", "poll_url": "/tasks/summary-task"}
-    facade._enqueue_task.assert_called_once_with(
-        "generate_summary_task",
-        facade.generate_summary_task,
-        123,
-        force=False,
-    )
+    assert payload == {"status": "failed", "error": "worker failed"}
+
+
+def test_failed_task_polling_returns_structured_error():
+    from api.task_route_support import get_task_status_payload
+
+    failed_task = MagicMock(ready=lambda: True, result={"error": "provider unavailable"})
+    task_id = "2a836b3e-3786-42a0-87da-ad834729f0a1"
+
+    with patch("api.task_route_support.AsyncResult", return_value=failed_task):
+        payload = get_task_status_payload(task_id)
+
+    assert payload == {"status": "failed", "error": "provider unavailable"}
+
+
+def test_task_dispatch_logs_stable_operation_key(caplog):
+    from api.task_dispatch import enqueue_task
+
+    with caplog.at_level(logging.ERROR, logger="town-council-api"), patch(
+        "api.task_dispatch.celery_app.send_task",
+        side_effect=OperationalError("broker down"),
+    ):
+        with pytest.raises(HTTPException) as exc_info:
+            enqueue_task(
+                "generate_summary_task",
+                "pipeline.tasks.generate_summary_task",
+                123,
+                force=False,
+            )
+
+    assert exc_info.value.status_code == 503
+    assert caplog.records[-1].task_name == "generate_summary_task"

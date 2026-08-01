@@ -316,17 +316,18 @@ Primary owners:
 ### Entry Points by Task
 
 - Add or modify async generation endpoint:
-  - `api/main.py` (app facade and compatibility surface)
-  - `api/task_routes.py` facade plus focused `api/task_*` helpers
+  - `api/main.py` (FastAPI app assembly and security middleware)
+  - `api/task_routes.py` route assembly, `api/task_dispatch.py` broker boundary,
+    and focused `api/task_route_*` helpers
   - `pipeline/tasks.py` facade plus focused `pipeline/task_*` helpers
   - `frontend/components/ResultCard.js` (polling/status UI)
 - Adjust lineage recompute behavior:
   - `pipeline/lineage_service.py` facade plus focused `pipeline/lineage_*` helpers
   - `pipeline/tasks.py`
-  - `api/main.py` (exposed lineage/trend reads)
+  - `api/lineage_routes.py` (lineage reads)
 - Update semantic retrieval behavior:
-  - `api/main.py` (FastAPI app facade and compatibility surface)
-  - `api/search_routes.py` (`/search` and `/search/semantic` paths)
+  - `api/main.py` (FastAPI app assembly)
+  - `api/search_routes.py` (search, semantic, and trends router aggregation)
   - `semantic_service/main.py` route facade plus focused `semantic_service/candidates.py`, `semantic_service/filters.py`, `semantic_service/retrieval.py`, and `semantic_service/hydration.py` helpers
   - `pipeline/semantic_index.py`
   - `pipeline/db_migrate.py` facade plus the focused Alembic migration owner
@@ -338,7 +339,7 @@ Primary owners:
 - Canonical extraction/content hashing: `pipeline/extraction_service.py`, `pipeline/content_hash.py`
 - Async orchestration and writes: `pipeline/tasks.py` facade plus focused `pipeline/task_*` helpers, vote extraction through `pipeline/vote_extractor.py` plus focused `pipeline/vote_extraction_*` helpers
 - Inference abstraction and provider telemetry: `pipeline/llm.py` product-policy facade plus focused `pipeline/local_ai_*` helpers, `pipeline/agenda_extraction.py`, `pipeline/inference_provider_contract.py`, `pipeline/http_inference_provider.py` adapter plus focused `pipeline/http_inference_*` helpers, `pipeline/inprocess_inference_provider.py`, `pipeline/provider_telemetry.py`, `pipeline/metrics.py`, `pipeline/metrics_provider_recorders.py`, `pipeline/metrics_redis_backend.py`
-- API surface and auth: `api/main.py`, `api/app_setup.py`, `api/search_routes.py`, `api/search_read_routes.py` facade plus focused `api/search_read_*` helpers, `api/task_routes.py` facade plus focused `api/task_*` helpers, `api/search_support.py` facade plus focused `api/search/*_support.py` helpers, `api/search/query_builder.py`, `api/metrics.py`
+- API surface and auth: `api/main.py`, `api/app_setup.py`, `api/search_routes.py` router aggregation, `api/search_read_routes.py` facade plus focused `api/search_read_*` helpers, `api/task_routes.py` route assembly, `api/task_dispatch.py`, focused `api/task_route_*` helpers, focused `api/search/*_support.py` helpers, `api/search/query_builder.py`, `api/metrics.py`
 - Semantic retrieval and embeddings: `semantic_service/main.py` route facade plus focused `semantic_service/*` helpers, `pipeline/semantic_index.py`, `pipeline/semantic_faiss_backend.py`, `pipeline/semantic_pgvector_backend.py`, focused semantic backend helpers, `pipeline/models.py` facade plus focused `pipeline/model_*` modules
 - Frontend query/task UX: `frontend/app/page.js`, `frontend/state/search-state.js`, `frontend/components/ResultCard.js`
 - Data model and persistence: `pipeline/models.py` facade plus focused
@@ -452,8 +453,8 @@ Owners:
 |---|---|---|---|---|
 | Search/read | `GET /search`, `GET /search/semantic`, `GET /metadata`, `GET /catalog/{id}/lineage`, `GET /lineage/{lineage_id}`, `GET /people`, `GET /person/{person_id}` | none | no | `api/main.py`, `api/search_routes.py`, `api/search_read_routes.py` facade plus focused `api/search_read_*` helpers, `api/search_semantic_routes.py`, `api/lineage_routes.py`, `api/people_routes.py`, `api/search/query_builder.py`; people reads fail closed against current roster approval |
 | Trends reads/export | `GET /trends/topics`, `GET /trends/compare`, `GET /trends/export` | none | no | `api/main.py`, `api/search_routes.py`, `api/trends_routes.py`, `api/search/query_builder.py` |
-| Protected generation writes | `POST /summarize/{catalog_id}`, `POST /segment/{catalog_id}`, `POST /topics/{catalog_id}`, `POST /extract/{catalog_id}`, `POST /votes/{catalog_id}` | `X-API-Key` | yes (task id returned) | `api/main.py`, `api/task_routes.py`, `pipeline/tasks.py` |
-| Task lifecycle | `GET /tasks/{task_id}` | none | n/a | `api/main.py`, `api/task_routes.py`, Celery task backend |
+| Protected generation writes | `POST /summarize/{catalog_id}`, `POST /segment/{catalog_id}`, `POST /topics/{catalog_id}`, `POST /extract/{catalog_id}`, `POST /votes/{catalog_id}` | `X-API-Key` | yes (task id returned) | `api/task_routes.py`, `api/task_dispatch.py`, `pipeline/tasks.py` |
+| Task lifecycle | `GET /tasks/{task_id}` | none | n/a | `api/task_routes.py`, `api/task_route_support.py`, Celery result backend |
 | Derived status/readability | `GET /catalog/{catalog_id}/derived_status`, `GET /catalog/{catalog_id}/content`, `GET /catalog/{catalog_id}/agenda_items` | `X-API-Key` | no | `api/main.py`, `api/catalog_routes.py` |
 | Issue reporting | `POST /report-issue` | `X-API-Key` | no | `api/main.py`, `api/reporting_routes.py` |
 

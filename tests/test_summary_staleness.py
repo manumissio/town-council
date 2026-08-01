@@ -34,13 +34,13 @@ def test_summarize_returns_cached_only_when_source_hash_matches(mocker):
         yield db
 
     app.dependency_overrides[get_db] = _mock_get_db
-    delay = mocker.patch("api.main.generate_summary_task.delay")
+    send_task = mocker.patch("api.task_dispatch.celery_app.send_task")
     try:
         resp = client.post("/summarize/1", headers={"X-API-Key": VALID_KEY})
         assert resp.status_code == 200
         payload = resp.json()
         assert payload["status"] == "cached"
-        delay.assert_not_called()
+        send_task.assert_not_called()
     finally:
         del app.dependency_overrides[get_db]
 
@@ -65,14 +65,14 @@ def test_summarize_returns_stale_when_hash_mismatches(mocker):
         yield db
 
     app.dependency_overrides[get_db] = _mock_get_db
-    delay = mocker.patch("api.main.generate_summary_task.delay")
+    send_task = mocker.patch("api.task_dispatch.celery_app.send_task")
     try:
         resp = client.post("/summarize/1", headers={"X-API-Key": VALID_KEY})
         assert resp.status_code == 200
         payload = resp.json()
         assert payload["status"] == "stale"
         assert payload["summary"] == "old summary"
-        delay.assert_not_called()
+        send_task.assert_not_called()
     finally:
         del app.dependency_overrides[get_db]
 
@@ -114,13 +114,13 @@ def test_summarize_returns_cached_for_fresh_agenda_summary_hash(mocker):
         yield db
 
     app.dependency_overrides[get_db] = _mock_get_db
-    delay = mocker.patch("api.main.generate_summary_task.delay")
+    send_task = mocker.patch("api.task_dispatch.celery_app.send_task")
     try:
         resp = client.post("/summarize/1", headers={"X-API-Key": VALID_KEY})
         assert resp.status_code == 200
         payload = resp.json()
         assert payload["status"] == "cached"
-        delay.assert_not_called()
+        send_task.assert_not_called()
     finally:
         del app.dependency_overrides[get_db]
 
@@ -159,14 +159,14 @@ def test_summarize_returns_stale_for_agenda_when_summary_hash_lags_structured_it
         yield db
 
     app.dependency_overrides[get_db] = _mock_get_db
-    delay = mocker.patch("api.main.generate_summary_task.delay")
+    send_task = mocker.patch("api.task_dispatch.celery_app.send_task")
     try:
         resp = client.post("/summarize/1", headers={"X-API-Key": VALID_KEY})
         assert resp.status_code == 200
         payload = resp.json()
         assert payload["status"] == "stale"
         assert payload["summary"] == "old agenda summary"
-        delay.assert_not_called()
+        send_task.assert_not_called()
     finally:
         del app.dependency_overrides[get_db]
 
@@ -204,13 +204,13 @@ def test_summarize_returns_stale_for_agenda_when_agenda_items_hash_is_missing(mo
         yield db
 
     app.dependency_overrides[get_db] = _mock_get_db
-    delay = mocker.patch("api.main.generate_summary_task.delay")
+    send_task = mocker.patch("api.task_dispatch.celery_app.send_task")
     try:
         resp = client.post("/summarize/1", headers={"X-API-Key": VALID_KEY})
         assert resp.status_code == 200
         payload = resp.json()
         assert payload["status"] == "stale"
-        delay.assert_not_called()
+        send_task.assert_not_called()
     finally:
         del app.dependency_overrides[get_db]
 

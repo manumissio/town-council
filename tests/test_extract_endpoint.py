@@ -66,7 +66,6 @@ def test_extract_rate_limit_still_enforced():
             limiter=rate_limiter,
             get_db_dependency=_mock_get_db,
             verify_api_key_dependency=_verify_api_key,
-            task_facade=MagicMock(),
         )
     )
 
@@ -87,7 +86,7 @@ def test_extract_cached_when_content_exists_and_not_forced(mocker):
         yield db
 
     app.dependency_overrides[get_db] = _mock_get_db
-    mocker.patch("api.main.extract_text_task.delay")
+    mocker.patch("api.task_dispatch.celery_app.send_task")
     try:
         resp = client.post("/extract/10", headers={"X-API-Key": VALID_KEY})
         assert resp.status_code == 200
@@ -111,13 +110,18 @@ def test_extract_force_enqueues_task_even_when_cached(mocker):
     app.dependency_overrides[get_db] = _mock_get_db
     task = MagicMock()
     task.id = "task_extract_1"
-    mocker.patch("api.main.extract_text_task.delay", return_value=task)
+    send_task = mocker.patch("api.task_dispatch.celery_app.send_task", return_value=task)
     try:
         resp = client.post("/extract/10?force=true&ocr_fallback=true", headers={"X-API-Key": VALID_KEY})
         assert resp.status_code == 200
         payload = resp.json()
         assert payload["status"] == "processing"
         assert payload["task_id"] == "task_extract_1"
+        send_task.assert_called_once_with(
+            "pipeline.tasks.extract_text_task",
+            args=(10,),
+            kwargs={"force": True, "ocr_fallback": True},
+        )
     finally:
         del app.dependency_overrides[get_db]
 
@@ -133,7 +137,7 @@ def test_extract_returns_503_when_enqueue_fails(mocker):
         yield db
 
     app.dependency_overrides[get_db] = _mock_get_db
-    mocker.patch("api.main.extract_text_task.delay", side_effect=OperationalError("broker down"))
+    mocker.patch("api.task_dispatch.celery_app.send_task", side_effect=OperationalError("broker down"))
     try:
         resp = client.post("/extract/10?force=true", headers={"X-API-Key": VALID_KEY})
         assert resp.status_code == 503

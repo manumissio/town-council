@@ -674,12 +674,20 @@ def _search_main_alias_references(
 
     for node in ast.walk(test_tree):
         dotted_reference = _dotted_reference(node)
-        if dotted_reference in forbidden_references:
+        if dotted_reference and any(
+            dotted_reference == forbidden_reference
+            or dotted_reference.startswith(f"{forbidden_reference}.")
+            for forbidden_reference in forbidden_references
+        ):
             references.add(f"line {node.lineno}: {dotted_reference}")
         if (
             isinstance(node, ast.Constant)
             and isinstance(node.value, str)
-            and node.value in forbidden_references
+            and any(
+                node.value == forbidden_reference
+                or node.value.startswith(f"{forbidden_reference}.")
+                for forbidden_reference in forbidden_references
+            )
         ):
             references.add(f"line {node.lineno}: {node.value}")
         patch_reference = _search_main_object_patch_reference(
@@ -1855,15 +1863,6 @@ def test_search_helpers_do_not_lookup_api_main() -> None:
         if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef))
     }
 
-    search_support_path = ROOT / "api/search_support.py"
-    search_support_tree = ast.parse(search_support_path.read_text(encoding="utf-8"))
-    search_support_imports = {
-        alias.name
-        for node in search_support_tree.body
-        if isinstance(node, (ast.Import, ast.ImportFrom))
-        for alias in node.names
-    }
-
     api_main_path = ROOT / "api/main.py"
     api_main_tree = ast.parse(api_main_path.read_text(encoding="utf-8"))
     api_main_imports = {
@@ -1901,7 +1900,6 @@ def test_search_helpers_do_not_lookup_api_main() -> None:
     }
 
     assert lookup_names.isdisjoint(support_core_functions)
-    assert lookup_names.isdisjoint(search_support_imports)
     assert main_search_aliases.isdisjoint(api_main_imports)
     assert reverse_imports == {}
     assert _forbidden_imports(
@@ -1952,6 +1950,268 @@ def test_search_main_alias_guard_covers_import_and_object_patch_forms(
         "line 8: patch.object FEATURE_TRENDS_DASHBOARD",
         "line 9: setattr client",
     ]
+
+
+API_MAIN_ROUTER_FACADE_ALIASES = {
+    "AsyncResult",
+    "_enqueue_task",
+    "_lineage_rows",
+    "_summary_doc_kind_and_hashes",
+    "agenda_items_look_low_quality",
+    "extract_text_task",
+    "extract_votes_task",
+    "generate_summary_task",
+    "generate_topics_task",
+    "segment_agenda_task",
+}
+TASK_DISPATCH_COMPATIBILITY_EXPORTS = {
+    "AsyncResult",
+    "EXTRACT_TEXT_TASK_NAME",
+    "EXTRACT_VOTES_TASK_NAME",
+    "GENERATE_SUMMARY_TASK_NAME",
+    "GENERATE_TOPICS_TASK_NAME",
+    "INVALID_TASK_ID_DETAIL",
+    "SEGMENT_AGENDA_TASK_NAME",
+    "TASK_DISPATCH_ERRORS",
+    "TASK_QUEUE_UNAVAILABLE_DETAIL",
+    "_CeleryTaskProxy",
+    "_enqueue_task",
+    "extract_text_task",
+    "extract_votes_task",
+    "generate_summary_task",
+    "generate_topics_task",
+    "segment_agenda_task",
+}
+TASK_PROXY_GLOBALS = {
+    "extract_text_task",
+    "extract_votes_task",
+    "generate_summary_task",
+    "generate_topics_task",
+    "segment_agenda_task",
+}
+SEARCH_ROUTE_COMPATIBILITY_EXPORTS = {
+    "MEILI_HOST",
+    "MEILI_MASTER_KEY",
+    "_build_filter_values",
+    "_build_meilisearch_filter_clauses",
+    "_collect_meeting_docs",
+    "_count_topics_from_docs",
+    "_facet_topics",
+    "_iter_time_buckets",
+    "_normalize_city_or_400",
+    "_normalize_filters_or_400",
+    "_parse_iso_date",
+    "_require_trends_feature",
+    "_semantic_service_get_json",
+    "_semantic_service_healthcheck",
+    "client",
+    "export_trends",
+    "get_metadata",
+    "get_trends_compare",
+    "get_trends_topics",
+    "httpx",
+    "normalize_city_filter",
+    "search_documents",
+    "search_documents_semantic",
+    "validate_date_format",
+}
+
+
+def _top_level_bound_names(module_tree: ast.Module) -> set[str]:
+    bound_names: set[str] = set()
+    for statement in module_tree.body:
+        if isinstance(statement, ast.Import):
+            bound_names.update(
+                alias.asname or alias.name.split(".")[0]
+                for alias in statement.names
+            )
+        elif isinstance(statement, ast.ImportFrom):
+            bound_names.update(alias.asname or alias.name for alias in statement.names)
+        elif isinstance(statement, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
+            bound_names.add(statement.name)
+        elif isinstance(statement, (ast.Assign, ast.AnnAssign)):
+            assignment_targets = (
+                statement.targets
+                if isinstance(statement, ast.Assign)
+                else [statement.target]
+            )
+            bound_names.update(
+                target.id for target in assignment_targets if isinstance(target, ast.Name)
+            )
+    return bound_names
+
+
+def _function_parameter_names(
+    function_node: ast.FunctionDef | ast.AsyncFunctionDef,
+) -> set[str]:
+    function_arguments = function_node.args
+    return {
+        argument.arg
+        for argument in (
+            *function_arguments.posonlyargs,
+            *function_arguments.args,
+            *function_arguments.kwonlyargs,
+        )
+    }
+
+
+def _is_current_module_registry_lookup(node: ast.AST) -> bool:
+    return (
+        isinstance(node, ast.Subscript)
+        and isinstance(node.value, ast.Attribute)
+        and isinstance(node.value.value, ast.Name)
+        and node.value.value.id == "sys"
+        and node.value.attr == "modules"
+        and isinstance(node.slice, ast.Name)
+        and node.slice.id == "__name__"
+    )
+
+
+def test_api_router_modules_do_not_expose_facade_dependency_bags() -> None:
+    main_tree = ast.parse((ROOT / "api/main.py").read_text(encoding="utf-8"))
+    lineage_tree = ast.parse(
+        (ROOT / "api/lineage_routes.py").read_text(encoding="utf-8")
+    )
+    task_route_paths = (
+        ROOT / "api/task_routes.py",
+        ROOT / "api/task_route_generation.py",
+        ROOT / "api/task_route_segmentation.py",
+        ROOT / "api/task_route_summary.py",
+        ROOT / "api/task_route_support.py",
+    )
+    task_route_trees = {
+        str(task_route_path.relative_to(ROOT)): ast.parse(
+            task_route_path.read_text(encoding="utf-8")
+        )
+        for task_route_path in task_route_paths
+    }
+
+    assert not any(
+        _is_current_module_registry_lookup(node) for node in ast.walk(main_tree)
+    )
+    assert API_MAIN_ROUTER_FACADE_ALIASES.isdisjoint(
+        _top_level_bound_names(main_tree)
+    )
+    lineage_parameters = {
+        node.name: _function_parameter_names(node)
+        for node in ast.walk(lineage_tree)
+        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef))
+    }
+    assert lineage_parameters["build_lineage_router"] == {
+        "limiter",
+        "get_db_dependency",
+    }
+
+    task_route_parameters = {
+        f"{module_path}:{node.name}": _function_parameter_names(node)
+        for module_path, module_tree in task_route_trees.items()
+        for node in ast.walk(module_tree)
+        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef))
+    }
+    assert task_route_parameters["api/task_routes.py:build_task_router"] == {
+        "limiter",
+        "get_db_dependency",
+        "verify_api_key_dependency",
+    }
+    assert task_route_parameters["api/task_route_generation.py:extract_votes_request"] == {
+        "db",
+        "catalog_id",
+        "force",
+    }
+    assert task_route_parameters["api/task_route_generation.py:generate_topics_request"] == {
+        "db",
+        "catalog_id",
+        "force",
+    }
+    assert task_route_parameters["api/task_route_generation.py:extract_catalog_text_request"] == {
+        "db",
+        "catalog_id",
+        "force",
+        "ocr_fallback",
+    }
+    assert task_route_parameters["api/task_route_segmentation.py:segment_agenda_request"] == {
+        "db",
+        "catalog_id",
+        "force",
+    }
+    assert task_route_parameters["api/task_route_summary.py:summarize_document_request"] == {
+        "db",
+        "catalog_id",
+        "force",
+    }
+    assert task_route_parameters["api/task_route_support.py:get_task_status_payload"] == {
+        "task_id",
+    }
+    assert TASK_DISPATCH_COMPATIBILITY_EXPORTS.isdisjoint(
+        _top_level_bound_names(task_route_trees["api/task_routes.py"])
+    )
+
+
+def test_api_router_compatibility_facades_are_deleted() -> None:
+    search_routes_tree = ast.parse(
+        (ROOT / "api/search_routes.py").read_text(encoding="utf-8")
+    )
+    task_dispatch_tree = ast.parse(
+        (ROOT / "api/task_dispatch.py").read_text(encoding="utf-8")
+    )
+
+    assert not (ROOT / "api/search_support.py").exists()
+    assert SEARCH_ROUTE_COMPATIBILITY_EXPORTS.isdisjoint(
+        _top_level_bound_names(search_routes_tree)
+    )
+    assert "_CeleryTaskProxy" not in _top_level_bound_names(task_dispatch_tree)
+    assert TASK_PROXY_GLOBALS.isdisjoint(_top_level_bound_names(task_dispatch_tree))
+
+
+def test_api_main_patch_guard_allows_only_assembly_and_database_exports(
+    tmp_path: Path,
+) -> None:
+    test_path = tmp_path / "test_router_facade_patches.py"
+    test_path.write_text(
+        "\n".join(
+            (
+                "from api.main import app, get_db",
+                "import api.main as api_main",
+                "from api import main as assembled_api",
+                "from api.main import generate_summary_task",
+                "api_main._lineage_rows",
+                'mocker.patch("api.main.extract_text_task.delay")',
+                'mocker.patch.object(assembled_api, "AsyncResult")',
+                'monkeypatch.setattr(api_main, "_summary_doc_kind_and_hashes", replacement)',
+            )
+        ),
+        encoding="utf-8",
+    )
+
+    alias_references = _search_main_alias_references(
+        test_path,
+        API_MAIN_ROUTER_FACADE_ALIASES,
+    )
+
+    assert alias_references == [
+        "line 4: import generate_summary_task",
+        "line 5: api_main._lineage_rows",
+        "line 6: api.main.extract_text_task.delay",
+        "line 7: patch.object AsyncResult",
+        "line 8: setattr _summary_doc_kind_and_hashes",
+    ]
+
+
+def test_tests_do_not_patch_api_main_router_facade_aliases() -> None:
+    stale_test_patches = {
+        str(test_path.relative_to(ROOT)): alias_references
+        for test_path in _tracked_files()
+        if test_path.suffix == ".py"
+        and test_path.relative_to(ROOT).parts[0] == "tests"
+        and (
+            alias_references := _search_main_alias_references(
+                test_path,
+                API_MAIN_ROUTER_FACADE_ALIASES,
+            )
+        )
+    }
+
+    assert stale_test_patches == {}
 
 
 def test_sync_global_guardrail_detects_top_level_functions(

@@ -1,6 +1,6 @@
 # Town Council Remediation Plan (Codex Multi-Agent)
 
-version: 3.90
+version: 3.92
 generated: 2026-07-26
 source: Four-pass external code review (security, architecture, smells, process)
 source_artifact: [Town Council architecture review](../reviews/architecture-review-2026-07-19.html)
@@ -10,6 +10,15 @@ remains in force; where this plan is stricter, this plan wins for these tasks.
 
 ## Changelog
 
+- **v3.92:** Completes T-DC-2B after deleting API router module-object and
+  callable bags, removing task proxy and search compatibility exports,
+  repointing tests to database and Celery runtime boundaries, and adding exact
+  structural guards for the remaining router contracts.
+- **v3.91:** Activates T-DC-2B with exact ownership to delete module-object
+  router injection, route-level model/callable bags, and task/search/lineage
+  compatibility exports. Routes keep their current database, auth, rate-limit,
+  Celery, response, and startup contracts while tests move to approved runtime
+  boundaries.
 - **v3.90:** Completes T-DC-2A after deleting dynamic search lookup through
   `api.main`, removing seven search patch aliases, repointing routes and tests
   to direct Meilisearch, semantic transport, filter, and trends owners, and
@@ -419,8 +428,8 @@ remains in force; where this plan is stricter, this plan wins for these tasks.
 
 | State | Tasks |
 |---|---|
-| **Complete** | T-CI-0, T-CI-1, T-CI-1A, T-CI-2, T-CI-2A, T-CI-3, T-CI-4, T-CI-5, T-SEC-1, T-SEC-2, T-SEC-3, T-SEC-3C, T-SEC-4, T-SEC-4A, T-SEC-5, T-SEC-6, T-TIME-1, T-TIME-2, T-TIME-3, T-CRAWL-1, T-CRAWL-2, T-PLAT-1, T-PLAT-1A, T-PLAT-2, T-PLAT-2A, T-PLAT-2B, T-PLAT-2C, T-PLAT-3, T-PLAT-4, T-GOV-1, T-GOV-2, T-GOV-2A, T-GOV-3, T-GOV-3A, T-GOV-3B, T-GOV-4, T-GOV-5, T-GOV-6, T-DA-1, T-DB-1A, T-DB-1, T-DB-1B, T-DC-1, T-DC-2A, T-DD-1A, T-DD-1B, T-DE-1, T-DE-2 |
-| **Pending** | T-DC-2B, T-TASK-1, T-SEM-1, T-IDX-1, T-FE-1 |
+| **Complete** | T-CI-0, T-CI-1, T-CI-1A, T-CI-2, T-CI-2A, T-CI-3, T-CI-4, T-CI-5, T-SEC-1, T-SEC-2, T-SEC-3, T-SEC-3C, T-SEC-4, T-SEC-4A, T-SEC-5, T-SEC-6, T-TIME-1, T-TIME-2, T-TIME-3, T-CRAWL-1, T-CRAWL-2, T-PLAT-1, T-PLAT-1A, T-PLAT-2, T-PLAT-2A, T-PLAT-2B, T-PLAT-2C, T-PLAT-3, T-PLAT-4, T-GOV-1, T-GOV-2, T-GOV-2A, T-GOV-3, T-GOV-3A, T-GOV-3B, T-GOV-4, T-GOV-5, T-GOV-6, T-DA-1, T-DB-1A, T-DB-1, T-DB-1B, T-DC-1, T-DC-2A, T-DC-2B, T-DD-1A, T-DD-1B, T-DE-1, T-DE-2 |
+| **Pending** | T-TASK-1, T-SEM-1, T-IDX-1, T-FE-1 |
 
 ---
 
@@ -1451,9 +1460,21 @@ files (GED-5 grant).
 
 ### T-DC-2B: Delete API router facade bags
 - priority: P2
-- status: pending Full plan and exact ownership
-- depends_on: T-DC-2A
-- files_owned: to be named in a separate Full plan before implementation
+- status: complete; facade bags deleted and direct runtime boundaries verified
+- depends_on: T-DC-2A (satisfied by PR #211)
+- implementation_plan: `docs/plans/T_DC_2B_API_ROUTER_FACADE_DELETION_PLAN.md`
+- files_owned: the implementation plan and ledger; `api/main.py`;
+  `api/search_routes.py`; `api/search_support.py` (delete);
+  `api/lineage_routes.py`; `api/catalog_routes.py`;
+  new `api/catalog_summary_state.py`; `api/task_routes.py`;
+  `api/task_dispatch.py`; `api/task_route_generation.py`;
+  `api/task_route_segmentation.py`; `api/task_route_summary.py`;
+  `api/task_route_support.py`; `tests/test_api.py`; `tests/test_async_flow.py`;
+  `tests/test_catalog_lineage_endpoint.py`; `tests/test_extract_endpoint.py`;
+  `tests/test_summary_staleness.py`; `tests/test_topics_staleness.py`;
+  `tests/test_task_facade_cleanup.py`; `tests/test_search_support_facade.py`
+  (delete); `tests/test_repository_guardrails.py`; `ARCHITECTURE.md`;
+  `docs/ADR.md`; `docs/PIPELINE.md`; `docs/TESTING.MD`
 - do: Replace `sys.modules[__name__]`, `lineage_facade`, `task_facade`, and
   route-level model/callable bags with direct imports and approved runtime
   boundaries.
@@ -2130,9 +2151,7 @@ Gate:    G3 satisfied (T-GOV-1 Accepted ADR + active docs/TESTING.MD)
 Phase 2: completed foundations [T-DA-1, T-DB-1A, T-DB-1, T-DB-1B,
          T-DC-1, T-DD-1A, T-DD-1B, T-DE-1]
 Next:    Serialize each task's Full-plan registration through this ledger.
-         After ownership approval, T-DE-2 and T-SEM-1 may run in parallel only
-         if their implementation files are disjoint; T-DC-2A then T-DC-2B;
-         T-TASK-1 separately.
+         T-TASK-1 is next; T-SEM-1 follows its separate ownership review.
 Phase 3: agent-plat [T-PLAT-1 after T-TIME-1 and T-TIME-2, T-PLAT-1A
          closure, T-PLAT-2B security patch, then T-PLAT-2..4; complete]
          || agent-gov [T-GOV-2 policy and T-GOV-2A runtime enforcement

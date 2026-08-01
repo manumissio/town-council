@@ -35,14 +35,14 @@ def test_topics_endpoint_returns_stale_when_hash_mismatches(mocker):
         yield db
 
     app.dependency_overrides[get_db] = _mock_get_db
-    delay = mocker.patch("api.main.generate_topics_task.delay")
+    send_task = mocker.patch("api.task_dispatch.celery_app.send_task")
     try:
         resp = client.post("/topics/1", headers={"X-API-Key": VALID_KEY})
         assert resp.status_code == 200
         payload = resp.json()
         assert payload["status"] == "stale"
         assert payload["topics"] == ["Old", "Topics"]
-        delay.assert_not_called()
+        send_task.assert_not_called()
     finally:
         del app.dependency_overrides[get_db]
 

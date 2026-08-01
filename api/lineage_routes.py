@@ -53,7 +53,6 @@ def _catalog_lineage_meeting_summary(catalog: Catalog, event: Event, place: Plac
 def build_lineage_router(
     limiter: Any,
     get_db_dependency: Callable[..., Any],
-    lineage_facade: Any,
 ) -> APIRouter:
     router = APIRouter()
 
@@ -66,7 +65,7 @@ def build_lineage_router(
         db: SQLAlchemySession = Depends(get_db_dependency),
     ) -> dict[str, Any]:
         _ = request
-        rows = lineage_facade._lineage_rows(db, lineage_id=lineage_id, min_confidence=min_confidence)
+        rows = _lineage_rows(db, lineage_id=lineage_id, min_confidence=min_confidence)
         if not rows:
             raise HTTPException(status_code=404, detail=LINEAGE_NOT_FOUND_DETAIL)
         meetings = [_lineage_meeting_summary(catalog, event, place) for catalog, _doc, event, place in rows]
@@ -91,7 +90,7 @@ def build_lineage_router(
                 "count": 0,
                 "meetings": [],
             }
-        rows = lineage_facade._lineage_rows(db, lineage_id=catalog.lineage_id, min_confidence=min_confidence)
+        rows = _lineage_rows(db, lineage_id=catalog.lineage_id, min_confidence=min_confidence)
         meetings = [_catalog_lineage_meeting_summary(catalog_row, event, place) for catalog_row, _doc, event, place in rows]
         return {
             "catalog_id": catalog_id,

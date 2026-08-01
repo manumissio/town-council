@@ -1485,3 +1485,37 @@ Use each entry to record:
   - [docs/TESTING.MD](TESTING.MD)
   - [SECURITY.md](../SECURITY.md)
   - [T-DC-2A implementation plan](plans/T_DC_2A_SEARCH_MAIN_LOOKUP_DELETION_PLAN.md)
+
+## 2026-07-31: Delete API router facade bags
+
+- Status: Accepted
+- Decision:
+  - `api/main.py` assembles routers without passing its module object or
+    republishing route implementation symbols.
+  - Lineage and task routers call their implementation owners directly; only
+    the limiter, database dependency, and API-key dependency remain builder
+    inputs.
+  - `api/task_dispatch.py` sends named tasks through Celery and owns broker
+    failure mapping without task proxy objects.
+  - `api/search_routes.py` only aggregates routers. Delete the pure
+    `api/search_support.py` re-export facade.
+  - Tests use database, Celery dispatch, Celery result, Meilisearch, and
+    outbound HTTP boundaries instead of `api.main` patch aliases.
+- Why:
+  - Module-object injection and model/callable bags existed to preserve test
+    patch points, not to satisfy runtime dependency boundaries.
+  - G3 requires direct implementation ownership and prohibits new test-seam
+    wrappers or compatibility exports.
+  - Deleting the indirection leaves route paths, authentication, rate limits,
+    Celery task identity, payloads, startup, and search behavior unchanged.
+- Supersedes:
+  - Compatibility-facade portions of the 2026-04-17 catalog split, 2026-04-20
+    lineage split, 2026-04-22 search split, 2026-05-09 Wave 2 seam split, and
+    2026-05-10 task-route split. Their route allocation and runtime behavior
+    decisions remain active.
+- Canonical references:
+  - [ARCHITECTURE.md](../ARCHITECTURE.md)
+  - [docs/PIPELINE.md](PIPELINE.md)
+  - [docs/TESTING.MD](TESTING.MD)
+  - [SECURITY.md](../SECURITY.md)
+  - [T-DC-2B implementation plan](plans/T_DC_2B_API_ROUTER_FACADE_DELETION_PLAN.md)
