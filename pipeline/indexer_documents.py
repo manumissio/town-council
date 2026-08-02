@@ -20,11 +20,6 @@ def _strip_any_html(value: str | None) -> str | None:
     return cleaned
 
 
-def _select_official_memberships_for_event(organization, record_date):
-    # Event.organization_id is heuristic, so it cannot authorize people in search results.
-    return []
-
-
 def _truncate_content_for_index(content: str | None) -> tuple[str | None, bool, int, int]:
     """
     Truncate content for search indexing and return observability metadata.
@@ -57,7 +52,6 @@ def _build_meeting_search_doc(
     organization,
     *,
     content_truncator=_truncate_content_for_index,
-    membership_selector=_select_official_memberships_for_event,
     meeting_category_resolver=_meeting_category,
 ) -> dict:
     indexed_content, is_content_truncated, original_chars, indexed_chars = content_truncator(catalog.content)

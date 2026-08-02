@@ -69,7 +69,6 @@ class ReplacementIndex:
             "meeting_type",
             "meeting_category",
             "organization",
-            "people",
             "date",
             "organizations",
             "result_type",
@@ -93,7 +92,6 @@ class ReplacementIndex:
             "locations",
             "meeting_category",
             "organization",
-            "people",
         ]
 
     def get_ranking_rules(self):

@@ -233,7 +233,8 @@ PYTHONPATH=. .venv/bin/pytest -q \
   tests/test_indexer_logic.py \
   tests/test_api.py \
   tests/test_repository_guardrails.py
-cd frontend && npm test -- --test-name-pattern='people projection'
+cd frontend && node --test --test-name-pattern='people projection' \
+  components/__tests__/*.test.js
 ```
 
 Final verification:
@@ -267,7 +268,7 @@ Operational acceptance during the deployment maintenance window:
 REINDEX_COMPOSE=(docker compose -f docker-compose.yml -f docker-compose.dev.yml)
 "${REINDEX_COMPOSE[@]}" stop \
   api crawler pipeline pipeline-batch extractor worker enrichment-worker \
-  semantic-worker nlp tables topics
+  semantic semantic-worker nlp tables topics
 "${REINDEX_COMPOSE[@]}" up -d postgres redis meilisearch
 "${REINDEX_COMPOSE[@]}" run --rm --no-deps pipeline \
   python reindex_only.py --replace-all

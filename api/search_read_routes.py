@@ -7,7 +7,6 @@ from meilisearch.errors import MeilisearchCommunicationError, MeilisearchError, 
 from api.search import support_core
 from api.search_read_meilisearch import run_lexical_search
 from api.search_read_params import SEARCH_LIMIT_DEFAULT, SEARCH_LIMIT_MAX, build_lexical_search_params, validate_search_date_range
-from api.search_read_results import truncate_people_metadata
 from api.search_semantic_routes import search_documents_semantic
 
 SEARCH_METADATA_CACHE_SECONDS = 3600
@@ -64,7 +63,6 @@ def search_documents(
             offset=offset,
         )
         results = run_lexical_search(index, q, search_params)
-        truncate_people_metadata(results)
 
         support_core.logger.info("Search query=%r city=%r returned %s hits", q, city, len(results["hits"]))
         return results

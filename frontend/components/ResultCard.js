@@ -2,7 +2,7 @@ import { useState, useEffect, useMemo, useRef } from "react";
 import DOMPurify from "isomorphic-dompurify";
 import { 
   MapPin, Calendar, FileText, ExternalLink, ChevronUp, ChevronDown, 
-  Sparkles, Building2, UserCircle, Table as TableIcon, Loader2, Link2,
+  Sparkles, Building2, Table as TableIcon, Loader2, Link2,
   Flag, AlertCircle, CheckCircle, Info
 } from "lucide-react";
 import DataTable from "./DataTable";
@@ -115,10 +115,9 @@ function pollTaskStatus(taskId, callback, onError, type = "summary") {
  * DESIGN: Uses a tabbed interface for Full Text, AI Summary, and Structured Agenda.
  * All AI features are "On-Demand" to minimize API costs and respect rate limits.
  */
-export default function ResultCard({ hit, onPersonClick, onTopicClick }) {
+export default function ResultCard({ hit, onTopicClick }) {
   const activePollStopsRef = useRef([]);
   const [isExpanded, setIsExpanded] = useState(false);
-  const [showAllOfficials, setShowAllOfficials] = useState(false);
   const [viewMode, setViewMode] = useState("text"); // 'text', 'summary', 'agenda'
   
   const [summary, setSummary] = useState(hit.summary);
@@ -658,30 +657,6 @@ export default function ResultCard({ hit, onPersonClick, onTopicClick }) {
                   ))}
                 </div>
               </div>
-            )}
-          </div>
-        )}
-
-        {hit.people_metadata && hit.people_metadata.length > 0 && (
-          <div className="mb-4 flex flex-wrap items-center gap-2">
-            <span className="text-[10px] font-bold text-gray-400 uppercase tracking-widest mr-1">Officials:</span>
-            {(showAllOfficials ? hit.people_metadata : hit.people_metadata.slice(0, 5)).map((person) => (
-              <button 
-                key={person.id}
-                onClick={() => onPersonClick(person.id)}
-                className="inline-flex items-center gap-1 px-2.5 py-1 bg-white border border-gray-200 text-gray-600 text-[11px] font-bold rounded-lg hover:border-blue-300 hover:text-blue-600 hover:bg-blue-50 transition-all shadow-sm"
-              >
-                <UserCircle className="w-3.5 h-3.5" />
-                {person.name}
-              </button>
-            ))}
-            {hit.people_metadata.length > 5 && (
-              <button 
-                onClick={() => setShowAllOfficials(!showAllOfficials)}
-                className="text-[10px] text-blue-600 font-bold hover:underline transition-all"
-              >
-                {showAllOfficials ? "Show Less" : `+${hit.people_metadata.length - 5} more`}
-              </button>
             )}
           </div>
         )}

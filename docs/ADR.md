@@ -22,6 +22,10 @@ Use each entry to record:
     become people metadata or cross-document person aggregation.
   - Meeting `people_metadata` is omitted because current event-to-body linkage
     is heuristic.
+  - The obsolete meeting-index field, lexical response adapter, and
+    search-driven profile UI were deleted on 2026-08-02. A future meeting
+    projection still requires independently authoritative event-to-body
+    identity and separate authorization.
   - Cities without a current approved roster source fail closed.
   - Outside enrichment of private individuals remains prohibited.
   - Corrections remove or repair derived records and indexes. Source documents

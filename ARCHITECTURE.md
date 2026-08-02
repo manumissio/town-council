@@ -1,6 +1,6 @@
 # Town Council Architecture (2026)
 
-Last updated: 2026-07-31
+Last updated: 2026-08-02
 
 ## 1) System Overview
 
@@ -154,7 +154,7 @@ flowchart LR
 3. `pipeline/roster_sync.py` atomically reconciles roster-backed people and memberships for the approved body.
 4. A valid empty OfficeRecords roster clears the approved body. Transport failures and invalid payloads preserve the last verified database snapshot.
 5. Current registry revocation depublishes stored roster rows immediately. Cities without current approval fail closed.
-6. Meeting search documents omit `people_metadata` because event-to-body linkage is heuristic and therefore cannot establish roster authority.
+6. The current meeting-search people projection is removed because event-to-body linkage is heuristic and therefore cannot establish roster authority. Roster-backed people APIs remain separate.
 
 #### City onboarding and rollout evaluation
 1. `scripts/onboard_city_wave.sh` runs wave-scoped crawl attempts and records per-run artifacts.
@@ -480,7 +480,7 @@ Owners:
 | `agenda_item.result` | Normalized outcome field for agenda/vote interpretation | `pipeline/models.py` facade plus focused `pipeline/model_*` modules, `pipeline/vote_extractor.py`, `pipeline/task_vote_extraction.py`, `pipeline/task_agenda_segmentation.py` |
 | `agenda_item.votes` | Structured vote payload with extraction metadata | `pipeline/models.py` facade plus focused `pipeline/model_*` modules, `pipeline/vote_extractor.py`, `pipeline/task_vote_extraction.py`, `pipeline/task_agenda_segmentation.py` |
 | `organization`, `person`, `membership` roster provenance | Legistar body, person, and OfficeRecord identities plus source URL and UTC synchronization metadata; publication also requires current registry approval | `pipeline/model_civic.py`, `pipeline/legistar_roster.py`, `pipeline/roster_sync.py`, `api/people_routes.py` |
-| Meeting `people_metadata` | Omitted until events have independently authoritative governing-body identity | `pipeline/indexer_documents.py` |
+| Meeting people projection | No current index or search-response field; a future projection requires independently authoritative governing-body identity | `docs/DATA_GOVERNANCE.md`, `api/people_routes.py` |
 | `catalog.lineage_id`, `catalog.lineage_confidence`, `catalog.lineage_updated_at` | Meeting-level lineage identity and confidence | `pipeline/lineage_service.py` facade plus focused `pipeline/lineage_*` helpers, `api/main.py`, `api/lineage_routes.py` |
 | `semantic_embedding` | pgvector-backed embedding storage for hybrid semantic retrieval | `pipeline/models.py` facade plus focused `pipeline/model_*` modules, `pipeline/semantic_backend_runtime.py`, `pipeline/semantic_pgvector_backend.py`, focused semantic backend helpers, `pipeline/semantic_tasks.py` |
 
