@@ -299,7 +299,7 @@ Use each entry to record:
 - Status: Accepted
 - Decision:
   - Batch F keeps complexity cleanup behind stable facades and enrolls the merged helper modules in repository guardrails.
-  - `api/search_read_routes.py` remains the `/search` and `/metadata` route facade while `api/search_read_*` helpers own lexical parameter building, Meilisearch error mapping, and people metadata truncation.
+  - `api/search_read_routes.py` remains the `/search` and `/metadata` route facade while `api/search_read_*` helpers own lexical parameter building and Meilisearch error mapping. The 2026-08-02 T-IDX decision supersedes this entry's former people-metadata truncation ownership.
   - `pipeline/city_coverage_audit.py` remains the city coverage audit contract while `pipeline/city_coverage_*` helpers own contracts, month windows, bucket ingestion, SQL row loading, and summary assembly.
   - `pipeline/lineage_service.py` remains the lineage assignment entrypoint while `pipeline/lineage_*` helpers own graph construction, confidence calculation, and catalog row mutation.
   - `scripts/operator_profile_ab.py` remains the operator A/B report facade while `scripts/operator_profile_ab_aggregate.py` owns arm aggregation.
