@@ -11,8 +11,8 @@ remains in force; where this plan is stricter, this plan wins for these tasks.
 ## Changelog
 
 - **v4.04:** Expands T-FE-1A ownership to the frontend package manifest and
-  lockfile after PR review found that the re-extraction cancellation contract
-  still relied on whole-file source inspection. Authorizes exact
+  lockfile after PR review found that re-extraction cancellation and agenda
+  settlement still relied on whole-file source inspection. Authorizes exact
   `jsdom@28.1.0` test support so the existing compiled `ResultCard` can be
   mounted, exercised, and unmounted through observable DOM behavior.
 - **v4.03:** Completes T-FE-1A after replacing source-token polling checks

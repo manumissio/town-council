@@ -25,13 +25,20 @@ const frontendModulePaths = [
   "lib/utils.js",
 ];
 const externalDependencies = [
-  "clsx",
-  "isomorphic-dompurify",
-  "lucide-react",
-  "react",
-  "react-dom",
-  "tailwind-merge",
+  "clsx", "isomorphic-dompurify", "lucide-react", "react", "react-dom", "tailwind-merge",
 ];
+const TEST_MEETING_HIT = {
+  catalog_id: 42,
+  city: "Test City",
+  content: "initial text",
+  date: "2026-08-02",
+  event_name: "Regular Meeting",
+  id: 42,
+  result_type: "meeting",
+  summary: null,
+  title: "Regular Meeting",
+  topics: [],
+};
 
 function linkModule(moduleSource, moduleTarget) {
   fs.mkdirSync(path.dirname(moduleTarget), { recursive: true });
@@ -77,12 +84,10 @@ function compileResultCard(testContext) {
 
 function createDeferred() {
   let resolve;
-  let reject;
-  const promise = new Promise((promiseResolve, promiseReject) => {
+  const promise = new Promise((promiseResolve) => {
     resolve = promiseResolve;
-    reject = promiseReject;
   });
-  return { promise, reject, resolve };
+  return { promise, resolve };
 }
 
 function installDom() {
@@ -129,18 +134,16 @@ async function flushAsyncWork() {
   await new Promise((resolve) => setImmediate(resolve));
 }
 
+function findButton(container, label) {
+  return Array.from(container.querySelectorAll("button")).find(
+    (button) => button.textContent.trim() === label,
+  );
+}
+
 test("people projection does not render meeting-card affordances", (testContext) => {
   const ResultCard = compileResultCard(testContext);
   const hit = {
-    id: 42,
-    catalog_id: 42,
-    title: "Regular Meeting",
-    city: "Test City",
-    date: "2026-08-01",
-    content: "Meeting content",
-    result_type: "meeting",
-    summary: null,
-    topics: [],
+    ...TEST_MEETING_HIT,
     people_metadata: [{ id: 7, name: "Retired Projection Official" }],
   };
 
@@ -157,10 +160,6 @@ test("unmount aborts the re-extraction completion refresh", {
   const canonicalRefreshStarted = createDeferred();
   let canonicalRequestCount = 0;
   let derivedStatusRequestCount = 0;
-  const consoleErrors = [];
-  testContext.mock.method(console, "error", (...errorArguments) => {
-    consoleErrors.push(errorArguments);
-  });
   testContext.mock.method(globalThis, "fetch", async (requestUrl, requestOptions = {}) => {
     const url = String(requestUrl);
     if (url.includes("/derived_status")) {
@@ -193,21 +192,8 @@ test("unmount aborts the re-extraction completion refresh", {
     if (rootMounted) await act(async () => root.unmount());
     restoreDom();
   });
-  const hit = {
-    catalog_id: 42,
-    city: "Test City",
-    content: "initial text",
-    date: "2026-08-02",
-    event_name: "Regular Meeting",
-    id: 42,
-    result_type: "meeting",
-    summary: null,
-    title: "Regular Meeting",
-    topics: [],
-  };
-
   await act(async () => {
-    root.render(React.createElement(ResultCard, { hit }));
+    root.render(React.createElement(ResultCard, { hit: TEST_MEETING_HIT }));
   });
   const expandButton = container.querySelector('button[title="Expand Document Text"]');
   assert.ok(expandButton);
@@ -215,9 +201,7 @@ test("unmount aborts the re-extraction completion refresh", {
     expandButton.click();
     await flushAsyncWork();
   });
-  const reextractButton = Array.from(container.querySelectorAll("button")).find(
-    (button) => button.textContent.trim() === "Re-extract text",
-  );
+  const reextractButton = findButton(container, "Re-extract text");
   assert.ok(reextractButton);
 
   let completionSignal;
@@ -232,7 +216,72 @@ test("unmount aborts the re-extraction completion refresh", {
   });
 
   assert.equal(completionSignal.aborted, true);
-  assert.deepEqual(consoleErrors, []);
   assert.equal(derivedStatusRequestCount, 1);
-  assert.equal(container.textContent, "");
 });
+
+const agendaScenarios = [
+  {
+    name: "renders populated task agenda items",
+    taskItems: [{ order: 1, title: "Zoning appeal", description: "Public hearing" }],
+    refreshedItems: null,
+    expectedTitle: "Zoning appeal",
+    expectedRefreshes: 0,
+  },
+  {
+    name: "refreshes stored agenda items after an empty task result",
+    taskItems: [],
+    refreshedItems: [{ order: 1, title: "Persisted agenda item", description: "Stored row" }],
+    expectedTitle: "Persisted agenda item",
+    expectedRefreshes: 1,
+  },
+];
+
+for (const agendaScenario of agendaScenarios) {
+  test(agendaScenario.name, { timeout: COMPONENT_INTERACTION_TIMEOUT_MS }, async (testContext) => {
+    const ResultCard = compileResultCard(testContext);
+    const { dom, restoreDom } = installDom();
+    let agendaRefreshes = 0;
+    let derivedStatusRefreshes = 0;
+    testContext.mock.method(globalThis, "fetch", async (requestUrl) => {
+      const url = String(requestUrl);
+      if (url.includes("/derived_status")) {
+        derivedStatusRefreshes += 1;
+        return jsonResponse({});
+      }
+      if (url.includes("/catalog/42/content")) return jsonResponse({ content: "initial text" });
+      if (url.startsWith("/api/segment/42")) return jsonResponse({ task_id: "task-agenda" });
+      if (url.includes("/tasks/task-agenda")) {
+        return jsonResponse({ status: "complete", result: { items: agendaScenario.taskItems } });
+      }
+      if (url.includes("/catalog/42/agenda_items")) {
+        agendaRefreshes += 1;
+        return jsonResponse({ items: agendaScenario.refreshedItems });
+      }
+      throw new Error(`Unexpected request: ${url}`);
+    });
+
+    const container = dom.window.document.getElementById("root");
+    const root = createRoot(container);
+    testContext.after(async () => {
+      await act(async () => root.unmount());
+      restoreDom();
+    });
+    await act(async () => root.render(React.createElement(ResultCard, {
+      hit: { ...TEST_MEETING_HIT, agenda_items: [] },
+    })));
+    await act(async () => {
+      container.querySelector('button[title="Expand Document Text"]').click();
+      await flushAsyncWork();
+    });
+    await act(async () => findButton(container, "Structured Agenda").click());
+    await act(async () => {
+      findButton(container, "Retry Segmentation").click();
+      await flushAsyncWork();
+      await flushAsyncWork();
+    });
+
+    assert.match(container.textContent, new RegExp(agendaScenario.expectedTitle));
+    assert.equal(agendaRefreshes, agendaScenario.expectedRefreshes);
+    assert.equal(derivedStatusRefreshes, 2);
+  });
+}

@@ -73,9 +73,9 @@ comparability, and person-data policy remain unchanged.
 8. Run frontend and repository verification, simplify the diff, obtain an
    independent pre-commit review, apply eligible findings, then commit, push,
    open a PR, and watch CI.
-9. Replace the remaining re-extraction source assertion with a mounted
-   `ResultCard` behavior test after PR review. Declare exact test-only
-   `jsdom@28.1.0` rather than relying on its transitive installation.
+9. Replace the remaining re-extraction and agenda-settlement source assertions
+   with mounted `ResultCard` behavior tests after PR review. Declare exact
+   test-only `jsdom@28.1.0` rather than relying on its transitive installation.
 
 New module responsibility: `frontend/lib/taskPolling.js` owns only the shared
 background-task polling lifecycle. Import direction is component to library;
@@ -177,6 +177,7 @@ its single owner; component size decreases.
 | stop clears scheduled retry | 8 |
 | existing ResultCard Python/frontend tests | 2, 11 |
 | mounted re-extraction cancellation | 10, 12 |
+| mounted populated and empty agenda settlement | 2, 11 |
 
 Tests are written and run red before the production extraction. They use
 `node:test` context mocks around global `fetch` and timers, not implementation
