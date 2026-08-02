@@ -51,7 +51,6 @@ SEARCH_RESULT_ATTRIBUTES_TO_RETRIEVE = [
     "related_ids",
     "summary_is_stale",
     "topics_is_stale",
-    "people_metadata",
 ]
 SEARCH_RESULT_ATTRIBUTES_TO_CROP = ["content", "description"]
 SEARCH_RESULT_ATTRIBUTES_TO_HIGHLIGHT = ["content", "title", "description"]

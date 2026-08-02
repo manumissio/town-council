@@ -1,6 +1,6 @@
 # Operations Runbook
 
-Last updated: 2026-08-01
+Last updated: 2026-08-02
 
 ## Core workflow
 
@@ -662,8 +662,13 @@ Roster synchronization has two distinct source outcomes:
 - a successful governing-body change depublishes the superseded body's roster
   in the same transaction as the replacement roster.
 
-Meeting search records omit `people_metadata`. Current event-to-governing-body
-linkage is heuristic and cannot authorize meeting-specific person publication.
+The current meeting-search index settings, response contract, and frontend
+contain no people projection. Current event-to-governing-body linkage is
+heuristic and cannot authorize meeting-specific person publication.
+Roster-backed people APIs remain separate. A deployment containing this
+deletion must run the replacement reindex below while readers and writers are
+stopped; otherwise pre-transition Meilisearch documents may retain retired
+fields.
 
 Use one maintenance window for the transition. Stop every writer, verify the
 backup, confirm the dry-run and apply inventories are identical, migrate,
@@ -677,7 +682,7 @@ ROSTER_COMPOSE=(docker compose -f docker-compose.yml -f docker-compose.dev.yml)
 
 "${ROSTER_COMPOSE[@]}" stop \
   api crawler pipeline pipeline-batch extractor worker enrichment-worker \
-  semantic-worker nlp tables topics
+  semantic semantic-worker nlp tables topics
 "${ROSTER_COMPOSE[@]}" up -d postgres
 
 bash ./scripts/backup_db.sh "$BACKUP_PATH"

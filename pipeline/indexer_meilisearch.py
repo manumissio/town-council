@@ -18,7 +18,6 @@ FILTERABLE_ATTRIBUTES = (
     "meeting_type",
     "meeting_category",
     "organization",
-    "people",
     "date",
     "organizations",
     "result_type",
@@ -38,7 +37,6 @@ SEARCHABLE_ATTRIBUTES = (
     "locations",
     "meeting_category",
     "organization",
-    "people",
 )
 RANKING_RULES = ("sort", "words", "typo", "proximity", "attribute", "exactness")
 

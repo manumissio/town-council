@@ -5,7 +5,7 @@ from collections.abc import Iterable
 import meilisearch
 from meilisearch.errors import MeilisearchError
 from meilisearch.index import Index
-from sqlalchemy.orm import Session, selectinload
+from sqlalchemy.orm import Session
 
 from pipeline.config import MEILISEARCH_BATCH_SIZE
 from pipeline.db_session import db_session
@@ -13,7 +13,6 @@ from pipeline.indexer_documents import (
     _build_agenda_item_search_doc as _build_agenda_item_search_doc_impl,
     _build_meeting_search_doc as _build_meeting_search_doc_impl,
     _meeting_category as _meeting_category,
-    _select_official_memberships_for_event as _select_official_memberships_for_event,
     _strip_any_html as _strip_any_html,
     _truncate_content_for_index,
 )
@@ -28,7 +27,7 @@ from pipeline.indexer_meilisearch import (
     _wait_for_documents_index_idle,
     _wait_for_task_success,
 )
-from pipeline.models import AgendaItem, Catalog, Document, Event, Membership, Organization, Place
+from pipeline.models import AgendaItem, Catalog, Document, Event, Organization, Place
 
 # Configuration for connecting to the Meilisearch search engine.
 MEILI_HOST = os.getenv("MEILI_HOST", "http://meilisearch:7700")
@@ -62,7 +61,6 @@ def _build_meeting_search_doc(doc, catalog, event, place, organization) -> dict:
         place,
         organization,
         content_truncator=_truncate_content_for_index,
-        membership_selector=_select_official_memberships_for_event,
         meeting_category_resolver=_meeting_category,
     )
 
@@ -112,7 +110,6 @@ def _document_rows(session):
         .join(Place, Document.place_id == Place.id)
         .outerjoin(Organization, Event.organization_id == Organization.id)
         .filter(Catalog.content.isnot(None), Catalog.content != "")
-        .options(selectinload(Organization.memberships).selectinload(Membership.person))
         .yield_per(20)
     )
 
@@ -135,7 +132,6 @@ def _catalog_document_rows(session, catalog_id: int):
         .join(Place, Document.place_id == Place.id)
         .outerjoin(Organization, Event.organization_id == Organization.id)
         .filter(Catalog.id == catalog_id)
-        .options(selectinload(Organization.memberships).selectinload(Membership.person))
         .all()
     )
 

@@ -5,7 +5,6 @@ import { Database, Github, Info, Loader2, Search as SearchIcon } from "lucide-re
 
 import SearchHub from "../components/SearchHub";
 import ResultCard from "../components/ResultCard";
-import PersonProfile from "../components/PersonProfile";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { buildApiUrl, getApiHeaders, isDemoMode } from "../lib/api";
 import { SearchStateProvider, useSearchState } from "../state/search-state";
@@ -40,8 +39,6 @@ function HomeContent() {
   const [availableCities, setAvailableCities] = useState([]);
   const [availableOrgs, setAvailableOrgs] = useState([]);
 
-  // Person Profile Modal State
-  const [selectedPersonId, setSelectedPersonId] = useState(null);
   const demoMode = isDemoMode();
 
   /**
@@ -296,7 +293,6 @@ function HomeContent() {
                   <ResultCard 
                     key={hit.id} 
                     hit={hit} 
-                    onPersonClick={(id) => setSelectedPersonId(id)}
                     onTopicClick={(topic) => setQuery(topic)}
                   />
                 ))}
@@ -355,11 +351,6 @@ function HomeContent() {
           </div>
         </footer>
 
-        {/* Overlays */}
-        <PersonProfile 
-          personId={selectedPersonId} 
-          onClose={() => setSelectedPersonId(null)} 
-        />
       </div>
     </TooltipProvider>
   );

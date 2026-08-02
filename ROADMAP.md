@@ -89,9 +89,10 @@ evidence belongs in the active Sunnyvale finalization item below.
 
 People and memberships now come only from currently approved Legistar
 OfficeRecords rosters. Document-derived, title-inferred, and fuzzy person
-linking has been retired. Cities without current roster approval fail closed,
-and meeting search records omit `people_metadata` while event-to-body linkage
-remains heuristic.
+linking has been retired. Cities without current roster approval fail closed.
+The obsolete meeting-search people projection and search-driven profile UI are
+removed while event-to-body linkage remains heuristic; roster-backed people
+APIs remain available.
 
 ## Active
 

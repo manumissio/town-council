@@ -299,26 +299,17 @@ def test_search_sort_rejected_by_meilisearch_returns_actionable_400(mocker):
     assert "reindex_only.py" in response.json()["detail"]
 
 
-def test_search_truncates_people_metadata_in_hits_and_formatted_hits(mocker):
-    people_metadata = [{"name": f"Person {idx}"} for idx in range(12)]
+def test_search_does_not_request_people_projection(mocker):
     mock_index = mocker.Mock()
-    mock_index.search.return_value = {
-        "hits": [
-            {
-                "people_metadata": list(people_metadata),
-                "_formatted": {"people_metadata": list(people_metadata)},
-            }
-        ],
-        "estimatedTotalHits": 1,
-    }
+    mock_index.search.return_value = {"hits": [], "estimatedTotalHits": 0}
     mocker.patch("api.search.support_core.client.index", return_value=mock_index)
 
     response = client.get("/search?q=zoning", headers={"X-API-Key": VALID_KEY})
 
     assert response.status_code == 200
-    hit = response.json()["hits"][0]
-    assert len(hit["people_metadata"]) == 10
-    assert len(hit["_formatted"]["people_metadata"]) == 10
+    search_params = mock_index.search.call_args.args[1]
+    assert "people_metadata" not in search_params["attributesToRetrieve"]
+    assert "people" not in search_params["attributesToRetrieve"]
 
 
 def test_search_timeout_returns_503(mocker):

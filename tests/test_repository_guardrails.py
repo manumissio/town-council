@@ -262,7 +262,6 @@ HELPER_FACADE_IMPORT_RULES = (
     ),
     ("api/search_read_meilisearch.py", ("api.search_read_routes",)),
     ("api/search_read_params.py", ("api.search_read_routes",)),
-    ("api/search_read_results.py", ("api.search_read_routes",)),
     ("pipeline/city_coverage_assembly.py", ("pipeline.city_coverage_audit",)),
     ("pipeline/city_coverage_buckets.py", ("pipeline.city_coverage_audit",)),
     ("pipeline/city_coverage_contracts.py", ("pipeline.city_coverage_audit",)),
@@ -2805,6 +2804,59 @@ def test_summary_backfill_runner_is_the_direct_operation_boundary() -> None:
         "run_summary_hydration_backfill",
     ):
         assert obsolete_name not in tasks_source
+
+
+def test_obsolete_people_index_projection_is_absent() -> None:
+    deleted_paths = (
+        ROOT / "api/search_read_results.py",
+        ROOT / "frontend/components/PersonProfile.js",
+    )
+    assert [
+        str(deleted_path.relative_to(ROOT))
+        for deleted_path in deleted_paths
+        if deleted_path.exists()
+    ] == []
+
+    forbidden_tokens = {
+        "pipeline/indexer.py": (
+            "Membership",
+            "selectinload",
+            "_select_official_memberships_for_event",
+        ),
+        "pipeline/indexer_documents.py": (
+            "_select_official_memberships_for_event",
+            "membership_selector",
+        ),
+        "pipeline/indexer_meilisearch.py": ('"people"',),
+        "api/search/support_core.py": ('"people_metadata"',),
+        "api/search_read_routes.py": (
+            "search_read_results",
+            "truncate_people_metadata",
+        ),
+        "frontend/app/page.js": (
+            "PersonProfile",
+            "selectedPersonId",
+            "onPersonClick",
+        ),
+        "frontend/components/ResultCard.js": (
+            "people_metadata",
+            "showAllOfficials",
+            "onPersonClick",
+            "UserCircle",
+        ),
+    }
+    remaining_tokens = {
+        relative_path: [
+            forbidden_token
+            for forbidden_token in forbidden_tokens[relative_path]
+            if forbidden_token in path_source
+        ]
+        for relative_path in forbidden_tokens
+        for path_source in [(ROOT / relative_path).read_text(encoding="utf-8")]
+    }
+    assert remaining_tokens == {
+        relative_path: [] for relative_path in forbidden_tokens
+    }
 
 
 def test_maintenance_summary_and_staged_hydration_own_runtime_dependencies() -> None:

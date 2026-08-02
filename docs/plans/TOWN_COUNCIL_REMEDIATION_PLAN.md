@@ -1,6 +1,6 @@
 # Town Council Remediation Plan (Codex Multi-Agent)
 
-version: 3.97
+version: 3.98
 generated: 2026-07-26
 source: Four-pass external code review (security, architecture, smells, process)
 source_artifact: [Town Council architecture review](../reviews/architecture-review-2026-07-19.html)
@@ -10,6 +10,10 @@ remains in force; where this plan is stricter, this plan wins for these tasks.
 
 ## Changelog
 
+- **v3.98:** Marks T-SEM-1 complete after PR #216 and activates P1 T-IDX-1
+  with exact 22-file ownership to delete obsolete meeting people projections
+  from indexing, lexical search, and the frontend. Roster-backed people
+  endpoints remain unchanged; deployment requires a replacement reindex.
 - **v3.97:** Completes the T-SEM-1A policy prerequisite and activates T-SEM-1
   with exact 33-file ownership to delete the semantic index facade, reverse
   lookups, and class-bound helper aliases while preserving backend behavior.
@@ -446,9 +450,9 @@ remains in force; where this plan is stricter, this plan wins for these tasks.
 
 | State | Tasks |
 |---|---|
-| **Complete** | T-CI-0, T-CI-1, T-CI-1A, T-CI-2, T-CI-2A, T-CI-3, T-CI-4, T-CI-5, T-SEC-1, T-SEC-2, T-SEC-3, T-SEC-3C, T-SEC-4, T-SEC-4A, T-SEC-5, T-SEC-6, T-TIME-1, T-TIME-2, T-TIME-3, T-CRAWL-1, T-CRAWL-2, T-PLAT-1, T-PLAT-1A, T-PLAT-2, T-PLAT-2A, T-PLAT-2B, T-PLAT-2C, T-PLAT-3, T-PLAT-4, T-GOV-1, T-GOV-2, T-GOV-2A, T-GOV-3, T-GOV-3A, T-GOV-3B, T-GOV-4, T-GOV-5, T-GOV-6, T-DA-1, T-DB-1A, T-DB-1, T-DB-1B, T-DC-1, T-DC-2A, T-DC-2B, T-DD-1A, T-DD-1B, T-DE-1, T-DE-2, T-TASK-1 |
-| **In progress** | T-SEM-1 |
-| **Pending** | T-IDX-1, T-FE-1 |
+| **Complete** | T-CI-0, T-CI-1, T-CI-1A, T-CI-2, T-CI-2A, T-CI-3, T-CI-4, T-CI-5, T-SEC-1, T-SEC-2, T-SEC-3, T-SEC-3C, T-SEC-4, T-SEC-4A, T-SEC-5, T-SEC-6, T-TIME-1, T-TIME-2, T-TIME-3, T-CRAWL-1, T-CRAWL-2, T-PLAT-1, T-PLAT-1A, T-PLAT-2, T-PLAT-2A, T-PLAT-2B, T-PLAT-2C, T-PLAT-3, T-PLAT-4, T-GOV-1, T-GOV-2, T-GOV-2A, T-GOV-3, T-GOV-3A, T-GOV-3B, T-GOV-4, T-GOV-5, T-GOV-6, T-DA-1, T-DB-1A, T-DB-1, T-DB-1B, T-DC-1, T-DC-2A, T-DC-2B, T-DD-1A, T-DD-1B, T-DE-1, T-DE-2, T-TASK-1, T-SEM-1 |
+| **In progress** | T-IDX-1 |
+| **Pending** | T-FE-1 |
 
 ---
 
@@ -1558,7 +1562,7 @@ files (GED-5 grant).
 
 ### T-SEM-1: Delete reverse semantic-index facade lookups
 - priority: P2
-- status: in progress under
+- status: complete and verified 2026-08-02 (PR #216) under
   [T-SEM-1 implementation plan](T_SEM_1_SEMANTIC_FACADE_DELETION_PLAN.md)
 - depends_on: G3 (satisfied by T-GOV-1), T-SEM-1A
 - files_owned: `docs/plans/T_SEM_1_SEMANTIC_FACADE_DELETION_PLAN.md`;
@@ -1599,12 +1603,27 @@ files (GED-5 grant).
 
 ### T-IDX-1: Delete obsolete people index projections
 - priority: P1
-- status: pending a separate Full plan; T-GOV-2A dependency satisfied
+- status: in progress under
+  [T-IDX-1 implementation plan](T_IDX_1_OBSOLETE_PEOPLE_INDEX_PROJECTION_DELETION_PLAN.md)
 - depends_on: T-GOV-2A
-- files_owned: to be named in a separate Full plan
-- do: Remove people-index projection paths and compatibility fields made
-  obsolete by roster-gated person linking. Keep only projections backed by
-  authoritative roster membership and delete superseded title-inference
+- files_owned:
+  `docs/plans/T_IDX_1_OBSOLETE_PEOPLE_INDEX_PROJECTION_DELETION_PLAN.md`;
+  `docs/plans/TOWN_COUNCIL_REMEDIATION_PLAN.md`; `README.md`;
+  `ARCHITECTURE.md`; `ROADMAP.md`; `docs/ADR.md`;
+  `docs/DATA_GOVERNANCE.md`; `docs/OPERATIONS.md`; `pipeline/indexer.py`;
+  `pipeline/indexer_documents.py`; `pipeline/indexer_meilisearch.py`;
+  `api/search/support_core.py`; `api/search_read_routes.py`;
+  `api/search_read_results.py` (delete); `frontend/app/page.js`;
+  `frontend/components/ResultCard.js`;
+  `frontend/components/PersonProfile.js` (delete);
+  `frontend/components/__tests__/ResultCard.people-projection.test.js` (new);
+  `tests/test_api.py`; `tests/test_indexer_logic.py`;
+  `tests/test_indexer_official_roster.py`; `tests/test_repository_guardrails.py`
+- do: Remove all current meeting-search people projection paths and
+  compatibility fields made obsolete by roster-gated person linking. Retain
+  only the separate roster-backed `/people` and `/person/{id}` APIs; a future
+  meeting projection requires independently authoritative event-to-body
+  identity and separate authorization. Delete superseded title-inference
   assumptions rather than translating them.
 - preserve: Source-document availability, non-person search behavior,
   grounding, lineage, and independently authoritative roster evidence.
@@ -2228,14 +2247,13 @@ Gate:    G3 satisfied (T-GOV-1 Accepted ADR + active docs/TESTING.MD)
 Phase 2: completed foundations [T-DA-1, T-DB-1A, T-DB-1, T-DB-1B,
          T-DC-1, T-DD-1A, T-DD-1B, T-DE-1]
 Next:    Serialize each task's Full-plan registration through this ledger.
-         T-SEM-1A is complete; T-SEM-1 is active under exact ownership.
+         T-SEM-1 is complete; T-IDX-1 is active under exact ownership.
 Phase 3: agent-plat [T-PLAT-1 after T-TIME-1 and T-TIME-2, T-PLAT-1A
          closure, T-PLAT-2B security patch, then T-PLAT-2..4; complete]
          || agent-gov [T-GOV-2 policy and T-GOV-2A runtime enforcement
          complete; T-GOV-3A/B and T-GOV-5 complete]
-After:   T-IDX-1 awaits its separate Full plan; T-FE-1 follows behavior-test
-         design. City Coverage Expansion awaits the valid v2 expected-baseline
-         PR.
+After:   T-FE-1 follows behavior-test design. City Coverage Expansion awaits
+         the valid v2 expected-baseline PR.
 ```
 
 Merge policy: one task = one PR, except operator-approved T-TIME-1 +

@@ -7,7 +7,8 @@ change the accessibility of information about identifiable people. This
 document states the project's handling policy.
 
 Status: effective. Decision G4 was approved on 2026-07-26 and runtime
-enforcement landed under T-GOV-2A on 2026-07-31.
+enforcement landed under T-GOV-2A on 2026-07-31. The obsolete meeting-search
+people projection was deleted under T-IDX-1 on 2026-08-02.
 
 ## 1. Data classes
 
@@ -56,8 +57,11 @@ invalid source response preserves the last verified database snapshot. When
 the approved governing body changes, a successful sync depublishes the
 superseded body's roster.
 
-Meeting search records omit `people_metadata` because current event-to-body
-linkage is heuristic and cannot establish roster authority.
+The current meeting-search index and response contracts contain no people
+projection because event-to-body linkage is heuristic and cannot establish
+roster authority. Roster-backed `/people` and `/person/{id}` publication remains
+separate. A future meeting projection requires independently authoritative
+event-to-body identity and separate authorization.
 
 Corrections apply to derived records and indexes. Source documents are not
 modified.

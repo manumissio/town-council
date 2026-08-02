@@ -7,7 +7,7 @@ This project ingests agendas/minutes, extracts text, indexes search content, and
 - Structured agenda segmentation
 - Local-AI summaries
 - Topic tagging
-- Official profile browsing
+- Roster-backed people records through the API
 
 ## Contents
 - [Quickstart](#quickstart)
@@ -307,8 +307,9 @@ source fail closed: their municipal source documents remain searchable, but
 people-facing derived data is not published. Document mentions, titles, and
 fuzzy name matches do not create people or memberships.
 
-Meeting search records omit `people_metadata` because current event-to-body
-linkage is heuristic. See
+The current meeting-search people projection and search-driven profile UI are
+removed because event-to-body linkage is heuristic. Independently roster-backed
+`/people` and `/person/{id}` APIs remain available. See
 [`docs/DATA_GOVERNANCE.md`](docs/DATA_GOVERNANCE.md) for policy and
 [`docs/OPERATIONS.md`](docs/OPERATIONS.md) for roster transition and recovery.
 
