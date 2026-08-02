@@ -91,10 +91,10 @@ separate authorization. T-IDX-1 does not depend on or foreclose G1-G3 or G5.
    independent pre-commit review, apply eligible P1/P2 findings, commit, push,
    open one PR, and watch review/CI to a decided state.
 
-No new production function or module is introduced. The new frontend test is
-an explicit structural regression guard for the deleted search-driven official
-profile path; API and build tests cover observable request and compilation
-behavior.
+No new production function or module is introduced. The new frontend test
+renders the actual ResultCard with retired metadata and verifies that no
+official list or profile affordance appears; API and build tests cover request
+and compilation behavior.
 
 **f) Reuse audit.** Extend the existing meeting index builder, Meilisearch
 settings constants, lexical request builder, route tests, repository deletion
@@ -144,8 +144,10 @@ preserved.
 
 **n) Antipattern scan, plan pass.**
 
-- A1/H1: no new external API call is introduced. Existing Meilisearch settings
-  and replacement-index APIs are reused unchanged.
+- A1/H1: no new production external API call is introduced. The frontend test
+  uses React 18.2.0 `renderToStaticMarkup`, verified through Context7, and the
+  installed Next.js 16.2.12 compiler export verified from the pinned package.
+  Existing Meilisearch settings and replacement-index APIs are reused unchanged.
 - B1-B3: no wrapper, registry, compatibility field, sanitizer, retry, or
   defensive response scrubber is added.
 - C1-C2: the selector, truncation module, modal component, callback path, and
@@ -195,7 +197,7 @@ Expected net production delta is substantially negative.
 | `test_indexer_official_roster.py` meeting and semantic absence contracts | 1, 6, 7 |
 | `test_indexer_logic.py` builder/query contracts | 2, 6 |
 | `test_api.py` lexical attributes and people endpoint coverage | 4, 5, 9 |
-| New `ResultCard.people-projection.test.js` structural deletion guard | 5, 8 |
+| New `ResultCard.people-projection.test.js` rendered behavior guard | 5, 8 |
 | `test_repository_guardrails.py` deleted-file and forbidden-token guard | 2-5, 8 |
 | Existing index recovery/settings tests | 3, 6, 10 |
 | Existing query parity and frontend tests | 4, 6, 8, 9 |
@@ -205,9 +207,10 @@ is asserted.
 
 **s) Fakes and mocks.** Existing API tests fake the approved Meilisearch client
 boundary at `api.search.support_core.client`. Indexer tests use database/model
-fixtures and direct pure builders. The Node test uses the approved filesystem
-boundary. No facade, re-export, private helper, or injectable production
-callable is patched.
+fixtures and direct pure builders. The Node test compiles ResultCard and its real
+local dependency chain, then renders it with React's server renderer. No facade,
+re-export, private helper, child component, or injectable production callable is
+patched.
 
 **t) Verification rows.** Apply API/search behavior, frontend contract,
 frontend component behavior, guardrail/tooling, and docs-only rows. Run the
