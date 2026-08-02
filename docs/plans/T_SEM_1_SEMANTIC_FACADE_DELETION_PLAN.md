@@ -305,7 +305,7 @@ Final verification:
 
 ```bash
 ./.venv/bin/ruff check .
-./.venv/bin/ruff format --check .
+./.venv/bin/ruff format --check . --config ruff-format.toml
 ./.venv/bin/mypy
 PYTHONPATH=. .venv/bin/pytest -q tests/test_repository_guardrails.py
 PYTHONPATH=. .venv/bin/pytest -q tests/test_run_pipeline_orchestration.py

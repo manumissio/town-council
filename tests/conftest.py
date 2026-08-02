@@ -132,3 +132,12 @@ def db_session(shared_engine):
         session.execute(table.delete())
     session.commit()
     session.close()
+
+
+@pytest.fixture
+def reset_faiss_semantic_backend():
+    from pipeline.semantic_faiss_backend import FaissSemanticBackend
+
+    FaissSemanticBackend._instance = None
+    yield
+    FaissSemanticBackend._instance = None

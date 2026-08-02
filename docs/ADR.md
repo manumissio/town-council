@@ -1552,3 +1552,35 @@ Use each entry to record:
   - [docs/PIPELINE.md](PIPELINE.md)
   - [docs/TESTING.MD](TESTING.MD)
   - [T-TASK-1 implementation plan](plans/T_TASK_1_TASK_FACADE_DELETION_PLAN.md)
+
+## 2026-08-01: Delete the semantic backend compatibility facade
+
+- Status: Accepted
+- Decision:
+  - Delete `pipeline/semantic_index.py` and repoint semantic consumers to the
+    runtime, contract, backend, and text modules that own their behavior.
+  - `pipeline/semantic_backend_runtime.py` owns optional FAISS and sentence
+    transformer adapters, multiprocess detection, and backend selection.
+  - Backend modules import configuration directly and call focused artifact,
+    row, and reranking helpers without class-bound aliases or reverse facade
+    lookups.
+  - Tests substitute the runtime owner or optional adapters and use real
+    temporary artifacts rather than patching backend private methods.
+  - Preserve backend defaults, FAISS normalization, NumPy scoring, pgvector
+    reranking, source hashes, diagnostics, and task behavior.
+- Why:
+  - The facade contained only compatibility exports and optional dependency
+    bindings after backend extraction.
+  - Reverse lookups and class-bound aliases preserved historical monkeypatch
+    targets while obscuring the module that owned each operation.
+  - G3 establishes that test patch points are not public API and requires
+    approved runtime boundaries instead of compatibility layers.
+- Supersedes:
+  - The compatibility-facade and monkeypatch-surface portions of the 2026-04-11
+    and 2026-04-12 semantic-index cleanup decisions. Their backend separation,
+    ranking, source-hash, diagnostics, and runtime-policy decisions remain
+    active.
+- Canonical references:
+  - [ARCHITECTURE.md](../ARCHITECTURE.md)
+  - [docs/TESTING.MD](TESTING.MD)
+  - [T-SEM-1 implementation plan](plans/T_SEM_1_SEMANTIC_FACADE_DELETION_PLAN.md)

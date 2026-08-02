@@ -40,11 +40,8 @@ def embed_catalog_task(self, catalog_id: int, force: bool = False):
         if not catalog:
             return {"status": "skipped", "reason": "catalog_missing"}
 
-        from pipeline.semantic_index import (
-            PgvectorSemanticBackend,
-            catalog_semantic_source_hash,
-            catalog_semantic_text,
-        )
+        from pipeline.semantic_pgvector_backend import PgvectorSemanticBackend
+        from pipeline.semantic_text import catalog_semantic_source_hash, catalog_semantic_text
 
         text_payload = catalog_semantic_text(catalog.summary)
         source_hash = catalog_semantic_source_hash(catalog.summary)

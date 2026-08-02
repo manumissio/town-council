@@ -3,11 +3,11 @@ Rebuild semantic search artifacts from Postgres (no extraction, no Meilisearch i
 """
 
 from pipeline.db_session import db_session
-from pipeline.semantic_index import get_semantic_backend
+import pipeline.semantic_backend_runtime as semantic_backend_runtime
 
 
 def main() -> int:
-    backend = get_semantic_backend()
+    backend = semantic_backend_runtime.get_semantic_backend()
     with db_session() as db:
         result = backend.build_index(db)
     print("semantic_reindex_complete")

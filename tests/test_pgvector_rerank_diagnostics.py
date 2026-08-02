@@ -2,10 +2,19 @@ from unittest.mock import MagicMock
 
 import numpy as np
 
-from pipeline.semantic_index import (
-    PgvectorSemanticBackend,
-    catalog_semantic_source_hash,
-)
+import pipeline.semantic_backend_runtime as semantic_backend_runtime
+from pipeline.semantic_pgvector_backend import PgvectorSemanticBackend
+from pipeline.semantic_text import catalog_semantic_source_hash
+
+
+class _FakeSentenceTransformer:
+    def __init__(self, _model_name: str):
+        self.model_name = _model_name
+
+    def encode(self, texts: list[str], *, batch_size: int, show_progress_bar: bool) -> np.ndarray:
+        assert batch_size == 32
+        assert show_progress_bar is False
+        return np.ones((len(texts), 4), dtype=np.float32)
 
 
 def _candidate_hit():
@@ -24,9 +33,9 @@ def _candidate_hit():
     ]
 
 
-def test_pgvector_rerank_reports_missing_embeddings(mocker):
+def test_pgvector_rerank_reports_missing_embeddings(monkeypatch):
+    monkeypatch.setattr(semantic_backend_runtime, "SentenceTransformer", _FakeSentenceTransformer)
     backend = PgvectorSemanticBackend()
-    mocker.patch.object(backend, "_encode", return_value=np.ones((1, 4), dtype=np.float32))
 
     db = MagicMock()
     db.query.return_value.filter.return_value.all.return_value = [(101, "Budget and zoning update")]
@@ -43,9 +52,9 @@ def test_pgvector_rerank_reports_missing_embeddings(mocker):
     assert result.diagnostics["stale_embeddings"] == 0
 
 
-def test_pgvector_rerank_reports_fresh_embedding_coverage(mocker):
+def test_pgvector_rerank_reports_fresh_embedding_coverage(monkeypatch):
+    monkeypatch.setattr(semantic_backend_runtime, "SentenceTransformer", _FakeSentenceTransformer)
     backend = PgvectorSemanticBackend()
-    mocker.patch.object(backend, "_encode", return_value=np.ones((1, 4), dtype=np.float32))
 
     summary = "Budget and zoning update"
     db = MagicMock()

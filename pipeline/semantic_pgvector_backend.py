@@ -9,35 +9,32 @@ from typing import Any
 
 import numpy as np
 
+import pipeline.semantic_backend_runtime as semantic_backend_runtime
+from pipeline import semantic_pgvector_rerank, semantic_pgvector_rows
+from pipeline.config import SEMANTIC_MODEL_NAME
 from pipeline.models import SemanticEmbedding
-from pipeline.semantic_backend_types import BuildResult, SemanticBackend, SemanticCandidate, SemanticConfigError
-from pipeline.semantic_pgvector_rerank import rerank_candidates_with_diagnostics
-from pipeline.semantic_pgvector_rows import _collect_catalog_summary_rows
+from pipeline.semantic_backend_types import (
+    BuildResult,
+    SemanticBackend,
+    SemanticCandidate,
+    SemanticConfigError,
+    SemanticRerankResult,
+)
 
 logger = logging.getLogger("semantic-index")
-
-
-def _semantic_index_facade():
-    from pipeline import semantic_index
-
-    return semantic_index
-
 
 class PgvectorSemanticBackend(SemanticBackend):
     _model = None
     _lock = threading.Lock()
-    _collect_catalog_summary_rows = _collect_catalog_summary_rows
-    rerank_candidates_with_diagnostics = rerank_candidates_with_diagnostics
 
     def _ensure_model(self):
-        semantic_index = _semantic_index_facade()
-        if semantic_index.SentenceTransformer is None:
+        if semantic_backend_runtime.SentenceTransformer is None:
             raise SemanticConfigError("sentence-transformers is not installed in this environment.")
         if self._model is not None:
             return self._model
         with self._lock:
             if self._model is None:
-                self._model = semantic_index.SentenceTransformer(semantic_index.SEMANTIC_MODEL_NAME)
+                self._model = semantic_backend_runtime.SentenceTransformer(SEMANTIC_MODEL_NAME)
         return self._model
 
     def _encode(self, texts: list[str]) -> np.ndarray:
@@ -55,8 +52,7 @@ class PgvectorSemanticBackend(SemanticBackend):
         return "[" + ",".join(f"{float(v):.8f}" for v in vector.tolist()) + "]"
 
     def build_index(self, db) -> BuildResult:
-        semantic_index = _semantic_index_facade()
-        rows = self._collect_catalog_summary_rows(db)
+        rows = semantic_pgvector_rows._collect_catalog_summary_rows(db)
         if not rows:
             raise SemanticConfigError("No catalog summaries available to embed for pgvector.")
 
@@ -65,7 +61,7 @@ class PgvectorSemanticBackend(SemanticBackend):
 
         changed = 0
         for row, vec in zip(rows, embeddings):
-            if self._upsert_embedding(db, existing_by_catalog, row, vec, semantic_index.SEMANTIC_MODEL_NAME):
+            if self._upsert_embedding(db, existing_by_catalog, row, vec, SEMANTIC_MODEL_NAME):
                 changed += 1
         db.commit()
 
@@ -76,24 +72,23 @@ class PgvectorSemanticBackend(SemanticBackend):
             "pgvector_reindex_complete rows=%s changed=%s model=%s",
             len(rows),
             changed,
-            semantic_index.SEMANTIC_MODEL_NAME,
+            SEMANTIC_MODEL_NAME,
         )
         return BuildResult(
             row_count=len(rows),
             catalog_count=len({int(row["catalog_id"]) for row in rows}),
             source_counts=source_counts,
             corpus_hash=corpus_hash,
-            model_name=semantic_index.SEMANTIC_MODEL_NAME,
+            model_name=SEMANTIC_MODEL_NAME,
             built_at=now_iso,
         )
 
     def _existing_embeddings_by_catalog(self, db, catalog_ids: list[int]) -> dict[int, SemanticEmbedding]:
-        semantic_index = _semantic_index_facade()
         existing = (
             db.query(SemanticEmbedding)
             .filter(
                 SemanticEmbedding.catalog_id.in_(catalog_ids),
-                SemanticEmbedding.model_name == semantic_index.SEMANTIC_MODEL_NAME,
+                SemanticEmbedding.model_name == SEMANTIC_MODEL_NAME,
             )
             .all()
         )
@@ -136,5 +131,10 @@ class PgvectorSemanticBackend(SemanticBackend):
     def rerank_candidates(self, db, query_text: str, lexical_hits: list[dict], top_k: int) -> list[SemanticCandidate]:
         return self.rerank_candidates_with_diagnostics(db, query_text, lexical_hits, top_k).candidates
 
+    def rerank_candidates_with_diagnostics(
+        self, db, query_text: str, lexical_hits: list[dict], top_k: int
+    ) -> SemanticRerankResult:
+        return semantic_pgvector_rerank.rerank_candidates_with_diagnostics(self, db, query_text, lexical_hits, top_k)
+
     def health(self) -> dict[str, Any]:
-        return {"status": "ok", "engine": "pgvector", "model_name": _semantic_index_facade().SEMANTIC_MODEL_NAME}
+        return {"status": "ok", "engine": "pgvector", "model_name": SEMANTIC_MODEL_NAME}

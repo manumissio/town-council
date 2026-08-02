@@ -8,16 +8,16 @@ from typing import Any
 
 import numpy as np
 
+import pipeline.semantic_backend_runtime as semantic_backend_runtime
+from pipeline import semantic_faiss_artifacts, semantic_faiss_rows
+from pipeline.config import (
+    SEMANTIC_ALLOW_MULTIPROCESS,
+    SEMANTIC_MODEL_NAME,
+    SEMANTIC_REQUIRE_FAISS,
+    SEMANTIC_REQUIRE_SINGLE_PROCESS,
+)
 from pipeline.semantic_backend_types import BuildResult, SemanticBackend, SemanticCandidate, SemanticConfigError
-from pipeline.semantic_faiss_artifacts import _artifact_paths, _load_artifacts, _write_artifacts
-from pipeline.semantic_faiss_rows import _collect_rows
 from pipeline.semantic_text import _safe_text
-
-
-def _semantic_index_facade():
-    from pipeline import semantic_index
-
-    return semantic_index
 
 
 class FaissSemanticBackend(SemanticBackend):
@@ -37,14 +37,13 @@ class FaissSemanticBackend(SemanticBackend):
         return cls._instance
 
     def _guard_runtime(self) -> None:
-        semantic_index = _semantic_index_facade()
-        if not semantic_index.SEMANTIC_ALLOW_MULTIPROCESS:
-            if semantic_index.SEMANTIC_REQUIRE_SINGLE_PROCESS and semantic_index._looks_like_multiprocess_worker():
+        if not SEMANTIC_ALLOW_MULTIPROCESS:
+            if SEMANTIC_REQUIRE_SINGLE_PROCESS and semantic_backend_runtime._looks_like_multiprocess_worker():
                 raise SemanticConfigError(
                     "Unsafe semantic backend configuration detected (multiprocess runtime). "
                     "Use a single worker/process for FAISS mode or set SEMANTIC_ALLOW_MULTIPROCESS=true explicitly."
                 )
-        if semantic_index.SEMANTIC_REQUIRE_FAISS and semantic_index.faiss is None:
+        if SEMANTIC_REQUIRE_FAISS and semantic_backend_runtime.faiss is None:
             raise SemanticConfigError(
                 "SEMANTIC_REQUIRE_FAISS=true but faiss-cpu is unavailable in this runtime. "
                 "Install/repair faiss-cpu or set SEMANTIC_REQUIRE_FAISS=false to allow numpy fallback."
@@ -54,12 +53,11 @@ class FaissSemanticBackend(SemanticBackend):
         self._guard_runtime()
         if self._model is not None:
             return self._model
-        semantic_index = _semantic_index_facade()
-        if semantic_index.SentenceTransformer is None:
+        if semantic_backend_runtime.SentenceTransformer is None:
             raise SemanticConfigError("sentence-transformers is not installed in this environment.")
         with self._lock:
             if self._model is None:
-                self._model = semantic_index.SentenceTransformer(semantic_index.SEMANTIC_MODEL_NAME)
+                self._model = semantic_backend_runtime.SentenceTransformer(SEMANTIC_MODEL_NAME)
         return self._model
 
     def _encode(self, texts: list[str]) -> np.ndarray:
@@ -68,19 +66,13 @@ class FaissSemanticBackend(SemanticBackend):
         arr = np.asarray(vectors, dtype=np.float32)
         if arr.ndim == 1:
             arr = arr.reshape(1, -1)
-        faiss_backend = _semantic_index_facade().faiss
+        faiss_backend = semantic_backend_runtime.faiss
         if faiss_backend is not None:
             faiss_backend.normalize_L2(arr)
         return arr
 
-    _artifact_paths = _artifact_paths
-    _load_artifacts = _load_artifacts
-    _write_artifacts = _write_artifacts
-    _collect_rows = _collect_rows
-
     def build_index(self, db) -> BuildResult:
-        semantic_index = _semantic_index_facade()
-        texts, rows, source_counts = self._collect_rows(db)
+        texts, rows, source_counts = semantic_faiss_rows._collect_rows(db)
         if not texts:
             raise SemanticConfigError("No semantic rows available to index.")
 
@@ -90,33 +82,33 @@ class FaissSemanticBackend(SemanticBackend):
         now_iso = datetime.now(UTC).isoformat().replace("+00:00", "Z")
 
         build_meta = {
-            "model_name": semantic_index.SEMANTIC_MODEL_NAME,
+            "model_name": SEMANTIC_MODEL_NAME,
             "built_at": now_iso,
             "row_count": len(rows),
             "catalog_count": len({r["catalog_id"] for r in rows}),
             "corpus_hash": corpus_hash,
             "source_counts": source_counts,
         }
-        self._write_artifacts(vectors, rows, build_meta)
+        semantic_faiss_artifacts._write_artifacts(self, vectors, rows, build_meta)
 
         with self._lock:
             self._index = None
             self._matrix = None
             self._metadata = []
             self._meta = {}
-        self._load_artifacts()
+        semantic_faiss_artifacts._load_artifacts(self)
 
         return BuildResult(
             row_count=build_meta["row_count"],
             catalog_count=build_meta["catalog_count"],
             source_counts=source_counts,
             corpus_hash=corpus_hash,
-            model_name=semantic_index.SEMANTIC_MODEL_NAME,
+            model_name=SEMANTIC_MODEL_NAME,
             built_at=now_iso,
         )
 
     def query(self, query_text: str, top_k: int) -> list[SemanticCandidate]:
-        self._load_artifacts()
+        semantic_faiss_artifacts._load_artifacts(self)
         if not self._metadata or self._index is None:
             return []
 
@@ -129,7 +121,7 @@ class FaissSemanticBackend(SemanticBackend):
         return self._semantic_candidates(scores, indices)
 
     def _search_vectors(self, query_vec: np.ndarray, k: int) -> tuple[np.ndarray, np.ndarray]:
-        faiss_backend = _semantic_index_facade().faiss
+        faiss_backend = semantic_backend_runtime.faiss
         if faiss_backend is not None and hasattr(self._index, "search"):
             return self._index.search(query_vec, k)
         matrix = self._matrix if self._matrix is not None else np.asarray(self._index, dtype=np.float32)
@@ -155,11 +147,11 @@ class FaissSemanticBackend(SemanticBackend):
     def health(self) -> dict[str, Any]:
         self._guard_runtime()
         try:
-            self._load_artifacts()
-            paths = self._artifact_paths()
+            semantic_faiss_artifacts._load_artifacts(self)
+            paths = semantic_faiss_artifacts._artifact_paths()
             engine = self._meta.get("engine")
             if not engine:
-                engine = "faiss" if _semantic_index_facade().faiss is not None else "numpy"
+                engine = "faiss" if semantic_backend_runtime.faiss is not None else "numpy"
             return {
                 "status": "ok",
                 "row_count": len(self._metadata),

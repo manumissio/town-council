@@ -2,14 +2,9 @@ from __future__ import annotations
 
 from typing import Any
 
+from pipeline.config import SEMANTIC_CONTENT_MAX_CHARS
 from pipeline.models import AgendaItem, Catalog, Document, Event, Organization, Place
 from pipeline.semantic_text import _build_chunks_from_content, _safe_text, catalog_semantic_text
-
-
-def _semantic_index_facade():
-    from pipeline import semantic_index
-
-    return semantic_index
 
 
 def _catalog_agenda_items(db) -> dict[int, list[AgendaItem]]:
@@ -47,7 +42,6 @@ def _base_metadata(catalog, event, place, org) -> dict[str, Any]:
 
 
 def _append_summary_or_content_rows(texts, rows, counts, doc, catalog, event, base_meta, agenda_items) -> None:
-    semantic_index = _semantic_index_facade()
     summary = catalog_semantic_text(catalog.summary)
     extractive = _safe_text(catalog.summary_extractive)
     if summary:
@@ -57,7 +51,7 @@ def _append_summary_or_content_rows(texts, rows, counts, doc, catalog, event, ba
         )
         counts["summary"] += 1
     elif extractive:
-        texts.append(extractive[: semantic_index.SEMANTIC_CONTENT_MAX_CHARS])
+        texts.append(extractive[:SEMANTIC_CONTENT_MAX_CHARS])
         rows.append(
             {
                 "result_type": "meeting",
@@ -75,12 +69,11 @@ def _append_summary_or_content_rows(texts, rows, counts, doc, catalog, event, ba
 
 
 def _append_meeting_agenda_rows(texts, rows, counts, doc, event, base_meta, agenda_items) -> None:
-    semantic_index = _semantic_index_facade()
     for agenda_item in agenda_items:
         chunk = _safe_text(f"{agenda_item.title or ''}. {agenda_item.description or ''}")
         if len(chunk) < 20:
             continue
-        texts.append(chunk[: semantic_index.SEMANTIC_CONTENT_MAX_CHARS])
+        texts.append(chunk[:SEMANTIC_CONTENT_MAX_CHARS])
         rows.append(
             {
                 "result_type": "meeting",
@@ -95,8 +88,7 @@ def _append_meeting_agenda_rows(texts, rows, counts, doc, event, base_meta, agen
 
 
 def _append_content_chunk_rows(texts, rows, counts, doc, catalog, event, base_meta) -> None:
-    semantic_index = _semantic_index_facade()
-    for chunk in _build_chunks_from_content(catalog.content or "", semantic_index.SEMANTIC_CONTENT_MAX_CHARS):
+    for chunk in _build_chunks_from_content(catalog.content or "", SEMANTIC_CONTENT_MAX_CHARS):
         if len(chunk) < 20:
             continue
         texts.append(chunk)
@@ -113,12 +105,11 @@ def _append_content_chunk_rows(texts, rows, counts, doc, catalog, event, base_me
 
 
 def _append_agenda_item_result_rows(texts, rows, counts, event, base_meta, agenda_items) -> None:
-    semantic_index = _semantic_index_facade()
     for agenda_item in agenda_items:
         item_text = _safe_text(f"{agenda_item.title or ''}. {agenda_item.description or ''}")
         if len(item_text) < 20:
             continue
-        texts.append(item_text[: semantic_index.SEMANTIC_CONTENT_MAX_CHARS])
+        texts.append(item_text[:SEMANTIC_CONTENT_MAX_CHARS])
         rows.append(
             {
                 "result_type": "agenda_item",
@@ -131,7 +122,7 @@ def _append_agenda_item_result_rows(texts, rows, counts, event, base_meta, agend
         counts["agenda_item_result"] += 1
 
 
-def _collect_rows(backend, db) -> tuple[list[str], list[dict[str, Any]], dict[str, int]]:
+def _collect_rows(db) -> tuple[list[str], list[dict[str, Any]], dict[str, int]]:
     texts: list[str] = []
     rows: list[dict[str, Any]] = []
     counts = {"summary": 0, "agenda_item": 0, "content_chunk": 0, "agenda_item_result": 0}

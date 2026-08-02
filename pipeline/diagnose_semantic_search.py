@@ -13,8 +13,8 @@ from pathlib import Path
 import urllib.parse
 import urllib.request
 
-from pipeline.semantic_index import get_semantic_backend
 from pipeline.config import SEMANTIC_INDEX_DIR
+import pipeline.semantic_backend_runtime as semantic_backend_runtime
 
 
 def _fetch_json(url: str, headers: dict[str, str]) -> tuple[int, dict]:
@@ -34,7 +34,7 @@ def main() -> int:
     parser.add_argument("--city", default=None)
     args = parser.parse_args()
 
-    backend = get_semantic_backend()
+    backend = semantic_backend_runtime.get_semantic_backend()
     health = backend.health()
     print("=== backend health ===")
     print(json.dumps(health, indent=2))

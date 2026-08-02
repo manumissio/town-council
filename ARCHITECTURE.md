@@ -254,7 +254,10 @@ Primary owners:
 - `api/search_routes.py`
 - `api/search_read_routes.py` facade plus focused `api/search_read_*` helpers
 - `api/search_semantic_routes.py`
-- `pipeline/semantic_index.py`
+- `pipeline/semantic_backend_runtime.py`
+- `pipeline/semantic_backend_types.py`
+- `pipeline/semantic_faiss_backend.py`
+- `pipeline/semantic_pgvector_backend.py`
 - `pipeline/db_migrate.py` facade plus the focused Alembic migration owner
 - `alembic/` baseline and post-baseline revision graph
 - frozen numbered migration history through v10 for existing-database adoption
@@ -330,7 +333,10 @@ Primary owners:
   - `api/main.py` (FastAPI app assembly)
   - `api/search_routes.py` (search, semantic, and trends router aggregation)
   - `semantic_service/main.py` route facade plus focused `semantic_service/candidates.py`, `semantic_service/filters.py`, `semantic_service/retrieval.py`, and `semantic_service/hydration.py` helpers
-  - `pipeline/semantic_index.py`
+  - `pipeline/semantic_backend_runtime.py`
+  - `pipeline/semantic_backend_types.py`
+  - `pipeline/semantic_faiss_backend.py`
+  - `pipeline/semantic_pgvector_backend.py`
   - `pipeline/db_migrate.py` facade plus the focused Alembic migration owner
   - `alembic/` baseline and post-baseline revision graph
 
@@ -344,7 +350,7 @@ Primary owners:
   focused `pipeline/vote_extraction_*` helpers
 - Inference abstraction and provider telemetry: `pipeline/llm.py` product-policy facade plus focused `pipeline/local_ai_*` helpers, `pipeline/agenda_extraction.py`, `pipeline/inference_provider_contract.py`, `pipeline/http_inference_provider.py` adapter plus focused `pipeline/http_inference_*` helpers, `pipeline/inprocess_inference_provider.py`, `pipeline/provider_telemetry.py`, `pipeline/metrics.py`, `pipeline/metrics_provider_recorders.py`, `pipeline/metrics_redis_backend.py`
 - API surface and auth: `api/main.py`, `api/app_setup.py`, `api/search_routes.py` router aggregation, `api/search_read_routes.py` facade plus focused `api/search_read_*` helpers, `api/task_routes.py` route assembly, `api/task_dispatch.py`, focused `api/task_route_*` helpers, focused `api/search/*_support.py` helpers, `api/search/query_builder.py`, `api/metrics.py`
-- Semantic retrieval and embeddings: `semantic_service/main.py` route facade plus focused `semantic_service/*` helpers, `pipeline/semantic_index.py`, `pipeline/semantic_faiss_backend.py`, `pipeline/semantic_pgvector_backend.py`, focused semantic backend helpers, `pipeline/models.py` facade plus focused `pipeline/model_*` modules
+- Semantic retrieval and embeddings: `semantic_service/main.py` route facade plus focused `semantic_service/*` helpers, `pipeline/semantic_backend_runtime.py`, `pipeline/semantic_backend_types.py`, `pipeline/semantic_faiss_backend.py`, `pipeline/semantic_pgvector_backend.py`, focused semantic backend helpers, `pipeline/models.py` facade plus focused `pipeline/model_*` modules
 - Frontend query/task UX: `frontend/app/page.js`, `frontend/state/search-state.js`, `frontend/components/ResultCard.js`
 - Data model and persistence: `pipeline/models.py` facade plus focused
   `pipeline/model_*` modules, `pipeline/db_migrate.py` as the single migration
@@ -476,7 +482,7 @@ Owners:
 | `organization`, `person`, `membership` roster provenance | Legistar body, person, and OfficeRecord identities plus source URL and UTC synchronization metadata; publication also requires current registry approval | `pipeline/model_civic.py`, `pipeline/legistar_roster.py`, `pipeline/roster_sync.py`, `api/people_routes.py` |
 | Meeting `people_metadata` | Omitted until events have independently authoritative governing-body identity | `pipeline/indexer_documents.py` |
 | `catalog.lineage_id`, `catalog.lineage_confidence`, `catalog.lineage_updated_at` | Meeting-level lineage identity and confidence | `pipeline/lineage_service.py` facade plus focused `pipeline/lineage_*` helpers, `api/main.py`, `api/lineage_routes.py` |
-| `semantic_embedding` | pgvector-backed embedding storage for hybrid semantic retrieval | `pipeline/models.py` facade plus focused `pipeline/model_*` modules, `pipeline/semantic_index.py`, `pipeline/semantic_pgvector_backend.py`, focused semantic backend helpers, `pipeline/semantic_tasks.py` |
+| `semantic_embedding` | pgvector-backed embedding storage for hybrid semantic retrieval | `pipeline/models.py` facade plus focused `pipeline/model_*` modules, `pipeline/semantic_backend_runtime.py`, `pipeline/semantic_pgvector_backend.py`, focused semantic backend helpers, `pipeline/semantic_tasks.py` |
 
 ### Observability Contract
 

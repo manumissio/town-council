@@ -3,7 +3,7 @@ from unittest.mock import MagicMock
 from fastapi.testclient import TestClient
 
 from semantic_service.main import app, get_db
-from pipeline.semantic_index import SemanticCandidate
+from pipeline.semantic_backend_types import SemanticCandidate
 
 VALID_KEY = "dev_secret_key_change_me"
 
@@ -85,11 +85,16 @@ def test_semantic_search_expands_top_k_until_filtered_results_exist(mocker):
     mocker.patch("semantic_service.main.SEMANTIC_BASE_TOP_K", 200)
     mocker.patch("semantic_service.main.SEMANTIC_MAX_TOP_K", 1000)
     mocker.patch("semantic_service.main.SEMANTIC_FILTER_EXPANSION_FACTOR", 4)
-    mocker.patch("semantic_service.main.get_semantic_backend", return_value=_AdaptiveBackend())
+    mocker.patch("pipeline.semantic_backend_runtime.get_semantic_backend", return_value=_AdaptiveBackend())
     mocker.patch(
         "semantic_service.main._hydrate_meeting_hits",
         side_effect=lambda _db, candidates: [
-            {"id": f"doc_{c.metadata['db_id']}", "db_id": c.metadata["db_id"], "result_type": "meeting", "event_name": "Meeting"}
+            {
+                "id": f"doc_{c.metadata['db_id']}",
+                "db_id": c.metadata["db_id"],
+                "result_type": "meeting",
+                "event_name": "Meeting",
+            }
             for c in candidates
         ],
     )
@@ -113,7 +118,7 @@ def test_semantic_search_stops_expansion_at_max_top_k(mocker):
     mocker.patch("semantic_service.main.SEMANTIC_BASE_TOP_K", 2)
     mocker.patch("semantic_service.main.SEMANTIC_MAX_TOP_K", 4)
     mocker.patch("semantic_service.main.SEMANTIC_FILTER_EXPANSION_FACTOR", 1)
-    mocker.patch("semantic_service.main.get_semantic_backend", return_value=backend)
+    mocker.patch("pipeline.semantic_backend_runtime.get_semantic_backend", return_value=backend)
     mocker.patch("semantic_service.main._hydrate_meeting_hits", return_value=[])
     mocker.patch("semantic_service.main._hydrate_agenda_hits", return_value=[])
     client = TestClient(app)

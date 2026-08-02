@@ -6,7 +6,7 @@ from pipeline.models import Catalog, Document, Event, Organization, Place
 from pipeline.semantic_text import catalog_semantic_source_hash, catalog_semantic_text
 
 
-def _collect_catalog_summary_rows(backend, db) -> list[dict[str, Any]]:
+def _collect_catalog_summary_rows(db) -> list[dict[str, Any]]:
     rows = (
         db.query(Document, Catalog, Event, Place, Organization)
         .join(Catalog, Document.catalog_id == Catalog.id)

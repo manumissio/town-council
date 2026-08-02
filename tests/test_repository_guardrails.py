@@ -290,6 +290,25 @@ HELPER_FACADE_IMPORT_RULES = (
         ("pipeline.vote_extractor", "pipeline.vote_extraction_runner"),
     ),
 )
+SEMANTIC_FACADE_LOOKUP_PATHS = (
+    "pipeline/semantic_faiss_artifacts.py",
+    "pipeline/semantic_faiss_backend.py",
+    "pipeline/semantic_faiss_rows.py",
+    "pipeline/semantic_pgvector_backend.py",
+    "pipeline/semantic_pgvector_rerank.py",
+)
+SEMANTIC_BACKEND_CLASS_ALIASES = {
+    "pipeline/semantic_faiss_backend.py": {
+        "_artifact_paths",
+        "_collect_rows",
+        "_load_artifacts",
+        "_write_artifacts",
+    },
+    "pipeline/semantic_pgvector_backend.py": {
+        "_collect_catalog_summary_rows",
+        "rerank_candidates_with_diagnostics",
+    },
+}
 
 
 def _tracked_files() -> list[Path]:
@@ -634,6 +653,17 @@ def _forbidden_imports(module_path: Path, forbidden_modules: set[str]) -> list[s
                         found_imports.append(node.module)
 
     return found_imports
+
+
+def _tracked_forbidden_imports(forbidden_modules: set[str]) -> dict[str, list[str]]:
+    remaining_imports: dict[str, list[str]] = {}
+    for tracked_path in _tracked_files():
+        if tracked_path.suffix != ".py" or not tracked_path.is_file():
+            continue
+        forbidden_imports = _forbidden_imports(tracked_path, forbidden_modules)
+        if forbidden_imports:
+            remaining_imports[str(tracked_path.relative_to(ROOT))] = forbidden_imports
+    return remaining_imports
 
 
 def _dotted_reference(node: ast.AST) -> str | None:
@@ -1879,20 +1909,58 @@ def test_registered_helpers_do_not_import_facades():
 
 def test_provider_compatibility_facade_is_deleted() -> None:
     deleted_facade = ROOT / "pipeline/llm_provider.py"
-    remaining_imports: dict[str, list[str]] = {}
-
-    for tracked_path in _tracked_files():
-        if tracked_path.suffix != ".py" or not tracked_path.is_file():
-            continue
-        forbidden_imports = _forbidden_imports(
-            tracked_path,
-            {"pipeline.llm_provider"},
-        )
-        if forbidden_imports:
-            remaining_imports[str(tracked_path.relative_to(ROOT))] = forbidden_imports
 
     assert not deleted_facade.exists()
-    assert remaining_imports == {}
+    assert _tracked_forbidden_imports({"pipeline.llm_provider"}) == {}
+
+
+def test_semantic_index_facade_is_deleted() -> None:
+    deleted_facade = ROOT / "pipeline/semantic_index.py"
+
+    assert not deleted_facade.exists()
+    assert _tracked_forbidden_imports({"pipeline.semantic_index"}) == {}
+
+
+def test_semantic_backend_helpers_have_direct_owners() -> None:
+    remaining_lookups: list[str] = []
+    remaining_class_aliases: list[str] = []
+
+    for semantic_lookup_path in SEMANTIC_FACADE_LOOKUP_PATHS:
+        semantic_lookup_tree = ast.parse(
+            (ROOT / semantic_lookup_path).read_text(encoding="utf-8")
+        )
+        if any(
+            isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef))
+            and node.name == "_semantic_index_facade"
+            for node in ast.walk(semantic_lookup_tree)
+        ):
+            remaining_lookups.append(semantic_lookup_path)
+
+    for semantic_backend_path, forbidden_aliases in SEMANTIC_BACKEND_CLASS_ALIASES.items():
+        semantic_backend_tree = ast.parse(
+            (ROOT / semantic_backend_path).read_text(encoding="utf-8")
+        )
+        for class_node in (
+            node for node in ast.walk(semantic_backend_tree) if isinstance(node, ast.ClassDef)
+        ):
+            class_aliases = {
+                assignment_target.id
+                for class_statement in class_node.body
+                if isinstance(class_statement, (ast.Assign, ast.AnnAssign))
+                for assignment_target in (
+                    class_statement.targets
+                    if isinstance(class_statement, ast.Assign)
+                    else [class_statement.target]
+                )
+                if isinstance(assignment_target, ast.Name)
+            }
+            remaining_class_aliases.extend(
+                f"{semantic_backend_path}:{alias_name}"
+                for alias_name in sorted(class_aliases & forbidden_aliases)
+            )
+
+    assert remaining_lookups == []
+    assert remaining_class_aliases == []
 
 
 def test_search_helpers_do_not_lookup_api_main() -> None:

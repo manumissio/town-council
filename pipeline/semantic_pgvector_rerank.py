@@ -4,16 +4,10 @@ from typing import Any
 
 from sqlalchemy import bindparam, text
 
+from pipeline.config import SEMANTIC_MODEL_NAME, SEMANTIC_RERANK_CANDIDATE_LIMIT
 from pipeline.models import Catalog
 from pipeline.semantic_backend_types import SemanticCandidate, SemanticRerankResult
 from pipeline.semantic_text import _safe_text, catalog_semantic_source_hash
-
-
-def _semantic_index_facade():
-    from pipeline import semantic_index
-
-    return semantic_index
-
 
 def _initial_diagnostics(lexical_hits: list[dict]) -> dict[str, Any]:
     return {
@@ -80,7 +74,6 @@ def _expected_hash_by_catalog(db, catalog_ids: list[int]) -> dict[int, str | Non
 
 
 def _scored_rows(db, query_literal: str, catalog_ids: list[int]):
-    semantic_index = _semantic_index_facade()
     stmt = text(
         """
             SELECT
@@ -101,7 +94,7 @@ def _scored_rows(db, query_literal: str, catalog_ids: list[int]):
             {
                 "query_vec": query_literal,
                 "catalog_ids": catalog_ids,
-                "model_name": semantic_index.SEMANTIC_MODEL_NAME,
+                "model_name": SEMANTIC_MODEL_NAME,
                 "limit": max(1, len(catalog_ids)),
             },
         ).mappings()
@@ -181,8 +174,7 @@ def rerank_candidates_with_diagnostics(
         return _empty_result(diagnostics, "no_meeting_candidates", degraded=True)
 
     by_catalog = _rows_by_catalog(candidate_rows)
-    semantic_index = _semantic_index_facade()
-    catalog_ids = list(by_catalog.keys())[: max(1, semantic_index.SEMANTIC_RERANK_CANDIDATE_LIMIT)]
+    catalog_ids = list(by_catalog.keys())[: max(1, SEMANTIC_RERANK_CANDIDATE_LIMIT)]
     diagnostics["candidate_limit_applied"] = len(catalog_ids)
     if not catalog_ids:
         return _empty_result(diagnostics, "no_candidate_catalogs", degraded=True)
