@@ -1,13 +1,14 @@
 # Town Council Pipeline Guide
 
-Last updated: 2026-07-31
+Last updated: 2026-08-02
 
 ## 1) Purpose and Boundaries
 
 ### What this document covers
 This document explains how Town Council's pipeline works end-to-end, including:
 - batch processing flow (`pipeline/run_pipeline.py`)
-- async write/generation flow (`api/main.py` + `pipeline/tasks.py`)
+- async write/generation flow (`api/task_routes.py`, `api/task_dispatch.py`, and
+  the queue-specific Celery task owners)
 - inference, data freshness, observability, and failure handling
 
 ### What this document does not replace
@@ -28,7 +29,8 @@ Town Council uses two complementary pipelines:
 
 2. Async pipeline (record-scoped, on demand):
 - executes user-triggered writes and generation through background tasks
-- primary entrypoints: protected API write endpoints in `api/main.py` and tasks in `pipeline/tasks.py`
+- primary entrypoints: protected routes in `api/task_routes.py`, dispatch in
+  `api/task_dispatch.py`, and queue-specific Celery task owners
 
 ### Why both pipelines exist
 - Batch pipeline provides broad consistency and index freshness.
@@ -62,6 +64,10 @@ Per-record behavior in `process_document_chunk()`:
 - persist extraction lifecycle state (`pending` / `complete` / `failed_terminal`)
 - commit per record
 
+Why this exists:
+- Chunked parallelism improves throughput.
+- Per-record commits preserve partial progress if a later record fails.
+
 ### Extraction lifecycle state
 - `catalog.extraction_status` is now the durable extraction backlog contract:
   - `pending`: extraction still eligible for batch work
@@ -78,10 +84,6 @@ Per-record behavior in `process_document_chunk()`:
 Why this exists:
 - Prevents permanent extraction failures from hiding the true backlog.
 - Keeps already-extracted rows eligible for downstream enrichment without forcing re-extraction.
-
-Why this exists:
-- Chunked parallelism improves throughput.
-- Per-record commits preserve partial progress if a later record fails.
 
 ### Stage C: Derived generation backfills
 - in-process maintenance agenda segmentation backfill
@@ -127,7 +129,7 @@ Person records are not derived from meeting documents. The explicit
 sources outside the profiled batch pipeline. Cities without current roster
 authorization expose source records but no people-facing data.
 
-## 4) Async Task Pipeline Walkthrough (`api/main.py` -> `pipeline/tasks.py`)
+## 4) Async Task Pipeline Walkthrough
 
 ### Request lifecycle
 1. UI/client calls protected write endpoint (for example `POST /summarize/{catalog_id}`).
@@ -142,10 +144,11 @@ authorization expose source records but no people-facing data.
 - `topics`: writes topic outputs and source-hash linkage.
 - `votes`: runs vote extraction/update logic over agenda items.
 
-`pipeline/tasks.py` owns registered Celery task identities, retry handling, and
-session lifecycle. The focused `pipeline/task_*` modules call their domain
-owners directly; no task facade bag or injected callable layer sits between
-the entrypoint and the task family.
+`pipeline/tasks.py` owns default-queue task identities, retries, and sessions;
+`pipeline/enrichment_tasks.py` owns topic generation on the enrichment queue;
+and `pipeline/semantic_tasks.py` owns embedding hydration on the semantic
+queue. Focused task modules call their domain owners directly; no task facade
+bag or injected callable layer sits between an entrypoint and its task family.
 
 Why this exists:
 - Heavy extraction/generation work is isolated from synchronous API reads.
@@ -202,12 +205,17 @@ Why this exists:
 | Path | Trigger | OCR behavior | Cache/force behavior |
 |---|---|---|---|
 | Batch pipeline (`pipeline/run_pipeline.py` -> extraction paths) | Batch processing records that need extraction | Uses config defaults through extractor (`TIKA_OCR_FALLBACK_ENABLED`) | No API force flag; behavior follows pipeline extraction conditions |
-| Async API (`POST /extract/{catalog_id}` in `api/main.py`) | User-triggered re-extraction, optional `ocr_fallback=true` | Passes `ocr_fallback` query flag into task | API short-circuits to `cached` when `force=false` and content length is already substantial |
+| Async API (`POST /extract/{catalog_id}` in `api/task_routes.py`) | User-triggered re-extraction, optional `ocr_fallback=true` | Passes `ocr_fallback` query flag into task | API short-circuits to `cached` when `force=false` and content length is already substantial |
 | Async task (`extract_text_task` in `pipeline/tasks.py`) | Celery worker execution for one catalog | Calls `reextract_catalog_content(..., ocr_fallback=...)`, which passes per-call OCR setting into extractor | Returns `cached` unless `force=true` when existing text meets minimum chars; updates content/hash only on successful extraction |
 
-### OCR/Tika config defaults (`pipeline/config.py` facade)
+### OCR/Tika configuration fallbacks
 
-| Variable | Default | Meaning |
+`pipeline/config_processing.py` owns the loader fallbacks below, while runtime
+profiles and `docker-compose.yml` can override them. The standard Compose
+services currently enable `TIKA_OCR_FALLBACK_ENABLED`; operators should check
+both the loader and active runtime configuration when diagnosing extraction.
+
+| Variable | Loader fallback | Meaning |
 |---|---|---|
 | `TIKA_OCR_FALLBACK_ENABLED` | `false` | Enables second-pass OCR when first-pass text is empty/too short |
 | `TIKA_MIN_EXTRACTED_CHARS_FOR_NO_OCR` | `800` | Minimum chars for first-pass text to be considered good enough |
@@ -232,8 +240,9 @@ Why this exists:
 - `pipeline/local_ai_agenda_compat.py`, `pipeline/local_ai_provider_calls.py`: focused LocalAI compatibility and provider-call helpers
 - `pipeline/agenda_extraction.py`: agenda-extraction facade for prompt/parser/fallback compatibility
 - `pipeline/agenda_extraction_parser.py`, `pipeline/agenda_extraction_fallback.py`, `pipeline/agenda_extraction_acceptance.py`, `pipeline/agenda_extraction_pages.py`, `pipeline/agenda_extraction_noise.py`, `pipeline/agenda_extraction_numbered.py`, `pipeline/agenda_extraction_paragraphs.py`, `pipeline/agenda_extraction_diagnostics.py`: focused agenda-extraction implementation modules
-- `pipeline/http_inference_provider.py`: HTTP/Ollama transport adapter backed by
-  focused `pipeline/http_inference_*` helpers
+- `pipeline/http_inference_provider.py`: HTTP transport adapter for Ollama and
+  OpenAI-compatible protocols, backed by focused `pipeline/http_inference_*`
+  helpers
 - `pipeline/inprocess_inference_provider.py`: in-process llama transport abstraction
 - `pipeline/inference_provider_contract.py`: provider protocol and typed error contract
 - `pipeline/provider_telemetry.py`: provider telemetry formatting and direct
@@ -241,7 +250,8 @@ Why this exists:
 
 HTTP retries remain transport-local in `pipeline/http_inference_attempts.py`.
 Tests patch HTTP, configuration, and telemetry names at their implementation
-modules and fake the provider protocol at `pipeline/inference_provider_contract.py`.
+modules. Provider substitutes implement the `InferenceProvider` protocol defined
+in `pipeline/inference_provider_contract.py`.
 
 ### Typed provider errors
 - `ProviderTimeoutError`
@@ -313,7 +323,7 @@ Telemetry can be missing/degraded even when some tasks complete; promotion decis
 
 | Signature | Likely Root Cause | First Places to Check | Why Check Order Works |
 |---|---|---|---|
-| `missing_task_id` | API enqueue/write endpoint response issue | `api/main.py`, endpoint response payload, task queue health | Fastest way to confirm enqueue contract break |
+| `missing_task_id` | API enqueue/write endpoint response issue | `api/task_routes.py`, `api/task_dispatch.py`, endpoint response payload, task queue health | Fastest way to confirm enqueue contract break |
 | `task_poll_timeout` | worker backlog/inference stall/timeout budget mismatch | `pipeline/tasks.py`, worker logs, runtime profile timeouts, queue metrics | Distinguishes queue pressure from task logic bugs |
 | low-signal summary block | source text quality below summary gate | `pipeline/summary_quality.py`, extracted text quality, segmentation state | Avoids chasing LLM prompts when source is insufficient |
 | segmentation noisy/empty/failed | extraction artifacts or segmentation heuristics mismatch | `pipeline/agenda_resolver.py` facade plus focused `pipeline/agenda_resolver_*` modules, `pipeline/llm.py` segmentation paths, extraction output | Segmentation quality is upstream of summary quality |
@@ -325,25 +335,33 @@ Why this exists:
 ## 10) How to Extend the Pipeline Safely
 
 ### Checklist for a new async generation stage
-1. Add protected API route in `api/main.py`.
-2. Add task implementation in `pipeline/tasks.py`.
-3. Define deterministic write contract (which fields are written and when).
-4. Ensure task lifecycle is observable via `GET /tasks/{task_id}`.
-5. Add metrics and error mapping semantics.
-6. Add tests for contract, retries/fallbacks, and stale/fresh behavior.
-7. Update docs (`README.md`, this file, `docs/OPERATIONS.md`, and `ARCHITECTURE.md` when architectural contract changes).
+1. Add the protected route through `api/task_routes.py` and the appropriate focused `api/task_route_*` owner.
+2. Add named dispatch and broker-error mapping in `api/task_dispatch.py`.
+3. Register the Celery identity in the existing queue owner (`pipeline/tasks.py`,
+   `pipeline/enrichment_tasks.py`, or `pipeline/semantic_tasks.py`) and keep
+   operation logic in a focused owner module.
+4. Add an exact route in `pipeline/celery_app.py` when the task belongs to a
+   non-default queue.
+5. Define deterministic write contract (which fields are written and when).
+6. Ensure task lifecycle is observable via `GET /tasks/{task_id}`.
+7. Add metrics and error mapping semantics.
+8. Add tests for contract, retries/fallbacks, and stale/fresh behavior.
+9. Update docs (`README.md`, this file, `docs/OPERATIONS.md`, and `ARCHITECTURE.md` when architectural contract changes).
 
 ### Why this exists
 Most regressions come from partial stage additions (route without durable write semantics, or task without observability/tests).
 
-## 11) Source-of-Truth File Map
+## 11) Primary Implementation Map
 
 Use these files as primary references:
 - Batch orchestration: `pipeline/run_pipeline.py` facade plus `pipeline/run_pipeline_steps.py`, `pipeline/run_pipeline_onboarding.py`, `pipeline/run_pipeline_selectors.py`, `pipeline/run_pipeline_extraction.py`, and `pipeline/run_pipeline_parallel.py`
-- Async orchestration: `pipeline/tasks.py` Celery entrypoints plus focused
-  `pipeline/task_*` operation owners
+- Async orchestration: `pipeline/tasks.py` default-queue entrypoints plus
+  focused `pipeline/task_*` operation owners, `pipeline/enrichment_tasks.py`
+  for topic generation, and `pipeline/semantic_tasks.py` for embedding hydration
+- Queue declarations and task routing: `pipeline/celery_app.py`
 - API task routes: `api/task_routes.py` assembly plus focused
   `api/task_route_*` helpers
+- API task lifecycle: `api/task_route_support.py` owns task-result translation
 - API task dispatch: `api/task_dispatch.py` owns named Celery sends and broker
   failure mapping
 - API app assembly: `api/main.py`
@@ -355,6 +373,9 @@ Use these files as primary references:
 - Provider transport: `pipeline/http_inference_provider.py` adapter plus
   focused `pipeline/http_inference_*` helpers and
   `pipeline/inprocess_inference_provider.py`
+- Semantic retrieval: `semantic_service/main.py` route facade plus focused
+  `semantic_service/*` helpers; `pipeline/semantic_backend_runtime.py` owns
+  backend selection through the contract in `pipeline/semantic_backend_types.py`
 - Extraction freshness/hash: `pipeline/extraction_service.py`, `pipeline/content_hash.py`
 - Metrics: `pipeline/metrics.py` (facade), `pipeline/metrics_definitions.py`, `pipeline/metrics_provider_keys.py`, `pipeline/metrics_redis_backend.py`, `pipeline/metrics_provider_recorders.py`, `pipeline/metrics_provider_collector.py`, `pipeline/metrics_task_recorders.py`, `pipeline/metrics_celery_signals.py`, `pipeline/metrics_profile_events.py`
 - Summary text runtime: `pipeline/text_generation.py` facade plus `pipeline/summary_text_formatting.py`, `pipeline/summary_text_prompting.py`, `pipeline/summary_source_quality.py`, `pipeline/summary_grounding.py`, and `pipeline/summary_backfill_*` helpers

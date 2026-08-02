@@ -5,8 +5,8 @@ API" (`docs/ADR.md`, decision gate G3). `AGENTS.md` `<code_quality>` states
 the principle — tests assert observable behavior, not private implementation
 details — and this document says how to do that in this repository.
 
-Status: effective. During remediation Phase 2, tests are actively migrated to
-these rules; new tests must follow them immediately.
+Status: effective. The remediation migration is complete; new and modified
+tests must follow these rules.
 
 ## The core rule
 
@@ -27,7 +27,7 @@ invented for tests.
 | Celery dispatch       | Patch `api.task_dispatch.celery_app.send_task` or use Celery eager mode |
 | Celery result backend | Patch `api.task_route_support.AsyncResult`                  |
 | Inference / LLM       | Fake provider implementing `pipeline/inference_provider_contract.py` |
-| Semantic backend/runtime | After T-SEM-1 repoints consumers to resolve backend selection through the owner module, patch `pipeline.semantic_backend_runtime.get_semantic_backend` to return a fake implementing `pipeline.semantic_backend_types.SemanticBackend`; pgvector retrieval fakes also implement the public `rerank_candidates_with_diagnostics` or `rerank_candidates` capability exercised by the test; after T-SEM-1 moves optional FAISS and SentenceTransformer ownership there, substitute those adapters only in that module; never patch backend private methods |
+| Semantic backend/runtime | Patch `pipeline.semantic_backend_runtime.get_semantic_backend` to return a fake implementing `pipeline.semantic_backend_types.SemanticBackend`; pgvector retrieval fakes implement the public rerank capability exercised by the test; substitute optional FAISS and SentenceTransformer adapters only in their implementation owner modules; never patch backend private methods |
 | Meilisearch           | Patch the client object where it is constructed (`api/search/support_core.py`, `pipeline/indexer.py`) |
 | Outbound HTTP         | `httpx`/`requests` transport mocks at the call site      |
 | Clock                 | Pass/patch time at the function under test, not globally |

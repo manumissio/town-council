@@ -1,9 +1,11 @@
 # City Onboarding Status
 
-Last updated: 2026-04-04
+Document reviewed: 2026-08-02
 
 This sheet tracks rollout readiness and quality gates per city.
-Machine-readable rollout truth lives in `city_metadata/city_rollout_registry.csv`; this page mirrors that registry for operator review.
+Machine-readable rollout status and roster authorization live in
+`city_metadata/city_rollout_registry.csv`. This operator view combines selected
+rollout fields with provider and spider evidence; it is not a complete registry mirror.
 
 | city_slug | provider | spider_exists | enabled | quality_gate | last_verified |
 |---|---|---:|---:|---|---|
