@@ -1,5 +1,6 @@
 from datetime import date
 import json
+from types import SimpleNamespace
 from unittest.mock import MagicMock
 
 from sqlalchemy.orm import sessionmaker
@@ -89,7 +90,13 @@ def _patch_meilisearch_client(mocker, *, failure: Exception | None = None) -> Ma
         mocker.patch.object(indexer.meilisearch, "Client", side_effect=failure)
         return None
     search_client = MagicMock()
-    search_client.index.return_value.delete_documents.return_value = {"taskUid": 29}
+    search_client.index.return_value.delete_documents.return_value = SimpleNamespace(
+        task_uid=29
+    )
+    search_client.wait_for_task.return_value = SimpleNamespace(
+        status="succeeded",
+        error=None,
+    )
     mocker.patch.object(indexer.meilisearch, "Client", return_value=search_client)
     return search_client
 

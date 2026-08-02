@@ -1,6 +1,7 @@
 import logging
 import sys
 from datetime import date
+from types import SimpleNamespace
 from unittest.mock import MagicMock
 
 import pytest
@@ -104,8 +105,13 @@ def _install_summary_boundaries(mocker, db_session, summary_provider):
     meili_client = MagicMock()
     documents_index = MagicMock()
     indexed_document_batches: list[list[dict[str, object]]] = []
+    documents_index.delete_documents.return_value = SimpleNamespace(task_uid=71)
     documents_index.add_documents.side_effect = indexed_document_batches.append
     meili_client.index.return_value = documents_index
+    meili_client.wait_for_task.return_value = SimpleNamespace(
+        status="succeeded",
+        error=None,
+    )
     mocker.patch.object(indexer.meilisearch, "Client", return_value=meili_client)
     enqueued_catalog_ids: list[int] = []
     mocker.patch.object(

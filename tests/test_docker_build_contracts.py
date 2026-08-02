@@ -23,7 +23,7 @@ SHARED_EXACT_CONSTRAINTS = {
     "celery": "5.6.3",
     "fastapi": "0.115.8",
     "httpx": "0.28.1",
-    "meilisearch": "0.31.0",
+    "meilisearch": "0.43.0",
     "prometheus-client": "0.26.0",
     "psycopg2-binary": "2.9.10",
     "rapidfuzz": "3.14.3",

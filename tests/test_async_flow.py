@@ -83,7 +83,13 @@ def _patch_agenda_provider(
 
 def _patch_meilisearch_client(mocker) -> MagicMock:
     search_client = MagicMock()
-    search_client.index.return_value.delete_documents.return_value = {"taskUid": 41}
+    search_client.index.return_value.delete_documents.return_value = SimpleNamespace(
+        task_uid=41
+    )
+    search_client.wait_for_task.return_value = SimpleNamespace(
+        status="succeeded",
+        error=None,
+    )
     mocker.patch.object(indexer.meilisearch, "Client", return_value=search_client)
     return search_client
 
