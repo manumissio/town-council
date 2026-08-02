@@ -14,7 +14,8 @@ remains in force; where this plan is stricter, this plan wins for these tasks.
   lockfile after PR review found that re-extraction cancellation and agenda
   settlement still relied on whole-file source inspection. Authorizes exact
   `jsdom@28.1.0` test support so the existing compiled `ResultCard` can be
-  mounted, exercised, and unmounted through observable DOM behavior.
+  mounted, exercised, and unmounted through observable DOM behavior. Reconciles
+  the stale T-PLAT-2E detailed status with its completed PR #219 record.
 - **v4.03:** Completes T-FE-1A after replacing source-token polling checks
   with ten lifecycle behavior tests, moving polling to one non-JSX owner, and
   carrying cancellation through pending task requests and asynchronous
@@ -1984,7 +1985,7 @@ files (GED-5 grant).
 
 ### T-PLAT-2E: Migrate the Meilisearch Python SDK
 - priority: P1
-- status: in progress
+- status: complete in PR #219
 - depends_on: T-PLAT-2D merge; T-IDX-1 merge
 - implementation_plan:
   `docs/plans/T_PLAT_2E_MEILISEARCH_SDK_MIGRATION_PLAN.md`
