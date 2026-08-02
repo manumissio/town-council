@@ -1,7 +1,7 @@
 # Town Council Remediation Plan (Codex Multi-Agent)
 
-version: 3.98
-generated: 2026-07-26
+version: 3.99
+generated: 2026-08-01
 source: Four-pass external code review (security, architecture, smells, process)
 source_artifact: [Town Council architecture review](../reviews/architecture-review-2026-07-19.html)
 orchestrator_contract: Codex instantiates one agent per lane. Agents run in
@@ -10,6 +10,10 @@ remains in force; where this plan is stricter, this plan wins for these tasks.
 
 ## Changelog
 
+- **v3.99:** Marks T-IDX-1 complete after PR #217 and activates urgent
+  T-PLAT-2D to patch Dependabot alert #121 by moving the semantic Torch base
+  and CPU pins from 2.11.0 to 2.13.0. The separately prepared Meilisearch SDK
+  migration remains unregistered until this security patch is complete.
 - **v3.98:** Marks T-SEM-1 complete after PR #216 and activates P1 T-IDX-1
   with exact 22-file ownership to delete obsolete meeting people projections
   from indexing, lexical search, and the frontend. Roster-backed people
@@ -450,8 +454,8 @@ remains in force; where this plan is stricter, this plan wins for these tasks.
 
 | State | Tasks |
 |---|---|
-| **Complete** | T-CI-0, T-CI-1, T-CI-1A, T-CI-2, T-CI-2A, T-CI-3, T-CI-4, T-CI-5, T-SEC-1, T-SEC-2, T-SEC-3, T-SEC-3C, T-SEC-4, T-SEC-4A, T-SEC-5, T-SEC-6, T-TIME-1, T-TIME-2, T-TIME-3, T-CRAWL-1, T-CRAWL-2, T-PLAT-1, T-PLAT-1A, T-PLAT-2, T-PLAT-2A, T-PLAT-2B, T-PLAT-2C, T-PLAT-3, T-PLAT-4, T-GOV-1, T-GOV-2, T-GOV-2A, T-GOV-3, T-GOV-3A, T-GOV-3B, T-GOV-4, T-GOV-5, T-GOV-6, T-DA-1, T-DB-1A, T-DB-1, T-DB-1B, T-DC-1, T-DC-2A, T-DC-2B, T-DD-1A, T-DD-1B, T-DE-1, T-DE-2, T-TASK-1, T-SEM-1 |
-| **In progress** | T-IDX-1 |
+| **Complete** | T-CI-0, T-CI-1, T-CI-1A, T-CI-2, T-CI-2A, T-CI-3, T-CI-4, T-CI-5, T-SEC-1, T-SEC-2, T-SEC-3, T-SEC-3C, T-SEC-4, T-SEC-4A, T-SEC-5, T-SEC-6, T-TIME-1, T-TIME-2, T-TIME-3, T-CRAWL-1, T-CRAWL-2, T-PLAT-1, T-PLAT-1A, T-PLAT-2, T-PLAT-2A, T-PLAT-2B, T-PLAT-2C, T-PLAT-3, T-PLAT-4, T-GOV-1, T-GOV-2, T-GOV-2A, T-GOV-3, T-GOV-3A, T-GOV-3B, T-GOV-4, T-GOV-5, T-GOV-6, T-DA-1, T-DB-1A, T-DB-1, T-DB-1B, T-DC-1, T-DC-2A, T-DC-2B, T-DD-1A, T-DD-1B, T-DE-1, T-DE-2, T-TASK-1, T-SEM-1, T-IDX-1 |
+| **In progress** | T-PLAT-2D |
 | **Pending** | T-FE-1 |
 
 ---
@@ -1892,6 +1896,38 @@ files (GED-5 grant).
   Ruff, Mypy, task and Docker contracts, docs links, coverage-gated suite,
   four image builds, isolated runtime smoke, independent review, and PR CI.
 
+### T-PLAT-2D: Patch the Torch semantic runtime
+- priority: P1 (urgent dependency security patch)
+- status: in progress
+- depends_on: T-IDX-1 merge; serialized ahead of prepared Meilisearch work
+- implementation_plan:
+  `docs/plans/T_PLAT_2D_TORCH_SECURITY_PATCH_PLAN.md`
+- scope_authorization: Operator requested remediation of Dependabot alert #121
+  on 2026-08-01.
+- files_owned: `docs/plans/T_PLAT_2D_TORCH_SECURITY_PATCH_PLAN.md`,
+  `docs/plans/TOWN_COUNCIL_REMEDIATION_PLAN.md`,
+  `semantic_service/requirements.txt`,
+  `docker/semantic-cpu-constraints.txt`,
+  `tests/test_docker_build_contracts.py`
+- do: Replace the vulnerable audit-visible `torch==2.11.0` pin and matching
+  Docker `torch==2.11.0+cpu` constraint with patched 2.13.0 declarations.
+  Prove both pins stay aligned and validate the real CPU semantic image through
+  dependency, model-encoding, and FAISS search smokes.
+- preserve: Semantic APIs, model selection, embedding dimensions, index data,
+  worker behavior, Dockerfile, ports, credentials, runtime defaults, gate
+  semantics, and soak comparability.
+- forbidden: One-sided pin changes; application or Dockerfile edits; alert
+  suppression; unrelated dependency upgrades; compatibility code; API,
+  schema, workflow, environment, model-policy, or soak-policy changes; edits
+  outside `files_owned`.
+- accept: Exact pin contracts and all required Python gates pass;
+  `python-semantic` resolves `torch==2.13.0+cpu`; `pip check`, CPU-only runtime,
+  384-dimensional finite model embeddings, and FAISS nearest-neighbor search
+  pass; PR CI is green; alert #121 reports fixed after merge.
+- verify: Follow the Full T-PLAT-2D plan, including tests-first red evidence,
+  Ruff, Mypy, Docker and semantic tests, docs links, coverage-gated suite, real
+  semantic image build and runtime smoke, independent review, and PR CI.
+
 ### T-PLAT-3: Backup/restore runbook
 - priority: P1
 - status: complete and verified 2026-07-26 (PR #155)
@@ -2247,9 +2283,10 @@ Gate:    G3 satisfied (T-GOV-1 Accepted ADR + active docs/TESTING.MD)
 Phase 2: completed foundations [T-DA-1, T-DB-1A, T-DB-1, T-DB-1B,
          T-DC-1, T-DD-1A, T-DD-1B, T-DE-1]
 Next:    Serialize each task's Full-plan registration through this ledger.
-         T-SEM-1 is complete; T-IDX-1 is active under exact ownership.
+         T-IDX-1 is complete; T-PLAT-2D is the active security patch.
 Phase 3: agent-plat [T-PLAT-1 after T-TIME-1 and T-TIME-2, T-PLAT-1A
-         closure, T-PLAT-2B security patch, then T-PLAT-2..4; complete]
+         closure, T-PLAT-2B security patch, then T-PLAT-2..4; complete;
+         T-PLAT-2D alert #121 patch active before prepared Meilisearch work]
          || agent-gov [T-GOV-2 policy and T-GOV-2A runtime enforcement
          complete; T-GOV-3A/B and T-GOV-5 complete]
 After:   T-FE-1 follows behavior-test design. City Coverage Expansion awaits

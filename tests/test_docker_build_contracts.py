@@ -416,7 +416,7 @@ def test_dependency_audit_and_pgvector_constraints_remain_explicit() -> None:
         assert "pgvector>=0.5.0" in _requirement_directives(requirements_path)
 
 
-def test_semantic_cpu_constraint_preserves_auditable_upstream_version() -> None:
+def test_semantic_cpu_constraint_uses_patched_matching_upstream_version() -> None:
     semantic_directives = _requirement_directives(
         Path("semantic_service/requirements.txt")
     )
@@ -424,8 +424,12 @@ def test_semantic_cpu_constraint_preserves_auditable_upstream_version() -> None:
         Path("docker/semantic-cpu-constraints.txt")
     )
 
-    assert "torch==2.11.0" in semantic_directives
-    assert "torch==2.11.0+cpu" in cpu_constraint_directives
+    semantic_torch_pin = "torch==2.13.0"
+    cpu_torch_pin = "torch==2.13.0+cpu"
+
+    assert semantic_torch_pin in semantic_directives
+    assert cpu_torch_pin in cpu_constraint_directives
+    assert cpu_torch_pin.removesuffix("+cpu") == semantic_torch_pin
 
 
 def test_docker_preserves_requirement_paths_and_applies_constraints() -> None:
