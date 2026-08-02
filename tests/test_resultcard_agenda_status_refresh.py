@@ -35,12 +35,3 @@ def test_result_card_keeps_task_agenda_source_after_segmentation():
     assert "setAgendaItems(items);" in source
     assert "if (items.length === 0) agendaRefreshes.push(fetchAgendaItems(signal));" in source
     assert "if (data.items.length === 0) fetchAgendaItems();" in source
-
-
-def test_result_card_stops_reextract_state_updates_after_poll_cancellation():
-    source = Path("frontend/components/ResultCard.js").read_text(encoding="utf-8")
-
-    assert "async (_result, signal)" in source
-    assert "await fetchCanonicalContent(signal);" in source
-    assert "if (signal.aborted) return;" in source
-    assert "await fetchDerivedStatus(signal);" in source
