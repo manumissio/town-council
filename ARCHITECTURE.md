@@ -91,10 +91,11 @@ in Compose files and the operations guide.
 
 1. City-specific Scrapy spiders read municipal portals or Legistar feeds.
 2. Crawlers write source evidence to staging tables.
-3. Promotion validates staged rows and creates canonical events, documents,
-   and catalogs in Postgres.
-4. The downloader stores local document files and associates them with their
-   catalog records.
+3. Promotion validates staged event rows and creates canonical events in
+   Postgres.
+4. The downloader fetches staged document URLs. After a file is available, it
+   creates or reuses the catalog record and links it to the event through a
+   document record.
 
 Staging preserves source evidence. Postgres owns canonical application state.
 Crawler success alone does not prove usable city data; onboarding requires
@@ -207,8 +208,10 @@ authority and retention rules live in
 - Meilisearch owns lexical retrieval and facets.
 - The semantic service owns semantic backend access.
 - Semantic retrieval can use the configured FAISS/NumPy or pgvector backend.
-- Missing or stale semantic evidence degrades to lexical results with explicit
-  diagnostics instead of inventing semantic confidence.
+- The pgvector path degrades missing or stale embeddings to lexical results
+  with explicit diagnostics instead of inventing semantic confidence.
+- FAISS/NumPy requires local index artifacts and reports the service as
+  unavailable when they are missing.
 - Record-scoped writes use targeted reindexing; full rebuilds remain repair or
   settings operations.
 
