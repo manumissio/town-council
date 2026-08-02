@@ -1,7 +1,7 @@
 # Town Council Remediation Plan (Codex Multi-Agent)
 
-version: 3.99
-generated: 2026-08-01
+version: 4.00
+generated: 2026-08-02
 source: Four-pass external code review (security, architecture, smells, process)
 source_artifact: [Town Council architecture review](../reviews/architecture-review-2026-07-19.html)
 orchestrator_contract: Codex instantiates one agent per lane. Agents run in
@@ -10,6 +10,12 @@ remains in force; where this plan is stricter, this plan wins for these tasks.
 
 ## Changelog
 
+- **v4.00:** Marks T-PLAT-2D complete after PR #218 upgraded the semantic
+  Torch runtime to 2.13.0 and Dependabot alert #121 reported fixed. Activates
+  T-PLAT-2E with exact 14-file ownership to migrate the Meilisearch Python SDK
+  from 0.31.0 to 0.43.0, delete obsolete task-ID and filtered-delete
+  compatibility helpers, preserve failed-task propagation, and validate the
+  existing Meilisearch v1.6 reader/writer boundary.
 - **v3.99:** Marks T-IDX-1 complete after PR #217 and activates urgent
   T-PLAT-2D to patch Dependabot alert #121 by moving the semantic Torch base
   and CPU pins from 2.11.0 to 2.13.0. The separately prepared Meilisearch SDK
@@ -454,8 +460,8 @@ remains in force; where this plan is stricter, this plan wins for these tasks.
 
 | State | Tasks |
 |---|---|
-| **Complete** | T-CI-0, T-CI-1, T-CI-1A, T-CI-2, T-CI-2A, T-CI-3, T-CI-4, T-CI-5, T-SEC-1, T-SEC-2, T-SEC-3, T-SEC-3C, T-SEC-4, T-SEC-4A, T-SEC-5, T-SEC-6, T-TIME-1, T-TIME-2, T-TIME-3, T-CRAWL-1, T-CRAWL-2, T-PLAT-1, T-PLAT-1A, T-PLAT-2, T-PLAT-2A, T-PLAT-2B, T-PLAT-2C, T-PLAT-3, T-PLAT-4, T-GOV-1, T-GOV-2, T-GOV-2A, T-GOV-3, T-GOV-3A, T-GOV-3B, T-GOV-4, T-GOV-5, T-GOV-6, T-DA-1, T-DB-1A, T-DB-1, T-DB-1B, T-DC-1, T-DC-2A, T-DC-2B, T-DD-1A, T-DD-1B, T-DE-1, T-DE-2, T-TASK-1, T-SEM-1, T-IDX-1 |
-| **In progress** | T-PLAT-2D |
+| **Complete** | T-CI-0, T-CI-1, T-CI-1A, T-CI-2, T-CI-2A, T-CI-3, T-CI-4, T-CI-5, T-SEC-1, T-SEC-2, T-SEC-3, T-SEC-3C, T-SEC-4, T-SEC-4A, T-SEC-5, T-SEC-6, T-TIME-1, T-TIME-2, T-TIME-3, T-CRAWL-1, T-CRAWL-2, T-PLAT-1, T-PLAT-1A, T-PLAT-2, T-PLAT-2A, T-PLAT-2B, T-PLAT-2C, T-PLAT-2D, T-PLAT-3, T-PLAT-4, T-GOV-1, T-GOV-2, T-GOV-2A, T-GOV-3, T-GOV-3A, T-GOV-3B, T-GOV-4, T-GOV-5, T-GOV-6, T-DA-1, T-DB-1A, T-DB-1, T-DB-1B, T-DC-1, T-DC-2A, T-DC-2B, T-DD-1A, T-DD-1B, T-DE-1, T-DE-2, T-TASK-1, T-SEM-1, T-IDX-1 |
+| **In progress** | T-PLAT-2E |
 | **Pending** | T-FE-1 |
 
 ---
@@ -1898,7 +1904,7 @@ files (GED-5 grant).
 
 ### T-PLAT-2D: Patch the Torch semantic runtime
 - priority: P1 (urgent dependency security patch)
-- status: in progress
+- status: complete and verified 2026-08-02 (PR #218; alert #121 fixed)
 - depends_on: T-IDX-1 merge; serialized ahead of prepared Meilisearch work
 - implementation_plan:
   `docs/plans/T_PLAT_2D_TORCH_SECURITY_PATCH_PLAN.md`
@@ -1927,6 +1933,41 @@ files (GED-5 grant).
 - verify: Follow the Full T-PLAT-2D plan, including tests-first red evidence,
   Ruff, Mypy, Docker and semantic tests, docs links, coverage-gated suite, real
   semantic image build and runtime smoke, independent review, and PR CI.
+
+### T-PLAT-2E: Migrate the Meilisearch Python SDK
+- priority: P1
+- status: in progress
+- depends_on: T-PLAT-2D merge; T-IDX-1 merge
+- implementation_plan:
+  `docs/plans/T_PLAT_2E_MEILISEARCH_SDK_MIGRATION_PLAN.md`
+- scope_authorization: Operator approved replacing closed Dependabot PR #197
+  with an owned Meilisearch migration on 2026-07-27.
+- files_owned: `docs/plans/T_PLAT_2E_MEILISEARCH_SDK_MIGRATION_PLAN.md`,
+  `docs/plans/TOWN_COUNCIL_REMEDIATION_PLAN.md`, `docs/ADR.md`,
+  `constraints.txt`, `pipeline/indexer.py`,
+  `pipeline/indexer_meilisearch.py`, `ruff.toml`, `tests/test_api.py`,
+  `tests/test_async_flow.py`, `tests/test_docker_build_contracts.py`,
+  `tests/test_extract_task.py`, `tests/test_indexer_logic.py`,
+  `tests/test_repository_guardrails.py`,
+  `tests/test_tasks_vote_extraction_flow.py`
+- do: Upgrade only the shared Meilisearch Python SDK constraint from 0.31.0
+  to 0.43.0; consume typed task IDs directly; delete the obsolete task-ID and
+  filtered-delete compatibility helpers; and use the existing successful-task
+  waiter for settings and targeted deletion.
+- preserve: Meilisearch server v1.6, index UID and settings, reader/writer key
+  separation, task ordering, replacement-index recovery, document payloads,
+  API/search behavior, people-field absence, runtime defaults, and soak
+  comparability.
+- forbidden: Server-image, key, port, API, schema, environment, index-contract,
+  workflow, inference, or soak-policy changes; compatibility shims; failed-task
+  swallowing; unrelated dependency updates; edits outside `files_owned`.
+- accept: Exact pin and typed-task contracts pass; all Python gates pass; four
+  affected images resolve SDK 0.43.0 with clean dependency checks; an isolated
+  v1.6 server accepts settings, add/search/stats/task-list/filter-delete flows;
+  and a scoped reader can search/read stats but cannot add or change settings.
+- verify: Follow the Full T-PLAT-2E plan, including tests-first red evidence,
+  Ruff, formatter, Mypy, targeted and coverage-gated suites, four image builds,
+  isolated reader/writer runtime smoke, independent review, and PR CI.
 
 ### T-PLAT-3: Backup/restore runbook
 - priority: P1
@@ -2283,10 +2324,10 @@ Gate:    G3 satisfied (T-GOV-1 Accepted ADR + active docs/TESTING.MD)
 Phase 2: completed foundations [T-DA-1, T-DB-1A, T-DB-1, T-DB-1B,
          T-DC-1, T-DD-1A, T-DD-1B, T-DE-1]
 Next:    Serialize each task's Full-plan registration through this ledger.
-         T-IDX-1 is complete; T-PLAT-2D is the active security patch.
+         T-PLAT-2D is complete; T-PLAT-2E is the active SDK migration.
 Phase 3: agent-plat [T-PLAT-1 after T-TIME-1 and T-TIME-2, T-PLAT-1A
          closure, T-PLAT-2B security patch, then T-PLAT-2..4; complete;
-         T-PLAT-2D alert #121 patch active before prepared Meilisearch work]
+         T-PLAT-2D alert #121 patch complete; T-PLAT-2E Meilisearch active]
          || agent-gov [T-GOV-2 policy and T-GOV-2A runtime enforcement
          complete; T-GOV-3A/B and T-GOV-5 complete]
 After:   T-FE-1 follows behavior-test design. City Coverage Expansion awaits
