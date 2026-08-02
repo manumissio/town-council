@@ -47,9 +47,11 @@ Operational tuning, rollout state, and troubleshooting are maintained in:
 #### Internal services
 - `crawler` (Scrapy ingestion)
 - `pipeline` (batch enrichment and indexing)
+- `tika` (document extraction and OCR service called by pipeline and workers)
 - `api` (FastAPI read/write endpoints)
+- `semantic` (FastAPI semantic retrieval service)
 - `frontend` server-side route handlers (same-origin proxy for protected write actions)
-- `worker` (Celery async task execution)
+- `worker`, `enrichment-worker`, and `semantic-worker` (queue-specific Celery execution)
 - `inference` (HTTP LLM service when `LOCAL_AI_BACKEND=http`)
 - `postgres` (system of record, including semantic and lineage data)
 - `redis` (Celery queue/result backend + provider metrics aggregation)
@@ -65,9 +67,20 @@ flowchart LR
         Legi["Legistar / Granicus"]
     end
 
+    subgraph Policy["Policy and Configuration"]
+        Registry["Approved city rollout registry"]
+    end
+
     subgraph Crawl["Ingestion (Scrapy)"]
         Spider["Crawler Service"]
-        Promote["promote_stage.py"]
+        Promote["pipeline/promote_stage.py"]
+    end
+
+    subgraph Processing["Pipeline Processing"]
+        Pipeline["Batch pipeline"]
+        Extractor["Extraction module"]
+        Tika["Apache Tika"]
+        Roster["Roster synchronization"]
     end
 
     subgraph DB["PostgreSQL"]
@@ -80,20 +93,26 @@ flowchart LR
 
     subgraph Async["Async (FastAPI + Celery + Redis)"]
         API["FastAPI"]
-        Queue[("Redis queue/result")]
-        Worker["Celery worker"]
+        Queue[("default queue")]
+        EnrichQueue[("enrichment queue")]
+        SemanticQueue[("semantic queue")]
+        Worker["default worker"]
+        EnrichWorker["enrichment worker"]
+        SemanticWorker["semantic worker"]
         LocalAI["LocalAI Orchestrator"]
     end
 
     subgraph Inference["Inference Runtime Modes"]
         InProc["InProcessLlamaProvider\n(LOCAL_AI_BACKEND=inprocess)"]
         HttpProv["HttpInferenceProvider\n(LOCAL_AI_BACKEND=http)"]
-        HttpSvc["inference service (Ollama/vLLM/llama.cpp server)"]
+        HttpSvc["HTTP inference service\n(Ollama or OpenAI-compatible, such as MLX-LM)"]
     end
 
     subgraph Search["Search + UI"]
         Meili["Meilisearch"]
-        Semantic["Semantic backend\n(FAISS bridge -> pgvector target)"]
+        SemanticSvc["Semantic HTTP service"]
+        SemanticBackend["FAISS/NumPy or pgvector backend"]
+        SemanticArtifacts[("FAISS/NumPy index artifacts")]
         UI["Next.js UI"]
     end
 
@@ -105,21 +124,31 @@ flowchart LR
     Web --> Spider
     Legi --> Spider
     Spider --> Stage --> Promote --> Core
+    Registry --> Roster
+    Legi --> Roster --> People
 
-    Core -->|"run_pipeline.py facade"| Meili
-    Core -->|"NLP/entity enrichment"| People
-    Core --> Sem
+    Core --> Pipeline --> Meili
+    Pipeline --> Extractor --> Tika
+    Extractor -->|"persist content and hash"| Core
     Agenda --> Meili
 
     UI -->|"search/read"| API
     API --> Meili
-    API --> Semantic
+    API -->|"HTTP"| SemanticSvc
+    SemanticSvc -->|"pgvector candidate recall"| Meili
+    SemanticSvc --> SemanticBackend
+    SemanticBackend -->|"FAISS/NumPy"| SemanticArtifacts
+    SemanticBackend -->|"pgvector"| Sem
     People -->|"people reads"| API
     UI -->|"proxied protected catalog reads/writes"| API
     API <--> Queue --> Worker --> LocalAI
+    API --> EnrichQueue --> EnrichWorker
+    Pipeline --> SemanticQueue
+    Worker --> SemanticQueue --> SemanticWorker --> Sem
     LocalAI --> InProc
     LocalAI --> HttpProv --> HttpSvc
     Worker --> Core
+    EnrichWorker --> Core
     UI -->|"GET /tasks/{id}"| API
 
     API -. metrics .-> Prom
@@ -138,7 +167,7 @@ flowchart LR
    - city-scoped recovery can opt into no-delta crawling when an operator needs a bounded historical backfill instead of the normal stored anchor.
 
 #### Batch enrichment
-1. Extraction writes canonical text to `catalog.content` and computes `content_hash`.
+1. The extraction service calls Apache Tika over HTTP, then writes canonical text to `catalog.content` and computes `content_hash`; Tika does not write application data.
 2. Agenda segmentation and summary hydration derive structured agenda state and summary state from the extracted corpus.
 3. Entity, topic, and organization stages enrich records after the core derived states exist. Person extraction and document-derived person linking are not enrichment stages.
 4. Search freshness is maintained through both broad batch hydration and task-driven targeted reindex of changed catalogs.
@@ -168,8 +197,8 @@ flowchart LR
 #### Async user-triggered generation
 1. UI calls protected write endpoints.
 2. Frontend server-side route handlers forward protected mutations with `API_AUTH_KEY`; the browser does not hold a public write key.
-3. API enqueues Celery tasks in Redis.
-4. Worker executes task and persists updates.
+3. API routes user-triggered generation through Redis to the default or enrichment queue.
+4. The matching worker executes the task and persists updates; post-write and maintenance flows dispatch embedding hydration to the semantic queue. Semantic retrieval remains a synchronous API-to-semantic-service HTTP path.
 5. UI polls `/tasks/{id}` with bounded retry logic.
 
 Trust note:
@@ -248,12 +277,17 @@ Primary owners:
 - Retrieval over-fetches candidates and de-duplicates by `catalog_id` before pagination.
 - If pgvector embeddings are missing or stale for the recalled meetings, semantic mode degrades to lexical results and reports why in `semantic_diagnostics`.
 - FAISS is a temporary bridge path while pgvector is hydrated and validated.
+- The API delegates semantic retrieval over HTTP to the dedicated `semantic`
+  service. FAISS/NumPy queries its filesystem index directly; pgvector recalls
+  meeting candidates from Meilisearch and reranks them against Postgres.
 
 Primary owners:
 - `api/main.py`
 - `api/search_routes.py`
 - `api/search_read_routes.py` facade plus focused `api/search_read_*` helpers
 - `api/search_semantic_routes.py`
+- `api/search/semantic_support.py`
+- `semantic_service/main.py` facade plus focused `semantic_service/*` helpers
 - `pipeline/semantic_backend_runtime.py`
 - `pipeline/semantic_backend_types.py`
 - `pipeline/semantic_faiss_backend.py`
@@ -279,15 +313,17 @@ Primary owners:
 
 #### Inference Provider Architecture (Stable baseline + Experimental future)
 
-- `LocalAI` handles orchestration (prompting, grounding, fallback policy).
+- `LocalAI` handles product orchestration, including prompting, grounding, and deterministic content fallback where the calling operation permits it.
 - Transport is abstracted behind `InferenceProvider`:
   - `InProcessLlamaProvider`
   - `HttpInferenceProvider`
+- HTTP mode supports Ollama and OpenAI-compatible protocols, including host
+  MLX-LM deployments; configuration selects one protocol and endpoint.
 - HTTP retry orchestration stays in `pipeline/http_inference_attempts.py`;
   in-process locking and reset behavior stays adapter-local.
-- Provider implementations import configuration and metrics from their owners,
-  never backward through the provider compatibility facade.
-- Providers emit typed errors (`ProviderTimeoutError`, `ProviderUnavailableError`, `ProviderResponseError`) so orchestration can distinguish retryable paths from deterministic fallback paths.
+- Provider implementations import contracts, configuration, and metrics directly
+  from their owners; no provider compatibility facade sits between them.
+- Providers emit typed errors (`ProviderTimeoutError`, `ProviderUnavailableError`, `ProviderResponseError`) so each calling operation can apply its documented retry, fail-fast, or deterministic-fallback policy.
 - Under prefork workers, provider telemetry is mirrored to Redis-backed aggregates so `tc_provider_*` series remain visible.
 
 Hardware topology:
@@ -322,8 +358,10 @@ Primary owners:
   - `api/main.py` (FastAPI app assembly and security middleware)
   - `api/task_routes.py` route assembly, `api/task_dispatch.py` broker boundary,
     and focused `api/task_route_*` helpers
-  - `pipeline/tasks.py` Celery entrypoints plus focused `pipeline/task_*`
-    operation owners
+  - `pipeline/tasks.py` default-queue entrypoints plus focused `pipeline/task_*`
+    operation owners, `pipeline/enrichment_tasks.py` for topic generation,
+    `pipeline/semantic_tasks.py` for embedding hydration, and
+    `pipeline/celery_app.py` for queue routing
   - `frontend/components/ResultCard.js` (polling/status UI)
 - Adjust lineage recompute behavior:
   - `pipeline/lineage_service.py` facade plus focused `pipeline/lineage_*` helpers
@@ -342,12 +380,14 @@ Primary owners:
 
 ### Code Map by Concern
 
-- Ingestion and promotion: `council_crawler/`, `crawler/promote_stage.py`
+- Ingestion and promotion: `council_crawler/`, `pipeline/promote_stage.py`
 - Canonical extraction/content hashing: `pipeline/extraction_service.py`, `pipeline/content_hash.py`
-- Async orchestration and writes: `pipeline/tasks.py` owns Celery identities,
-  retries, and sessions; focused `pipeline/task_*` modules own task-family
-  operations; vote extraction runs through `pipeline/vote_extractor.py` plus
-  focused `pipeline/vote_extraction_*` helpers
+- Async orchestration and writes: `pipeline/tasks.py` owns default-queue task
+  identities, retries, and sessions; `pipeline/enrichment_tasks.py` owns topic
+  generation; `pipeline/semantic_tasks.py` owns embedding hydration; focused
+  task modules own task-family operations; vote extraction runs through
+  `pipeline/vote_extractor.py` plus focused `pipeline/vote_extraction_*` helpers;
+  `pipeline/celery_app.py` owns queue declarations and task routing
 - Inference abstraction and provider telemetry: `pipeline/llm.py` product-policy facade plus focused `pipeline/local_ai_*` helpers, `pipeline/agenda_extraction.py`, `pipeline/inference_provider_contract.py`, `pipeline/http_inference_provider.py` adapter plus focused `pipeline/http_inference_*` helpers, `pipeline/inprocess_inference_provider.py`, `pipeline/provider_telemetry.py`, `pipeline/metrics.py`, `pipeline/metrics_provider_recorders.py`, `pipeline/metrics_redis_backend.py`
 - API surface and auth: `api/main.py`, `api/app_setup.py`, `api/search_routes.py` router aggregation, `api/search_read_routes.py` facade plus focused `api/search_read_*` helpers, `api/task_routes.py` route assembly, `api/task_dispatch.py`, focused `api/task_route_*` helpers, focused `api/search/*_support.py` helpers, `api/search/query_builder.py`, `api/metrics.py`
 - Semantic retrieval and embeddings: `semantic_service/main.py` route facade plus focused `semantic_service/*` helpers, `pipeline/semantic_backend_runtime.py`, `pipeline/semantic_backend_types.py`, `pipeline/semantic_faiss_backend.py`, `pipeline/semantic_pgvector_backend.py`, focused semantic backend helpers, `pipeline/models.py` facade plus focused `pipeline/model_*` modules
@@ -367,13 +407,13 @@ Primary owners:
 #### Request/read lifecycle
 1. UI calls read endpoints (`/search`, `/search/semantic`, lineage reads).
 2. API builds search/trend query contracts.
-3. API reads from Meilisearch and/or semantic backend.
+3. API reads lexical results from Meilisearch or calls the semantic HTTP service, which owns semantic backend access.
 4. API returns bounded, de-duplicated results.
 
 #### Write/task lifecycle
 1. UI sends protected POST (`/summarize`, `/segment`, `/topics`, `/extract`, `/votes`) with `X-API-Key`.
-2. API enqueues task in Redis-backed Celery queue.
-3. Worker executes pipeline logic and persists results.
+2. API enqueues user-triggered generation to the default or enrichment Redis-backed Celery queue.
+3. The corresponding worker executes pipeline logic and persists results; completed writes can dispatch embedding hydration to the semantic queue.
 4. UI polls `/tasks/{task_id}` until terminal state.
 
 #### Onboarding lifecycle
@@ -386,18 +426,21 @@ Primary owners:
 #### Inference lifecycle
 1. `LocalAI` selects transport (`InProcessLlamaProvider` or `HttpInferenceProvider`) based on configured backend.
 2. Provider executes request and emits `tc_provider_*` telemetry.
-3. Typed errors drive retry/fail-fast behavior.
+3. Typed errors let the calling operation distinguish transport retry, fail-fast, and permitted deterministic-fallback behavior.
 4. No silent remote-to-local fallback is permitted.
 
 ### Extension Points and Safe Customization Seams
 
-- Add new generation capability: add route in `api/task_routes.py` + task in `pipeline/tasks.py` + UI task-state wiring.
+- Add new generation capability: add the route through `api/task_routes.py`,
+  dispatch through `api/task_dispatch.py`, register the Celery identity in the
+  appropriate queue owner, add non-default routing in `pipeline/celery_app.py`,
+  keep operation logic in a focused task module, and add UI task-state wiring.
 - Add provider transport: implement the `InferenceProvider` contract from
   `pipeline/inference_provider_contract.py`, keep transport policy in the
-  adapter, and preserve typed errors plus metrics. Add facade imports only when
-  they are an explicit runtime compatibility contract.
+  adapter, preserve typed errors plus metrics, and wire backend selection in
+  `pipeline/local_ai_runtime.py`. Do not add a provider compatibility facade.
 - Extend query behavior: modify `api/search/query_builder.py` to avoid search/trend filter drift.
-- Add enrichment stage: append explicit stage in pipeline orchestration with deterministic write contract.
+- Add enrichment stage: append an explicit stage in pipeline orchestration with a deterministic write contract. Document-derived enrichment must not create or link person or membership records; `docs/DATA_GOVERNANCE.md` owns that authority policy.
 
 ## 4) Hard Contracts
 
@@ -438,7 +481,10 @@ Owners:
 - Hash-based staleness (`content_hash`, source-hash fields) governs regeneration correctness.
 
 Owners:
-- `pipeline/tasks.py`
+- `pipeline/vote_extractor.py` plus focused `pipeline/vote_extraction_*` helpers
+- `city_metadata/city_rollout_registry.csv`
+- `pipeline/legistar_roster.py`
+- `pipeline/roster_sync.py`
 - `pipeline/models.py` facade plus focused `pipeline/model_*` modules
 - `pipeline/content_hash.py`
 
@@ -512,7 +558,7 @@ Owners:
 ### Environment and Compatibility Contract
 
 - Baseline contributor runtime is local-first.
-- Required local services for full stack behavior: `postgres`, `redis`, `meilisearch`, API/worker services, and inference runtime in selected backend mode.
+- Required local services for full stack behavior: `postgres`, `redis`, `meilisearch`, Tika/extraction, API, semantic, queue-specific worker services, and the inference runtime selected by configuration.
 - `LOCAL_AI_BACKEND=inprocess` and `LOCAL_AI_BACKEND=http` are supported architecture modes.
 - Remote `HttpInferenceProvider` endpoint unavailability is a hard error path (fail-fast).
 - TTFT/TPS metrics are observational unless promoted by policy docs.
@@ -523,8 +569,14 @@ Owners:
 
 - Entrypoint and quickstart: [`README.md`](README.md)
 - Architecture and design intent: this file (`ARCHITECTURE.md`)
+- Agent workflow and repository policy: [`AGENTS.md`](AGENTS.md)
+- Pipeline behavior and rationale: [`docs/PIPELINE.md`](docs/PIPELINE.md)
 - Operator runbook and commands: [`docs/OPERATIONS.md`](docs/OPERATIONS.md)
 - Benchmark numbers and reproducibility: [`docs/PERFORMANCE.md`](docs/PERFORMANCE.md)
+- Security threat model and controls: [`SECURITY.md`](SECURITY.md)
+- Testing policy and approved fake boundaries: [`docs/TESTING.MD`](docs/TESTING.MD)
+- Static-analysis and guardrail policy: [`docs/ENGINEERING_GUARDRAILS.md`](docs/ENGINEERING_GUARDRAILS.md)
+- Person and civic-data authority policy: [`docs/DATA_GOVERNANCE.md`](docs/DATA_GOVERNANCE.md)
 - Milestone sequencing and status: [`ROADMAP.md`](ROADMAP.md)
 - City onboarding workflow and latest rollout evidence: [`docs/OPERATIONS.md`](docs/OPERATIONS.md), [`docs/city-onboarding-status.md`](docs/city-onboarding-status.md)
 - Adding new city crawlers: [`docs/CONTRIBUTING_CITIES.md`](docs/CONTRIBUTING_CITIES.md)
