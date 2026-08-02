@@ -122,7 +122,8 @@ contracts. Exact ordering and fallback behavior live in the
 1. Public read paths query Postgres, Meilisearch, or the semantic service.
 2. Protected generation requests enter through the frontend server proxy or a
    directly authenticated API call.
-3. The API dispatches long-running writes to the appropriate Celery queue.
+3. The API dispatches long-running generation writes to the appropriate Celery
+   queue.
 4. Workers persist results before best-effort downstream work such as semantic
    embedding dispatch.
 5. Clients poll the task-status endpoint until the task reaches a terminal
@@ -151,7 +152,7 @@ revocation, and recovery semantics live in
 | API | Serve reads and validate protected writes | `api/main.py`, route modules | [`SECURITY.md`](SECURITY.md) |
 | Task execution | Route and run record-scoped generation on queue-specific workers | `pipeline/tasks.py`, queue task owners | [`docs/PIPELINE.md`](docs/PIPELINE.md) |
 | Inference | Apply product policy, transport requests, and return typed failures | `pipeline/llm.py`, provider adapters | [`docs/OPERATIONS.md`](docs/OPERATIONS.md) |
-| Search | Maintain lexical indexes and execute semantic retrieval | `pipeline/indexer.py`, `semantic_service/` | [`docs/PIPELINE.md`](docs/PIPELINE.md) |
+| Search | Maintain lexical and semantic indexes; execute semantic retrieval | `pipeline/indexer.py`, `pipeline/semantic_*`, `semantic_service/` | [`docs/PIPELINE.md`](docs/PIPELINE.md) |
 | Persistence | Own canonical records, schema, provenance, and derived state | `pipeline/model_*`, `alembic/` | [`docs/DATA_GOVERNANCE.md`](docs/DATA_GOVERNANCE.md) |
 | Frontend proxy | Serve the UI and inject protected credentials server-side | `frontend/app/api/`, `frontend/proxy.js` | [`SECURITY.md`](SECURITY.md) |
 | Observability | Expose API, worker, task, and provider evidence | `api/metrics.py`, `pipeline/metrics.py` | [`docs/PERFORMANCE.md`](docs/PERFORMANCE.md) |
@@ -184,7 +185,8 @@ fallback is allowed.
 ### 5.2 Reads stay isolated from expensive writes
 
 - Search and record reads do not execute extraction or generation inline.
-- Protected writes dispatch asynchronous tasks and return task identifiers.
+- Protected generation writes dispatch asynchronous tasks and return task
+  identifiers.
 - Queue routing keeps default, enrichment, and semantic workloads separate.
 - Persisted primary results survive a later best-effort dispatch failure.
 
@@ -206,7 +208,8 @@ authority and retention rules live in
 ### 5.4 Search has distinct lexical and semantic owners
 
 - Meilisearch owns lexical retrieval and facets.
-- The semantic service owns semantic backend access.
+- The semantic service owns semantic retrieval. Pipeline code owns embedding
+  persistence and index construction.
 - Semantic retrieval can use the configured FAISS/NumPy or pgvector backend.
 - The pgvector path degrades missing or stale embeddings to lexical results
   with explicit diagnostics instead of inventing semantic confidence.
