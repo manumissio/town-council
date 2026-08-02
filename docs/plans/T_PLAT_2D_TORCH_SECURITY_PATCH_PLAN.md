@@ -161,7 +161,7 @@ semantic image smoke.
 
 ```bash
 PYTHONPATH=. .venv/bin/pytest -q \
-  tests/test_docker_build_contracts.py::test_semantic_cpu_constraint_preserves_auditable_upstream_version
+  tests/test_docker_build_contracts.py::test_semantic_cpu_constraint_uses_patched_matching_upstream_version
 
 ./.venv/bin/ruff check .
 ./.venv/bin/mypy
