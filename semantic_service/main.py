@@ -25,11 +25,9 @@ from pipeline.meilisearch_credentials import (
     resolve_meilisearch_reader_key,
 )
 from pipeline.models import db_connect
-from pipeline.semantic_index import (
-    get_semantic_backend,
-    SemanticConfigError,
-    PgvectorSemanticBackend,
-)
+import pipeline.semantic_backend_runtime as semantic_backend_runtime
+from pipeline.semantic_backend_types import SemanticConfigError
+from pipeline.semantic_pgvector_backend import PgvectorSemanticBackend
 from semantic_service.candidates import (
     dedupe_semantic_candidates as _dedupe_semantic_candidates,
     lexical_hit_to_candidate as _lexical_hit_to_candidate,
@@ -158,7 +156,7 @@ def health_check(db: SQLAlchemySession = Depends(get_db)):
         db.execute(text("SELECT 1"))
         if not SEMANTIC_ENABLED:
             return {"status": "healthy", "database": "connected", "semantic_enabled": False}
-        backend_health = get_semantic_backend().health()
+        backend_health = semantic_backend_runtime.get_semantic_backend().health()
         if backend_health.get("status") != "ok":
             logger.warning("semantic backend health returned unhealthy status: %s", backend_health)
             raise HTTPException(status_code=503, detail=SEMANTIC_BACKEND_UNHEALTHY_DETAIL)
@@ -208,7 +206,7 @@ def search_documents_semantic(
     )
     target = offset + limit
     t0 = time.perf_counter()
-    backend = get_semantic_backend()
+    backend = semantic_backend_runtime.get_semantic_backend()
 
     try:
         retrieval_result = retrieve_semantic_candidates(

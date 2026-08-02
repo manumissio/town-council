@@ -3,7 +3,7 @@ from unittest.mock import MagicMock
 from fastapi.testclient import TestClient
 
 from semantic_service.main import app, get_db
-from pipeline.semantic_index import SemanticCandidate, SemanticRerankResult
+from pipeline.semantic_backend_types import SemanticCandidate, SemanticRerankResult
 
 VALID_KEY = "dev_secret_key_change_me"
 
@@ -59,7 +59,7 @@ def test_semantic_search_pgvector_hybrid_rerank_path(mocker):
 
     mocker.patch("semantic_service.main.SEMANTIC_ENABLED", True)
     mocker.patch("semantic_service.main.SEMANTIC_BACKEND", "pgvector")
-    mocker.patch("semantic_service.main.get_semantic_backend", return_value=_PgBackend())
+    mocker.patch("pipeline.semantic_backend_runtime.get_semantic_backend", return_value=_PgBackend())
 
     meili_index = MagicMock()
     meili_index.search.return_value = {
@@ -86,7 +86,9 @@ def test_semantic_search_pgvector_hybrid_rerank_path(mocker):
 
     client = TestClient(app)
     try:
-        resp = client.get("/search/semantic?q=zoning&include_agenda_items=true&limit=20", headers={"X-API-Key": VALID_KEY})
+        resp = client.get(
+            "/search/semantic?q=zoning&include_agenda_items=true&limit=20", headers={"X-API-Key": VALID_KEY}
+        )
         assert resp.status_code == 200
         payload = resp.json()
         assert payload["hits"][0]["id"] == "doc_10"
@@ -148,7 +150,7 @@ def test_semantic_search_pgvector_falls_back_to_lexical_when_embeddings_missing(
 
     mocker.patch("semantic_service.main.SEMANTIC_ENABLED", True)
     mocker.patch("semantic_service.main.SEMANTIC_BACKEND", "pgvector")
-    mocker.patch("semantic_service.main.get_semantic_backend", return_value=_FallbackPgBackend())
+    mocker.patch("pipeline.semantic_backend_runtime.get_semantic_backend", return_value=_FallbackPgBackend())
 
     meili_index = MagicMock()
     meili_index.search.return_value = {

@@ -1,6 +1,6 @@
 # Operations Runbook
 
-Last updated: 2026-07-31
+Last updated: 2026-08-01
 
 ## Core workflow
 
@@ -1840,7 +1840,9 @@ Notes:
 - Trends are served from Meilisearch facets (`topics`) in v1.
 - Lineage read endpoints are available even when `FEATURE_TRENDS_DASHBOARD=false`.
 - Lineage recompute is full-graph and lock-protected to handle cascading component merges safely.
-- `pipeline/semantic_index.py` still carries its own env-based multiprocess guardrail path; Batch 2 only unified the LocalAI task and runtime checks.
+- `pipeline/semantic_backend_runtime.py` owns semantic backend selection,
+  optional model adapters, and multiprocess worker detection. Backend modules
+  import configuration directly and do not resolve behavior through a facade.
 
 ## Inference Decoupling & Throughput Stabilization Rollout (before city expansion)
 

@@ -8,17 +8,14 @@ from typing import Any
 
 import numpy as np
 
+import pipeline.semantic_backend_runtime as semantic_backend_runtime
+from pipeline.config import SEMANTIC_INDEX_DIR
+
 logger = logging.getLogger("semantic-index")
 
 
-def _semantic_index_facade():
-    from pipeline import semantic_index
-
-    return semantic_index
-
-
-def _artifact_paths(backend) -> dict[str, Path]:
-    base = Path(_semantic_index_facade().SEMANTIC_INDEX_DIR)
+def _artifact_paths() -> dict[str, Path]:
+    base = Path(SEMANTIC_INDEX_DIR)
     return {
         "dir": base,
         "faiss": base / "semantic_index.faiss",
@@ -32,12 +29,12 @@ def _load_artifacts(backend) -> None:
     backend._guard_runtime()
     if backend._index is not None and backend._metadata:
         return
-    paths = backend._artifact_paths()
+    paths = _artifact_paths()
     if not paths["ids"].exists() or not paths["meta"].exists():
         raise FileNotFoundError("Semantic artifacts are missing. Run `python reindex_semantic.py`.")
     with backend._lock:
         if backend._index is None:
-            faiss_backend = _semantic_index_facade().faiss
+            faiss_backend = semantic_backend_runtime.faiss
             backend._metadata = json.loads(paths["ids"].read_text(encoding="utf-8"))
             backend._meta = json.loads(paths["meta"].read_text(encoding="utf-8"))
             if faiss_backend is not None and paths["faiss"].exists():
@@ -53,7 +50,7 @@ def _load_artifacts(backend) -> None:
 def _write_artifacts(
     backend, vectors: np.ndarray, metadata_rows: list[dict[str, Any]], build_meta: dict[str, Any]
 ) -> None:
-    paths = backend._artifact_paths()
+    paths = _artifact_paths()
     paths["dir"].mkdir(parents=True, exist_ok=True)
 
     temp_faiss = paths["faiss"].with_suffix(".faiss.tmp")
@@ -61,7 +58,7 @@ def _write_artifacts(
     temp_ids = paths["ids"].with_suffix(".json.tmp")
     temp_meta = paths["meta"].with_suffix(".json.tmp")
 
-    faiss_backend = _semantic_index_facade().faiss
+    faiss_backend = semantic_backend_runtime.faiss
     if faiss_backend is not None:
         index = faiss_backend.IndexFlatIP(vectors.shape[1])
         index.add(vectors)

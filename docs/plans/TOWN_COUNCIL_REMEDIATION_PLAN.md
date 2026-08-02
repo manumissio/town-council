@@ -1,6 +1,6 @@
 # Town Council Remediation Plan (Codex Multi-Agent)
 
-version: 3.96
+version: 3.97
 generated: 2026-07-26
 source: Four-pass external code review (security, architecture, smells, process)
 source_artifact: [Town Council architecture review](../reviews/architecture-review-2026-07-19.html)
@@ -10,6 +10,9 @@ remains in force; where this plan is stricter, this plan wins for these tasks.
 
 ## Changelog
 
+- **v3.97:** Completes the T-SEM-1A policy prerequisite and activates T-SEM-1
+  with exact 33-file ownership to delete the semantic index facade, reverse
+  lookups, and class-bound helper aliases while preserving backend behavior.
 - **v3.96:** Extends T-SEM-1A's future-effective fake contract to include the
   public pgvector reranking capability consumed by semantic retrieval tests
   and records that T-SEM-1 must make consumers resolve the runtime owner.
@@ -444,8 +447,8 @@ remains in force; where this plan is stricter, this plan wins for these tasks.
 | State | Tasks |
 |---|---|
 | **Complete** | T-CI-0, T-CI-1, T-CI-1A, T-CI-2, T-CI-2A, T-CI-3, T-CI-4, T-CI-5, T-SEC-1, T-SEC-2, T-SEC-3, T-SEC-3C, T-SEC-4, T-SEC-4A, T-SEC-5, T-SEC-6, T-TIME-1, T-TIME-2, T-TIME-3, T-CRAWL-1, T-CRAWL-2, T-PLAT-1, T-PLAT-1A, T-PLAT-2, T-PLAT-2A, T-PLAT-2B, T-PLAT-2C, T-PLAT-3, T-PLAT-4, T-GOV-1, T-GOV-2, T-GOV-2A, T-GOV-3, T-GOV-3A, T-GOV-3B, T-GOV-4, T-GOV-5, T-GOV-6, T-DA-1, T-DB-1A, T-DB-1, T-DB-1B, T-DC-1, T-DC-2A, T-DC-2B, T-DD-1A, T-DD-1B, T-DE-1, T-DE-2, T-TASK-1 |
-| **In progress** | T-SEM-1A |
-| **Pending** | T-SEM-1, T-IDX-1, T-FE-1 |
+| **In progress** | T-SEM-1 |
+| **Pending** | T-IDX-1, T-FE-1 |
 
 ---
 
@@ -1535,7 +1538,7 @@ files (GED-5 grant).
 
 ### T-SEM-1A: Approve the semantic test boundary
 - priority: P1 prerequisite
-- status: in progress under
+- status: complete under
   [T-SEM-1A implementation plan](T_SEM_1A_SEMANTIC_TEST_BOUNDARY_PLAN.md)
 - depends_on: G3 (satisfied by T-GOV-1)
 - files_owned: `docs/plans/T_SEM_1A_SEMANTIC_TEST_BOUNDARY_PLAN.md`;
@@ -1555,9 +1558,33 @@ files (GED-5 grant).
 
 ### T-SEM-1: Delete reverse semantic-index facade lookups
 - priority: P2
-- status: pending corrected Full plan and exact ownership after T-SEM-1A
+- status: in progress under
+  [T-SEM-1 implementation plan](T_SEM_1_SEMANTIC_FACADE_DELETION_PLAN.md)
 - depends_on: G3 (satisfied by T-GOV-1), T-SEM-1A
-- files_owned: to be named in a separate Full plan before implementation
+- files_owned: `docs/plans/T_SEM_1_SEMANTIC_FACADE_DELETION_PLAN.md`;
+  `docs/plans/TOWN_COUNCIL_REMEDIATION_PLAN.md`; `ARCHITECTURE.md`;
+  `docs/ADR.md`; `docs/OPERATIONS.md`; `pipeline/semantic_index.py` (delete);
+  `pipeline/semantic_backend_runtime.py`; `pipeline/semantic_faiss_backend.py`;
+  `pipeline/semantic_faiss_artifacts.py`; `pipeline/semantic_faiss_rows.py`;
+  `pipeline/semantic_pgvector_backend.py`;
+  `pipeline/semantic_pgvector_rerank.py`; `pipeline/semantic_pgvector_rows.py`;
+  `pipeline/semantic_tasks.py`; `pipeline/reindex_semantic.py`;
+  `pipeline/diagnose_semantic_search.py`; `semantic_service/main.py`;
+  `tests/conftest.py`; `tests/test_repository_guardrails.py`;
+  `tests/test_semantic_backend_selection.py`;
+  `tests/test_semantic_require_faiss.py`;
+  `tests/test_semantic_memory_guardrails.py`;
+  `tests/test_semantic_numpy_fallback.py`;
+  `tests/test_semantic_numpy_topk_selection.py`;
+  `tests/test_semantic_index_build.py`;
+  `tests/test_pgvector_rerank_diagnostics.py`;
+  `tests/test_embed_catalog_task_source_hash.py`;
+  `tests/test_search_pgvector_hybrid_rerank.py`;
+  `tests/test_semantic_recall_filters.py`;
+  `tests/test_semantic_service_api.py`;
+  `tests/test_semantic_service_contract_helpers.py`;
+  `tests/test_semantic_service_hydration.py`;
+  `tests/test_semantic_dedup_catalog.py`
 - do: Delete `_semantic_index_facade` lookups and implementation-callable
   exposure across semantic backends, row builders, artifact handling,
   reranking, and backend selection. Move configuration and optional dependency
@@ -2201,7 +2228,7 @@ Gate:    G3 satisfied (T-GOV-1 Accepted ADR + active docs/TESTING.MD)
 Phase 2: completed foundations [T-DA-1, T-DB-1A, T-DB-1, T-DB-1B,
          T-DC-1, T-DD-1A, T-DD-1B, T-DE-1]
 Next:    Serialize each task's Full-plan registration through this ledger.
-         T-SEM-1A is active; T-SEM-1 follows after its policy prerequisite.
+         T-SEM-1A is complete; T-SEM-1 is active under exact ownership.
 Phase 3: agent-plat [T-PLAT-1 after T-TIME-1 and T-TIME-2, T-PLAT-1A
          closure, T-PLAT-2B security patch, then T-PLAT-2..4; complete]
          || agent-gov [T-GOV-2 policy and T-GOV-2A runtime enforcement

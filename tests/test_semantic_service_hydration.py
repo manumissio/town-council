@@ -1,7 +1,7 @@
 from types import SimpleNamespace
 from unittest.mock import MagicMock
 
-from pipeline.semantic_index import SemanticCandidate
+from pipeline.semantic_backend_types import SemanticCandidate
 from semantic_service.hydration import (
     SemanticResponseTiming,
     build_semantic_search_response,

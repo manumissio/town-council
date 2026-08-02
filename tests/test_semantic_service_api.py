@@ -5,9 +5,34 @@ os.environ.setdefault("DATABASE_URL", "sqlite:///:memory:")
 
 from fastapi.testclient import TestClient
 
-from pipeline.semantic_index import SemanticCandidate, SemanticConfigError
+from pipeline import semantic_backend_runtime
+from pipeline.semantic_backend_types import SemanticCandidate, SemanticConfigError
 
 from semantic_service.main import app, get_db
+
+
+def test_semantic_service_resolves_backend_through_runtime_owner(mocker):
+    db = MagicMock()
+    app.dependency_overrides[get_db] = lambda: db
+    db.execute.return_value = 1
+    mocker.patch("semantic_service.main.SEMANTIC_ENABLED", True)
+    runtime_backend = MagicMock()
+    runtime_backend.health.return_value = {"status": "ok", "engine": "pgvector"}
+    mocker.patch.object(
+        semantic_backend_runtime,
+        "get_semantic_backend",
+        return_value=runtime_backend,
+    )
+    client = TestClient(app)
+    try:
+        response = client.get("/health")
+        assert response.status_code == 200
+        assert response.json()["backend"] == {
+            "status": "ok",
+            "engine": "pgvector",
+        }
+    finally:
+        del app.dependency_overrides[get_db]
 
 
 def test_semantic_service_health_returns_backend_health_when_enabled(mocker):
@@ -15,7 +40,7 @@ def test_semantic_service_health_returns_backend_health_when_enabled(mocker):
     app.dependency_overrides[get_db] = lambda: db
     db.execute.return_value = 1
     mocker.patch("semantic_service.main.SEMANTIC_ENABLED", True)
-    mocker.patch("semantic_service.main.get_semantic_backend").return_value.health.return_value = {
+    mocker.patch.object(semantic_backend_runtime, "get_semantic_backend").return_value.health.return_value = {
         "status": "ok",
         "engine": "faiss",
         "detail": "/secret/path/index.faiss",
@@ -37,7 +62,7 @@ def test_semantic_service_health_hides_backend_error_detail(mocker):
     app.dependency_overrides[get_db] = lambda: db
     db.execute.return_value = 1
     mocker.patch("semantic_service.main.SEMANTIC_ENABLED", True)
-    mocker.patch("semantic_service.main.get_semantic_backend").return_value.health.return_value = {
+    mocker.patch.object(semantic_backend_runtime, "get_semantic_backend").return_value.health.return_value = {
         "status": "error",
         "error": "FileNotFoundError",
         "detail": "/secret/path/index.faiss",
@@ -59,7 +84,7 @@ def test_semantic_service_health_reports_allowlisted_runtime_engine(mocker):
     db.execute.return_value = 1
     mocker.patch("semantic_service.main.SEMANTIC_ENABLED", True)
     mocker.patch("semantic_service.main.SEMANTIC_BACKEND", "faiss")
-    mocker.patch("semantic_service.main.get_semantic_backend").return_value.health.return_value = {
+    mocker.patch.object(semantic_backend_runtime, "get_semantic_backend").return_value.health.return_value = {
         "status": "ok",
         "engine": "numpy",
         "detail": "/secret/path/index.faiss",
@@ -82,7 +107,7 @@ def test_semantic_service_health_does_not_echo_unknown_backend_engine(mocker):
     app.dependency_overrides[get_db] = lambda: db
     db.execute.return_value = 1
     mocker.patch("semantic_service.main.SEMANTIC_ENABLED", True)
-    mocker.patch("semantic_service.main.get_semantic_backend").return_value.health.return_value = {
+    mocker.patch.object(semantic_backend_runtime, "get_semantic_backend").return_value.health.return_value = {
         "status": "ok",
         "engine": "secret-engine",
     }
@@ -104,7 +129,7 @@ def test_semantic_search_config_error_hides_exception_detail(mocker):
     mocker.patch("semantic_service.main.SEMANTIC_ENABLED", True)
     backend = MagicMock()
     backend.query.side_effect = SemanticConfigError("secret /path/model.bin")
-    mocker.patch("semantic_service.main.get_semantic_backend", return_value=backend)
+    mocker.patch.object(semantic_backend_runtime, "get_semantic_backend", return_value=backend)
     client = TestClient(app)
     try:
         resp = client.get("/search/semantic?q=zoning")
@@ -134,7 +159,7 @@ def test_semantic_search_hides_backend_health_detail_from_diagnostics(mocker):
         "error": "RuntimeError",
         "detail": "/secret/path/metadata.json",
     }
-    mocker.patch("semantic_service.main.get_semantic_backend", return_value=backend)
+    mocker.patch.object(semantic_backend_runtime, "get_semantic_backend", return_value=backend)
     mocker.patch(
         "semantic_service.main._hydrate_meeting_hits",
         return_value=[{"id": "doc_10", "db_id": 10, "result_type": "meeting", "event_name": "Meeting"}],
@@ -171,7 +196,7 @@ def test_semantic_search_reports_allowlisted_runtime_engine(mocker):
         "engine": "numpy",
         "detail": "/secret/path/metadata.json",
     }
-    mocker.patch("semantic_service.main.get_semantic_backend", return_value=backend)
+    mocker.patch.object(semantic_backend_runtime, "get_semantic_backend", return_value=backend)
     mocker.patch(
         "semantic_service.main._hydrate_meeting_hits",
         return_value=[{"id": "doc_10", "db_id": 10, "result_type": "meeting", "event_name": "Meeting"}],

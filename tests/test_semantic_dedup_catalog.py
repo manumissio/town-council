@@ -1,4 +1,4 @@
-from pipeline.semantic_index import SemanticCandidate
+from pipeline.semantic_backend_types import SemanticCandidate
 
 
 def test_semantic_dedup_uses_best_score_per_catalog():

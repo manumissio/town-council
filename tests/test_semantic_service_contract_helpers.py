@@ -1,4 +1,4 @@
-from pipeline.semantic_index import SemanticCandidate
+from pipeline.semantic_backend_types import SemanticCandidate
 from semantic_service import candidates
 from semantic_service.main import _lexical_hit_to_candidate as facade_lexical_hit_to_candidate
 

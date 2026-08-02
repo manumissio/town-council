@@ -1,8 +1,19 @@
 import numpy as np
 from sqlalchemy.orm import sessionmaker
 
+import pipeline.semantic_backend_runtime as semantic_backend_runtime
 from pipeline.models import Catalog, SemanticEmbedding
 from pipeline import semantic_tasks
+
+
+class _FakeSentenceTransformer:
+    def __init__(self, _model_name: str):
+        self.model_name = _model_name
+
+    def encode(self, texts: list[str], *, batch_size: int, show_progress_bar: bool) -> np.ndarray:
+        assert batch_size == 32
+        assert show_progress_bar is False
+        return np.ones((len(texts), 384), dtype=np.float32)
 
 
 def test_embed_catalog_task_skips_when_source_hash_unchanged(db_session, monkeypatch):
@@ -16,14 +27,7 @@ def test_embed_catalog_task_skips_when_source_hash_unchanged(db_session, monkeyp
     monkeypatch.setattr(semantic_tasks, "SEMANTIC_BACKEND", "pgvector")
     monkeypatch.setattr(semantic_tasks, "SEMANTIC_MODEL_NAME", "all-MiniLM-L6-v2")
     monkeypatch.setattr(semantic_tasks, "SEMANTIC_CONTENT_MAX_CHARS", 4000)
-
-    from pipeline.semantic_index import PgvectorSemanticBackend
-
-    monkeypatch.setattr(
-        PgvectorSemanticBackend,
-        "_encode",
-        lambda self, texts: np.ones((1, 384), dtype=np.float32),
-    )
+    monkeypatch.setattr(semantic_backend_runtime, "SentenceTransformer", _FakeSentenceTransformer)
 
     first = semantic_tasks.embed_catalog_task.run(77)
     assert first["status"] == "updated"
