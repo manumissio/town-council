@@ -30,7 +30,7 @@ dependency migrations proceed.
 - `docs/reviews/architecture-review-2026-07-19.html`: compatibility layers are
   retired only through narrow, evidence-backed tasks.
 
-**c) Remediation alignment.** T-PLAT-2E owns exactly these 14 paths:
+**c) Remediation alignment.** T-PLAT-2E owns exactly these 17 paths:
 
 - `docs/plans/T_PLAT_2E_MEILISEARCH_SDK_MIGRATION_PLAN.md`
 - `docs/plans/TOWN_COUNCIL_REMEDIATION_PLAN.md`
@@ -41,10 +41,13 @@ dependency migrations proceed.
 - `ruff.toml`
 - `tests/test_api.py`
 - `tests/test_async_flow.py`
+- `tests/test_backlog_maintenance_laserfiche_guard.py`
 - `tests/test_docker_build_contracts.py`
 - `tests/test_extract_task.py`
 - `tests/test_indexer_logic.py`
+- `tests/test_pipeline_batching.py`
 - `tests/test_repository_guardrails.py`
+- `tests/test_tasks_agenda_summary_format.py`
 - `tests/test_tasks_vote_extraction_flow.py`
 
 No other tracked path may change. T-IDX-1 merged as PR #217 and T-PLAT-2D
@@ -164,7 +167,7 @@ effect is added. Existing task-ordering constants and domain names are reused.
 - D1-D3: tests strengthen typed-response and propagation contracts without
   skips, widened tolerances, private production patch targets, or call-order
   assertions unrelated to recovery correctness.
-- E1-E3: edits stay within the 14 owned paths and avoid mechanical churn.
+- E1-E3: edits stay within the 17 owned paths and avoid mechanical churn.
 - F1-F2: no duplicate SDK adapter or shared location is created.
 - H2-H4: no `Any`, ignore, cast, hand-rolled response model, or import-time
   work is introduced.
@@ -207,6 +210,7 @@ typed-response-compatible objects. Expected production delta is negative.
 | `test_indexer_logic.py` typed task/settings/delete/recovery tests | 1-6, 10 |
 | `test_api.py` current `IndexStats` fixture and search contracts | 7, 10 |
 | Async/extract/vote task tests with typed fake tasks | 1, 2, 10 |
+| Agenda maintenance, batching, and summary tests with typed delete-task fakes | 1, 2, 10 |
 | Repository guardrail BLE001 inventory | 3, 8 |
 | Four Docker image dependency inspections | 8, 10 |
 | Isolated Meilisearch v1.6 runtime smoke | 1-6, 8-10 |
@@ -217,7 +221,10 @@ is asserted.
 **s) Fakes and mocks.** Tests patch the approved Meilisearch client boundary
 only where constructed in `pipeline.indexer` or `api.search.support_core`.
 Task-result fakes expose the public `task_uid` attribute consumed from the SDK.
-No facade, re-export, unit-under-test, or new production seam is patched.
+The agenda maintenance, batching, and summary tests also return a successful
+typed wait result because their observable persistence paths reindex changed
+catalogs. No facade, re-export, unit-under-test, or new production seam is
+patched.
 
 **t) Verification rows.** Apply API/search behavior, guardrail/tooling,
 coverage-gate dependency contracts, and docs-only rows. Run the complete
@@ -254,6 +261,9 @@ Final local verification:
 PYTHONPATH=. .venv/bin/pytest -q tests/test_indexer_logic.py tests/test_api.py
 PYTHONPATH=. .venv/bin/pytest -q \
   tests/test_async_flow.py tests/test_extract_task.py \
+  tests/test_backlog_maintenance_laserfiche_guard.py \
+  tests/test_pipeline_batching.py \
+  tests/test_tasks_agenda_summary_format.py \
   tests/test_tasks_vote_extraction_flow.py
 PYTHONPATH=. .venv/bin/pytest -q \
   tests/test_docker_build_contracts.py tests/test_repository_guardrails.py \

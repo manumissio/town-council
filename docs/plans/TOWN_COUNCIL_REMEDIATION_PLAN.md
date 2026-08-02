@@ -1,6 +1,6 @@
 # Town Council Remediation Plan (Codex Multi-Agent)
 
-version: 4.00
+version: 4.01
 generated: 2026-08-02
 source: Four-pass external code review (security, architecture, smells, process)
 source_artifact: [Town Council architecture review](../reviews/architecture-review-2026-07-19.html)
@@ -10,6 +10,11 @@ remains in force; where this plan is stricter, this plan wins for these tasks.
 
 ## Changelog
 
+- **v4.01:** Expands T-PLAT-2E from 14 to 17 owned files after the complete
+  suite exposed three agenda-maintenance test boundaries that still returned
+  untyped Meilisearch deletion tasks. The operator approved aligning those
+  fakes with SDK 0.43.0 while preserving their observable persistence and
+  reindex contracts.
 - **v4.00:** Marks T-PLAT-2D complete after PR #218 upgraded the semantic
   Torch runtime to 2.13.0 and Dependabot alert #121 reported fixed. Activates
   T-PLAT-2E with exact 14-file ownership to migrate the Meilisearch Python SDK
@@ -1946,9 +1951,12 @@ files (GED-5 grant).
   `docs/plans/TOWN_COUNCIL_REMEDIATION_PLAN.md`, `docs/ADR.md`,
   `constraints.txt`, `pipeline/indexer.py`,
   `pipeline/indexer_meilisearch.py`, `ruff.toml`, `tests/test_api.py`,
-  `tests/test_async_flow.py`, `tests/test_docker_build_contracts.py`,
-  `tests/test_extract_task.py`, `tests/test_indexer_logic.py`,
+  `tests/test_async_flow.py`,
+  `tests/test_backlog_maintenance_laserfiche_guard.py`,
+  `tests/test_docker_build_contracts.py`, `tests/test_extract_task.py`,
+  `tests/test_indexer_logic.py`, `tests/test_pipeline_batching.py`,
   `tests/test_repository_guardrails.py`,
+  `tests/test_tasks_agenda_summary_format.py`,
   `tests/test_tasks_vote_extraction_flow.py`
 - do: Upgrade only the shared Meilisearch Python SDK constraint from 0.31.0
   to 0.43.0; consume typed task IDs directly; delete the obsolete task-ID and
