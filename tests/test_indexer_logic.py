@@ -8,7 +8,7 @@ from unittest.mock import MagicMock
 
 # Ensure the pipeline directory is in the path for indexer imports
 sys.path.append(os.path.join(os.path.dirname(__file__), '..', 'pipeline'))
-from pipeline import indexer
+from pipeline import indexer, indexer_meilisearch
 
 
 class EmptyIndexQuery:
@@ -45,16 +45,16 @@ class ReplacementIndex:
         return SimpleNamespace(task_uid=91)
 
     def update_filterable_attributes(self, attributes):
-        return {"taskUid": 1}
+        return SimpleNamespace(task_uid=1)
 
     def update_sortable_attributes(self, attributes):
-        return {"taskUid": 2}
+        return SimpleNamespace(task_uid=2)
 
     def update_searchable_attributes(self, attributes):
-        return {"taskUid": 3}
+        return SimpleNamespace(task_uid=3)
 
     def update_ranking_rules(self, rules):
-        return {"taskUid": 4}
+        return SimpleNamespace(task_uid=4)
 
     def get_stats(self):
         self.index_events.append("stats_checked")
@@ -428,15 +428,19 @@ def test_indexer_reports_agenda_source_count_after_batch_attempt(
         yield session
 
     fake_index = MagicMock()
-    fake_index.update_filterable_attributes.return_value = {"taskUid": 1}
-    fake_index.update_sortable_attributes.return_value = {"taskUid": 2}
-    fake_index.update_searchable_attributes.return_value = {"taskUid": 3}
-    fake_index.update_ranking_rules.return_value = {"taskUid": 4}
+    fake_index.update_filterable_attributes.return_value = SimpleNamespace(task_uid=1)
+    fake_index.update_sortable_attributes.return_value = SimpleNamespace(task_uid=2)
+    fake_index.update_searchable_attributes.return_value = SimpleNamespace(task_uid=3)
+    fake_index.update_ranking_rules.return_value = SimpleNamespace(task_uid=4)
     if batch_submission_fails:
         fake_index.add_documents.side_effect = indexer.MeilisearchError("boom")
     fake_client = MagicMock()
     fake_client.create_index.return_value = SimpleNamespace(task_uid=77)
     fake_client.index.return_value = fake_index
+    fake_client.wait_for_task.return_value = SimpleNamespace(
+        status="succeeded",
+        error=None,
+    )
     mocker.patch.object(indexer, "db_session", fake_db_session)
     mocker.patch.object(indexer.meilisearch, "Client", return_value=fake_client)
     mocker.patch.object(indexer, "MEILISEARCH_BATCH_SIZE", 2)
@@ -445,7 +449,9 @@ def test_indexer_reports_agenda_source_count_after_batch_attempt(
 
     assert source_document_count == 2
     fake_index.update_sortable_attributes.assert_called_with(["date"])
-    assert fake_client.wait_for_task.call_count == 4
+    assert [
+        wait_call.args[0] for wait_call in fake_client.wait_for_task.call_args_list
+    ] == [1, 2, 3, 4]
     assert fake_index.add_documents.call_count == 1
     if not batch_submission_fails:
         sent_batch = fake_index.add_documents.call_args[0][0]
@@ -472,43 +478,62 @@ def test_flush_batch_keeps_count_on_error(mocker):
     assert count == 7
 
 
-def test_delete_documents_by_filter_prefers_supported_delete_documents_api():
+def test_apply_index_settings_rejects_failed_completed_task():
     fake_index = MagicMock()
-    fake_index.delete_documents.return_value = {"taskUid": 88}
-
-    result = indexer._delete_documents_by_filter(
-        fake_index,
-        'catalog_id = 9 AND result_type = "agenda_item"',
+    fake_index.update_filterable_attributes.return_value = SimpleNamespace(task_uid=1)
+    fake_index.update_sortable_attributes.return_value = SimpleNamespace(task_uid=2)
+    fake_index.update_searchable_attributes.return_value = SimpleNamespace(task_uid=3)
+    fake_index.update_ranking_rules.return_value = SimpleNamespace(task_uid=4)
+    fake_client = MagicMock()
+    fake_client.wait_for_task.side_effect = (
+        SimpleNamespace(status="succeeded", error=None),
+        SimpleNamespace(status="failed", error={"code": "invalid_settings"}),
     )
 
-    assert result == {"taskUid": 88}
-    fake_index.delete_documents.assert_called_once_with(
-        filter='catalog_id = 9 AND result_type = "agenda_item"'
+    with pytest.raises(RuntimeError, match="sortable attribute settings failed"):
+        indexer._apply_index_settings(fake_client, fake_index)
+
+    assert [
+        wait_call.args[0] for wait_call in fake_client.wait_for_task.call_args_list
+    ] == [1, 2]
+    fake_index.update_searchable_attributes.assert_not_called()
+    fake_index.update_ranking_rules.assert_not_called()
+
+
+def test_apply_index_settings_propagates_wait_error():
+    fake_index = MagicMock()
+    fake_index.update_filterable_attributes.return_value = SimpleNamespace(task_uid=1)
+    fake_index.update_sortable_attributes.return_value = SimpleNamespace(task_uid=2)
+    fake_index.update_searchable_attributes.return_value = SimpleNamespace(task_uid=3)
+    fake_index.update_ranking_rules.return_value = SimpleNamespace(task_uid=4)
+    fake_client = MagicMock()
+    fake_client.wait_for_task.side_effect = indexer.MeilisearchError(
+        "settings wait unavailable"
     )
 
-
-def test_delete_documents_by_filter_falls_back_when_only_legacy_method_exists():
-    class LegacyIndex:
-        def __init__(self):
-            self.calls = []
-
-        def delete_documents_by_filter(self, filters):
-            self.calls.append(filters)
-            return {"taskUid": 11}
-
-    fake_index = LegacyIndex()
-
-    result = indexer._delete_documents_by_filter(
-        fake_index,
-        'catalog_id = 9 AND result_type = "agenda_item"',
-    )
-
-    assert result == {"taskUid": 11}
-    assert fake_index.calls == [['catalog_id = 9 AND result_type = "agenda_item"']]
+    with pytest.raises(indexer.MeilisearchError, match="settings wait unavailable"):
+        indexer._apply_index_settings(fake_client, fake_index)
 
 
-def test_reindex_catalog_skips_schema_updates_and_reindexes_agenda_items(mocker):
-    meeting_doc = SimpleNamespace(
+class TargetedReindexQuery:
+    def __init__(self, catalog_rows):
+        self.catalog_rows = catalog_rows
+
+    def join(self, *args, **kwargs):
+        return self
+
+    def outerjoin(self, *args, **kwargs):
+        return self
+
+    def filter(self, *args, **kwargs):
+        return self
+
+    def all(self):
+        return self.catalog_rows
+
+
+def _targeted_reindex_session():
+    meeting_document = SimpleNamespace(
         id=1,
         catalog_id=9,
         event_id=4,
@@ -531,7 +556,6 @@ def test_reindex_catalog_skips_schema_updates_and_reindexes_agenda_items(mocker)
     )
     event = SimpleNamespace(name="Meeting", meeting_type="Regular", record_date=None, ocd_id="ocd-event")
     place = SimpleNamespace(display_name="ca_test", name="Test City", state="CA")
-    organization = None
     agenda_item = SimpleNamespace(
         id=11,
         ocd_id="ocd-item-11",
@@ -543,39 +567,41 @@ def test_reindex_catalog_skips_schema_updates_and_reindexes_agenda_items(mocker)
         catalog_id=9,
         catalog=SimpleNamespace(url="https://example.com/meeting.pdf"),
     )
-
-    class FakeQuery:
-        def __init__(self, rows):
-            self._rows = rows
-        def join(self, *args, **kwargs):
-            return self
-        def outerjoin(self, *args, **kwargs):
-            return self
-        def filter(self, *args, **kwargs):
-            return self
-        def options(self, *args, **kwargs):
-            return self
-        def all(self):
-            return self._rows
-
     session = MagicMock()
     session.query.side_effect = [
-        FakeQuery([(meeting_doc, catalog, event, place, organization)]),
-        FakeQuery([(agenda_item, event, place, organization)]),
+        TargetedReindexQuery([(meeting_document, catalog, event, place, None)]),
+        TargetedReindexQuery([(agenda_item, event, place, None)]),
     ]
+    return session
+
+
+def _patch_targeted_reindex_runtime(mocker, deletion_outcome):
+    targeted_reindex_session = _targeted_reindex_session()
 
     @contextmanager
     def fake_db_session():
-        yield session
+        yield targeted_reindex_session
 
     fake_index = MagicMock()
-    fake_index.delete_documents.return_value = {"taskUid": 88}
+    fake_index.delete_documents.return_value = SimpleNamespace(task_uid=88)
     fake_client = MagicMock()
     fake_client.create_index.return_value = SimpleNamespace(task_uid=77)
     fake_client.index.return_value = fake_index
+    if isinstance(deletion_outcome, Exception):
+        fake_client.wait_for_task.side_effect = deletion_outcome
+    else:
+        fake_client.wait_for_task.return_value = deletion_outcome
     mocker.patch.object(indexer, "db_session", fake_db_session)
     mocker.patch.object(indexer.meilisearch, "Client", return_value=fake_client)
     apply_settings = mocker.patch.object(indexer, "_apply_index_settings")
+    return fake_client, fake_index, apply_settings
+
+
+def test_reindex_catalog_skips_schema_updates_and_reindexes_agenda_items(mocker):
+    fake_client, fake_index, apply_settings = _patch_targeted_reindex_runtime(
+        mocker,
+        SimpleNamespace(status="succeeded", error=None),
+    )
 
     result = indexer.reindex_catalog(9)
 
@@ -584,10 +610,37 @@ def test_reindex_catalog_skips_schema_updates_and_reindexes_agenda_items(mocker)
         filter='catalog_id = 9 AND result_type = "agenda_item"'
     )
     fake_index.add_documents.assert_called_once()
-    fake_client.wait_for_task.assert_called_once_with(88)
+    fake_client.wait_for_task.assert_called_once_with(
+        88,
+        timeout_in_ms=indexer_meilisearch.INDEX_TASK_TIMEOUT_MS,
+        interval_in_ms=indexer_meilisearch.INDEX_TASK_POLL_INTERVAL_MS,
+    )
     sent = fake_index.add_documents.call_args.args[0]
     assert {doc["result_type"] for doc in sent} == {"meeting", "agenda_item"}
     assert result["agenda_item_documents"] == 1
+
+
+@pytest.mark.parametrize(
+    "deletion_outcome, expected_exception",
+    (
+        (
+            SimpleNamespace(status="failed", error={"code": "invalid_filter"}),
+            RuntimeError,
+        ),
+        (indexer.MeilisearchError("delete wait unavailable"), indexer.MeilisearchError),
+    ),
+)
+def test_reindex_catalog_does_not_publish_after_delete_failure(
+    mocker,
+    deletion_outcome,
+    expected_exception,
+):
+    _, fake_index, _ = _patch_targeted_reindex_runtime(mocker, deletion_outcome)
+
+    with pytest.raises(expected_exception):
+        indexer.reindex_catalog(9)
+
+    fake_index.add_documents.assert_not_called()
 
 
 def test_reindex_catalogs_dedupes_and_records_failures(mocker):

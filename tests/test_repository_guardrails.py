@@ -107,7 +107,6 @@ APPROVED_BROAD_EXCEPTION_PATHS = {
     "pipeline/diagnose_search_sort.py",
     "pipeline/diagnose_semantic_search.py",
     "pipeline/indexer.py",
-    "pipeline/indexer_meilisearch.py",
     "pipeline/llm.py",
     "pipeline/local_ai_provider_calls.py",
     "pipeline/model_base.py",

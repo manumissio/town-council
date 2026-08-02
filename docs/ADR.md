@@ -8,6 +8,36 @@ Use each entry to record:
 - the affected boundary or contract
 - links to the canonical docs that carry the ongoing operational or architecture detail
 
+## 2026-08-02: Retire Meilisearch SDK compatibility helpers
+
+- Status: Accepted
+- Decision:
+  - Town Council uses the typed task models and filtered-delete API provided by
+    Meilisearch Python SDK 0.43.0.
+  - Settings updates and targeted deletion pass their typed task IDs through
+    the existing successful-task waiter. Transport failures and completed
+    failed tasks stop the indexing operation.
+  - The dictionary task-ID adapter and legacy filtered-delete method fallback
+    are deleted rather than retained as compatibility seams.
+- Why:
+  - The shared client pin now provides one supported task and filtered-delete
+    contract across every Python image.
+  - Treating an accepted asynchronous request as success could publish data
+    before required settings or deletion completed.
+- Supersedes:
+  - The task-ID and filtered-delete compatibility-helper clauses in the
+    2026-05-08 indexing decision below.
+  - `pipeline/indexer.py` remains the full and targeted indexing facade.
+    `pipeline/indexer_meilisearch.py` continues to own settings, batch flush,
+    and successful-task verification.
+- Affected boundaries:
+  - Meilisearch remains v1.6 with the same index, settings, document payloads,
+    reader/writer key separation, API behavior, and replacement-reindex
+    recovery contract.
+- Canonical references:
+  - [T-PLAT-2E implementation plan](plans/T_PLAT_2E_MEILISEARCH_SDK_MIGRATION_PLAN.md)
+  - [Town Council remediation plan](plans/TOWN_COUNCIL_REMEDIATION_PLAN.md)
+
 ## 2026-07-26: Roster-gated person linking
 
 - Status: Accepted

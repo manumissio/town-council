@@ -1,6 +1,8 @@
-import pytest
-from unittest.mock import MagicMock
 import sys
+from types import SimpleNamespace
+from unittest.mock import MagicMock
+
+import pytest
 
 # Mock heavy libraries
 sys.modules["llama_cpp"] = MagicMock()
@@ -37,6 +39,18 @@ from pipeline.models import Base, Catalog, Document, AgendaItem, Event, Place
 from pipeline.city_scope import ordered_hydration_cities, source_aliases_for_city
 from pipeline.content_hash import compute_content_hash
 from pipeline.summary_freshness import compute_agenda_items_hash
+
+
+def _successful_meilisearch_client() -> MagicMock:
+    search_client = MagicMock()
+    search_client.index.return_value.delete_documents.return_value = SimpleNamespace(
+        task_uid=61
+    )
+    search_client.wait_for_task.return_value = SimpleNamespace(
+        status="succeeded",
+        error=None,
+    )
+    return search_client
 
 
 def test_document_chunk_worker(mocker):
@@ -511,7 +525,7 @@ def test_deterministic_agenda_summary_payloads_persist_empty_agenda_fallback(
     )
     db.commit()
 
-    search_client = MagicMock()
+    search_client = _successful_meilisearch_client()
     mocker.patch.object(indexer.meilisearch, "Client", return_value=search_client)
     enqueued_catalog_ids: list[int] = []
     mocker.patch.object(
@@ -558,7 +572,7 @@ def test_empty_agenda_content_hash_backfill_marks_catalog_changed(
     mocker.patch.object(
         indexer.meilisearch,
         "Client",
-        return_value=MagicMock(),
+        return_value=_successful_meilisearch_client(),
     )
     enqueued_catalog_ids: list[int] = []
     mocker.patch.object(
@@ -891,7 +905,7 @@ def test_non_agenda_fallback_persists_content_hash_and_side_effects(
     mocker.patch.object(
         indexer.meilisearch,
         "Client",
-        return_value=MagicMock(),
+        return_value=_successful_meilisearch_client(),
     )
     enqueued_catalog_ids: list[int] = []
     mocker.patch.object(
@@ -984,7 +998,7 @@ def test_non_agenda_fallback_records_timeout_reason(
     mocker.patch.object(
         indexer.meilisearch,
         "Client",
-        return_value=MagicMock(),
+        return_value=_successful_meilisearch_client(),
     )
     mocker.patch.object(
         semantic_tasks.embed_catalog_task,

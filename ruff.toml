@@ -72,7 +72,6 @@ extend-immutable-calls = ["fastapi.Depends", "fastapi.Query", "fastapi.Path", "f
 "pipeline/enrichment_tasks.py" = ["B904"]
 "pipeline/extractor.py" = ["C901"]
 "pipeline/indexer.py" = ["BLE001"]
-"pipeline/indexer_meilisearch.py" = ["BLE001"]
 "pipeline/llm.py" = ["BLE001"]
 "pipeline/local_ai_provider_calls.py" = ["BLE001"]
 "pipeline/model_base.py" = ["BLE001"]

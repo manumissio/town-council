@@ -98,11 +98,9 @@ def test_cors_preflight_rejects_disallowed_origin():
 def test_stats_response_is_minimized(mocker):
     search_index = mocker.Mock()
     search_index.get_stats.return_value = IndexStats(
-        {
-            "numberOfDocuments": 42,
-            "isIndexing": True,
-            "fieldDistribution": {"content": 42},
-        }
+        number_of_documents=42,
+        is_indexing=True,
+        field_distribution={"content": 42},
     )
     mocker.patch("api.search.support_core.client.index", return_value=search_index)
 

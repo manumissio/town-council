@@ -19,10 +19,8 @@ from pipeline.indexer_documents import (
 from pipeline.indexer_meilisearch import (
     _apply_index_settings,
     _clear_documents_index,
-    _delete_documents_by_filter,
     _flush_batch,
     INDEX_ALREADY_EXISTS_ERROR_CODE,
-    _task_uid,
     _verify_documents_index_settings,
     _wait_for_documents_index_idle,
     _wait_for_task_success,
@@ -293,12 +291,14 @@ def reindex_catalog(catalog_id: int) -> dict:
         for item, event, place, organization in item_docs:
             payload.append(_build_agenda_item_search_doc(item, event, place, organization))
 
-        delete_task = _delete_documents_by_filter(
-            index, f'catalog_id = {int(catalog_id)} AND result_type = "agenda_item"'
+        delete_task = index.delete_documents(
+            filter=f'catalog_id = {int(catalog_id)} AND result_type = "agenda_item"'
         )
-        delete_uid = _task_uid(delete_task)
-        if isinstance(delete_uid, int):
-            client.wait_for_task(delete_uid)
+        _wait_for_task_success(
+            client,
+            delete_task.task_uid,
+            "targeted agenda-item deletion",
+        )
         if payload:
             index.add_documents(payload)
 
