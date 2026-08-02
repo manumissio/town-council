@@ -38,6 +38,8 @@ owns exactly:
 - `frontend/components/ResultCard.js`
 - `frontend/components/__tests__/ResultCard.polling-contract.test.js`
 - `frontend/components/__tests__/ResultCard.people-projection.test.js`
+- `frontend/package.json`
+- `frontend/package-lock.json`
 - `frontend/lib/api.js`
 - `frontend/lib/taskPolling.js` (new)
 - `tests/test_resultcard_agenda_status_refresh.py`
@@ -71,6 +73,9 @@ comparability, and person-data policy remain unchanged.
 8. Run frontend and repository verification, simplify the diff, obtain an
    independent pre-commit review, apply eligible findings, then commit, push,
    open a PR, and watch CI.
+9. Replace the remaining re-extraction source assertion with a mounted
+   `ResultCard` behavior test after PR review. Declare exact test-only
+   `jsdom@28.1.0` rather than relying on its transitive installation.
 
 New module responsibility: `frontend/lib/taskPolling.js` owns only the shared
 background-task polling lifecycle. Import direction is component to library;
@@ -123,7 +128,7 @@ component receives no state callback. No timestamp or environment changes.
   re-export, or test-only injectable.
 - D1-D3: regex assertions are replaced by observable callback, request,
   timeout, and cancellation outcomes.
-- E1-E3: only the eight owned paths change; the historical review is not edited.
+- E1-E3: only the ten owned paths change; the historical review is not edited.
 - A2-A4, B3, F2, H2-H4: no violations planned.
 
 **o) Ratchet interaction.** No Ruff selector, exception, coverage threshold,
@@ -154,6 +159,8 @@ its single owner; component size decreases.
    component state work after stop.
 11. Existing summary, topic, agenda, extraction, loading, error, and rendered
    content contracts remain unchanged.
+12. Unmounting `ResultCard` while re-extraction refreshes canonical content
+    aborts that request and produces no late DOM or error state.
 
 **r) Tests.**
 
@@ -169,6 +176,7 @@ its single owner; component size decreases.
 | async completion observes stop | 10 |
 | stop clears scheduled retry | 8 |
 | existing ResultCard Python/frontend tests | 2, 11 |
+| mounted re-extraction cancellation | 10, 12 |
 
 Tests are written and run red before the production extraction. They use
 `node:test` context mocks around global `fetch` and timers, not implementation
@@ -176,7 +184,9 @@ callbacks added for testing.
 
 **s) Fakes and mocks.** Global `fetch` is replaced at the approved outbound
 HTTP boundary. Node's test clock replaces `setTimeout` at the approved clock
-boundary. No component, facade, or module under test is mocked.
+boundary. JSDOM supplies the browser DOM boundary for the mounted component;
+React and `ResultCard` remain real. No component, facade, or module under test
+is mocked.
 
 **t) Verification rows.** Run frontend contract tests, frontend component
 tests, docs links, and the complete Python suite because this closes the final
@@ -194,6 +204,7 @@ git switch -c codex/t-fe-1-task-polling-lifecycle
 
 cd frontend
 node --test components/__tests__/ResultCard.polling-contract.test.js
+node --test components/__tests__/ResultCard.people-projection.test.js
 
 cd ..
 ./.venv/bin/ruff check .
@@ -210,10 +221,13 @@ git diff --check
 git status --short
 ```
 
-If dependencies are absent, `npm ci` requires separate operator approval;
-targeted `node:test` remains available because the new lifecycle test imports
-only standard-library modules and production libraries without package
-dependencies.
+PR-review follow-up dependency authorization:
+
+```bash
+cd frontend
+npm install --save-dev --save-exact jsdom@28.1.0 \
+  --package-lock-only --ignore-scripts
+```
 
 **v) Rollback.** Revert the T-FE-1A merge commit and rerun the same frontend,
 Python, and docs checks. No migration, data repair, configuration restoration,
@@ -229,18 +243,20 @@ contract does not change.
 
 **x) Diff scan.** Re-run A-F/H. Reject a generic action abstraction, duplicate
 response parser, injectable fetch/timer parameter, compatibility export,
-retained old poller, weakened timeout, visual change, dependency addition, or
-edit outside the eight owned paths.
+retained old poller, weakened timeout, visual change, dependency beyond exact
+test-only `jsdom@28.1.0`, or edit outside the ten owned paths.
 
 **y) Evidence.** Report the tests-first failure, every command from 6u with
 PASS/FAIL, Node version, independent planning and pre-commit findings, applied
 fixes, commits, PR URL, unresolved threads, and final CI state. Mark any
 dependency-blocked command `NOT VERIFIED` rather than claiming success.
 
-**z) Deviations.** Authorized correction: ownership includes the existing
+**z) Deviations.** Authorized corrections: ownership includes the existing
 agenda source-preservation contract because raw task-result interpretation now
 moves explicitly into `ResultCard`, plus the compiled-render test's production
-module list. T-FE-1 closes with no duplicate
+module list. The operator also approved package-manifest ownership and exact
+test-only `jsdom@28.1.0` after PR review required a mounted component test.
+T-FE-1 closes with no duplicate
 poller found, and T-FE-1A extracts the sole lifecycle owner to make the real
 cancellation defect behavior-testable. Any additional path, dependency,
 action-level abstraction, skipped review, unresolved P1/P2, or unrun required

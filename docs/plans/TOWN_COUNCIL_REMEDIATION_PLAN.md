@@ -1,6 +1,6 @@
 # Town Council Remediation Plan (Codex Multi-Agent)
 
-version: 4.03
+version: 4.04
 generated: 2026-08-02
 source: Four-pass external code review (security, architecture, smells, process)
 source_artifact: [Town Council architecture review](../reviews/architecture-review-2026-07-19.html)
@@ -10,6 +10,11 @@ remains in force; where this plan is stricter, this plan wins for these tasks.
 
 ## Changelog
 
+- **v4.04:** Expands T-FE-1A ownership to the frontend package manifest and
+  lockfile after PR review found that the re-extraction cancellation contract
+  still relied on whole-file source inspection. Authorizes exact
+  `jsdom@28.1.0` test support so the existing compiled `ResultCard` can be
+  mounted, exercised, and unmounted through observable DOM behavior.
 - **v4.03:** Completes T-FE-1A after replacing source-token polling checks
   with ten lifecycle behavior tests, moving polling to one non-JSX owner, and
   carrying cancellation through pending task requests and asynchronous
@@ -1679,7 +1684,7 @@ files (GED-5 grant).
 
 ### T-FE-1A: Test and correct the ResultCard polling lifecycle
 - priority: P2
-- status: in progress under
+- status: complete in PR #220 under
   `docs/plans/T_FE_1A_TASK_POLLING_LIFECYCLE_PLAN.md`
 - depends_on: T-FE-1 audit (satisfied)
 - files_owned: `docs/plans/T_FE_1A_TASK_POLLING_LIFECYCLE_PLAN.md`,
@@ -1687,6 +1692,7 @@ files (GED-5 grant).
   `frontend/components/ResultCard.js`,
   `frontend/components/__tests__/ResultCard.polling-contract.test.js`,
   `frontend/components/__tests__/ResultCard.people-projection.test.js`,
+  `frontend/package.json`, `frontend/package-lock.json`,
   `frontend/lib/api.js`, `frontend/lib/taskPolling.js` (new),
   `tests/test_resultcard_agenda_status_refresh.py`
 - do: Replace source-token polling assertions with behavior tests, move the
@@ -1699,9 +1705,9 @@ files (GED-5 grant).
   pending-request cancellation are behavior-tested; `ResultCard` contains no
   polling implementation or response-parser copy; stopped polls cannot update
   component state.
-- forbidden: Generic task-action executor, visual redesign, new dependency,
-  injected test callable, compatibility export, API change, or retained old
-  polling implementation.
+- forbidden: Generic task-action executor, visual redesign, dependencies beyond
+  exact test-only `jsdom@28.1.0`, injected test callable, compatibility export,
+  API change, or retained old polling implementation.
 
 ---
 
