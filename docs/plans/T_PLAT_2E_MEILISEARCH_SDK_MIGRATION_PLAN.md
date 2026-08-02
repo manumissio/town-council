@@ -387,11 +387,32 @@ Delivery uses two commits:
 Push the branch, open one PR titled `T-PLAT-2E: Migrate the Meilisearch Python
 SDK`, request Codex review, and watch required checks to a decided state.
 
-**v) Rollback.** Revert the T-PLAT-2E merge commit, rebuild/recreate all four
-affected Python images, and rerun the same v1.6 smoke using SDK 0.31.0. No
-database migration, server downgrade, index migration, or data repair is
-required. If deployed together with T-IDX-1, do not restore the retired people
-projection when rebuilding the index.
+**v) Rollback.** Revert the T-PLAT-2E merge commit and validate the restored
+0.31.0 application contract rather than rerunning the 0.43-only typed-model
+smoke:
+
+```bash
+git revert <t-plat-2e-merge-commit>
+docker compose build api worker pipeline-batch semantic
+docker compose up -d postgres redis meilisearch
+docker compose run --rm --no-deps pipeline python reindex_only.py --replace-all
+for image in \
+  town-council-python-api \
+  town-council-python-worker-live \
+  town-council-python-worker-batch \
+  town-council-python-semantic
+do
+  docker run --rm "$image" python -c \
+    'import importlib.metadata as m; assert m.version("meilisearch") == "0.31.0"'
+done
+PYTHONPATH=. .venv/bin/pytest -q tests/test_indexer_logic.py tests/test_api.py
+```
+
+The reverted indexer contains the legacy task/detection adapter needed by SDK
+0.31.0, so its own replacement-reindex path is the rollback acceptance test.
+No database migration, server downgrade, or source-data repair is required. If
+deployed together with T-IDX-1, do not restore the retired people projection
+when rebuilding the index.
 
 **w) Docs synchronization.** Update this Full plan, the remediation ledger, and
 `docs/ADR.md`. The new ADR entry supersedes only the task-ID and filtered-delete
