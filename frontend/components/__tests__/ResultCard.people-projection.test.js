@@ -16,6 +16,7 @@ const frontendModulePaths = [
   "components/LineageTimeline.js",
   "components/ui/table.jsx",
   "lib/api.js",
+  "lib/taskPolling.js",
   "lib/textFormatter.js",
   "lib/utils.js",
 ];

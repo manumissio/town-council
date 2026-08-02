@@ -5,6 +5,29 @@ export const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost
 export const TRENDS_DASHBOARD_ENABLED = process.env.NEXT_PUBLIC_FEATURE_TRENDS_DASHBOARD === "true";
 const DEMO_MODE = process.env.NEXT_PUBLIC_DEMO_MODE === "true";
 
+function extractErrorDetail(payload, fallback) {
+  if (payload && typeof payload.detail === "string") return payload.detail;
+  if (payload && typeof payload.error === "string") return payload.error;
+  if (payload && typeof payload.reason === "string") return payload.reason;
+  return fallback;
+}
+
+export async function readJsonResponse(response, actionLabel) {
+  let payload = null;
+  try {
+    payload = await response.json();
+  } catch {
+    if (response.ok) return {};
+  }
+
+  if (!response.ok) {
+    const detail = extractErrorDetail(payload, response.statusText || "Request failed");
+    throw new Error(`${actionLabel} failed (HTTP ${response.status}): ${detail}`);
+  }
+
+  return payload || {};
+}
+
 export function isDemoMode() {
   return DEMO_MODE;
 }

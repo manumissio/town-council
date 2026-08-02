@@ -12,102 +12,14 @@ import {
   buildProtectedCatalogApiUrl,
   getApiHeaders,
   isDemoMode,
+  readJsonResponse,
   TRENDS_DASHBOARD_ENABLED,
 } from "../lib/api";
+import { startTaskPolling } from "../lib/taskPolling";
 import textFormatter from "../lib/textFormatter";
 
 const { renderFormattedExtractedText } = textFormatter;
 const AI_DISCLAIMER_TEXT = "AI-generated content may be incomplete or inaccurate. Verify against source documents.";
-const TASK_POLL_INITIAL_INTERVAL_MS = 1500;
-const TASK_POLL_MAX_INTERVAL_MS = 5000;
-const TASK_POLL_MAX_ATTEMPTS = 45;
-
-function extractErrorDetail(payload, fallback) {
-  if (payload && typeof payload.detail === "string") return payload.detail;
-  if (payload && typeof payload.error === "string") return payload.error;
-  if (payload && typeof payload.reason === "string") return payload.reason;
-  return fallback;
-}
-
-async function readJsonResponse(response, actionLabel) {
-  let payload = null;
-  try {
-    payload = await response.json();
-  } catch {
-    if (response.ok) return {};
-  }
-
-  if (!response.ok) {
-    const detail = extractErrorDetail(payload, response.statusText || "Request failed");
-    throw new Error(`${actionLabel} failed (HTTP ${response.status}): ${detail}`);
-  }
-
-  return payload || {};
-}
-
-// Poll background tasks until complete/failed.
-function pollTaskStatus(taskId, callback, onError, type = "summary") {
-  let active = true;
-  let timeoutId = null;
-
-  const stop = () => {
-    active = false;
-    if (timeoutId) {
-      clearTimeout(timeoutId);
-      timeoutId = null;
-    }
-  };
-
-  const checkStatus = async () => {
-    if (!active) return true;
-    try {
-      const res = await fetch(buildApiUrl(`/tasks/${taskId}`));
-      const data = await readJsonResponse(res, "Poll task");
-
-      if (data.status === "complete") {
-        if (type === "summary") callback(data.result || {});
-        else if (type === "agenda") callback(data.result.items || []);
-        else if (type === "topics") callback(data.result || {});
-        else callback(data.result);
-        return true;
-      }
-
-      if (data.status === "failed") {
-        console.error("Task failed", data.error);
-        if (onError) onError(data.error);
-        return true;
-      }
-
-      return false;
-    } catch (err) {
-      console.error("Polling error", err);
-      if (onError) onError(err);
-      return true;
-    }
-  };
-
-  const tick = async (attempt = 1, intervalMs = TASK_POLL_INITIAL_INTERVAL_MS) => {
-    const isDone = await checkStatus();
-    if (isDone || !active) {
-      stop();
-      return;
-    }
-
-    if (attempt >= TASK_POLL_MAX_ATTEMPTS) {
-      stop();
-      if (onError) onError("task_poll_timeout");
-      return;
-    }
-
-    const nextIntervalMs = Math.min(Math.round(intervalMs * 1.35), TASK_POLL_MAX_INTERVAL_MS);
-    timeoutId = setTimeout(() => {
-      void tick(attempt + 1, nextIntervalMs);
-    }, intervalMs);
-  };
-
-  void tick();
-  return stop;
-}
 
 /**
  * ResultCard Component
@@ -271,56 +183,65 @@ export default function ResultCard({ hit, onTopicClick }) {
     };
   }, []);
 
-  const fetchDerivedStatus = async () => {
-    if (!hit.catalog_id) return;
+  const fetchDerivedStatus = async (signal) => {
+    if (!hit.catalog_id || signal?.aborted) return;
     setDerivedStatusLoadError(null);
     try {
       const res = await fetch(buildProtectedCatalogApiUrl(`/catalog/${hit.catalog_id}/derived_status`), {
         headers: getApiHeaders(),
+        signal,
       });
       const data = await readJsonResponse(res, "Load derived status");
+      if (signal?.aborted) return;
       setDerivedStatus(data);
     } catch (err) {
+      if (signal?.aborted) return;
       console.error("Failed to fetch derived status", err);
       setDerivedStatusLoadError(err instanceof Error ? err.message : "Failed to load derived status.");
     }
   };
 
-  const fetchCanonicalContent = async () => {
-    if (!hit.catalog_id) return;
+  const fetchCanonicalContent = async (signal) => {
+    if (!hit.catalog_id || signal?.aborted) return;
     setIsLoadingCanonicalText(true);
     setCanonicalTextLoadError(null);
     try {
       const res = await fetch(buildProtectedCatalogApiUrl(`/catalog/${hit.catalog_id}/content`), {
         headers: getApiHeaders(),
+        signal,
       });
       const data = await readJsonResponse(res, "Load extracted text");
+      if (signal?.aborted) return;
       setExtractedTextOverride(typeof data.content === "string" ? data.content : "");
       setCanonicalTextFetchFailed(false);
     } catch (err) {
+      if (signal?.aborted) return;
       console.error("Failed to fetch canonical text", err);
       setCanonicalTextFetchFailed(true);
       setCanonicalTextLoadError(err instanceof Error ? err.message : "Failed to load extracted text.");
     } finally {
-      setIsLoadingCanonicalText(false);
+      if (!signal?.aborted) setIsLoadingCanonicalText(false);
     }
   };
 
-  const fetchAgendaItems = async () => {
-    if (!hit.catalog_id || demoMode) return;
+  const fetchAgendaItems = async (signal) => {
+    if (!hit.catalog_id || demoMode || signal?.aborted) return;
     setIsLoadingAgendaItems(true);
     setAgendaLoadError(null);
     try {
       const res = await fetch(buildProtectedCatalogApiUrl(`/catalog/${hit.catalog_id}/agenda_items`), {
         headers: getApiHeaders(),
+        signal,
       });
       const data = await readJsonResponse(res, "Load agenda items");
+      if (signal?.aborted) return;
       setAgendaItems(Array.isArray(data.items) ? data.items : []);
     } catch (err) {
+      if (signal?.aborted) return;
       console.error("Failed to fetch agenda items", err);
       setAgendaLoadError(err instanceof Error ? err.message : "Failed to load agenda items.");
     } finally {
-      setIsLoadingAgendaItems(false);
+      if (!signal?.aborted) setIsLoadingAgendaItems(false);
     }
   };
 
@@ -368,7 +289,7 @@ export default function ResultCard({ hit, onTopicClick }) {
         setIsGenerating(false);
         fetchDerivedStatus();
       } else if (data.task_id) {
-        addPollStop(pollTaskStatus(data.task_id, (result) => {
+        addPollStop(startTaskPolling(data.task_id, async (result, signal) => {
           if (result && (result.status === "blocked_low_signal" || result.status === "blocked_ungrounded")) {
             setSummary(null);
             setSummaryBlockReason(result.reason || "Not enough extracted text to generate a reliable summary.");
@@ -377,11 +298,11 @@ export default function ResultCard({ hit, onTopicClick }) {
             setSummaryBlockReason(null);
           }
           setIsGenerating(false);
-          fetchDerivedStatus();
+          await fetchDerivedStatus(signal);
         }, (error) => {
           setSummaryActionError(error ? `Summary generation failed: ${error}` : "Summary generation failed.");
           setIsGenerating(false);
-        }, 'summary'));
+        }));
       } else {
         setIsGenerating(false);
       }
@@ -417,9 +338,9 @@ export default function ResultCard({ hit, onTopicClick }) {
         setIsTaggingTopics(false);
         fetchDerivedStatus();
       } else if (data.task_id) {
-        addPollStop(pollTaskStatus(
+        addPollStop(startTaskPolling(
           data.task_id,
-          (result) => {
+          async (result, signal) => {
             if (result && result.status === "blocked_low_signal") {
               setTopics([]);
               setTopicsBlockReason(result.reason || "Not enough extracted text to generate reliable topics.");
@@ -428,13 +349,12 @@ export default function ResultCard({ hit, onTopicClick }) {
               setTopicsBlockReason(null);
             }
             setIsTaggingTopics(false);
-            fetchDerivedStatus();
+            await fetchDerivedStatus(signal);
           },
           (error) => {
             setTopicsActionError(error ? `Topic generation failed: ${error}` : "Topic generation failed.");
             setIsTaggingTopics(false);
-          },
-          "topics"
+          }
         ));
       } else {
         setIsTaggingTopics(false);
@@ -468,16 +388,18 @@ export default function ResultCard({ hit, onTopicClick }) {
         fetchDerivedStatus();
         if (data.items.length === 0) fetchAgendaItems();
       } else if (data.task_id) {
-        addPollStop(pollTaskStatus(data.task_id, (result) => {
-          setAgendaItems(result);
+        addPollStop(startTaskPolling(data.task_id, async (result, signal) => {
+          const items = result.items || [];
+          setAgendaItems(items);
           setIsSegmenting(false);
           // Segmentation creates AgendaItem rows; update derived status so badges stay in sync.
-          fetchDerivedStatus();
-          if (result.length === 0) fetchAgendaItems();
+          const agendaRefreshes = [fetchDerivedStatus(signal)];
+          if (items.length === 0) agendaRefreshes.push(fetchAgendaItems(signal));
+          await Promise.all(agendaRefreshes);
         }, (error) => {
           setAgendaActionError(error ? `Agenda segmentation failed: ${error}` : "Agenda segmentation failed.");
           setIsSegmenting(false);
-        }, 'agenda'));
+        }));
       } else {
         setIsSegmenting(false);
       }
@@ -511,18 +433,18 @@ export default function ResultCard({ hit, onTopicClick }) {
       }
 
       if (data.task_id) {
-        addPollStop(pollTaskStatus(
+        addPollStop(startTaskPolling(
           data.task_id,
-          async () => {
-            await fetchCanonicalContent();
+          async (_result, signal) => {
+            await fetchCanonicalContent(signal);
+            if (signal.aborted) return;
             setIsExtracting(false);
-            fetchDerivedStatus();
+            await fetchDerivedStatus(signal);
           },
           (error) => {
             setExtractActionError(error ? `Re-extraction failed: ${error}` : "Re-extraction failed.");
             setIsExtracting(false);
-          },
-          "extract"
+          }
         ));
         return;
       }
