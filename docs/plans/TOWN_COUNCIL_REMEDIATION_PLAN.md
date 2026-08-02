@@ -1,6 +1,6 @@
 # Town Council Remediation Plan (Codex Multi-Agent)
 
-version: 4.01
+version: 4.02
 generated: 2026-08-02
 source: Four-pass external code review (security, architecture, smells, process)
 source_artifact: [Town Council architecture review](../reviews/architecture-review-2026-07-19.html)
@@ -10,6 +10,12 @@ remains in force; where this plan is stricter, this plan wins for these tasks.
 
 ## Changelog
 
+- **v4.02:** Marks T-PLAT-2E complete after PR #219 migrated the Meilisearch
+  Python SDK to 0.43.0 and passed container and v1.6 runtime verification.
+  Closes T-FE-1's duplication audit because one shared poller already owns all
+  four actions, then activates T-FE-1A with exact eight-file ownership to replace
+  source-token tests, fix the post-await cancellation race, and move the
+  polling lifecycle to one behavior-tested non-JSX owner.
 - **v4.01:** Expands T-PLAT-2E from 14 to 17 owned files after the complete
   suite exposed three agenda-maintenance test boundaries that still returned
   untyped Meilisearch deletion tasks. The operator approved aligning those
@@ -465,9 +471,9 @@ remains in force; where this plan is stricter, this plan wins for these tasks.
 
 | State | Tasks |
 |---|---|
-| **Complete** | T-CI-0, T-CI-1, T-CI-1A, T-CI-2, T-CI-2A, T-CI-3, T-CI-4, T-CI-5, T-SEC-1, T-SEC-2, T-SEC-3, T-SEC-3C, T-SEC-4, T-SEC-4A, T-SEC-5, T-SEC-6, T-TIME-1, T-TIME-2, T-TIME-3, T-CRAWL-1, T-CRAWL-2, T-PLAT-1, T-PLAT-1A, T-PLAT-2, T-PLAT-2A, T-PLAT-2B, T-PLAT-2C, T-PLAT-2D, T-PLAT-3, T-PLAT-4, T-GOV-1, T-GOV-2, T-GOV-2A, T-GOV-3, T-GOV-3A, T-GOV-3B, T-GOV-4, T-GOV-5, T-GOV-6, T-DA-1, T-DB-1A, T-DB-1, T-DB-1B, T-DC-1, T-DC-2A, T-DC-2B, T-DD-1A, T-DD-1B, T-DE-1, T-DE-2, T-TASK-1, T-SEM-1, T-IDX-1 |
-| **In progress** | T-PLAT-2E |
-| **Pending** | T-FE-1 |
+| **Complete** | T-CI-0, T-CI-1, T-CI-1A, T-CI-2, T-CI-2A, T-CI-3, T-CI-4, T-CI-5, T-SEC-1, T-SEC-2, T-SEC-3, T-SEC-3C, T-SEC-4, T-SEC-4A, T-SEC-5, T-SEC-6, T-TIME-1, T-TIME-2, T-TIME-3, T-CRAWL-1, T-CRAWL-2, T-PLAT-1, T-PLAT-1A, T-PLAT-2, T-PLAT-2A, T-PLAT-2B, T-PLAT-2C, T-PLAT-2D, T-PLAT-2E, T-PLAT-3, T-PLAT-4, T-GOV-1, T-GOV-2, T-GOV-2A, T-GOV-3, T-GOV-3A, T-GOV-3B, T-GOV-4, T-GOV-5, T-GOV-6, T-DA-1, T-DB-1A, T-DB-1, T-DB-1B, T-DC-1, T-DC-2A, T-DC-2B, T-DD-1A, T-DD-1B, T-DE-1, T-DE-2, T-TASK-1, T-SEM-1, T-IDX-1, T-FE-1 |
+| **In progress** | T-FE-1A |
+| **Pending** | None |
 
 ---
 
@@ -1650,9 +1656,9 @@ files (GED-5 grant).
 
 ### T-FE-1: Delete proven ResultCard task lifecycle duplication
 - priority: P2
-- status: pending behavior-test design and exact ownership
+- status: complete audit 2026-08-02; no duplicate poller found
 - depends_on: T-CI-2 (satisfied)
-- files_owned: to be named in a separate Full plan before implementation
+- files_owned: read-only audit; no tracked files changed
 - do: Characterize summary, topic, extraction, and segmentation task
   lifecycles. Consolidate only polling, cancellation, timeout, error, or state
   transitions that behavior tests prove identical, then delete each
@@ -1665,6 +1671,32 @@ files (GED-5 grant).
   lifecycle code is deleted rather than wrapped.
 - forbidden: Visual redesign, API changes, weakened polling tests, speculative
   frontend framework, or implementation before behavior tests are approved.
+
+### T-FE-1A: Test and correct the ResultCard polling lifecycle
+- priority: P2
+- status: in progress under
+  `docs/plans/T_FE_1A_TASK_POLLING_LIFECYCLE_PLAN.md`
+- depends_on: T-FE-1 audit (satisfied)
+- files_owned: `docs/plans/T_FE_1A_TASK_POLLING_LIFECYCLE_PLAN.md`,
+  `docs/plans/TOWN_COUNCIL_REMEDIATION_PLAN.md`,
+  `frontend/components/ResultCard.js`,
+  `frontend/components/__tests__/ResultCard.polling-contract.test.js`,
+  `frontend/components/__tests__/ResultCard.people-projection.test.js`,
+  `frontend/lib/api.js`, `frontend/lib/taskPolling.js` (new),
+  `tests/test_resultcard_agenda_status_refresh.py`
+- do: Replace source-token polling assertions with behavior tests, move the
+  shared lifecycle to one non-JSX owner, and suppress completion or failure
+  callbacks after cancellation during awaited HTTP work.
+- preserve: Action-specific summary, topic, agenda, and extraction settlement;
+  visible loading and error states; bounded backoff; task response contracts;
+  unmount cleanup; rendering; accessibility; and API behavior.
+- accept: Completion, failure, HTTP error, timeout, scheduled-retry stop, and
+  pending-request cancellation are behavior-tested; `ResultCard` contains no
+  polling implementation or response-parser copy; stopped polls cannot update
+  component state.
+- forbidden: Generic task-action executor, visual redesign, new dependency,
+  injected test callable, compatibility export, API change, or retained old
+  polling implementation.
 
 ---
 
@@ -2332,13 +2364,14 @@ Gate:    G3 satisfied (T-GOV-1 Accepted ADR + active docs/TESTING.MD)
 Phase 2: completed foundations [T-DA-1, T-DB-1A, T-DB-1, T-DB-1B,
          T-DC-1, T-DD-1A, T-DD-1B, T-DE-1]
 Next:    Serialize each task's Full-plan registration through this ledger.
-         T-PLAT-2D is complete; T-PLAT-2E is the active SDK migration.
+         T-PLAT-2D and T-PLAT-2E are complete; T-FE-1A is active.
 Phase 3: agent-plat [T-PLAT-1 after T-TIME-1 and T-TIME-2, T-PLAT-1A
          closure, T-PLAT-2B security patch, then T-PLAT-2..4; complete;
-         T-PLAT-2D alert #121 patch complete; T-PLAT-2E Meilisearch active]
+         T-PLAT-2D alert #121 and T-PLAT-2E Meilisearch migration complete]
          || agent-gov [T-GOV-2 policy and T-GOV-2A runtime enforcement
          complete; T-GOV-3A/B and T-GOV-5 complete]
-After:   T-FE-1 follows behavior-test design. City Coverage Expansion awaits
+After:   T-FE-1 audit found no duplicate poller; T-FE-1A closes the tested
+         cancellation gap. City Coverage Expansion awaits
          the valid v2 expected-baseline PR.
 ```
 
