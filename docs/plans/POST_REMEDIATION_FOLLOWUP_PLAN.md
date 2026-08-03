@@ -11,10 +11,11 @@ changelog section to this file and do NOT extend the frozen remediation plan
 source: External review of docs/PIPELINE.md (verified against tree, all 72
 file refs currently valid) + verification of the baseline_representative_v2
 gap analysis. Both reviews dated 2026-08-02.
-amended: 2026-08-02 — Lane ARCH added from the 2026-07-19 architecture
-interrogation's deferred watchlist (docs/reviews/architecture-review-2026-07-19.html),
-re-verified against the 2026-08-02 tree: prerequisites have cleared on most
-items, converting them from "deferred" to "eligible".
+amended: 2026-08-03 — reconciled against live master (parent of PR #224
+commit 83b020a) after Codex review flagged snapshot staleness: T-DOC-1,
+T-DOC-3, T-DOC-4, and T-ARCH-9 were already completed on master and are
+closed as pre-existing below. Earlier verification dates in this file refer
+to the 2026-08-02 archive snapshot, which master has since advanced past.
 postmortem_compliance: This plan follows the program postmortem's prevention
 rules — it is small and focused; new checks are syntactic and bounded; task
 ownership below was traced from entrypoints/consumers/docs/tests/CI, not from
@@ -61,6 +62,11 @@ the tracker table only.
   T-ARCH-10 lands first, and no two ARCH PRs touching that file may be in
   flight together.
 - D7. Priority tiers below are a proposal; gate GA-1 applies.
+- D8. Snapshot staleness: this plan was authored against an archive
+  snapshot. Before opening any task's PR, re-verify the task's premise
+  against HEAD. A premise that no longer holds closes the task as
+  pre-completed (record the evidence in the tracker) — it does not license
+  no-op or contradictory work.
 
 ## Gates
 
@@ -70,19 +76,27 @@ the tracker table only.
 - GA-2 (operator): one Postgres parity run for T-ARCH-4 (set
   TEST_POSTGRES_DATABASE_URL, run the currently-skipped migrate_v10
   tests); attach the run output to the T-ARCH-4 PR. Blocks T-ARCH-4 only.
-- GB-1 (procedure): if two consecutive T-BASE-2 captures report
-  `reduced-confidence`, HALT and escalate with both run reports attached.
-  Do not tune thresholds, retry indefinitely, or reinterpret the analyzer
-  state.
+- GB-1 (procedure, restating canonical policy — no new gate semantics):
+  a `reduced-confidence` or non-baseline-valid capture is `non_comparable`;
+  per docs/PERFORMANCE.md compare policy, inspect result.json and the
+  listed confidence reason and fix that reason before using any run for
+  the expected baseline [sourced: PERFORMANCE.md interpretation rules +
+  compare policy]. Fixes land in separate PRs, then recapture
+  [sourced: PERFORMANCE.md after T-BASE-1]. If the listed reason
+  implicates runtime policy or profile configuration, escalate to the
+  operator — agents may not alter those (AGENTS.md hard invariants).
+  This gate introduces no retry counts or halt thresholds; any such
+  addition would be a soak-gate semantic requiring ratification in
+  canonical policy, not in this plan.
 
 ## Task tracker
 
 | id        | state | evidence (PR #) |
 |-----------|-------|-----------------|
-| T-DOC-1   | open  |                 |
+| T-DOC-1   | closed (pre-completed) | master@parent-of-83b020a |
 | T-DOC-2   | open  |                 |
-| T-DOC-3   | open  |                 |
-| T-DOC-4   | open  |                 |
+| T-DOC-3   | closed (pre-completed) | master@parent-of-83b020a |
+| T-DOC-4   | closed (pre-completed) | master@parent-of-83b020a |
 | T-BASE-1  | open  |                 |
 | T-BASE-2  | open  |                 |
 | T-ARCH-1  | open  |                 |
@@ -93,31 +107,28 @@ the tracker table only.
 | T-ARCH-6  | open  |                 |
 | T-ARCH-7  | open  |                 |
 | T-ARCH-8  | open  |                 |
-| T-ARCH-9  | open  |                 |
+| T-ARCH-9  | closed (pre-completed) | master@parent-of-83b020a |
 | T-ARCH-10 | open  |                 |
 
 ---
 
 ## Lane DOC — PIPELINE.md integrity (one PR, agent-executable)
 
-### T-DOC-1: Repair the Stage B duplicated rationale block
-- files_owned: docs/PIPELINE.md (§3 Stage B only)
-- do: Two consecutive "Why this exists:" blocks sit at the end of Stage B
-  (extraction-lifecycle rationale, then an orphaned chunking rationale).
-  Move the chunking rationale ("Chunked parallelism improves throughput…
-  per-record commits preserve partial progress…") directly under the
-  `run_parallel_processing()` / `process_document_chunk()` description, so
-  each block follows the mechanism it explains. No wording changes.
-- accept: Exactly one "Why this exists:" per mechanism in Stage B; content
-  byte-identical apart from relocation.
-- verify: `PYTHONPATH=. .venv/bin/pytest -q tests/test_docs_links.py`
+### T-DOC-1: Repair the Stage B duplicated rationale block  [CLOSED — pre-completed on master]
+- evidence: master PIPELINE.md places the chunking rationale directly under run_parallel_processing(); no orphaned duplicate block remains.
 
 ### T-DOC-2: Guard the §11 file map with a syntactic existence check
 - files_owned: tests/test_docs_links.py (or a sibling
   tests/test_pipeline_doc_file_map.py if link-test scope is link-only by
   design — decide in-PR and say why)
-- do: Add a bounded check: extract backtick-quoted `pipeline/|api/|scripts/|
-  docs/` paths ending in .py/.md from docs/PIPELINE.md; assert each literal
+- do: Add a bounded check: extract every backtick-quoted repository path
+  from docs/PIPELINE.md matching `<family>/<...>.py|.md` where the family
+  set is DERIVED from the document itself (any leading path segment that
+  is a top-level repo directory), not hardcoded — the map already
+  references semantic_service/ alongside pipeline/, api/, scripts/, and
+  docs/, and a hardcoded prefix list silently exempts whole families
+  (Codex P2, PR #224: deleting semantic_service/main.py would have passed
+  a pipeline|api|scripts|docs check). Assert each literal
   path exists and each glob family matches at least one file. No prose
   interpretation, no content assertions — path existence only, per the
   postmortem rule for custom checks ("exact-set… syntactic and bounded").
@@ -128,24 +139,11 @@ the tracker table only.
   content beyond path existence.
 - verify: targeted pytest for the new test + full suite.
 
-### T-DOC-3: Config-default provenance note on the OCR table
-- files_owned: docs/PIPELINE.md (§5 config table only)
-- do: Add one line under the `TIKA_*` table: defaults are defined in
-  `pipeline/config_processing.py`; that file wins on any conflict with this
-  table (or any other doc). Do not remove the table.
-- accept: Provenance line present; table values unchanged (spot-verified:
-  OCR fallback False, min chars 800 currently match code).
-- verify: docs-link test.
+### T-DOC-3: Config-default provenance note on the OCR table  [CLOSED — pre-completed on master]
+- evidence: master PIPELINE.md states pipeline/config_processing.py owns the loader fallbacks for the table.
 
-### T-DOC-4: Retitle "Source-of-Truth File Map"
-- files_owned: docs/PIPELINE.md (§11 heading + any intra-doc references)
-- do: Rename §11 to "Primary File Map". Rationale: under AGENTS.md
-  hierarchy-of-truth, code is ground truth; a non-canonical explainer doc
-  should not claim source-of-truth status in a heading.
-- accept: No occurrence of "Source-of-Truth" remains in PIPELINE.md;
-  inbound anchors (README.md, ARCHITECTURE.md) checked and updated if they
-  deep-link the heading.
-- verify: docs-link test; grep.
+### T-DOC-4: Retitle "Source-of-Truth File Map"  [CLOSED — pre-completed on master]
+- evidence: master §11 is titled "Primary Implementation Map"; no "Source-of-Truth" occurrence remains.
 
 ---
 
@@ -216,25 +214,36 @@ against the 2026-08-02 tree. Priority tiers: P1 = cheap true deletions with
 evidence in hand; P2 = deep-module work needing a Full plan; P3 =
 investigations that may close with no code change.
 
-### T-ARCH-4: Retire shallow migration wrappers  [P1, Full-mandatory]
+### T-ARCH-4: Rationalize the migrate chain vs Alembic ownership  [P1, Full-mandatory]
 - gate: GA-2 (operator parity run)
-- files_owned (contract-graph traced, per postmortem Lesson 2):
-  pipeline/migrate_v8.py, migrate_v9.py, migrate_v10.py,
-  pipeline/db_migrate.py, every caller of run_migrations/migrate chains
-  (startup and CLI entrypoints — enumerate in the Full plan),
-  docs/OPERATIONS.md (migration section), docs/PIPELINE.md (§11 entries
-  for deleted modules), alembic/ (only if delegation wiring changes),
-  their tests.
-- do: With Alembic as schema owner, delete the version-wrapper modules;
-  db_migrate.py remains the single deep entrypoint delegating to Alembic.
-  The Full plan MUST state the upgrade story for pre-Alembic databases
-  (contributor dev DBs that were never stamped): either an automatic
-  stamp-if-at-v10 path or a documented one-time operator command — silent
-  loss of the legacy upgrade path is a rejection criterion.
-- accept: No pipeline/migrate_v*.py remain; fresh-DB and upgraded-DB
-  schema diff empty; a v9/v10-era database's documented upgrade path
-  verified in the parity run; OPERATIONS and §11 updated; suite green;
-  GA-2 output attached.
+- correction (Codex P1, PR #224): migrate_v10.py is NOT a shallow wrapper —
+  it owns ~200 lines of timestamp-contract validation and UTC conversion,
+  and pipeline/db_migration_runner.py imports migrate_v8 and migrate_v10
+  for unversioned-database adoption. The July watchlist's "shallow
+  wrapper" characterization applied to the v8/v9 era and does not transfer
+  wholesale. Blanket deletion would drop or merely relocate that
+  conversion, failing D5 and the legacy-upgrade criterion.
+- files_owned (contract-graph traced): pipeline/migrate_v8.py,
+  migrate_v9.py, migrate_v10.py, pipeline/db_migrate.py,
+  pipeline/db_migration_runner.py and every caller of the migrate chain
+  (enumerate in the Full plan), docs/OPERATIONS.md (migration section),
+  docs/PIPELINE.md (§11 entries for any deleted module), alembic/ (only
+  if delegation wiring changes), their tests.
+- do: Census first (in the Full plan): map every migrate_v* module's role —
+  implementation owner vs pass-through — and its consumers, including
+  db_migration_runner's unversioned-adoption path. Retire ONLY modules
+  the census proves are pass-throughs whose behavior Alembic revisions or
+  a retained owner already provide. migrate_v10's conversion logic is
+  RETAINED as the unversioned-adoption owner unless the census proves the
+  Alembic baseline subsumes it for every supported starting state; the
+  Full plan MUST state the upgrade story for pre-Alembic databases —
+  silent loss of the legacy upgrade path is a rejection criterion.
+- accept: Census table in the PR body with each module's disposition and
+  evidence; only census-proven pass-throughs deleted; fresh-DB and
+  upgraded-DB schema diff empty; a v9/v10-era database's documented
+  upgrade path verified in the parity run; OPERATIONS and §11 updated;
+  suite green; GA-2 output attached. "No change warranted" is a valid
+  census outcome (D5).
 
 ### T-ARCH-5: Retire LocalAI private re-exports  [P1, Full-mandatory]
 - files_owned: pipeline/llm.py, pipeline/local_ai_agenda_compat.py,
@@ -256,20 +265,8 @@ investigations that may close with no code change.
   green. Renaming aliases without removing the re-export relationship does
   NOT satisfy this task.
 
-### T-ARCH-9: Fremont/Moraga recorded-parse parity  [P1, Light OK]
-- files_owned: tests/test_crawler_refactor_contract.py (or sibling),
-  checked-in HTML fixtures
-- do: Close the review's candidate-06 test deficit with CHECKED-IN
-  fixtures exercising the same event/document parse-depth Belmont's test
-  has. Fixtures are representative HTML consistent with the template
-  contract — synthesized or historically recorded — NOT live captures:
-  the spiders target portal eras that may no longer exist (Moraga's start
-  URL is 2017-era), so live capture would test a different site than the
-  code was written for. If a portal has genuinely changed, that is a
-  separate crawler-maintenance finding to file, not a reason to weaken the
-  fixture.
-- accept: All three spiders have equivalent parse-depth coverage from
-  checked-in fixtures; no test performs network I/O.
+### T-ARCH-9: Fremont/Moraga recorded-parse parity  [CLOSED — pre-completed on master]
+- evidence: master test_crawler_refactor_contract.py has equivalent Belmont/Fremont/Moraga archive event contracts with document-level assertions and no network I/O.
 
 ### T-ARCH-10: Guardrail-file diet  [P1, Light OK, lands FIRST in lane]
 - files_owned: tests/test_repository_guardrails.py
@@ -356,14 +353,16 @@ investigations that may close with no code change.
 ## Execution order
 
 ```
-PR 1: T-DOC-1 + T-DOC-3 + T-DOC-4 (single doc-integrity PR)
-PR 2: T-DOC-2 (its own PR: new guardrail, reviewed against postmortem rules)
-PR 3: T-BASE-1 (doc promotion; unblocks sourced markings)
-PR 4: T-BASE-2 (operator capture + agent-assembled evidence PR)
+PR 1: T-DOC-2 (only remaining DOC task; new guardrail, reviewed against
+      postmortem rules — T-DOC-1/3/4 closed as pre-completed on master)
+PR 2: T-BASE-1 (doc promotion; unblocks sourced markings)
+PR 3: T-BASE-2 (operator capture + agent-assembled evidence PR)
 ARCH: T-ARCH-10 lands FIRST (guardrail-file serialization, D6); then P1
-      tasks (T-ARCH-4/5/9) in any order, max two implementation PRs in
-      flight; P2 tasks after GA-1, each behind its own Full plan;
-      P3 investigations anytime, implementation only via new gated tasks.
+      tasks (T-ARCH-4/5) in any order, max two implementation PRs in
+      flight (T-ARCH-9 closed as pre-completed); P2 tasks after GA-1,
+      each behind its own Full plan; P3 investigations anytime,
+      implementation only via new gated tasks. Per D8, every task
+      re-verifies its premise against HEAD before its PR opens.
 ```
 
 DOC, BASE, and ARCH lanes are independent; T-BASE-2 alone is sequenced
