@@ -126,7 +126,9 @@ the tracker table only.
   authorize edits elsewhere.
 - do: Add a bounded check: extract every backtick-quoted syntactic path
   candidate only from the text between the `## 11)` heading and the next
-  level-two heading in docs/PIPELINE.md. A candidate must be an unambiguous
+  level-two heading in docs/PIPELINE.md. Fail unless exactly one `## 11)`
+  section exists and that section yields at least one candidate. A candidate
+  must be an unambiguous
   repository-relative reference containing `/` and must be either a literal
   `.py`/`.md` path or a terminal wildcard path. Terminal wildcards may be
   extensionless, such as `pipeline/task_*`, `api/task_route_*`, or
@@ -145,7 +147,9 @@ the tracker table only.
   family makes it fail; removing the final match for a glob family makes it
   fail, including for an extensionless terminal wildcard. The check names
   these supported cases in a docstring; a bare filename outside §11 does not
-  enter the candidate set. The check does not
+  enter the candidate set. Removing or duplicating the §11 heading, or
+  producing an empty candidate set, makes the test fail. These are parser
+  preconditions, not assertions about narrative wording. The check does not
   claim that it protects every individual member represented only by a glob.
 - forbidden: Extending the check to other docs in this PR; asserting doc
   content beyond path existence.
