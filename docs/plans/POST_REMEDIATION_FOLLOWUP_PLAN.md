@@ -4,15 +4,19 @@ Scope: pipeline-doc integrity, baseline v2 evidence readiness, and
 architecture-watchlist retirement.
 
 plan_id: POST-REM-FOLLOWUP-2026-08
-status_tracking: PR checkboxes against the task table below. Do NOT add a
+status_tracking: task state and evidence cells in the table below. Every task
+PR may update only its own two cells in this file, even when the task's
+implementation ownership is otherwise narrower. Do NOT add a
 changelog section to this file and do NOT extend the frozen remediation plan
 (docs/plans/TOWN_COUNCIL_REMEDIATION_PLAN.md is historical evidence per the
 2026-08-02 postmortem prevention table).
-source: External review of docs/PIPELINE.md (verified against tree, all 72
-file refs currently valid) + verification of the baseline_representative_v2
-gap analysis. Both reviews dated 2026-08-02.
-amended: 2026-08-03 — reconciled against live master (parent of PR #224
-commit 83b020a) after Codex review flagged snapshot staleness: T-DOC-1,
+source: External review of docs/PIPELINE.md + verification of the
+baseline_representative_v2 gap analysis. Both reviews dated 2026-08-02. The
+file-map existence claim remains review evidence until T-DOC-2 supplies the
+reproducible repository check.
+amended: 2026-08-03 — reconciled against immutable master commit
+a62ca0eff8eb7aae0e4d1b6776efefd7b401a1b1 after Codex review flagged
+snapshot staleness: T-DOC-1,
 T-DOC-3, T-DOC-4, and T-ARCH-9 were already completed on master and are
 closed as pre-existing below. Earlier verification dates in this file refer
 to the 2026-08-02 archive snapshot, which master has since advanced past.
@@ -27,8 +31,11 @@ the tracker table only.
 ## Directives (apply to every task)
 
 - D1. AGENTS.md remains supreme; the planning templates
-  (docs selection rules) apply — T-BASE-2 is a mandatory Full-template task
-  because it touches soak-baseline comparability.
+  (docs selection rules) apply. T-DOC-2 is Full-template work because it
+  adds persistent enforcement machinery; T-BASE-2 is Full-template work
+  because it touches soak-baseline comparability. T-ARCH-10 is an
+  investigation only; any implementation it recommends gets a separate
+  Full plan sized by assertion family.
 - D2. Sourced vs derived: every step in an execution procedure (numbered
   steps in a task, a Full plan, or a PR body) must be marked either
   [sourced: <doc §>] or [derived: <policy it follows>]. Task charters in
@@ -52,12 +59,10 @@ the tracker table only.
   (P3 investigations and Full-plan authoring do not count toward the cap);
   one domain per PR; investigation and implementation are separate PRs.
   Template routing follows the planning templates' selection rules, which
-  this plan cannot override (D1): T-ARCH-4 (schema/migrations) and
-  T-ARCH-5, T-ARCH-1 (facade families) are Full-mandatory regardless of
-  tier; T-ARCH-2/3 Full per their gates; T-ARCH-9 may use Light;
-  T-ARCH-10 may use Light with the guardrail-change justification the
-  AGENTS.md maintenance triggers require.
-  T-ARCH-10 lands first. After that, an ARCH task edits
+  this plan cannot override (D1): T-ARCH-5 and T-ARCH-1 (facade families)
+  are Full-mandatory regardless of
+  tier; T-ARCH-2/3 Full per their gates. T-ARCH-10 does not authorize an
+  implementation PR. An ARCH task edits
   tests/test_repository_guardrails.py only when its live HEAD census finds an
   entry affected by the task. PRs that actually edit that shared file
   SERIALIZE; independent ARCH PRs remain subject only to the two-PR cap.
@@ -73,9 +78,6 @@ the tracker table only.
 - GA-1 (operator): ratify or reorder the ARCH priority ranking. Blocks all
   ARCH implementation PRs; does not block investigations or Full-plan
   drafting.
-- GA-2 (operator): one Postgres parity run for T-ARCH-4 (set
-  TEST_POSTGRES_DATABASE_URL, run the currently-skipped migrate_v10
-  tests); attach the run output to the T-ARCH-4 PR. Blocks T-ARCH-4 only.
 - GB-1 (procedure, restating canonical policy — no new gate semantics):
   a `reduced-confidence` or non-baseline-valid capture is `non_comparable`;
   per docs/PERFORMANCE.md compare policy, inspect result.json and the
@@ -91,24 +93,25 @@ the tracker table only.
 
 ## Task tracker
 
-| id        | state | evidence (PR #) |
+| id        | state | immutable evidence and proving check |
 |-----------|-------|-----------------|
-| T-DOC-1   | closed (pre-completed) | master@parent-of-83b020a |
+| T-DOC-1   | closed (pre-completed) | `git show a62ca0e:docs/PIPELINE.md \| sed -n '52,68p'` |
 | T-DOC-2   | open  |                 |
-| T-DOC-3   | closed (pre-completed) | master@parent-of-83b020a |
-| T-DOC-4   | closed (pre-completed) | master@parent-of-83b020a |
+| T-DOC-3   | closed (pre-completed) | `git show a62ca0e:docs/PIPELINE.md \| sed -n '208,220p'` |
+| T-DOC-4   | closed (pre-completed) | `git show a62ca0e:docs/PIPELINE.md \| rg '^## 11\\) Primary Implementation Map$'` |
 | T-BASE-1  | open  |                 |
 | T-BASE-2  | open  |                 |
 | T-ARCH-1  | open  |                 |
 | T-ARCH-2  | open  |                 |
 | T-ARCH-3  | open  |                 |
-| T-ARCH-4  | open  |                 |
+| T-ARCH-4  | closed (pre-completed) | `a62ca0e`; [Python Guardrails run 30770109810](https://github.com/manumissio/town-council/actions/runs/30770109810) |
 | T-ARCH-5  | open  |                 |
 | T-ARCH-6  | open  |                 |
 | T-ARCH-7  | open  |                 |
 | T-ARCH-8  | open  |                 |
-| T-ARCH-9  | closed (pre-completed) | master@parent-of-83b020a |
+| T-ARCH-9  | closed (pre-completed) | [run 30770109810](https://github.com/manumissio/town-council/actions/runs/30770109810); `git show a62ca0e:tests/test_crawler_refactor_contract.py \| rg 'Fremont\|Moraga'` |
 | T-ARCH-10 | open  |                 |
+| T-ARCH-11 | blocked | ADR and supported-starting-state decision required |
 
 ---
 
@@ -117,13 +120,15 @@ the tracker table only.
 ### T-DOC-1: Repair the Stage B duplicated rationale block  [CLOSED — pre-completed on master]
 - evidence: master PIPELINE.md places the chunking rationale directly under run_parallel_processing(); no orphaned duplicate block remains.
 
-### T-DOC-2: Guard the §11 file map with a syntactic existence check
-- files_owned: tests/test_docs_links.py (or a sibling
-  tests/test_pipeline_doc_file_map.py if link-test scope is link-only by
-  design — decide in-PR and say why)
+### T-DOC-2: Guard the §11 file map with a syntactic existence check  [Full]
+- files_owned: tests/test_pipeline_doc_file_map.py (new). The Full plan must
+  name any additional file before implementation; this charter does not
+  authorize edits elsewhere.
 - do: Add a bounded check: extract every backtick-quoted syntactic path
-  candidate from docs/PIPELINE.md matching `<family>/<...>.py|.md`, including
-  glob families, without first consulting the filesystem. Derive the family
+  candidate from docs/PIPELINE.md that is either a literal `.py`/`.md` path
+  or a terminal wildcard path. Terminal wildcards may be extensionless, such
+  as `pipeline/task_*`, `api/task_route_*`, or `semantic_service/*`. Extract
+  candidates without first consulting the filesystem. Derive the family
   set from those candidates' leading path segments, not from a hardcoded list
   or the set of directories that currently exists. Then assert that each
   candidate family exists, each literal path exists, and each glob family
@@ -133,7 +138,8 @@ the tracker table only.
   postmortem rule for custom checks ("exact-set… syntactic and bounded").
 - accept: Test passes on HEAD; deleting a literal referenced path or top-level
   family makes it fail; removing the final match for a glob family makes it
-  fail. The check names these supported cases in a docstring and does not
+  fail, including for an extensionless terminal wildcard. The check names
+  these supported cases in a docstring and does not
   claim that it protects every individual member represented only by a glob.
 - forbidden: Extending the check to other docs in this PR; asserting doc
   content beyond path existence.
@@ -162,34 +168,51 @@ the tracker table only.
   Runtime-policy immutability may cite AGENTS.md hard invariants inline.
 - accept: The rule is stated once in PERFORMANCE.md; OPERATIONS capture
   section points to the rules rather than duplicating them; D2 marking in
-  the PR body.
-- verify: docs-link test; grep confirms single statement.
+  the PR body. If OPERATIONS changes, update its `Last updated` marker.
+- verify: docs-link test; env/profile alignment test; grep confirms single
+  statement; `git diff --check`.
 
 ### T-BASE-2: The evidence PR (Full template; human-gated execution)
 - files_owned: profiling/baselines/baseline_representative_v2.json (new),
-  PR body artifacts; ROADMAP.md City Expansion Readiness status line only
-  if the operator chooses to tick it in the same PR.
+  docs/PERFORMANCE.md, docs/OPERATIONS.md,
+  profiling/manifests/README.md, and docs/ADR.md. Preserve the accepted ADR
+  decision and add implementation status; do not rewrite its history.
 - depends_on: T-BASE-1 (so every step below is [sourced])
-- human_gate: the capture itself runs on the operator's machine with the
-  local runtime profile — an agent prepares the plan and assembles the PR;
-  it does not execute the capture or fabricate its artifacts. Absence of
-  artifacts = the task is blocked, not improvisable.
+- human_gate: two independent captures run on the operator's machine with
+  the same immutable commit, manifest and sidecar, preconditioned dataset,
+  index artifacts, semantic settings, runtime profile, and warm/cold
+  condition. The operator supplies complete artifacts for reference run A
+  and validation run B. An agent prepares the plan and assembles the PR; it
+  does not execute captures or fabricate artifacts. Absence of either
+  artifact set = blocked, not improvisable.
 - procedure (all steps must carry D2 markings in the plan):
   1. `--dry-run-prepare` inspection of controlled preconditioning
      [sourced: PERFORMANCE interpretation rules; OPERATIONS ~L1528].
-  2. Stable local baseline run using the v2 manifest
+  2. Stable local reference run A using the v2 manifest
      [sourced: OPERATIONS baseline capture section].
-  3. `baseline_valid=true` and no `reduced-confidence` analyzer state
+  3. Run A has `baseline_valid=true` and no `reduced-confidence` analyzer state
      [sourced: v1 baseline schema + PERFORMANCE rules].
-  4. Required artifacts present: provider telemetry, phase timings, stable
+  4. Run A artifacts present: provider telemetry, phase timings, stable
      workload counters [sourced: baseline schema fields
      elapsed_seconds/top_phases/stable_counters/reference_run_id].
-  5. Derive the expected-baseline JSON from that run, same schema as v1
+  5. Derive the expected-baseline JSON from run A, same schema as v1, and set
+     `reference_run_id` to run A
      [sourced: profiling/baselines/baseline_representative_v1.json].
-  6. Re-run comparison via `--compare-to` against the proposed baseline;
-     include commands, runtime profile, run ID, and reports in the PR body
-     [sourced: PERFORMANCE rules].
-  7. No optimization/threshold/runtime-policy changes in the capture PR;
+  6. Capture independent validation run B under the same immutable commit,
+     manifest and sidecar, preconditioned dataset, index artifacts, semantic
+     settings, runtime profile, and warm/cold condition. Record those fields
+     for both runs. Run B must also be baseline-valid and full-confidence,
+     and may not reuse run A's output directory or run ID. Any mismatch makes
+     the comparison `non_comparable` [sourced: PERFORMANCE interpretation
+     rules; derived: independent validation].
+  7. Compare run B via `--compare-to` against the expected baseline derived
+     from run A. Include both commands, the shared runtime profile, both run
+     IDs, and both artifact/report sets in the PR body
+     [sourced: PERFORMANCE rules; derived: independent validation].
+  8. Synchronize the four owned canonical documents from pending-candidate
+     wording to merged-baseline status without changing the accepted ADR
+     decision [derived: docs ownership and history preservation].
+  9. No optimization/threshold/runtime-policy changes in the capture PR;
      defects found → separate fix PR, then recapture
      [sourced: PERFORMANCE after T-BASE-1].
 - context_for_reviewer (include verbatim in the PR body): v2 uses the
@@ -201,8 +224,10 @@ the tracker table only.
   decisions. v1 and its checked-in expectation remain immutable historical
   evidence.
 - accept: profiling/baselines/baseline_representative_v2.json merged;
-  comparison run green under documented tolerances; PR body carries all
-  step evidence with D2 markings.
+  independent run B compares green against run A's expectation under
+  documented tolerances; `reference_run_id` names run A; both artifact sets
+  and all step evidence appear in the PR body with D2 markings; owned docs
+  agree on implementation status.
 - explicitly_not_claimed: merging this PR clears the baseline prerequisite
   only; City Expansion Readiness additionally requires the rollout-registry
   wave selection and crawl/derived-state/queue gates in ROADMAP.md — do not
@@ -217,42 +242,29 @@ against the 2026-08-02 tree. Priority tiers: P1 = cheap true deletions with
 evidence in hand; P2 = deep-module work needing a Full plan; P3 =
 investigations that may close with no code change.
 
-### T-ARCH-4: Verify the frozen migrate chain before future sunset  [P1, Full-mandatory, investigation]
-- gate: GA-2 (operator parity run)
-- correction (Codex P1, PR #224): the accepted Alembic ADR requires the
-  migrate_v8/v9/v10 chain to remain readable and frozen while
-  pipeline/db_migration_runner.py uses it for unversioned-database adoption.
-  migrate_v10.py is not a shallow wrapper; it owns timestamp-contract
-  validation and UTC conversion. This task preserves the current chain and
-  cannot authorize deletion while that ADR remains active.
-- files_owned: docs/plans/POST_REMEDIATION_FOLLOWUP_PLAN.md (tracker state and
-  evidence link only). The Full plan reads the migration modules, callers,
-  Alembic revisions, tests, and migration documentation as census evidence;
-  it does not authorize edits to them. A discovered defect or future sunset
-  gets a separate task with its own ownership.
-- do: Census first (in the Full plan): map every migrate_v* module's role and
-  consumer, including db_migration_runner's unversioned-adoption path. Run
-  the GA-2 parity evidence and verify the frozen chain still reaches the
-  Alembic baseline without schema drift. Do not delete, bypass, or rewire the
-  chain under the current ADR. A defect found by the census requires a
-  separate scoped repair, not an incidental sunset.
-- accept: Census table in the PR body with each module retained and its role
-  evidenced; fresh-DB and upgraded-DB schema diff empty; a v9/v10-era
-  database's documented upgrade path verified in the parity run; suite green;
-  GA-2 output attached. The expected outcome is "no change warranted" under
-  the current ADR.
-- future_sunset: The migration chain should be removed in a separate
-  Full-template PR after a separately ratified ADR change defines the new
-  support floor and proves that no supported unversioned or pre-Alembic
-  database still depends on the frozen runner. That PR must remove the chain
-  end to end, update migration and operator documentation, and verify every
-  supported starting state. This plan records the intended direction; it does
-  not authorize the sunset.
+### T-ARCH-4: Verify the frozen migrate chain  [CLOSED — pre-completed]
+- evidence: `.github/workflows/python-guardrails.yml` runs
+  `tests/test_alembic_migrations.py` against Postgres before the full suite,
+  which includes the frozen-runner and migrate_v8/v9/v10 contract tests;
+  `pipeline/db_migration_runner.py` still invokes that chain for the supported
+  unversioned-adoption path. Under the accepted ADR, the present result is
+  "retain the frozen chain." No duplicate parity gate is needed.
+
+### T-ARCH-11: Sunset the frozen migration chain  [future, Full, blocked]
+- gate: a separately ratified ADR must define the minimum supported database
+  state and retire support for unversioned/pre-Alembic starting states.
+- files_owned: must be derived by the Full plan after that decision; this
+  charter authorizes no migration-file edit or deletion.
+- do: prove that every supported database starts from an Alembic-owned state,
+  then remove the frozen runner and migrate_v8/v9/v10 end to end. Update
+  migration and operator documentation and verify each supported starting
+  state. This task records the operator's intended direction; it cannot begin
+  while the current ADR and support floor remain active.
 
 ### T-ARCH-5: Retire LocalAI private re-exports  [P1, Full-mandatory]
 - files_owned: pipeline/llm.py, pipeline/local_ai_agenda_compat.py,
   consumers identified by the census below, their tests,
-  docs/PIPELINE.md (§11 entries touched)
+  docs/PIPELINE.md (the LocalAI provider section and §11 entries touched)
 - do: Step 1 (in the Full plan): consumer census — enumerate every import
   of llm.py's aliased symbols and of local_ai_agenda_compat, from code and
   from tests, distinguishing (a) external consumers of re-exports from
@@ -260,7 +272,8 @@ investigations that may close with no code change.
   legitimate implementation and STAYS. The census covers every current
   implementation owner, including agenda_extraction, agenda_summary,
   agenda_text_heuristics, local_ai_runtime, and text_generation. Step 2:
-  repoint (a) to those implementation owners, delete
+  repoint (a) to those implementation owners, delete obsolete compatibility
+  tests whose only contract is the retired seam, delete
   local_ai_agenda_compat.py, and remove the now-unconsumed re-export surface.
   Keep LocalAI product policy and public entrypoints intact.
 - accept (behavioral, not lexical): no module outside llm.py imports a
@@ -273,35 +286,35 @@ investigations that may close with no code change.
 ### T-ARCH-9: Fremont/Moraga recorded-parse parity  [CLOSED — pre-completed on master]
 - evidence: master test_crawler_refactor_contract.py has equivalent Belmont/Fremont/Moraga archive event contracts with document-level assertions and no network I/O.
 
-### T-ARCH-10: Guardrail-file diet  [P1, Light OK, lands FIRST in lane]
-- files_owned: tests/test_repository_guardrails.py
-- do: Apply the postmortem's prevention rule to the 5,555-line file — but
-  classify before deleting. For every assertion targeting document
+### T-ARCH-10: Guardrail-file census  [P1, investigation only]
+- read_scope: tests/test_repository_guardrails.py, ruff.toml, mypy.ini,
+  .coveragerc, docs/ENGINEERING_GUARDRAILS.md, docs/TESTING.MD, and the
+  canonical document targeted by each document-content assertion.
+- files_owned: docs/plans/POST_REMEDIATION_FOLLOWUP_PLAN.md, tracker evidence
+  cell only. The investigation may not edit guardrails or tests.
+- do: Apply the postmortem's prevention rule to the 5,555-line file by
+  classifying every assertion targeting document
   content, record one of: (a) pure prose-content assertion (headings,
-  phrasing, casing of narrative text) → DELETE; (b) invariant-bearing
+  phrasing, casing of narrative text) → candidate for deletion; (b) invariant-bearing
   assertion (e.g., frozen-document immutability, link integrity) →
-  REPLACE with a syntactic equivalent (content-hash pin for frozen files,
+  candidate for syntactic replacement (content-hash pin for frozen files,
   path-existence for links) that names its supported cases; (c) syntactic
-  code-policy check → KEEP. The classification table ships in the PR body.
-  An invariant-bearing assertion may be dropped only after a separate,
-  ratified change removes or replaces the invariant in its canonical policy;
-  recording a drop decision in the PR body is not sufficient.
-  Differential change, not a rewrite: this is the candidate-07 end-state
-  the program did not reach, taken in one bounded step.
-- accept: No test asserts prose content of docs/plans/* or
-  docs/postmortems/*; every invariant previously enforced by a deleted
-  assertion has a named syntactic replacement, or its canonical policy change
-  was separately ratified and merged before the assertion is removed; file
-  materially smaller; every retained custom check names its supported cases
-  in a docstring; suite green.
-- sequencing: lands before any other ARCH implementation PR. Later PRs follow
-  D6's conditional shared-file rule.
+  code-policy check → retain. The PR body includes assertion family, current
+  invariant owner, disposition, estimated line delta, and proposed task ID.
+- accept: every document-content assertion belongs to exactly one family;
+  every proposed implementation is split by concrete assertion family,
+  declares exact ownership and size, uses a Full plan, and includes the full
+  guardrail verification row. The tracker records the investigation PR. No
+  implementation is authorized and unrelated ARCH work is not blocked.
+- verify: `PYTHONPATH=. .venv/bin/pytest -q tests/test_docs_links.py` and
+  `git diff --check` for the tracker-only investigation PR.
 
 ### T-ARCH-1: Search facade stack retirement  [P2, largest, Full-mandatory]
 - gate: GA-1 + its own Full-template plan (one stratum per PR)
 - files_owned: derived per contract-graph tracing in the Full plan —
   candidate set: api/search_routes.py, api/search_read_*.py, api/search/,
-  api/main.py wiring, consuming tests, docs/PIPELINE.md §11 entries
+  api/search_semantic_routes.py, api/trends_routes.py, api/main.py wiring,
+  consuming tests, docs/PIPELINE.md §11 entries
 - do: MANDATORY investigation first: a route/consumer inventory
   establishing which endpoints are wired, which modules are live routes vs
   helpers vs genuinely superseded strata. The retirement direction is an
@@ -314,8 +327,13 @@ investigations that may close with no code change.
 
 ### T-ARCH-2: ResultCard decomposition  [P2, Full-mandatory]
 - gate: GA-1 + Full plan (design pass, not mechanical)
-- files_owned: frontend/components/ResultCard.js, frontend/lib/,
-  frontend/components/__tests__/
+- investigation_scope: frontend/components/ResultCard.js,
+  frontend/lib/taskPolling.js,
+  frontend/components/__tests__/ResultCard.ai-disclaimer.test.js,
+  frontend/components/__tests__/ResultCard.people-projection.test.js, and
+  frontend/components/__tests__/ResultCard.polling-contract.test.js. The Full
+  plan must name each implementation file, new module, and test file exactly;
+  broad directory ownership is not permitted.
 - do: Both review prerequisites are met (runner + 42-test harness) and the
   polling seam is already extracted (taskPolling.js). Continue along the
   review's seam list — mutation dispatch, formatting, rendering — one
@@ -323,61 +341,96 @@ investigations that may close with no code change.
   explicit numeric line budget and a one-responsibility statement for what
   remains in ResultCard.js; "near composition-only" without numbers is not
   an acceptance criterion.
-- accept (per extraction PR): behavior parity — the existing test files
-  pass with their ASSERTIONS unchanged (imports/patch targets may move per
-  TESTING.MD); the extracted module has its own test; ResultCard.js
-  shrinks toward the Full plan's stated budget.
+- accept (per extraction PR): user-visible behavior parity. Source-text
+  assertions in ResultCard.ai-disclaimer.test.js may be replaced with
+  rendered-behavior assertions; do not preserve the old source arrangement
+  merely to keep a patch point. Other observable contracts remain covered,
+  the extracted module has its own behavior test, and ResultCard.js shrinks
+  toward the Full plan's stated budget.
 
 ### T-ARCH-3: Deepen semantic retrieval interface  [P2, Full-mandatory]
 - gate: GA-1 + Full plan
 - files_owned: semantic_service/retrieval.py, its callers and tests
 - do: Replace the 13-parameter retrieve signatures with a typed request
-  contract (match the *_contracts.py convention); implementation callables
-  become private.
-- accept: Public retrieve interface takes the request contract (plus at
-  most session/config); every contract field is individually typed and
+  contract containing only query, filters, pagination, and retrieval
+  settings (match the *_contracts.py convention). Backend, database session,
+  and Meilisearch client remain explicit boundary parameters. Injectable
+  implementation callables are removed in favor of private imports from
+  their implementation owners.
+- accept: Public retrieve interface takes the request contract plus explicit
+  backend, database-session, and Meilisearch-client boundaries; every
+  contract field is individually typed and
   documented — no dict payload field, no **kwargs, no Any escape hatch
   (a god-object with an opaque bag does not satisfy this task); suite
   green.
 
 ### T-ARCH-6: Frontend search coordinator  [P3, investigation first]
-- do: Investigate consolidating live/demo search adapters behind one
-  coordinator (frontend/state/search-state.js + lib/api.js). Output: a
-  one-page finding — proceed with a Full plan, or close per D5.
+- read_scope: frontend/state/search-state.js, frontend/lib/api.js, their
+  direct importers, and their tests.
+- files_owned: docs/plans/POST_REMEDIATION_FOLLOWUP_PLAN.md, tracker evidence
+  cell only.
+- do: Census live/demo adapter ownership and call direction. The PR body
+  table records adapter, caller, state owner, duplicated policy, and deletion
+  impact.
+- accept: close when one owner already exists or consolidation would only
+  move complexity; otherwise register a separately approved Full task with
+  exact files and deletion evidence. Verify docs links and `git diff --check`.
 
 ### T-ARCH-7: Index projection consolidation  [P3, investigation first]
-- do: Post-G4/T-IDX-1, investigate whether projection policy (what enters
-  the search index per data class) has a single owner; propose one if not.
-  DATA_GOVERNANCE §3 is the policy source; code should mirror it in one
-  place.
+- read_scope seeds: pipeline/indexer.py, pipeline/indexer_documents.py,
+  pipeline/indexer_meilisearch.py, pipeline/reindex_only.py,
+  pipeline/reindex_semantic.py, pipeline/task_side_effects.py,
+  api/search_read_meilisearch.py, semantic_service/main.py,
+  semantic_service/retrieval.py, tests/test_indexer_logic.py,
+  tests/test_indexer_official_roster.py, and DATA_GOVERNANCE §3. Expand the
+  census only through direct imports/callers found with
+  `rg -n 'index_documents|_build_.*search_doc|reindex|people_metadata'`.
+- files_owned: docs/plans/POST_REMEDIATION_FOLLOWUP_PLAN.md, tracker evidence
+  cell only.
+- do: Record data class, policy owner, implementation owner, consumers, and
+  conflicting/duplicated decisions in the PR body evidence table.
+- accept: close if every projection rule has one implementation owner;
+  otherwise register a separately approved Full task that names the exact
+  duplicated policy and files. Verify docs links and `git diff --check`.
 
 ### T-ARCH-8: Crawler staging persistence  [P3, investigation first]
-- do: The review flagged duplicated session/transaction policy; current
-  tree shows it concentrated in council_crawler pipelines.py. Verify
-  against pipeline/ persistence policy and either file a narrow follow-up
-  or close with evidence. Expected outcome: closes cheaply.
+- read_scope seeds: council_crawler/council_crawler/pipelines.py,
+  council_crawler/council_crawler/models.py,
+  council_crawler/council_crawler/settings.py, pipeline/promote_stage.py,
+  pipeline/db_session.py, tests/test_crawler_refactor_contract.py,
+  tests/test_database.py, and tests/test_pipeline_idempotency.py. Expand only
+  through direct imports/callers found with
+  `rg -n 'CreateEventPipeline|StageDocumentLinkPipeline|promote_stage|EventStage|UrlStage'`.
+- files_owned: docs/plans/POST_REMEDIATION_FOLLOWUP_PLAN.md, tracker evidence
+  cell only.
+- do: Record each local transaction block, owner, invariant, and any actual
+  duplicated policy in the PR body evidence table.
+- accept: default to closure when the two local transaction blocks are
+  cohesive and do not justify another seam. Only proven duplicated policy
+  may create a separately approved narrow task. Verify docs links and
+  `git diff --check`.
 
 ---
 
 ## Execution order
 
 ```
-PR 1: T-DOC-2 (only remaining DOC task; new guardrail, reviewed against
-      postmortem rules — T-DOC-1/3/4 closed as pre-completed on master)
-PR 2: T-BASE-1 (doc promotion; unblocks sourced markings)
-PR 3: T-BASE-2 (operator capture + agent-assembled evidence PR)
-ARCH: T-ARCH-10 lands FIRST; then the T-ARCH-4 verification investigation and
-      T-ARCH-5 implementation may proceed. At most two implementation PRs are
-      in flight (T-ARCH-9 closed as pre-completed).
-      Only tasks whose live census requires an edit to the shared guardrail
-      file serialize under D6. P2 tasks follow GA-1, each behind its own Full
-      plan; P3 investigations may run anytime, with implementation only via
-      new gated tasks. Per D8, every task re-verifies its premise against HEAD
-      before its PR opens.
+DOC lane: T-DOC-2 may proceed independently (T-DOC-1/3/4 are closed).
+BASE lane: T-BASE-1 -> independent operator runs A/B -> T-BASE-2.
+ARCH lane: T-ARCH-10 is an investigation and does not block T-ARCH-5 or other
+           unrelated work. T-ARCH-4 and T-ARCH-9 are closed; T-ARCH-11 is
+           blocked on a future ADR/support-floor decision. At most two
+           implementation PRs are in flight. Only tasks whose live census
+           requires an edit to the shared guardrail file serialize under D6.
+           P2 tasks follow GA-1 behind their own Full plans. P3 investigations
+           may run anytime; implementation requires a new gated task. Per D8,
+           every task re-verifies its premise against HEAD before its PR opens.
 ```
 
 DOC, BASE, and ARCH lanes are independent; T-BASE-2 alone is sequenced
-after T-BASE-1; T-ARCH-4 alone is gated on the operator parity run.
+after T-BASE-1. Investigation tasks may run in parallel when their read
+scopes do not overlap; each resulting implementation requires its own
+approved task and plan.
 
 ## Out of scope
 
