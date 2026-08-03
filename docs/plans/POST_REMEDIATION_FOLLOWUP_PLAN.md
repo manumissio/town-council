@@ -57,10 +57,10 @@ the tracker table only.
   tier; T-ARCH-2/3 Full per their gates; T-ARCH-9 may use Light;
   T-ARCH-10 may use Light with the guardrail-change justification the
   AGENTS.md maintenance triggers require.
-  Because every ARCH deletion PR also edits tests/test_repository_guardrails.py
-  (removing entries for deleted files), guardrail-file edits SERIALIZE:
-  T-ARCH-10 lands first, and no two ARCH PRs touching that file may be in
-  flight together.
+  T-ARCH-10 lands first. After that, an ARCH task edits
+  tests/test_repository_guardrails.py only when its live HEAD census finds an
+  entry affected by the task. PRs that actually edit that shared file
+  SERIALIZE; independent ARCH PRs remain subject only to the two-PR cap.
 - D7. Priority tiers below are a proposal; gate GA-1 applies.
 - D8. Snapshot staleness: this plan was authored against an archive
   snapshot. Before opening any task's PR, re-verify the task's premise
@@ -121,20 +121,19 @@ the tracker table only.
 - files_owned: tests/test_docs_links.py (or a sibling
   tests/test_pipeline_doc_file_map.py if link-test scope is link-only by
   design — decide in-PR and say why)
-- do: Add a bounded check: extract every backtick-quoted repository path
-  from docs/PIPELINE.md matching `<family>/<...>.py|.md` where the family
-  set is DERIVED from the document itself (any leading path segment that
-  is a top-level repo directory), not hardcoded — the map already
-  references semantic_service/ alongside pipeline/, api/, scripts/, and
-  docs/, and a hardcoded prefix list silently exempts whole families
-  (Codex P2, PR #224: deleting semantic_service/main.py would have passed
-  a pipeline|api|scripts|docs check). Assert each literal
-  path exists and each glob family matches at least one file. No prose
+- do: Add a bounded check: extract every backtick-quoted syntactic path
+  candidate from docs/PIPELINE.md matching `<family>/<...>.py|.md`, including
+  glob families, without first consulting the filesystem. Derive the family
+  set from those candidates' leading path segments, not from a hardcoded list
+  or the set of directories that currently exists. Then assert that each
+  candidate family exists, each literal path exists, and each glob family
+  matches at least one file. This keeps a misspelled or entirely deleted
+  family visible to the failure assertions. No prose
   interpretation, no content assertions — path existence only, per the
   postmortem rule for custom checks ("exact-set… syntactic and bounded").
-- accept: Test passes on HEAD; deleting any referenced module makes it fail;
-  the check names its supported cases in a docstring (paths and globs) and
-  nothing else.
+- accept: Test passes on HEAD; deleting any referenced module or top-level
+  family makes it fail; the check names its supported cases in a docstring
+  (paths and globs) and nothing else.
 - forbidden: Extending the check to other docs in this PR; asserting doc
   content beyond path existence.
 - verify: targeted pytest for the new test + full suite.
@@ -253,11 +252,12 @@ investigations that may close with no code change.
   of llm.py's aliased symbols and of local_ai_agenda_compat, from code and
   from tests, distinguishing (a) external consumers of re-exports from
   (b) llm.py's own internal delegation to implementation modules, which is
-  legitimate implementation and STAYS. Step 2: repoint (a) to the
-  implementation modules (agenda_extraction, agenda_summary,
-  agenda_text_heuristics), delete local_ai_agenda_compat.py, and remove
-  the now-unconsumed re-export surface. Keep LocalAI product policy and
-  public entrypoints intact.
+  legitimate implementation and STAYS. The census covers every current
+  implementation owner, including agenda_extraction, agenda_summary,
+  agenda_text_heuristics, local_ai_runtime, and text_generation. Step 2:
+  repoint (a) to those implementation owners, delete
+  local_ai_agenda_compat.py, and remove the now-unconsumed re-export surface.
+  Keep LocalAI product policy and public entrypoints intact.
 - accept (behavioral, not lexical): no module outside llm.py imports a
   symbol from llm.py that llm.py merely re-exports from another module;
   local_ai_agenda_compat.py deleted; census table in the PR body with each
@@ -285,8 +285,8 @@ investigations that may close with no code change.
   assertion has a named syntactic replacement or a recorded decision to
   drop it; file materially smaller; every retained custom check names its
   supported cases in a docstring; suite green.
-- sequencing: lands before any other ARCH implementation PR (see D6
-  guardrail-file serialization).
+- sequencing: lands before any other ARCH implementation PR. Later PRs follow
+  D6's conditional shared-file rule.
 
 ### T-ARCH-1: Search facade stack retirement  [P2, largest, Full-mandatory]
 - gate: GA-1 + its own Full-template plan (one stratum per PR)
@@ -357,12 +357,13 @@ PR 1: T-DOC-2 (only remaining DOC task; new guardrail, reviewed against
       postmortem rules — T-DOC-1/3/4 closed as pre-completed on master)
 PR 2: T-BASE-1 (doc promotion; unblocks sourced markings)
 PR 3: T-BASE-2 (operator capture + agent-assembled evidence PR)
-ARCH: T-ARCH-10 lands FIRST (guardrail-file serialization, D6); then P1
-      tasks (T-ARCH-4/5) in any order, max two implementation PRs in
-      flight (T-ARCH-9 closed as pre-completed); P2 tasks after GA-1,
-      each behind its own Full plan; P3 investigations anytime,
-      implementation only via new gated tasks. Per D8, every task
-      re-verifies its premise against HEAD before its PR opens.
+ARCH: T-ARCH-10 lands FIRST; then P1 tasks (T-ARCH-4/5) in any order, max
+      two implementation PRs in flight (T-ARCH-9 closed as pre-completed).
+      Only tasks whose live census requires an edit to the shared guardrail
+      file serialize under D6. P2 tasks follow GA-1, each behind its own Full
+      plan; P3 investigations may run anytime, with implementation only via
+      new gated tasks. Per D8, every task re-verifies its premise against HEAD
+      before its PR opens.
 ```
 
 DOC, BASE, and ARCH lanes are independent; T-BASE-2 alone is sequenced
