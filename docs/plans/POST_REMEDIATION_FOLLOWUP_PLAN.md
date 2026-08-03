@@ -148,9 +148,11 @@ The document must contain:
 - immutable commit SHA for each run
 - host platform, Docker version, and explicit inference backend/model identity
 - manifest and sidecar identity, including SHA-256 and catalog IDs
-- recorded preconditioning result
+- recorded direct reset counts and the execution matrix derived from the
+  restored pre-run state
 - pre-run database snapshot, index, and semantic-state identifiers defined by
   the Full plan
+- recorded service and queue quiescence evidence before each measured run
 - controlled runtime-profile fields, request/sample count, and warm/cold
   condition
 - required artifact presence and SHA-256 values
@@ -170,14 +172,47 @@ reviewer from reproducing the package's hashes, validation, or derivation.
 - Generate the expected baseline deterministically from run A.
 - Require these v2 phase families from the manifest and command plan:
   `extract_parallel`, `segment_agenda`, `summarize`, `entity_backfill`, and
-  `org_backfill`, with expected coverage `8`, `6`, `6`, `8`, and `2`.
+  `org_backfill`.
+- Treat `phase_quotas`, `strata`, and `expected_phase_coverage` as direct
+  selection metadata, not observed execution coverage. For the approved
+  restored v2 state, validate direct quotas and runtime outcomes separately:
+  - extraction: `8` direct catalogs; `8` selected and processed. Preconditioning
+    does not reset extraction, so another count is non-comparable unless the
+    Full plan explicitly changes the restoration mechanism.
+  - segmentation: `6` direct catalogs; `6` selected.
+  - summary: `6` direct catalogs; `12` selected after the six segmentation
+    catalogs also lose summary state.
+  - entity enrichment: `8` direct catalogs; `8` selected.
+  - organization enrichment: `2` direct event resets; the runner selects every
+    unique event attached to the 30 scoped catalogs. The current evidence shows
+    `24` selected and `2` linked, but T-BASE-2A must derive and record the event
+    count from each restored snapshot instead of treating `24` as universal.
 - Require the existing stable-counter families `agenda_segmentation_backfill`,
-  `summary_hydration_backfill`, and `entity_backfill`. Add normalized
-  completion evidence for extract and organization work because those paths
+  `summary_hydration_backfill`, and `entity_backfill`. Add normalized extract
+  evidence with selected, processed, and failure totals. Add normalized
+  organization evidence with selected events, linked events, failures, and the
+  manifest-to-event mapping. Add normalized segmentation reindex-failure
+  evidence until that path exposes it in the stable counter. Those paths
   currently lack equivalent structured counters.
-- Fail generation and comparison unless all five workload families executed
-  successfully and their observed coverage matches the v2 sidecar. Empty or
-  partial phase/counter contracts are invalid.
+- Define successful execution through observable outcomes rather than attempt
+  counts:
+  - extraction selects and processes `8`; every direct extraction catalog ends
+    with complete extraction state, nonempty content, and a content hash, with
+    zero failed catalogs.
+  - segmentation reports `selected=6`, `complete=6`, and zero empty, failed, or
+    other outcomes, with zero reindex failures.
+  - summary reports `selected=12`, `complete=12`, `cached=0`, `stale=0`,
+    `blocked_low_signal=0`, `blocked_ungrounded=0`, `not_generated_yet=0`,
+    `error=0`, `other=0`, `reindex_failed=0`, and
+    `embed_dispatch_failed=0`.
+  - entity enrichment reports `selected=8`, `complete=8`, and freshness
+    advanced for all eight reset catalogs; an exception fails the run.
+  - organization enrichment reports the derived selected-event count,
+    `linked=2`, zero failed reindexes, and successful reindexing of every
+    changed catalog.
+- Fail generation and comparison unless direct selections match the v2
+  sidecar, all accepted outcomes above hold, and observed execution matches the
+  restored-state matrix. Empty or partial phase/counter contracts are invalid.
 - Treat partial, failed, reduced-confidence, provenance-mismatched, or reused
   run IDs as non-comparable.
 - Document that `--dry-run-prepare` currently runs migration and hash-backfill
@@ -220,6 +255,17 @@ output directories. Each must be complete, baseline-valid under the
 T-BASE-2A contract, and full-confidence. Any mismatch, partial run, or failed
 restoration is non-comparable and requires restoration followed by recapture.
 
+Each capture must also exclude unrelated asynchronous work. T-BASE-2A's Full
+plan must choose either a dedicated isolated Compose project or a documented
+stop-and-drain sequence followed by transient profiling command containers.
+Immediately before each measured run, record the chosen isolation mechanism
+and zero broker depth for every queue configured for the profile stack. If any
+worker daemons remain running, also record zero Celery active, reserved, and
+scheduled tasks. Keep unrelated task producers and asynchronous consumers
+stopped during measurement, and record any work emitted by the profile after
+the measured commands. An empty queue check while unrelated producers or
+consumers remain live is not sufficient.
+
 Run A deterministically produces the expected baseline. Run B is compared
 against it. `reference_run_id` names run A. The v1 and v2 workloads remain
 non-comparable because v2 removes the retired people phase and reallocates its
@@ -230,8 +276,11 @@ catalogs to entity enrichment.
 - T-BASE-2A's validator accepts the checked-in A/B evidence.
 - Run B compares successfully against the expectation generated from run A.
 - Required phase and stable-counter families are nonempty.
-- All five v2 workload families executed successfully with coverage matching
-  the manifest sidecar.
+- Direct selections match the manifest sidecar, every workload satisfies the
+  explicit accepted outcomes in T-BASE-2A, and observed execution matches its
+  complete restored-state matrix.
+- Both captures include passing quiescence evidence and show no unrelated task
+  execution during the measured commands.
 - Canonical documents agree that v2 evidence has landed while retaining all
   other City Coverage Expansion gates.
 - No optimization, threshold, runtime-profile, or gate-policy change appears
@@ -345,16 +394,37 @@ are cohesive.
 
 ### T-ARCH-10I: Bounded guardrail assertion census
 
-**Seeds:** matches from this reproducible command only:
+**Seeds:** complete matching test functions emitted by this reproducible,
+single-file command only:
 
 ```bash
-rg -n 'docs/(plans|postmortems)/' tests/test_repository_guardrails.py
+awk '
+function flush_test() {
+  if (in_test && relevant) printf "%s", test_block
+}
+/^(async )?def / {
+  flush_test()
+  in_test = ($0 ~ /^(async )?def test_/)
+  relevant = 0
+  test_block = ""
+}
+in_test {
+  test_block = test_block sprintf("%d:%s\n", NR, $0)
+  if ($0 ~ /docs\/(plans|postmortems)\// ||
+      $0 ~ /ROOT \/ "docs" \/ "(plans|postmortems)"/) relevant = 1
+}
+END { flush_test() }
+' tests/test_repository_guardrails.py
 ```
 
-Classify the resulting assertions by canonical invariant and enforcement type.
-Do not build an AST analyzer or classify unrelated portions of the 5,555-line
-file. A child task must cover one assertion family only and use the complete
-guardrail verification row.
+The two match branches cover slash-delimited literals and `pathlib`-constructed
+directory references. At the reconciled commit, the command emits nine tests
+containing 13 references: 12 constructed paths and one slash-delimited literal.
+Classify every assertion consuming plan or postmortem content in each emitted
+test by canonical invariant and enforcement type. Do not build an AST analyzer
+or classify unrelated test functions in the 5,555-line file. A child task must
+cover one assertion family only and use the complete guardrail verification
+row.
 
 ### Investigation verification
 
