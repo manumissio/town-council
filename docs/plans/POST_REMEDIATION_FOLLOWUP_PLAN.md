@@ -125,10 +125,15 @@ the tracker table only.
   name any additional file before implementation; this charter does not
   authorize edits elsewhere.
 - do: Add a bounded check: extract every backtick-quoted syntactic path
-  candidate from docs/PIPELINE.md that is either a literal `.py`/`.md` path
-  or a terminal wildcard path. Terminal wildcards may be extensionless, such
-  as `pipeline/task_*`, `api/task_route_*`, or `semantic_service/*`. Extract
-  candidates without first consulting the filesystem. Derive the family
+  candidate only from the text between the `## 11)` heading and the next
+  level-two heading in docs/PIPELINE.md. A candidate must be an unambiguous
+  repository-relative reference containing `/` and must be either a literal
+  `.py`/`.md` path or a terminal wildcard path. Terminal wildcards may be
+  extensionless, such as `pipeline/task_*`, `api/task_route_*`, or
+  `semantic_service/*`. Bare names such as `db_migrate.py`, commands, and
+  generated artifact names outside §11 are not part of this contract; do not
+  infer a parent directory from prose. Extract candidates without first
+  consulting the filesystem. Derive the family
   set from those candidates' leading path segments, not from a hardcoded list
   or the set of directories that currently exists. Then assert that each
   candidate family exists, each literal path exists, and each glob family
@@ -139,7 +144,8 @@ the tracker table only.
 - accept: Test passes on HEAD; deleting a literal referenced path or top-level
   family makes it fail; removing the final match for a glob family makes it
   fail, including for an extensionless terminal wildcard. The check names
-  these supported cases in a docstring and does not
+  these supported cases in a docstring; a bare filename outside §11 does not
+  enter the candidate set. The check does not
   claim that it protects every individual member represented only by a glob.
 - forbidden: Extending the check to other docs in this PR; asserting doc
   content beyond path existence.
