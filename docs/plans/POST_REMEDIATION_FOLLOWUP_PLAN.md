@@ -193,9 +193,11 @@ the tracker table only.
 - context_for_reviewer (include verbatim in the PR body): v2 uses the
   identical 30 catalog IDs as v1 with phase quotas redistributed — entity
   4→8 absorbs the retired people phase's slots (people 4→0; extract 8,
-  segment 6, summary 6, org 2 unchanged). This preserves record-level
-  workload comparability while removing the non-comparable phase; v1 and
-  its checked-in expectation remain immutable historical evidence.
+  segment 6, summary 6, org 2 unchanged). The shared IDs preserve record
+  identity only. The phase change makes v1 and v2 non-comparable: do not use
+  cross-version timings or stable counters for regression or promotion
+  decisions. v1 and its checked-in expectation remain immutable historical
+  evidence.
 - accept: profiling/baselines/baseline_representative_v2.json merged;
   comparison run green under documented tolerances; PR body carries all
   step evidence with D2 markings.
@@ -278,13 +280,17 @@ investigations that may close with no code change.
   REPLACE with a syntactic equivalent (content-hash pin for frozen files,
   path-existence for links) that names its supported cases; (c) syntactic
   code-policy check → KEEP. The classification table ships in the PR body.
+  An invariant-bearing assertion may be dropped only after a separate,
+  ratified change removes or replaces the invariant in its canonical policy;
+  recording a drop decision in the PR body is not sufficient.
   Differential change, not a rewrite: this is the candidate-07 end-state
   the program did not reach, taken in one bounded step.
 - accept: No test asserts prose content of docs/plans/* or
   docs/postmortems/*; every invariant previously enforced by a deleted
-  assertion has a named syntactic replacement or a recorded decision to
-  drop it; file materially smaller; every retained custom check names its
-  supported cases in a docstring; suite green.
+  assertion has a named syntactic replacement, or its canonical policy change
+  was separately ratified and merged before the assertion is removed; file
+  materially smaller; every retained custom check names its supported cases
+  in a docstring; suite green.
 - sequencing: lands before any other ARCH implementation PR. Later PRs follow
   D6's conditional shared-file rule.
 
