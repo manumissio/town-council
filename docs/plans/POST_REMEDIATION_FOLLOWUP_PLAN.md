@@ -131,12 +131,14 @@ the tracker table only.
   family visible to the failure assertions. No prose
   interpretation, no content assertions — path existence only, per the
   postmortem rule for custom checks ("exact-set… syntactic and bounded").
-- accept: Test passes on HEAD; deleting any referenced module or top-level
-  family makes it fail; the check names its supported cases in a docstring
-  (paths and globs) and nothing else.
+- accept: Test passes on HEAD; deleting a literal referenced path or top-level
+  family makes it fail; removing the final match for a glob family makes it
+  fail. The check names these supported cases in a docstring and does not
+  claim that it protects every individual member represented only by a glob.
 - forbidden: Extending the check to other docs in this PR; asserting doc
   content beyond path existence.
-- verify: targeted pytest for the new test + full suite.
+- verify: `./.venv/bin/ruff check .` + targeted pytest for the new test + full
+  suite.
 
 ### T-DOC-3: Config-default provenance note on the OCR table  [CLOSED — pre-completed on master]
 - evidence: master PIPELINE.md states pipeline/config_processing.py owns the loader fallbacks for the table.
@@ -215,36 +217,37 @@ against the 2026-08-02 tree. Priority tiers: P1 = cheap true deletions with
 evidence in hand; P2 = deep-module work needing a Full plan; P3 =
 investigations that may close with no code change.
 
-### T-ARCH-4: Rationalize the migrate chain vs Alembic ownership  [P1, Full-mandatory]
+### T-ARCH-4: Verify the frozen migrate chain before future sunset  [P1, Full-mandatory, investigation]
 - gate: GA-2 (operator parity run)
-- correction (Codex P1, PR #224): migrate_v10.py is NOT a shallow wrapper —
-  it owns ~200 lines of timestamp-contract validation and UTC conversion,
-  and pipeline/db_migration_runner.py imports migrate_v8 and migrate_v10
-  for unversioned-database adoption. The July watchlist's "shallow
-  wrapper" characterization applied to the v8/v9 era and does not transfer
-  wholesale. Blanket deletion would drop or merely relocate that
-  conversion, failing D5 and the legacy-upgrade criterion.
-- files_owned (contract-graph traced): pipeline/migrate_v8.py,
-  migrate_v9.py, migrate_v10.py, pipeline/db_migrate.py,
-  pipeline/db_migration_runner.py and every caller of the migrate chain
-  (enumerate in the Full plan), docs/OPERATIONS.md (migration section),
-  docs/PIPELINE.md (§11 entries for any deleted module), alembic/ (only
-  if delegation wiring changes), their tests.
-- do: Census first (in the Full plan): map every migrate_v* module's role —
-  implementation owner vs pass-through — and its consumers, including
-  db_migration_runner's unversioned-adoption path. Retire ONLY modules
-  the census proves are pass-throughs whose behavior Alembic revisions or
-  a retained owner already provide. migrate_v10's conversion logic is
-  RETAINED as the unversioned-adoption owner unless the census proves the
-  Alembic baseline subsumes it for every supported starting state; the
-  Full plan MUST state the upgrade story for pre-Alembic databases —
-  silent loss of the legacy upgrade path is a rejection criterion.
-- accept: Census table in the PR body with each module's disposition and
-  evidence; only census-proven pass-throughs deleted; fresh-DB and
-  upgraded-DB schema diff empty; a v9/v10-era database's documented
-  upgrade path verified in the parity run; OPERATIONS and §11 updated;
-  suite green; GA-2 output attached. "No change warranted" is a valid
-  census outcome (D5).
+- correction (Codex P1, PR #224): the accepted Alembic ADR requires the
+  migrate_v8/v9/v10 chain to remain readable and frozen while
+  pipeline/db_migration_runner.py uses it for unversioned-database adoption.
+  migrate_v10.py is not a shallow wrapper; it owns timestamp-contract
+  validation and UTC conversion. This task preserves the current chain and
+  cannot authorize deletion while that ADR remains active.
+- files_owned: docs/plans/POST_REMEDIATION_FOLLOWUP_PLAN.md (tracker state and
+  evidence link only). The Full plan reads the migration modules, callers,
+  Alembic revisions, tests, and migration documentation as census evidence;
+  it does not authorize edits to them. A discovered defect or future sunset
+  gets a separate task with its own ownership.
+- do: Census first (in the Full plan): map every migrate_v* module's role and
+  consumer, including db_migration_runner's unversioned-adoption path. Run
+  the GA-2 parity evidence and verify the frozen chain still reaches the
+  Alembic baseline without schema drift. Do not delete, bypass, or rewire the
+  chain under the current ADR. A defect found by the census requires a
+  separate scoped repair, not an incidental sunset.
+- accept: Census table in the PR body with each module retained and its role
+  evidenced; fresh-DB and upgraded-DB schema diff empty; a v9/v10-era
+  database's documented upgrade path verified in the parity run; suite green;
+  GA-2 output attached. The expected outcome is "no change warranted" under
+  the current ADR.
+- future_sunset: The migration chain should be removed in a separate
+  Full-template PR after a separately ratified ADR change defines the new
+  support floor and proves that no supported unversioned or pre-Alembic
+  database still depends on the frozen runner. That PR must remove the chain
+  end to end, update migration and operator documentation, and verify every
+  supported starting state. This plan records the intended direction; it does
+  not authorize the sunset.
 
 ### T-ARCH-5: Retire LocalAI private re-exports  [P1, Full-mandatory]
 - files_owned: pipeline/llm.py, pipeline/local_ai_agenda_compat.py,
@@ -363,8 +366,9 @@ PR 1: T-DOC-2 (only remaining DOC task; new guardrail, reviewed against
       postmortem rules — T-DOC-1/3/4 closed as pre-completed on master)
 PR 2: T-BASE-1 (doc promotion; unblocks sourced markings)
 PR 3: T-BASE-2 (operator capture + agent-assembled evidence PR)
-ARCH: T-ARCH-10 lands FIRST; then P1 tasks (T-ARCH-4/5) in any order, max
-      two implementation PRs in flight (T-ARCH-9 closed as pre-completed).
+ARCH: T-ARCH-10 lands FIRST; then the T-ARCH-4 verification investigation and
+      T-ARCH-5 implementation may proceed. At most two implementation PRs are
+      in flight (T-ARCH-9 closed as pre-completed).
       Only tasks whose live census requires an edit to the shared guardrail
       file serialize under D6. P2 tasks follow GA-1, each behind its own Full
       plan; P3 investigations may run anytime, with implementation only via
