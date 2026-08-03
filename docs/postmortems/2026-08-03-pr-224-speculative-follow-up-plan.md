@@ -133,16 +133,19 @@ not a contract embedded in an implementation plan.
 ## Why CI Passed
 
 The final head passed Python Guardrails, frontend tests, and all CodeQL jobs.
-That result was accurate but insufficient.
+Those checks established only that the repository's existing automated gates
+remained green on a branch whose diff contained one new Markdown file. None of
+the checks inspected that file's syntax, links, or semantic claims.
 
 CI could prove that:
 
-- the proposed document was syntactically valid;
-- links and repository contracts still passed;
-- no executable code regression had been introduced.
+- existing test and static-analysis contracts still passed;
+- no failure was detected in the executable paths those checks exercised.
 
 CI could not prove that:
 
+- the proposed document was syntactically or semantically correct;
+- links in the proposed document resolved;
 - a restored dataset would create the predicted downstream work;
 - phase counts would remain fixed after extraction or segmentation;
 - the proposed baseline was comparable or promotion-ready;
@@ -177,7 +180,9 @@ should include:
 
 - snapshot identity and runtime profile;
 - selected catalogs and their starting state;
-- eligibility before and after every mutating phase;
+- profile-preparation mutations recorded separately from measured work;
+- eligibility before and after every mutating phase reached by the profiler's
+  executable command graph;
 - attempted, completed, skipped, failed, and newly eligible records;
 - queue and service health relevant to interpretation;
 - summary invalidations and other downstream side effects;
@@ -212,7 +217,7 @@ deliverable is evidence about one boundary, not another combined master plan.
 | Action | Owner | Completion evidence |
 |---|---|---|
 | Create a non-promotional diagnostic v2 capture task with no fixed downstream execution counts. | Pipeline maintainer | Captured phase-transition artifact from an identified restored snapshot. |
-| Record eligibility before and after each mutating phase. | Pipeline maintainer | Artifact shows deltas for extraction, segmentation, summaries, topics, entities, organization/event selection, and catalog-to-event expansion. |
+| Record eligibility before and after each mutating phase. | Pipeline maintainer | Artifact derives its inventory from the executable profile command graph and covers preparation, extraction, segmentation, summaries, entities, tables, organizations/events, topics, catalog-to-event expansion, and asynchronous indexing or embedding side effects. |
 | Write the baseline-validation plan from the captured trace. | Performance owner | Plan cites observed values and states why each expected value is stable. |
 | Keep architecture investigations in separate, bounded tasks. | Architecture owner | Each task names one question, evidence source, and stop condition. |
 | Add a premise-challenge question to planning review: “What must be observed before this can be specified?” | Review lead | Review record answers the question before implementation-ready status. |
