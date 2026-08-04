@@ -31,7 +31,7 @@ jobs:
 
           docs_only=false
           if [ "$GITHUB_EVENT_NAME" = "pull_request" ]; then
-            changed_files="$(git diff --name-only --no-renames "$BASE_SHA" "$HEAD_SHA")"
+            changed_files="$(git diff --name-only --no-renames "$BASE_SHA...$HEAD_SHA")"
             if [ -n "$changed_files" ]; then
               docs_only=true
               while IFS= read -r changed_path; do

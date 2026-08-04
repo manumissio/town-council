@@ -1376,6 +1376,7 @@ def test_documentation_change_classifier_observes_complete_pull_request_scope(
         executable_directory / "git",
         "#!/usr/bin/env bash\n"
         "test \"$1\" = diff\n"
+        "test \"$4\" = \"$BASE_SHA...$HEAD_SHA\"\n"
         "printf '%s' \"$FAKE_CHANGED_FILES\"\n",
     )
     github_output = tmp_path / "github-output.txt"
@@ -1397,7 +1398,10 @@ def test_documentation_change_classifier_observes_complete_pull_request_scope(
     assert github_output.read_text(encoding="utf-8") == (
         f"docs_only={docs_only}\n"
     )
-    assert "git diff --name-only --no-renames" in classifier_script
+    assert (
+        'git diff --name-only --no-renames "$BASE_SHA...$HEAD_SHA"'
+        in classifier_script
+    )
 
 
 def test_documentation_change_classifier_failure_runs_required_checks(
