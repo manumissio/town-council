@@ -9,7 +9,14 @@ permissions:
   contents: read
 
 jobs:
+  change-scope:
+    uses: ./.github/workflows/classify-documentation-only.yml
+
   python-guardrails:
+    needs: change-scope
+    if: >-
+      always() && (needs.change-scope.result != 'success' ||
+      needs.change-scope.outputs.docs_only != 'true')
     runs-on: ubuntu-latest
     env:
       TEST_POSTGRES_DATABASE_URL: postgresql://town_council:town_council_test@localhost:5432/town_council_test

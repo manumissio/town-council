@@ -9,7 +9,14 @@ permissions:
   contents: read
 
 jobs:
+  change-scope:
+    uses: ./.github/workflows/classify-documentation-only.yml
+
   frontend-tests:
+    needs: change-scope
+    if: >-
+      always() && (needs.change-scope.result != 'success' ||
+      needs.change-scope.outputs.docs_only != 'true')
     runs-on: ubuntu-latest
     defaults:
       run:

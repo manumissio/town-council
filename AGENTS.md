@@ -206,13 +206,15 @@ If the impact is unclear, invoke the objection protocol rather than guessing.
 </status_reporting_contract>
 
 <verification_matrix>
-Scope: the matrix is a fast local pre-check for iterating on a change. The
-authoritative CI verification is the full test suite run by both jobs on every
-pull request (`python-guardrails` for Python, `frontend-tests` for the
-frontend). The Python suite runs under the production scope and coverage floor
-configured in `.coveragerc`. A passing matrix row is necessary for proceeding,
-not sufficient for merge. Both jobs are mandatory under the active
-default-branch ruleset.
+Scope: the matrix is a fast local pre-check for iterating on a change. For
+pull requests containing code, configuration, or mixed changes, authoritative
+CI verification is the full test suite run by both required jobs
+(`python-guardrails` for Python, `frontend-tests` for the frontend). The Python
+suite runs under the production scope and coverage floor configured in
+`.coveragerc`. Documentation-only pull requests skip both expensive jobs after
+the shared workflow classifier succeeds; pushes to `master` always run them.
+A passing matrix row is necessary for proceeding, not sufficient for merge.
+Both job names remain mandatory under the active default-branch ruleset.
 
 All commands in applicable row(s) are mandatory, not advisory.
 If no row applies, run `PYTHONPATH=. .venv/bin/pytest -q tests/test_docs_links.py` at minimum.
@@ -225,6 +227,8 @@ Docs-only changes (`README.md`, `docs/**`, `AGENTS.md`, `ARCHITECTURE.md`):
 
 Guardrail/tooling changes (`ruff.toml`, `ruff-format.toml`, `mypy.ini`,
 `.pre-commit-config.yaml`, `.github/workflows/python-guardrails.yml`,
+`.github/workflows/frontend-tests.yml`,
+`.github/workflows/classify-documentation-only.yml`,
 `tests/test_repository_guardrails.py`):
 - `./.venv/bin/ruff check .`
 - `./.venv/bin/mypy`

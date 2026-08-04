@@ -20,7 +20,7 @@ list (see `AGENTS.md` `<docs_sync_rules>`).
 | Typed subtree        | `mypy.ini` `files`/per-module sections           |
 | Coverage             | `.coveragerc`                                     |
 | Smell tests          | constants at the top of `tests/test_repository_guardrails.py` |
-| CI orchestration     | `.github/workflows/python-guardrails.yml`, `.github/workflows/frontend-tests.yml` |
+| CI orchestration     | `.github/workflows/classify-documentation-only.yml`, `.github/workflows/python-guardrails.yml`, `.github/workflows/frontend-tests.yml` |
 
 Cleanup-wave history (the former Batch A–G family lists) is decision record
 material, not living policy: see `docs/ADR.md`.
@@ -37,10 +37,13 @@ cd <REPO_ROOT>
 PYTHONPATH=. .venv/bin/pytest -q tests/test_repository_guardrails.py
 ```
 
-CI runs the static checks, fast-fail test subset, and complete Python suite
-under the `.coveragerc` production scope and coverage floor on every pull
-request and master push. The fast-fail subset provides earlier diagnostics;
-the coverage-enabled complete suite remains the Python merge gate (see
+For pull requests containing code, configuration, or mixed changes, CI runs
+the static checks, fast-fail test subset, and complete Python suite under the
+`.coveragerc` production scope and coverage floor. Documentation-only pull
+requests skip the expensive Python and frontend jobs after the shared workflow
+classifier succeeds. Pushes to `master` always run both complete gates. The
+fast-fail subset provides earlier diagnostics; the coverage-enabled complete
+suite remains the Python merge gate when that gate applies (see
 `docs/TESTING.MD`).
 
 Run that gate locally when changing coverage policy:
