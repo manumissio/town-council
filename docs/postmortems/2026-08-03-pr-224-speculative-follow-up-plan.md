@@ -35,8 +35,8 @@ review_findings: 21
   phases can make additional records eligible for later phases.
 - Review found 21 priority issues across 10 revisions: 7 P1 and 14 P2. The
   revisions corrected individual cases, but the shared premise remained wrong.
-- All CI checks passed. They proved repository health and document syntax, not
-  the plan's claims about future runtime behavior.
+- All CI checks passed. They showed only that existing automated gates remained
+  green; they did not inspect the plan's syntax, links, or semantic claims.
 - The PR was correctly closed without merge. No production behavior changed,
   and no outage, data loss, or security incident occurred.
 
