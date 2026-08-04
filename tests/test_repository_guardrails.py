@@ -27,6 +27,13 @@ CPU_DEPENDENCY_AUDIT_ENV = (
     "PIP_CONSTRAINT=docker/semantic-cpu-constraints.txt "
     "PIP_EXTRA_INDEX_URL=https://download.pytorch.org/whl/cpu "
 )
+DOCUMENTATION_CHANGE_CLASSIFIER = (
+    ".github/workflows/classify-documentation-only.yml"
+)
+REQUIRED_CHECK_CHANGE_CONDITION = (
+    "always() && (needs.change-scope.result != 'success' || "
+    "needs.change-scope.outputs.docs_only != 'true')"
+)
 GENERATED_TIMESTAMP_COLUMNS = (
     ("person", "created_at"),
     ("data_issue", "created_at"),
@@ -1320,6 +1327,116 @@ def test_frontend_workflow_runs_for_every_pull_request_and_master_push():
     assert "paths-ignore:" not in event_configuration
 
 
+def test_required_ci_jobs_use_one_fail_closed_documentation_classifier():
+    classifier_reference = f"./{DOCUMENTATION_CHANGE_CLASSIFIER}"
+    workflow_jobs = (
+        (".github/workflows/python-guardrails.yml", "python-guardrails"),
+        (".github/workflows/frontend-tests.yml", "frontend-tests"),
+    )
+
+    for workflow_name, required_job_name in workflow_jobs:
+        workflow_contract = yaml.load(
+            (ROOT / workflow_name).read_text(encoding="utf-8"),
+            Loader=yaml.BaseLoader,
+        )
+        change_scope_job = workflow_contract["jobs"]["change-scope"]
+        required_job = workflow_contract["jobs"][required_job_name]
+
+        assert change_scope_job == {"uses": classifier_reference}
+        assert required_job["needs"] == "change-scope"
+        assert required_job["if"] == REQUIRED_CHECK_CHANGE_CONDITION
+
+
+@pytest.mark.parametrize(
+    ("event_name", "changed_files", "docs_only"),
+    (
+        ("pull_request", "docs/OPERATIONS.md\nARCHITECTURE.md\n", "true"),
+        ("pull_request", "docs/diagram.svg\nfrontend/README.md\n", "true"),
+        ("pull_request", "docs/OPERATIONS.md\npipeline/tasks.py\n", "false"),
+        ("pull_request", "pipeline/retired.py\ndocs/retired.md\n", "false"),
+        ("pull_request", "", "false"),
+        ("push", "docs/OPERATIONS.md\n", "false"),
+    ),
+)
+def test_documentation_change_classifier_observes_complete_pull_request_scope(
+    tmp_path: Path,
+    event_name: str,
+    changed_files: str,
+    docs_only: str,
+) -> None:
+    classifier_path = ROOT / DOCUMENTATION_CHANGE_CLASSIFIER
+    classifier_script = _workflow_run_step(
+        classifier_path,
+        "classify",
+        "Classify change scope",
+    )
+    executable_directory = tmp_path / "bin"
+    executable_directory.mkdir()
+    _write_test_executable(
+        executable_directory / "git",
+        "#!/usr/bin/env bash\n"
+        "test \"$1\" = diff\n"
+        "test \"$4\" = \"$BASE_SHA...$HEAD_SHA\"\n"
+        "printf '%s' \"$FAKE_CHANGED_FILES\"\n",
+    )
+    github_output = tmp_path / "github-output.txt"
+
+    classifier_result = _run_workflow_script(
+        classifier_script,
+        tmp_path,
+        {
+            "BASE_SHA": "base-sha",
+            "FAKE_CHANGED_FILES": changed_files,
+            "GITHUB_EVENT_NAME": event_name,
+            "GITHUB_OUTPUT": str(github_output),
+            "HEAD_SHA": "head-sha",
+            "PATH": f"{executable_directory}:{os.environ['PATH']}",
+        },
+    )
+
+    assert classifier_result.returncode == 0, classifier_result.stderr
+    assert github_output.read_text(encoding="utf-8") == (
+        f"docs_only={docs_only}\n"
+    )
+    assert (
+        'git diff --name-only --no-renames "$BASE_SHA...$HEAD_SHA"'
+        in classifier_script
+    )
+
+
+def test_documentation_change_classifier_failure_runs_required_checks(
+    tmp_path: Path,
+) -> None:
+    classifier_script = _workflow_run_step(
+        ROOT / DOCUMENTATION_CHANGE_CLASSIFIER,
+        "classify",
+        "Classify change scope",
+    )
+    executable_directory = tmp_path / "bin"
+    executable_directory.mkdir()
+    _write_test_executable(
+        executable_directory / "git",
+        "#!/usr/bin/env bash\nexit 2\n",
+    )
+
+    classifier_result = _run_workflow_script(
+        classifier_script,
+        tmp_path,
+        {
+            "BASE_SHA": "base-sha",
+            "GITHUB_EVENT_NAME": "pull_request",
+            "GITHUB_OUTPUT": str(tmp_path / "github-output.txt"),
+            "HEAD_SHA": "head-sha",
+            "PATH": f"{executable_directory}:{os.environ['PATH']}",
+        },
+    )
+
+    assert classifier_result.returncode != 0
+    assert "needs.change-scope.result != 'success'" in (
+        REQUIRED_CHECK_CHANGE_CONDITION
+    )
+
+
 def _workflow_job_check_producers(
     workflow_text: str,
     required_check_name: str,
@@ -1512,6 +1629,8 @@ jobs:
 
 def test_frontend_workflow_installs_locked_dependencies_before_tests():
     workflow_text = (ROOT / ".github" / "workflows" / "frontend-tests.yml").read_text(encoding="utf-8")
+    workflow_contract = yaml.load(workflow_text, Loader=yaml.BaseLoader)
+    frontend_steps = workflow_contract["jobs"]["frontend-tests"]["steps"]
     install_step = "      - name: Install dependencies\n        run: npm ci"
     test_step = "      - name: Run frontend tests\n        run: npm test"
 
@@ -1523,7 +1642,7 @@ def test_frontend_workflow_installs_locked_dependencies_before_tests():
     assert "working-directory: frontend" in workflow_text
     assert workflow_text.index(install_step) < workflow_text.index(test_step)
     assert "continue-on-error:" not in workflow_text
-    assert "if:" not in workflow_text
+    assert all("if" not in workflow_step for workflow_step in frontend_steps)
     assert "strategy:" not in workflow_text
 
 
@@ -5062,8 +5181,12 @@ def test_t_gov_4_agents_policy_is_complete():
 
     assert "<known_antipatterns>" in agent_policy
     assert "<security_sensitive_paths>" in agent_policy
-    assert "authoritative CI verification is the full test suite" in agent_policy
-    assert "Both jobs are mandatory under the active" in agent_policy
+    assert "authoritative\nCI verification is the full test suite" in agent_policy
+    assert (
+        "Documentation-only pull requests skip both expensive jobs"
+        in agent_policy
+    )
+    assert "Both job names remain mandatory under the active" in agent_policy
     assert "File-set enumerations" in agent_policy
     assert "the CI full-suite and frontend jobs are delivered by remediation" not in agent_policy
     assert "effective when the frontend test runner lands" not in agent_policy

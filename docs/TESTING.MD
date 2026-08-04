@@ -75,12 +75,17 @@ task-family operation rather than patching names copied into `pipeline.tasks`.
    row(s). Fast, targeted, mandatory.
 2. Local, before handoff on cross-cutting work: full suite,
    `PYTHONPATH=. .venv/bin/pytest -q`.
-3. CI, authoritative merge gate: full Python suite + guardrail fast-fail
-   steps + frontend suite + coverage threshold (`.coveragerc`
-   `fail_under`).
+3. CI, authoritative merge gate for code, configuration, and mixed changes:
+   full Python suite + guardrail fast-fail steps + frontend suite + coverage
+   threshold (`.coveragerc` `fail_under`). Documentation-only pull requests
+   skip both expensive required jobs after the shared workflow classifier
+   succeeds; pushes to `master` always run the complete gates.
 
-A change is "verified" only at layer 3. Layers 1–2 are diagnostic (matching
-the existing `AGENTS.md` workflow contract).
+A code, configuration, or mixed change is "verified" only at layer 3. For a
+documentation-only change, the applicable local matrix row and human review
+provide the relevant evidence; a skipped required job makes no claim about the
+document's correctness. Layers 1–2 remain diagnostic for changes that require
+the complete CI gates (matching the existing `AGENTS.md` workflow contract).
 
 ## Flakes
 
