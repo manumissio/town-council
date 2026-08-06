@@ -8,6 +8,20 @@ Town Council is a local-first civic data platform for crawling, extracting, inde
 Keep this file focused on repo-applicable operating policy: project constraints, commands, verification, quality rules, and reporting expectations. Do not use it for agent persona, chat-style output templates, session notes, or implementation logs.
 </project_identity>
 
+## Agent skills
+
+### Issue tracker
+
+Issues are tracked in GitHub Issues; pull requests are not a triage request surface. See `docs/agents/issue-tracker.md`.
+
+### Triage labels
+
+Use the five canonical triage labels without aliases. See `docs/agents/triage-labels.md`.
+
+### Domain docs
+
+This is a single-context repository. Read the root `CONTEXT.md` when present and the existing `docs/ADR.md`. See `docs/agents/domain.md`.
+
 <hierarchy_of_truth>
 1. Code for Behavior: For implementation details, function signatures, schemas, and active defaults, the codebase and tests are the descriptive ground truth. If documentation contradicts the code regarding how a feature works, assume the code is correct and update the documentation. Code is ground truth for *behavior only*; it is not a style guide for new structure. Structural idioms listed in `<known_antipatterns>` must not be replicated in new or modified code, even where they dominate the existing codebase.
 2. AGENTS.md for Agent Policy: For agent workflow, repository constraints, action permissions, verification routing, and reporting requirements, this document is the prescriptive entrypoint.
