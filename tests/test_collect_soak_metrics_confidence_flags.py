@@ -142,6 +142,7 @@ def test_day_summary_uses_zero_manifest_baseline_without_provider_series(monkeyp
     (run_dir / "run_manifest.json").write_text(
         json.dumps(
             {
+                "baseline_valid": True,
                 "catalog_ids": [609],
                 "catalog_count": 1,
                 "profile": {"LOCAL_AI_BACKEND": "http"},
@@ -178,6 +179,7 @@ def test_day_summary_uses_zero_manifest_baseline_without_provider_series(monkeyp
     assert day_summary["provider_requests_delta_run"] == 0.0
     assert day_summary["provider_timeouts_delta_run"] == 0.0
     assert day_summary["provider_retries_delta_run"] == 0.0
+    assert day_summary["baseline_valid"] is True
     assert day_summary["provider_timeout_rate_run"] is None
 
 

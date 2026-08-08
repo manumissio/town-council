@@ -1,6 +1,6 @@
 # Operations Runbook
 
-Last updated: 2026-08-02
+Last updated: 2026-08-08
 
 ## Core workflow
 
@@ -1592,6 +1592,7 @@ Scripts:
   - writes `experiments/results/soak/<run_id>/run_manifest.json` with:
     - profile identity (`LOCAL_AI_BACKEND`, `LOCAL_AI_HTTP_API`, `LOCAL_AI_HTTP_PROFILE`, `LOCAL_AI_HTTP_MODEL`, `WORKER_CONCURRENCY`, `WORKER_POOL`, `OLLAMA_NUM_PARALLEL`)
     - soak corpus identity (`catalog_ids`, `catalog_count`, source catalog file)
+    - `baseline_valid=false` until the run finishes with no segment or summarize failures
     - pre-run worker-provider counters (`provider_counters_before_run`)
     - baseline capture status (`provider_counters_before_run_available`, `provider_counters_before_run_source`, optional `provider_counters_before_run_error`)
   - uses the same worker scrape strategy ordering as post-run collection:
