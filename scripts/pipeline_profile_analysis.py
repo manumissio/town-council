@@ -256,7 +256,7 @@ def rank_bottlenecks(run_dir: Path) -> dict[str, Any]:
         "run_id": manifest.get("run_id"),
         "mode": manifest.get("mode"),
         "catalog_count": manifest.get("catalog_count"),
-        "baseline_valid": bool(manifest.get("baseline_valid")),
+        "baseline_valid": manifest.get("baseline_valid") is True,
         "elapsed_seconds": round(float(total_elapsed_s), 3),
         "confidence": confidence,
         "elapsed_source": total_note or "result_totals",

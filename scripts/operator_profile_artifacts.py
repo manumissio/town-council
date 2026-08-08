@@ -51,6 +51,7 @@ def build_result_payload(
     *,
     run_id: str,
     status: str,
+    baseline_valid: bool,
     started_at: str,
     finished_at: str,
     elapsed_seconds: float,
@@ -65,6 +66,7 @@ def build_result_payload(
     return {
         "run_id": run_id,
         "status": status,
+        "baseline_valid": baseline_valid,
         "started_at": started_at,
         "finished_at": finished_at,
         "elapsed_seconds": round(float(elapsed_seconds), 3),

@@ -126,12 +126,14 @@ def _run_db_migrate_via_docker(*, log_path: Path) -> None:
     _run_command(command, env=os.environ.copy(), cwd=REPO_ROOT, log_path=log_path)
 
 
-def _run_backfill_catalog_hashes_via_docker(*, log_path: Path) -> None:
+def _run_backfill_catalog_hashes_via_docker(*, manifest_rel: str, log_path: Path) -> None:
     command = [
         "docker",
         "compose",
         "exec",
         "-T",
+        "-e",
+        f"TC_PROFILE_CATALOG_MANIFEST={manifest_rel}",
         "-w",
         "/app",
         TRIAGE_SELECTOR_SERVICE,

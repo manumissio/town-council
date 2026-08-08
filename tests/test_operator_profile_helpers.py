@@ -2,6 +2,8 @@ import json
 from pathlib import Path
 from types import SimpleNamespace
 
+import pytest
+
 from scripts import operator_profile_artifacts as artifacts
 from scripts import operator_profile_metrics as metrics
 from scripts import operator_profile_reports as reports
@@ -14,6 +16,7 @@ def test_profile_artifact_helpers_preserve_result_payload_shape(tmp_path: Path):
     payload = artifacts.build_result_payload(
         run_id="profile_run",
         status="completed",
+        baseline_valid=True,
         started_at="2026-04-01T00:00:00+00:00",
         finished_at="2026-04-01T00:01:00+00:00",
         elapsed_seconds=60.1234,
@@ -36,6 +39,7 @@ def test_profile_artifact_helpers_preserve_result_payload_shape(tmp_path: Path):
         "combined_elapsed_seconds": 20.237,
     }
     assert persisted["profile"]["workload_only"] is True
+    assert persisted["baseline_valid"] is True
     assert out.read_text(encoding="utf-8").endswith("\n")
 
 
@@ -55,6 +59,7 @@ def test_profile_result_writer_preserves_result_manifest_keys(monkeypatch, tmp_p
         run_dir=tmp_path,
         run_id="profile_run",
         status="completed",
+        baseline_valid=False,
         started_at="2026-04-01T00:00:00+00:00",
         started=10.0,
         include_batch=False,
@@ -68,6 +73,7 @@ def test_profile_result_writer_preserves_result_manifest_keys(monkeypatch, tmp_p
     payload = written["payload"]
     assert written["path"] == tmp_path / "result.json"
     assert sorted(payload) == [
+        "baseline_valid",
         "elapsed_seconds",
         "error",
         "finished_at",
@@ -86,6 +92,7 @@ def test_profile_result_writer_preserves_result_manifest_keys(monkeypatch, tmp_p
         "combined_elapsed_seconds": 12.346,
     }
     assert payload["profile"]["workload_only"] is True
+    assert payload["baseline_valid"] is False
 
 
 def test_profile_run_manifest_writer_preserves_manifest_package_and_profile_env(monkeypatch, tmp_path: Path):
@@ -284,3 +291,29 @@ def test_profile_report_helpers_validate_baseline_contract(tmp_path: Path):
 
     assert loaded["manifest_name"] == "baseline_demo"
     assert reports.compare_timing_metric("elapsed_seconds", 10.0, 13.0, 20.0)["status"] == "fail"
+
+
+@pytest.mark.parametrize("baseline_valid", [False, "false", 1, None])
+def test_profile_report_helpers_reject_invalid_expected_baseline_validity(
+    tmp_path: Path,
+    baseline_valid: object,
+):
+    baseline = tmp_path / "invalid_baseline.json"
+    baseline.write_text(
+        json.dumps(
+            {
+                "manifest_name": "baseline_demo",
+                "baseline_valid": baseline_valid,
+                "elapsed_seconds": 12.0,
+                "top_phases": [],
+                "stable_counters": {},
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    with pytest.raises(ValueError, match="baseline_valid must be true"):
+        reports.load_expected_baseline(
+            baseline,
+            lambda path: json.loads(path.read_text(encoding="utf-8")),
+        )

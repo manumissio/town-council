@@ -116,7 +116,7 @@ def run_profile(args: Any, deps: ProfilePipelineDeps) -> int:
     command_log = run_dir / "commands.log"
     if manifest_package is not None:
         deps.run_db_migrate_via_docker(log_path=command_log)
-        deps.run_backfill_catalog_hashes_via_docker(log_path=command_log)
+        deps.run_backfill_catalog_hashes_via_docker(manifest_rel=manifest_rel, log_path=command_log)
     if args.dry_run_prepare:
         if args.mode != "baseline":
             raise SystemExit("--dry-run-prepare is only supported for baseline mode")
@@ -182,6 +182,7 @@ def run_profile(args: Any, deps: ProfilePipelineDeps) -> int:
             run_dir,
             run_id,
             status="commands_completed",
+            baseline_valid=baseline_valid,
             started_at=started_at,
             started=started,
             include_batch=not args.skip_batch,
@@ -207,6 +208,7 @@ def run_profile(args: Any, deps: ProfilePipelineDeps) -> int:
             run_dir,
             run_id,
             status=status,
+            baseline_valid=baseline_valid,
             started_at=started_at,
             started=started,
             include_batch=not args.skip_batch,
@@ -223,6 +225,7 @@ def _write_result(
     run_id: str,
     *,
     status: str,
+    baseline_valid: bool,
     started_at: str,
     started: float,
     include_batch: bool,
@@ -237,6 +240,7 @@ def _write_result(
         run_dir=run_dir,
         run_id=run_id,
         status=status,
+        baseline_valid=baseline_valid,
         started_at=started_at,
         started=started,
         include_batch=include_batch,

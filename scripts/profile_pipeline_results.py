@@ -70,6 +70,7 @@ def write_result_manifest(
     run_dir: Path,
     run_id: str,
     status: str,
+    baseline_valid: bool,
     started_at: str,
     started: float,
     include_batch: bool,
@@ -82,6 +83,7 @@ def write_result_manifest(
         build_result_payload(
             run_id=run_id,
             status=status,
+            baseline_valid=baseline_valid,
             started_at=started_at,
             finished_at=utc_now_iso(),
             elapsed_seconds=time.perf_counter() - started,

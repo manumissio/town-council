@@ -12,7 +12,7 @@ def test_rank_bottlenecks_prefers_longest_leaf_phase(tmp_path: Path):
     run_dir = tmp_path / "profile_run"
     run_dir.mkdir()
     (run_dir / "run_manifest.json").write_text(
-        json.dumps({"run_id": "profile_run", "mode": "triage", "catalog_count": 10, "baseline_valid": False}),
+        json.dumps({"run_id": "profile_run", "mode": "triage", "catalog_count": 10, "baseline_valid": "false"}),
         encoding="utf-8",
     )
     (run_dir / "result.json").write_text(json.dumps({"elapsed_seconds": 100.0}), encoding="utf-8")
@@ -36,6 +36,7 @@ def test_rank_bottlenecks_prefers_longest_leaf_phase(tmp_path: Path):
 
     summary = mod.rank_bottlenecks(run_dir)
 
+    assert summary["baseline_valid"] is False
     assert summary["top_bottlenecks"][0]["phase"] == "summarize"
     assert summary["top_bottlenecks"][0]["classification"] in {"queueing", "inference/provider"}
 

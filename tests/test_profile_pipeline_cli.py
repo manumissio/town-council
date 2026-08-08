@@ -137,12 +137,20 @@ def test_profile_pipeline_diagnostic_baseline_is_non_promotional(monkeypatch, tm
 
     run_dirs = [path for path in tmp_path.iterdir() if path.is_dir()]
     run_manifest = json.loads((run_dirs[0] / "run_manifest.json").read_text(encoding="utf-8"))
+    result_manifest = json.loads((run_dirs[0] / "result.json").read_text(encoding="utf-8"))
     profile_commands = [command for command, _ in commands if "run_pipeline.py" in command or "run_batch_enrichment.py" in command]
+    hash_backfill_commands = [command for command, _ in commands if "pipeline/backfill_catalog_hashes.py" in command]
 
     assert exit_code == 0
     assert run_manifest["baseline_valid"] is False
+    assert result_manifest["baseline_valid"] is False
     assert [command[-1] for command in profile_commands] == ["run_pipeline.py", "run_batch_enrichment.py"]
     assert all("TC_PROFILE_BASELINE_VALID=0" in command for command in profile_commands)
+    assert len(hash_backfill_commands) == 1
+    assert any(
+        value.startswith("TC_PROFILE_CATALOG_MANIFEST=") and value.endswith("/catalog_manifest.txt")
+        for value in hash_backfill_commands[0]
+    )
 
 
 def test_profile_pipeline_dry_run_prepare_requires_manifest_package(monkeypatch, tmp_path: Path):

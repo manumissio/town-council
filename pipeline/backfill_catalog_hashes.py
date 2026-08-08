@@ -4,6 +4,7 @@ from pipeline.content_hash import compute_content_hash
 from pipeline.db_session import db_session
 from pipeline.document_kinds import normalize_summary_doc_kind
 from pipeline.models import AgendaItem, Catalog, Document
+from pipeline.profiling import apply_catalog_id_scope
 from pipeline.summary_freshness import compute_agenda_items_hash, compute_summary_source_hash
 
 logger = logging.getLogger("backfill_catalog_hashes")
@@ -22,6 +23,7 @@ def backfill(limit: int | None = None) -> dict:
     skipped = 0
     with db_session() as session:
         q = session.query(Catalog).order_by(Catalog.id.asc())
+        q = apply_catalog_id_scope(q, Catalog.id)
         if limit is not None:
             q = q.limit(limit)
 

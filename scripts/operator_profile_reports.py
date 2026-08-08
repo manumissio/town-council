@@ -35,6 +35,8 @@ def load_expected_baseline(path: Path, load_json: Callable[[Path], dict[str, Any
     missing = sorted(required.difference(payload))
     if missing:
         raise ValueError(f"baseline expectation missing required keys: {', '.join(missing)}")
+    if payload.get("baseline_valid") is not True:
+        raise ValueError("baseline expectation baseline_valid must be true")
     if not isinstance(payload.get("top_phases"), list):
         raise ValueError("baseline expectation top_phases must be a list")
     if not isinstance(payload.get("stable_counters"), dict):
