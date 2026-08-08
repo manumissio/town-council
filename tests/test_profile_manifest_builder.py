@@ -231,19 +231,30 @@ def test_validate_manifest_package_rejects_mismatched_ids():
         profile_manifest.validate_manifest_package([1, 2], package)
 
 
-def test_baseline_v1_is_immutable_and_v2_reuses_its_catalog_set():
+def test_baseline_v1_is_immutable_and_v2_uses_its_own_workload_contract():
     assert hashlib.sha256(V1_JSON_PATH.read_bytes()).hexdigest() == V1_JSON_SHA256
     assert hashlib.sha256(V1_TEXT_PATH.read_bytes()).hexdigest() == V1_TEXT_SHA256
 
     v1_ids = [int(value) for value in V1_TEXT_PATH.read_text(encoding="utf-8").splitlines()]
     v2_ids = [int(value) for value in V2_TEXT_PATH.read_text(encoding="utf-8").splitlines()]
     v2_package = json.loads(V2_JSON_PATH.read_text(encoding="utf-8"))
+    v2_strata = v2_package["strata"]
 
     assert len(v2_ids) == 30
-    assert set(v2_ids) == set(v1_ids)
+    assert len(set(v2_ids)) == 30
+    assert set(v2_ids) != set(v1_ids)
     assert v2_package["schema_version"] == 2
     assert v2_package["catalog_ids"] == v2_ids
-    assert v2_package["phase_quotas"]["entity"] == 8
-    assert "people" not in v2_package["strata"]
+    assert v2_package["phase_quotas"] == {"extract": 8, "segment": 6, "summary": 6, "entity": 8, "org": 2}
+    assert {phase: len(catalog_ids) for phase, catalog_ids in v2_strata.items()} == v2_package[
+        "phase_quotas"
+    ]
+    assert set().union(*(set(catalog_ids) for catalog_ids in v2_strata.values())) == set(v2_ids)
+    assert v2_package["phase_candidates"]["extract"] == 8
+    assert v2_package["expected_phase_coverage"] == v2_package["phase_quotas"]
+    assert v2_package["safety"]["org_reset_requires_single_document_event"] is True
+    assert [reset["catalog_id"] for reset in v2_package["org_event_resets"]] == v2_strata["org"]
+    assert len({reset["event_id"] for reset in v2_package["org_event_resets"]}) == 2
+    assert "people" not in v2_strata
     assert "people" not in v2_package["expected_phase_coverage"]
     assert "people_reset_names" not in v2_package
