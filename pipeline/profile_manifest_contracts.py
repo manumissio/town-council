@@ -8,7 +8,7 @@ from typing import Any, Final, TypeAlias, TypedDict
 JsonPayload: TypeAlias = dict[str, Any]  # JSON sidecars can contain nested primitive/list/dict values.
 OrmSession: TypeAlias = Any  # SQLAlchemy sessions and test stubs share dynamic query methods.
 
-MANIFEST_PACKAGE_SCHEMA_VERSION: Final = 2
+MANIFEST_PACKAGE_SCHEMA_VERSION: Final = 3
 PHASE_EXTRACT: Final = "extract"
 PHASE_SEGMENT: Final = "segment"
 PHASE_SUMMARY: Final = "summary"
@@ -33,10 +33,12 @@ DEFAULT_PHASE_QUOTAS: Final[dict[str, int]] = {
 class ManifestCandidate(TypedDict, total=False):
     catalog_id: int
     event_id: int
+    source_location: str
 
 
 class AppliedPreconditioningCounts(TypedDict):
     deleted_agenda_items: int
+    cleared_extract_catalogs: int
     cleared_segment_catalogs: int
     cleared_summary_catalogs: int
     cleared_entity_catalogs: int

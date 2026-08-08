@@ -59,17 +59,24 @@ def test_profile_pipeline_baseline_loads_manifest_package_and_preconditions(monk
     manifest_path.with_suffix(".json").write_text(
         json.dumps(
             {
-                "schema_version": 2,
+                "schema_version": 3,
                 "manifest_name": "baseline_demo",
                 "catalog_ids": [21, 22],
                 "strata": {"extract": [21], "segment": [22], "summary": [], "entity": [], "org": []},
+                "extract_source_sha256": {"21": "a" * 64},
                 "expected_phase_coverage": {"extract": 1, "segment": 1, "summary": 0, "entity": 0, "org": 0},
             }
         ),
         encoding="utf-8",
     )
     monkeypatch.setattr(mod, "_provider_counters_before_run", lambda: None)
-    monkeypatch.setattr(mod, "_prepare_manifest_package_via_docker", lambda manifest_rel, dry_run: {"dry_run": dry_run, "report": {"catalog_count": 2}, "applied": {"cleared_summary_catalogs": 0}})
+    prepare_calls = []
+
+    def _fake_prepare(manifest_rel, dry_run):
+        prepare_calls.append(dry_run)
+        return {"dry_run": dry_run, "report": {"catalog_count": 2}, "applied": {"cleared_summary_catalogs": 0}}
+
+    monkeypatch.setattr(mod, "_prepare_manifest_package_via_docker", _fake_prepare)
     commands = []
 
     def _fake_run(command, **kwargs):
@@ -86,8 +93,60 @@ def test_profile_pipeline_baseline_loads_manifest_package_and_preconditions(monk
     assert run_manifest["baseline_valid"] is True
     assert run_manifest["manifest_package"]["manifest_name"] == "baseline_demo"
     assert run_manifest["preconditioning"]["dry_run"] is False
+    assert prepare_calls == [True, False]
     assert (run_dirs[0] / "catalog_manifest.json").exists()
     assert any("collect_soak_metrics.py" in " ".join(cmd) for cmd, _ in commands)
+
+
+def test_profile_pipeline_verifies_sources_before_mutating_commands(monkeypatch, tmp_path: Path):
+    manifest_path = tmp_path / "baseline_demo.txt"
+    manifest_path.write_text("21\n", encoding="utf-8")
+    manifest_path.with_suffix(".json").write_text(
+        json.dumps(
+            {
+                "schema_version": 3,
+                "manifest_name": "baseline_demo",
+                "catalog_ids": [21],
+                "strata": {"extract": [21], "segment": [], "summary": [], "entity": [], "org": []},
+                "extract_source_sha256": {"21": "a" * 64},
+                "expected_phase_coverage": {"extract": 1, "segment": 0, "summary": 0, "entity": 0, "org": 0},
+            }
+        ),
+        encoding="utf-8",
+    )
+    mutating_commands: list[str] = []
+
+    def _reject_source(manifest_rel, dry_run):
+        raise ValueError("extract replay source digest mismatch")
+
+    monkeypatch.setattr(mod, "_prepare_manifest_package_via_docker", _reject_source)
+    monkeypatch.setattr(
+        mod,
+        "_run_db_migrate_via_docker",
+        lambda **kwargs: mutating_commands.append("migrate"),
+    )
+    monkeypatch.setattr(
+        mod,
+        "_run_backfill_catalog_hashes_via_docker",
+        lambda **kwargs: mutating_commands.append("backfill"),
+    )
+
+    with pytest.raises(ValueError, match="digest mismatch"):
+        mod.main(
+            [
+                "--mode",
+                "baseline",
+                "--manifest",
+                str(manifest_path),
+                "--output-dir",
+                str(tmp_path),
+                "--run-id",
+                "digest-mismatch",
+            ]
+        )
+
+    assert mutating_commands == []
+    assert not (tmp_path / "digest-mismatch").exists()
 
 
 def test_profile_pipeline_diagnostic_baseline_is_non_promotional(monkeypatch, tmp_path: Path):
@@ -96,10 +155,11 @@ def test_profile_pipeline_diagnostic_baseline_is_non_promotional(monkeypatch, tm
     manifest_path.with_suffix(".json").write_text(
         json.dumps(
             {
-                "schema_version": 2,
+                "schema_version": 3,
                 "manifest_name": "baseline_demo",
                 "catalog_ids": [21],
                 "strata": {"extract": [21], "segment": [], "summary": [], "entity": [], "org": []},
+                "extract_source_sha256": {"21": "a" * 64},
                 "expected_phase_coverage": {"extract": 1, "segment": 0, "summary": 0, "entity": 0, "org": 0},
             }
         ),
@@ -165,21 +225,36 @@ def test_profile_pipeline_dry_run_prepare_requires_manifest_package(monkeypatch,
         raise AssertionError("expected SystemExit")
 
 
-def test_profile_pipeline_rejects_schema_v1_manifest_package(tmp_path: Path):
+@pytest.mark.parametrize(
+    "manifest_package",
+    [
+        {
+            "schema_version": 1,
+            "manifest_name": "baseline_demo",
+            "catalog_ids": [21, 22],
+        },
+        {
+            "schema_version": 3,
+            "manifest_name": "baseline_demo",
+            "catalog_ids": [21, 22],
+            "strata": {"extract": [21], "segment": [22], "summary": [], "entity": [], "org": []},
+            "extract_source_sha256": {},
+            "expected_phase_coverage": {"extract": 1, "segment": 1, "summary": 0, "entity": 0, "org": 0},
+        },
+    ],
+)
+def test_profile_pipeline_rejects_invalid_manifest_package_without_run_directory(
+    tmp_path: Path,
+    manifest_package: dict,
+):
     manifest_path = tmp_path / "baseline_demo.txt"
     manifest_path.write_text("21\n22\n", encoding="utf-8")
     manifest_path.with_suffix(".json").write_text(
-        json.dumps(
-            {
-                "schema_version": 1,
-                "manifest_name": "baseline_demo",
-                "catalog_ids": [21, 22],
-            }
-        ),
+        json.dumps(manifest_package),
         encoding="utf-8",
     )
 
-    with pytest.raises(ValueError, match="unsupported manifest package schema_version"):
+    with pytest.raises(ValueError):
         mod.main(
             [
                 "--mode",
@@ -188,9 +263,13 @@ def test_profile_pipeline_rejects_schema_v1_manifest_package(tmp_path: Path):
                 str(manifest_path),
                 "--output-dir",
                 str(tmp_path),
+                "--run-id",
+                "invalid-package",
                 "--skip-batch",
             ]
         )
+
+    assert not (tmp_path / "invalid-package").exists()
 
 
 def test_profile_pipeline_compare_mode_runs_analyzer_with_expected_baseline(monkeypatch, tmp_path: Path):
@@ -201,10 +280,11 @@ def test_profile_pipeline_compare_mode_runs_analyzer_with_expected_baseline(monk
     manifest_path.with_suffix(".json").write_text(
         json.dumps(
             {
-                "schema_version": 2,
+                "schema_version": 3,
                 "manifest_name": "baseline_demo",
                 "catalog_ids": [21, 22],
                 "strata": {"extract": [21], "segment": [22], "summary": [], "entity": [], "org": []},
+                "extract_source_sha256": {"21": "a" * 64},
                 "expected_phase_coverage": {"extract": 1, "segment": 1, "summary": 0, "entity": 0, "org": 0},
             }
         ),

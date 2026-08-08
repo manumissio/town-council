@@ -1,35 +1,35 @@
 {
   "catalog_ids": [
-    1114,
-    2239,
-    2340,
-    2346,
-    2353,
-    2909,
-    3639,
-    3868,
-    1,
-    2,
+    1107,
+    1115,
+    1136,
+    1138,
+    1215,
+    1217,
+    8228,
+    8229,
     3,
     4,
-    5,
     6,
-    7,
     8,
-    9,
-    10,
     11,
     12,
     13,
     14,
-    15,
     16,
+    19,
     20,
-    26,
+    22,
+    2080,
+    2,
+    5,
+    7,
+    9,
+    15,
     17,
     18,
-    19,
-    21
+    1129,
+    1146
   ],
   "expected_phase_coverage": {
     "entity": 8,
@@ -38,24 +38,34 @@
     "segment": 6,
     "summary": 6
   },
-  "generated_at": "2026-07-31T09:02:00+00:00",
+  "extract_source_sha256": {
+    "1107": "88acbfba0ffc2d17683d8031eced616c270f316bc9a15d28de3e9df21ac4c546",
+    "1115": "6e3efeea698569eca512414234a998c2c009e11de21545f93d432dd9ec3642e4",
+    "1136": "fb2ff8a01f8cd5b2cd22366bcf4c39308fb471dfad6d9714565122865beb3a2e",
+    "1138": "7d1c0e97357b1981e5994a043cae1470bdd7c8f7f2155a2ab65efa68aed77ff3",
+    "1215": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "1217": "82053d91a04e09bd67ea742ac074d16c7e11bbdad310649075b0060b42794459",
+    "8228": "141603e651d6fc84ab30556124be31cfe460d1e794862733569f85196ad95b53",
+    "8229": "5fdde3ac6b73a859640a1ede8ff691cf2344d65d9e76c0a7d5fa71c15ebdf445"
+  },
+  "generated_at": "2026-08-08T20:26:28+00:00",
   "manifest_name": "baseline_representative_v2",
   "org_event_resets": [
     {
-      "catalog_id": 20,
-      "event_id": 15
+      "catalog_id": 1129,
+      "event_id": 425
     },
     {
-      "catalog_id": 26,
-      "event_id": 19
+      "catalog_id": 1146,
+      "event_id": 453
     }
   ],
   "phase_candidates": {
-    "entity": 2893,
-    "extract": 7128,
-    "org": 9090,
-    "segment": 2798,
-    "summary": 2808
+    "entity": 8211,
+    "extract": 8,
+    "org": 4,
+    "segment": 1059,
+    "summary": 39
   },
   "phase_quotas": {
     "entity": 8,
@@ -67,47 +77,47 @@
   "safety": {
     "org_reset_requires_single_document_event": true
   },
-  "schema_version": 2,
+  "schema_version": 3,
   "strata": {
     "entity": [
-      13,
-      14,
+      2080,
+      2,
+      5,
+      7,
+      9,
       15,
-      16,
       17,
-      18,
-      19,
-      21
+      18
     ],
     "extract": [
-      1114,
-      2239,
-      2340,
-      2346,
-      2353,
-      2909,
-      3639,
-      3868
+      1107,
+      1115,
+      1136,
+      1138,
+      1215,
+      1217,
+      8228,
+      8229
     ],
     "org": [
-      20,
-      26
+      1129,
+      1146
     ],
     "segment": [
-      1,
-      2,
       3,
       4,
-      5,
-      6
-    ],
-    "summary": [
-      7,
+      6,
       8,
-      9,
-      10,
       11,
       12
+    ],
+    "summary": [
+      13,
+      14,
+      16,
+      19,
+      20,
+      22
     ]
   }
 }
