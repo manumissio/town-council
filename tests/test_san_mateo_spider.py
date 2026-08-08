@@ -1,8 +1,10 @@
+import asyncio
 import datetime
 import json
 import os
 import sys
 
+import scrapy
 from scrapy.http import Request, TextResponse
 
 
@@ -32,14 +34,12 @@ def _text_response(url, body, *, meta=None):
     )
 
 
-def test_san_mateo_start_requests_build_direct_bootstrap_listing_query(mocker):
+def test_san_mateo_start_builds_direct_bootstrap_listing_query(mocker):
     mocker.patch.object(San_Mateo, "_get_last_meeting_date", return_value=None)
     spider = San_Mateo()
 
-    requests = list(spider.start_requests())
-
-    assert len(requests) == 1
-    request = requests[0]
+    assert San_Mateo.start is not scrapy.Spider.start
+    request = asyncio.run(anext(spider.start()))
     payload = json.loads(request.body.decode("utf-8"))
     assert request.url.endswith("/SearchService.aspx/GetSearchListing")
     assert request.method == "POST"
@@ -53,14 +53,12 @@ def test_san_mateo_start_requests_build_direct_bootstrap_listing_query(mocker):
     assert '[Date]<="' in payload["searchSyn"]
 
 
-def test_san_mateo_start_requests_omits_bootstrap_date_clause_when_delta_anchor_exists(mocker):
+def test_san_mateo_start_omits_bootstrap_date_clause_when_delta_anchor_exists(mocker):
     mocker.patch.object(San_Mateo, "_get_last_meeting_date", return_value=datetime.date(2026, 3, 1))
     spider = San_Mateo()
 
-    requests = list(spider.start_requests())
-
-    assert len(requests) == 1
-    payload = json.loads(requests[0].body.decode("utf-8"))
+    request = asyncio.run(anext(spider.start()))
+    payload = json.loads(request.body.decode("utf-8"))
     assert payload["searchSyn"] == '({[]:[Agency]="City Council"} & {[Agenda Reports]})'
 
 
@@ -68,10 +66,8 @@ def test_san_mateo_future_delta_anchor_falls_back_to_bootstrap_query(mocker):
     mocker.patch.object(San_Mateo, "_get_last_meeting_date", return_value=datetime.date(3023, 4, 3))
     spider = San_Mateo()
 
-    requests = list(spider.start_requests())
-
-    assert len(requests) == 1
-    payload = json.loads(requests[0].body.decode("utf-8"))
+    request = asyncio.run(anext(spider.start()))
+    payload = json.loads(request.body.decode("utf-8"))
     assert '{[]:[Agency]="City Council"}' in payload["searchSyn"]
     assert '[Date]>="' in payload["searchSyn"]
     assert '[Date]<="' in payload["searchSyn"]

@@ -45,9 +45,6 @@ class LegistarApi(BaseCitySpider):
     async def start(self):
         yield self._initial_events_request()
 
-    def start_requests(self):
-        yield self._initial_events_request()
-
     def _build_events_url(self, *, skip):
         query = urlencode(
             {
