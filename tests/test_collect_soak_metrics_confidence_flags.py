@@ -33,6 +33,7 @@ def test_day_summary_marks_provider_metrics_reason(monkeypatch, tmp_path):
     (run_dir / "run_manifest.json").write_text(
         json.dumps(
             {
+                "baseline_valid": "false",
                 "catalog_ids": [609, 933],
                 "catalog_count": 2,
                 "profile": {"LOCAL_AI_BACKEND": "http"},
@@ -76,6 +77,7 @@ def test_day_summary_marks_provider_metrics_reason(monkeypatch, tmp_path):
     assert day_summary["slowest_phase"] == "segment"
     assert day_summary["slowest_catalog_id"] == 609
     assert day_summary["run_manifest_present"] is True
+    assert day_summary["baseline_valid"] is False
 
 
 def test_day_summary_includes_submission_failure_breakdown(monkeypatch, tmp_path):
@@ -127,6 +129,7 @@ def test_day_summary_includes_submission_failure_breakdown(monkeypatch, tmp_path
     assert day_summary["unexpected_non_processing_status_failures"] == 1
     assert day_summary["missing_task_id_failures"] == 1
     assert day_summary["task_poll_timeouts"] == 1
+    assert day_summary["baseline_valid"] is False
 
 
 def test_day_summary_uses_zero_manifest_baseline_without_provider_series(monkeypatch, tmp_path):

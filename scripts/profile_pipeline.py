@@ -126,12 +126,14 @@ def _run_db_migrate_via_docker(*, log_path: Path) -> None:
     _run_command(command, env=os.environ.copy(), cwd=REPO_ROOT, log_path=log_path)
 
 
-def _run_backfill_catalog_hashes_via_docker(*, log_path: Path) -> None:
+def _run_backfill_catalog_hashes_via_docker(*, manifest_rel: str, log_path: Path) -> None:
     command = [
         "docker",
         "compose",
         "exec",
         "-T",
+        "-e",
+        f"TC_PROFILE_CATALOG_MANIFEST={manifest_rel}",
         "-w",
         "/app",
         TRIAGE_SELECTOR_SERVICE,
@@ -172,6 +174,11 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser.add_argument("--api-url", default="http://localhost:8000")
     parser.add_argument("--skip-batch", action="store_true")
     parser.add_argument("--dry-run-prepare", action="store_true")
+    parser.add_argument(
+        "--diagnostic",
+        action="store_true",
+        help="Run a pinned baseline workload without marking its evidence as baseline-valid.",
+    )
     parser.add_argument("--compare-to", default=None)
     return parser.parse_args(argv)
 
