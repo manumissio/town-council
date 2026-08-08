@@ -132,9 +132,21 @@ def test_profile_pipeline_verifies_sources_before_mutating_commands(monkeypatch,
     )
 
     with pytest.raises(ValueError, match="digest mismatch"):
-        mod.main(["--mode", "baseline", "--manifest", str(manifest_path), "--output-dir", str(tmp_path)])
+        mod.main(
+            [
+                "--mode",
+                "baseline",
+                "--manifest",
+                str(manifest_path),
+                "--output-dir",
+                str(tmp_path),
+                "--run-id",
+                "digest-mismatch",
+            ]
+        )
 
     assert mutating_commands == []
+    assert not (tmp_path / "digest-mismatch").exists()
 
 
 def test_profile_pipeline_diagnostic_baseline_is_non_promotional(monkeypatch, tmp_path: Path):
@@ -213,21 +225,36 @@ def test_profile_pipeline_dry_run_prepare_requires_manifest_package(monkeypatch,
         raise AssertionError("expected SystemExit")
 
 
-def test_profile_pipeline_rejects_schema_v1_manifest_package(tmp_path: Path):
+@pytest.mark.parametrize(
+    "manifest_package",
+    [
+        {
+            "schema_version": 1,
+            "manifest_name": "baseline_demo",
+            "catalog_ids": [21, 22],
+        },
+        {
+            "schema_version": 3,
+            "manifest_name": "baseline_demo",
+            "catalog_ids": [21, 22],
+            "strata": {"extract": [21], "segment": [22], "summary": [], "entity": [], "org": []},
+            "extract_source_sha256": {},
+            "expected_phase_coverage": {"extract": 1, "segment": 1, "summary": 0, "entity": 0, "org": 0},
+        },
+    ],
+)
+def test_profile_pipeline_rejects_invalid_manifest_package_without_run_directory(
+    tmp_path: Path,
+    manifest_package: dict,
+):
     manifest_path = tmp_path / "baseline_demo.txt"
     manifest_path.write_text("21\n22\n", encoding="utf-8")
     manifest_path.with_suffix(".json").write_text(
-        json.dumps(
-            {
-                "schema_version": 1,
-                "manifest_name": "baseline_demo",
-                "catalog_ids": [21, 22],
-            }
-        ),
+        json.dumps(manifest_package),
         encoding="utf-8",
     )
 
-    with pytest.raises(ValueError, match="unsupported manifest package schema_version"):
+    with pytest.raises(ValueError):
         mod.main(
             [
                 "--mode",
@@ -236,9 +263,13 @@ def test_profile_pipeline_rejects_schema_v1_manifest_package(tmp_path: Path):
                 str(manifest_path),
                 "--output-dir",
                 str(tmp_path),
+                "--run-id",
+                "invalid-package",
                 "--skip-batch",
             ]
         )
+
+    assert not (tmp_path / "invalid-package").exists()
 
 
 def test_profile_pipeline_compare_mode_runs_analyzer_with_expected_baseline(monkeypatch, tmp_path: Path):

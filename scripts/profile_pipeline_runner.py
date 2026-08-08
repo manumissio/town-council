@@ -5,6 +5,7 @@ from datetime import datetime, timezone
 import json
 import os
 from pathlib import Path
+import shutil
 import subprocess
 import time
 from typing import Any, Callable
@@ -93,6 +94,8 @@ def run_profile(args: Any, deps: ProfilePipelineDeps) -> int:
         raise SystemExit("--manifest is required for baseline mode")
     if args.diagnostic and args.mode != "baseline":
         raise SystemExit("--diagnostic is only supported for baseline mode")
+    if args.dry_run_prepare and args.mode != "baseline":
+        raise SystemExit("--dry-run-prepare is only supported for baseline mode")
     baseline_valid = args.mode == "baseline" and not args.diagnostic
     run_id = args.run_id or f"pipeline_profile_{args.mode}_{datetime.now(timezone.utc).strftime('%Y%m%d_%H%M%S')}"
     output_root = Path(args.output_dir)
@@ -101,28 +104,30 @@ def run_profile(args: Any, deps: ProfilePipelineDeps) -> int:
     run_dir = output_root / run_id
     if run_dir.exists():
         raise SystemExit(f"run directory already exists: {run_dir}")
-    run_dir.mkdir(parents=True, exist_ok=False)
 
     catalog_ids, manifest_package, _manifest_path = _catalog_ids_for_args(args, deps)
     if not catalog_ids:
         raise SystemExit("no catalog ids selected for profiling")
+    if args.dry_run_prepare and manifest_package is None:
+        raise SystemExit("--dry-run-prepare requires a manifest package sidecar (.json)")
 
-    manifest_copy = run_dir / "catalog_manifest.txt"
-    deps.write_catalog_manifest(manifest_copy, catalog_ids)
-    if manifest_package is not None:
-        deps.write_json(sidecar_path_for_manifest(manifest_copy), manifest_package)
-    manifest_rel = deps.path_for_profile_env(manifest_copy)
-    command_log = run_dir / "commands.log"
-    preparation_check = (
-        deps.prepare_manifest_package_via_docker(manifest_rel, dry_run=True)
-        if manifest_package is not None
-        else None
-    )
+    run_dir.mkdir(parents=True, exist_ok=False)
+    try:
+        manifest_copy = run_dir / "catalog_manifest.txt"
+        deps.write_catalog_manifest(manifest_copy, catalog_ids)
+        if manifest_package is not None:
+            deps.write_json(sidecar_path_for_manifest(manifest_copy), manifest_package)
+        manifest_rel = deps.path_for_profile_env(manifest_copy)
+        command_log = run_dir / "commands.log"
+        preparation_check = (
+            deps.prepare_manifest_package_via_docker(manifest_rel, dry_run=True)
+            if manifest_package is not None
+            else None
+        )
+    except (OSError, RuntimeError, ValueError, subprocess.CalledProcessError):
+        shutil.rmtree(run_dir)
+        raise
     if args.dry_run_prepare:
-        if args.mode != "baseline":
-            raise SystemExit("--dry-run-prepare is only supported for baseline mode")
-        if manifest_package is None:
-            raise SystemExit("--dry-run-prepare requires a manifest package sidecar (.json)")
         print(json.dumps(preparation_check, indent=2, sort_keys=True))
         return 0
     provider_counters_before_run = deps.provider_counters_before_run()
