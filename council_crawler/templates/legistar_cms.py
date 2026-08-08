@@ -47,7 +47,7 @@ class LegistarCms(BaseCitySpider):
         event['name'] = f"{self.city_display_name.title()}, CA {meeting_name.strip()}"
         return event
 
-    def start_requests(self):
+    async def start(self):
         for url in self.start_urls:
             yield scrapy.Request(url=url, callback=self.parse_calendar_window)
 

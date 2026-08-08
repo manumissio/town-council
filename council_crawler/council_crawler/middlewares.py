@@ -47,14 +47,5 @@ class CouncilCrawlerSpiderMiddleware(object):
         # perform custom error handling at this middleware level.
         pass
 
-    def process_start_requests(start_requests, spider):
-        # Called with the start requests of the spider, and works
-        # similarly to the process_spider_output() method, except
-        # that it doesn’t have a response associated.
-
-        # Must return only requests (not items).
-        for r in start_requests:
-            yield r
-
     def spider_opened(self, spider):
         spider.logger.info('Spider opened: %s' % spider.name)

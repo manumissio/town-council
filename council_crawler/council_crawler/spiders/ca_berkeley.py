@@ -11,7 +11,7 @@ class BerkeleyCustom(BaseCitySpider):
     name = 'berkeley'
     ocd_division_id = 'ocd-division/country:us/state:ca/place:berkeley'
 
-    def start_requests(self):
+    async def start(self):
         url = 'https://berkeleyca.gov/your-government/city-council/city-council-agendas'
         yield scrapy.Request(url=url, callback=self.parse)
 

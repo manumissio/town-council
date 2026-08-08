@@ -33,7 +33,7 @@ class San_Mateo(BaseCitySpider):
                 self.last_meeting_date,
             )
 
-    def start_requests(self):
+    async def start(self):
         # PrimeGov is host-wide robots-blocked for San Mateo, and Laserfiche's
         # query-builder endpoint has proven less reliable than the listing
         # endpoint itself, so we construct the known-good listing query directly.

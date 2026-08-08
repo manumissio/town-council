@@ -12,7 +12,7 @@ class Dublin(BaseCitySpider):
     name = 'dublin'
     ocd_division_id = 'ocd-division/country:us/state:ca/place:dublin'
 
-    def start_requests(self):
+    async def start(self):
         # The main meeting portal for Dublin, CA
         url = 'https://www.dublinca.gov/1604/Meetings-Agendas-Minutes-Video-on-Demand'
         yield scrapy.Request(url=url, callback=self.parse)

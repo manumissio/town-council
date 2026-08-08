@@ -1,3 +1,4 @@
+import asyncio
 import datetime
 import json
 import os
@@ -61,7 +62,7 @@ def test_sunnyvale_spider_uses_legistar_api_client(mocker):
     mocker.patch.object(Sunnyvale, "_get_last_meeting_date", return_value=None)
     spider = Sunnyvale()
 
-    [request] = list(spider.start_requests())
+    request = asyncio.run(anext(spider.start()))
 
     assert spider.name == "sunnyvale"
     assert spider.client_name == "sunnyvaleca"

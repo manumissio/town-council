@@ -1,3 +1,4 @@
+import asyncio
 import sys
 import os
 import pytest
@@ -15,6 +16,32 @@ sys.path.append(os.path.join(root_dir, 'council_crawler'))
 from council_crawler.spiders.ca_belmont import Belmont
 from council_crawler.spiders.ca_berkeley import BerkeleyCustom
 from templates.legistar_cms import LegistarCms
+
+
+def test_berkeley_uses_scrapy_start_contract(mocker):
+    mocker.patch.object(BerkeleyCustom, "_get_last_meeting_date", return_value=None)
+    spider = BerkeleyCustom()
+
+    assert BerkeleyCustom.start is not scrapy.Spider.start
+    request = asyncio.run(anext(spider.start()))
+
+    assert request.url == "https://berkeleyca.gov/your-government/city-council/city-council-agendas"
+    assert request.callback == spider.parse
+
+
+def test_legistar_cms_uses_scrapy_start_contract(mocker):
+    mocker.patch.object(LegistarCms, "_get_last_meeting_date", return_value=None)
+    spider = LegistarCms(
+        legistar_url="https://test.legistar.com/Calendar.aspx",
+        city="testcity",
+        state="ca",
+    )
+
+    assert LegistarCms.start is not scrapy.Spider.start
+    request = asyncio.run(anext(spider.start()))
+
+    assert request.url == "https://test.legistar.com/Calendar.aspx"
+    assert request.callback == spider.parse_calendar_window
 
 def test_berkeley_custom_parsing(mocker):
     """

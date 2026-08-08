@@ -1,4 +1,6 @@
+import asyncio
 import pytest
+import scrapy
 import sys
 import os
 from scrapy.http import HtmlResponse, Request
@@ -8,6 +10,17 @@ sys.path.append(os.path.join(os.path.dirname(__file__), '..'))
 sys.path.append(os.path.join(os.path.dirname(__file__), '..', 'council_crawler'))
 
 from council_crawler.spiders.ca_dublin import Dublin
+
+
+def test_dublin_uses_scrapy_start_contract(mocker):
+    mocker.patch.object(Dublin, "_get_last_meeting_date", return_value=None)
+    spider = Dublin()
+
+    assert Dublin.start is not scrapy.Spider.start
+    request = asyncio.run(anext(spider.start()))
+
+    assert request.url == "https://www.dublinca.gov/1604/Meetings-Agendas-Minutes-Video-on-Demand"
+    assert request.callback == spider.parse
 
 def test_dublin_spider_parsing():
     """
