@@ -20,6 +20,7 @@ Example:
 Rules:
 - use stable catalog sets when you want before/after comparisons
 - if the workload changes materially, treat the run as diagnostic instead of baseline-valid
+- extraction strata are replayed only from archived regular files; preparation fails before mutation when any source is unavailable
 - run `python scripts/build_profile_manifest.py --name <name>` first if you want to inspect candidate coverage before writing a manifest package
 - use `python scripts/profile_pipeline.py --mode baseline --manifest profiling/manifests/<name>.txt --dry-run-prepare` to inspect sidecar resets without mutating the workload
 

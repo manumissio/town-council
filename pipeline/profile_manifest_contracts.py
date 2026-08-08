@@ -37,6 +37,7 @@ class ManifestCandidate(TypedDict, total=False):
 
 class AppliedPreconditioningCounts(TypedDict):
     deleted_agenda_items: int
+    cleared_extract_catalogs: int
     cleared_segment_catalogs: int
     cleared_summary_catalogs: int
     cleared_entity_catalogs: int

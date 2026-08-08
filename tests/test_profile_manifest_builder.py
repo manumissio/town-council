@@ -1,5 +1,6 @@
 from contextlib import contextmanager
 import ast
+from datetime import UTC, datetime
 import hashlib
 import importlib.util
 import json
@@ -11,6 +12,7 @@ from sqlalchemy.orm import sessionmaker
 
 from pipeline import profile_manifest
 from pipeline.models import AgendaItem, Base, Catalog, Document, Event, Place
+from pipeline.profile_manifest_preconditioning import apply_preconditioning
 
 
 V1_JSON_SHA256 = "862d8dd0b8297463d4f19f0ea2590183d5a78d9cf6477a530fd7dc73f445f16c"
@@ -19,6 +21,17 @@ V1_JSON_PATH = Path("profiling/manifests/baseline_representative_v1.json")
 V1_TEXT_PATH = Path("profiling/manifests/baseline_representative_v1.txt")
 V2_JSON_PATH = Path("profiling/manifests/baseline_representative_v2.json")
 V2_TEXT_PATH = Path("profiling/manifests/baseline_representative_v2.txt")
+
+
+def _extract_reset_package(catalog_ids: list[int]) -> dict[str, object]:
+    return {
+        "schema_version": 2,
+        "manifest_name": "extract_replay",
+        "catalog_ids": catalog_ids,
+        "strata": {"extract": catalog_ids, "segment": [], "summary": [], "entity": [], "org": []},
+        "org_event_resets": [],
+        "expected_phase_coverage": {"extract": len(catalog_ids), "segment": 0, "summary": 0, "entity": 0, "org": 0},
+    }
 
 
 def test_profile_manifest_facade_exports_current_contract():
@@ -167,6 +180,7 @@ def test_apply_preconditioning_mutates_only_selected_rows():
 
     assert result["applied"] == {
         "deleted_agenda_items": 1,
+        "cleared_extract_catalogs": 0,
         "cleared_segment_catalogs": 1,
         "cleared_summary_catalogs": 0,
         "cleared_entity_catalogs": 1,
@@ -183,6 +197,180 @@ def test_apply_preconditioning_mutates_only_selected_rows():
     assert refreshed_event.organization_id is None
     assert verify.query(AgendaItem).count() == 0
     verify.close()
+    engine.dispose()
+
+
+def test_extract_preconditioning_restores_replayable_catalog_and_preserves_source_records(tmp_path: Path):
+    engine = create_engine("sqlite:///:memory:")
+    Base.metadata.create_all(engine)
+    Session = sessionmaker(bind=engine)
+    source_path = tmp_path / "agenda.pdf"
+    source_path.write_bytes(b"archived source")
+
+    with Session() as session:
+        place = Place(name="Demo", state="CA", ocd_division_id="ocd-division/country:us/state:ca/place:demo")
+        session.add(place)
+        session.flush()
+        event = Event(name="Meeting", place_id=place.id, organization_id=77)
+        session.add(event)
+        session.flush()
+        target = Catalog(
+            url="https://example.test/agenda.pdf",
+            url_hash="extract-target",
+            location=str(source_path),
+            filename="agenda.pdf",
+            content="extracted agenda",
+            content_hash="content-hash",
+            extraction_status="success",
+            extraction_attempted_at=datetime.now(tz=UTC),
+            extraction_attempt_count=2,
+            extraction_error="old error",
+            summary="summary",
+            summary_source_hash="summary-hash",
+            summary_extractive="extractive summary",
+            agenda_items_hash="agenda-hash",
+            entities={"orgs": ["Demo Council"]},
+            entities_source_hash="entity-hash",
+            tables=[{"rows": 1}],
+            topics=["budget"],
+            topics_source_hash="topic-hash",
+            related_ids=[91, 92],
+            lineage_id="lineage-1",
+            lineage_confidence=0.8,
+            lineage_updated_at=datetime.now(tz=UTC),
+            agenda_segmentation_status="complete",
+            agenda_segmentation_attempted_at=datetime.now(tz=UTC),
+            agenda_segmentation_item_count=1,
+            agenda_segmentation_error="old segmentation error",
+            processed=True,
+        )
+        control = Catalog(url_hash="control", content="control content", location=str(source_path))
+        session.add_all([target, control])
+        session.flush()
+        session.add(Document(catalog_id=target.id, event_id=event.id, place_id=place.id, category="agenda"))
+        session.add(AgendaItem(catalog_id=target.id, event_id=event.id, order=1, title="Item 1"))
+        target_id = target.id
+        control_id = control.id
+        event_id = event.id
+        session.commit()
+
+    preconditioning = apply_preconditioning(
+        _extract_reset_package([target_id]),
+        dry_run=False,
+        session_factory=Session,
+    )
+
+    assert preconditioning["applied"] == {
+        "deleted_agenda_items": 1,
+        "cleared_extract_catalogs": 1,
+        "cleared_segment_catalogs": 0,
+        "cleared_summary_catalogs": 0,
+        "cleared_entity_catalogs": 0,
+        "cleared_org_events": 0,
+    }
+    with Session() as session:
+        replayable_catalog = session.get(Catalog, target_id)
+        assert replayable_catalog is not None
+        assert replayable_catalog.content is None
+        assert replayable_catalog.content_hash is None
+        assert replayable_catalog.extraction_status is None
+        assert replayable_catalog.extraction_attempted_at is None
+        assert replayable_catalog.extraction_attempt_count is None
+        assert replayable_catalog.extraction_error is None
+        assert replayable_catalog.summary is None
+        assert replayable_catalog.summary_source_hash is None
+        assert replayable_catalog.summary_extractive is None
+        assert replayable_catalog.agenda_items_hash is None
+        assert replayable_catalog.entities is None
+        assert replayable_catalog.entities_source_hash is None
+        assert replayable_catalog.tables is None
+        assert replayable_catalog.topics is None
+        assert replayable_catalog.topics_source_hash is None
+        assert replayable_catalog.agenda_segmentation_status is None
+        assert replayable_catalog.agenda_segmentation_attempted_at is None
+        assert replayable_catalog.agenda_segmentation_item_count is None
+        assert replayable_catalog.agenda_segmentation_error is None
+        assert replayable_catalog.related_ids == [91, 92]
+        assert replayable_catalog.lineage_id == "lineage-1"
+        assert replayable_catalog.lineage_confidence == 0.8
+        assert replayable_catalog.lineage_updated_at is not None
+        assert replayable_catalog.processed is True
+        assert replayable_catalog.url == "https://example.test/agenda.pdf"
+        assert replayable_catalog.location == str(source_path)
+        assert replayable_catalog.filename == "agenda.pdf"
+        assert session.get(Document, replayable_catalog.document.id) is not None
+        assert session.get(Event, event_id).organization_id == 77
+        assert session.get(Catalog, control_id).content == "control content"
+        assert session.query(AgendaItem).count() == 0
+
+    engine.dispose()
+
+
+@pytest.mark.parametrize("invalid_source", ["missing_catalog", "null_location", "missing_path", "directory"])
+def test_extract_preconditioning_rejects_invalid_sources_before_mutation(tmp_path: Path, invalid_source: str):
+    engine = create_engine("sqlite:///:memory:")
+    Base.metadata.create_all(engine)
+    Session = sessionmaker(bind=engine)
+    valid_source = tmp_path / "valid.pdf"
+    valid_source.write_bytes(b"valid source")
+
+    with Session() as session:
+        place = Place(
+            name=f"Demo {invalid_source}",
+            state="CA",
+            ocd_division_id=f"ocd-division/country:us/state:ca/place:demo_{invalid_source}",
+        )
+        session.add(place)
+        session.flush()
+        event = Event(name="Meeting", place_id=place.id)
+        session.add(event)
+        session.flush()
+        valid_target = Catalog(
+            url_hash="valid-target",
+            location=str(valid_source),
+            content="keep valid content",
+            extraction_status="success",
+        )
+        session.add(valid_target)
+        session.flush()
+        session.add(AgendaItem(catalog_id=valid_target.id, event_id=event.id, order=1, title="Keep this item"))
+        valid_target_id = valid_target.id
+        if invalid_source == "missing_catalog":
+            invalid_target_id = valid_target_id + 1000
+        else:
+            invalid_location = {
+                "null_location": None,
+                "missing_path": str(tmp_path / "missing.pdf"),
+                "directory": str(tmp_path),
+            }[invalid_source]
+            invalid_target = Catalog(
+                url_hash=f"invalid-{invalid_source}",
+                location=invalid_location,
+                content="keep invalid content",
+                extraction_status="success",
+            )
+            session.add(invalid_target)
+            session.flush()
+            invalid_target_id = invalid_target.id
+        session.commit()
+
+    with pytest.raises(ValueError, match="extract replay source"):
+        apply_preconditioning(
+            _extract_reset_package([valid_target_id, invalid_target_id]),
+            dry_run=False,
+            session_factory=Session,
+        )
+
+    with Session() as session:
+        valid_target = session.get(Catalog, valid_target_id)
+        assert valid_target.content == "keep valid content"
+        assert valid_target.extraction_status == "success"
+        assert session.query(AgendaItem).filter(AgendaItem.catalog_id == valid_target_id).count() == 1
+        if invalid_source != "missing_catalog":
+            invalid_target = session.get(Catalog, invalid_target_id)
+            assert invalid_target.content == "keep invalid content"
+            assert invalid_target.extraction_status == "success"
+
     engine.dispose()
 
 
