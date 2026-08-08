@@ -32,14 +32,17 @@ def extract_candidates(
     if not ids:
         return []
     rows = (
-        session.query(models.Catalog.id)
+        session.query(models.Catalog.id, models.Catalog.location)
         .join(models.Document, models.Document.catalog_id == models.Catalog.id)
         .filter(models.Catalog.id.in_(ids), models.Document.category == "agenda")
         .order_by(models.Catalog.id)
         .distinct()
         .all()
     )
-    return [{"catalog_id": int(row[0])} for row in rows]
+    return [
+        {"catalog_id": int(catalog_id), "source_location": str(location) if location is not None else ""}
+        for catalog_id, location in rows
+    ]
 
 
 def segment_reset_candidates(

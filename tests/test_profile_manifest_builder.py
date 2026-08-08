@@ -10,7 +10,7 @@ import pytest
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 
-from pipeline import profile_manifest
+from pipeline import profile_manifest, profile_manifest_candidates
 from pipeline.models import AgendaItem, Base, Catalog, Document, Event, Place
 from pipeline.profile_manifest_preconditioning import apply_preconditioning
 
@@ -23,12 +23,13 @@ V2_JSON_PATH = Path("profiling/manifests/baseline_representative_v2.json")
 V2_TEXT_PATH = Path("profiling/manifests/baseline_representative_v2.txt")
 
 
-def _extract_reset_package(catalog_ids: list[int]) -> dict[str, object]:
+def _extract_reset_package(catalog_ids: list[int], source_digests: dict[int, str]) -> dict[str, object]:
     return {
-        "schema_version": 2,
+        "schema_version": 3,
         "manifest_name": "extract_replay",
         "catalog_ids": catalog_ids,
         "strata": {"extract": catalog_ids, "segment": [], "summary": [], "entity": [], "org": []},
+        "extract_source_sha256": {str(catalog_id): source_digests[catalog_id] for catalog_id in catalog_ids},
         "org_event_resets": [],
         "expected_phase_coverage": {"extract": len(catalog_ids), "segment": 0, "summary": 0, "entity": 0, "org": 0},
     }
@@ -88,13 +89,22 @@ def test_profile_manifest_implementation_modules_do_not_import_facade():
     assert offenders == []
 
 
-def test_build_manifest_package_honors_phase_quotas(monkeypatch):
+def test_build_manifest_package_honors_phase_quotas(monkeypatch, tmp_path: Path):
     @contextmanager
     def fake_db_session():
         yield object()
 
+    selected_source = tmp_path / "selected.pdf"
+    selected_source.write_bytes(b"selected source")
     monkeypatch.setattr(profile_manifest, "db_session", fake_db_session)
-    monkeypatch.setattr(profile_manifest, "_extract_candidates", lambda session: [{"catalog_id": 1}, {"catalog_id": 2}])
+    monkeypatch.setattr(
+        profile_manifest,
+        "_extract_candidates",
+        lambda session: [
+            {"catalog_id": 1, "source_location": str(selected_source)},
+            {"catalog_id": 2, "source_location": str(tmp_path / "unselected-missing.pdf")},
+        ],
+    )
     monkeypatch.setattr(profile_manifest, "_segment_reset_candidates", lambda session: [{"catalog_id": 3}, {"catalog_id": 4}])
     monkeypatch.setattr(profile_manifest, "_summary_reset_candidates", lambda session: [{"catalog_id": 5}, {"catalog_id": 6}])
     monkeypatch.setattr(profile_manifest, "_entity_reset_candidates", lambda session: [{"catalog_id": 7}, {"catalog_id": 8}])
@@ -105,12 +115,42 @@ def test_build_manifest_package_honors_phase_quotas(monkeypatch):
         quotas={"extract": 1, "segment": 1, "summary": 1, "entity": 1, "org": 1},
     )
 
-    assert package["schema_version"] == 2
+    assert package["schema_version"] == 3
     assert package["catalog_ids"] == [1, 3, 5, 7, 9]
     assert set(package["strata"]) == {"extract", "segment", "summary", "entity", "org"}
     assert package["org_event_resets"] == [{"catalog_id": 9, "event_id": 90}]
     assert package["expected_phase_coverage"]["entity"] == 1
+    assert package["extract_source_sha256"] == {"1": hashlib.sha256(b"selected source").hexdigest()}
     assert "people_reset_names" not in package
+
+
+def test_extract_candidates_include_archived_source_location(tmp_path: Path):
+    engine = create_engine("sqlite:///:memory:")
+    Base.metadata.create_all(engine)
+    Session = sessionmaker(bind=engine)
+    source_path = tmp_path / "agenda.pdf"
+
+    with Session() as session:
+        place = Place(name="Demo", state="CA", ocd_division_id="ocd-division/country:us/state:ca/place:demo")
+        session.add(place)
+        session.flush()
+        event = Event(name="Meeting", place_id=place.id)
+        session.add(event)
+        session.flush()
+        catalog = Catalog(url_hash="extract-candidate", location=str(source_path))
+        session.add(catalog)
+        session.flush()
+        session.add(Document(catalog_id=catalog.id, event_id=event.id, place_id=place.id, category="agenda"))
+        catalog_id = catalog.id
+        session.commit()
+
+        candidates = profile_manifest_candidates.extract_candidates(
+            session,
+            processing_selector=lambda _session: [catalog_id],
+        )
+
+    assert candidates == [{"catalog_id": catalog_id, "source_location": str(source_path)}]
+    engine.dispose()
 
 
 def test_build_manifest_package_rejects_retired_phase_quota():
@@ -157,7 +197,7 @@ def test_apply_preconditioning_mutates_only_selected_rows():
             db.close()
 
     package = {
-        "schema_version": 2,
+        "schema_version": 3,
         "manifest_name": "demo",
         "catalog_ids": [catalog_id],
         "strata": {
@@ -167,6 +207,7 @@ def test_apply_preconditioning_mutates_only_selected_rows():
             "entity": [catalog_id],
             "org": [catalog_id],
         },
+        "extract_source_sha256": {},
         "org_event_resets": [{"catalog_id": catalog_id, "event_id": event_id}],
         "expected_phase_coverage": {"extract": 0, "segment": 1, "summary": 0, "entity": 1, "org": 1},
     }
@@ -200,12 +241,16 @@ def test_apply_preconditioning_mutates_only_selected_rows():
     engine.dispose()
 
 
-def test_extract_preconditioning_restores_replayable_catalog_and_preserves_source_records(tmp_path: Path):
+@pytest.mark.parametrize("source_bytes", [b"archived source", b""])
+def test_extract_preconditioning_restores_replayable_catalog_and_preserves_source_records(
+    tmp_path: Path,
+    source_bytes: bytes,
+):
     engine = create_engine("sqlite:///:memory:")
     Base.metadata.create_all(engine)
     Session = sessionmaker(bind=engine)
     source_path = tmp_path / "agenda.pdf"
-    source_path.write_bytes(b"archived source")
+    source_path.write_bytes(source_bytes)
 
     with Session() as session:
         place = Place(name="Demo", state="CA", ocd_division_id="ocd-division/country:us/state:ca/place:demo")
@@ -255,7 +300,7 @@ def test_extract_preconditioning_restores_replayable_catalog_and_preserves_sourc
         session.commit()
 
     preconditioning = apply_preconditioning(
-        _extract_reset_package([target_id]),
+        _extract_reset_package([target_id], {target_id: hashlib.sha256(source_bytes).hexdigest()}),
         dry_run=False,
         session_factory=Session,
     )
@@ -306,7 +351,10 @@ def test_extract_preconditioning_restores_replayable_catalog_and_preserves_sourc
     engine.dispose()
 
 
-@pytest.mark.parametrize("invalid_source", ["missing_catalog", "null_location", "missing_path", "directory"])
+@pytest.mark.parametrize(
+    "invalid_source",
+    ["missing_catalog", "null_location", "missing_path", "directory", "modified_bytes"],
+)
 def test_extract_preconditioning_rejects_invalid_sources_before_mutation(tmp_path: Path, invalid_source: str):
     engine = create_engine("sqlite:///:memory:")
     Base.metadata.create_all(engine)
@@ -338,10 +386,14 @@ def test_extract_preconditioning_rejects_invalid_sources_before_mutation(tmp_pat
         if invalid_source == "missing_catalog":
             invalid_target_id = valid_target_id + 1000
         else:
+            modified_source = tmp_path / "modified.pdf"
+            if invalid_source == "modified_bytes":
+                modified_source.write_bytes(b"before")
             invalid_location = {
                 "null_location": None,
                 "missing_path": str(tmp_path / "missing.pdf"),
                 "directory": str(tmp_path),
+                "modified_bytes": str(modified_source),
             }[invalid_source]
             invalid_target = Catalog(
                 url_hash=f"invalid-{invalid_source}",
@@ -354,9 +406,16 @@ def test_extract_preconditioning_rejects_invalid_sources_before_mutation(tmp_pat
             invalid_target_id = invalid_target.id
         session.commit()
 
+    source_digests = {
+        valid_target_id: hashlib.sha256(b"valid source").hexdigest(),
+        invalid_target_id: hashlib.sha256(b"before").hexdigest() if invalid_source == "modified_bytes" else "0" * 64,
+    }
+    if invalid_source == "modified_bytes":
+        modified_source.write_bytes(b"after!")
+
     with pytest.raises(ValueError, match="extract replay source"):
         apply_preconditioning(
-            _extract_reset_package([valid_target_id, invalid_target_id]),
+            _extract_reset_package([valid_target_id, invalid_target_id], source_digests),
             dry_run=False,
             session_factory=Session,
         )
@@ -374,16 +433,43 @@ def test_extract_preconditioning_rejects_invalid_sources_before_mutation(tmp_pat
     engine.dispose()
 
 
-def test_build_profile_manifest_script_writes_schema_v2_package(tmp_path: Path):
+def test_extract_preconditioning_dry_run_rejects_modified_source_bytes(tmp_path: Path):
+    engine = create_engine("sqlite:///:memory:")
+    Base.metadata.create_all(engine)
+    Session = sessionmaker(bind=engine)
+    source_path = tmp_path / "agenda.pdf"
+    source_path.write_bytes(b"before")
+
+    with Session() as session:
+        catalog = Catalog(url_hash="dry-run-target", location=str(source_path), content="keep content")
+        session.add(catalog)
+        session.flush()
+        catalog_id = catalog.id
+        session.commit()
+
+    package = _extract_reset_package([catalog_id], {catalog_id: hashlib.sha256(b"before").hexdigest()})
+    source_path.write_bytes(b"after!")
+
+    with pytest.raises(ValueError, match="digest mismatch"):
+        apply_preconditioning(package, dry_run=True, session_factory=Session)
+
+    with Session() as session:
+        assert session.get(Catalog, catalog_id).content == "keep content"
+
+    engine.dispose()
+
+
+def test_build_profile_manifest_script_writes_schema_v3_package(tmp_path: Path):
     spec = importlib.util.spec_from_file_location("build_profile_manifest", Path("scripts/build_profile_manifest.py"))
     mod = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(mod)
     package = {
-        "schema_version": 2,
+        "schema_version": 3,
         "manifest_name": "baseline_demo",
         "catalog_ids": [11, 12],
         "phase_candidates": {"extract": 10, "segment": 10, "summary": 10, "entity": 10, "org": 10},
         "strata": {"extract": [11], "segment": [12], "summary": [], "entity": [], "org": []},
+        "extract_source_sha256": {"11": "a" * 64},
         "expected_phase_coverage": {"extract": 1, "segment": 1, "summary": 0, "entity": 0, "org": 0},
     }
 
@@ -393,7 +479,7 @@ def test_build_profile_manifest_script_writes_schema_v2_package(tmp_path: Path):
     assert exit_code == 0
     assert (tmp_path / "baseline_demo.txt").read_text(encoding="utf-8") == "11\n12\n"
     written_sidecar = json.loads((tmp_path / "baseline_demo.json").read_text(encoding="utf-8"))
-    assert written_sidecar["schema_version"] == 2
+    assert written_sidecar["schema_version"] == 3
 
 
 def test_build_profile_manifest_cli_rejects_people_quota():
@@ -405,18 +491,40 @@ def test_build_profile_manifest_cli_rejects_people_quota():
         mod.parse_args(["--name", "baseline_demo", "--people-quota", "4"])
 
 
-def test_validate_manifest_package_rejects_schema_v1():
-    package = {"schema_version": 1, "catalog_ids": [1, 2]}
+@pytest.mark.parametrize("old_schema_version", [1, 2])
+def test_validate_manifest_package_rejects_old_schema_versions(old_schema_version: int):
+    package = {"schema_version": old_schema_version, "catalog_ids": [1, 2]}
 
     with pytest.raises(ValueError, match="unsupported manifest package schema_version"):
         profile_manifest.validate_manifest_package([1, 2], package)
 
 
 def test_validate_manifest_package_rejects_mismatched_ids():
-    package = {"schema_version": 2, "catalog_ids": [1, 3]}
+    package = {"schema_version": 3, "catalog_ids": [1, 3]}
 
     with pytest.raises(ValueError, match="do not match"):
         profile_manifest.validate_manifest_package([1, 2], package)
+
+
+@pytest.mark.parametrize(
+    "source_digests",
+    [
+        {},
+        {"1": "a" * 64, "2": "b" * 64},
+        {"1": "A" * 64},
+        {"1": "not-a-sha256"},
+    ],
+)
+def test_validate_manifest_package_rejects_invalid_extract_source_digests(source_digests: dict[str, str]):
+    package = {
+        "schema_version": 3,
+        "catalog_ids": [1],
+        "strata": {"extract": [1], "segment": [], "summary": [], "entity": [], "org": []},
+        "extract_source_sha256": source_digests,
+    }
+
+    with pytest.raises(ValueError, match="extract_source_sha256"):
+        profile_manifest.validate_manifest_package([1], package)
 
 
 def test_baseline_v1_is_immutable_and_v2_uses_its_own_workload_contract():
@@ -431,7 +539,7 @@ def test_baseline_v1_is_immutable_and_v2_uses_its_own_workload_contract():
     assert len(v2_ids) == 30
     assert len(set(v2_ids)) == 30
     assert set(v2_ids) != set(v1_ids)
-    assert v2_package["schema_version"] == 2
+    assert v2_package["schema_version"] == 3
     assert v2_package["catalog_ids"] == v2_ids
     assert v2_package["phase_quotas"] == {"extract": 8, "segment": 6, "summary": 6, "entity": 8, "org": 2}
     assert {phase: len(catalog_ids) for phase, catalog_ids in v2_strata.items()} == v2_package[
@@ -440,6 +548,11 @@ def test_baseline_v1_is_immutable_and_v2_uses_its_own_workload_contract():
     assert set().union(*(set(catalog_ids) for catalog_ids in v2_strata.values())) == set(v2_ids)
     assert v2_package["phase_candidates"]["extract"] == 8
     assert v2_package["expected_phase_coverage"] == v2_package["phase_quotas"]
+    assert set(v2_package["extract_source_sha256"]) == {str(catalog_id) for catalog_id in v2_strata["extract"]}
+    assert all(
+        len(source_digest) == 64 and source_digest == source_digest.lower()
+        for source_digest in v2_package["extract_source_sha256"].values()
+    )
     assert v2_package["safety"]["org_reset_requires_single_document_event"] is True
     assert [reset["catalog_id"] for reset in v2_package["org_event_resets"]] == v2_strata["org"]
     assert len({reset["event_id"] for reset in v2_package["org_event_resets"]}) == 2

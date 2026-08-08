@@ -111,20 +111,24 @@ def run_profile(args: Any, deps: ProfilePipelineDeps) -> int:
     deps.write_catalog_manifest(manifest_copy, catalog_ids)
     if manifest_package is not None:
         deps.write_json(sidecar_path_for_manifest(manifest_copy), manifest_package)
-    provider_counters_before_run = deps.provider_counters_before_run()
     manifest_rel = deps.path_for_profile_env(manifest_copy)
     command_log = run_dir / "commands.log"
-    if manifest_package is not None:
-        deps.run_db_migrate_via_docker(log_path=command_log)
-        deps.run_backfill_catalog_hashes_via_docker(manifest_rel=manifest_rel, log_path=command_log)
+    preparation_check = (
+        deps.prepare_manifest_package_via_docker(manifest_rel, dry_run=True)
+        if manifest_package is not None
+        else None
+    )
     if args.dry_run_prepare:
         if args.mode != "baseline":
             raise SystemExit("--dry-run-prepare is only supported for baseline mode")
         if manifest_package is None:
             raise SystemExit("--dry-run-prepare requires a manifest package sidecar (.json)")
-        prepare_summary = deps.prepare_manifest_package_via_docker(manifest_rel, dry_run=True)
-        print(json.dumps(prepare_summary, indent=2, sort_keys=True))
+        print(json.dumps(preparation_check, indent=2, sort_keys=True))
         return 0
+    provider_counters_before_run = deps.provider_counters_before_run()
+    if manifest_package is not None:
+        deps.run_db_migrate_via_docker(log_path=command_log)
+        deps.run_backfill_catalog_hashes_via_docker(manifest_rel=manifest_rel, log_path=command_log)
 
     run_manifest = write_run_manifest(
         write_json=deps.write_json,

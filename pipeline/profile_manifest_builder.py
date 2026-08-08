@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from collections.abc import Callable
+from pathlib import Path
 
 from pipeline.profile_manifest_contracts import (
     CandidateLoader,
@@ -16,6 +17,7 @@ from pipeline.profile_manifest_contracts import (
     PROFILE_MANIFEST_PHASES,
     SessionFactory,
 )
+from pipeline.profile_manifest_io import sha256_file
 
 
 def build_manifest_package(
@@ -126,6 +128,7 @@ def _build_package_payload(
             phase: [int(candidate["catalog_id"]) for candidate in picked_by_phase[phase]]
             for phase in PROFILE_MANIFEST_PHASES
         },
+        "extract_source_sha256": _extract_source_sha256(picked_by_phase[PHASE_EXTRACT]),
         "org_event_resets": [
             {"catalog_id": int(candidate["catalog_id"]), "event_id": int(candidate["event_id"])}
             for candidate in picked_by_phase[PHASE_ORG]
@@ -141,3 +144,15 @@ def _build_package_payload(
             "org_reset_requires_single_document_event": True,
         },
     }
+
+
+def _extract_source_sha256(extract_candidates: list[ManifestCandidate]) -> dict[str, str]:
+    source_digests: dict[str, str] = {}
+    for candidate in extract_candidates:
+        catalog_id = int(candidate["catalog_id"])
+        source_location = candidate.get("source_location")
+        source_path = Path(source_location) if source_location else None
+        if source_path is None or not source_path.is_file():
+            raise ValueError(f"extract source is not a regular file for catalog_id={catalog_id}")
+        source_digests[str(catalog_id)] = sha256_file(source_path)
+    return source_digests

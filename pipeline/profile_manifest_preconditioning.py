@@ -14,6 +14,7 @@ from pipeline.profile_manifest_contracts import (
     OrmSession,
     SessionFactory,
 )
+from pipeline.profile_manifest_io import extract_source_digests, sha256_file
 
 
 def _models() -> Any:
@@ -48,12 +49,11 @@ def apply_preconditioning(
 ) -> JsonPayload:
     report = preconditioning_report(package)
     applied = _empty_applied_counts()
-    if dry_run:
-        return {"dry_run": True, "report": report, "applied": applied}
-
     reset_plan = _build_reset_plan(package)
     with session_factory() as session:
-        _validate_extract_sources(session, reset_plan.extract_ids)
+        _validate_extract_sources(session, reset_plan.extract_ids, extract_source_digests(package))
+        if dry_run:
+            return {"dry_run": True, "report": report, "applied": applied}
         agenda_item_catalog_ids = sorted(set(reset_plan.extract_ids + reset_plan.segment_ids))
         if agenda_item_catalog_ids:
             applied["deleted_agenda_items"] = _delete_agenda_items(session, agenda_item_catalog_ids)
@@ -117,7 +117,11 @@ def _empty_applied_counts() -> AppliedPreconditioningCounts:
     }
 
 
-def _validate_extract_sources(session: OrmSession, extract_ids: list[int]) -> None:
+def _validate_extract_sources(
+    session: OrmSession,
+    extract_ids: list[int],
+    expected_digests: dict[str, str],
+) -> None:
     if not extract_ids:
         return
 
@@ -130,8 +134,11 @@ def _validate_extract_sources(session: OrmSession, extract_ids: list[int]) -> No
     }
     for catalog_id in extract_ids:
         location = source_locations.get(catalog_id)
-        if location is None or not Path(str(location)).is_file():
+        source_path = Path(str(location)) if location is not None else None
+        if source_path is None or not source_path.is_file():
             raise ValueError(f"extract replay source is not a regular file for catalog_id={catalog_id}")
+        if sha256_file(source_path) != expected_digests[str(catalog_id)]:
+            raise ValueError(f"extract replay source digest mismatch for catalog_id={catalog_id}")
 
 
 def _delete_agenda_items(session: OrmSession, catalog_ids: list[int]) -> int:
