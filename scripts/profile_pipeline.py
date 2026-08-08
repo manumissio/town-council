@@ -172,6 +172,11 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser.add_argument("--api-url", default="http://localhost:8000")
     parser.add_argument("--skip-batch", action="store_true")
     parser.add_argument("--dry-run-prepare", action="store_true")
+    parser.add_argument(
+        "--diagnostic",
+        action="store_true",
+        help="Run a pinned baseline workload without marking its evidence as baseline-valid.",
+    )
     parser.add_argument("--compare-to", default=None)
     return parser.parse_args(argv)
 

@@ -103,6 +103,7 @@ def test_profile_run_manifest_writer_preserves_manifest_package_and_profile_env(
         run_dir=tmp_path,
         run_id="profile_run",
         mode="baseline",
+        baseline_valid=True,
         city="san_mateo",
         include_batch=True,
         catalog_ids=[101, 102],
@@ -147,6 +148,7 @@ def test_profile_command_helpers_preserve_env_and_docker_command(monkeypatch):
         run_id="profile_run",
         artifact_dir_rel="experiments/results/profile_run",
         manifest_rel="experiments/results/profile_run/catalog_manifest.txt",
+        baseline_valid=True,
     )
 
     assert env["UNRELATED_OPERATOR_SETTING"] == "kept"

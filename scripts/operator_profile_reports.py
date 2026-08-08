@@ -92,6 +92,7 @@ def render_report(summary: dict[str, Any]) -> str:
         f"# Pipeline Profile: {summary.get('run_id')}",
         "",
         f"- mode: `{summary.get('mode')}`",
+        f"- baseline_valid: `{summary.get('baseline_valid')}`",
         f"- catalog_count: `{summary.get('catalog_count')}`",
         f"- elapsed_seconds: `{summary.get('elapsed_seconds')}`",
         f"- confidence: `{summary.get('confidence')}`",

@@ -91,6 +91,9 @@ def _run_post_processors(args: Any, deps: ProfilePipelineDeps, run_id: str, outp
 def run_profile(args: Any, deps: ProfilePipelineDeps) -> int:
     if args.mode == "baseline" and not args.manifest:
         raise SystemExit("--manifest is required for baseline mode")
+    if args.diagnostic and args.mode != "baseline":
+        raise SystemExit("--diagnostic is only supported for baseline mode")
+    baseline_valid = args.mode == "baseline" and not args.diagnostic
     run_id = args.run_id or f"pipeline_profile_{args.mode}_{datetime.now(timezone.utc).strftime('%Y%m%d_%H%M%S')}"
     output_root = Path(args.output_dir)
     if not output_root.is_absolute():
@@ -129,6 +132,7 @@ def run_profile(args: Any, deps: ProfilePipelineDeps) -> int:
         run_dir=run_dir,
         run_id=run_id,
         mode=args.mode,
+        baseline_valid=baseline_valid,
         city=args.city,
         include_batch=not args.skip_batch,
         catalog_ids=catalog_ids,
@@ -140,7 +144,7 @@ def run_profile(args: Any, deps: ProfilePipelineDeps) -> int:
         run_id=run_id,
         mode=args.mode,
         artifact_dir=artifact_dir_rel,
-        baseline_valid=args.mode == "baseline",
+        baseline_valid=baseline_valid,
         manifest_path=manifest_rel,
     )
     commands = build_profile_commands(
@@ -150,6 +154,7 @@ def run_profile(args: Any, deps: ProfilePipelineDeps) -> int:
         run_id=run_id,
         artifact_dir_rel=artifact_dir_rel,
         manifest_rel=manifest_rel,
+        baseline_valid=baseline_valid,
     )
     started = time.perf_counter()
     started_at = deps.utc_now_iso()
