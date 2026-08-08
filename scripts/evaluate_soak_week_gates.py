@@ -38,6 +38,7 @@ class SoakEvidence:
     degraded_telemetry_days: int = 0
     queue_proxy_capped_used_days: int = 0
     baseline_artifact_days: int = 0
+    non_baseline_days: int = 0
     evidence_quality_reasons: set[str] = field(default_factory=set)
 
 
@@ -56,7 +57,10 @@ def evaluate_soak_window(root: Path, *, window_days: int, search_baseline_ms: fl
 def _record_soak_day(evidence: SoakEvidence, row: dict[str, Any]) -> None:
     day = row["data"]
     run_deltas = _provider_run_deltas(day)
-    if run_deltas["present"]:
+    baseline_valid = day.get("baseline_valid") is True
+    if not baseline_valid:
+        evidence.non_baseline_days += 1
+    if run_deltas["present"] and baseline_valid:
         evidence.baseline_artifact_days += 1
     timeout_rate_delta = _record_provider_timeout_rate(evidence, run_deltas)
     gating_failures = safe_int(day.get("gating_failures"))
@@ -160,6 +164,7 @@ def _day_payload(
         "run_id": row["run_id"],
         "date": datetime.fromtimestamp(row["ts"]).strftime("%Y-%m-%d"),
         "status": day.get("status"),
+        "baseline_valid": day.get("baseline_valid") is True,
         "extract_failures": extract_failures,
         "segment_failures": safe_int(day.get("segment_failures")),
         "summarize_failures": safe_int(day.get("summarize_failures")),
@@ -205,6 +210,9 @@ def _gate_payload(
 
 
 def _provider_timeout_gate(evidence: SoakEvidence, window_days: int) -> tuple[bool, str, str]:
+    if evidence.non_baseline_days > 0:
+        evidence.evidence_quality_reasons.add("baseline_contaminated")
+        return False, GATE_INCONCLUSIVE, "non_baseline_artifact_days"
     if evidence.timeout_rate_days and evidence.baseline_artifact_days == window_days:
         passed = all(rate < PROVIDER_TIMEOUT_RATE_LIMIT for rate in evidence.timeout_rate_days)
         return passed, status_from_bool(passed), "ok" if passed else "timeout_rate_threshold_exceeded"

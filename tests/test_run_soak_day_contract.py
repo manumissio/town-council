@@ -35,6 +35,11 @@ def test_run_soak_day_script_contract():
     assert "task_poll_timeouts" in text
     assert "phase_duration_p95_s_capped" in text
     assert "run_manifest.json" in text
+    assert '"baseline_valid": False' in text
+    baseline_promotion = 'manifest["baseline_valid"] = True'
+    gating_failure_exit = 'if [[ "$gating_failures" -gt 0 ]]; then'
+    assert baseline_promotion in text
+    assert text.index(gating_failure_exit) < text.index(baseline_promotion)
     assert "provider_counters_before_run" in text
     assert "provider_counters_before_run_source" in text
     assert "zero_baseline_no_provider_series" in text

@@ -25,6 +25,7 @@ def profile_command(
     mode: str,
     artifact_dir_rel: str,
     manifest_rel: str,
+    baseline_valid: bool,
 ) -> list[str]:
     return [
         "docker",
@@ -38,7 +39,7 @@ def profile_command(
         "-e",
         f"TC_PROFILE_ARTIFACT_DIR={artifact_dir_rel}",
         "-e",
-        f"TC_PROFILE_BASELINE_VALID={'1' if mode == 'baseline' else '0'}",
+        f"TC_PROFILE_BASELINE_VALID={'1' if baseline_valid else '0'}",
         "-e",
         f"TC_PROFILE_CATALOG_MANIFEST={manifest_rel}",
         "-e",
@@ -59,6 +60,7 @@ def build_profile_commands(
     run_id: str,
     artifact_dir_rel: str,
     manifest_rel: str,
+    baseline_valid: bool,
 ) -> list[list[str]]:
     commands = [
         profile_command(
@@ -68,6 +70,7 @@ def build_profile_commands(
             mode=args.mode,
             artifact_dir_rel=artifact_dir_rel,
             manifest_rel=manifest_rel,
+            baseline_valid=baseline_valid,
         )
     ]
     if not args.skip_batch:
@@ -79,6 +82,7 @@ def build_profile_commands(
                 mode=args.mode,
                 artifact_dir_rel=artifact_dir_rel,
                 manifest_rel=manifest_rel,
+                baseline_valid=baseline_valid,
             )
         )
     return commands

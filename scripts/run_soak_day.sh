@@ -80,6 +80,7 @@ def _env_int(name: str, default: int | None = None) -> int | None:
 
 manifest = {
     "run_id": run_id,
+    "baseline_valid": False,
     "catalog_file": catalog_file,
     "catalog_ids": catalog_ids,
     "catalog_count": len(catalog_ids),
@@ -525,5 +526,16 @@ if [[ "$gating_failures" -gt 0 ]]; then
   echo "run completed with gating_failures=$gating_failures"
   exit 1
 fi
+
+python3 - <<'PY' "$RUN_MANIFEST_JSON"
+import json
+import sys
+from pathlib import Path
+
+manifest_path = Path(sys.argv[1])
+manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+manifest["baseline_valid"] = True
+manifest_path.write_text(json.dumps(manifest, indent=2), encoding="utf-8")
+PY
 
 echo "run completed successfully: $RUN_ID"

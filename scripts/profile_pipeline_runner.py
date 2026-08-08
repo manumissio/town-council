@@ -91,6 +91,9 @@ def _run_post_processors(args: Any, deps: ProfilePipelineDeps, run_id: str, outp
 def run_profile(args: Any, deps: ProfilePipelineDeps) -> int:
     if args.mode == "baseline" and not args.manifest:
         raise SystemExit("--manifest is required for baseline mode")
+    if args.diagnostic and args.mode != "baseline":
+        raise SystemExit("--diagnostic is only supported for baseline mode")
+    baseline_valid = args.mode == "baseline" and not args.diagnostic
     run_id = args.run_id or f"pipeline_profile_{args.mode}_{datetime.now(timezone.utc).strftime('%Y%m%d_%H%M%S')}"
     output_root = Path(args.output_dir)
     if not output_root.is_absolute():
@@ -113,7 +116,7 @@ def run_profile(args: Any, deps: ProfilePipelineDeps) -> int:
     command_log = run_dir / "commands.log"
     if manifest_package is not None:
         deps.run_db_migrate_via_docker(log_path=command_log)
-        deps.run_backfill_catalog_hashes_via_docker(log_path=command_log)
+        deps.run_backfill_catalog_hashes_via_docker(manifest_rel=manifest_rel, log_path=command_log)
     if args.dry_run_prepare:
         if args.mode != "baseline":
             raise SystemExit("--dry-run-prepare is only supported for baseline mode")
@@ -129,6 +132,7 @@ def run_profile(args: Any, deps: ProfilePipelineDeps) -> int:
         run_dir=run_dir,
         run_id=run_id,
         mode=args.mode,
+        baseline_valid=baseline_valid,
         city=args.city,
         include_batch=not args.skip_batch,
         catalog_ids=catalog_ids,
@@ -140,7 +144,7 @@ def run_profile(args: Any, deps: ProfilePipelineDeps) -> int:
         run_id=run_id,
         mode=args.mode,
         artifact_dir=artifact_dir_rel,
-        baseline_valid=args.mode == "baseline",
+        baseline_valid=baseline_valid,
         manifest_path=manifest_rel,
     )
     commands = build_profile_commands(
@@ -150,6 +154,7 @@ def run_profile(args: Any, deps: ProfilePipelineDeps) -> int:
         run_id=run_id,
         artifact_dir_rel=artifact_dir_rel,
         manifest_rel=manifest_rel,
+        baseline_valid=baseline_valid,
     )
     started = time.perf_counter()
     started_at = deps.utc_now_iso()
@@ -177,6 +182,7 @@ def run_profile(args: Any, deps: ProfilePipelineDeps) -> int:
             run_dir,
             run_id,
             status="commands_completed",
+            baseline_valid=baseline_valid,
             started_at=started_at,
             started=started,
             include_batch=not args.skip_batch,
@@ -202,6 +208,7 @@ def run_profile(args: Any, deps: ProfilePipelineDeps) -> int:
             run_dir,
             run_id,
             status=status,
+            baseline_valid=baseline_valid,
             started_at=started_at,
             started=started,
             include_batch=not args.skip_batch,
@@ -218,6 +225,7 @@ def _write_result(
     run_id: str,
     *,
     status: str,
+    baseline_valid: bool,
     started_at: str,
     started: float,
     include_batch: bool,
@@ -232,6 +240,7 @@ def _write_result(
         run_dir=run_dir,
         run_id=run_id,
         status=status,
+        baseline_valid=baseline_valid,
         started_at=started_at,
         started=started,
         include_batch=include_batch,

@@ -81,24 +81,28 @@ def selected_catalog_ids() -> set[int] | None:
         return cached_ids
 
     manifest_path = _resolve_path(manifest_key)
+    if manifest_path is None or not manifest_path.is_file():
+        raise FileNotFoundError(f"profile catalog manifest does not exist: {manifest_key}")
     ids: set[int] = set()
-    if manifest_path and manifest_path.exists():
-        for raw_line in manifest_path.read_text(encoding="utf-8").splitlines():
-            line = raw_line.split("#", 1)[0].strip()
-            if not line:
-                continue
-            try:
-                ids.add(int(line))
-            except ValueError:
-                continue
-    resolved = ids or None
-    _SELECTED_IDS_CACHE = (manifest_key, resolved)
-    return resolved
+    for line_number, raw_line in enumerate(manifest_path.read_text(encoding="utf-8").splitlines(), start=1):
+        line = raw_line.split("#", 1)[0].strip()
+        if not line:
+            continue
+        try:
+            ids.add(int(line))
+        except ValueError as error:
+            raise ValueError(
+                f"invalid catalog id in profile manifest {manifest_path} at line {line_number}: {line!r}"
+            ) from error
+    if not ids:
+        raise ValueError(f"profile catalog manifest contains no catalog ids: {manifest_path}")
+    _SELECTED_IDS_CACHE = (manifest_key, ids)
+    return ids
 
 
 def apply_catalog_id_scope(query: QueryT, catalog_id_column: CatalogIdPredicate) -> QueryT:
     ids = selected_catalog_ids()
-    if not ids:
+    if ids is None:
         return query
     return query.filter(catalog_id_column.in_(sorted(ids)))
 
