@@ -506,6 +506,21 @@ def test_validate_manifest_package_rejects_mismatched_ids():
         profile_manifest.validate_manifest_package([1, 2], package)
 
 
+@pytest.mark.parametrize("phase", ["extract", "segment", "summary", "entity", "org"])
+def test_validate_manifest_package_rejects_stratum_ids_outside_workload(phase: str):
+    strata = {name: [] for name in ("extract", "segment", "summary", "entity", "org")}
+    strata[phase] = [2]
+    package = {
+        "schema_version": 3,
+        "catalog_ids": [1],
+        "strata": strata,
+        "extract_source_sha256": {"2": "a" * 64} if phase == "extract" else {},
+    }
+
+    with pytest.raises(ValueError, match="strata contain catalog_ids outside manifest workload"):
+        profile_manifest.validate_manifest_package([1], package)
+
+
 @pytest.mark.parametrize(
     "source_digests",
     [

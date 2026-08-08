@@ -49,4 +49,11 @@ def validate_manifest_package(catalog_ids: list[int], package: JsonPayload) -> N
     package_ids = [int(cid) for cid in package.get("catalog_ids") or []]
     if package_ids != [int(cid) for cid in catalog_ids]:
         raise ValueError("manifest package catalog_ids do not match manifest text file")
+    stratum_ids = {
+        int(catalog_id)
+        for phase_catalog_ids in (package.get("strata") or {}).values()
+        for catalog_id in phase_catalog_ids
+    }
+    if not stratum_ids.issubset(package_ids):
+        raise ValueError("manifest package strata contain catalog_ids outside manifest workload")
     extract_source_digests(package)
