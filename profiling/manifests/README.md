@@ -25,5 +25,5 @@ Rules:
 
 Baseline lifecycle:
 - `baseline_representative_v1` is immutable historical evidence. Its schema includes the retired document-derived people phase, so active preparation rejects it as non-comparable.
-- `baseline_representative_v2` is the active capture candidate. It keeps the same 30 catalog IDs, removes the retired phase, and assigns eight catalogs to entity enrichment.
+- `baseline_representative_v2` is the active capture candidate. It uses a distinct 30-catalog workload regenerated from a fresh local corpus, excludes the retired phase, and assigns eight catalogs to entity enrichment.
 - City Coverage Expansion and baseline promotion remain blocked until v2 produces a baseline-valid capture and a separate expected-baseline PR is reviewed and merged.

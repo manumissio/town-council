@@ -81,8 +81,9 @@ Use each entry to record:
 - Baseline transition:
   - `baseline_representative_v1` is immutable historical evidence and is
     non-comparable with the roster-gated pipeline.
-  - `baseline_representative_v2` is the new workload contract. Its expected
-    baseline remains pending a separate PR with valid reproduced evidence.
+  - `baseline_representative_v2` is a distinct workload contract regenerated
+    from a fresh local corpus. Its expected baseline remains pending a separate
+    PR with valid reproduced evidence.
   - City Coverage Expansion remains blocked until that expected-baseline PR
     merges.
 - Affected boundaries:
