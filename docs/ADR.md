@@ -8,6 +8,35 @@ Use each entry to record:
 - the affected boundary or contract
 - links to the canonical docs that carry the ongoing operational or architecture detail
 
+## 2026-08-09: Retire profile manifest candidate test seams
+
+- Status: Accepted
+- Decision:
+  - `pipeline/profile_manifest.py` remains the public import boundary for
+    profiling scripts.
+  - Candidate selection is owned and tested in
+    `pipeline/profile_manifest_candidates.py`; the facade no longer re-exports
+    private candidate wrappers, ORM models, or pipeline selectors.
+  - Package assembly is tested through
+    `pipeline.profile_manifest_builder.build_manifest_package`.
+  - `db_session` remains the facade's approved database substitution boundary.
+- Why:
+  - Private wrappers and selector re-exports made historical monkeypatch targets
+    look like runtime contracts.
+  - Direct implementation tests preserve the public profiling interface while
+    keeping candidate policy with its implementation owner.
+- Supersedes:
+  - The test-patching requirement in the 2026-05-05 profile manifest decision.
+  - The facade and module split from that decision remain in effect.
+- Affected boundaries:
+  - Profiling script imports and the database substitution boundary remain
+    unchanged.
+  - Manifest replay now validates package integrity and live candidate
+    eligibility before any selected workload is reset.
+- Canonical references:
+  - [Testing policy](TESTING.MD)
+  - [Performance policy](PERFORMANCE.md)
+
 ## 2026-08-02: Retire Meilisearch SDK compatibility helpers
 
 - Status: Accepted
