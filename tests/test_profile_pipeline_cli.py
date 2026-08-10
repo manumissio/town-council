@@ -122,7 +122,9 @@ def test_profile_pipeline_diagnostic_baseline_is_non_promotional(monkeypatch, tm
                 "catalog_ids": [21],
                 "strata": {"extract": [21], "segment": [], "summary": [], "entity": [], "org": []},
                 "extract_source_sha256": {"21": "a" * 64},
+                "org_event_resets": [],
                 "expected_phase_coverage": {"extract": 1, "segment": 0, "summary": 0, "entity": 0, "org": 0},
+                "safety": {"org_reset_requires_single_document_event": True},
             }
         ),
         encoding="utf-8",

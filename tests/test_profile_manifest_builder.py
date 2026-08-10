@@ -1,5 +1,6 @@
 from contextlib import contextmanager
 import ast
+from copy import deepcopy
 from datetime import UTC, datetime
 import hashlib
 import importlib.util
@@ -10,7 +11,7 @@ import pytest
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 
-from pipeline import profile_manifest, profile_manifest_candidates
+from pipeline import profile_manifest, profile_manifest_builder, profile_manifest_candidates
 from pipeline.models import AgendaItem, Base, Catalog, Document, Event, Place
 from pipeline.profile_manifest_preconditioning import apply_preconditioning
 
@@ -23,6 +24,19 @@ V2_JSON_PATH = Path("profiling/manifests/baseline_representative_v2.json")
 V2_TEXT_PATH = Path("profiling/manifests/baseline_representative_v2.txt")
 
 
+def _valid_manifest_package() -> dict[str, object]:
+    return {
+        "schema_version": 3,
+        "manifest_name": "replay_contract",
+        "catalog_ids": [1, 2, 3, 4, 5],
+        "strata": {"extract": [1], "segment": [2], "summary": [3], "entity": [4], "org": [5]},
+        "extract_source_sha256": {"1": "a" * 64},
+        "org_event_resets": [{"catalog_id": 5, "event_id": 50}],
+        "expected_phase_coverage": {"extract": 1, "segment": 1, "summary": 1, "entity": 1, "org": 1},
+        "safety": {"org_reset_requires_single_document_event": True},
+    }
+
+
 def _extract_reset_package(catalog_ids: list[int], source_digests: dict[int, str]) -> dict[str, object]:
     return {
         "schema_version": 3,
@@ -32,6 +46,7 @@ def _extract_reset_package(catalog_ids: list[int], source_digests: dict[int, str
         "extract_source_sha256": {str(catalog_id): source_digests[catalog_id] for catalog_id in catalog_ids},
         "org_event_resets": [],
         "expected_phase_coverage": {"extract": len(catalog_ids), "segment": 0, "summary": 0, "entity": 0, "org": 0},
+        "safety": {"org_reset_requires_single_document_event": True},
     }
 
 
@@ -46,23 +61,23 @@ def test_profile_manifest_facade_exports_current_contract():
         "build_manifest_package",
         "preconditioning_report",
         "apply_preconditioning",
+        "db_session",
+    ]
+    retired_test_seams = [
         "_extract_candidates",
         "_segment_reset_candidates",
         "_summary_reset_candidates",
         "_entity_reset_candidates",
         "_org_reset_candidates",
-        "db_session",
-        "AgendaItem",
-        "Catalog",
-        "Document",
-        "Event",
         "select_catalog_ids_for_entity_backfill",
         "select_catalog_ids_for_processing",
     ]
 
     missing_names = [name for name in expected_names if not hasattr(profile_manifest, name)]
+    retained_test_seams = [name for name in retired_test_seams if hasattr(profile_manifest, name)]
 
     assert missing_names == []
+    assert retained_test_seams == []
     assert not hasattr(profile_manifest, "_people_reset_candidates")
     assert not hasattr(profile_manifest, "_is_safe_people_reset_name")
 
@@ -89,30 +104,28 @@ def test_profile_manifest_implementation_modules_do_not_import_facade():
     assert offenders == []
 
 
-def test_build_manifest_package_honors_phase_quotas(monkeypatch, tmp_path: Path):
+def test_build_manifest_package_honors_phase_quotas(tmp_path: Path):
     @contextmanager
     def fake_db_session():
         yield object()
 
     selected_source = tmp_path / "selected.pdf"
     selected_source.write_bytes(b"selected source")
-    monkeypatch.setattr(profile_manifest, "db_session", fake_db_session)
-    monkeypatch.setattr(
-        profile_manifest,
-        "_extract_candidates",
-        lambda session: [
-            {"catalog_id": 1, "source_location": str(selected_source)},
-            {"catalog_id": 2, "source_location": str(tmp_path / "unselected-missing.pdf")},
-        ],
-    )
-    monkeypatch.setattr(profile_manifest, "_segment_reset_candidates", lambda session: [{"catalog_id": 3}, {"catalog_id": 4}])
-    monkeypatch.setattr(profile_manifest, "_summary_reset_candidates", lambda session: [{"catalog_id": 5}, {"catalog_id": 6}])
-    monkeypatch.setattr(profile_manifest, "_entity_reset_candidates", lambda session: [{"catalog_id": 7}, {"catalog_id": 8}])
-    monkeypatch.setattr(profile_manifest, "_org_reset_candidates", lambda session: [{"catalog_id": 9, "event_id": 90}])
-
-    package = profile_manifest.build_manifest_package(
+    package = profile_manifest_builder.build_manifest_package(
         "baseline_demo",
         quotas={"extract": 1, "segment": 1, "summary": 1, "entity": 1, "org": 1},
+        session_factory=fake_db_session,
+        candidate_loaders={
+            "extract": lambda session: [
+                {"catalog_id": 1, "source_location": str(selected_source)},
+                {"catalog_id": 2, "source_location": str(tmp_path / "unselected-missing.pdf")},
+            ],
+            "segment": lambda session: [{"catalog_id": 3}, {"catalog_id": 4}],
+            "summary": lambda session: [{"catalog_id": 5}, {"catalog_id": 6}],
+            "entity": lambda session: [{"catalog_id": 7}, {"catalog_id": 8}],
+            "org": lambda session: [{"catalog_id": 9, "event_id": 90}],
+        },
+        generated_at_factory=lambda: "2026-08-09T00:00:00+00:00",
     )
 
     assert package["schema_version"] == 3
@@ -137,19 +150,152 @@ def test_extract_candidates_include_archived_source_location(tmp_path: Path):
         event = Event(name="Meeting", place_id=place.id)
         session.add(event)
         session.flush()
-        catalog = Catalog(url_hash="extract-candidate", location=str(source_path))
-        session.add(catalog)
+        catalog = Catalog(
+            url_hash="extract-candidate",
+            location=str(source_path),
+            content="extracted agenda",
+            extraction_status="complete",
+        )
+        pending_catalog = Catalog(url_hash="extract-pending", location=str(source_path))
+        session.add_all([catalog, pending_catalog])
         session.flush()
         session.add(Document(catalog_id=catalog.id, event_id=event.id, place_id=place.id, category="agenda"))
+        session.add(
+            Document(catalog_id=pending_catalog.id, event_id=event.id, place_id=place.id, category="agenda")
+        )
         catalog_id = catalog.id
         session.commit()
 
-        candidates = profile_manifest_candidates.extract_candidates(
-            session,
-            processing_selector=lambda _session: [catalog_id],
-        )
+        candidates = profile_manifest_candidates.extract_candidates(session)
 
     assert candidates == [{"catalog_id": catalog_id, "source_location": str(source_path)}]
+    engine.dispose()
+
+
+def test_segment_candidates_require_one_completed_agenda_document():
+    engine = create_engine("sqlite:///:memory:")
+    Base.metadata.create_all(engine)
+    Session = sessionmaker(bind=engine)
+
+    with Session() as session:
+        place = Place(name="Demo", state="CA", ocd_division_id="ocd-division/country:us/state:ca/place:demo")
+        session.add(place)
+        session.flush()
+        event = Event(name="Meeting", place_id=place.id)
+        session.add(event)
+        session.flush()
+        eligible = Catalog(
+            url_hash="segment-eligible",
+            content="agenda text",
+            agenda_segmentation_status="complete",
+        )
+        multi_document = Catalog(
+            url_hash="segment-multi-document",
+            content="agenda text",
+            agenda_segmentation_status="complete",
+        )
+        session.add_all([eligible, multi_document])
+        session.flush()
+        session.add(Document(catalog_id=eligible.id, event_id=event.id, place_id=place.id, category="agenda"))
+        session.add_all(
+            [
+                Document(catalog_id=multi_document.id, event_id=event.id, place_id=place.id, category="agenda"),
+                Document(catalog_id=multi_document.id, event_id=event.id, place_id=place.id, category="minutes"),
+            ]
+        )
+        eligible_id = eligible.id
+        session.commit()
+
+        candidates = profile_manifest_candidates.segment_reset_candidates(session)
+
+    assert candidates == [{"catalog_id": eligible_id}]
+    engine.dispose()
+
+
+def test_summary_candidates_use_first_document_kind_and_terminal_empty_agendas():
+    engine = create_engine("sqlite:///:memory:")
+    Base.metadata.create_all(engine)
+    Session = sessionmaker(bind=engine)
+
+    with Session() as session:
+        place = Place(name="Demo", state="CA", ocd_division_id="ocd-division/country:us/state:ca/place:demo")
+        session.add(place)
+        session.flush()
+        event = Event(name="Meeting", place_id=place.id)
+        session.add(event)
+        session.flush()
+        agenda_without_items = Catalog(url_hash="agenda-no-items", content="agenda", summary="summary")
+        terminal_empty_agenda = Catalog(
+            url_hash="agenda-empty",
+            content="agenda",
+            summary="summary",
+            agenda_segmentation_status="empty",
+        )
+        minutes_first = Catalog(url_hash="minutes-first", content="minutes", summary="summary")
+        session.add_all([agenda_without_items, terminal_empty_agenda, minutes_first])
+        session.flush()
+        session.add_all(
+            [
+                Document(
+                    catalog_id=agenda_without_items.id,
+                    event_id=event.id,
+                    place_id=place.id,
+                    category="agenda",
+                ),
+                Document(
+                    catalog_id=terminal_empty_agenda.id,
+                    event_id=event.id,
+                    place_id=place.id,
+                    category="agenda",
+                ),
+                Document(catalog_id=minutes_first.id, event_id=event.id, place_id=place.id, category="minutes"),
+                Document(catalog_id=minutes_first.id, event_id=event.id, place_id=place.id, category="agenda"),
+            ]
+        )
+        expected_ids = [terminal_empty_agenda.id, minutes_first.id]
+        session.commit()
+
+        candidates = profile_manifest_candidates.summary_reset_candidates(session)
+
+    assert candidates == [{"catalog_id": catalog_id} for catalog_id in sorted(expected_ids)]
+    engine.dispose()
+
+
+def test_entity_candidates_require_fresh_completed_entities():
+    engine = create_engine("sqlite:///:memory:")
+    Base.metadata.create_all(engine)
+    Session = sessionmaker(bind=engine)
+
+    with Session() as session:
+        fresh = Catalog(
+            url_hash="entity-fresh",
+            content="minutes",
+            content_hash="fresh-hash",
+            entities={"orgs": ["Demo Council"]},
+            entities_source_hash="fresh-hash",
+        )
+        stale = Catalog(
+            url_hash="entity-stale",
+            content="minutes",
+            content_hash="new-hash",
+            entities={"orgs": ["Demo Council"]},
+            entities_source_hash="old-hash",
+        )
+        json_null = Catalog(
+            url_hash="entity-json-null",
+            content="minutes",
+            content_hash="null-hash",
+            entities=None,
+            entities_source_hash="null-hash",
+        )
+        session.add_all([fresh, stale, json_null])
+        session.flush()
+        fresh_id = fresh.id
+        session.commit()
+
+        candidates = profile_manifest_candidates.entity_reset_candidates(session)
+
+    assert candidates == [{"catalog_id": fresh_id}]
     engine.dispose()
 
 
@@ -162,31 +308,77 @@ def test_apply_preconditioning_mutates_only_selected_rows():
     engine = create_engine("sqlite:///:memory:")
     Base.metadata.create_all(engine)
     Session = sessionmaker(bind=engine)
-    session = Session()
 
-    place = Place(name="Demo", state="CA", ocd_division_id="ocd-division/country:us/state:ca/place:demo")
-    session.add(place)
-    session.flush()
-    event = Event(name="Meeting", place_id=place.id, organization_id=77)
-    session.add(event)
-    session.flush()
-    catalog = Catalog(
-        url_hash="demo-hash",
-        content="agenda text",
-        summary="existing summary",
-        entities={"orgs": ["Demo Council"], "locs": []},
-        agenda_segmentation_status="complete",
-        agenda_segmentation_item_count=2,
-        related_ids=[1, 2],
-    )
-    session.add(catalog)
-    session.flush()
-    session.add(Document(catalog_id=catalog.id, event_id=event.id, place_id=place.id, category="agenda"))
-    session.add(AgendaItem(catalog_id=catalog.id, event_id=event.id, order=1, title="Item 1"))
-    catalog_id = catalog.id
-    event_id = event.id
-    session.commit()
-    session.close()
+    with Session() as session:
+        place = Place(name="Demo", state="CA", ocd_division_id="ocd-division/country:us/state:ca/place:demo")
+        session.add(place)
+        session.flush()
+        segment_event = Event(name="Segment Meeting", place_id=place.id)
+        summary_event = Event(name="Summary Meeting", place_id=place.id)
+        entity_event = Event(name="Entity Meeting", place_id=place.id)
+        org_event = Event(name="Organization Meeting", place_id=place.id, organization_id=77)
+        session.add_all([segment_event, summary_event, entity_event, org_event])
+        session.flush()
+        segment_catalog = Catalog(
+            url_hash="segment-target",
+            content="agenda text",
+            summary="preserved summary",
+            agenda_segmentation_status="complete",
+            agenda_segmentation_item_count=1,
+            agenda_items_hash="segment-agenda-hash",
+        )
+        summary_catalog = Catalog(
+            url_hash="summary-target",
+            content="minutes text",
+            summary="existing summary",
+            summary_source_hash="summary-hash",
+            summary_extractive="preserved extractive summary",
+            agenda_items_hash="preserved agenda hash",
+        )
+        entity_catalog = Catalog(
+            url_hash="entity-target",
+            content="minutes text",
+            content_hash="entity-hash",
+            entities={"orgs": ["Demo Council"]},
+            entities_source_hash="entity-hash",
+            related_ids=[1, 2],
+        )
+        org_catalog = Catalog(url_hash="org-target", content="agenda text")
+        session.add_all([segment_catalog, summary_catalog, entity_catalog, org_catalog])
+        session.flush()
+        session.add_all(
+            [
+                Document(
+                    catalog_id=segment_catalog.id,
+                    event_id=segment_event.id,
+                    place_id=place.id,
+                    category="agenda",
+                ),
+                Document(
+                    catalog_id=summary_catalog.id,
+                    event_id=summary_event.id,
+                    place_id=place.id,
+                    category="minutes",
+                ),
+                Document(
+                    catalog_id=entity_catalog.id,
+                    event_id=entity_event.id,
+                    place_id=place.id,
+                    category="minutes",
+                ),
+                Document(
+                    catalog_id=org_catalog.id,
+                    event_id=org_event.id,
+                    place_id=place.id,
+                    category="agenda",
+                ),
+                AgendaItem(catalog_id=segment_catalog.id, event_id=segment_event.id, order=1, title="Item 1"),
+            ]
+        )
+        target_ids = [segment_catalog.id, summary_catalog.id, entity_catalog.id, org_catalog.id]
+        segment_id, summary_id, entity_id, org_id = target_ids
+        org_event_id = org_event.id
+        session.commit()
 
     @contextmanager
     def fake_db_session():
@@ -199,17 +391,18 @@ def test_apply_preconditioning_mutates_only_selected_rows():
     package = {
         "schema_version": 3,
         "manifest_name": "demo",
-        "catalog_ids": [catalog_id],
+        "catalog_ids": target_ids,
         "strata": {
             "extract": [],
-            "segment": [catalog_id],
-            "summary": [],
-            "entity": [catalog_id],
-            "org": [catalog_id],
+            "segment": [segment_id],
+            "summary": [summary_id],
+            "entity": [entity_id],
+            "org": [org_id],
         },
         "extract_source_sha256": {},
-        "org_event_resets": [{"catalog_id": catalog_id, "event_id": event_id}],
-        "expected_phase_coverage": {"extract": 0, "segment": 1, "summary": 0, "entity": 1, "org": 1},
+        "org_event_resets": [{"catalog_id": org_id, "event_id": org_event_id}],
+        "expected_phase_coverage": {"extract": 0, "segment": 1, "summary": 1, "entity": 1, "org": 1},
+        "safety": {"org_reset_requires_single_document_event": True},
     }
 
     original_db_session = profile_manifest.db_session
@@ -223,21 +416,28 @@ def test_apply_preconditioning_mutates_only_selected_rows():
         "deleted_agenda_items": 1,
         "cleared_extract_catalogs": 0,
         "cleared_segment_catalogs": 1,
-        "cleared_summary_catalogs": 0,
+        "cleared_summary_catalogs": 1,
         "cleared_entity_catalogs": 1,
         "cleared_org_events": 1,
     }
 
-    verify = Session()
-    refreshed_catalog = verify.get(Catalog, catalog_id)
-    refreshed_event = verify.get(Event, event_id)
-    assert refreshed_catalog.summary is None
-    assert refreshed_catalog.entities is None
-    assert refreshed_catalog.agenda_segmentation_status is None
-    assert refreshed_catalog.related_ids is None
-    assert refreshed_event.organization_id is None
-    assert verify.query(AgendaItem).count() == 0
-    verify.close()
+    with Session() as verify:
+        refreshed_segment = verify.get(Catalog, segment_id)
+        refreshed_summary = verify.get(Catalog, summary_id)
+        refreshed_entity = verify.get(Catalog, entity_id)
+        refreshed_event = verify.get(Event, org_event_id)
+        assert refreshed_segment.agenda_segmentation_status is None
+        assert refreshed_segment.agenda_items_hash is None
+        assert refreshed_segment.summary == "preserved summary"
+        assert refreshed_summary.summary is None
+        assert refreshed_summary.summary_source_hash is None
+        assert refreshed_summary.summary_extractive == "preserved extractive summary"
+        assert refreshed_summary.agenda_items_hash == "preserved agenda hash"
+        assert refreshed_entity.entities is None
+        assert refreshed_entity.entities_source_hash is None
+        assert refreshed_entity.related_ids == [1, 2]
+        assert refreshed_event.organization_id is None
+        assert verify.query(AgendaItem).count() == 0
     engine.dispose()
 
 
@@ -266,7 +466,7 @@ def test_extract_preconditioning_restores_replayable_catalog_and_preserves_sourc
             filename="agenda.pdf",
             content="extracted agenda",
             content_hash="content-hash",
-            extraction_status="success",
+            extraction_status="complete",
             extraction_attempted_at=datetime.now(tz=UTC),
             extraction_attempt_count=2,
             extraction_error="old error",
@@ -306,7 +506,7 @@ def test_extract_preconditioning_restores_replayable_catalog_and_preserves_sourc
     )
 
     assert preconditioning["applied"] == {
-        "deleted_agenda_items": 1,
+        "deleted_agenda_items": 0,
         "cleared_extract_catalogs": 1,
         "cleared_segment_catalogs": 0,
         "cleared_summary_catalogs": 0,
@@ -322,19 +522,19 @@ def test_extract_preconditioning_restores_replayable_catalog_and_preserves_sourc
         assert replayable_catalog.extraction_attempted_at is None
         assert replayable_catalog.extraction_attempt_count is None
         assert replayable_catalog.extraction_error is None
-        assert replayable_catalog.summary is None
-        assert replayable_catalog.summary_source_hash is None
-        assert replayable_catalog.summary_extractive is None
-        assert replayable_catalog.agenda_items_hash is None
-        assert replayable_catalog.entities is None
-        assert replayable_catalog.entities_source_hash is None
-        assert replayable_catalog.tables is None
-        assert replayable_catalog.topics is None
-        assert replayable_catalog.topics_source_hash is None
-        assert replayable_catalog.agenda_segmentation_status is None
-        assert replayable_catalog.agenda_segmentation_attempted_at is None
-        assert replayable_catalog.agenda_segmentation_item_count is None
-        assert replayable_catalog.agenda_segmentation_error is None
+        assert replayable_catalog.summary == "summary"
+        assert replayable_catalog.summary_source_hash == "summary-hash"
+        assert replayable_catalog.summary_extractive == "extractive summary"
+        assert replayable_catalog.agenda_items_hash == "agenda-hash"
+        assert replayable_catalog.entities == {"orgs": ["Demo Council"]}
+        assert replayable_catalog.entities_source_hash == "entity-hash"
+        assert replayable_catalog.tables == [{"rows": 1}]
+        assert replayable_catalog.topics == ["budget"]
+        assert replayable_catalog.topics_source_hash == "topic-hash"
+        assert replayable_catalog.agenda_segmentation_status == "complete"
+        assert replayable_catalog.agenda_segmentation_attempted_at is not None
+        assert replayable_catalog.agenda_segmentation_item_count == 1
+        assert replayable_catalog.agenda_segmentation_error == "old segmentation error"
         assert replayable_catalog.related_ids == [91, 92]
         assert replayable_catalog.lineage_id == "lineage-1"
         assert replayable_catalog.lineage_confidence == 0.8
@@ -346,7 +546,7 @@ def test_extract_preconditioning_restores_replayable_catalog_and_preserves_sourc
         assert session.get(Document, replayable_catalog.document.id) is not None
         assert session.get(Event, event_id).organization_id == 77
         assert session.get(Catalog, control_id).content == "control content"
-        assert session.query(AgendaItem).count() == 0
+        assert session.query(AgendaItem).count() == 1
 
     engine.dispose()
 
@@ -377,10 +577,13 @@ def test_extract_preconditioning_rejects_invalid_sources_before_mutation(tmp_pat
             url_hash="valid-target",
             location=str(valid_source),
             content="keep valid content",
-            extraction_status="success",
+            extraction_status="complete",
         )
         session.add(valid_target)
         session.flush()
+        session.add(
+            Document(catalog_id=valid_target.id, event_id=event.id, place_id=place.id, category="agenda")
+        )
         session.add(AgendaItem(catalog_id=valid_target.id, event_id=event.id, order=1, title="Keep this item"))
         valid_target_id = valid_target.id
         if invalid_source == "missing_catalog":
@@ -399,10 +602,13 @@ def test_extract_preconditioning_rejects_invalid_sources_before_mutation(tmp_pat
                 url_hash=f"invalid-{invalid_source}",
                 location=invalid_location,
                 content="keep invalid content",
-                extraction_status="success",
+                extraction_status="complete",
             )
             session.add(invalid_target)
             session.flush()
+            session.add(
+                Document(catalog_id=invalid_target.id, event_id=event.id, place_id=place.id, category="agenda")
+            )
             invalid_target_id = invalid_target.id
         session.commit()
 
@@ -413,7 +619,7 @@ def test_extract_preconditioning_rejects_invalid_sources_before_mutation(tmp_pat
     if invalid_source == "modified_bytes":
         modified_source.write_bytes(b"after!")
 
-    with pytest.raises(ValueError, match="extract replay source"):
+    with pytest.raises(ValueError, match="extract replay"):
         apply_preconditioning(
             _extract_reset_package([valid_target_id, invalid_target_id], source_digests),
             dry_run=False,
@@ -423,12 +629,12 @@ def test_extract_preconditioning_rejects_invalid_sources_before_mutation(tmp_pat
     with Session() as session:
         valid_target = session.get(Catalog, valid_target_id)
         assert valid_target.content == "keep valid content"
-        assert valid_target.extraction_status == "success"
+        assert valid_target.extraction_status == "complete"
         assert session.query(AgendaItem).filter(AgendaItem.catalog_id == valid_target_id).count() == 1
         if invalid_source != "missing_catalog":
             invalid_target = session.get(Catalog, invalid_target_id)
             assert invalid_target.content == "keep invalid content"
-            assert invalid_target.extraction_status == "success"
+            assert invalid_target.extraction_status == "complete"
 
     engine.dispose()
 
@@ -441,9 +647,21 @@ def test_extract_preconditioning_dry_run_rejects_modified_source_bytes(tmp_path:
     source_path.write_bytes(b"before")
 
     with Session() as session:
-        catalog = Catalog(url_hash="dry-run-target", location=str(source_path), content="keep content")
+        place = Place(name="Demo", state="CA", ocd_division_id="ocd-division/country:us/state:ca/place:demo_dry")
+        session.add(place)
+        session.flush()
+        event = Event(name="Meeting", place_id=place.id)
+        session.add(event)
+        session.flush()
+        catalog = Catalog(
+            url_hash="dry-run-target",
+            location=str(source_path),
+            content="keep content",
+            extraction_status="complete",
+        )
         session.add(catalog)
         session.flush()
+        session.add(Document(catalog_id=catalog.id, event_id=event.id, place_id=place.id, category="agenda"))
         catalog_id = catalog.id
         session.commit()
 
@@ -455,6 +673,64 @@ def test_extract_preconditioning_dry_run_rejects_modified_source_bytes(tmp_path:
 
     with Session() as session:
         assert session.get(Catalog, catalog_id).content == "keep content"
+
+    engine.dispose()
+
+
+def test_preconditioning_validates_all_targets_before_first_mutation(tmp_path: Path):
+    engine = create_engine("sqlite:///:memory:")
+    Base.metadata.create_all(engine)
+    Session = sessionmaker(bind=engine)
+    source_path = tmp_path / "agenda.pdf"
+    source_path.write_bytes(b"archived source")
+
+    with Session() as session:
+        place = Place(name="Demo", state="CA", ocd_division_id="ocd-division/country:us/state:ca/place:all_targets")
+        session.add(place)
+        session.flush()
+        event = Event(name="Meeting", place_id=place.id)
+        session.add(event)
+        session.flush()
+        extract_target = Catalog(
+            url_hash="extract-target",
+            location=str(source_path),
+            content="agenda text",
+            extraction_status="complete",
+        )
+        stale_entity_target = Catalog(
+            url_hash="stale-entity-target",
+            content="minutes text",
+            content_hash="new-hash",
+            entities={"orgs": ["Demo Council"]},
+            entities_source_hash="old-hash",
+        )
+        session.add_all([extract_target, stale_entity_target])
+        session.flush()
+        session.add(
+            Document(catalog_id=extract_target.id, event_id=event.id, place_id=place.id, category="agenda")
+        )
+        extract_id = extract_target.id
+        entity_id = stale_entity_target.id
+        session.commit()
+
+    package = {
+        "schema_version": 3,
+        "manifest_name": "all-target-validation",
+        "catalog_ids": [extract_id, entity_id],
+        "strata": {"extract": [extract_id], "segment": [], "summary": [], "entity": [entity_id], "org": []},
+        "extract_source_sha256": {str(extract_id): hashlib.sha256(b"archived source").hexdigest()},
+        "org_event_resets": [],
+        "expected_phase_coverage": {"extract": 1, "segment": 0, "summary": 0, "entity": 1, "org": 0},
+        "safety": {"org_reset_requires_single_document_event": True},
+    }
+
+    with pytest.raises(ValueError, match="entity replay target"):
+        apply_preconditioning(package, dry_run=False, session_factory=Session)
+
+    with Session() as session:
+        preserved_extract = session.get(Catalog, extract_id)
+        assert preserved_extract.content == "agenda text"
+        assert preserved_extract.extraction_status == "complete"
 
     engine.dispose()
 
@@ -504,6 +780,103 @@ def test_validate_manifest_package_rejects_mismatched_ids():
 
     with pytest.raises(ValueError, match="do not match"):
         profile_manifest.validate_manifest_package([1, 2], package)
+
+
+def test_validate_manifest_package_accepts_exact_schema_v3_partition():
+    package = _valid_manifest_package()
+
+    profile_manifest.validate_manifest_package([1, 2, 3, 4, 5], package)
+
+
+@pytest.mark.parametrize("invalid_catalog_id", [True, "1", 1.0, None])
+def test_validate_manifest_package_rejects_noninteger_json_ids(invalid_catalog_id: object):
+    package = _valid_manifest_package()
+    package["catalog_ids"] = [invalid_catalog_id, 2, 3, 4, 5]
+
+    with pytest.raises(ValueError, match="catalog_ids must contain JSON integers"):
+        profile_manifest.validate_manifest_package([1, 2, 3, 4, 5], package)
+
+
+def test_validate_manifest_package_rejects_duplicate_workload_ids():
+    package = _valid_manifest_package()
+    package["catalog_ids"] = [1, 1, 2, 3, 4, 5]
+
+    with pytest.raises(ValueError, match="catalog_ids must be unique"):
+        profile_manifest.validate_manifest_package([1, 1, 2, 3, 4, 5], package)
+
+
+@pytest.mark.parametrize("partition_defect", ["missing_phase", "overlap", "incomplete"])
+def test_validate_manifest_package_rejects_invalid_strata_partition(partition_defect: str):
+    package = _valid_manifest_package()
+    strata = deepcopy(package["strata"])
+    if partition_defect == "missing_phase":
+        del strata["org"]
+    elif partition_defect == "overlap":
+        strata["summary"] = [2, 3]
+    else:
+        strata["summary"] = []
+    package["strata"] = strata
+
+    with pytest.raises(ValueError, match="strata"):
+        profile_manifest.validate_manifest_package([1, 2, 3, 4, 5], package)
+
+
+def test_validate_manifest_package_rejects_inaccurate_phase_coverage():
+    package = _valid_manifest_package()
+    package["expected_phase_coverage"] = {
+        "extract": 1,
+        "segment": 1,
+        "summary": 0,
+        "entity": 1,
+        "org": 1,
+    }
+
+    with pytest.raises(ValueError, match="expected_phase_coverage"):
+        profile_manifest.validate_manifest_package([1, 2, 3, 4, 5], package)
+
+
+@pytest.mark.parametrize("invalid_coverage", [True, 1.0])
+def test_validate_manifest_package_rejects_noninteger_phase_coverage(invalid_coverage: object):
+    package = _valid_manifest_package()
+    package["expected_phase_coverage"] = {
+        "extract": invalid_coverage,
+        "segment": 1,
+        "summary": 1,
+        "entity": 1,
+        "org": 1,
+    }
+
+    with pytest.raises(ValueError, match="expected_phase_coverage values must be JSON integers"):
+        profile_manifest.validate_manifest_package([1, 2, 3, 4, 5], package)
+
+
+def test_validate_manifest_package_requires_safety_declaration_without_org_targets():
+    package = _valid_manifest_package()
+    package["catalog_ids"] = [1, 2, 3, 4]
+    package["strata"] = {"extract": [1], "segment": [2], "summary": [3], "entity": [4], "org": []}
+    package["org_event_resets"] = []
+    package["expected_phase_coverage"] = {"extract": 1, "segment": 1, "summary": 1, "entity": 1, "org": 0}
+    del package["safety"]
+
+    with pytest.raises(ValueError, match="org reset safety"):
+        profile_manifest.validate_manifest_package([1, 2, 3, 4], package)
+
+
+@pytest.mark.parametrize("org_defect", ["missing_mapping", "duplicate_event", "unsafe"])
+def test_validate_manifest_package_rejects_invalid_org_reset_contract(org_defect: str):
+    package = _valid_manifest_package()
+    if org_defect == "missing_mapping":
+        package["org_event_resets"] = []
+    elif org_defect == "duplicate_event":
+        package["org_event_resets"] = [
+            {"catalog_id": 5, "event_id": 50},
+            {"catalog_id": 5, "event_id": 50},
+        ]
+    else:
+        package["safety"] = {"org_reset_requires_single_document_event": False}
+
+    with pytest.raises(ValueError, match="org"):
+        profile_manifest.validate_manifest_package([1, 2, 3, 4, 5], package)
 
 
 @pytest.mark.parametrize("phase", ["extract", "segment", "summary", "entity", "org"])

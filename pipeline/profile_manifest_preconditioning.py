@@ -2,19 +2,27 @@ from __future__ import annotations
 
 from importlib import import_module
 from pathlib import Path
-from typing import Any
+from typing import Any, cast
 
+from pipeline.profile_manifest_candidates import (
+    entity_reset_candidates,
+    extract_candidates,
+    org_reset_candidates,
+    segment_reset_candidates,
+    summary_reset_candidates,
+)
 from pipeline.profile_manifest_contracts import (
     AppliedPreconditioningCounts,
     JsonPayload,
     PHASE_ENTITY,
     PHASE_EXTRACT,
+    PHASE_ORG,
     PHASE_SEGMENT,
     PHASE_SUMMARY,
     OrmSession,
     SessionFactory,
 )
-from pipeline.profile_manifest_io import extract_source_digests, sha256_file
+from pipeline.profile_manifest_io import extract_source_digests, sha256_file, validate_manifest_package
 
 
 def _models() -> Any:
@@ -47,16 +55,19 @@ def apply_preconditioning(
     dry_run: bool,
     session_factory: SessionFactory,
 ) -> JsonPayload:
+    raw_catalog_ids = package.get("catalog_ids")
+    catalog_ids = cast(list[int], raw_catalog_ids) if isinstance(raw_catalog_ids, list) else []
+    validate_manifest_package(catalog_ids, package)
     report = preconditioning_report(package)
     applied = _empty_applied_counts()
     reset_plan = _build_reset_plan(package)
     with session_factory() as session:
+        _validate_reset_targets(session, reset_plan)
         _validate_extract_sources(session, reset_plan.extract_ids, extract_source_digests(package))
         if dry_run:
             return {"dry_run": True, "report": report, "applied": applied}
-        agenda_item_catalog_ids = sorted(set(reset_plan.extract_ids + reset_plan.segment_ids))
-        if agenda_item_catalog_ids:
-            applied["deleted_agenda_items"] = _delete_agenda_items(session, agenda_item_catalog_ids)
+        if reset_plan.segment_ids:
+            applied["deleted_agenda_items"] = _delete_agenda_items(session, reset_plan.segment_ids)
         if reset_plan.extract_ids:
             applied["cleared_extract_catalogs"] = _clear_extract_catalogs(session, reset_plan.extract_ids)
         if reset_plan.segment_ids:
@@ -73,7 +84,7 @@ def apply_preconditioning(
 
 
 class _ResetPlan:
-    __slots__ = ("entity_ids", "extract_ids", "org_event_ids", "segment_ids", "summary_ids")
+    __slots__ = ("entity_ids", "extract_ids", "org_resets", "segment_ids", "summary_ids")
 
     def __init__(
         self,
@@ -82,13 +93,17 @@ class _ResetPlan:
         segment_ids: list[int],
         summary_ids: list[int],
         entity_ids: list[int],
-        org_event_ids: list[int],
+        org_resets: list[tuple[int, int]],
     ) -> None:
         self.extract_ids = extract_ids
         self.segment_ids = segment_ids
         self.summary_ids = summary_ids
         self.entity_ids = entity_ids
-        self.org_event_ids = org_event_ids
+        self.org_resets = org_resets
+
+    @property
+    def org_event_ids(self) -> list[int]:
+        return [event_id for _catalog_id, event_id in self.org_resets]
 
 
 def _build_reset_plan(package: JsonPayload) -> _ResetPlan:
@@ -98,7 +113,10 @@ def _build_reset_plan(package: JsonPayload) -> _ResetPlan:
         segment_ids=strata.get(PHASE_SEGMENT, []),
         summary_ids=strata.get(PHASE_SUMMARY, []),
         entity_ids=sorted(set(strata.get(PHASE_ENTITY, []))),
-        org_event_ids=[int(item["event_id"]) for item in package.get("org_event_resets") or []],
+        org_resets=[
+            (int(reset["catalog_id"]), int(reset["event_id"]))
+            for reset in package.get("org_event_resets") or []
+        ],
     )
 
 
@@ -115,6 +133,34 @@ def _empty_applied_counts() -> AppliedPreconditioningCounts:
         "cleared_entity_catalogs": 0,
         "cleared_org_events": 0,
     }
+
+
+def _validate_reset_targets(session: OrmSession, reset_plan: _ResetPlan) -> None:
+    phase_targets = {
+        PHASE_EXTRACT: reset_plan.extract_ids,
+        PHASE_SEGMENT: reset_plan.segment_ids,
+        PHASE_SUMMARY: reset_plan.summary_ids,
+        PHASE_ENTITY: reset_plan.entity_ids,
+    }
+    phase_candidates = {
+        PHASE_EXTRACT: extract_candidates(session),
+        PHASE_SEGMENT: segment_reset_candidates(session),
+        PHASE_SUMMARY: summary_reset_candidates(session),
+        PHASE_ENTITY: entity_reset_candidates(session),
+    }
+    for phase, target_ids in phase_targets.items():
+        eligible_ids = {int(candidate["catalog_id"]) for candidate in phase_candidates[phase]}
+        invalid_ids = sorted(set(target_ids) - eligible_ids)
+        if invalid_ids:
+            raise ValueError(f"{phase} replay targets are no longer eligible: {invalid_ids}")
+
+    eligible_org_resets = {
+        (int(candidate["catalog_id"]), int(candidate["event_id"]))
+        for candidate in org_reset_candidates(session)
+    }
+    invalid_org_resets = sorted(set(reset_plan.org_resets) - eligible_org_resets)
+    if invalid_org_resets:
+        raise ValueError(f"{PHASE_ORG} replay targets are no longer eligible: {invalid_org_resets}")
 
 
 def _validate_extract_sources(
@@ -164,19 +210,6 @@ def _clear_extract_catalogs(session: OrmSession, extract_ids: list[int]) -> int:
                 models.Catalog.extraction_attempted_at: None,
                 models.Catalog.extraction_attempt_count: None,
                 models.Catalog.extraction_error: None,
-                models.Catalog.summary: None,
-                models.Catalog.summary_source_hash: None,
-                models.Catalog.summary_extractive: None,
-                models.Catalog.agenda_items_hash: None,
-                models.Catalog.entities: None,
-                models.Catalog.entities_source_hash: None,
-                models.Catalog.tables: None,
-                models.Catalog.topics: None,
-                models.Catalog.topics_source_hash: None,
-                models.Catalog.agenda_segmentation_status: None,
-                models.Catalog.agenda_segmentation_attempted_at: None,
-                models.Catalog.agenda_segmentation_item_count: None,
-                models.Catalog.agenda_segmentation_error: None,
             },
             synchronize_session=False,
         )
@@ -196,9 +229,6 @@ def _clear_segment_catalogs(session: OrmSession, segment_ids: list[int]) -> int:
                 models.Catalog.agenda_segmentation_item_count: None,
                 models.Catalog.agenda_segmentation_error: None,
                 models.Catalog.agenda_items_hash: None,
-                models.Catalog.summary: None,
-                models.Catalog.summary_source_hash: None,
-                models.Catalog.summary_extractive: None,
             },
             synchronize_session=False,
         )
@@ -213,10 +243,8 @@ def _clear_summary_catalogs(session: OrmSession, summary_ids: list[int]) -> int:
         .filter(models.Catalog.id.in_(summary_ids))
         .update(
             {
-                models.Catalog.agenda_items_hash: None,
                 models.Catalog.summary: None,
                 models.Catalog.summary_source_hash: None,
-                models.Catalog.summary_extractive: None,
             },
             synchronize_session=False,
         )
@@ -233,7 +261,6 @@ def _clear_entity_catalogs(session: OrmSession, entity_ids: list[int]) -> int:
             {
                 models.Catalog.entities: None,
                 models.Catalog.entities_source_hash: None,
-                models.Catalog.related_ids: None,
             },
             synchronize_session=False,
         )
