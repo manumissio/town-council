@@ -506,13 +506,14 @@ def test_extract_preconditioning_restores_replayable_catalog_and_preserves_sourc
     )
 
     assert preconditioning["applied"] == {
-        "deleted_agenda_items": 0,
+        "deleted_agenda_items": 1,
         "cleared_extract_catalogs": 1,
-        "cleared_segment_catalogs": 0,
+        "cleared_segment_catalogs": 1,
         "cleared_summary_catalogs": 0,
         "cleared_entity_catalogs": 0,
         "cleared_org_events": 0,
     }
+    assert preconditioning["report"]["reset_actions"]["segment_catalogs"] == 1
     with Session() as session:
         replayable_catalog = session.get(Catalog, target_id)
         assert replayable_catalog is not None
@@ -525,16 +526,16 @@ def test_extract_preconditioning_restores_replayable_catalog_and_preserves_sourc
         assert replayable_catalog.summary == "summary"
         assert replayable_catalog.summary_source_hash == "summary-hash"
         assert replayable_catalog.summary_extractive == "extractive summary"
-        assert replayable_catalog.agenda_items_hash == "agenda-hash"
+        assert replayable_catalog.agenda_items_hash is None
         assert replayable_catalog.entities == {"orgs": ["Demo Council"]}
         assert replayable_catalog.entities_source_hash == "entity-hash"
         assert replayable_catalog.tables == [{"rows": 1}]
         assert replayable_catalog.topics == ["budget"]
         assert replayable_catalog.topics_source_hash == "topic-hash"
-        assert replayable_catalog.agenda_segmentation_status == "complete"
-        assert replayable_catalog.agenda_segmentation_attempted_at is not None
-        assert replayable_catalog.agenda_segmentation_item_count == 1
-        assert replayable_catalog.agenda_segmentation_error == "old segmentation error"
+        assert replayable_catalog.agenda_segmentation_status is None
+        assert replayable_catalog.agenda_segmentation_attempted_at is None
+        assert replayable_catalog.agenda_segmentation_item_count is None
+        assert replayable_catalog.agenda_segmentation_error is None
         assert replayable_catalog.related_ids == [91, 92]
         assert replayable_catalog.lineage_id == "lineage-1"
         assert replayable_catalog.lineage_confidence == 0.8
@@ -546,7 +547,7 @@ def test_extract_preconditioning_restores_replayable_catalog_and_preserves_sourc
         assert session.get(Document, replayable_catalog.document.id) is not None
         assert session.get(Event, event_id).organization_id == 77
         assert session.get(Catalog, control_id).content == "control content"
-        assert session.query(AgendaItem).count() == 1
+        assert session.query(AgendaItem).count() == 0
 
     engine.dispose()
 

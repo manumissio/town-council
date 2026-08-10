@@ -32,18 +32,18 @@ def _models() -> Any:
 def preconditioning_report(package: JsonPayload) -> JsonPayload:
     catalog_ids = [int(cid) for cid in package.get("catalog_ids") or []]
     strata = _phase_catalog_ids(package)
-    entity_targets = sorted(set(strata.get(PHASE_ENTITY, [])))
+    reset_plan = _build_reset_plan(package)
     return {
         "schema_version": int(package.get("schema_version") or 0),
         "manifest_name": package.get("manifest_name"),
         "catalog_count": len(catalog_ids),
         "phase_selected_counts": {key: len(value) for key, value in strata.items()},
         "reset_actions": {
-            "extract_catalogs": len(strata.get(PHASE_EXTRACT, [])),
-            "segment_catalogs": len(strata.get(PHASE_SEGMENT, [])),
-            "summary_catalogs": len(strata.get(PHASE_SUMMARY, [])),
-            "entity_catalogs": len(entity_targets),
-            "org_events": len(package.get("org_event_resets") or []),
+            "extract_catalogs": len(reset_plan.extract_ids),
+            "segment_catalogs": len(reset_plan.segment_reset_ids),
+            "summary_catalogs": len(reset_plan.summary_ids),
+            "entity_catalogs": len(reset_plan.entity_ids),
+            "org_events": len(reset_plan.org_resets),
         },
         "expected_phase_coverage": dict(package.get("expected_phase_coverage") or {}),
     }
@@ -61,17 +61,18 @@ def apply_preconditioning(
     report = preconditioning_report(package)
     applied = _empty_applied_counts()
     reset_plan = _build_reset_plan(package)
+    segment_reset_ids = reset_plan.segment_reset_ids
     with session_factory() as session:
         _validate_reset_targets(session, reset_plan)
         _validate_extract_sources(session, reset_plan.extract_ids, extract_source_digests(package))
         if dry_run:
             return {"dry_run": True, "report": report, "applied": applied}
-        if reset_plan.segment_ids:
-            applied["deleted_agenda_items"] = _delete_agenda_items(session, reset_plan.segment_ids)
+        if segment_reset_ids:
+            applied["deleted_agenda_items"] = _delete_agenda_items(session, segment_reset_ids)
         if reset_plan.extract_ids:
             applied["cleared_extract_catalogs"] = _clear_extract_catalogs(session, reset_plan.extract_ids)
-        if reset_plan.segment_ids:
-            applied["cleared_segment_catalogs"] = _clear_segment_catalogs(session, reset_plan.segment_ids)
+        if segment_reset_ids:
+            applied["cleared_segment_catalogs"] = _clear_segment_catalogs(session, segment_reset_ids)
         if reset_plan.summary_ids:
             applied["cleared_summary_catalogs"] = _clear_summary_catalogs(session, reset_plan.summary_ids)
         if reset_plan.entity_ids:
@@ -104,6 +105,10 @@ class _ResetPlan:
     @property
     def org_event_ids(self) -> list[int]:
         return [event_id for _catalog_id, event_id in self.org_resets]
+
+    @property
+    def segment_reset_ids(self) -> list[int]:
+        return sorted(set(self.extract_ids + self.segment_ids))
 
 
 def _build_reset_plan(package: JsonPayload) -> _ResetPlan:
