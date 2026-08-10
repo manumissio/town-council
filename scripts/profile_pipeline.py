@@ -19,6 +19,7 @@ from scripts.operator_profile_artifacts import write_json as _write_json
 from scripts.operator_prometheus import parse_metrics as _parse_metrics
 from scripts.operator_prometheus import sum_metric as _sum_metric
 from scripts.profile_pipeline_runner import ProfilePipelineDeps
+from scripts.profile_pipeline_runner import require_non_promotional_baseline
 from scripts.profile_pipeline_runner import run_profile
 from scripts.profile_pipeline_selection import select_triage_catalog_ids as _select_triage_catalog_ids  # noqa: F401
 
@@ -206,7 +207,9 @@ def _deps() -> ProfilePipelineDeps:
 
 
 def main(argv: list[str] | None = None) -> int:
-    return run_profile(parse_args(argv), _deps())
+    args = parse_args(argv)
+    require_non_promotional_baseline(args)
+    return run_profile(args, _deps())
 
 
 if __name__ == "__main__":

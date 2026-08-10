@@ -115,17 +115,19 @@ Notes:
 - `triage` and manifest-driven `baseline` runs are workload-only by default: they measure the selected catalog set and intentionally skip unrelated global prelude steps like staged download/promotion.
 - if the report marks a run as `reduced-confidence`, inspect `summary.json` and `result.json` before comparing it to other runs.
 
-Repeatable baseline run:
+Pinned-manifest diagnostic run:
 ```bash
-python scripts/profile_pipeline.py --mode baseline --manifest profiling/manifests/<name>.txt
+python scripts/profile_pipeline.py --mode baseline --manifest profiling/manifests/<name>.txt --diagnostic
 ```
+
+Promotion-grade baseline capture is temporarily quarantined while evidence-integrity checks are completed.
 
 Baseline manifest package workflow:
 ```bash
 python scripts/build_profile_manifest.py --name <name>
 python scripts/build_profile_manifest.py --name <name> --write
 python scripts/profile_pipeline.py --mode baseline --manifest profiling/manifests/<name>.txt --dry-run-prepare
-python scripts/profile_pipeline.py --mode baseline --manifest profiling/manifests/<name>.txt
+python scripts/profile_pipeline.py --mode baseline --manifest profiling/manifests/<name>.txt --diagnostic
 ```
 
 Analyze an existing profiling run:
@@ -141,7 +143,7 @@ Artifacts land under `experiments/results/profiling/<run_id>/` and include:
 
 Interpretation:
 - `triage` runs are diagnostic and optimized for speed.
-- `baseline` runs use a pinned manifest and are the only profiling runs that should be compared directly over time.
+- Baseline-valid runs use a pinned manifest and are the only profiling runs that should be compared directly over time; diagnostic baseline runs remain non-comparable.
 - baseline manifests can include a checked-in `.json` sidecar that recreates a representative pending-work workload for just the selected catalog IDs before the run starts.
 - `--dry-run-prepare` shows the exact preconditioning plan without mutating the workload.
 - queue wait is tracked separately from task execution so the report can distinguish worker backlog from slow execution.

@@ -1,6 +1,8 @@
 import importlib.util
 import json
 from pathlib import Path
+import subprocess
+import sys
 
 import pytest
 
@@ -10,9 +12,22 @@ mod = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(mod)
 
 
+PROFILE_PIPELINE_SCRIPT = Path("scripts/profile_pipeline.py")
+BASELINE_QUARANTINE_PHRASE = "promotion-grade baseline execution is quarantined"
+
+
+def _run_profile_cli(*arguments: str) -> subprocess.CompletedProcess[str]:
+    return subprocess.run(
+        [sys.executable, str(PROFILE_PIPELINE_SCRIPT), *arguments],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+
+
 def test_profile_pipeline_requires_manifest_for_baseline(tmp_path: Path):
     try:
-        mod.main(["--mode", "baseline", "--output-dir", str(tmp_path)])
+        mod.main(["--mode", "baseline", "--output-dir", str(tmp_path), "--diagnostic"])
     except SystemExit as exc:
         assert "--manifest is required for baseline mode" in str(exc)
     else:
@@ -53,100 +68,47 @@ def test_profile_pipeline_writes_manifest_and_result(monkeypatch, tmp_path: Path
     assert any("collect_soak_metrics.py" in " ".join(cmd) for cmd, _ in commands)
 
 
-def test_profile_pipeline_baseline_loads_manifest_package_and_preconditions(monkeypatch, tmp_path: Path):
-    manifest_path = tmp_path / "baseline_demo.txt"
-    manifest_path.write_text("21\n22\n", encoding="utf-8")
-    manifest_path.with_suffix(".json").write_text(
-        json.dumps(
-            {
-                "schema_version": 3,
-                "manifest_name": "baseline_demo",
-                "catalog_ids": [21, 22],
-                "strata": {"extract": [21], "segment": [22], "summary": [], "entity": [], "org": []},
-                "extract_source_sha256": {"21": "a" * 64},
-                "expected_phase_coverage": {"extract": 1, "segment": 1, "summary": 0, "entity": 0, "org": 0},
-            }
-        ),
-        encoding="utf-8",
-    )
-    monkeypatch.setattr(mod, "_provider_counters_before_run", lambda: None)
-    prepare_calls = []
-
-    def _fake_prepare(manifest_rel, dry_run):
-        prepare_calls.append(dry_run)
-        return {"dry_run": dry_run, "report": {"catalog_count": 2}, "applied": {"cleared_summary_catalogs": 0}}
-
-    monkeypatch.setattr(mod, "_prepare_manifest_package_via_docker", _fake_prepare)
-    commands = []
-
-    def _fake_run(command, **kwargs):
-        commands.append((command, kwargs))
-        return type("Completed", (), {"returncode": 0})()
-
-    monkeypatch.setattr(mod.subprocess, "run", _fake_run)
-    exit_code = mod.main(["--mode", "baseline", "--manifest", str(manifest_path), "--output-dir", str(tmp_path), "--skip-batch"])
-
-    run_dirs = [path for path in tmp_path.iterdir() if path.is_dir()]
-    assert exit_code == 0
-    assert len(run_dirs) == 1
-    run_manifest = json.loads((run_dirs[0] / "run_manifest.json").read_text(encoding="utf-8"))
-    assert run_manifest["baseline_valid"] is True
-    assert run_manifest["manifest_package"]["manifest_name"] == "baseline_demo"
-    assert run_manifest["preconditioning"]["dry_run"] is False
-    assert prepare_calls == [True, False]
-    assert (run_dirs[0] / "catalog_manifest.json").exists()
-    assert any("collect_soak_metrics.py" in " ".join(cmd) for cmd, _ in commands)
-
-
-def test_profile_pipeline_verifies_sources_before_mutating_commands(monkeypatch, tmp_path: Path):
-    manifest_path = tmp_path / "baseline_demo.txt"
-    manifest_path.write_text("21\n", encoding="utf-8")
-    manifest_path.with_suffix(".json").write_text(
-        json.dumps(
-            {
-                "schema_version": 3,
-                "manifest_name": "baseline_demo",
-                "catalog_ids": [21],
-                "strata": {"extract": [21], "segment": [], "summary": [], "entity": [], "org": []},
-                "extract_source_sha256": {"21": "a" * 64},
-                "expected_phase_coverage": {"extract": 1, "segment": 0, "summary": 0, "entity": 0, "org": 0},
-            }
-        ),
-        encoding="utf-8",
-    )
-    mutating_commands: list[str] = []
-
-    def _reject_source(manifest_rel, dry_run):
-        raise ValueError("extract replay source digest mismatch")
-
-    monkeypatch.setattr(mod, "_prepare_manifest_package_via_docker", _reject_source)
-    monkeypatch.setattr(
-        mod,
-        "_run_db_migrate_via_docker",
-        lambda **kwargs: mutating_commands.append("migrate"),
-    )
-    monkeypatch.setattr(
-        mod,
-        "_run_backfill_catalog_hashes_via_docker",
-        lambda **kwargs: mutating_commands.append("backfill"),
+@pytest.mark.parametrize("extra_arguments", [(), ("--compare-to", "expected.json")])
+def test_profile_pipeline_quarantines_bare_baseline_before_artifact_creation(
+    tmp_path: Path,
+    extra_arguments: tuple[str, ...],
+):
+    output_dir = tmp_path / "profiles"
+    completed = _run_profile_cli(
+        "--mode",
+        "baseline",
+        "--manifest",
+        str(tmp_path / "missing.txt"),
+        "--output-dir",
+        str(output_dir),
+        *extra_arguments,
     )
 
-    with pytest.raises(ValueError, match="digest mismatch"):
-        mod.main(
-            [
-                "--mode",
-                "baseline",
-                "--manifest",
-                str(manifest_path),
-                "--output-dir",
-                str(tmp_path),
-                "--run-id",
-                "digest-mismatch",
-            ]
-        )
+    assert completed.returncode != 0
+    assert BASELINE_QUARANTINE_PHRASE in completed.stderr
+    assert not output_dir.exists()
 
-    assert mutating_commands == []
-    assert not (tmp_path / "digest-mismatch").exists()
+
+@pytest.mark.parametrize("allowed_argument", ["--diagnostic", "--dry-run-prepare"])
+def test_profile_pipeline_quarantine_allows_non_promotional_baseline_paths(
+    tmp_path: Path,
+    allowed_argument: str,
+):
+    output_dir = tmp_path / "profiles"
+    completed = _run_profile_cli(
+        "--mode",
+        "baseline",
+        "--manifest",
+        str(tmp_path / "missing.txt"),
+        "--output-dir",
+        str(output_dir),
+        allowed_argument,
+    )
+
+    assert completed.returncode != 0
+    assert BASELINE_QUARANTINE_PHRASE not in completed.stderr
+    assert "No such file or directory" in completed.stderr
+    assert not output_dir.exists()
 
 
 def test_profile_pipeline_diagnostic_baseline_is_non_promotional(monkeypatch, tmp_path: Path):
@@ -266,53 +228,8 @@ def test_profile_pipeline_rejects_invalid_manifest_package_without_run_directory
                 "--run-id",
                 "invalid-package",
                 "--skip-batch",
+                "--diagnostic",
             ]
         )
 
     assert not (tmp_path / "invalid-package").exists()
-
-
-def test_profile_pipeline_compare_mode_runs_analyzer_with_expected_baseline(monkeypatch, tmp_path: Path):
-    manifest_path = tmp_path / "baseline_demo.txt"
-    manifest_path.write_text("21\n22\n", encoding="utf-8")
-    expected_baseline_path = tmp_path / "expected_baseline.json"
-    expected_baseline_path.write_text("{}\n", encoding="utf-8")
-    manifest_path.with_suffix(".json").write_text(
-        json.dumps(
-            {
-                "schema_version": 3,
-                "manifest_name": "baseline_demo",
-                "catalog_ids": [21, 22],
-                "strata": {"extract": [21], "segment": [22], "summary": [], "entity": [], "org": []},
-                "extract_source_sha256": {"21": "a" * 64},
-                "expected_phase_coverage": {"extract": 1, "segment": 1, "summary": 0, "entity": 0, "org": 0},
-            }
-        ),
-        encoding="utf-8",
-    )
-    monkeypatch.setattr(mod, "_provider_counters_before_run", lambda: None)
-    monkeypatch.setattr(mod, "_prepare_manifest_package_via_docker", lambda manifest_rel, dry_run: {"dry_run": dry_run, "report": {"catalog_count": 2}, "applied": {"cleared_summary_catalogs": 0}})
-    commands = []
-
-    def _fake_run(command, **kwargs):
-        commands.append((command, kwargs))
-        return type("Completed", (), {"returncode": 0})()
-
-    monkeypatch.setattr(mod.subprocess, "run", _fake_run)
-    exit_code = mod.main(
-        [
-            "--mode",
-            "baseline",
-            "--manifest",
-            str(manifest_path),
-            "--output-dir",
-            str(tmp_path),
-            "--skip-batch",
-            "--compare-to",
-            str(expected_baseline_path),
-        ]
-    )
-
-    assert exit_code == 0
-    assert any("--compare-to" in command for command, _ in commands)
-    assert any(str(expected_baseline_path) in " ".join(command) for command, _ in commands)

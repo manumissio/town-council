@@ -19,8 +19,9 @@ AGENDA_SUMMARY_SUBPHASE_KEYS = (
     AGENDA_SUMMARY_REINDEX_MS,
     AGENDA_SUMMARY_EMBED_DISPATCH_MS,
 )
-BASELINE_MANIFEST_DIR = "profiling/manifests"
-BASELINE_PROFILE_COMMAND = "PYTHONPATH=. .venv/bin/python scripts/profile_pipeline.py"
+BASELINE_QUARANTINE_NOTE = (
+    "Promotion-grade baseline recapture is quarantined pending evidence-integrity activation."
+)
 NON_COMPARABLE_REASON_TEXT = {
     "baseline_invalid": "Run is not baseline-valid, so timing and counter checks are diagnostic only.",
     "confidence_reduced": "Run has reduced-confidence evidence, so timing and counter checks are diagnostic only.",
@@ -148,10 +149,8 @@ def render_compare_report(summary: dict[str, Any], comparison: dict[str, Any]) -
             "## Checks",
             *_render_check_lines(checks),
             "",
-            "## Reproduce",
-            "```bash",
-            _baseline_compare_command(comparison),
-            "```",
+            "## Baseline Capture",
+            BASELINE_QUARANTINE_NOTE,
         ]
     )
     return "\n".join(lines) + "\n"
@@ -205,24 +204,6 @@ def _render_tolerance(check: dict[str, Any]) -> str:
     if tolerance_pct is None and tolerance_abs is None:
         return ""
     return f"tolerance=`{tolerance_pct}% / {tolerance_abs}` "
-
-
-def _baseline_compare_command(comparison: dict[str, Any]) -> str:
-    return " ".join(
-        [
-            BASELINE_PROFILE_COMMAND,
-            "--mode baseline",
-            f"--manifest {_manifest_path_for_comparison(comparison)}",
-            f"--compare-to {comparison.get('expected_baseline') or '<baseline.json>'}",
-        ]
-    )
-
-
-def _manifest_path_for_comparison(comparison: dict[str, Any]) -> str:
-    manifest_name = str(comparison.get("manifest_name") or "").strip()
-    if not manifest_name:
-        return "<manifest.txt>"
-    return f"{BASELINE_MANIFEST_DIR}/{manifest_name}.txt"
 
 
 def render_pairwise_compare_report(comparison: dict[str, Any]) -> str:
