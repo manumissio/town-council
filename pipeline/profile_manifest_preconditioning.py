@@ -114,8 +114,7 @@ def _build_reset_plan(package: JsonPayload) -> _ResetPlan:
         summary_ids=strata.get(PHASE_SUMMARY, []),
         entity_ids=sorted(set(strata.get(PHASE_ENTITY, []))),
         org_resets=[
-            (int(reset["catalog_id"]), int(reset["event_id"]))
-            for reset in package.get("org_event_resets") or []
+            (int(reset["catalog_id"]), int(reset["event_id"])) for reset in package.get("org_event_resets") or []
         ],
     )
 
@@ -155,8 +154,7 @@ def _validate_reset_targets(session: OrmSession, reset_plan: _ResetPlan) -> None
             raise ValueError(f"{phase} replay targets are no longer eligible: {invalid_ids}")
 
     eligible_org_resets = {
-        (int(candidate["catalog_id"]), int(candidate["event_id"]))
-        for candidate in org_reset_candidates(session)
+        (int(candidate["catalog_id"]), int(candidate["event_id"])) for candidate in org_reset_candidates(session)
     }
     invalid_org_resets = sorted(set(reset_plan.org_resets) - eligible_org_resets)
     if invalid_org_resets:

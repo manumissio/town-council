@@ -79,10 +79,7 @@ def _validated_strata(package: JsonPayload) -> dict[str, list[int]]:
     raw_strata = package.get("strata")
     if not isinstance(raw_strata, dict) or set(raw_strata) != set(PROFILE_MANIFEST_PHASES):
         raise ValueError("manifest package strata must contain exactly the supported phases")
-    return {
-        phase: _json_integer_list(raw_strata[phase], f"strata.{phase}")
-        for phase in PROFILE_MANIFEST_PHASES
-    }
+    return {phase: _json_integer_list(raw_strata[phase], f"strata.{phase}") for phase in PROFILE_MANIFEST_PHASES}
 
 
 def _validate_strata_partition(package_ids: list[int], strata: dict[str, list[int]]) -> None:
