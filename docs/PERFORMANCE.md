@@ -1,6 +1,6 @@
 # Performance
 
-Last updated: 2026-08-07
+Last updated: 2026-08-09
 
 This page describes how to interpret and reproduce performance evidence for local Docker runs.
 For operational troubleshooting and sorting diagnostics, use `docs/OPERATIONS.md`.
@@ -75,11 +75,11 @@ PYTHONPATH=. .venv/bin/python scripts/build_profile_manifest.py --name <name>
 PYTHONPATH=. .venv/bin/python scripts/build_profile_manifest.py --name <name> --write
 PYTHONPATH=. .venv/bin/python scripts/profile_pipeline.py --mode baseline --manifest profiling/manifests/<name>.txt --dry-run-prepare
 PYTHONPATH=. .venv/bin/python scripts/profile_pipeline.py --mode baseline --manifest profiling/manifests/<name>.txt --diagnostic
-PYTHONPATH=. .venv/bin/python scripts/profile_pipeline.py --mode baseline --manifest profiling/manifests/<name>.txt
-PYTHONPATH=. .venv/bin/python scripts/profile_pipeline.py --mode baseline --manifest profiling/manifests/<name>.txt --compare-to profiling/baselines/<name>.json
 PYTHONPATH=. .venv/bin/python scripts/analyze_pipeline_profile.py --run-id <run_id>
 PYTHONPATH=. .venv/bin/python scripts/analyze_pipeline_profile.py --run-id <run_id> --compare-to profiling/baselines/<name>.json
 ```
+
+Promotion-grade baseline capture is quarantined until workload completion and comparison evidence are bound to the run. Diagnostic captures remain non-comparable.
 
 Artifacts:
 - `experiments/results/profiling/<run_id>/run_manifest.json`
@@ -121,13 +121,13 @@ Ranking model:
 
 Interpretation rule:
 - do not compare `triage` runs to baseline runs as if they were equivalent evidence
-- use `baseline` runs for longitudinal comparison and `triage` runs for local diagnosis
+- use historical baseline-valid runs for longitudinal comparison; new promotion-grade captures remain quarantined
 - if the analyzer reports `reduced-confidence`, inspect `result.json` and run-quality notes before using the ranking to prioritize work
 - selected-manifest profiling runs are workload-only by default, so unrelated global prelude work such as staged promotion and downloader retries should not appear in the ranked bottlenecks
 - if a baseline manifest has a `.json` sidecar, the harness applies controlled preconditioning to only the selected workload before the run so the baseline still contains real pending work
 - use `--dry-run-prepare` to inspect that preconditioning plan before mutating the selected workload
 - use `--diagnostic` when a pinned baseline manifest is needed for investigation but the resulting evidence must remain non-comparable and `baseline_valid=false`
-- use `--compare-to` to guard steady-state baselines against regressions in elapsed time, top bottleneck phases, and stable workload-shape counters
+- use `--compare-to` to analyze existing baseline-valid evidence; diagnostic captures remain non-comparable
 - `baseline_representative_v1` and its checked-in expectation are immutable
   historical evidence for the retired document-derived person pipeline; they
   are non-comparable with roster-gated runs
@@ -144,7 +144,7 @@ Baseline compare report:
 - `status=fail` means the report's `Failed Checks` section is the priority list; inspect the first failed reason, then compare expected, actual, delta, and tolerance values before changing code.
 - `status=non_comparable` means the run is diagnostic only. Fix the listed confidence or baseline-validity reason before using the run for regression or promotion decisions.
 - `Failed Checks` lists timing regressions, missing artifacts, and workload-shape drift separately enough for an engineer to reproduce the failing condition without reading the JSON payload.
-- The `Reproduce` command at the end of the report is the canonical rerun command for that manifest/baseline pair.
+- Reports do not emit a recapture command while promotion-grade baseline execution is quarantined.
 
 ### Latest runtime optimization note
 

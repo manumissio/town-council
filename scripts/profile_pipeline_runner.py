@@ -15,6 +15,12 @@ from scripts.profile_pipeline_commands import build_profile_commands, profile_en
 from scripts.profile_pipeline_results import write_result_manifest, write_run_manifest
 
 
+BASELINE_QUARANTINE_MESSAGE = (
+    "promotion-grade baseline execution is quarantined pending evidence-integrity activation; "
+    "use --diagnostic or --dry-run-prepare"
+)
+
+
 @dataclass(frozen=True)
 class ProfilePipelineDeps:
     repo_root: Path
@@ -34,6 +40,11 @@ class ProfilePipelineDeps:
     utc_now_iso: Callable[[], str]
     write_catalog_manifest: Callable[[Path, list[int]], None]
     write_json: Callable[[Path, dict], None]
+
+
+def require_non_promotional_baseline(args: Any) -> None:
+    if args.mode == "baseline" and not args.diagnostic and not args.dry_run_prepare:
+        raise SystemExit(BASELINE_QUARANTINE_MESSAGE)
 
 
 def _catalog_ids_for_args(args: Any, deps: ProfilePipelineDeps) -> tuple[list[int], dict | None, Path | None]:
@@ -90,6 +101,7 @@ def _run_post_processors(args: Any, deps: ProfilePipelineDeps, run_id: str, outp
 
 
 def run_profile(args: Any, deps: ProfilePipelineDeps) -> int:
+    require_non_promotional_baseline(args)
     if args.mode == "baseline" and not args.manifest:
         raise SystemExit("--manifest is required for baseline mode")
     if args.diagnostic and args.mode != "baseline":

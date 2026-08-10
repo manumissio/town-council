@@ -351,8 +351,10 @@ def test_render_compare_report_explains_failed_elapsed_phase_and_counter_checks(
     assert "tolerance=`25.0% / 0.9`" in report
     assert "`summary_hydration_backfill.selected`" in report
     assert "reason=`workload_shape_drift`" in report
-    assert "PYTHONPATH=. .venv/bin/python scripts/profile_pipeline.py --mode baseline" in report
-    assert "--compare-to profiling/baselines/baseline_representative_v1.json" in report
+    assert "Promotion-grade baseline recapture is quarantined" in report
+    assert "## Reproduce" not in report
+    assert "scripts/profile_pipeline.py" not in report
+    assert "scripts/analyze_pipeline_profile.py" not in report
 
 
 def test_render_compare_report_explains_non_comparable_confidence_reason():
@@ -392,7 +394,8 @@ def test_render_compare_report_handles_empty_checks_without_crashing():
 
     assert "- status: `pass`" in report
     assert "No checks were evaluated." in report
-    assert "## Reproduce" in report
+    assert "Promotion-grade baseline recapture is quarantined" in report
+    assert "## Reproduce" not in report
 
 
 def test_render_compare_report_handles_malformed_checks_without_crashing():

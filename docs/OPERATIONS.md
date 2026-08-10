@@ -1,6 +1,6 @@
 # Operations Runbook
 
-Last updated: 2026-08-08
+Last updated: 2026-08-09
 
 ## Core workflow
 
@@ -896,15 +896,17 @@ find experiments/results/maintenance -maxdepth 4 -type f | sort
   - top bottleneck phase durations
   - stable workload-shape counters from `commands.log`
 - Counter drift is treated more strictly than timing drift; reduced-confidence runs are reported as non-comparable rather than clean passes.
-- Capture a v2 candidate:
+- Inspect the v2 workload as a non-promotional diagnostic:
 ```bash
 PYTHONPATH=. .venv/bin/python scripts/profile_pipeline.py \
   --mode baseline \
-  --manifest profiling/manifests/baseline_representative_v2.txt
+  --manifest profiling/manifests/baseline_representative_v2.txt \
+  --diagnostic
 ```
 
-Do not compare v1 with v2. City Coverage Expansion remains blocked until a
-valid, reproduced v2 expected-baseline PR merges.
+Promotion-grade baseline capture is quarantined. Do not compare v1 with v2.
+City Coverage Expansion remains blocked until a valid, reproduced v2
+expected-baseline PR merges.
 
 ### Maintenance salvage helper for flaky Laserfiche agenda PDFs
 - `scripts/repair_san_mateo_laserfiche_backlog.py` now distinguishes generated-PDF transport failures from permanent failures.
@@ -1516,8 +1518,8 @@ Modes:
   - diagnostic only
 - `baseline`
   - pinned manifest under `profiling/manifests/`
-  - intended for apples-to-apples comparison across runs
-  - only baseline mode should be treated as profiling evidence suitable for direct comparison
+  - baseline-valid captures are intended for apples-to-apples comparison across runs
+  - diagnostic baseline captures remain non-comparable
 
 Commands:
 ```bash
@@ -1526,9 +1528,11 @@ python scripts/profile_pipeline.py --mode triage
 python scripts/build_profile_manifest.py --name <name>
 python scripts/build_profile_manifest.py --name <name> --write
 python scripts/profile_pipeline.py --mode baseline --manifest profiling/manifests/<name>.txt --dry-run-prepare
-python scripts/profile_pipeline.py --mode baseline --manifest profiling/manifests/<name>.txt
+python scripts/profile_pipeline.py --mode baseline --manifest profiling/manifests/<name>.txt --diagnostic
 python scripts/analyze_pipeline_profile.py --run-id <run_id>
 ```
+
+Promotion-grade baseline capture is quarantined until evidence-integrity activation. Diagnostic captures are useful for investigation but are not comparable evidence.
 
 Runtime note:
 - `triage` manifest selection is resolved inside the running Docker stack so it uses the same database/runtime context as the live pipeline.
@@ -1573,7 +1577,7 @@ Manifest package guidance:
 - keep baseline manifests checked in under `profiling/manifests/`
 - use the `.txt` file as the pinned catalog list and the optional `.json` sidecar as the controlled preconditioning contract
 - run `python scripts/build_profile_manifest.py --name <name>` first to inspect candidate counts before writing a package
-- run `python scripts/profile_pipeline.py --mode baseline --manifest profiling/manifests/<name>.txt --dry-run-prepare` before a baseline profile when a sidecar is present
+- run `python scripts/profile_pipeline.py --mode baseline --manifest profiling/manifests/<name>.txt --dry-run-prepare` before a manifest-driven diagnostic when a sidecar is present
 - sidecar preconditioning is intentionally scoped to derived or rebuildable fields on the selected workload only; if a candidate is not safe to reset, the builder should reject it instead of broadening the mutation scope
 
 Manifest guidance:
@@ -2110,43 +2114,9 @@ The scorer now preserves arm identity from `run_config.json`:
 - `experiments/results/ab_score_<control>_<treatment>.json`
 - `experiments/results/ab_report_v1.md`
 
-4) Run paired pipeline profiles with the same representative manifest.
+4) Paired promotion-grade pipeline profiles are temporarily unavailable.
 
-Control:
-```bash
-LOCAL_AI_BACKEND=http LOCAL_AI_HTTP_MODEL=gemma-3-270m-custom \
-  LOCAL_AI_HTTP_PROFILE=conservative WORKER_CONCURRENCY=3 WORKER_POOL=prefork \
-  docker compose -f docker-compose.yml -f docker-compose.dev.yml \
-  up -d --build inference worker api pipeline enrichment-worker
-sleep 1 && PYTHONPATH=. .venv/bin/python scripts/profile_pipeline.py --mode baseline --manifest profiling/manifests/baseline_representative_v2.txt
-```
-
-Treatment:
-```bash
-LOCAL_AI_BACKEND=http LOCAL_AI_HTTP_MODEL=gemma4:e2b \
-  LOCAL_AI_HTTP_PROFILE=conservative WORKER_CONCURRENCY=3 WORKER_POOL=prefork \
-  docker compose -f docker-compose.yml -f docker-compose.dev.yml \
-  up -d --build inference worker api pipeline enrichment-worker
-sleep 1 && PYTHONPATH=. .venv/bin/python scripts/profile_pipeline.py --mode baseline --manifest profiling/manifests/baseline_representative_v2.txt
-```
-
-5) Compare the treatment profile directly against the control run instead of the
-checked-in baseline guardrail:
-```bash
-PYTHONPATH=. .venv/bin/python scripts/analyze_pipeline_profile.py \
-  --run-id <TREATMENT_RUN_ID> \
-  --output-dir experiments/results/profiling \
-  --compare-run <CONTROL_RUN_ID>
-```
-
-The treatment run writes:
-- `experiments/results/profiling/<TREATMENT_RUN_ID>/pairwise_compare.json`
-- `experiments/results/profiling/<TREATMENT_RUN_ID>/pairwise_compare.md`
-
-Interpretation:
-- `pass`: promising enough for a future opt-in profile follow-up
-- `fail`: treatment breached the paired latency/runtime guardrails
-- `non_comparable`: one arm was not baseline-valid or had reduced-confidence data
+Do not substitute diagnostic captures for the former pass/fail procedure: pairwise comparison rejects non-baseline-valid arms. Resume this step only after evidence-integrity activation restores baseline capture.
 
 Default is `false` for staged rollout.
 
