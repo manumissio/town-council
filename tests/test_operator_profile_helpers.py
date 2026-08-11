@@ -164,6 +164,18 @@ def test_profile_command_helpers_preserve_env_and_docker_command(monkeypatch):
     assert [command[-1] for command in commands] == ["run_pipeline.py", "run_batch_enrichment.py"]
     assert commands[0][:4] == ["docker", "compose", "exec", "-T"]
     assert "TC_PROFILE_BASELINE_VALID=1" in commands[0]
+    expected_isolation_env = (
+        "STARTUP_PURGE_DERIVED=false",
+        "PIPELINE_ONBOARDING_CITY=",
+        "PIPELINE_ONBOARDING_STARTED_AT_UTC=",
+        "PIPELINE_RUNTIME_PROFILE=",
+    )
+    for command, service in zip(commands, ("api", "worker"), strict=True):
+        service_index = command.index(service)
+        for assignment in expected_isolation_env:
+            assignment_index = command.index(assignment)
+            assert command[assignment_index - 1] == "-e"
+            assert assignment_index < service_index
     assert commands[1][commands[1].index("-w") + 1] == "/app/pipeline"
 
 

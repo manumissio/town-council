@@ -4,6 +4,18 @@ import os
 from typing import Any
 
 
+PROFILE_EXECUTION_ISOLATION_ARGS = (
+    "-e",
+    "STARTUP_PURGE_DERIVED=false",
+    "-e",
+    "PIPELINE_ONBOARDING_CITY=",
+    "-e",
+    "PIPELINE_ONBOARDING_STARTED_AT_UTC=",
+    "-e",
+    "PIPELINE_RUNTIME_PROFILE=",
+)
+
+
 def profile_env(
     *, run_id: str, mode: str, artifact_dir: str, baseline_valid: bool, manifest_path: str
 ) -> dict[str, str]:
@@ -32,6 +44,7 @@ def profile_command(
         "compose",
         "exec",
         "-T",
+        *PROFILE_EXECUTION_ISOLATION_ARGS,
         "-e",
         f"TC_PROFILE_RUN_ID={run_id}",
         "-e",

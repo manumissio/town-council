@@ -25,6 +25,18 @@ Rules:
 - run `python scripts/build_profile_manifest.py --name <name>` first if you want to inspect candidate coverage before writing a manifest package
 - use `python scripts/profile_pipeline.py --mode baseline --manifest profiling/manifests/<name>.txt --dry-run-prepare` to inspect sidecar resets without mutating the workload
 
+Fresh-work trace:
+- write the temporary catalog list under `experiments/results/` after the
+  fresh crawl, promotion, and scoped downloader finish
+- stop before `run_pipeline.py`
+- require a nonempty `.txt` file and verify that its sibling `.json` does not
+  exist
+- run the profiler with `--diagnostic` and without `--skip-batch`
+- treat the resulting artifacts as exploratory and non-comparable
+
+The fresh-work trace does not use this directory's sidecar preconditioning
+workflow.
+
 Baseline lifecycle:
 - `baseline_representative_v1` is immutable historical evidence. Its schema includes the retired document-derived people phase, so active preparation rejects it as non-comparable.
 - `baseline_representative_v2` is the active capture candidate. It uses a distinct 30-catalog workload regenerated from a fresh local corpus, excludes the retired phase, and assigns eight catalogs to entity enrichment.
