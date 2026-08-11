@@ -20,6 +20,7 @@ from pipeline.summary_backfill_progress import (
     initial_summary_backfill_counts,
     record_summary_result_counts,
 )
+from pipeline.profiling import append_phase_eligibility, profiling_enabled
 
 
 @dataclass(frozen=True)
@@ -51,8 +52,23 @@ def run_summary_hydration_backfill(
         limit=limit,
         city=city,
     )
+    capture_eligibility = profiling_enabled()
+    if capture_eligibility:
+        append_phase_eligibility(
+            phase="summarize",
+            boundary="before",
+            subject="catalog",
+            eligible_ids=catalog_ids,
+        )
     counts = initial_summary_backfill_counts(selected=len(catalog_ids))
     if not catalog_ids:
+        if capture_eligibility:
+            append_phase_eligibility(
+                phase="summarize",
+                boundary="after",
+                subject="catalog",
+                eligible_ids=[],
+            )
         finish_empty_summary_backfill(counts, progress_callback)
         return counts
 
@@ -80,6 +96,13 @@ def run_summary_hydration_backfill(
     log_backfill_counts(counts)
     if progress_callback:
         progress_callback({"event_type": "stage_finish", "stage": "summary", "counts": counts.copy()})
+    if capture_eligibility:
+        append_phase_eligibility(
+            phase="summarize",
+            boundary="after",
+            subject="catalog",
+            eligible_ids=_select_catalog_ids(limit=limit, city=city),
+        )
     return counts
 
 

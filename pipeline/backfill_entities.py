@@ -6,6 +6,7 @@ from pipeline.cli_logging import configure_cli_logging
 from pipeline.config import ENTITY_BACKFILL_IN_PROCESS_THRESHOLD, MAX_WORKERS, PIPELINE_CPU_FRACTION
 from pipeline.content_hash import compute_content_hash
 from pipeline.db_session import db_session
+from pipeline.profiling import append_phase_eligibility, profiling_enabled
 from pipeline.run_pipeline import (
     PIPELINE_ONBOARDING_CITY,
     _resolve_parallel_processing_settings,
@@ -105,10 +106,26 @@ def run_entity_backfill():
     with db_session() as db:
         catalog_ids = select_catalog_ids_for_entity_backfill(db)
 
+    capture_eligibility = profiling_enabled()
+    if capture_eligibility:
+        append_phase_eligibility(
+            phase="entity_backfill",
+            boundary="before",
+            subject="catalog",
+            eligible_ids=catalog_ids,
+        )
+
     counts = _empty_counts()
     counts["selected"] = len(catalog_ids)
 
     if not catalog_ids:
+        if capture_eligibility:
+            append_phase_eligibility(
+                phase="entity_backfill",
+                boundary="after",
+                subject="catalog",
+                eligible_ids=[],
+            )
         logger.info("No documents need entity enrichment.")
         return counts
 
@@ -185,6 +202,15 @@ def run_entity_backfill():
         counts["freshness_advanced"],
         counts["candidate_slice_fallback_prefix"],
     )
+    if capture_eligibility:
+        with db_session() as db:
+            remaining_catalog_ids = select_catalog_ids_for_entity_backfill(db)
+        append_phase_eligibility(
+            phase="entity_backfill",
+            boundary="after",
+            subject="catalog",
+            eligible_ids=remaining_catalog_ids,
+        )
     return counts
 
 

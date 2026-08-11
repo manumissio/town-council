@@ -153,6 +153,8 @@ def _extract_summary_subphase_timings(summary_counts: Mapping[str, CounterValue]
 def _aggregate_phase_rows(spans: list[dict[str, Any]]) -> dict[str, dict[str, Any]]:
     totals: dict[str, PhaseStats] = {}
     for row in spans:
+        if row.get("event_type") not in {"span", "task_span"}:
+            continue
         phase = str(row.get("phase") or "")
         if phase not in LEAF_PHASES:
             continue

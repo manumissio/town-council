@@ -6,7 +6,7 @@ import json
 import os
 from pathlib import Path
 import time
-from typing import Any, Iterator, Protocol, Sequence, TypeVar
+from typing import Any, Iterator, Literal, Protocol, Sequence, TypeVar
 
 
 PROFILE_RUN_ID_ENV = "TC_PROFILE_RUN_ID"
@@ -19,6 +19,8 @@ PROFILE_WORKLOAD_ONLY_ENV = "TC_PROFILE_WORKLOAD_ONLY"
 _REPO_ROOT = Path(__file__).resolve().parents[1]
 _SELECTED_IDS_CACHE: tuple[str | None, set[int] | None] = (None, None)
 QueryT = TypeVar("QueryT", bound="CatalogScopedQuery")
+EligibilityBoundary = Literal["before", "after"]
+EligibilitySubject = Literal["catalog"]
 
 
 class CatalogIdPredicate(Protocol):
@@ -137,6 +139,26 @@ def append_profile_event(payload: dict[str, Any]) -> None:
         **payload,
     }
     append_jsonl(artifact_dir / "spans.jsonl", body)
+
+
+def append_phase_eligibility(
+    *,
+    phase: str,
+    boundary: EligibilityBoundary,
+    subject: EligibilitySubject,
+    eligible_ids: Sequence[int],
+) -> None:
+    normalized_ids = sorted({int(eligible_id) for eligible_id in eligible_ids})
+    append_profile_event(
+        {
+            "event_type": "phase_eligibility",
+            "phase": phase,
+            "boundary": boundary,
+            "subject": subject,
+            "eligible_ids": normalized_ids,
+            "eligible_count": len(normalized_ids),
+        }
+    )
 
 
 @contextmanager

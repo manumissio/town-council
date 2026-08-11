@@ -1,6 +1,6 @@
 # Performance
 
-Last updated: 2026-08-09
+Last updated: 2026-08-11
 
 This page describes how to interpret and reproduce performance evidence for local Docker runs.
 For operational troubleshooting and sorting diagnostics, use `docs/OPERATIONS.md`.
@@ -112,6 +112,14 @@ What the profiler attributes:
 - task execution time (`tc_celery_task_duration_seconds`)
 - phase timing (`tc_pipeline_phase_duration_seconds`)
 - provider evidence correlation via existing `tc_provider_*` metrics
+
+`spans.jsonl` also records `phase_eligibility` rows for synchronous backlog
+phases. Each successful phase has a `before` and `after` row with the sorted
+catalog IDs selected by that phase's existing eligibility query. Successful
+zero-work phases record two empty rows. A missing `after` row means the phase
+or its post-phase eligibility query did not complete. These rows are evidence
+about workload state; the bottleneck analyzer excludes them from occurrence
+counts, components, and duration totals.
 
 Confidence model:
 - `baseline-valid`

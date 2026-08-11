@@ -6,7 +6,7 @@ import time
 from pipeline.cli_logging import configure_cli_logging
 from pipeline.db_session import db_session
 from pipeline.metrics import record_pipeline_phase_duration
-from pipeline.profiling import current_mode, profile_span
+from pipeline.profiling import append_phase_eligibility, current_mode, profile_span, profiling_enabled
 from pipeline.run_pipeline import run_callable_step, run_step
 from pipeline.backfill_entities import run_entity_backfill
 from pipeline.backfill_orgs import run_organization_backfill
@@ -65,15 +65,39 @@ def main(argv=None):
     parse_args([] if argv is None else argv)
     logger.info(">>> Starting Batch Enrichment Pipeline")
     started = time.perf_counter()
+    capture_eligibility = profiling_enabled()
     with profile_span(phase="batch_enrichment_total", component="pipeline-batch"):
         run_callable_step("Entity Backfill", run_entity_backfill, component="pipeline-batch")
         with db_session() as session:
             table_catalog_ids = select_catalog_ids_for_table_extraction(session)
+        if capture_eligibility:
+            append_phase_eligibility(
+                phase="table_extraction",
+                boundary="before",
+                subject="catalog",
+                eligible_ids=table_catalog_ids,
+            )
         logger.info("table_extraction_preflight selected=%s", len(table_catalog_ids))
         if table_catalog_ids:
             run_step("Table Extraction", ["python", "table_worker.py"])
+            if capture_eligibility:
+                with db_session() as session:
+                    remaining_table_catalog_ids = select_catalog_ids_for_table_extraction(session)
+                append_phase_eligibility(
+                    phase="table_extraction",
+                    boundary="after",
+                    subject="catalog",
+                    eligible_ids=remaining_table_catalog_ids,
+                )
         else:
             logger.info("Step: Table Extraction skipped=1 reason=no_eligible_catalogs")
+            if capture_eligibility:
+                append_phase_eligibility(
+                    phase="table_extraction",
+                    boundary="after",
+                    subject="catalog",
+                    eligible_ids=[],
+                )
         run_callable_step(
             "Backfill Organizations",
             run_organization_backfill,
@@ -81,6 +105,13 @@ def main(argv=None):
         )
         with db_session() as session:
             topic_catalog_ids = select_catalog_ids_for_topic_hydration(session)
+        if capture_eligibility:
+            append_phase_eligibility(
+                phase="topic_modeling",
+                boundary="before",
+                subject="catalog",
+                eligible_ids=topic_catalog_ids,
+            )
         logger.info("topic_modeling_preflight selected=%s", len(topic_catalog_ids))
         if topic_catalog_ids:
             run_batch_callable_step(
@@ -88,8 +119,24 @@ def main(argv=None):
                 "topic_modeling",
                 lambda: run_topic_hydration_backfill(catalog_ids=topic_catalog_ids),
             )
+            if capture_eligibility:
+                with db_session() as session:
+                    remaining_topic_catalog_ids = select_catalog_ids_for_topic_hydration(session)
+                append_phase_eligibility(
+                    phase="topic_modeling",
+                    boundary="after",
+                    subject="catalog",
+                    eligible_ids=remaining_topic_catalog_ids,
+                )
         else:
             logger.info("Step: Topic Modeling skipped=1 reason=no_eligible_catalogs")
+            if capture_eligibility:
+                append_phase_eligibility(
+                    phase="topic_modeling",
+                    boundary="after",
+                    subject="catalog",
+                    eligible_ids=[],
+                )
     record_pipeline_phase_duration(
         "batch_enrichment_total",
         "pipeline-batch",

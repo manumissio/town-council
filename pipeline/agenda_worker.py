@@ -17,7 +17,7 @@ from pipeline.llm import LocalAI
 from pipeline.agenda_service import persist_agenda_items
 from pipeline.agenda_resolver import has_viable_structured_agenda_source, resolve_agenda_items
 from pipeline.indexer import reindex_catalog
-from pipeline.profiling import apply_catalog_id_scope
+from pipeline.profiling import append_phase_eligibility, apply_catalog_id_scope, profiling_enabled
 
 
 logger = logging.getLogger("agenda-worker")
@@ -208,6 +208,15 @@ def run_agenda_segmentation_backfill(
     with db_session() as session:
         catalog_ids = select_catalog_ids_for_agenda_segmentation(session, limit=limit)
 
+    capture_eligibility = profiling_enabled()
+    if capture_eligibility:
+        append_phase_eligibility(
+            phase="segment_agenda",
+            boundary="before",
+            subject="catalog",
+            eligible_ids=catalog_ids,
+        )
+
     counts = {
         "selected": len(catalog_ids),
         "complete": 0,
@@ -222,6 +231,13 @@ def run_agenda_segmentation_backfill(
         "llm_timeout_then_fallback": 0,
     }
     if not catalog_ids:
+        if capture_eligibility:
+            append_phase_eligibility(
+                phase="segment_agenda",
+                boundary="after",
+                subject="catalog",
+                eligible_ids=[],
+            )
         logger.info("agenda_segmentation_backfill selected=0")
         return counts
 
@@ -246,6 +262,16 @@ def run_agenda_segmentation_backfill(
         counts["timeout_fallbacks"] = int(fallback_counts.get("timeout", 0))
         counts["empty_response_fallbacks"] = int(fallback_counts.get("empty_response", 0))
         counts["llm_timeout_then_fallback"] = int(fallback_counts.get("timeout", 0))
+
+    if capture_eligibility:
+        with db_session() as session:
+            remaining_catalog_ids = select_catalog_ids_for_agenda_segmentation(session, limit=limit)
+        append_phase_eligibility(
+            phase="segment_agenda",
+            boundary="after",
+            subject="catalog",
+            eligible_ids=remaining_catalog_ids,
+        )
 
     logger.info(
         "agenda_segmentation_backfill selected=%s complete=%s empty=%s failed=%s other=%s timeout_fallbacks=%s empty_response_fallbacks=%s llm_attempted=%s llm_skipped_heuristic_first=%s heuristic_complete=%s llm_timeout_then_fallback=%s",

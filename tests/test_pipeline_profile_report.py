@@ -41,6 +41,63 @@ def test_rank_bottlenecks_prefers_longest_leaf_phase(tmp_path: Path):
     assert summary["top_bottlenecks"][0]["classification"] in {"queueing", "inference/provider"}
 
 
+def test_rank_bottlenecks_ignores_phase_eligibility_events(tmp_path: Path):
+    run_dir = tmp_path / "profile_run"
+    run_dir.mkdir()
+    (run_dir / "run_manifest.json").write_text(
+        json.dumps({"run_id": "profile_run", "mode": "triage", "catalog_count": 2, "baseline_valid": False}),
+        encoding="utf-8",
+    )
+    (run_dir / "result.json").write_text(
+        json.dumps({"totals": {"combined_elapsed_seconds": 10.0}}),
+        encoding="utf-8",
+    )
+    (run_dir / "day_summary.json").write_text("{}", encoding="utf-8")
+    (run_dir / "worker_metrics.prom").write_text("", encoding="utf-8")
+    (run_dir / "spans.jsonl").write_text(
+        "\n".join(
+            [
+                json.dumps(
+                    {
+                        "event_type": "phase_eligibility",
+                        "phase": "summarize",
+                        "boundary": "before",
+                        "eligible_count": 2,
+                        "eligible_ids": [1, 2],
+                    }
+                ),
+                json.dumps(
+                    {
+                        "event_type": "span",
+                        "phase": "summarize",
+                        "component": "pipeline",
+                        "duration_s": 4.0,
+                    }
+                ),
+                json.dumps(
+                    {
+                        "event_type": "phase_eligibility",
+                        "phase": "summarize",
+                        "boundary": "after",
+                        "eligible_count": 0,
+                        "eligible_ids": [],
+                    }
+                ),
+            ]
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+
+    summary = mod.rank_bottlenecks(run_dir)
+
+    summarize = summary["top_bottlenecks"][0]
+    assert summarize["phase"] == "summarize"
+    assert summarize["duration_s"] == 4.0
+    assert summarize["occurrence_count"] == 1
+    assert summarize["components"] == ["pipeline"]
+
+
 def test_rank_bottlenecks_classifies_deterministic_summary_runs_without_provider_bias(tmp_path: Path):
     run_dir = tmp_path / "profile_run_deterministic"
     run_dir.mkdir()

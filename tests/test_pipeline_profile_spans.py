@@ -23,6 +23,36 @@ def test_profile_span_writes_jsonl_event(monkeypatch, tmp_path: Path):
     assert rows[0]["event_type"] == "span"
 
 
+def test_phase_eligibility_writes_normalized_catalog_ids(monkeypatch, tmp_path: Path):
+    monkeypatch.setenv(profiling.PROFILE_RUN_ID_ENV, "profile_run")
+    monkeypatch.setenv(profiling.PROFILE_MODE_ENV, "baseline")
+    monkeypatch.setenv(profiling.PROFILE_ARTIFACT_DIR_ENV, str(tmp_path))
+    monkeypatch.setenv(profiling.PROFILE_BASELINE_VALID_ENV, "0")
+
+    profiling.append_phase_eligibility(
+        phase="summarize",
+        boundary="before",
+        subject="catalog",
+        eligible_ids=[13, 11, 13, 12],
+    )
+
+    rows = [json.loads(line) for line in (tmp_path / "spans.jsonl").read_text(encoding="utf-8").splitlines()]
+    assert rows == [
+        {
+            "baseline_valid": False,
+            "boundary": "before",
+            "eligible_count": 3,
+            "eligible_ids": [11, 12, 13],
+            "event_type": "phase_eligibility",
+            "mode": "baseline",
+            "phase": "summarize",
+            "run_id": "profile_run",
+            "subject": "catalog",
+            "timestamp": rows[0]["timestamp"],
+        }
+    ]
+
+
 def test_selected_catalog_ids_accept_comments_and_duplicates(monkeypatch, tmp_path: Path):
     manifest_path = tmp_path / "selected_catalogs.txt"
     manifest_path.write_text("11\n12 # retained\n11\n", encoding="utf-8")

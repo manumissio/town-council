@@ -1,3 +1,5 @@
+import json
+from pathlib import Path
 import sys
 from unittest.mock import MagicMock
 
@@ -9,7 +11,45 @@ from sqlalchemy.exc import SQLAlchemyError
 
 from pipeline import run_pipeline
 from pipeline import run_batch_enrichment
+from pipeline import profiling
 from pipeline.models import Base, Catalog, Document, Event, Place, UrlStage, UrlStageHist
+
+
+class _ImmediateFuture:
+    def __init__(self, *, failure: RuntimeError | None = None) -> None:
+        self.failure = failure
+
+    def result(self) -> int:
+        if self.failure is not None:
+            raise self.failure
+        return 1
+
+
+class _ImmediateExecutor:
+    failure: RuntimeError | None = None
+
+    def __init__(self, *, max_workers: int) -> None:
+        self.max_workers = max_workers
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, _exc_type, _exc, _traceback) -> bool:
+        return False
+
+    def submit(self, _func, _chunk, _ocr_fallback_enabled):
+        return _ImmediateFuture(failure=self.failure)
+
+
+def _eligibility_rows(artifact_dir: Path) -> list[dict[str, object]]:
+    return [
+        row
+        for row in (
+            json.loads(line)
+            for line in (artifact_dir / "spans.jsonl").read_text(encoding="utf-8").splitlines()
+        )
+        if row["event_type"] == "phase_eligibility"
+    ]
 
 
 def test_run_pipeline_facade_exports_patch_sensitive_public_names():
@@ -102,6 +142,97 @@ def test_run_parallel_processing_uses_facade_patched_executor_and_worker(mocker)
         ("workers", 2),
         ("submit", worker, [1, 2], run_pipeline.TIKA_OCR_FALLBACK_ENABLED),
     ]
+
+
+def test_parallel_processing_records_before_and_after_eligibility(monkeypatch, mocker, tmp_path: Path):
+    monkeypatch.setenv(profiling.PROFILE_RUN_ID_ENV, "profile_run")
+    monkeypatch.setenv(profiling.PROFILE_ARTIFACT_DIR_ENV, str(tmp_path))
+    mock_session = MagicMock()
+    mock_session.__enter__.return_value = mock_session
+    mock_session.__exit__.return_value = False
+    mocker.patch("pipeline.db_session.db_session", return_value=mock_session)
+    selector = mocker.patch(
+        "pipeline.run_pipeline.select_catalog_ids_for_processing",
+        side_effect=[[1, 2], [2]],
+    )
+    mocker.patch("pipeline.run_pipeline.ProcessPoolExecutor", _ImmediateExecutor)
+    mocker.patch("pipeline.run_pipeline.as_completed", side_effect=lambda futures: list(futures))
+    mocker.patch("pipeline.run_pipeline.cpu_count", return_value=1)
+
+    run_pipeline.run_parallel_processing()
+
+    rows = _eligibility_rows(tmp_path)
+    assert [(row["boundary"], row["eligible_ids"]) for row in rows] == [
+        ("before", [1, 2]),
+        ("after", [2]),
+    ]
+    assert selector.call_count == 2
+
+
+def test_parallel_processing_records_paired_empty_eligibility(monkeypatch, mocker, tmp_path: Path):
+    monkeypatch.setenv(profiling.PROFILE_RUN_ID_ENV, "profile_run")
+    monkeypatch.setenv(profiling.PROFILE_ARTIFACT_DIR_ENV, str(tmp_path))
+    mock_session = MagicMock()
+    mock_session.__enter__.return_value = mock_session
+    mock_session.__exit__.return_value = False
+    mocker.patch("pipeline.db_session.db_session", return_value=mock_session)
+    selector = mocker.patch("pipeline.run_pipeline.select_catalog_ids_for_processing", return_value=[])
+
+    run_pipeline.run_parallel_processing()
+
+    rows = _eligibility_rows(tmp_path)
+    assert [(row["boundary"], row["eligible_ids"]) for row in rows] == [
+        ("before", []),
+        ("after", []),
+    ]
+    selector.assert_called_once()
+
+
+def test_parallel_processing_omits_after_eligibility_when_work_fails(monkeypatch, mocker, tmp_path: Path):
+    monkeypatch.setenv(profiling.PROFILE_RUN_ID_ENV, "profile_run")
+    monkeypatch.setenv(profiling.PROFILE_ARTIFACT_DIR_ENV, str(tmp_path))
+    mock_session = MagicMock()
+    mock_session.__enter__.return_value = mock_session
+    mock_session.__exit__.return_value = False
+    mocker.patch("pipeline.db_session.db_session", return_value=mock_session)
+    selector = mocker.patch("pipeline.run_pipeline.select_catalog_ids_for_processing", return_value=[1])
+    _ImmediateExecutor.failure = RuntimeError("extraction failed")
+    mocker.patch("pipeline.run_pipeline.ProcessPoolExecutor", _ImmediateExecutor)
+    mocker.patch("pipeline.run_pipeline.as_completed", side_effect=lambda futures: list(futures))
+    mocker.patch("pipeline.run_pipeline.cpu_count", return_value=1)
+
+    try:
+        with pytest.raises(RuntimeError, match="extraction failed"):
+            run_pipeline.run_parallel_processing()
+    finally:
+        _ImmediateExecutor.failure = None
+
+    rows = _eligibility_rows(tmp_path)
+    assert [row["boundary"] for row in rows if row["event_type"] == "phase_eligibility"] == ["before"]
+    selector.assert_called_once()
+
+
+def test_parallel_processing_propagates_after_selector_failure(monkeypatch, mocker, tmp_path: Path):
+    monkeypatch.setenv(profiling.PROFILE_RUN_ID_ENV, "profile_run")
+    monkeypatch.setenv(profiling.PROFILE_ARTIFACT_DIR_ENV, str(tmp_path))
+    mock_session = MagicMock()
+    mock_session.__enter__.return_value = mock_session
+    mock_session.__exit__.return_value = False
+    mocker.patch("pipeline.db_session.db_session", return_value=mock_session)
+    selector = mocker.patch(
+        "pipeline.run_pipeline.select_catalog_ids_for_processing",
+        side_effect=[[1], RuntimeError("selector failed")],
+    )
+    mocker.patch("pipeline.run_pipeline.ProcessPoolExecutor", _ImmediateExecutor)
+    mocker.patch("pipeline.run_pipeline.as_completed", side_effect=lambda futures: list(futures))
+    mocker.patch("pipeline.run_pipeline.cpu_count", return_value=1)
+
+    with pytest.raises(RuntimeError, match="selector failed"):
+        run_pipeline.run_parallel_processing()
+
+    rows = _eligibility_rows(tmp_path)
+    assert [row["boundary"] for row in rows if row["event_type"] == "phase_eligibility"] == ["before"]
+    assert selector.call_count == 2
 
 
 def test_main_runs_steps_in_expected_order(mocker):
@@ -225,8 +356,14 @@ def test_run_batch_enrichment_runs_heavy_steps_in_expected_order(mocker):
         "pipeline.run_batch_enrichment.run_entity_backfill",
         return_value={"selected": 1, "complete": 1, "updated_catalog_ids": [10]},
     )
-    mocker.patch("pipeline.run_batch_enrichment.select_catalog_ids_for_table_extraction", return_value=[1])
-    mocker.patch("pipeline.run_batch_enrichment.select_catalog_ids_for_topic_hydration", return_value=[2, 3])
+    table_selector = mocker.patch(
+        "pipeline.run_batch_enrichment.select_catalog_ids_for_table_extraction",
+        return_value=[1],
+    )
+    topic_selector = mocker.patch(
+        "pipeline.run_batch_enrichment.select_catalog_ids_for_topic_hydration",
+        return_value=[2, 3],
+    )
     org_spy = mocker.patch(
         "pipeline.run_batch_enrichment.run_organization_backfill",
         return_value={"selected": 1, "linked": 1, "reindexed": 1, "failed_reindex": 0},
@@ -246,6 +383,8 @@ def test_run_batch_enrichment_runs_heavy_steps_in_expected_order(mocker):
     entity_spy.assert_called_once_with()
     org_spy.assert_called_once_with()
     topic_backfill_spy.assert_called_once_with(catalog_ids=[2, 3])
+    table_selector.assert_called_once()
+    topic_selector.assert_called_once()
 
 
 def test_run_batch_callable_step_records_failure_context_before_exit(
@@ -286,8 +425,14 @@ def test_run_batch_enrichment_skips_noop_topic_and_table_steps(mocker):
         "pipeline.run_batch_enrichment.run_entity_backfill",
         return_value={"selected": 0, "complete": 0, "updated_catalog_ids": []},
     )
-    mocker.patch("pipeline.run_batch_enrichment.select_catalog_ids_for_table_extraction", return_value=[])
-    mocker.patch("pipeline.run_batch_enrichment.select_catalog_ids_for_topic_hydration", return_value=[])
+    table_selector = mocker.patch(
+        "pipeline.run_batch_enrichment.select_catalog_ids_for_table_extraction",
+        return_value=[],
+    )
+    topic_selector = mocker.patch(
+        "pipeline.run_batch_enrichment.select_catalog_ids_for_topic_hydration",
+        return_value=[],
+    )
     org_spy = mocker.patch(
         "pipeline.run_batch_enrichment.run_organization_backfill",
         return_value={"selected": 0, "linked": 0, "reindexed": 0, "failed_reindex": 0},
@@ -304,6 +449,183 @@ def test_run_batch_enrichment_skips_noop_topic_and_table_steps(mocker):
     entity_spy.assert_called_once_with()
     org_spy.assert_called_once_with()
     topic_backfill_spy.assert_not_called()
+    table_selector.assert_called_once()
+    topic_selector.assert_called_once()
+
+
+def _patch_batch_non_target_steps(mocker) -> None:
+    mocker.patch(
+        "pipeline.run_batch_enrichment.run_callable_step",
+        side_effect=lambda _name, func, component="pipeline-batch": func(),
+    )
+    mocker.patch(
+        "pipeline.run_batch_enrichment.run_entity_backfill",
+        return_value={"selected": 0, "complete": 0, "updated_catalog_ids": []},
+    )
+    mocker.patch(
+        "pipeline.run_batch_enrichment.run_organization_backfill",
+        return_value={"selected": 0, "linked": 0, "reindexed": 0, "failed_reindex": 0},
+    )
+    mocker.patch("pipeline.run_batch_enrichment.db_session")
+
+
+def test_batch_enrichment_records_table_and_topic_eligibility(monkeypatch, mocker, tmp_path: Path):
+    monkeypatch.setenv(profiling.PROFILE_RUN_ID_ENV, "profile_run")
+    monkeypatch.setenv(profiling.PROFILE_ARTIFACT_DIR_ENV, str(tmp_path))
+    _patch_batch_non_target_steps(mocker)
+    mocker.patch("pipeline.run_batch_enrichment.run_step")
+    mocker.patch(
+        "pipeline.run_batch_enrichment.run_batch_callable_step",
+        side_effect=lambda _name, _phase, func: func(),
+    )
+    table_selector = mocker.patch(
+        "pipeline.run_batch_enrichment.select_catalog_ids_for_table_extraction",
+        side_effect=[[41], []],
+    )
+    topic_selector = mocker.patch(
+        "pipeline.run_batch_enrichment.select_catalog_ids_for_topic_hydration",
+        side_effect=[[51, 52], [52]],
+    )
+    mocker.patch(
+        "pipeline.run_batch_enrichment.run_topic_hydration_backfill",
+        return_value={"selected": 2, "complete": 2},
+    )
+
+    run_batch_enrichment.main()
+
+    rows = _eligibility_rows(tmp_path)
+    assert [(row["phase"], row["boundary"], row["eligible_ids"]) for row in rows] == [
+        ("table_extraction", "before", [41]),
+        ("table_extraction", "after", []),
+        ("topic_modeling", "before", [51, 52]),
+        ("topic_modeling", "after", [52]),
+    ]
+    assert table_selector.call_count == 2
+    assert topic_selector.call_count == 2
+
+
+def test_batch_enrichment_records_paired_empty_eligibility(monkeypatch, mocker, tmp_path: Path):
+    monkeypatch.setenv(profiling.PROFILE_RUN_ID_ENV, "profile_run")
+    monkeypatch.setenv(profiling.PROFILE_ARTIFACT_DIR_ENV, str(tmp_path))
+    _patch_batch_non_target_steps(mocker)
+    table_selector = mocker.patch(
+        "pipeline.run_batch_enrichment.select_catalog_ids_for_table_extraction",
+        return_value=[],
+    )
+    topic_selector = mocker.patch(
+        "pipeline.run_batch_enrichment.select_catalog_ids_for_topic_hydration",
+        return_value=[],
+    )
+
+    run_batch_enrichment.main()
+
+    rows = _eligibility_rows(tmp_path)
+    assert [(row["phase"], row["boundary"], row["eligible_ids"]) for row in rows] == [
+        ("table_extraction", "before", []),
+        ("table_extraction", "after", []),
+        ("topic_modeling", "before", []),
+        ("topic_modeling", "after", []),
+    ]
+    table_selector.assert_called_once()
+    topic_selector.assert_called_once()
+
+
+def test_table_eligibility_omits_after_when_work_fails(monkeypatch, mocker, tmp_path: Path):
+    monkeypatch.setenv(profiling.PROFILE_RUN_ID_ENV, "profile_run")
+    monkeypatch.setenv(profiling.PROFILE_ARTIFACT_DIR_ENV, str(tmp_path))
+    _patch_batch_non_target_steps(mocker)
+    table_selector = mocker.patch(
+        "pipeline.run_batch_enrichment.select_catalog_ids_for_table_extraction",
+        return_value=[41],
+    )
+    mocker.patch("pipeline.run_batch_enrichment.run_step", side_effect=RuntimeError("table failed"))
+
+    with pytest.raises(RuntimeError, match="table failed"):
+        run_batch_enrichment.main()
+
+    rows = _eligibility_rows(tmp_path)
+    assert [(row["phase"], row["boundary"]) for row in rows] == [("table_extraction", "before")]
+    table_selector.assert_called_once()
+
+
+def test_table_eligibility_propagates_after_selector_failure(monkeypatch, mocker, tmp_path: Path):
+    monkeypatch.setenv(profiling.PROFILE_RUN_ID_ENV, "profile_run")
+    monkeypatch.setenv(profiling.PROFILE_ARTIFACT_DIR_ENV, str(tmp_path))
+    _patch_batch_non_target_steps(mocker)
+    table_selector = mocker.patch(
+        "pipeline.run_batch_enrichment.select_catalog_ids_for_table_extraction",
+        side_effect=[[41], RuntimeError("table selector failed")],
+    )
+    mocker.patch("pipeline.run_batch_enrichment.run_step")
+
+    with pytest.raises(RuntimeError, match="table selector failed"):
+        run_batch_enrichment.main()
+
+    rows = _eligibility_rows(tmp_path)
+    assert [(row["phase"], row["boundary"]) for row in rows] == [("table_extraction", "before")]
+    assert table_selector.call_count == 2
+
+
+def test_topic_eligibility_omits_after_when_work_fails(monkeypatch, mocker, tmp_path: Path):
+    monkeypatch.setenv(profiling.PROFILE_RUN_ID_ENV, "profile_run")
+    monkeypatch.setenv(profiling.PROFILE_ARTIFACT_DIR_ENV, str(tmp_path))
+    _patch_batch_non_target_steps(mocker)
+    mocker.patch(
+        "pipeline.run_batch_enrichment.select_catalog_ids_for_table_extraction",
+        return_value=[],
+    )
+    topic_selector = mocker.patch(
+        "pipeline.run_batch_enrichment.select_catalog_ids_for_topic_hydration",
+        return_value=[51],
+    )
+    mocker.patch(
+        "pipeline.run_batch_enrichment.run_batch_callable_step",
+        side_effect=RuntimeError("topic failed"),
+    )
+
+    with pytest.raises(RuntimeError, match="topic failed"):
+        run_batch_enrichment.main()
+
+    rows = _eligibility_rows(tmp_path)
+    assert [
+        (row["phase"], row["boundary"])
+        for row in rows
+        if row["phase"] == "topic_modeling"
+    ] == [("topic_modeling", "before")]
+    topic_selector.assert_called_once()
+
+
+def test_topic_eligibility_propagates_after_selector_failure(monkeypatch, mocker, tmp_path: Path):
+    monkeypatch.setenv(profiling.PROFILE_RUN_ID_ENV, "profile_run")
+    monkeypatch.setenv(profiling.PROFILE_ARTIFACT_DIR_ENV, str(tmp_path))
+    _patch_batch_non_target_steps(mocker)
+    mocker.patch(
+        "pipeline.run_batch_enrichment.select_catalog_ids_for_table_extraction",
+        return_value=[],
+    )
+    topic_selector = mocker.patch(
+        "pipeline.run_batch_enrichment.select_catalog_ids_for_topic_hydration",
+        side_effect=[[51], RuntimeError("topic selector failed")],
+    )
+    mocker.patch(
+        "pipeline.run_batch_enrichment.run_batch_callable_step",
+        side_effect=lambda _name, _phase, func: func(),
+    )
+    mocker.patch(
+        "pipeline.run_batch_enrichment.run_topic_hydration_backfill",
+        return_value={"selected": 1, "complete": 1},
+    )
+
+    with pytest.raises(RuntimeError, match="topic selector failed"):
+        run_batch_enrichment.main()
+
+    rows = _eligibility_rows(tmp_path)
+    assert [
+        (row["phase"], row["boundary"])
+        for row in rows
+        if row["phase"] == "topic_modeling"
+    ] == [("topic_modeling", "before")]
+    assert topic_selector.call_count == 2
 
 
 def test_run_batch_enrichment_help_exits_before_work(mocker):
