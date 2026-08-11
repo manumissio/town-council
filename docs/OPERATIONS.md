@@ -1,6 +1,6 @@
 # Operations Runbook
 
-Last updated: 2026-08-09
+Last updated: 2026-08-11
 
 ## Core workflow
 
@@ -896,13 +896,22 @@ find experiments/results/maintenance -maxdepth 4 -type f | sort
   - top bottleneck phase durations
   - stable workload-shape counters from `commands.log`
 - Counter drift is treated more strictly than timing drift; reduced-confidence runs are reported as non-comparable rather than clean passes.
-- Inspect the v2 workload as a non-promotional diagnostic:
+- Inspect freshly downloaded pending work as a non-promotional diagnostic:
 ```bash
+MANIFEST=experiments/results/baseline_v2_fresh_pending.txt
+test -s "$MANIFEST"
+test ! -e "${MANIFEST%.txt}.json"
 PYTHONPATH=. .venv/bin/python scripts/profile_pipeline.py \
   --mode baseline \
-  --manifest profiling/manifests/baseline_representative_v2.txt \
+  --manifest "$MANIFEST" \
   --diagnostic
 ```
+
+Create this temporary text manifest after the fresh crawl, promotion, and
+scoped downloader finish, then stop before `run_pipeline.py`. Do not add a
+sibling JSON sidecar and do not pass `--skip-batch`. The profiler disables
+startup purge and clears onboarding filters in the container commands. The
+result remains exploratory and non-comparable.
 
 Promotion-grade baseline capture is quarantined. Do not compare v1 with v2.
 City Coverage Expansion remains blocked until a valid, reproduced v2
@@ -1533,6 +1542,11 @@ python scripts/analyze_pipeline_profile.py --run-id <run_id>
 ```
 
 Promotion-grade baseline capture is quarantined until evidence-integrity activation. Diagnostic captures are useful for investigation but are not comparable evidence.
+
+The fresh-work trace uses a temporary plain-text manifest under
+`experiments/results/`, verifies that no sibling `.json` sidecar exists, and
+runs both core and batch processing. Checked-in sidecars use the separate
+preconditioning workflow and must not be used for that trace.
 
 Runtime note:
 - `triage` manifest selection is resolved inside the running Docker stack so it uses the same database/runtime context as the live pipeline.

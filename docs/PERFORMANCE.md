@@ -81,6 +81,22 @@ PYTHONPATH=. .venv/bin/python scripts/analyze_pipeline_profile.py --run-id <run_
 
 Promotion-grade baseline capture is quarantined until workload completion and comparison evidence are bound to the run. Diagnostic captures remain non-comparable.
 
+For the fresh-work trace, use a temporary manifest with no sidecar after the
+crawl, promotion, and scoped downloader have finished, but before
+`run_pipeline.py` starts:
+```bash
+MANIFEST=experiments/results/baseline_v2_fresh_pending.txt
+test -s "$MANIFEST"
+test ! -e "${MANIFEST%.txt}.json"
+PYTHONPATH=. .venv/bin/python scripts/profile_pipeline.py \
+  --mode baseline \
+  --manifest "$MANIFEST" \
+  --diagnostic
+```
+Do not use `--skip-batch`. The profiler disables startup purge and clears
+onboarding filters for its Docker commands. This trace is exploratory and
+remains non-comparable.
+
 Artifacts:
 - `experiments/results/profiling/<run_id>/run_manifest.json`
 - `experiments/results/profiling/<run_id>/spans.jsonl`
@@ -127,6 +143,7 @@ Interpretation rule:
 - if a baseline manifest has a `.json` sidecar, the harness applies controlled preconditioning to only the selected workload before the run so the baseline still contains real pending work
 - use `--dry-run-prepare` to inspect that preconditioning plan before mutating the selected workload
 - use `--diagnostic` when a pinned baseline manifest is needed for investigation but the resulting evidence must remain non-comparable and `baseline_valid=false`
+- do not attach a sidecar to the fresh-work trace manifest; sidecars invoke the separate preconditioning workflow
 - use `--compare-to` to analyze existing baseline-valid evidence; diagnostic captures remain non-comparable
 - `baseline_representative_v1` and its checked-in expectation are immutable
   historical evidence for the retired document-derived person pipeline; they

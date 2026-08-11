@@ -115,10 +115,18 @@ Notes:
 - `triage` and manifest-driven `baseline` runs are workload-only by default: they measure the selected catalog set and intentionally skip unrelated global prelude steps like staged download/promotion.
 - if the report marks a run as `reduced-confidence`, inspect `summary.json` and `result.json` before comparing it to other runs.
 
-Pinned-manifest diagnostic run:
+Fresh-work diagnostic run:
 ```bash
-python scripts/profile_pipeline.py --mode baseline --manifest profiling/manifests/<name>.txt --diagnostic
+MANIFEST=experiments/results/baseline_v2_fresh_pending.txt
+test -s "$MANIFEST"
+test ! -e "${MANIFEST%.txt}.json"
+python scripts/profile_pipeline.py --mode baseline --manifest "$MANIFEST" --diagnostic
 ```
+
+Use this only after a fresh crawl, promotion, and scoped download have created
+new pending catalogs, and stop before `run_pipeline.py`. The profiler disables
+startup purge and clears onboarding filters inside its Docker commands. Do not
+pass `--skip-batch`; the resulting evidence remains non-comparable.
 
 Promotion-grade baseline capture is temporarily quarantined while evidence-integrity checks are completed.
 
@@ -129,6 +137,9 @@ python scripts/build_profile_manifest.py --name <name> --write
 python scripts/profile_pipeline.py --mode baseline --manifest profiling/manifests/<name>.txt --dry-run-prepare
 python scripts/profile_pipeline.py --mode baseline --manifest profiling/manifests/<name>.txt --diagnostic
 ```
+
+This package workflow reconditions selected completed records. It is not the
+fresh-work trace path above.
 
 Analyze an existing profiling run:
 ```bash
@@ -144,7 +155,7 @@ Artifacts land under `experiments/results/profiling/<run_id>/` and include:
 Interpretation:
 - `triage` runs are diagnostic and optimized for speed.
 - Baseline-valid runs use a pinned manifest and are the only profiling runs that should be compared directly over time; diagnostic baseline runs remain non-comparable.
-- baseline manifests can include a checked-in `.json` sidecar that recreates a representative pending-work workload for just the selected catalog IDs before the run starts.
+- baseline manifests can include a checked-in `.json` sidecar that applies the separate preconditioning workflow to selected catalog IDs before the run starts.
 - `--dry-run-prepare` shows the exact preconditioning plan without mutating the workload.
 - queue wait is tracked separately from task execution so the report can distinguish worker backlog from slow execution.
 - default core and batch pipeline runs now keep search fresh with targeted per-catalog reindex hooks; use the manual reindex command below only when you changed indexing logic or need a repair rebuild.
