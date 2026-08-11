@@ -154,5 +154,7 @@ def _extract_source_sha256(extract_candidates: list[ManifestCandidate]) -> dict[
         source_path = Path(source_location) if source_location else None
         if source_path is None or not source_path.is_file():
             raise ValueError(f"extract source is not a regular file for catalog_id={catalog_id}")
+        if source_path.stat().st_size == 0:
+            raise ValueError(f"empty extract source is not replayable for catalog_id={catalog_id}")
         source_digests[str(catalog_id)] = sha256_file(source_path)
     return source_digests

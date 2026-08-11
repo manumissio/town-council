@@ -3,9 +3,11 @@ from __future__ import annotations
 from importlib import import_module
 from typing import Any
 
-from sqlalchemy import Text, and_, cast, func, or_
+from sqlalchemy import Text, and_, cast, func
 
+from pipeline.content_hash import compute_content_hash
 from pipeline.profile_manifest_contracts import ManifestCandidate, OrmSession
+from pipeline.summary_freshness import compute_agenda_items_hash, is_summary_fresh
 
 
 def _models() -> Any:
@@ -17,71 +19,145 @@ def _summary_doc_kind_subquery(session: OrmSession) -> Any:
     return queries.summary_doc_kind_subquery(session)  # Reuse runtime routing without importing untyped query code.
 
 
+def _organization_name_for_meeting_type(meeting_type: str | None) -> str:
+    organizations = import_module("pipeline.backfill_orgs")
+    return str(organizations.organization_name_for_meeting_type(meeting_type))
+
+
+def _single_agenda_document_condition(models: Any) -> Any:
+    return and_(func.count(models.Document.id) == 1, func.min(models.Document.category) == "agenda")
+
+
+def _current_agenda_item_hashes(session: OrmSession, catalog_ids: list[int]) -> dict[int, str]:
+    if not catalog_ids:
+        return {}
+    models = _models()
+    agenda_items = (
+        session.query(models.AgendaItem)
+        .filter(models.AgendaItem.catalog_id.in_(catalog_ids))
+        .order_by(models.AgendaItem.catalog_id, models.AgendaItem.order, models.AgendaItem.id)
+        .all()
+    )
+    items_by_catalog: dict[int, list[Any]] = {}
+    for agenda_item in agenda_items:
+        items_by_catalog.setdefault(int(agenda_item.catalog_id), []).append(agenda_item)
+    return {
+        catalog_id: agenda_hash
+        for catalog_id, catalog_items in items_by_catalog.items()
+        if (agenda_hash := compute_agenda_items_hash(catalog_items)) is not None
+    }
+
+
 def extract_candidates(session: OrmSession) -> list[ManifestCandidate]:
     models = _models()
     rows = (
-        session.query(models.Catalog.id, models.Catalog.location)
+        session.query(
+            models.Catalog.id,
+            models.Catalog.location,
+            models.Catalog.content,
+            models.Catalog.content_hash,
+        )
         .join(models.Document, models.Document.catalog_id == models.Catalog.id)
         .filter(
-            models.Document.category == "agenda",
             models.Catalog.location.is_not(None),
             models.Catalog.location != "",
             models.Catalog.content.is_not(None),
             models.Catalog.content != "",
+            models.Catalog.content_hash.is_not(None),
             models.Catalog.extraction_status == "complete",
         )
+        .group_by(
+            models.Catalog.id,
+            models.Catalog.location,
+            models.Catalog.content,
+            models.Catalog.content_hash,
+        )
+        .having(_single_agenda_document_condition(models))
         .order_by(models.Catalog.id)
-        .distinct()
         .all()
     )
     return [
         {"catalog_id": int(catalog_id), "source_location": str(location) if location is not None else ""}
-        for catalog_id, location in rows
+        for catalog_id, location, content, content_hash in rows
+        if compute_content_hash(str(content)) == content_hash
     ]
 
 
 def segment_reset_candidates(session: OrmSession) -> list[ManifestCandidate]:
     models = _models()
     rows = (
-        session.query(models.Catalog.id)
+        session.query(models.Catalog.id, models.Catalog.agenda_items_hash)
         .join(models.Document, models.Document.catalog_id == models.Catalog.id)
         .filter(
             models.Catalog.content.is_not(None),
             models.Catalog.content != "",
             models.Catalog.agenda_segmentation_status == "complete",
+            models.Catalog.agenda_items_hash.is_not(None),
         )
-        .group_by(models.Catalog.id)
-        .having(and_(func.count(models.Document.id) == 1, func.min(models.Document.category) == "agenda"))
+        .group_by(models.Catalog.id, models.Catalog.agenda_items_hash)
+        .having(_single_agenda_document_condition(models))
         .order_by(models.Catalog.id)
         .all()
     )
-    return [{"catalog_id": int(row[0])} for row in rows]
+    candidate_ids = [int(catalog_id) for catalog_id, _agenda_items_hash in rows]
+    missing_page_ids = {
+        int(catalog_id)
+        for (catalog_id,) in session.query(models.AgendaItem.catalog_id)
+        .filter(
+            models.AgendaItem.catalog_id.in_(candidate_ids),
+            models.AgendaItem.page_number.is_(None),
+        )
+        .distinct()
+        .all()
+    }
+    current_hashes = _current_agenda_item_hashes(session, candidate_ids)
+    return [
+        {"catalog_id": int(catalog_id)}
+        for catalog_id, stored_hash in rows
+        if int(catalog_id) not in missing_page_ids and current_hashes.get(int(catalog_id)) == stored_hash
+    ]
 
 
 def summary_reset_candidates(session: OrmSession) -> list[ManifestCandidate]:
     models = _models()
     doc_kind = _summary_doc_kind_subquery(session)
-    agenda_items_exist = (
-        session.query(models.AgendaItem.id).filter(models.AgendaItem.catalog_id == models.Catalog.id).exists()
-    )
     rows = (
-        session.query(models.Catalog.id)
+        session.query(
+            models.Catalog.id,
+            doc_kind.c.doc_kind,
+            models.Catalog.summary,
+            models.Catalog.summary_source_hash,
+            models.Catalog.content_hash,
+            models.Catalog.agenda_items_hash,
+            models.Catalog.agenda_segmentation_status,
+        )
         .join(doc_kind, doc_kind.c.catalog_id == models.Catalog.id)
         .filter(
             models.Catalog.content.is_not(None),
             models.Catalog.content != "",
             models.Catalog.summary.is_not(None),
-            or_(
-                doc_kind.c.doc_kind != "agenda",
-                agenda_items_exist,
-                models.Catalog.agenda_segmentation_status == "empty",
-            ),
+            models.Catalog.summary != "",
         )
         .order_by(models.Catalog.id)
-        .distinct()
         .all()
     )
-    return [{"catalog_id": int(row[0])} for row in rows]
+    agenda_catalog_ids = [int(row[0]) for row in rows if row[1] == "agenda"]
+    current_agenda_hashes = _current_agenda_item_hashes(session, agenda_catalog_ids)
+    candidates: list[ManifestCandidate] = []
+    for catalog_id, kind, summary, summary_source_hash, content_hash, agenda_items_hash, segmentation_status in rows:
+        current_agenda_hash = current_agenda_hashes.get(int(catalog_id))
+        if kind == "agenda" and current_agenda_hash is not None and agenda_items_hash != current_agenda_hash:
+            continue
+        if is_summary_fresh(
+            kind,
+            summary=summary,
+            summary_source_hash=summary_source_hash,
+            content_hash=content_hash,
+            agenda_items_hash=current_agenda_hash,
+            agenda_segmentation_status=segmentation_status,
+        ):
+            candidates.append({"catalog_id": int(catalog_id)})
+    return candidates
 
 
 def entity_reset_candidates(session: OrmSession) -> list[ManifestCandidate]:
@@ -115,17 +191,36 @@ def org_reset_candidates(session: OrmSession) -> list[ManifestCandidate]:
         )
     }
     rows = (
-        session.query(models.Catalog.id, models.Event.id)
+        session.query(
+            models.Catalog.id,
+            models.Event.id,
+            models.Event.place_id,
+            models.Event.meeting_type,
+            models.Event.organization_id,
+        )
         .join(models.Document, models.Document.catalog_id == models.Catalog.id)
         .join(models.Event, models.Event.id == models.Document.event_id)
         .filter(models.Event.organization_id.is_not(None))
         .order_by(models.Catalog.id)
         .all()
     )
+    place_ids = sorted({int(place_id) for _catalog_id, _event_id, place_id, _meeting_type, _org_id in rows})
+    organization_ids_by_key: dict[tuple[int, str], list[int]] = {}
+    for organization_id, place_id, name in (
+        session.query(models.Organization.id, models.Organization.place_id, models.Organization.name)
+        .filter(models.Organization.place_id.in_(place_ids))
+        .all()
+    ):
+        key = (int(place_id), str(name))
+        organization_ids_by_key.setdefault(key, []).append(int(organization_id))
     candidates: list[ManifestCandidate] = []
-    for catalog_id, event_id in rows:
+    for catalog_id, event_id, place_id, meeting_type, organization_id in rows:
         eid = int(event_id)
         if event_doc_counts.get(eid) != 1:
+            continue
+        expected_name = _organization_name_for_meeting_type(meeting_type)
+        matching_organization_ids = organization_ids_by_key.get((int(place_id), expected_name), [])
+        if len(matching_organization_ids) != 1 or matching_organization_ids[0] != int(organization_id):
             continue
         candidates.append({"catalog_id": int(catalog_id), "event_id": eid})
     return candidates

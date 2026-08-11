@@ -6,6 +6,21 @@ from pipeline.indexer import reindex_catalogs
 from pipeline.profiling import selected_catalog_ids
 from pipeline.utils import generate_ocd_id
 
+
+CITY_COUNCIL_NAME = "City Council"
+PARKS_COMMISSION_NAME = "Parks & Recreation Commission"
+PLANNING_COMMISSION_NAME = "Planning Commission"
+
+
+def organization_name_for_meeting_type(meeting_type: str | None) -> str:
+    normalized_meeting_type = (meeting_type or "").lower()
+    if "planning commission" in normalized_meeting_type or "planning board" in normalized_meeting_type:
+        return PLANNING_COMMISSION_NAME
+    if "parks" in normalized_meeting_type:
+        return PARKS_COMMISSION_NAME
+    return CITY_COUNCIL_NAME
+
+
 def run_organization_backfill():
     """
     Migration Script: Populates the new 'organization' table based on existing meetings.
@@ -40,10 +55,10 @@ def run_organization_backfill():
     places = places_query.all()
     print(f"Ensuring base organizations for {len(places)} cities...")
     for place in places:
-        council = session.query(Organization).filter_by(place_id=place.id, name="City Council").first()
+        council = session.query(Organization).filter_by(place_id=place.id, name=CITY_COUNCIL_NAME).first()
         if not council:
             session.add(Organization(
-                name="City Council", 
+                name=CITY_COUNCIL_NAME,
                 classification="legislature", 
                 place_id=place.id,
                 ocd_id=generate_ocd_id('organization')
@@ -58,12 +73,7 @@ def run_organization_backfill():
     changed_catalog_ids: set[int] = set()
     for event in events:
         # Determine the Organization name
-        org_name = "City Council"
-        raw_name = (event.meeting_type or "").lower()
-        if "planning commission" in raw_name or "planning board" in raw_name:
-            org_name = "Planning Commission"
-        elif "parks" in raw_name:
-            org_name = "Parks & Recreation Commission"
+        org_name = organization_name_for_meeting_type(event.meeting_type)
         
         # Find or Create the body for this specific city
         org = session.query(Organization).filter_by(place_id=event.place_id, name=org_name).first()

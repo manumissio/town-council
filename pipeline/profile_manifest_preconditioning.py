@@ -186,6 +186,8 @@ def _validate_extract_sources(
         source_path = Path(str(location)) if location is not None else None
         if source_path is None or not source_path.is_file():
             raise ValueError(f"extract replay source is not a regular file for catalog_id={catalog_id}")
+        if source_path.stat().st_size == 0:
+            raise ValueError(f"extract replay source is empty for catalog_id={catalog_id}")
         if sha256_file(source_path) != expected_digests[str(catalog_id)]:
             raise ValueError(f"extract replay source digest mismatch for catalog_id={catalog_id}")
 

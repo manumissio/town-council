@@ -1,6 +1,7 @@
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 
+from pipeline import backfill_orgs
 from pipeline.backfill_orgs import backfill_organizations
 from pipeline.models import Base, Event, Organization, Place, Catalog, Document
 
@@ -9,6 +10,13 @@ def _session():
     engine = create_engine("sqlite:///:memory:")
     Base.metadata.create_all(engine)
     return engine, sessionmaker(bind=engine)()
+
+
+def test_organization_name_for_meeting_type_matches_backfill_policy():
+    assert backfill_orgs.organization_name_for_meeting_type("Planning Board") == "Planning Commission"
+    assert backfill_orgs.organization_name_for_meeting_type("Parks Committee") == "Parks & Recreation Commission"
+    assert backfill_orgs.organization_name_for_meeting_type("Regular City Council") == "City Council"
+    assert backfill_orgs.organization_name_for_meeting_type(None) == "City Council"
 
 
 def test_backfill_creates_default_and_links_events(mocker):

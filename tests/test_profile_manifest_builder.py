@@ -12,8 +12,12 @@ from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 
 from pipeline import profile_manifest, profile_manifest_builder, profile_manifest_candidates
-from pipeline.models import AgendaItem, Base, Catalog, Document, Event, Place
+from pipeline.agenda_worker import select_catalog_ids_for_agenda_segmentation
+from pipeline.content_hash import compute_content_hash
+from pipeline.models import AgendaItem, Base, Catalog, Document, Event, Organization, Place
 from pipeline.profile_manifest_preconditioning import apply_preconditioning
+from pipeline.summary_backfill_queries import select_catalog_ids_for_summary_hydration
+from pipeline.summary_freshness import compute_agenda_items_hash
 
 
 V1_JSON_SHA256 = "862d8dd0b8297463d4f19f0ea2590183d5a78d9cf6477a530fd7dc73f445f16c"
@@ -137,7 +141,31 @@ def test_build_manifest_package_honors_phase_quotas(tmp_path: Path):
     assert "people_reset_names" not in package
 
 
-def test_extract_candidates_include_archived_source_location(tmp_path: Path):
+def test_build_manifest_package_rejects_empty_extract_source(tmp_path: Path):
+    @contextmanager
+    def fake_db_session():
+        yield object()
+
+    empty_source = tmp_path / "empty.pdf"
+    empty_source.write_bytes(b"")
+
+    with pytest.raises(ValueError, match="empty extract source"):
+        profile_manifest_builder.build_manifest_package(
+            "baseline_empty_source",
+            quotas={"extract": 1, "segment": 0, "summary": 0, "entity": 0, "org": 0},
+            session_factory=fake_db_session,
+            candidate_loaders={
+                "extract": lambda session: [{"catalog_id": 1, "source_location": str(empty_source)}],
+                "segment": lambda session: [],
+                "summary": lambda session: [],
+                "entity": lambda session: [],
+                "org": lambda session: [],
+            },
+            generated_at_factory=lambda: "2026-08-09T00:00:00+00:00",
+        )
+
+
+def test_extract_candidates_require_fresh_single_agenda_document(tmp_path: Path):
     engine = create_engine("sqlite:///:memory:")
     Base.metadata.create_all(engine)
     Session = sessionmaker(bind=engine)
@@ -154,14 +182,36 @@ def test_extract_candidates_include_archived_source_location(tmp_path: Path):
             url_hash="extract-candidate",
             location=str(source_path),
             content="extracted agenda",
+            content_hash=compute_content_hash("extracted agenda"),
             extraction_status="complete",
         )
         pending_catalog = Catalog(url_hash="extract-pending", location=str(source_path))
-        session.add_all([catalog, pending_catalog])
+        multi_document = Catalog(
+            url_hash="extract-multi-document",
+            location=str(source_path),
+            content="multi-document agenda",
+            content_hash=compute_content_hash("multi-document agenda"),
+            extraction_status="complete",
+        )
+        stale_hash = Catalog(
+            url_hash="extract-stale-hash",
+            location=str(source_path),
+            content="changed agenda",
+            content_hash=compute_content_hash("old agenda"),
+            extraction_status="complete",
+        )
+        session.add_all([catalog, pending_catalog, multi_document, stale_hash])
         session.flush()
         session.add(Document(catalog_id=catalog.id, event_id=event.id, place_id=place.id, category="agenda"))
         session.add(
             Document(catalog_id=pending_catalog.id, event_id=event.id, place_id=place.id, category="agenda")
+        )
+        session.add_all(
+            [
+                Document(catalog_id=multi_document.id, event_id=event.id, place_id=place.id, category="agenda"),
+                Document(catalog_id=multi_document.id, event_id=event.id, place_id=place.id, category="minutes"),
+                Document(catalog_id=stale_hash.id, event_id=event.id, place_id=place.id, category="agenda"),
+            ]
         )
         catalog_id = catalog.id
         session.commit()
@@ -172,7 +222,7 @@ def test_extract_candidates_include_archived_source_location(tmp_path: Path):
     engine.dispose()
 
 
-def test_segment_candidates_require_one_completed_agenda_document():
+def test_segment_candidates_require_fresh_completed_agenda_output():
     engine = create_engine("sqlite:///:memory:")
     Base.metadata.create_all(engine)
     Session = sessionmaker(bind=engine)
@@ -194,25 +244,71 @@ def test_segment_candidates_require_one_completed_agenda_document():
             content="agenda text",
             agenda_segmentation_status="complete",
         )
-        session.add_all([eligible, multi_document])
+        missing_page = Catalog(
+            url_hash="segment-missing-page",
+            content="agenda text",
+            agenda_segmentation_status="complete",
+        )
+        stale_hash = Catalog(
+            url_hash="segment-stale-hash",
+            content="agenda text",
+            agenda_segmentation_status="complete",
+            agenda_items_hash="stale-hash",
+        )
+        no_items = Catalog(
+            url_hash="segment-no-items",
+            content="agenda text",
+            agenda_segmentation_status="complete",
+            agenda_items_hash="orphaned-hash",
+        )
+        session.add_all([eligible, multi_document, missing_page, stale_hash, no_items])
         session.flush()
         session.add(Document(catalog_id=eligible.id, event_id=event.id, place_id=place.id, category="agenda"))
         session.add_all(
             [
                 Document(catalog_id=multi_document.id, event_id=event.id, place_id=place.id, category="agenda"),
                 Document(catalog_id=multi_document.id, event_id=event.id, place_id=place.id, category="minutes"),
+                Document(catalog_id=missing_page.id, event_id=event.id, place_id=place.id, category="agenda"),
+                Document(catalog_id=stale_hash.id, event_id=event.id, place_id=place.id, category="agenda"),
+                Document(catalog_id=no_items.id, event_id=event.id, place_id=place.id, category="agenda"),
             ]
         )
+        eligible_item = AgendaItem(
+            catalog_id=eligible.id,
+            event_id=event.id,
+            order=1,
+            title="Eligible item",
+            page_number=1,
+        )
+        missing_page_item = AgendaItem(
+            catalog_id=missing_page.id,
+            event_id=event.id,
+            order=1,
+            title="Missing page",
+            page_number=None,
+        )
+        stale_hash_item = AgendaItem(
+            catalog_id=stale_hash.id,
+            event_id=event.id,
+            order=1,
+            title="Changed item",
+            page_number=2,
+        )
+        session.add_all([eligible_item, missing_page_item, stale_hash_item])
+        session.flush()
+        eligible.agenda_items_hash = compute_agenda_items_hash([eligible_item])
         eligible_id = eligible.id
         session.commit()
 
         candidates = profile_manifest_candidates.segment_reset_candidates(session)
+        pending_ids = select_catalog_ids_for_agenda_segmentation(session)
 
     assert candidates == [{"catalog_id": eligible_id}]
+    assert eligible_id not in pending_ids
     engine.dispose()
 
 
-def test_summary_candidates_use_first_document_kind_and_terminal_empty_agendas():
+def test_summary_candidates_require_current_runtime_freshness_source():
     engine = create_engine("sqlite:///:memory:")
     Base.metadata.create_all(engine)
     Session = sessionmaker(bind=engine)
@@ -228,11 +324,68 @@ def test_summary_candidates_use_first_document_kind_and_terminal_empty_agendas()
         terminal_empty_agenda = Catalog(
             url_hash="agenda-empty",
             content="agenda",
+            content_hash=compute_content_hash("agenda"),
             summary="summary",
+            summary_source_hash=compute_content_hash("agenda"),
             agenda_segmentation_status="empty",
         )
-        minutes_first = Catalog(url_hash="minutes-first", content="minutes", summary="summary")
-        session.add_all([agenda_without_items, terminal_empty_agenda, minutes_first])
+        minutes_first = Catalog(
+            url_hash="minutes-first",
+            content="minutes",
+            content_hash=compute_content_hash("minutes"),
+            summary="summary",
+            summary_source_hash=compute_content_hash("minutes"),
+        )
+        structured_agenda = Catalog(
+            url_hash="agenda-structured",
+            content="agenda items",
+            content_hash=compute_content_hash("agenda items"),
+            summary="summary",
+            agenda_segmentation_status="complete",
+        )
+        stale_terminal = Catalog(
+            url_hash="agenda-empty-stale",
+            content="changed agenda",
+            content_hash=compute_content_hash("changed agenda"),
+            summary="summary",
+            summary_source_hash=compute_content_hash("old agenda"),
+            agenda_segmentation_status="empty",
+        )
+        stale_minutes = Catalog(
+            url_hash="minutes-stale",
+            content="changed minutes",
+            content_hash=compute_content_hash("changed minutes"),
+            summary="summary",
+            summary_source_hash=compute_content_hash("old minutes"),
+        )
+        stale_structured = Catalog(
+            url_hash="agenda-structured-stale",
+            content="agenda items",
+            content_hash=compute_content_hash("agenda items"),
+            summary="summary",
+            agenda_items_hash="stale-agenda-hash",
+            summary_source_hash="stale-agenda-hash",
+            agenda_segmentation_status="complete",
+        )
+        empty_summary = Catalog(
+            url_hash="minutes-empty-summary",
+            content="minutes",
+            content_hash=compute_content_hash("minutes"),
+            summary="",
+            summary_source_hash=compute_content_hash("minutes"),
+        )
+        session.add_all(
+            [
+                agenda_without_items,
+                terminal_empty_agenda,
+                minutes_first,
+                structured_agenda,
+                stale_terminal,
+                stale_minutes,
+                stale_structured,
+                empty_summary,
+            ]
+        )
         session.flush()
         session.add_all(
             [
@@ -250,14 +403,43 @@ def test_summary_candidates_use_first_document_kind_and_terminal_empty_agendas()
                 ),
                 Document(catalog_id=minutes_first.id, event_id=event.id, place_id=place.id, category="minutes"),
                 Document(catalog_id=minutes_first.id, event_id=event.id, place_id=place.id, category="agenda"),
+                Document(catalog_id=structured_agenda.id, event_id=event.id, place_id=place.id, category="agenda"),
+                Document(catalog_id=stale_terminal.id, event_id=event.id, place_id=place.id, category="agenda"),
+                Document(catalog_id=stale_minutes.id, event_id=event.id, place_id=place.id, category="minutes"),
+                Document(catalog_id=stale_structured.id, event_id=event.id, place_id=place.id, category="agenda"),
+                Document(catalog_id=empty_summary.id, event_id=event.id, place_id=place.id, category="minutes"),
             ]
         )
-        expected_ids = [terminal_empty_agenda.id, minutes_first.id]
+        structured_item = AgendaItem(
+            catalog_id=structured_agenda.id,
+            event_id=event.id,
+            order=1,
+            title="Current item",
+            page_number=1,
+        )
+        stale_structured_item = AgendaItem(
+            catalog_id=stale_structured.id,
+            event_id=event.id,
+            order=1,
+            title="Changed item",
+            page_number=1,
+        )
+        session.add_all([structured_item, stale_structured_item])
+        session.flush()
+        structured_agenda.agenda_items_hash = compute_agenda_items_hash([structured_item])
+        structured_agenda.summary_source_hash = structured_agenda.agenda_items_hash
+        expected_ids = [terminal_empty_agenda.id, minutes_first.id, structured_agenda.id]
+        runtime_pending_ids = [stale_terminal.id, stale_minutes.id]
+        stale_structured_id = stale_structured.id
         session.commit()
 
         candidates = profile_manifest_candidates.summary_reset_candidates(session)
+        pending_ids = select_catalog_ids_for_summary_hydration(session)
 
     assert candidates == [{"catalog_id": catalog_id} for catalog_id in sorted(expected_ids)]
+    assert not set(expected_ids) & set(pending_ids)
+    assert set(runtime_pending_ids).issubset(pending_ids)
+    assert stale_structured_id not in {candidate["catalog_id"] for candidate in candidates}
     engine.dispose()
 
 
@@ -299,6 +481,64 @@ def test_entity_candidates_require_fresh_completed_entities():
     engine.dispose()
 
 
+def test_org_candidates_require_unique_current_runtime_assignment():
+    engine = create_engine("sqlite:///:memory:")
+    Base.metadata.create_all(engine)
+    Session = sessionmaker(bind=engine)
+
+    with Session() as session:
+        places = [
+            Place(
+                name=f"Demo {index}",
+                state="CA",
+                ocd_division_id=f"ocd-division/country:us/state:ca/place:demo_{index}",
+            )
+            for index in range(4)
+        ]
+        session.add_all(places)
+        session.flush()
+        safe_org = Organization(name="City Council", place_id=places[0].id)
+        mismatched_org = Organization(name="Planning Commission", place_id=places[1].id)
+        duplicate_orgs = [
+            Organization(name="City Council", place_id=places[2].id),
+            Organization(name="City Council", place_id=places[2].id),
+        ]
+        multi_document_org = Organization(name="City Council", place_id=places[3].id)
+        session.add_all([safe_org, mismatched_org, *duplicate_orgs, multi_document_org])
+        session.flush()
+        events = [
+            Event(
+                name=f"Meeting {index}",
+                place_id=place.id,
+                meeting_type="Regular City Council",
+                organization_id=organization.id,
+            )
+            for index, (place, organization) in enumerate(
+                zip(places, [safe_org, mismatched_org, duplicate_orgs[0], multi_document_org], strict=True)
+            )
+        ]
+        session.add_all(events)
+        session.flush()
+        catalogs = [Catalog(url_hash=f"org-candidate-{index}") for index in range(5)]
+        session.add_all(catalogs)
+        session.flush()
+        session.add_all(
+            [
+                Document(catalog_id=catalogs[index].id, event_id=event.id, place_id=event.place_id)
+                for index, event in enumerate(events)
+            ]
+        )
+        session.add(Document(catalog_id=catalogs[4].id, event_id=events[3].id, place_id=places[3].id))
+        safe_catalog_id = catalogs[0].id
+        safe_event_id = events[0].id
+        session.commit()
+
+        candidates = profile_manifest_candidates.org_reset_candidates(session)
+
+    assert candidates == [{"catalog_id": safe_catalog_id, "event_id": safe_event_id}]
+    engine.dispose()
+
+
 def test_build_manifest_package_rejects_retired_phase_quota():
     with pytest.raises(ValueError, match="unsupported manifest phases: people"):
         profile_manifest.build_manifest_package("baseline_demo", quotas={"people": 1})
@@ -313,10 +553,18 @@ def test_apply_preconditioning_mutates_only_selected_rows():
         place = Place(name="Demo", state="CA", ocd_division_id="ocd-division/country:us/state:ca/place:demo")
         session.add(place)
         session.flush()
+        organization = Organization(name="City Council", place_id=place.id)
+        session.add(organization)
+        session.flush()
         segment_event = Event(name="Segment Meeting", place_id=place.id)
         summary_event = Event(name="Summary Meeting", place_id=place.id)
         entity_event = Event(name="Entity Meeting", place_id=place.id)
-        org_event = Event(name="Organization Meeting", place_id=place.id, organization_id=77)
+        org_event = Event(
+            name="Organization Meeting",
+            place_id=place.id,
+            meeting_type="Regular City Council",
+            organization_id=organization.id,
+        )
         session.add_all([segment_event, summary_event, entity_event, org_event])
         session.flush()
         segment_catalog = Catalog(
@@ -330,8 +578,9 @@ def test_apply_preconditioning_mutates_only_selected_rows():
         summary_catalog = Catalog(
             url_hash="summary-target",
             content="minutes text",
+            content_hash=compute_content_hash("minutes text"),
             summary="existing summary",
-            summary_source_hash="summary-hash",
+            summary_source_hash=compute_content_hash("minutes text"),
             summary_extractive="preserved extractive summary",
             agenda_items_hash="preserved agenda hash",
         )
@@ -372,9 +621,18 @@ def test_apply_preconditioning_mutates_only_selected_rows():
                     place_id=place.id,
                     category="agenda",
                 ),
-                AgendaItem(catalog_id=segment_catalog.id, event_id=segment_event.id, order=1, title="Item 1"),
+                AgendaItem(
+                    catalog_id=segment_catalog.id,
+                    event_id=segment_event.id,
+                    order=1,
+                    title="Item 1",
+                    page_number=1,
+                ),
             ]
         )
+        session.flush()
+        segment_items = session.query(AgendaItem).filter(AgendaItem.catalog_id == segment_catalog.id).all()
+        segment_catalog.agenda_items_hash = compute_agenda_items_hash(segment_items)
         target_ids = [segment_catalog.id, summary_catalog.id, entity_catalog.id, org_catalog.id]
         segment_id, summary_id, entity_id, org_id = target_ids
         org_event_id = org_event.id
@@ -441,7 +699,7 @@ def test_apply_preconditioning_mutates_only_selected_rows():
     engine.dispose()
 
 
-@pytest.mark.parametrize("source_bytes", [b"archived source", b""])
+@pytest.mark.parametrize("source_bytes", [b"archived source"])
 def test_extract_preconditioning_restores_replayable_catalog_and_preserves_source_records(
     tmp_path: Path,
     source_bytes: bytes,
@@ -465,7 +723,7 @@ def test_extract_preconditioning_restores_replayable_catalog_and_preserves_sourc
             location=str(source_path),
             filename="agenda.pdf",
             content="extracted agenda",
-            content_hash="content-hash",
+            content_hash=compute_content_hash("extracted agenda"),
             extraction_status="complete",
             extraction_attempted_at=datetime.now(tz=UTC),
             extraction_attempt_count=2,
@@ -554,7 +812,7 @@ def test_extract_preconditioning_restores_replayable_catalog_and_preserves_sourc
 
 @pytest.mark.parametrize(
     "invalid_source",
-    ["missing_catalog", "null_location", "missing_path", "directory", "modified_bytes"],
+    ["missing_catalog", "null_location", "missing_path", "directory", "empty_file", "modified_bytes"],
 )
 def test_extract_preconditioning_rejects_invalid_sources_before_mutation(tmp_path: Path, invalid_source: str):
     engine = create_engine("sqlite:///:memory:")
@@ -578,6 +836,7 @@ def test_extract_preconditioning_rejects_invalid_sources_before_mutation(tmp_pat
             url_hash="valid-target",
             location=str(valid_source),
             content="keep valid content",
+            content_hash=compute_content_hash("keep valid content"),
             extraction_status="complete",
         )
         session.add(valid_target)
@@ -593,16 +852,20 @@ def test_extract_preconditioning_rejects_invalid_sources_before_mutation(tmp_pat
             modified_source = tmp_path / "modified.pdf"
             if invalid_source == "modified_bytes":
                 modified_source.write_bytes(b"before")
+            if invalid_source == "empty_file":
+                modified_source.write_bytes(b"")
             invalid_location = {
                 "null_location": None,
                 "missing_path": str(tmp_path / "missing.pdf"),
                 "directory": str(tmp_path),
+                "empty_file": str(modified_source),
                 "modified_bytes": str(modified_source),
             }[invalid_source]
             invalid_target = Catalog(
                 url_hash=f"invalid-{invalid_source}",
                 location=invalid_location,
                 content="keep invalid content",
+                content_hash=compute_content_hash("keep invalid content"),
                 extraction_status="complete",
             )
             session.add(invalid_target)
@@ -613,9 +876,14 @@ def test_extract_preconditioning_rejects_invalid_sources_before_mutation(tmp_pat
             invalid_target_id = invalid_target.id
         session.commit()
 
+    invalid_source_digest = "0" * 64
+    if invalid_source == "modified_bytes":
+        invalid_source_digest = hashlib.sha256(b"before").hexdigest()
+    elif invalid_source == "empty_file":
+        invalid_source_digest = hashlib.sha256(b"").hexdigest()
     source_digests = {
         valid_target_id: hashlib.sha256(b"valid source").hexdigest(),
-        invalid_target_id: hashlib.sha256(b"before").hexdigest() if invalid_source == "modified_bytes" else "0" * 64,
+        invalid_target_id: invalid_source_digest,
     }
     if invalid_source == "modified_bytes":
         modified_source.write_bytes(b"after!")
@@ -658,6 +926,7 @@ def test_extract_preconditioning_dry_run_rejects_modified_source_bytes(tmp_path:
             url_hash="dry-run-target",
             location=str(source_path),
             content="keep content",
+            content_hash=compute_content_hash("keep content"),
             extraction_status="complete",
         )
         session.add(catalog)
@@ -696,6 +965,7 @@ def test_preconditioning_validates_all_targets_before_first_mutation(tmp_path: P
             url_hash="extract-target",
             location=str(source_path),
             content="agenda text",
+            content_hash=compute_content_hash("agenda text"),
             extraction_status="complete",
         )
         stale_entity_target = Catalog(
