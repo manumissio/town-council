@@ -28,6 +28,10 @@ def _single_agenda_document_condition(models: Any) -> Any:
     return and_(func.count(models.Document.id) == 1, func.min(models.Document.category) == "agenda")
 
 
+def _content_hash_is_current(content: object, content_hash: object) -> bool:
+    return isinstance(content, str) and isinstance(content_hash, str) and compute_content_hash(content) == content_hash
+
+
 def _current_agenda_item_hashes(session: OrmSession, catalog_ids: list[int]) -> dict[int, str]:
     if not catalog_ids:
         return {}
@@ -79,27 +83,38 @@ def extract_candidates(session: OrmSession) -> list[ManifestCandidate]:
     return [
         {"catalog_id": int(catalog_id), "source_location": str(location) if location is not None else ""}
         for catalog_id, location, content, content_hash in rows
-        if compute_content_hash(str(content)) == content_hash
+        if _content_hash_is_current(content, content_hash)
     ]
 
 
 def segment_reset_candidates(session: OrmSession) -> list[ManifestCandidate]:
     models = _models()
     rows = (
-        session.query(models.Catalog.id, models.Catalog.agenda_items_hash)
+        session.query(
+            models.Catalog.id,
+            models.Catalog.content,
+            models.Catalog.content_hash,
+            models.Catalog.agenda_items_hash,
+        )
         .join(models.Document, models.Document.catalog_id == models.Catalog.id)
         .filter(
             models.Catalog.content.is_not(None),
             models.Catalog.content != "",
+            models.Catalog.content_hash.is_not(None),
             models.Catalog.agenda_segmentation_status == "complete",
             models.Catalog.agenda_items_hash.is_not(None),
         )
-        .group_by(models.Catalog.id, models.Catalog.agenda_items_hash)
+        .group_by(
+            models.Catalog.id,
+            models.Catalog.content,
+            models.Catalog.content_hash,
+            models.Catalog.agenda_items_hash,
+        )
         .having(_single_agenda_document_condition(models))
         .order_by(models.Catalog.id)
         .all()
     )
-    candidate_ids = [int(catalog_id) for catalog_id, _agenda_items_hash in rows]
+    candidate_ids = [int(catalog_id) for catalog_id, _content, _content_hash, _agenda_items_hash in rows]
     missing_page_ids = {
         int(catalog_id)
         for (catalog_id,) in session.query(models.AgendaItem.catalog_id)
@@ -113,8 +128,10 @@ def segment_reset_candidates(session: OrmSession) -> list[ManifestCandidate]:
     current_hashes = _current_agenda_item_hashes(session, candidate_ids)
     return [
         {"catalog_id": int(catalog_id)}
-        for catalog_id, stored_hash in rows
-        if int(catalog_id) not in missing_page_ids and current_hashes.get(int(catalog_id)) == stored_hash
+        for catalog_id, content, content_hash, stored_hash in rows
+        if _content_hash_is_current(content, content_hash)
+        and int(catalog_id) not in missing_page_ids
+        and current_hashes.get(int(catalog_id)) == stored_hash
     ]
 
 
@@ -124,6 +141,7 @@ def summary_reset_candidates(session: OrmSession) -> list[ManifestCandidate]:
     rows = (
         session.query(
             models.Catalog.id,
+            models.Catalog.content,
             doc_kind.c.doc_kind,
             models.Catalog.summary,
             models.Catalog.summary_source_hash,
@@ -141,12 +159,23 @@ def summary_reset_candidates(session: OrmSession) -> list[ManifestCandidate]:
         .order_by(models.Catalog.id)
         .all()
     )
-    agenda_catalog_ids = [int(row[0]) for row in rows if row[1] == "agenda"]
+    agenda_catalog_ids = [int(row[0]) for row in rows if row[2] == "agenda"]
     current_agenda_hashes = _current_agenda_item_hashes(session, agenda_catalog_ids)
     candidates: list[ManifestCandidate] = []
-    for catalog_id, kind, summary, summary_source_hash, content_hash, agenda_items_hash, segmentation_status in rows:
+    for (
+        catalog_id,
+        content,
+        kind,
+        summary,
+        summary_source_hash,
+        content_hash,
+        agenda_items_hash,
+        segmentation_status,
+    ) in rows:
+        if not _content_hash_is_current(content, content_hash):
+            continue
         current_agenda_hash = current_agenda_hashes.get(int(catalog_id))
-        if kind == "agenda" and current_agenda_hash is not None and agenda_items_hash != current_agenda_hash:
+        if kind == "agenda" and agenda_items_hash != current_agenda_hash:
             continue
         if is_summary_fresh(
             kind,
@@ -163,7 +192,7 @@ def summary_reset_candidates(session: OrmSession) -> list[ManifestCandidate]:
 def entity_reset_candidates(session: OrmSession) -> list[ManifestCandidate]:
     models = _models()
     rows = (
-        session.query(models.Catalog.id)
+        session.query(models.Catalog.id, models.Catalog.content, models.Catalog.content_hash)
         .filter(
             models.Catalog.content.is_not(None),
             models.Catalog.content != "",
@@ -175,7 +204,11 @@ def entity_reset_candidates(session: OrmSession) -> list[ManifestCandidate]:
         .order_by(models.Catalog.id)
         .all()
     )
-    return [{"catalog_id": int(row[0])} for row in rows]
+    return [
+        {"catalog_id": int(catalog_id)}
+        for catalog_id, content, content_hash in rows
+        if _content_hash_is_current(content, content_hash)
+    ]
 
 
 def org_reset_candidates(session: OrmSession) -> list[ManifestCandidate]:

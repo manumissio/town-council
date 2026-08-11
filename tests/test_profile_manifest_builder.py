@@ -237,31 +237,42 @@ def test_segment_candidates_require_fresh_completed_agenda_output():
         eligible = Catalog(
             url_hash="segment-eligible",
             content="agenda text",
+            content_hash=compute_content_hash("agenda text"),
             agenda_segmentation_status="complete",
         )
         multi_document = Catalog(
             url_hash="segment-multi-document",
             content="agenda text",
+            content_hash=compute_content_hash("agenda text"),
             agenda_segmentation_status="complete",
         )
         missing_page = Catalog(
             url_hash="segment-missing-page",
             content="agenda text",
+            content_hash=compute_content_hash("agenda text"),
             agenda_segmentation_status="complete",
         )
         stale_hash = Catalog(
             url_hash="segment-stale-hash",
             content="agenda text",
+            content_hash=compute_content_hash("agenda text"),
             agenda_segmentation_status="complete",
             agenda_items_hash="stale-hash",
+        )
+        stale_content_hash = Catalog(
+            url_hash="segment-stale-content-hash",
+            content="changed agenda text",
+            content_hash=compute_content_hash("old agenda text"),
+            agenda_segmentation_status="complete",
         )
         no_items = Catalog(
             url_hash="segment-no-items",
             content="agenda text",
+            content_hash=compute_content_hash("agenda text"),
             agenda_segmentation_status="complete",
             agenda_items_hash="orphaned-hash",
         )
-        session.add_all([eligible, multi_document, missing_page, stale_hash, no_items])
+        session.add_all([eligible, multi_document, missing_page, stale_hash, stale_content_hash, no_items])
         session.flush()
         session.add(Document(catalog_id=eligible.id, event_id=event.id, place_id=place.id, category="agenda"))
         session.add_all(
@@ -270,6 +281,7 @@ def test_segment_candidates_require_fresh_completed_agenda_output():
                 Document(catalog_id=multi_document.id, event_id=event.id, place_id=place.id, category="minutes"),
                 Document(catalog_id=missing_page.id, event_id=event.id, place_id=place.id, category="agenda"),
                 Document(catalog_id=stale_hash.id, event_id=event.id, place_id=place.id, category="agenda"),
+                Document(catalog_id=stale_content_hash.id, event_id=event.id, place_id=place.id, category="agenda"),
                 Document(catalog_id=no_items.id, event_id=event.id, place_id=place.id, category="agenda"),
             ]
         )
@@ -294,9 +306,17 @@ def test_segment_candidates_require_fresh_completed_agenda_output():
             title="Changed item",
             page_number=2,
         )
-        session.add_all([eligible_item, missing_page_item, stale_hash_item])
+        stale_content_hash_item = AgendaItem(
+            catalog_id=stale_content_hash.id,
+            event_id=event.id,
+            order=1,
+            title="Stale content item",
+            page_number=3,
+        )
+        session.add_all([eligible_item, missing_page_item, stale_hash_item, stale_content_hash_item])
         session.flush()
         eligible.agenda_items_hash = compute_agenda_items_hash([eligible_item])
+        stale_content_hash.agenda_items_hash = compute_agenda_items_hash([stale_content_hash_item])
         eligible_id = eligible.id
         session.commit()
 
@@ -358,6 +378,22 @@ def test_summary_candidates_require_current_runtime_freshness_source():
             summary="summary",
             summary_source_hash=compute_content_hash("old minutes"),
         )
+        stale_content_hash = Catalog(
+            url_hash="minutes-stale-content-hash",
+            content="changed minutes",
+            content_hash=compute_content_hash("old minutes"),
+            summary="summary",
+            summary_source_hash=compute_content_hash("old minutes"),
+        )
+        stale_empty_agenda_hash = Catalog(
+            url_hash="agenda-empty-stale-agenda-hash",
+            content="agenda",
+            content_hash=compute_content_hash("agenda"),
+            summary="summary",
+            summary_source_hash=compute_content_hash("agenda"),
+            agenda_items_hash="orphaned-agenda-hash",
+            agenda_segmentation_status="empty",
+        )
         stale_structured = Catalog(
             url_hash="agenda-structured-stale",
             content="agenda items",
@@ -382,6 +418,8 @@ def test_summary_candidates_require_current_runtime_freshness_source():
                 structured_agenda,
                 stale_terminal,
                 stale_minutes,
+                stale_content_hash,
+                stale_empty_agenda_hash,
                 stale_structured,
                 empty_summary,
             ]
@@ -406,6 +444,13 @@ def test_summary_candidates_require_current_runtime_freshness_source():
                 Document(catalog_id=structured_agenda.id, event_id=event.id, place_id=place.id, category="agenda"),
                 Document(catalog_id=stale_terminal.id, event_id=event.id, place_id=place.id, category="agenda"),
                 Document(catalog_id=stale_minutes.id, event_id=event.id, place_id=place.id, category="minutes"),
+                Document(catalog_id=stale_content_hash.id, event_id=event.id, place_id=place.id, category="minutes"),
+                Document(
+                    catalog_id=stale_empty_agenda_hash.id,
+                    event_id=event.id,
+                    place_id=place.id,
+                    category="agenda",
+                ),
                 Document(catalog_id=stale_structured.id, event_id=event.id, place_id=place.id, category="agenda"),
                 Document(catalog_id=empty_summary.id, event_id=event.id, place_id=place.id, category="minutes"),
             ]
@@ -452,16 +497,23 @@ def test_entity_candidates_require_fresh_completed_entities():
         fresh = Catalog(
             url_hash="entity-fresh",
             content="minutes",
-            content_hash="fresh-hash",
+            content_hash=compute_content_hash("minutes"),
             entities={"orgs": ["Demo Council"]},
-            entities_source_hash="fresh-hash",
+            entities_source_hash=compute_content_hash("minutes"),
         )
         stale = Catalog(
             url_hash="entity-stale",
             content="minutes",
-            content_hash="new-hash",
+            content_hash=compute_content_hash("minutes"),
             entities={"orgs": ["Demo Council"]},
             entities_source_hash="old-hash",
+        )
+        stale_content_hash = Catalog(
+            url_hash="entity-stale-content-hash",
+            content="changed minutes",
+            content_hash=compute_content_hash("old minutes"),
+            entities={"orgs": ["Demo Council"]},
+            entities_source_hash=compute_content_hash("old minutes"),
         )
         json_null = Catalog(
             url_hash="entity-json-null",
@@ -470,7 +522,7 @@ def test_entity_candidates_require_fresh_completed_entities():
             entities=None,
             entities_source_hash="null-hash",
         )
-        session.add_all([fresh, stale, json_null])
+        session.add_all([fresh, stale, stale_content_hash, json_null])
         session.flush()
         fresh_id = fresh.id
         session.commit()
@@ -570,6 +622,7 @@ def test_apply_preconditioning_mutates_only_selected_rows():
         segment_catalog = Catalog(
             url_hash="segment-target",
             content="agenda text",
+            content_hash=compute_content_hash("agenda text"),
             summary="preserved summary",
             agenda_segmentation_status="complete",
             agenda_segmentation_item_count=1,
@@ -587,9 +640,9 @@ def test_apply_preconditioning_mutates_only_selected_rows():
         entity_catalog = Catalog(
             url_hash="entity-target",
             content="minutes text",
-            content_hash="entity-hash",
+            content_hash=compute_content_hash("minutes text"),
             entities={"orgs": ["Demo Council"]},
-            entities_source_hash="entity-hash",
+            entities_source_hash=compute_content_hash("minutes text"),
             related_ids=[1, 2],
         )
         org_catalog = Catalog(url_hash="org-target", content="agenda text")
@@ -943,6 +996,219 @@ def test_extract_preconditioning_dry_run_rejects_modified_source_bytes(tmp_path:
 
     with Session() as session:
         assert session.get(Catalog, catalog_id).content == "keep content"
+
+    engine.dispose()
+
+
+def test_preconditioning_dry_run_simulates_hash_normalization_without_persisting() -> None:
+    engine = create_engine("sqlite:///:memory:")
+    Base.metadata.create_all(engine)
+    Session = sessionmaker(bind=engine)
+
+    with Session() as session:
+        place = Place(
+            name="Demo",
+            state="CA",
+            ocd_division_id="ocd-division/country:us/state:ca/place:dry_run_hashes",
+        )
+        session.add(place)
+        session.flush()
+        event = Event(name="Meeting", place_id=place.id)
+        session.add(event)
+        session.flush()
+        catalog = Catalog(
+            url_hash="dry-run-hash-normalization",
+            content="minutes text",
+            summary="existing summary",
+        )
+        agenda_catalog = Catalog(
+            url_hash="dry-run-agenda-hash-normalization",
+            content="agenda text",
+            agenda_segmentation_status="complete",
+        )
+        session.add_all([catalog, agenda_catalog])
+        session.flush()
+        session.add(Document(catalog_id=catalog.id, event_id=event.id, place_id=place.id, category="minutes"))
+        session.add(Document(catalog_id=agenda_catalog.id, event_id=event.id, place_id=place.id, category="agenda"))
+        session.add(
+            AgendaItem(
+                catalog_id=agenda_catalog.id,
+                event_id=event.id,
+                order=1,
+                title="Current item",
+                page_number=1,
+            )
+        )
+        catalog_id = catalog.id
+        agenda_catalog_id = agenda_catalog.id
+        session.commit()
+
+    package = {
+        "schema_version": 3,
+        "manifest_name": "dry_run_hash_normalization",
+        "catalog_ids": [catalog_id, agenda_catalog_id],
+        "strata": {
+            "extract": [],
+            "segment": [agenda_catalog_id],
+            "summary": [catalog_id],
+            "entity": [],
+            "org": [],
+        },
+        "extract_source_sha256": {},
+        "org_event_resets": [],
+        "expected_phase_coverage": {"extract": 0, "segment": 1, "summary": 1, "entity": 0, "org": 0},
+        "safety": {"org_reset_requires_single_document_event": True},
+    }
+
+    preconditioning = apply_preconditioning(package, dry_run=True, session_factory=Session)
+
+    assert preconditioning["dry_run"] is True
+    with Session() as session:
+        unchanged_catalog = session.get(Catalog, catalog_id)
+        assert unchanged_catalog.content_hash is None
+        assert unchanged_catalog.summary_source_hash is None
+        unchanged_agenda_catalog = session.get(Catalog, agenda_catalog_id)
+        assert unchanged_agenda_catalog.content_hash is None
+        assert unchanged_agenda_catalog.agenda_items_hash is None
+
+    engine.dispose()
+
+
+def test_preconditioning_dry_run_rejects_explicit_stale_agenda_hash() -> None:
+    engine = create_engine("sqlite:///:memory:")
+    Base.metadata.create_all(engine)
+    Session = sessionmaker(bind=engine)
+
+    with Session() as session:
+        place = Place(
+            name="Demo",
+            state="CA",
+            ocd_division_id="ocd-division/country:us/state:ca/place:stale_agenda_hash",
+        )
+        session.add(place)
+        session.flush()
+        event = Event(name="Meeting", place_id=place.id)
+        session.add(event)
+        session.flush()
+        catalog = Catalog(
+            url_hash="dry-run-stale-agenda-hash",
+            content="agenda text",
+            content_hash=compute_content_hash("agenda text"),
+            agenda_segmentation_status="complete",
+            agenda_items_hash="explicit-stale-agenda-hash",
+        )
+        session.add(catalog)
+        session.flush()
+        session.add(Document(catalog_id=catalog.id, event_id=event.id, place_id=place.id, category="agenda"))
+        session.add(AgendaItem(catalog_id=catalog.id, event_id=event.id, order=1, title="Current item", page_number=1))
+        catalog_id = catalog.id
+        session.commit()
+
+    package = {
+        "schema_version": 3,
+        "manifest_name": "dry_run_stale_agenda_hash",
+        "catalog_ids": [catalog_id],
+        "strata": {"extract": [], "segment": [catalog_id], "summary": [], "entity": [], "org": []},
+        "extract_source_sha256": {},
+        "org_event_resets": [],
+        "expected_phase_coverage": {"extract": 0, "segment": 1, "summary": 0, "entity": 0, "org": 0},
+        "safety": {"org_reset_requires_single_document_event": True},
+    }
+
+    with pytest.raises(ValueError, match="segment replay targets are no longer eligible"):
+        apply_preconditioning(package, dry_run=True, session_factory=Session)
+
+    with Session() as session:
+        assert session.get(Catalog, catalog_id).agenda_items_hash == "explicit-stale-agenda-hash"
+
+    engine.dispose()
+
+
+@pytest.mark.parametrize(
+    ("case_name", "phase", "catalog_fields", "empty_hash_field"),
+    [
+        (
+            "content",
+            "summary",
+            {
+                "content_hash": "",
+                "summary": "existing summary",
+                "summary_source_hash": compute_content_hash("minutes text"),
+            },
+            "content_hash",
+        ),
+        (
+            "summary_source",
+            "summary",
+            {
+                "content_hash": compute_content_hash("minutes text"),
+                "summary": "existing summary",
+                "summary_source_hash": "",
+            },
+            "summary_source_hash",
+        ),
+        (
+            "entity_source",
+            "entity",
+            {
+                "content_hash": compute_content_hash("minutes text"),
+                "entities": {"orgs": ["Demo Council"]},
+                "entities_source_hash": "",
+            },
+            "entities_source_hash",
+        ),
+    ],
+)
+def test_preconditioning_dry_run_rejects_explicit_empty_hashes(
+    case_name: str,
+    phase: str,
+    catalog_fields: dict[str, object],
+    empty_hash_field: str,
+) -> None:
+    engine = create_engine("sqlite:///:memory:")
+    Base.metadata.create_all(engine)
+    Session = sessionmaker(bind=engine)
+
+    with Session() as session:
+        place = Place(
+            name="Demo",
+            state="CA",
+            ocd_division_id=f"ocd-division/country:us/state:ca/place:empty_{case_name}_hash",
+        )
+        session.add(place)
+        session.flush()
+        event = Event(name="Meeting", place_id=place.id)
+        session.add(event)
+        session.flush()
+        catalog = Catalog(
+            url_hash=f"dry-run-empty-{case_name}-hash",
+            content="minutes text",
+            **catalog_fields,
+        )
+        session.add(catalog)
+        session.flush()
+        session.add(Document(catalog_id=catalog.id, event_id=event.id, place_id=place.id, category="minutes"))
+        catalog_id = catalog.id
+        session.commit()
+
+    strata = {"extract": [], "segment": [], "summary": [], "entity": [], "org": []}
+    strata[phase] = [catalog_id]
+    package = {
+        "schema_version": 3,
+        "manifest_name": f"dry_run_empty_{case_name}_hash",
+        "catalog_ids": [catalog_id],
+        "strata": strata,
+        "extract_source_sha256": {},
+        "org_event_resets": [],
+        "expected_phase_coverage": {key: len(catalog_ids) for key, catalog_ids in strata.items()},
+        "safety": {"org_reset_requires_single_document_event": True},
+    }
+
+    with pytest.raises(ValueError, match=f"{phase} replay targets are no longer eligible"):
+        apply_preconditioning(package, dry_run=True, session_factory=Session)
+
+    with Session() as session:
+        assert getattr(session.get(Catalog, catalog_id), empty_hash_field) == ""
 
     engine.dispose()
 

@@ -63,10 +63,10 @@ def apply_preconditioning(
     reset_plan = _build_reset_plan(package)
     segment_reset_ids = reset_plan.segment_reset_ids
     with session_factory() as session:
-        _validate_reset_targets(session, reset_plan)
-        _validate_extract_sources(session, reset_plan.extract_ids, extract_source_digests(package))
         if dry_run:
+            _validate_dry_run(session, reset_plan, package)
             return {"dry_run": True, "report": report, "applied": applied}
+        _validate_preconditioning(session, reset_plan, package)
         if segment_reset_ids:
             applied["deleted_agenda_items"] = _delete_agenda_items(session, segment_reset_ids)
         if reset_plan.extract_ids:
@@ -137,6 +137,28 @@ def _empty_applied_counts() -> AppliedPreconditioningCounts:
         "cleared_entity_catalogs": 0,
         "cleared_org_events": 0,
     }
+
+
+def _validate_preconditioning(session: OrmSession, reset_plan: _ResetPlan, package: JsonPayload) -> None:
+    _validate_reset_targets(session, reset_plan)
+    _validate_extract_sources(session, reset_plan.extract_ids, extract_source_digests(package))
+
+
+def _validate_dry_run(session: OrmSession, reset_plan: _ResetPlan, package: JsonPayload) -> None:
+    hash_catalog_ids = sorted(
+        set(reset_plan.extract_ids + reset_plan.segment_ids + reset_plan.summary_ids + reset_plan.entity_ids)
+    )
+    normalizer = import_module("pipeline.backfill_catalog_hashes")
+    try:
+        normalizer.normalize_catalog_hashes(
+            session,
+            catalog_ids=hash_catalog_ids,
+            preserve_explicit_hashes=True,
+        )
+        session.flush()
+        _validate_preconditioning(session, reset_plan, package)
+    finally:
+        session.rollback()
 
 
 def _validate_reset_targets(session: OrmSession, reset_plan: _ResetPlan) -> None:
