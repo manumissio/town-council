@@ -10,7 +10,12 @@ from prometheus_client import REGISTRY, start_http_server
 
 from pipeline import metrics_celery_signals, metrics_provider_recorders, profiling
 from pipeline.metrics_definitions import *  # noqa: F403 - compatibility facade for metric objects
-from pipeline.metrics_profile_events import TaskProfileContext, component_for_queue, write_task_profile_event
+from pipeline.metrics_profile_events import (
+    TaskProfileContext,
+    component_for_queue,
+    write_task_profile_event,
+    write_task_start_profile_event,
+)
 from pipeline.metrics_provider_keys import provider_base_labels_key, provider_labels_key
 from pipeline.metrics_redis_backend import RedisProviderMetricsCollector
 from pipeline.metrics_task_recorders import (
@@ -131,7 +136,7 @@ def _before_task_publish(headers: dict[str, object] | None = None, **_kwargs: ob
 
 @signals.task_prerun.connect
 def _task_prerun(task_id: object = None, task: object = None, **_kwargs: object) -> None:
-    metrics_celery_signals.task_prerun(
+    context = metrics_celery_signals.task_prerun(
         task_id=task_id,
         task=task,
         task_start=_TASK_START,
@@ -139,6 +144,8 @@ def _task_prerun(task_id: object = None, task: object = None, **_kwargs: object)
         time_module=time,
         record_queue_wait=record_task_queue_wait,
     )
+    if context is not None:
+        write_task_start_profile_event(context, profiling_module=profiling)
 
 
 @signals.task_postrun.connect
