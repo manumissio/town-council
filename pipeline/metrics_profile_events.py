@@ -101,6 +101,7 @@ def append_task_dispatch_event(
             "task_id": task_id,
             "task_name": task_name,
             "queue": str(routing_key or "celery"),
+            "queued_at": _publish_field(headers, body, "tc_queued_at"),
             "retry_ordinal": retry_ordinal,
             "catalog_id": catalog_id_from_publish_body(body),
         }

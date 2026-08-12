@@ -1571,6 +1571,7 @@ Artifacts:
   - task dispatch rows pair `before` publish attempts with `after` rows only
     when Celery's broker publish call returns; a missing `after` row is
     incomplete dispatch evidence, not a task outcome
+  - each dispatch attempt records its own publish timestamp, including retries
   - task spans include the Celery `task_id`, a per-attempt `execution_id`, the
     optional `retry_ordinal`, and optional broker `redelivered` metadata
 - `experiments/results/profiling/<run_id>/summary.json`

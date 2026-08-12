@@ -336,6 +336,7 @@ def test_task_retry_records_dispatch_from_inherited_profile_headers(monkeypatch,
     ):
         monkeypatch.delenv(profile_env, raising=False)
     celery_app = _memory_broker_app("profile-dispatch-retry")
+    monkeypatch.setattr(metrics.time, "time", lambda: 9.0)
 
     @celery_app.task(bind=True, name="pipeline.tasks.profile_retry_probe")
     def profile_retry_probe(task: object, catalog_id: int) -> int:
@@ -368,6 +369,7 @@ def test_task_retry_records_dispatch_from_inherited_profile_headers(monkeypatch,
     assert {dispatch["task_id"] for dispatch in dispatches} == {"retry-dispatch-id"}
     assert {dispatch["retry_ordinal"] for dispatch in dispatches} == {2}
     assert {dispatch["catalog_id"] for dispatch in dispatches} == {321}
+    assert {dispatch["queued_at"] for dispatch in dispatches} == {9.0}
     assert all(dispatch["baseline_valid"] is False for dispatch in dispatches)
 
 
@@ -391,7 +393,7 @@ def test_task_publish_uses_safe_defaults_for_optional_dispatch_metadata(monkeypa
     dispatch = _task_dispatches(artifact_dir)[0]
     assert dispatch["task_name"] == "pipeline.tasks.generate_summary_task"
     assert dispatch["queue"] == "celery"
-    assert dispatch["retry_ordinal"] == 0
+    assert dispatch["retry_ordinal"] is None
     assert dispatch["catalog_id"] is None
 
 
@@ -430,5 +432,6 @@ def test_task_dispatch_and_task_span_remain_distinct_profile_events(monkeypatch,
     assert [profile_event["event_type"] for profile_event in profile_events] == [
         "task_dispatch",
         "task_dispatch",
+        "task_start",
         "task_span",
     ]

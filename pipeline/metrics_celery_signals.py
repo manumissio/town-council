@@ -30,8 +30,7 @@ def before_task_publish(
 ) -> None:
     if headers is None:
         return
-    if headers.get("tc_queued_at") is None:
-        headers["tc_queued_at"] = time_module.time()
+    headers["tc_queued_at"] = time_module.time()
     run_id = profiling_module.current_run_id()
     if run_id:
         headers.setdefault("tc_profile_run_id", run_id)

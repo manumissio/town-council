@@ -143,8 +143,9 @@ Celery `task_dispatch` rows record producer-side publish boundaries. A
 call returned. When that pair repeats, match rows in event order. A missing
 `after` row is incomplete dispatch evidence, not task failure. Dispatch rows
 include the task name, queue, retry ordinal, and catalog ID when available; they
-never represent task execution or completion. Use `task_span` rows for
-worker-attempt outcomes.
+also record the current publication timestamp. Each publish refreshes that
+timestamp, including retries. Dispatch rows never represent task execution or
+completion. Use `task_span` rows for worker-attempt outcomes.
 
 Confidence model:
 - `baseline-valid`
