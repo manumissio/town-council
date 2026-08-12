@@ -1,6 +1,6 @@
 # Performance
 
-Last updated: 2026-08-11
+Last updated: 2026-08-12
 
 This page describes how to interpret and reproduce performance evidence for local Docker runs.
 For operational troubleshooting and sorting diagnostics, use `docs/OPERATIONS.md`.
