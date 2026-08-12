@@ -613,7 +613,7 @@ def test_organization_after_eligibility_is_outside_phase_span(
     engine.dispose()
 
 
-def test_organization_after_selector_failure_preserves_successful_workload_span(
+def test_organization_after_database_failure_preserves_successful_workload_span(
     monkeypatch,
     mocker,
     tmp_path: Path,
@@ -624,7 +624,6 @@ def test_organization_after_selector_failure_preserves_successful_workload_span(
     place = Place(name="Test City", state="CA", ocd_division_id="ocd-division/test")
     session.add(place)
     session.commit()
-    place_id = int(place.id)
     session.close()
     monkeypatch.setenv(profiling.PROFILE_RUN_ID_ENV, "profile_run")
     monkeypatch.setenv(profiling.PROFILE_ARTIFACT_DIR_ENV, str(tmp_path))
@@ -635,18 +634,9 @@ def test_organization_after_selector_failure_preserves_successful_workload_span(
         backfill_orgs.run_organization_backfill_workload,
         component="pipeline-batch",
     )
-    session = sessionmaker(bind=engine)()
-    session.add(
-        Organization(
-            name="City Council",
-            place_id=place_id,
-            ocd_id="ocd-org/duplicate",
-        )
-    )
-    session.commit()
-    session.close()
+    engine.dispose()
 
-    with pytest.raises(backfill_orgs.OrganizationTargetAmbiguityError):
+    with pytest.raises(SQLAlchemyError):
         backfill_orgs.capture_organization_backfill_after_eligibility()
 
     rows = _profile_rows(tmp_path)

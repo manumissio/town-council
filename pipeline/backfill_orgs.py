@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 from collections.abc import Iterable
-from typing import TypeAlias
 
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import Session, sessionmaker
@@ -22,14 +21,6 @@ BASE_ORGANIZATION_NAME = "City Council"
 ORGANIZATION_BACKFILL_PHASE = "org_backfill"
 PARKS_ORGANIZATION_NAME = "Parks & Recreation Commission"
 PLANNING_ORGANIZATION_NAME = "Planning Commission"
-
-OrganizationTargetKey: TypeAlias = tuple[int, str]
-OrganizationTargetMap: TypeAlias = dict[OrganizationTargetKey, Organization | None]
-
-
-class OrganizationTargetAmbiguityError(RuntimeError):
-    """Raised when profiling cannot identify one exact organization target."""
-
 
 def _organization_name_for_event(event: Event) -> str:
     meeting_type = str(event.meeting_type or "").lower()
@@ -67,39 +58,26 @@ def _find_first_organization(
     place_id: int,
     organization_name: str,
 ) -> Organization | None:
-    return session.query(Organization).filter_by(place_id=place_id, name=organization_name).first()
-
-
-def _find_exact_organization(
-    session: Session,
-    place_id: int,
-    organization_name: str,
-) -> Organization | None:
-    organizations = (
+    return (
         session.query(Organization)
         .filter_by(place_id=place_id, name=organization_name)
-        .limit(2)
-        .all()
+        .order_by(Organization.id.asc())
+        .first()
     )
-    if len(organizations) > 1:
-        raise OrganizationTargetAmbiguityError(
-            f"multiple organizations match place_id={place_id} name={organization_name!r}"
-        )
-    return organizations[0] if organizations else None
 
 
 def _organization_obligations(
     session: Session,
     places: list[Place],
     events: list[Event],
-) -> tuple[OrganizationTargetMap, list[int], list[int]]:
+) -> tuple[list[int], list[int]]:
     target_keys = {(int(place.id), BASE_ORGANIZATION_NAME) for place in places}
     target_keys.update(
         (int(event.place_id), _organization_name_for_event(event))
         for event in events
     )
     targets = {
-        target_key: _find_exact_organization(session, *target_key)
+        target_key: _find_first_organization(session, *target_key)
         for target_key in sorted(target_keys)
     }
     eligible_place_ids = [
@@ -112,7 +90,7 @@ def _organization_obligations(
         target = targets[(int(event.place_id), _organization_name_for_event(event))]
         if target is None or event.organization_id != target.id:
             eligible_event_ids.append(int(event.id))
-    return targets, eligible_place_ids, eligible_event_ids
+    return eligible_place_ids, eligible_event_ids
 
 
 def _emit_organization_eligibility(
@@ -132,6 +110,23 @@ def _emit_organization_eligibility(
         subject="event",
         eligible_ids=list(eligible_event_ids),
     )
+
+
+def _capture_organization_eligibility(boundary: EligibilityBoundary) -> None:
+    if not profiling_enabled():
+        return
+    with profile_observer():
+        observer_session = sessionmaker(bind=db_connect())()
+        try:
+            places, events = _load_scoped_records(observer_session, selected_catalog_ids())
+            eligible_place_ids, eligible_event_ids = _organization_obligations(
+                observer_session,
+                places,
+                events,
+            )
+            _emit_organization_eligibility(boundary, eligible_place_ids, eligible_event_ids)
+        finally:
+            observer_session.close()
 
 
 def _create_organization(
@@ -156,31 +151,24 @@ def _create_organization(
 
 def _resolve_organization(
     session: Session,
-    target_key: OrganizationTargetKey,
-    exact_targets: OrganizationTargetMap | None,
+    place_id: int,
+    organization_name: str,
 ) -> Organization:
-    organization = (
-        exact_targets[target_key]
-        if exact_targets is not None
-        else _find_first_organization(session, *target_key)
-    )
+    organization = _find_first_organization(session, place_id, organization_name)
     if organization is None:
-        organization = _create_organization(session, *target_key)
-        if exact_targets is not None:
-            exact_targets[target_key] = organization
+        organization = _create_organization(session, place_id, organization_name)
     return organization
 
 
 def _ensure_base_organizations(
     session: Session,
     places: list[Place],
-    exact_targets: OrganizationTargetMap | None,
 ) -> None:
     for place in places:
         _resolve_organization(
             session,
-            (int(place.id), BASE_ORGANIZATION_NAME),
-            exact_targets,
+            int(place.id),
+            BASE_ORGANIZATION_NAME,
         )
 
 
@@ -200,13 +188,15 @@ def _catalog_ids_for_event(session: Session, event_id: int) -> set[int]:
 def _link_events(
     session: Session,
     events: list[Event],
-    exact_targets: OrganizationTargetMap | None,
 ) -> tuple[int, set[int]]:
     linked_count = 0
     changed_catalog_ids: set[int] = set()
     for event in events:
-        target_key = (int(event.place_id), _organization_name_for_event(event))
-        organization = _resolve_organization(session, target_key, exact_targets)
+        organization = _resolve_organization(
+            session,
+            int(event.place_id),
+            _organization_name_for_event(event),
+        )
         if event.organization_id == organization.id:
             continue
         event.organization_id = organization.id
@@ -235,23 +225,16 @@ def _reindex_changed_catalogs(changed_catalog_ids: set[int]) -> tuple[int, int]:
 def run_organization_backfill_workload() -> dict[str, int]:
     print("Connecting to database for organization backfill...")
     scoped_catalog_ids = selected_catalog_ids()
+    _capture_organization_eligibility("before")
     session = sessionmaker(bind=db_connect())()
-    exact_targets: OrganizationTargetMap | None = None
     try:
         places, events = _load_scoped_records(session, scoped_catalog_ids)
-        if profiling_enabled():
-            exact_targets, eligible_place_ids, eligible_event_ids = _organization_obligations(
-                session,
-                places,
-                events,
-            )
-            _emit_organization_eligibility("before", eligible_place_ids, eligible_event_ids)
         print(f"Ensuring base organizations for {len(places)} cities...")
         print(f"Found {len(events)} events to process.")
-        _ensure_base_organizations(session, places, exact_targets)
-        linked_count, changed_catalog_ids = _link_events(session, events, exact_targets)
+        _ensure_base_organizations(session, places)
+        linked_count, changed_catalog_ids = _link_events(session, events)
         session.commit()
-    except (OrganizationTargetAmbiguityError, SQLAlchemyError):
+    except SQLAlchemyError:
         session.rollback()
         raise
     finally:
@@ -268,20 +251,7 @@ def run_organization_backfill_workload() -> dict[str, int]:
 
 
 def capture_organization_backfill_after_eligibility() -> None:
-    if not profiling_enabled():
-        return
-    with profile_observer():
-        session = sessionmaker(bind=db_connect())()
-        try:
-            places, events = _load_scoped_records(session, selected_catalog_ids())
-            _targets, eligible_place_ids, eligible_event_ids = _organization_obligations(
-                session,
-                places,
-                events,
-            )
-            _emit_organization_eligibility("after", eligible_place_ids, eligible_event_ids)
-        finally:
-            session.close()
+    _capture_organization_eligibility("after")
 
 
 def run_organization_backfill() -> dict[str, int]:

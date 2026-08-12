@@ -254,7 +254,7 @@ def test_profiled_backfill_scopes_and_deduplicates_manifest_events(
 
 
 @pytest.mark.parametrize("organization_name", ["City Council", "Planning Commission"])
-def test_profiled_backfill_rejects_ambiguous_targets_before_mutation(
+def test_profiled_backfill_preserves_first_match_for_duplicate_targets(
     monkeypatch,
     mocker,
     tmp_path: Path,
@@ -273,18 +273,45 @@ def test_profiled_backfill_rejects_ambiguous_targets_before_mutation(
         ]
     )
     session.commit()
+    session.execute(text("PRAGMA reverse_unordered_selects = ON"))
     event_id = int(event.id)
     session.close()
-    monkeypatch.setenv(profiling.PROFILE_RUN_ID_ENV, "profile_run")
-    monkeypatch.setenv(profiling.PROFILE_ARTIFACT_DIR_ENV, str(tmp_path))
     mocker.patch("pipeline.backfill_orgs.db_connect", return_value=engine)
 
-    with pytest.raises(backfill_orgs.OrganizationTargetAmbiguityError):
-        backfill_organizations()
+    duplicate_session = sessionmaker(bind=engine)()
+    duplicate_ids = {
+        int(organization.id)
+        for organization in duplicate_session.query(Organization).all()
+        if organization.name == organization_name
+    }
+    duplicate_session.close()
+
+    unprofiled_counts = backfill_organizations()
+    reset_session = sessionmaker(bind=engine)()
+    unprofiled_organization_id = int(reset_session.get(Event, event_id).organization_id)
+    reset_session.get(Event, event_id).organization_id = None
+    reset_session.commit()
+    reset_session.close()
+
+    monkeypatch.setenv(profiling.PROFILE_RUN_ID_ENV, "profile_run")
+    monkeypatch.setenv(profiling.PROFILE_ARTIFACT_DIR_ENV, str(tmp_path))
+    profiled_counts = backfill_organizations()
 
     verify = sessionmaker(bind=engine)()
-    assert verify.get(Event, event_id).organization_id is None
-    assert not (tmp_path / "spans.jsonl").exists()
+    assert verify.get(Event, event_id).organization_id == min(duplicate_ids)
+    assert unprofiled_organization_id == min(duplicate_ids)
+    assert verify.query(Organization).filter_by(name=organization_name).count() == 2
+    assert unprofiled_counts["linked"] == 1
+    assert profiled_counts["linked"] == 1
+    assert [
+        (row["subject"], row["boundary"], row["eligible_ids"])
+        for row in _eligibility_rows(tmp_path)
+    ] == [
+        ("place", "before", []),
+        ("event", "before", [event_id]),
+        ("place", "after", []),
+        ("event", "after", []),
+    ]
     verify.close()
     engine.dispose()
 
