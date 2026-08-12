@@ -2,6 +2,8 @@ import importlib.util
 import json
 from pathlib import Path
 
+import pytest
+
 
 spec = importlib.util.spec_from_file_location("analyze_pipeline_profile", Path("scripts/analyze_pipeline_profile.py"))
 mod = importlib.util.module_from_spec(spec)
@@ -185,6 +187,62 @@ def test_rank_bottlenecks_reduces_confidence_for_unmatched_dispatch(tmp_path: Pa
     summary = mod.rank_bottlenecks(run_dir)
 
     assert summary["confidence_reasons"] == ["unmatched_task_dispatch"]
+
+
+@pytest.mark.parametrize(
+    ("dispatch_boundaries", "retry_ordinal", "expected_reasons"),
+    [
+        (["before", "after", "after", "before"], 0, ["unmatched_task_dispatch"]),
+        (["before", "after", "before", "after"], 0, []),
+        (["before", "after"], None, ["unknown_task_retry_ordinal"]),
+    ],
+)
+def test_rank_bottlenecks_pairs_repeated_dispatches_in_event_order(
+    tmp_path: Path,
+    dispatch_boundaries: list[str],
+    retry_ordinal: int | None,
+    expected_reasons: list[str],
+):
+    run_dir = tmp_path / "profile_run"
+    run_dir.mkdir()
+    (run_dir / "run_manifest.json").write_text(
+        json.dumps({"run_id": "profile_run", "mode": "baseline", "include_batch": False}),
+        encoding="utf-8",
+    )
+    (run_dir / "result.json").write_text(
+        json.dumps({"include_batch": False, "totals": {"combined_elapsed_seconds": 4.0}}),
+        encoding="utf-8",
+    )
+    (run_dir / "day_summary.json").write_text(
+        json.dumps({"provider_metrics_present": True}),
+        encoding="utf-8",
+    )
+    profile_events = [
+        {
+            "event_type": "span",
+            "phase": "pipeline_total",
+            "duration_s": 4.0,
+            "outcome": "success",
+            "metadata": {"observer_overhead_s": 0.1},
+        },
+        *[
+            {
+                "event_type": "task_dispatch",
+                "boundary": boundary,
+                "task_id": "repeated-dispatch",
+                "retry_ordinal": retry_ordinal,
+            }
+            for boundary in dispatch_boundaries
+        ],
+    ]
+    (run_dir / "spans.jsonl").write_text(
+        "\n".join(json.dumps(profile_event) for profile_event in profile_events),
+        encoding="utf-8",
+    )
+
+    summary = mod.rank_bottlenecks(run_dir)
+
+    assert summary["confidence_reasons"] == expected_reasons
 
 
 def test_rank_bottlenecks_reduces_confidence_when_retry_has_no_dispatch(tmp_path: Path):

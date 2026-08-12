@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import json
 import re
-from collections import Counter
 from pathlib import Path
 from typing import Any, Mapping, cast
 
@@ -189,40 +188,45 @@ def _unfinished_task_attempts(spans: list[dict[str, Any]]) -> set[str]:
     return started_attempts - finished_attempts
 
 
+def _completed_dispatch_attempts(
+    spans: list[dict[str, Any]],
+) -> tuple[set[tuple[str, Any]], bool]:
+    outstanding_before: dict[tuple[str, Any], int] = {}
+    matched_attempts: set[tuple[str, Any]] = set()
+    invalid_attempts: set[tuple[str, Any]] = set()
+    for row in spans:
+        if row.get("event_type") != "task_dispatch" or not row.get("task_id"):
+            continue
+        dispatch_attempt = (str(row.get("task_id")), row.get("retry_ordinal"))
+        if row.get("boundary") == "before":
+            outstanding_before[dispatch_attempt] = outstanding_before.get(dispatch_attempt, 0) + 1
+        elif row.get("boundary") == "after" and outstanding_before.get(dispatch_attempt, 0) > 0:
+            outstanding_before[dispatch_attempt] -= 1
+            matched_attempts.add(dispatch_attempt)
+        else:
+            invalid_attempts.add(dispatch_attempt)
+    invalid_attempts.update(
+        dispatch_attempt
+        for dispatch_attempt, outstanding_count in outstanding_before.items()
+        if outstanding_count > 0
+    )
+    return matched_attempts - invalid_attempts, bool(invalid_attempts)
+
+
 def _task_evidence_confidence_reasons(spans: list[dict[str, Any]]) -> list[str]:
     confidence_reasons: list[str] = []
     if _unfinished_task_attempts(spans):
         confidence_reasons.append("unfinished_task_attempt")
     if any(
-        row.get("event_type") in {"task_start", "task_span"}
+        row.get("event_type") in {"task_dispatch", "task_start", "task_span"}
         and "retry_ordinal" in row
         and row.get("retry_ordinal") is None
         for row in spans
     ):
         confidence_reasons.append("unknown_task_retry_ordinal")
-    dispatch_counts = Counter(
-        (
-            str(row.get("task_id")),
-            row.get("retry_ordinal"),
-            str(row.get("boundary")),
-        )
-        for row in spans
-        if row.get("event_type") == "task_dispatch" and row.get("task_id")
-    )
-    dispatch_attempts = {(task_id, retry_ordinal) for task_id, retry_ordinal, _boundary in dispatch_counts}
-    if any(
-        dispatch_counts[(task_id, retry_ordinal, "before")]
-        != dispatch_counts[(task_id, retry_ordinal, "after")]
-        for task_id, retry_ordinal in dispatch_attempts
-    ):
+    completed_dispatches, has_unmatched_dispatch = _completed_dispatch_attempts(spans)
+    if has_unmatched_dispatch:
         confidence_reasons.append("unmatched_task_dispatch")
-    completed_dispatches = {
-        (task_id, retry_ordinal)
-        for task_id, retry_ordinal in dispatch_attempts
-        if dispatch_counts[(task_id, retry_ordinal, "before")] > 0
-        and dispatch_counts[(task_id, retry_ordinal, "before")]
-        == dispatch_counts[(task_id, retry_ordinal, "after")]
-    }
     if any(
         row.get("event_type") in {"task_start", "task_span"}
         and isinstance(row.get("retry_ordinal"), int)
