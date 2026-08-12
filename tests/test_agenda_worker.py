@@ -1,10 +1,13 @@
 from contextlib import contextmanager
+import json
+from pathlib import Path
 import pytest
 from unittest.mock import MagicMock
 import sys
 
 sys.modules["llama_cpp"] = MagicMock()
 from pipeline.agenda_worker import run_agenda_segmentation_backfill, segment_document_agenda
+from pipeline import profiling
 from pipeline.models import Place, Event, Document, Catalog, AgendaItem
 
 def test_agenda_segmentation_logic(db_session, mocker):
@@ -62,7 +65,10 @@ def test_agenda_segmentation_logic(db_session, mocker):
 
 
 def test_run_agenda_segmentation_backfill_uses_maintenance_metrics(mocker):
-    mocker.patch("pipeline.agenda_worker.select_catalog_ids_for_agenda_segmentation", return_value=[101, 102, 103])
+    mocker.patch(
+        "pipeline.agenda_worker.select_catalog_ids_for_agenda_segmentation",
+        side_effect=[[101, 102, 103]],
+    )
 
     @contextmanager
     def _fake_db_session():
@@ -101,3 +107,136 @@ def test_run_agenda_segmentation_backfill_uses_maintenance_metrics(mocker):
     assert counts["heuristic_complete"] == 1
     assert counts["llm_timeout_then_fallback"] == 2
     assert segment_spy.call_count == 3
+
+
+def test_agenda_backfill_records_before_and_after_eligibility(monkeypatch, mocker, tmp_path: Path):
+    monkeypatch.setenv(profiling.PROFILE_RUN_ID_ENV, "profile_run")
+    monkeypatch.setenv(profiling.PROFILE_ARTIFACT_DIR_ENV, str(tmp_path))
+    mocker.patch(
+        "pipeline.agenda_worker.select_catalog_ids_for_agenda_segmentation",
+        side_effect=[[31, 32], [32]],
+    )
+
+    @contextmanager
+    def _fake_db_session():
+        yield MagicMock()
+
+    @contextmanager
+    def _fake_timeout(_timeout_seconds):
+        yield
+
+    @contextmanager
+    def _fake_capture():
+        yield {"timeout": 0, "empty_response": 0}
+
+    mocker.patch("pipeline.agenda_worker.db_session", _fake_db_session)
+    mocker.patch("pipeline.agenda_worker.segment_timeout_override", _fake_timeout)
+    mocker.patch("pipeline.agenda_worker.capture_agenda_fallback_events", _fake_capture)
+    mocker.patch(
+        "pipeline.agenda_worker.segment_catalog_with_mode",
+        return_value={"status": "complete"},
+    )
+
+    counts = run_agenda_segmentation_backfill(segment_mode="maintenance")
+
+    rows = [json.loads(line) for line in (tmp_path / "spans.jsonl").read_text(encoding="utf-8").splitlines()]
+    eligibility_rows = [row for row in rows if row["event_type"] == "phase_eligibility"]
+    assert [(row["boundary"], row["eligible_ids"]) for row in eligibility_rows] == [
+        ("before", [31, 32]),
+        ("after", [32]),
+    ]
+    assert counts["selected"] == 2
+
+
+def test_agenda_backfill_records_paired_empty_eligibility(monkeypatch, mocker, tmp_path: Path):
+    monkeypatch.setenv(profiling.PROFILE_RUN_ID_ENV, "profile_run")
+    monkeypatch.setenv(profiling.PROFILE_ARTIFACT_DIR_ENV, str(tmp_path))
+    mocker.patch(
+        "pipeline.agenda_worker.select_catalog_ids_for_agenda_segmentation",
+        side_effect=[[]],
+    )
+
+    @contextmanager
+    def _fake_db_session():
+        yield MagicMock()
+
+    mocker.patch("pipeline.agenda_worker.db_session", _fake_db_session)
+
+    counts = run_agenda_segmentation_backfill()
+
+    rows = [json.loads(line) for line in (tmp_path / "spans.jsonl").read_text(encoding="utf-8").splitlines()]
+    assert [(row["boundary"], row["eligible_ids"]) for row in rows] == [
+        ("before", []),
+        ("after", []),
+    ]
+    assert counts["selected"] == 0
+
+
+def test_agenda_backfill_omits_after_eligibility_when_work_fails(monkeypatch, mocker, tmp_path: Path):
+    monkeypatch.setenv(profiling.PROFILE_RUN_ID_ENV, "profile_run")
+    monkeypatch.setenv(profiling.PROFILE_ARTIFACT_DIR_ENV, str(tmp_path))
+    mocker.patch(
+        "pipeline.agenda_worker.select_catalog_ids_for_agenda_segmentation",
+        side_effect=[[31]],
+    )
+
+    @contextmanager
+    def _fake_db_session():
+        yield MagicMock()
+
+    @contextmanager
+    def _fake_timeout(_timeout_seconds):
+        yield
+
+    @contextmanager
+    def _fake_capture():
+        yield {"timeout": 0, "empty_response": 0}
+
+    mocker.patch("pipeline.agenda_worker.db_session", _fake_db_session)
+    mocker.patch("pipeline.agenda_worker.segment_timeout_override", _fake_timeout)
+    mocker.patch("pipeline.agenda_worker.capture_agenda_fallback_events", _fake_capture)
+    mocker.patch(
+        "pipeline.agenda_worker.segment_catalog_with_mode",
+        side_effect=RuntimeError("agenda failed"),
+    )
+
+    with pytest.raises(RuntimeError, match="agenda failed"):
+        run_agenda_segmentation_backfill(segment_mode="maintenance")
+
+    rows = [json.loads(line) for line in (tmp_path / "spans.jsonl").read_text(encoding="utf-8").splitlines()]
+    assert [row["boundary"] for row in rows] == ["before"]
+
+
+def test_agenda_backfill_propagates_after_selector_failure(monkeypatch, mocker, tmp_path: Path):
+    monkeypatch.setenv(profiling.PROFILE_RUN_ID_ENV, "profile_run")
+    monkeypatch.setenv(profiling.PROFILE_ARTIFACT_DIR_ENV, str(tmp_path))
+    mocker.patch(
+        "pipeline.agenda_worker.select_catalog_ids_for_agenda_segmentation",
+        side_effect=[[31], RuntimeError("selector failed")],
+    )
+
+    @contextmanager
+    def _fake_db_session():
+        yield MagicMock()
+
+    @contextmanager
+    def _fake_timeout(_timeout_seconds):
+        yield
+
+    @contextmanager
+    def _fake_capture():
+        yield {"timeout": 0, "empty_response": 0}
+
+    mocker.patch("pipeline.agenda_worker.db_session", _fake_db_session)
+    mocker.patch("pipeline.agenda_worker.segment_timeout_override", _fake_timeout)
+    mocker.patch("pipeline.agenda_worker.capture_agenda_fallback_events", _fake_capture)
+    mocker.patch(
+        "pipeline.agenda_worker.segment_catalog_with_mode",
+        return_value={"status": "complete"},
+    )
+
+    with pytest.raises(RuntimeError, match="selector failed"):
+        run_agenda_segmentation_backfill(segment_mode="maintenance")
+
+    rows = [json.loads(line) for line in (tmp_path / "spans.jsonl").read_text(encoding="utf-8").splitlines()]
+    assert [row["boundary"] for row in rows] == ["before"]

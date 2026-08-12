@@ -7,7 +7,11 @@ from collections.abc import Callable, Sequence
 from typing import TypeVar
 
 from pipeline.metrics import record_pipeline_phase_duration
-from pipeline.profiling import profile_span
+from pipeline.profiling import (
+    observer_seconds,
+    profile_span,
+    workload_duration_seconds,
+)
 
 
 PIPELINE_PROFILE_MODE_ENV = "TC_PROFILE_MODE"
@@ -57,24 +61,27 @@ def run_step(
         metadata={"command": list(command)},
     ):
         start_perf = time.perf_counter()
+        observer_at_start = observer_seconds()
         try:
             subprocess_module.run(command, check=True)  # type: ignore[attr-defined]
         except subprocess.CalledProcessError:
             logger.error("Step %s failed.", name)
+            phase_duration_s = workload_duration_seconds(start_perf, observer_at_start)
             record_pipeline_phase_duration(
                 phase,
                 SUBPROCESS_COMPONENT,
                 current_profile_mode(),
                 STEP_FAILURE_OUTCOME,
-                time.perf_counter() - start_perf,
+                phase_duration_s,
             )
             sys.exit(1)
+        phase_duration_s = workload_duration_seconds(start_perf, observer_at_start)
         record_pipeline_phase_duration(
             phase,
             SUBPROCESS_COMPONENT,
             current_profile_mode(),
             STEP_SUCCESS_OUTCOME,
-            time.perf_counter() - start_perf,
+            phase_duration_s,
         )
 
 
@@ -89,23 +96,26 @@ def run_callable_step(
     phase = phase_name_for_step(name)
     with profile_span(phase=phase, component=component):
         start_perf = time.perf_counter()
+        observer_at_start = observer_seconds()
         try:
             step_result = func()
         except Exception:
             logger.error("Step %s failed.", name)
+            phase_duration_s = workload_duration_seconds(start_perf, observer_at_start)
             record_pipeline_phase_duration(
                 phase,
                 component,
                 current_profile_mode(),
                 STEP_FAILURE_OUTCOME,
-                time.perf_counter() - start_perf,
+                phase_duration_s,
             )
             sys.exit(1)
+        phase_duration_s = workload_duration_seconds(start_perf, observer_at_start)
         record_pipeline_phase_duration(
             phase,
             component,
             current_profile_mode(),
             STEP_SUCCESS_OUTCOME,
-            time.perf_counter() - start_perf,
+            phase_duration_s,
         )
         return step_result

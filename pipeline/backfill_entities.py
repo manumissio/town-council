@@ -6,6 +6,7 @@ from pipeline.cli_logging import configure_cli_logging
 from pipeline.config import ENTITY_BACKFILL_IN_PROCESS_THRESHOLD, MAX_WORKERS, PIPELINE_CPU_FRACTION
 from pipeline.content_hash import compute_content_hash
 from pipeline.db_session import db_session
+from pipeline.profiling import append_phase_eligibility, profile_observer, profiling_enabled
 from pipeline.run_pipeline import (
     PIPELINE_ONBOARDING_CITY,
     _resolve_parallel_processing_settings,
@@ -101,9 +102,18 @@ def process_entity_chunk(catalog_ids):
     }
 
 
-def run_entity_backfill():
+def run_entity_backfill_workload() -> dict[str, object]:
     with db_session() as db:
         catalog_ids = select_catalog_ids_for_entity_backfill(db)
+
+    capture_eligibility = profiling_enabled()
+    if capture_eligibility:
+        append_phase_eligibility(
+            phase="entity_backfill",
+            boundary="before",
+            subject="catalog",
+            eligible_ids=catalog_ids,
+        )
 
     counts = _empty_counts()
     counts["selected"] = len(catalog_ids)
@@ -185,6 +195,28 @@ def run_entity_backfill():
         counts["freshness_advanced"],
         counts["candidate_slice_fallback_prefix"],
     )
+    return counts
+
+
+def capture_entity_backfill_after_eligibility(counts: dict[str, object]) -> None:
+    if not profiling_enabled():
+        return
+    with profile_observer():
+        remaining_catalog_ids: list[int] = []
+        if counts["selected"]:
+            with db_session() as db:
+                remaining_catalog_ids = select_catalog_ids_for_entity_backfill(db)
+        append_phase_eligibility(
+            phase="entity_backfill",
+            boundary="after",
+            subject="catalog",
+            eligible_ids=remaining_catalog_ids,
+        )
+
+
+def run_entity_backfill() -> dict[str, object]:
+    counts = run_entity_backfill_workload()
+    capture_entity_backfill_after_eligibility(counts)
     return counts
 
 

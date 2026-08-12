@@ -17,7 +17,7 @@ from pipeline.llm import LocalAI
 from pipeline.agenda_service import persist_agenda_items
 from pipeline.agenda_resolver import has_viable_structured_agenda_source, resolve_agenda_items
 from pipeline.indexer import reindex_catalog
-from pipeline.profiling import apply_catalog_id_scope
+from pipeline.profiling import append_phase_eligibility, apply_catalog_id_scope, profile_observer, profiling_enabled
 
 
 logger = logging.getLogger("agenda-worker")
@@ -193,7 +193,7 @@ def segment_agendas():
         segment_document_agenda(cid)
 
 
-def run_agenda_segmentation_backfill(
+def run_agenda_segmentation_workload(
     limit: int | None = None,
     *,
     segment_mode: str = "normal",
@@ -207,6 +207,15 @@ def run_agenda_segmentation_backfill(
     """
     with db_session() as session:
         catalog_ids = select_catalog_ids_for_agenda_segmentation(session, limit=limit)
+
+    capture_eligibility = profiling_enabled()
+    if capture_eligibility:
+        append_phase_eligibility(
+            phase="segment_agenda",
+            boundary="before",
+            subject="catalog",
+            eligible_ids=catalog_ids,
+        )
 
     counts = {
         "selected": len(catalog_ids),
@@ -261,6 +270,44 @@ def run_agenda_segmentation_backfill(
         counts["heuristic_complete"],
         counts["llm_timeout_then_fallback"],
     )
+    return counts
+
+
+def capture_agenda_segmentation_after_eligibility(
+    counts: dict[str, int],
+    *,
+    limit: int | None = None,
+) -> None:
+    if not profiling_enabled():
+        return
+    with profile_observer():
+        remaining_catalog_ids: list[int] = []
+        if counts["selected"]:
+            with db_session() as session:
+                remaining_catalog_ids = select_catalog_ids_for_agenda_segmentation(
+                    session,
+                    limit=limit,
+                )
+        append_phase_eligibility(
+            phase="segment_agenda",
+            boundary="after",
+            subject="catalog",
+            eligible_ids=remaining_catalog_ids,
+        )
+
+
+def run_agenda_segmentation_backfill(
+    limit: int | None = None,
+    *,
+    segment_mode: str = "normal",
+    agenda_timeout_seconds: int | None = None,
+) -> dict[str, int]:
+    counts = run_agenda_segmentation_workload(
+        limit=limit,
+        segment_mode=segment_mode,
+        agenda_timeout_seconds=agenda_timeout_seconds,
+    )
+    capture_agenda_segmentation_after_eligibility(counts, limit=limit)
     return counts
 
 

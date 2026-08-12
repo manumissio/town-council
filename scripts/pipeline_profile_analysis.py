@@ -153,6 +153,8 @@ def _extract_summary_subphase_timings(summary_counts: Mapping[str, CounterValue]
 def _aggregate_phase_rows(spans: list[dict[str, Any]]) -> dict[str, dict[str, Any]]:
     totals: dict[str, PhaseStats] = {}
     for row in spans:
+        if row.get("event_type") not in {"span", "task_span"}:
+            continue
         phase = str(row.get("phase") or "")
         if phase not in LEAF_PHASES:
             continue
@@ -172,34 +174,67 @@ def _aggregate_phase_rows(spans: list[dict[str, Any]]) -> dict[str, dict[str, An
     return totals
 
 
-def _derived_total_from_spans(spans: list[dict[str, Any]]) -> tuple[float, list[str]]:
-    pipeline_total = next((float(row.get("duration_s") or 0.0) for row in spans if row.get("phase") == "pipeline_total"), 0.0)
-    batch_total = next((float(row.get("duration_s") or 0.0) for row in spans if row.get("phase") == "batch_enrichment_total"), 0.0)
-    notes = []
-    combined = 0.0
-    if pipeline_total > 0:
-        combined += pipeline_total
-        notes.append("pipeline_total")
-    if batch_total > 0:
-        combined += batch_total
-        notes.append("batch_enrichment_total")
-    return combined, notes
+def _total_span_duration(spans: list[dict[str, Any]], phase: str) -> float:
+    return next(
+        (
+            float(row.get("duration_s") or 0.0)
+            for row in spans
+            if row.get("event_type") == "span"
+            and row.get("phase") == phase
+            and row.get("outcome") == "success"
+            and isinstance(row.get("metadata"), dict)
+            and "observer_overhead_s" in row["metadata"]
+        ),
+        0.0,
+    )
 
 
-def _select_total_elapsed_seconds(result: dict[str, Any], spans: list[dict[str, Any]]) -> tuple[float, str | None]:
+def _resolve_include_batch(
+    manifest: dict[str, Any],
+    run_result: dict[str, Any],
+) -> tuple[bool, list[str]]:
+    manifest_include_batch = manifest.get("include_batch")
+    if not isinstance(manifest_include_batch, bool):
+        return False, ["include_batch_manifest_invalid"]
+    include_batch = manifest_include_batch
+    if "include_batch" not in run_result:
+        return include_batch, []
+    run_result_include_batch = run_result.get("include_batch")
+    if isinstance(run_result_include_batch, bool) and run_result_include_batch == include_batch:
+        return include_batch, []
+    return include_batch, ["include_batch_mismatch"]
+
+
+def _select_total_elapsed_seconds(
+    result: dict[str, Any],
+    spans: list[dict[str, Any]],
+    *,
+    include_batch: bool,
+) -> tuple[float, str, list[str]]:
+    required_phases = ["pipeline_total"]
+    if include_batch:
+        required_phases.append("batch_enrichment_total")
+    corrected_totals = {phase: _total_span_duration(spans, phase) for phase in required_phases}
+    missing_total_reasons = [
+        f"missing_corrected_total:{phase}"
+        for phase, duration in corrected_totals.items()
+        if duration <= 0
+    ]
+    if not missing_total_reasons:
+        confidence_reasons = [] if result else ["result_missing"]
+        return sum(corrected_totals.values()), "corrected_total_spans", confidence_reasons
+
     raw_totals = result.get("totals")
     totals: dict[str, Any] = raw_totals if isinstance(raw_totals, dict) else {}
     combined_total = float(totals.get("combined_elapsed_seconds") or 0.0)
     if combined_total > 0:
-        return combined_total, None
-    derived_total, notes = _derived_total_from_spans(spans)
-    if derived_total > 0:
-        note = "result_missing" if not result else f"derived_total_from_{'+'.join(notes)}"
-        return derived_total, note
+        return combined_total, "raw_result_totals", missing_total_reasons
     fallback = float(result.get("elapsed_seconds") or 0.0)
     if fallback > 0:
-        return fallback, "fallback_elapsed_seconds_only"
-    return 0.0, "no_total_elapsed_time"
+        return fallback, "raw_elapsed_seconds", missing_total_reasons
+    if not result:
+        return 0.0, "no_total_elapsed_time", ["result_missing", *missing_total_reasons]
+    return 0.0, "no_total_elapsed_time", missing_total_reasons
 
 
 def rank_bottlenecks(run_dir: Path) -> dict[str, Any]:
@@ -212,7 +247,15 @@ def rank_bottlenecks(run_dir: Path) -> dict[str, Any]:
     summary_hydration_counts = _load_summary_hydration_counts(run_dir)
     provider_metrics_present = bool(day_summary.get("provider_metrics_present")) if isinstance(day_summary, dict) else False
     provider_metrics_reason = str(day_summary.get("provider_metrics_reason") or "provider_metrics_missing") if isinstance(day_summary, dict) else "provider_metrics_missing"
-    total_elapsed_s, total_note = _select_total_elapsed_seconds(result, spans)
+    include_batch, include_batch_confidence_reasons = _resolve_include_batch(
+        manifest,
+        result,
+    )
+    total_elapsed_s, elapsed_source, total_confidence_reasons = _select_total_elapsed_seconds(
+        result,
+        spans,
+        include_batch=include_batch,
+    )
     ranked = []
     for phase, stats in sorted(_aggregate_phase_rows(spans).items(), key=lambda item: item[1]["duration_s"], reverse=True):
         duration_s = float(stats["duration_s"])
@@ -243,15 +286,16 @@ def rank_bottlenecks(run_dir: Path) -> dict[str, Any]:
                 "durations": list(stats["durations"]),
             }
         )
-    confidence = "ok"
+    confidence_reasons: list[str] = []
     if not spans:
-        confidence = "reduced-confidence:no_spans"
-    elif not provider_metrics_present:
-        confidence = f"reduced-confidence:{provider_metrics_reason}"
-    elif total_note is not None:
-        confidence = f"reduced-confidence:{total_note}"
-    elif total_elapsed_s > 0 and ranked and float(cast(Any, ranked[0].get("contribution_pct")) or 0.0) > 100.0:
-        confidence = "reduced-confidence:inconsistent_totals"
+        confidence_reasons.append("no_spans")
+    if not provider_metrics_present:
+        confidence_reasons.append(provider_metrics_reason)
+    confidence_reasons.extend(include_batch_confidence_reasons)
+    confidence_reasons.extend(total_confidence_reasons)
+    if total_elapsed_s > 0 and ranked and float(cast(Any, ranked[0].get("contribution_pct")) or 0.0) > 100.0:
+        confidence_reasons.append("inconsistent_totals")
+    confidence = "ok" if not confidence_reasons else f"reduced-confidence:{'+'.join(confidence_reasons)}"
     return {
         "run_id": manifest.get("run_id"),
         "mode": manifest.get("mode"),
@@ -259,7 +303,8 @@ def rank_bottlenecks(run_dir: Path) -> dict[str, Any]:
         "baseline_valid": manifest.get("baseline_valid") is True,
         "elapsed_seconds": round(float(total_elapsed_s), 3),
         "confidence": confidence,
-        "elapsed_source": total_note or "result_totals",
+        "confidence_reasons": confidence_reasons,
+        "elapsed_source": elapsed_source,
         "top_bottlenecks": ranked[:3],
         "all_phases": ranked,
         "summary_hydration_backfill": summary_hydration_counts,

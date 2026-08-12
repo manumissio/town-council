@@ -1,3 +1,5 @@
+import json
+from pathlib import Path
 import sys
 from types import SimpleNamespace
 from unittest.mock import MagicMock
@@ -39,6 +41,18 @@ from pipeline.models import Base, Catalog, Document, AgendaItem, Event, Place
 from pipeline.city_scope import ordered_hydration_cities, source_aliases_for_city
 from pipeline.content_hash import compute_content_hash
 from pipeline.summary_freshness import compute_agenda_items_hash
+from pipeline import profiling
+
+
+def _profile_eligibility_rows(artifact_dir: Path) -> list[dict[str, object]]:
+    return [
+        row
+        for row in (
+            json.loads(line)
+            for line in (artifact_dir / "spans.jsonl").read_text(encoding="utf-8").splitlines()
+        )
+        if row["event_type"] == "phase_eligibility"
+    ]
 
 
 def _successful_meilisearch_client() -> MagicMock:
@@ -94,7 +108,10 @@ def test_run_entity_backfill_returns_zero_counts_when_nothing_is_selected(mocker
     mock_session.__enter__.return_value = mock_session
     mock_session.__exit__.return_value = False
     mocker.patch("pipeline.backfill_entities.db_session", return_value=mock_session)
-    mocker.patch("pipeline.backfill_entities.select_catalog_ids_for_entity_backfill", return_value=[])
+    mocker.patch(
+        "pipeline.backfill_entities.select_catalog_ids_for_entity_backfill",
+        side_effect=[[]],
+    )
 
     from pipeline.backfill_entities import run_entity_backfill
 
@@ -117,7 +134,10 @@ def test_run_entity_backfill_uses_in_process_fast_path_for_small_snapshots(mocke
     mock_session.__enter__.return_value = mock_session
     mock_session.__exit__.return_value = False
     mocker.patch("pipeline.backfill_entities.db_session", return_value=mock_session)
-    mocker.patch("pipeline.backfill_entities.select_catalog_ids_for_entity_backfill", return_value=[1, 2, 3])
+    mocker.patch(
+        "pipeline.backfill_entities.select_catalog_ids_for_entity_backfill",
+        side_effect=[[1, 2, 3]],
+    )
     mocker.patch(
         "pipeline.backfill_entities._resolve_parallel_processing_settings",
         return_value={"mode": "global", "chunk_size": 10, "workers_override": None},
@@ -141,6 +161,179 @@ def test_run_entity_backfill_uses_in_process_fast_path_for_small_snapshots(mocke
     assert counts["ner_skipped_low_signal"] == 0
     process_chunk_spy.assert_called_once_with([1, 2, 3])
     executor_spy.assert_not_called()
+
+
+def _patch_entity_in_process(mocker, *, selector_side_effect) -> None:
+    mock_session = MagicMock()
+    mock_session.__enter__.return_value = mock_session
+    mock_session.__exit__.return_value = False
+    mocker.patch("pipeline.backfill_entities.db_session", return_value=mock_session)
+    mocker.patch(
+        "pipeline.backfill_entities.select_catalog_ids_for_entity_backfill",
+        side_effect=selector_side_effect,
+    )
+    mocker.patch(
+        "pipeline.backfill_entities._resolve_parallel_processing_settings",
+        return_value={"mode": "global", "chunk_size": 10, "workers_override": None},
+    )
+    mocker.patch("pipeline.backfill_entities.ENTITY_BACKFILL_IN_PROCESS_THRESHOLD", 10)
+
+
+def test_entity_backfill_records_before_and_after_eligibility(monkeypatch, mocker, tmp_path: Path):
+    monkeypatch.setenv(profiling.PROFILE_RUN_ID_ENV, "profile_run")
+    monkeypatch.setenv(profiling.PROFILE_ARTIFACT_DIR_ENV, str(tmp_path))
+    _patch_entity_in_process(mocker, selector_side_effect=[[1, 2], [2]])
+    mocker.patch(
+        "pipeline.backfill_entities.process_entity_chunk",
+        return_value={"complete": 2, "updated_catalog_ids": [1, 2]},
+    )
+
+    from pipeline.backfill_entities import run_entity_backfill
+
+    run_entity_backfill()
+
+    rows = _profile_eligibility_rows(tmp_path)
+    assert [(row["boundary"], row["eligible_ids"]) for row in rows] == [
+        ("before", [1, 2]),
+        ("after", [2]),
+    ]
+
+
+def test_entity_backfill_records_paired_empty_eligibility(monkeypatch, mocker, tmp_path: Path):
+    monkeypatch.setenv(profiling.PROFILE_RUN_ID_ENV, "profile_run")
+    monkeypatch.setenv(profiling.PROFILE_ARTIFACT_DIR_ENV, str(tmp_path))
+    _patch_entity_in_process(mocker, selector_side_effect=[[]])
+
+    from pipeline.backfill_entities import run_entity_backfill
+
+    run_entity_backfill()
+
+    rows = _profile_eligibility_rows(tmp_path)
+    assert [(row["boundary"], row["eligible_ids"]) for row in rows] == [
+        ("before", []),
+        ("after", []),
+    ]
+
+
+def test_entity_backfill_omits_after_eligibility_when_work_fails(monkeypatch, mocker, tmp_path: Path):
+    monkeypatch.setenv(profiling.PROFILE_RUN_ID_ENV, "profile_run")
+    monkeypatch.setenv(profiling.PROFILE_ARTIFACT_DIR_ENV, str(tmp_path))
+    _patch_entity_in_process(mocker, selector_side_effect=[[1]])
+    mocker.patch(
+        "pipeline.backfill_entities.process_entity_chunk",
+        side_effect=RuntimeError("entity failed"),
+    )
+
+    from pipeline.backfill_entities import run_entity_backfill
+
+    with pytest.raises(RuntimeError, match="entity failed"):
+        run_entity_backfill()
+
+    rows = _profile_eligibility_rows(tmp_path)
+    assert [row["boundary"] for row in rows] == ["before"]
+
+
+def test_entity_backfill_propagates_after_selector_failure(monkeypatch, mocker, tmp_path: Path):
+    monkeypatch.setenv(profiling.PROFILE_RUN_ID_ENV, "profile_run")
+    monkeypatch.setenv(profiling.PROFILE_ARTIFACT_DIR_ENV, str(tmp_path))
+    _patch_entity_in_process(
+        mocker,
+        selector_side_effect=[[1], RuntimeError("entity selector failed")],
+    )
+    mocker.patch(
+        "pipeline.backfill_entities.process_entity_chunk",
+        return_value={"complete": 1, "updated_catalog_ids": [1]},
+    )
+
+    from pipeline.backfill_entities import run_entity_backfill
+
+    with pytest.raises(RuntimeError, match="entity selector failed"):
+        run_entity_backfill()
+
+    rows = _profile_eligibility_rows(tmp_path)
+    assert [row["boundary"] for row in rows] == ["before"]
+
+
+def _patch_summary_backfill_work(mocker, *, selector_side_effect) -> None:
+    mocker.patch(
+        "pipeline.summary_backfill_runner._select_catalog_ids",
+        side_effect=selector_side_effect,
+    )
+    mocker.patch("pipeline.summary_backfill_runner._load_doc_kind_map", return_value={})
+    mocker.patch("pipeline.summary_backfill_runner._run_agenda_batch", return_value={})
+    mocker.patch("pipeline.summary_backfill_runner.log_backfill_counts")
+
+
+def test_summary_backfill_does_not_reselect_when_profiling_is_disabled(mocker):
+    _patch_summary_backfill_work(mocker, selector_side_effect=[[1]])
+    mocker.patch("pipeline.summary_backfill_runner._run_backfill_loop")
+
+    counts = run_summary_hydration_backfill()
+
+    assert counts["selected"] == 1
+
+
+def test_summary_backfill_records_before_and_after_eligibility(monkeypatch, mocker, tmp_path: Path):
+    monkeypatch.setenv(profiling.PROFILE_RUN_ID_ENV, "profile_run")
+    monkeypatch.setenv(profiling.PROFILE_ARTIFACT_DIR_ENV, str(tmp_path))
+    _patch_summary_backfill_work(mocker, selector_side_effect=[[1, 2], [2]])
+    mocker.patch("pipeline.summary_backfill_runner._run_backfill_loop")
+
+    counts = run_summary_hydration_backfill()
+
+    rows = _profile_eligibility_rows(tmp_path)
+    assert [(row["boundary"], row["eligible_ids"]) for row in rows] == [
+        ("before", [1, 2]),
+        ("after", [2]),
+    ]
+    assert counts["selected"] == 2
+
+
+def test_summary_backfill_records_paired_empty_eligibility(monkeypatch, mocker, tmp_path: Path):
+    monkeypatch.setenv(profiling.PROFILE_RUN_ID_ENV, "profile_run")
+    monkeypatch.setenv(profiling.PROFILE_ARTIFACT_DIR_ENV, str(tmp_path))
+    _patch_summary_backfill_work(mocker, selector_side_effect=[[]])
+
+    counts = run_summary_hydration_backfill()
+
+    rows = _profile_eligibility_rows(tmp_path)
+    assert [(row["boundary"], row["eligible_ids"]) for row in rows] == [
+        ("before", []),
+        ("after", []),
+    ]
+    assert counts["selected"] == 0
+
+
+def test_summary_backfill_omits_after_eligibility_when_work_fails(monkeypatch, mocker, tmp_path: Path):
+    monkeypatch.setenv(profiling.PROFILE_RUN_ID_ENV, "profile_run")
+    monkeypatch.setenv(profiling.PROFILE_ARTIFACT_DIR_ENV, str(tmp_path))
+    _patch_summary_backfill_work(mocker, selector_side_effect=[[1]])
+    mocker.patch(
+        "pipeline.summary_backfill_runner._run_backfill_loop",
+        side_effect=RuntimeError("summary failed"),
+    )
+
+    with pytest.raises(RuntimeError, match="summary failed"):
+        run_summary_hydration_backfill()
+
+    rows = _profile_eligibility_rows(tmp_path)
+    assert [row["boundary"] for row in rows] == ["before"]
+
+
+def test_summary_backfill_propagates_after_selector_failure(monkeypatch, mocker, tmp_path: Path):
+    monkeypatch.setenv(profiling.PROFILE_RUN_ID_ENV, "profile_run")
+    monkeypatch.setenv(profiling.PROFILE_ARTIFACT_DIR_ENV, str(tmp_path))
+    _patch_summary_backfill_work(
+        mocker,
+        selector_side_effect=[[1], RuntimeError("summary selector failed")],
+    )
+    mocker.patch("pipeline.summary_backfill_runner._run_backfill_loop")
+
+    with pytest.raises(RuntimeError, match="summary selector failed"):
+        run_summary_hydration_backfill()
+
+    rows = _profile_eligibility_rows(tmp_path)
+    assert [row["boundary"] for row in rows] == ["before"]
 
 
 def test_process_entity_chunk_marks_low_signal_docs_fresh_without_spacy(db_session, mocker):
