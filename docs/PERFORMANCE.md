@@ -118,7 +118,8 @@ phases. Each successful phase has a `before` and `after` row with the sorted
 catalog IDs selected by that phase's existing eligibility query. Successful
 zero-work phases record two empty rows. A missing `after` row means the phase
 or its post-phase eligibility query did not complete. These rows are evidence
-about workload state; the bottleneck analyzer excludes them from occurrence
+about workload state. Post-phase selection runs after the measured callable
+closes, and the bottleneck analyzer excludes eligibility rows from occurrence
 counts, components, and duration totals.
 
 Confidence model:

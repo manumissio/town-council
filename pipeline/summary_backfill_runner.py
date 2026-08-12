@@ -35,7 +35,7 @@ class SummaryBackfillLoopContext:
     progress_every: int
 
 
-def run_summary_hydration_backfill(
+def run_summary_hydration_workload(
     force: bool = False,
     limit: int | None = None,
     city: str | None = None,
@@ -62,13 +62,6 @@ def run_summary_hydration_backfill(
         )
     counts = initial_summary_backfill_counts(selected=len(catalog_ids))
     if not catalog_ids:
-        if capture_eligibility:
-            append_phase_eligibility(
-                phase="summarize",
-                boundary="after",
-                subject="catalog",
-                eligible_ids=[],
-            )
         finish_empty_summary_backfill(counts, progress_callback)
         return counts
 
@@ -96,13 +89,46 @@ def run_summary_hydration_backfill(
     log_backfill_counts(counts)
     if progress_callback:
         progress_callback({"event_type": "stage_finish", "stage": "summary", "counts": counts.copy()})
-    if capture_eligibility:
-        append_phase_eligibility(
-            phase="summarize",
-            boundary="after",
-            subject="catalog",
-            eligible_ids=_select_catalog_ids(limit=limit, city=city),
-        )
+    return counts
+
+
+def capture_summary_hydration_after_eligibility(
+    counts: dict[str, int],
+    *,
+    limit: int | None = None,
+    city: str | None = None,
+) -> None:
+    if not profiling_enabled():
+        return
+    eligible_ids = [] if counts["selected"] == 0 else _select_catalog_ids(limit=limit, city=city)
+    append_phase_eligibility(
+        phase="summarize",
+        boundary="after",
+        subject="catalog",
+        eligible_ids=eligible_ids,
+    )
+
+
+def run_summary_hydration_backfill(
+    force: bool = False,
+    limit: int | None = None,
+    city: str | None = None,
+    *,
+    summary_timeout_seconds: int | None = None,
+    summary_fallback_mode: str = "none",
+    progress_callback: Callable[[dict[str, Any]], None] | None = None,
+    progress_every: int = 25,
+) -> dict[str, int]:
+    counts = run_summary_hydration_workload(
+        force=force,
+        limit=limit,
+        city=city,
+        summary_timeout_seconds=summary_timeout_seconds,
+        summary_fallback_mode=summary_fallback_mode,
+        progress_callback=progress_callback,
+        progress_every=progress_every,
+    )
+    capture_summary_hydration_after_eligibility(counts, limit=limit, city=city)
     return counts
 
 

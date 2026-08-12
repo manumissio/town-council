@@ -901,7 +901,8 @@ find experiments/results/maintenance -maxdepth 4 -type f | sort
   phases record paired `before` and `after` rows, including paired empty rows
   for zero-work phases. A missing `after` row is incomplete evidence, not a
   zero remainder. These rows do not change timing rankings or baseline-validity
-  status.
+  status. Post-phase eligibility selection runs after the measured phase closes
+  so evidence collection does not inflate that phase's duration.
 - Inspect freshly downloaded pending work as a non-promotional diagnostic:
 ```bash
 MANIFEST=experiments/results/baseline_v2_fresh_pending.txt

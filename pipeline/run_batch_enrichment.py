@@ -8,7 +8,10 @@ from pipeline.db_session import db_session
 from pipeline.metrics import record_pipeline_phase_duration
 from pipeline.profiling import append_phase_eligibility, current_mode, profile_span, profiling_enabled
 from pipeline.run_pipeline import run_callable_step, run_step
-from pipeline.backfill_entities import run_entity_backfill
+from pipeline.backfill_entities import (
+    capture_entity_backfill_after_eligibility,
+    run_entity_backfill_workload,
+)
 from pipeline.backfill_orgs import run_organization_backfill
 from pipeline.table_worker import select_catalog_ids_for_table_extraction
 from pipeline.topic_worker import run_topic_hydration_backfill, select_catalog_ids_for_topic_hydration
@@ -67,7 +70,12 @@ def main(argv=None):
     started = time.perf_counter()
     capture_eligibility = profiling_enabled()
     with profile_span(phase="batch_enrichment_total", component="pipeline-batch"):
-        run_callable_step("Entity Backfill", run_entity_backfill, component="pipeline-batch")
+        entity_counts = run_callable_step(
+            "Entity Backfill",
+            run_entity_backfill_workload,
+            component="pipeline-batch",
+        )
+        capture_entity_backfill_after_eligibility(entity_counts)
         with db_session() as session:
             table_catalog_ids = select_catalog_ids_for_table_extraction(session)
         if capture_eligibility:

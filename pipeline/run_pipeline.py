@@ -212,28 +212,33 @@ def _run_generation_backfill_steps() -> None:
     from functools import partial
 
     from pipeline import summary_backfill_runner
-    from pipeline.agenda_worker import run_agenda_segmentation_backfill
+    from pipeline.agenda_worker import (
+        capture_agenda_segmentation_after_eligibility,
+        run_agenda_segmentation_workload,
+    )
 
     # Agenda summaries depend on structured agenda items, so segmentation must
     # run before summary hydration in the canonical batch pipeline.
-    run_callable_step(
+    agenda_counts = run_callable_step(
         "Agenda Segmentation",
         partial(
-            run_agenda_segmentation_backfill,
+            run_agenda_segmentation_workload,
             segment_mode="maintenance",
             agenda_timeout_seconds=AGENDA_SEGMENT_MAINTENANCE_TIMEOUT_SECONDS,
         ),
     )
+    capture_agenda_segmentation_after_eligibility(agenda_counts)
     # Reuse the same summary-task rules as the interactive path instead of
     # duplicating prompt, grounding, or caching behavior in the pipeline.
-    run_callable_step(
+    summary_counts = run_callable_step(
         "Summary Hydration",
         partial(
-            summary_backfill_runner.run_summary_hydration_backfill,
+            summary_backfill_runner.run_summary_hydration_workload,
             summary_timeout_seconds=SUMMARY_HYDRATION_MAINTENANCE_TIMEOUT_SECONDS,
             summary_fallback_mode="deterministic",
         ),
     )
+    summary_backfill_runner.capture_summary_hydration_after_eligibility(summary_counts)
 
 
 def _should_skip_generation_backfill_steps() -> bool:

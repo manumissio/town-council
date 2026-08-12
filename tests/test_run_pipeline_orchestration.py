@@ -52,6 +52,13 @@ def _eligibility_rows(artifact_dir: Path) -> list[dict[str, object]]:
     ]
 
 
+def _profile_rows(artifact_dir: Path) -> list[dict[str, object]]:
+    return [
+        json.loads(line)
+        for line in (artifact_dir / "spans.jsonl").read_text(encoding="utf-8").splitlines()
+    ]
+
+
 def test_run_pipeline_facade_exports_patch_sensitive_public_names():
     expected_names = (
         "main",
@@ -241,12 +248,20 @@ def test_main_runs_steps_in_expected_order(mocker):
     calls = []
     mocker.patch("pipeline.run_pipeline.run_parallel_processing", side_effect=lambda: calls.append("parallel"))
     agenda_spy = mocker.patch(
-        "pipeline.agenda_worker.run_agenda_segmentation_backfill",
+        "pipeline.agenda_worker.run_agenda_segmentation_workload",
         side_effect=lambda **kwargs: calls.append("agenda"),
     )
+    mocker.patch(
+        "pipeline.agenda_worker.capture_agenda_segmentation_after_eligibility",
+        side_effect=lambda _counts, **kwargs: calls.append("agenda-after"),
+    )
     summary_spy = mocker.patch(
-        "pipeline.summary_backfill_runner.run_summary_hydration_backfill",
+        "pipeline.summary_backfill_runner.run_summary_hydration_workload",
         side_effect=lambda **kwargs: calls.append("summary"),
+    )
+    mocker.patch(
+        "pipeline.summary_backfill_runner.capture_summary_hydration_after_eligibility",
+        side_effect=lambda _counts, **kwargs: calls.append("summary-after"),
     )
 
     def fake_run_step(name, command):
@@ -267,8 +282,10 @@ def test_main_runs_steps_in_expected_order(mocker):
     assert calls[4] == "parallel"
     assert calls[5] == ("Agenda Segmentation", "pipeline")
     assert calls[6] == "agenda"
-    assert calls[7] == ("Summary Hydration", "pipeline")
-    assert calls[8] == "summary"
+    assert calls[7] == "agenda-after"
+    assert calls[8] == ("Summary Hydration", "pipeline")
+    assert calls[9] == "summary"
+    assert calls[10] == "summary-after"
     agenda_spy.assert_called_once_with(
         segment_mode="maintenance",
         agenda_timeout_seconds=run_pipeline.AGENDA_SEGMENT_MAINTENANCE_TIMEOUT_SECONDS,
@@ -282,17 +299,95 @@ def test_main_runs_steps_in_expected_order(mocker):
     assert ("Topic Modeling", ("python", "topic_worker.py")) not in calls
 
 
+def test_generation_backfill_records_after_eligibility_outside_phase_spans(
+    monkeypatch,
+    mocker,
+    tmp_path: Path,
+):
+    monkeypatch.setenv(profiling.PROFILE_RUN_ID_ENV, "profile_run")
+    monkeypatch.setenv(profiling.PROFILE_ARTIFACT_DIR_ENV, str(tmp_path))
+
+    def _empty_workload(phase: str) -> dict[str, int]:
+        profiling.append_phase_eligibility(
+            phase=phase,
+            boundary="before",
+            subject="catalog",
+            eligible_ids=[],
+        )
+        return {"selected": 0}
+
+    mocker.patch(
+        "pipeline.agenda_worker.run_agenda_segmentation_workload",
+        side_effect=lambda **_kwargs: _empty_workload("segment_agenda"),
+    )
+    mocker.patch(
+        "pipeline.summary_backfill_runner.run_summary_hydration_workload",
+        side_effect=lambda **_kwargs: _empty_workload("summarize"),
+    )
+
+    run_pipeline._run_generation_backfill_steps()
+
+    rows = _profile_rows(tmp_path)
+    for phase in ("segment_agenda", "summarize"):
+        assert [
+            (row["event_type"], row.get("boundary"))
+            for row in rows
+            if row.get("phase") == phase
+        ] == [
+            ("phase_eligibility", "before"),
+            ("span", None),
+            ("phase_eligibility", "after"),
+        ]
+
+
+def test_generation_backfill_failure_omits_after_eligibility(
+    monkeypatch,
+    mocker,
+    tmp_path: Path,
+):
+    monkeypatch.setenv(profiling.PROFILE_RUN_ID_ENV, "profile_run")
+    monkeypatch.setenv(profiling.PROFILE_ARTIFACT_DIR_ENV, str(tmp_path))
+
+    def _fail_agenda_workload(**_kwargs) -> dict[str, int]:
+        profiling.append_phase_eligibility(
+            phase="segment_agenda",
+            boundary="before",
+            subject="catalog",
+            eligible_ids=[1],
+        )
+        raise RuntimeError("agenda failed")
+
+    mocker.patch(
+        "pipeline.agenda_worker.run_agenda_segmentation_workload",
+        side_effect=_fail_agenda_workload,
+    )
+
+    with pytest.raises(SystemExit):
+        run_pipeline._run_generation_backfill_steps()
+
+    rows = _profile_rows(tmp_path)
+    assert [
+        (row["event_type"], row.get("boundary"))
+        for row in rows
+        if row.get("phase") == "segment_agenda"
+    ] == [
+        ("phase_eligibility", "before"),
+    ]
+
+
 def test_main_skips_non_gating_steps_in_onboarding_fast_profile(mocker):
     calls = []
     mocker.patch("pipeline.run_pipeline.run_parallel_processing", side_effect=lambda: calls.append("parallel"))
     agenda_spy = mocker.patch(
-        "pipeline.agenda_worker.run_agenda_segmentation_backfill",
+        "pipeline.agenda_worker.run_agenda_segmentation_workload",
         side_effect=lambda **kwargs: calls.append("agenda"),
     )
+    agenda_after_spy = mocker.patch("pipeline.agenda_worker.capture_agenda_segmentation_after_eligibility")
     summary_spy = mocker.patch(
-        "pipeline.summary_backfill_runner.run_summary_hydration_backfill",
+        "pipeline.summary_backfill_runner.run_summary_hydration_workload",
         side_effect=lambda **kwargs: calls.append("summary"),
     )
+    summary_after_spy = mocker.patch("pipeline.summary_backfill_runner.capture_summary_hydration_after_eligibility")
 
     def fake_run_step(name, command):
         calls.append((name, tuple(command)))
@@ -310,7 +405,9 @@ def test_main_skips_non_gating_steps_in_onboarding_fast_profile(mocker):
     assert ("Agenda Segmentation", "pipeline") not in calls
     assert ("Summary Hydration", "pipeline") not in calls
     agenda_spy.assert_not_called()
+    agenda_after_spy.assert_not_called()
     summary_spy.assert_not_called()
+    summary_after_spy.assert_not_called()
     assert ("Search Indexing", ("python", "indexer.py")) not in calls
     assert ("Table Extraction", ("python", "table_worker.py")) not in calls
     assert ("Backfill Organizations", ("python", "backfill_orgs.py")) not in calls
@@ -355,8 +452,12 @@ def test_run_batch_enrichment_runs_heavy_steps_in_expected_order(mocker):
     )
     mocker.patch("pipeline.run_batch_enrichment.db_session")
     entity_spy = mocker.patch(
-        "pipeline.run_batch_enrichment.run_entity_backfill",
+        "pipeline.run_batch_enrichment.run_entity_backfill_workload",
         return_value={"selected": 1, "complete": 1, "updated_catalog_ids": [10]},
+    )
+    mocker.patch(
+        "pipeline.run_batch_enrichment.capture_entity_backfill_after_eligibility",
+        side_effect=lambda _counts: calls.append("entity-after"),
     )
     mocker.patch(
         "pipeline.run_batch_enrichment.select_catalog_ids_for_table_extraction",
@@ -372,12 +473,21 @@ def test_run_batch_enrichment_runs_heavy_steps_in_expected_order(mocker):
     )
     topic_backfill_spy = mocker.patch(
         "pipeline.run_batch_enrichment.run_topic_hydration_backfill",
-        return_value={"selected": 2, "complete": 2, "cached": 0, "stale": 0, "blocked_low_signal": 0, "error": 0, "other": 0},
+        return_value={
+            "selected": 2,
+            "complete": 2,
+            "cached": 0,
+            "stale": 0,
+            "blocked_low_signal": 0,
+            "error": 0,
+            "other": 0,
+        },
     )
     run_batch_enrichment.main()
 
     assert calls == [
         ("Entity Backfill", "pipeline-batch"),
+        "entity-after",
         ("Table Extraction", ("python", "table_worker.py")),
         ("Backfill Organizations", "pipeline-batch"),
         ("Topic Modeling", "topic_modeling"),
@@ -385,6 +495,55 @@ def test_run_batch_enrichment_runs_heavy_steps_in_expected_order(mocker):
     entity_spy.assert_called_once_with()
     org_spy.assert_called_once_with()
     topic_backfill_spy.assert_called_once_with(catalog_ids=[2, 3])
+
+
+def test_batch_entity_after_eligibility_is_outside_phase_span(
+    monkeypatch,
+    mocker,
+    tmp_path: Path,
+):
+    monkeypatch.setenv(profiling.PROFILE_RUN_ID_ENV, "profile_run")
+    monkeypatch.setenv(profiling.PROFILE_ARTIFACT_DIR_ENV, str(tmp_path))
+
+    def _empty_entity_workload() -> dict[str, int]:
+        profiling.append_phase_eligibility(
+            phase="entity_backfill",
+            boundary="before",
+            subject="catalog",
+            eligible_ids=[],
+        )
+        return {"selected": 0}
+
+    mocker.patch(
+        "pipeline.run_batch_enrichment.run_entity_backfill_workload",
+        side_effect=_empty_entity_workload,
+    )
+    mocker.patch(
+        "pipeline.run_batch_enrichment.run_organization_backfill",
+        return_value={"selected": 0, "linked": 0, "reindexed": 0, "failed_reindex": 0},
+    )
+    mocker.patch("pipeline.run_batch_enrichment.db_session")
+    mocker.patch(
+        "pipeline.run_batch_enrichment.select_catalog_ids_for_table_extraction",
+        return_value=[],
+    )
+    mocker.patch(
+        "pipeline.run_batch_enrichment.select_catalog_ids_for_topic_hydration",
+        return_value=[],
+    )
+
+    run_batch_enrichment.main([])
+
+    rows = _profile_rows(tmp_path)
+    assert [
+        (row["event_type"], row.get("boundary"))
+        for row in rows
+        if row.get("phase") == "entity_backfill"
+    ] == [
+        ("phase_eligibility", "before"),
+        ("span", None),
+        ("phase_eligibility", "after"),
+    ]
 
 
 def test_run_batch_callable_step_records_failure_context_before_exit(
@@ -422,9 +581,10 @@ def test_run_batch_enrichment_skips_noop_topic_and_table_steps(mocker):
     )
     mocker.patch("pipeline.run_batch_enrichment.db_session")
     entity_spy = mocker.patch(
-        "pipeline.run_batch_enrichment.run_entity_backfill",
+        "pipeline.run_batch_enrichment.run_entity_backfill_workload",
         return_value={"selected": 0, "complete": 0, "updated_catalog_ids": []},
     )
+    mocker.patch("pipeline.run_batch_enrichment.capture_entity_backfill_after_eligibility")
     mocker.patch(
         "pipeline.run_batch_enrichment.select_catalog_ids_for_table_extraction",
         side_effect=[[]],
@@ -457,9 +617,10 @@ def _patch_batch_non_target_steps(mocker) -> None:
         side_effect=lambda _name, func, component="pipeline-batch": func(),
     )
     mocker.patch(
-        "pipeline.run_batch_enrichment.run_entity_backfill",
+        "pipeline.run_batch_enrichment.run_entity_backfill_workload",
         return_value={"selected": 0, "complete": 0, "updated_catalog_ids": []},
     )
+    mocker.patch("pipeline.run_batch_enrichment.capture_entity_backfill_after_eligibility")
     mocker.patch(
         "pipeline.run_batch_enrichment.run_organization_backfill",
         return_value={"selected": 0, "linked": 0, "reindexed": 0, "failed_reindex": 0},

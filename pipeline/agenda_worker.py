@@ -193,7 +193,7 @@ def segment_agendas():
         segment_document_agenda(cid)
 
 
-def run_agenda_segmentation_backfill(
+def run_agenda_segmentation_workload(
     limit: int | None = None,
     *,
     segment_mode: str = "normal",
@@ -231,13 +231,6 @@ def run_agenda_segmentation_backfill(
         "llm_timeout_then_fallback": 0,
     }
     if not catalog_ids:
-        if capture_eligibility:
-            append_phase_eligibility(
-                phase="segment_agenda",
-                boundary="after",
-                subject="catalog",
-                eligible_ids=[],
-            )
         logger.info("agenda_segmentation_backfill selected=0")
         return counts
 
@@ -263,16 +256,6 @@ def run_agenda_segmentation_backfill(
         counts["empty_response_fallbacks"] = int(fallback_counts.get("empty_response", 0))
         counts["llm_timeout_then_fallback"] = int(fallback_counts.get("timeout", 0))
 
-    if capture_eligibility:
-        with db_session() as session:
-            remaining_catalog_ids = select_catalog_ids_for_agenda_segmentation(session, limit=limit)
-        append_phase_eligibility(
-            phase="segment_agenda",
-            boundary="after",
-            subject="catalog",
-            eligible_ids=remaining_catalog_ids,
-        )
-
     logger.info(
         "agenda_segmentation_backfill selected=%s complete=%s empty=%s failed=%s other=%s timeout_fallbacks=%s empty_response_fallbacks=%s llm_attempted=%s llm_skipped_heuristic_first=%s heuristic_complete=%s llm_timeout_then_fallback=%s",
         counts["selected"],
@@ -287,6 +270,43 @@ def run_agenda_segmentation_backfill(
         counts["heuristic_complete"],
         counts["llm_timeout_then_fallback"],
     )
+    return counts
+
+
+def capture_agenda_segmentation_after_eligibility(
+    counts: dict[str, int],
+    *,
+    limit: int | None = None,
+) -> None:
+    if not profiling_enabled():
+        return
+    remaining_catalog_ids: list[int] = []
+    if counts["selected"]:
+        with db_session() as session:
+            remaining_catalog_ids = select_catalog_ids_for_agenda_segmentation(
+                session,
+                limit=limit,
+            )
+    append_phase_eligibility(
+        phase="segment_agenda",
+        boundary="after",
+        subject="catalog",
+        eligible_ids=remaining_catalog_ids,
+    )
+
+
+def run_agenda_segmentation_backfill(
+    limit: int | None = None,
+    *,
+    segment_mode: str = "normal",
+    agenda_timeout_seconds: int | None = None,
+) -> dict[str, int]:
+    counts = run_agenda_segmentation_workload(
+        limit=limit,
+        segment_mode=segment_mode,
+        agenda_timeout_seconds=agenda_timeout_seconds,
+    )
+    capture_agenda_segmentation_after_eligibility(counts, limit=limit)
     return counts
 
 

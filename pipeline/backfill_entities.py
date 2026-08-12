@@ -102,7 +102,7 @@ def process_entity_chunk(catalog_ids):
     }
 
 
-def run_entity_backfill():
+def run_entity_backfill_workload() -> dict[str, object]:
     with db_session() as db:
         catalog_ids = select_catalog_ids_for_entity_backfill(db)
 
@@ -119,13 +119,6 @@ def run_entity_backfill():
     counts["selected"] = len(catalog_ids)
 
     if not catalog_ids:
-        if capture_eligibility:
-            append_phase_eligibility(
-                phase="entity_backfill",
-                boundary="after",
-                subject="catalog",
-                eligible_ids=[],
-            )
         logger.info("No documents need entity enrichment.")
         return counts
 
@@ -202,15 +195,27 @@ def run_entity_backfill():
         counts["freshness_advanced"],
         counts["candidate_slice_fallback_prefix"],
     )
-    if capture_eligibility:
+    return counts
+
+
+def capture_entity_backfill_after_eligibility(counts: dict[str, object]) -> None:
+    if not profiling_enabled():
+        return
+    remaining_catalog_ids: list[int] = []
+    if counts["selected"]:
         with db_session() as db:
             remaining_catalog_ids = select_catalog_ids_for_entity_backfill(db)
-        append_phase_eligibility(
-            phase="entity_backfill",
-            boundary="after",
-            subject="catalog",
-            eligible_ids=remaining_catalog_ids,
-        )
+    append_phase_eligibility(
+        phase="entity_backfill",
+        boundary="after",
+        subject="catalog",
+        eligible_ids=remaining_catalog_ids,
+    )
+
+
+def run_entity_backfill() -> dict[str, object]:
+    counts = run_entity_backfill_workload()
+    capture_entity_backfill_after_eligibility(counts)
     return counts
 
 
