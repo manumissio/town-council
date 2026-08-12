@@ -4,7 +4,7 @@ from concurrent.futures import Future
 from dataclasses import dataclass
 from typing import Protocol, TypeAlias
 
-from pipeline.profiling import append_phase_eligibility, profile_span, profiling_enabled
+from pipeline.profiling import append_phase_eligibility, profile_observer, profile_span, profiling_enabled
 
 
 GLOBAL_PROCESSING_MODE = "global"
@@ -222,9 +222,10 @@ def run_parallel_processing(
             catalog_count=len(catalog_ids),
         )
     if capture_eligibility:
-        append_phase_eligibility(
-            phase=EXTRACT_PARALLEL_PHASE,
-            boundary="after",
-            subject="catalog",
-            eligible_ids=_select_catalog_ids(dependencies),
-        )
+        with profile_observer():
+            append_phase_eligibility(
+                phase=EXTRACT_PARALLEL_PHASE,
+                boundary="after",
+                subject="catalog",
+                eligible_ids=_select_catalog_ids(dependencies),
+            )

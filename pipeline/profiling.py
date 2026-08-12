@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 from contextlib import contextmanager
+from contextvars import ContextVar
+from dataclasses import dataclass
 from datetime import datetime, timezone
 import json
 import os
@@ -18,9 +20,21 @@ PROFILE_WORKLOAD_ONLY_ENV = "TC_PROFILE_WORKLOAD_ONLY"
 
 _REPO_ROOT = Path(__file__).resolve().parents[1]
 _SELECTED_IDS_CACHE: tuple[str | None, set[int] | None] = (None, None)
+_OBSERVER_DEPTH: ContextVar[int] = ContextVar("profile_observer_depth", default=0)
+_OBSERVER_SECONDS: ContextVar[float] = ContextVar("profile_observer_seconds", default=0.0)
 QueryT = TypeVar("QueryT", bound="CatalogScopedQuery")
 EligibilityBoundary = Literal["before", "after"]
 EligibilitySubject = Literal["catalog"]
+
+
+@dataclass(frozen=True, slots=True)
+class ProfileSpanContext:
+    phase: str
+    component: str
+    catalog_id: int | None
+    started_at: str
+    started_perf: float
+    observer_at_start: float
 
 
 class CatalogIdPredicate(Protocol):
@@ -148,17 +162,70 @@ def append_phase_eligibility(
     subject: EligibilitySubject,
     eligible_ids: Sequence[int],
 ) -> None:
-    normalized_ids = sorted({int(eligible_id) for eligible_id in eligible_ids})
-    append_profile_event(
-        {
-            "event_type": "phase_eligibility",
-            "phase": phase,
-            "boundary": boundary,
-            "subject": subject,
-            "eligible_ids": normalized_ids,
-            "eligible_count": len(normalized_ids),
-        }
-    )
+    with profile_observer():
+        normalized_ids = sorted({int(eligible_id) for eligible_id in eligible_ids})
+        append_profile_event(
+            {
+                "event_type": "phase_eligibility",
+                "phase": phase,
+                "boundary": boundary,
+                "subject": subject,
+                "eligible_ids": normalized_ids,
+                "eligible_count": len(normalized_ids),
+            }
+        )
+
+
+def observer_seconds() -> float:
+    return _OBSERVER_SECONDS.get()
+
+
+@contextmanager
+def profile_observer() -> Iterator[None]:
+    depth = _OBSERVER_DEPTH.get()
+    depth_token = _OBSERVER_DEPTH.set(depth + 1)
+    started_perf = time.perf_counter() if depth == 0 else None
+    try:
+        yield
+    finally:
+        _OBSERVER_DEPTH.reset(depth_token)
+        if started_perf is not None:
+            _OBSERVER_SECONDS.set(observer_seconds() + time.perf_counter() - started_perf)
+
+
+def workload_duration_seconds(started_perf: float, observer_at_start: float) -> float:
+    elapsed_seconds = time.perf_counter() - started_perf
+    observer_overhead_seconds = observer_seconds() - observer_at_start
+    return max(0.0, elapsed_seconds - observer_overhead_seconds)
+
+
+def _append_span_event(
+    *,
+    span_context: ProfileSpanContext,
+    outcome: str,
+    span_metadata: dict[str, Any],
+) -> None:
+    observer_overhead_seconds = observer_seconds() - span_context.observer_at_start
+    span_metadata["observer_overhead_s"] = round(observer_overhead_seconds, 6)
+    span_event = {
+        "event_type": "span",
+        "phase": span_context.phase,
+        "component": span_context.component,
+        "catalog_id": span_context.catalog_id,
+        "started_at": span_context.started_at,
+        "finished_at": utc_now_iso(),
+        "duration_s": round(
+            workload_duration_seconds(
+                span_context.started_perf,
+                span_context.observer_at_start,
+            ),
+            6,
+        ),
+        "outcome": outcome,
+        "metadata": span_metadata or None,
+    }
+    with profile_observer():
+        append_profile_event(span_event)
 
 
 @contextmanager
@@ -170,38 +237,28 @@ def profile_span(
     metadata: dict[str, Any] | None = None,
     catalog_id: int | None = None,
 ) -> Iterator[dict[str, Any]]:
-    started_at = utc_now_iso()
-    started_perf = time.perf_counter()
+    span_context = ProfileSpanContext(
+        phase=phase,
+        component=component,
+        catalog_id=catalog_id,
+        started_at=utc_now_iso(),
+        started_perf=time.perf_counter(),
+        observer_at_start=observer_seconds(),
+    )
     span_meta: dict[str, Any] = dict(metadata or {})
     try:
         yield span_meta
     except Exception:
-        append_profile_event(
-            {
-                "event_type": "span",
-                "phase": phase,
-                "component": component,
-                "catalog_id": catalog_id,
-                "started_at": started_at,
-                "finished_at": utc_now_iso(),
-                "duration_s": round(time.perf_counter() - started_perf, 6),
-                "outcome": "failure",
-                "metadata": span_meta or None,
-            }
+        _append_span_event(
+            span_context=span_context,
+            outcome="failure",
+            span_metadata=span_meta,
         )
         raise
-    append_profile_event(
-        {
-            "event_type": "span",
-            "phase": phase,
-            "component": component,
-            "catalog_id": catalog_id,
-            "started_at": started_at,
-            "finished_at": utc_now_iso(),
-            "duration_s": round(time.perf_counter() - started_perf, 6),
-            "outcome": outcome,
-            "metadata": span_meta or None,
-        }
+    _append_span_event(
+        span_context=span_context,
+        outcome=outcome,
+        span_metadata=span_meta,
     )
 
 

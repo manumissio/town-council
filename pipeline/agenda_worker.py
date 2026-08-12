@@ -17,7 +17,7 @@ from pipeline.llm import LocalAI
 from pipeline.agenda_service import persist_agenda_items
 from pipeline.agenda_resolver import has_viable_structured_agenda_source, resolve_agenda_items
 from pipeline.indexer import reindex_catalog
-from pipeline.profiling import append_phase_eligibility, apply_catalog_id_scope, profiling_enabled
+from pipeline.profiling import append_phase_eligibility, apply_catalog_id_scope, profile_observer, profiling_enabled
 
 
 logger = logging.getLogger("agenda-worker")
@@ -280,19 +280,20 @@ def capture_agenda_segmentation_after_eligibility(
 ) -> None:
     if not profiling_enabled():
         return
-    remaining_catalog_ids: list[int] = []
-    if counts["selected"]:
-        with db_session() as session:
-            remaining_catalog_ids = select_catalog_ids_for_agenda_segmentation(
-                session,
-                limit=limit,
-            )
-    append_phase_eligibility(
-        phase="segment_agenda",
-        boundary="after",
-        subject="catalog",
-        eligible_ids=remaining_catalog_ids,
-    )
+    with profile_observer():
+        remaining_catalog_ids: list[int] = []
+        if counts["selected"]:
+            with db_session() as session:
+                remaining_catalog_ids = select_catalog_ids_for_agenda_segmentation(
+                    session,
+                    limit=limit,
+                )
+        append_phase_eligibility(
+            phase="segment_agenda",
+            boundary="after",
+            subject="catalog",
+            eligible_ids=remaining_catalog_ids,
+        )
 
 
 def run_agenda_segmentation_backfill(

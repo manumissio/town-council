@@ -23,6 +23,56 @@ def test_profile_span_writes_jsonl_event(monkeypatch, tmp_path: Path):
     assert rows[0]["event_type"] == "span"
 
 
+def test_profile_span_excludes_nested_observer_work(monkeypatch, tmp_path: Path):
+    monkeypatch.setenv(profiling.PROFILE_RUN_ID_ENV, "profile_run")
+    monkeypatch.setenv(profiling.PROFILE_ARTIFACT_DIR_ENV, str(tmp_path))
+    clock = [0.0]
+    monkeypatch.setattr(profiling.time, "perf_counter", lambda: clock[0])
+
+    with profiling.profile_span(phase="pipeline_total", component="pipeline"):
+        clock[0] += 2.0
+        with profiling.profile_observer():
+            clock[0] += 3.0
+        clock[0] += 5.0
+
+    row = json.loads((tmp_path / "spans.jsonl").read_text(encoding="utf-8"))
+    assert row["duration_s"] == 7.0
+    assert row["metadata"]["observer_overhead_s"] == 3.0
+
+
+def test_workload_duration_excludes_observer_work(monkeypatch):
+    clock = [0.0]
+    monkeypatch.setattr(profiling.time, "perf_counter", lambda: clock[0])
+    started_perf = profiling.time.perf_counter()
+    observer_at_start = profiling.observer_seconds()
+
+    clock[0] += 2.0
+    with profiling.profile_observer():
+        clock[0] += 3.0
+    clock[0] += 5.0
+
+    assert profiling.workload_duration_seconds(started_perf, observer_at_start) == 7.0
+
+
+def test_failed_span_excludes_observer_work(monkeypatch, tmp_path: Path):
+    monkeypatch.setenv(profiling.PROFILE_RUN_ID_ENV, "profile_run")
+    monkeypatch.setenv(profiling.PROFILE_ARTIFACT_DIR_ENV, str(tmp_path))
+    clock = [0.0]
+    monkeypatch.setattr(profiling.time, "perf_counter", lambda: clock[0])
+
+    with pytest.raises(RuntimeError, match="profiled work failed"):
+        with profiling.profile_span(phase="pipeline_total", component="pipeline"):
+            clock[0] += 4.0
+            with profiling.profile_observer():
+                clock[0] += 3.0
+            raise RuntimeError("profiled work failed")
+
+    recorded_span = json.loads((tmp_path / "spans.jsonl").read_text(encoding="utf-8"))
+    assert recorded_span["outcome"] == "failure"
+    assert recorded_span["duration_s"] == 4.0
+    assert recorded_span["metadata"]["observer_overhead_s"] == 3.0
+
+
 def test_phase_eligibility_writes_normalized_catalog_ids(monkeypatch, tmp_path: Path):
     monkeypatch.setenv(profiling.PROFILE_RUN_ID_ENV, "profile_run")
     monkeypatch.setenv(profiling.PROFILE_MODE_ENV, "baseline")

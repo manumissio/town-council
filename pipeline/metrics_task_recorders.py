@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from pipeline import metrics_definitions
+from pipeline.profiling import profile_observer
 
 
 def record_task_duration(task_name: str, status: str, duration_s: float) -> None:
@@ -29,12 +30,13 @@ def record_task_queue_wait(task_name: str, queue: str, duration_s: float) -> Non
 
 
 def record_pipeline_phase_duration(phase: str, component: str, mode: str, status: str, duration_s: float) -> None:
-    metrics_definitions.PIPELINE_PHASE_DURATION_SECONDS.labels(
-        phase=phase,
-        component=component,
-        mode=mode,
-        status=status,
-    ).observe(max(0.0, duration_s))
+    with profile_observer():
+        metrics_definitions.PIPELINE_PHASE_DURATION_SECONDS.labels(
+            phase=phase,
+            component=component,
+            mode=mode,
+            status=status,
+        ).observe(max(0.0, duration_s))
 
 
 def record_lineage_recompute(updated_count: int, merge_count: int) -> None:

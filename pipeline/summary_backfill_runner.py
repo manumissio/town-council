@@ -20,7 +20,7 @@ from pipeline.summary_backfill_progress import (
     initial_summary_backfill_counts,
     record_summary_result_counts,
 )
-from pipeline.profiling import append_phase_eligibility, profiling_enabled
+from pipeline.profiling import append_phase_eligibility, profile_observer, profiling_enabled
 
 
 @dataclass(frozen=True)
@@ -100,13 +100,14 @@ def capture_summary_hydration_after_eligibility(
 ) -> None:
     if not profiling_enabled():
         return
-    eligible_ids = [] if counts["selected"] == 0 else _select_catalog_ids(limit=limit, city=city)
-    append_phase_eligibility(
-        phase="summarize",
-        boundary="after",
-        subject="catalog",
-        eligible_ids=eligible_ids,
-    )
+    with profile_observer():
+        eligible_ids = [] if counts["selected"] == 0 else _select_catalog_ids(limit=limit, city=city)
+        append_phase_eligibility(
+            phase="summarize",
+            boundary="after",
+            subject="catalog",
+            eligible_ids=eligible_ids,
+        )
 
 
 def run_summary_hydration_backfill(

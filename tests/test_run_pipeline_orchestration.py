@@ -13,6 +13,7 @@ from pipeline import run_pipeline
 from pipeline import run_batch_enrichment
 from pipeline import profiling
 from pipeline.models import Base, Catalog, Document, Event, Place, UrlStage, UrlStageHist
+from pipeline import run_pipeline_steps
 
 
 class _ImmediateFuture:
@@ -85,6 +86,27 @@ def test_run_step_exits_on_subprocess_failure(mocker):
     mocker.patch("subprocess.run", side_effect=run_pipeline.subprocess.CalledProcessError(1, ["cmd"]))
     with pytest.raises(SystemExit):
         run_pipeline.run_step("bad", ["cmd"])
+
+
+def test_callable_step_excludes_metric_emission_from_profile_span(
+    monkeypatch,
+    tmp_path: Path,
+):
+    monkeypatch.setenv(profiling.PROFILE_RUN_ID_ENV, "profile_run")
+    monkeypatch.setenv(profiling.PROFILE_ARTIFACT_DIR_ENV, str(tmp_path))
+
+    step_status = run_pipeline_steps.run_callable_step(
+        "Summary Hydration",
+        lambda: "complete",
+        logger=run_pipeline.logger,
+    )
+
+    recorded_span = next(
+        row for row in _profile_rows(tmp_path) if row["event_type"] == "span"
+    )
+    assert step_status == "complete"
+    assert recorded_span["outcome"] == "success"
+    assert recorded_span["metadata"]["observer_overhead_s"] > 0.0
 
 
 def test_process_document_chunk_returns_zero_when_db_unavailable(mocker):

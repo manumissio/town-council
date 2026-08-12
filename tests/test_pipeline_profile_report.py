@@ -222,8 +222,8 @@ def test_rank_bottlenecks_uses_combined_total_for_repeated_phases(tmp_path: Path
     (run_dir / "spans.jsonl").write_text(
         "\n".join(
             [
-                json.dumps({"event_type": "span", "phase": "pipeline_total", "duration_s": 23.0}),
-                json.dumps({"event_type": "span", "phase": "batch_enrichment_total", "duration_s": 24.2}),
+                json.dumps({"event_type": "span", "phase": "pipeline_total", "duration_s": 23.0, "outcome": "success", "metadata": {"observer_overhead_s": 0.1}}),
+                json.dumps({"event_type": "span", "phase": "batch_enrichment_total", "duration_s": 24.2, "outcome": "success", "metadata": {"observer_overhead_s": 0.1}}),
                 json.dumps({"event_type": "span", "phase": "index_search", "component": "subprocess", "duration_s": 18.8}),
                 json.dumps({"event_type": "span", "phase": "index_search", "component": "subprocess", "duration_s": 19.3}),
                 json.dumps({"event_type": "span", "phase": "entity_backfill", "component": "subprocess", "duration_s": 2.1}),
@@ -237,7 +237,8 @@ def test_rank_bottlenecks_uses_combined_total_for_repeated_phases(tmp_path: Path
 
     top = summary["top_bottlenecks"][0]
     assert summary["confidence"] == "ok"
-    assert summary["elapsed_source"] == "result_totals"
+    assert summary["elapsed_source"] == "corrected_total_spans"
+    assert summary["elapsed_seconds"] == 47.2
     assert top["phase"] == "index_search"
     assert top["occurrence_count"] == 2
     assert top["contribution_pct"] < 100.0
@@ -247,15 +248,15 @@ def test_rank_bottlenecks_marks_missing_result_as_reduced_confidence(tmp_path: P
     run_dir = tmp_path / "profile_run_missing_result"
     run_dir.mkdir()
     (run_dir / "run_manifest.json").write_text(
-        json.dumps({"run_id": "profile_run_missing_result", "mode": "triage", "catalog_count": 25, "baseline_valid": False}),
+        json.dumps({"run_id": "profile_run_missing_result", "mode": "triage", "catalog_count": 25, "baseline_valid": False, "include_batch": True}),
         encoding="utf-8",
     )
     (run_dir / "day_summary.json").write_text(json.dumps({"provider_metrics_present": True}), encoding="utf-8")
     (run_dir / "spans.jsonl").write_text(
         "\n".join(
             [
-                json.dumps({"event_type": "span", "phase": "pipeline_total", "duration_s": 20.0}),
-                json.dumps({"event_type": "span", "phase": "batch_enrichment_total", "duration_s": 10.0}),
+                json.dumps({"event_type": "span", "phase": "pipeline_total", "duration_s": 20.0, "outcome": "success", "metadata": {"observer_overhead_s": 0.1}}),
+                json.dumps({"event_type": "span", "phase": "batch_enrichment_total", "duration_s": 10.0, "outcome": "success", "metadata": {"observer_overhead_s": 0.1}}),
                 json.dumps({"event_type": "span", "phase": "index_search", "component": "subprocess", "duration_s": 12.0}),
             ]
         )
@@ -269,9 +270,317 @@ def test_rank_bottlenecks_marks_missing_result_as_reduced_confidence(tmp_path: P
     assert summary["confidence"] == "reduced-confidence:result_missing"
 
 
+def test_rank_bottlenecks_rejects_partial_corrected_total_without_result(tmp_path: Path):
+    run_dir = tmp_path / "profile_run_partial_missing_result"
+    run_dir.mkdir()
+    (run_dir / "run_manifest.json").write_text(
+        json.dumps({"run_id": "profile_run_partial_missing_result", "include_batch": True}),
+        encoding="utf-8",
+    )
+    (run_dir / "day_summary.json").write_text(
+        json.dumps({"provider_metrics_present": True}),
+        encoding="utf-8",
+    )
+    (run_dir / "spans.jsonl").write_text(
+        json.dumps({"event_type": "span", "phase": "pipeline_total", "duration_s": 20.0, "outcome": "success", "metadata": {"observer_overhead_s": 0.1}})
+        + "\n",
+        encoding="utf-8",
+    )
+
+    summary = mod.rank_bottlenecks(run_dir)
+
+    assert summary["elapsed_seconds"] == 0.0
+    assert summary["elapsed_source"] == "no_total_elapsed_time"
+    assert summary["confidence_reasons"] == [
+        "result_missing",
+        "missing_corrected_total:batch_enrichment_total",
+    ]
+
+
+def test_rank_bottlenecks_reports_every_missing_corrected_total_phase(tmp_path: Path):
+    run_dir = tmp_path / "profile_run_missing_totals"
+    run_dir.mkdir()
+    (run_dir / "run_manifest.json").write_text(
+        json.dumps({"run_id": "profile_run_missing_totals", "include_batch": True}),
+        encoding="utf-8",
+    )
+    (run_dir / "result.json").write_text(
+        json.dumps({"include_batch": True, "totals": {"combined_elapsed_seconds": 42.0}}),
+        encoding="utf-8",
+    )
+    (run_dir / "day_summary.json").write_text(
+        json.dumps({"provider_metrics_present": True}),
+        encoding="utf-8",
+    )
+
+    summary = mod.rank_bottlenecks(run_dir)
+
+    assert summary["confidence_reasons"] == [
+        "no_spans",
+        "missing_corrected_total:pipeline_total",
+        "missing_corrected_total:batch_enrichment_total",
+    ]
+
+
+def test_rank_bottlenecks_rejects_failed_corrected_total_span(tmp_path: Path):
+    run_dir = tmp_path / "profile_run_failed_total"
+    run_dir.mkdir()
+    (run_dir / "run_manifest.json").write_text(
+        json.dumps({"run_id": "profile_run_failed_total", "include_batch": True}),
+        encoding="utf-8",
+    )
+    (run_dir / "result.json").write_text(
+        json.dumps({"include_batch": True, "totals": {"combined_elapsed_seconds": 42.0}}),
+        encoding="utf-8",
+    )
+    (run_dir / "day_summary.json").write_text(
+        json.dumps({"provider_metrics_present": True}),
+        encoding="utf-8",
+    )
+    (run_dir / "spans.jsonl").write_text(
+        "\n".join(
+            [
+                json.dumps(
+                    {
+                        "event_type": "span",
+                        "phase": "pipeline_total",
+                        "duration_s": 20.0,
+                        "outcome": "success",
+                        "metadata": {"observer_overhead_s": 0.1},
+                    }
+                ),
+                json.dumps(
+                    {
+                        "event_type": "span",
+                        "phase": "batch_enrichment_total",
+                        "duration_s": 10.0,
+                        "outcome": "failure",
+                        "metadata": {"observer_overhead_s": 0.1},
+                    }
+                ),
+            ]
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+
+    summary = mod.rank_bottlenecks(run_dir)
+
+    assert summary["elapsed_source"] == "raw_result_totals"
+    assert summary["confidence_reasons"] == [
+        "missing_corrected_total:batch_enrichment_total"
+    ]
+
+
+def test_rank_bottlenecks_rejects_corrected_total_without_success_outcome(tmp_path: Path):
+    run_dir = tmp_path / "profile_run_missing_outcome"
+    run_dir.mkdir()
+    (run_dir / "run_manifest.json").write_text(
+        json.dumps({"run_id": "profile_run_missing_outcome", "include_batch": False}),
+        encoding="utf-8",
+    )
+    (run_dir / "result.json").write_text(
+        json.dumps({"include_batch": False, "totals": {"combined_elapsed_seconds": 42.0}}),
+        encoding="utf-8",
+    )
+    (run_dir / "day_summary.json").write_text(
+        json.dumps({"provider_metrics_present": True}),
+        encoding="utf-8",
+    )
+    (run_dir / "spans.jsonl").write_text(
+        json.dumps({"event_type": "span", "phase": "pipeline_total", "duration_s": 20.0})
+        + "\n",
+        encoding="utf-8",
+    )
+
+    summary = mod.rank_bottlenecks(run_dir)
+
+    assert summary["elapsed_source"] == "raw_result_totals"
+    assert summary["confidence_reasons"] == ["missing_corrected_total:pipeline_total"]
+
+
+def test_rank_bottlenecks_rejects_legacy_total_without_observer_marker(tmp_path: Path):
+    run_dir = tmp_path / "profile_run_legacy_total"
+    run_dir.mkdir()
+    (run_dir / "run_manifest.json").write_text(
+        json.dumps({"run_id": "profile_run_legacy_total", "include_batch": False}),
+        encoding="utf-8",
+    )
+    (run_dir / "result.json").write_text(
+        json.dumps({"include_batch": False, "totals": {"combined_elapsed_seconds": 42.0}}),
+        encoding="utf-8",
+    )
+    (run_dir / "day_summary.json").write_text(
+        json.dumps({"provider_metrics_present": True}),
+        encoding="utf-8",
+    )
+    (run_dir / "spans.jsonl").write_text(
+        json.dumps(
+            {
+                "event_type": "span",
+                "phase": "pipeline_total",
+                "duration_s": 20.0,
+                "outcome": "success",
+            }
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+
+    summary = mod.rank_bottlenecks(run_dir)
+
+    assert summary["elapsed_source"] == "raw_result_totals"
+    assert summary["confidence_reasons"] == ["missing_corrected_total:pipeline_total"]
+
+
+def test_rank_bottlenecks_reduces_confidence_without_manifest_batch_authority(tmp_path: Path):
+    run_dir = tmp_path / "profile_run_missing_batch_authority"
+    run_dir.mkdir()
+    (run_dir / "run_manifest.json").write_text(
+        json.dumps({"run_id": "profile_run_missing_batch_authority"}),
+        encoding="utf-8",
+    )
+    (run_dir / "result.json").write_text(
+        json.dumps({"totals": {"combined_elapsed_seconds": 42.0}}),
+        encoding="utf-8",
+    )
+    (run_dir / "day_summary.json").write_text(
+        json.dumps({"provider_metrics_present": True}),
+        encoding="utf-8",
+    )
+    (run_dir / "spans.jsonl").write_text(
+        json.dumps(
+            {
+                "event_type": "span",
+                "phase": "pipeline_total",
+                "duration_s": 20.0,
+                "outcome": "success",
+                "metadata": {"observer_overhead_s": 0.1},
+            }
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+
+    summary = mod.rank_bottlenecks(run_dir)
+
+    assert summary["elapsed_source"] == "corrected_total_spans"
+    assert summary["confidence_reasons"] == ["include_batch_manifest_invalid"]
+
+
+def test_rank_bottlenecks_uses_manifest_batch_requirement_on_result_conflict(tmp_path: Path):
+    run_dir = tmp_path / "profile_run_batch_conflict"
+    run_dir.mkdir()
+    (run_dir / "run_manifest.json").write_text(
+        json.dumps({"run_id": "profile_run_batch_conflict", "include_batch": True}),
+        encoding="utf-8",
+    )
+    (run_dir / "result.json").write_text(
+        json.dumps({"include_batch": False, "totals": {"combined_elapsed_seconds": 42.0}}),
+        encoding="utf-8",
+    )
+    (run_dir / "day_summary.json").write_text(
+        json.dumps({"provider_metrics_present": True}),
+        encoding="utf-8",
+    )
+    (run_dir / "spans.jsonl").write_text(
+        json.dumps(
+            {
+                "event_type": "span",
+                "phase": "pipeline_total",
+                "duration_s": 20.0,
+                "outcome": "success",
+                "metadata": {"observer_overhead_s": 0.1},
+            }
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+
+    summary = mod.rank_bottlenecks(run_dir)
+
+    assert summary["elapsed_source"] == "raw_result_totals"
+    assert summary["confidence_reasons"] == [
+        "include_batch_mismatch",
+        "missing_corrected_total:batch_enrichment_total",
+    ]
+
+
+def test_rank_bottlenecks_prefers_complete_corrected_spans_over_raw_result_totals(tmp_path: Path):
+    run_dir = tmp_path / "profile_run_corrected"
+    run_dir.mkdir()
+    (run_dir / "run_manifest.json").write_text(
+        json.dumps({"run_id": "profile_run_corrected", "include_batch": True}),
+        encoding="utf-8",
+    )
+    (run_dir / "result.json").write_text(
+        json.dumps({"include_batch": True, "totals": {"combined_elapsed_seconds": 100.0}}),
+        encoding="utf-8",
+    )
+    (run_dir / "day_summary.json").write_text(
+        json.dumps({"provider_metrics_present": True}), encoding="utf-8"
+    )
+    (run_dir / "spans.jsonl").write_text(
+        "\n".join(
+            [
+                json.dumps({"event_type": "span", "phase": "pipeline_total", "duration_s": 20.0, "outcome": "success", "metadata": {"observer_overhead_s": 0.1}}),
+                json.dumps(
+                    {"event_type": "span", "phase": "batch_enrichment_total", "duration_s": 10.0, "outcome": "success", "metadata": {"observer_overhead_s": 0.1}}
+                ),
+            ]
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+
+    summary = mod.rank_bottlenecks(run_dir)
+
+    assert summary["elapsed_seconds"] == 30.0
+    assert summary["elapsed_source"] == "corrected_total_spans"
+    assert summary["confidence"] == "ok"
+
+
+def test_rank_bottlenecks_preserves_provider_and_partial_total_confidence_reasons(tmp_path: Path):
+    run_dir = tmp_path / "profile_run_partial"
+    run_dir.mkdir()
+    (run_dir / "run_manifest.json").write_text(
+        json.dumps({"run_id": "profile_run_partial", "include_batch": True}),
+        encoding="utf-8",
+    )
+    (run_dir / "result.json").write_text(
+        json.dumps({"include_batch": True, "totals": {"combined_elapsed_seconds": 42.0}}),
+        encoding="utf-8",
+    )
+    (run_dir / "day_summary.json").write_text(
+        json.dumps(
+            {
+                "provider_metrics_present": False,
+                "provider_metrics_reason": "worker_metrics_missing",
+            }
+        ),
+        encoding="utf-8",
+    )
+    (run_dir / "spans.jsonl").write_text(
+        json.dumps({"event_type": "span", "phase": "pipeline_total", "duration_s": 20.0, "outcome": "success", "metadata": {"observer_overhead_s": 0.1}}) + "\n",
+        encoding="utf-8",
+    )
+
+    summary = mod.rank_bottlenecks(run_dir)
+
+    assert summary["elapsed_seconds"] == 42.0
+    assert summary["elapsed_source"] == "raw_result_totals"
+    assert summary["confidence_reasons"] == [
+        "worker_metrics_missing",
+        "missing_corrected_total:batch_enrichment_total",
+    ]
+    assert summary["confidence"] == (
+        "reduced-confidence:worker_metrics_missing+missing_corrected_total:batch_enrichment_total"
+    )
+
+
 def _write_compare_fixture(run_dir: Path, *, elapsed_seconds: float = 9.473, summarize_duration: float = 3.601, selected: int = 12, confidence_provider: bool = True):
     (run_dir / "run_manifest.json").write_text(
-        json.dumps({"run_id": run_dir.name, "mode": "baseline", "catalog_count": 30, "baseline_valid": True}),
+        json.dumps({"run_id": run_dir.name, "mode": "baseline", "catalog_count": 30, "baseline_valid": True, "include_batch": False}),
         encoding="utf-8",
     )
     (run_dir / "result.json").write_text(
@@ -297,6 +606,15 @@ def _write_compare_fixture(run_dir: Path, *, elapsed_seconds: float = 9.473, sum
     (run_dir / "spans.jsonl").write_text(
         "\n".join(
             [
+                json.dumps(
+                    {
+                        "event_type": "span",
+                        "phase": "pipeline_total",
+                        "duration_s": elapsed_seconds,
+                        "outcome": "success",
+                        "metadata": {"observer_overhead_s": 0.1},
+                    }
+                ),
                 json.dumps({"event_type": "span", "phase": "summarize", "duration_s": summarize_duration, "component": "pipeline"}),
                 json.dumps({"event_type": "span", "phase": "entity_backfill", "duration_s": 1.576, "component": "pipeline-batch"}),
                 json.dumps({"event_type": "span", "phase": "people_linking", "duration_s": 0.987, "component": "pipeline-batch"}),
