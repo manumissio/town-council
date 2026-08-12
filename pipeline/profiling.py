@@ -24,7 +24,7 @@ _OBSERVER_DEPTH: ContextVar[int] = ContextVar("profile_observer_depth", default=
 _OBSERVER_SECONDS: ContextVar[float] = ContextVar("profile_observer_seconds", default=0.0)
 QueryT = TypeVar("QueryT", bound="CatalogScopedQuery")
 EligibilityBoundary = Literal["before", "after"]
-EligibilitySubject = Literal["catalog"]
+EligibilitySubject = Literal["catalog", "event", "place"]
 
 
 @dataclass(frozen=True, slots=True)

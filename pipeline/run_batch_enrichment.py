@@ -20,7 +20,10 @@ from pipeline.backfill_entities import (
     capture_entity_backfill_after_eligibility,
     run_entity_backfill_workload,
 )
-from pipeline.backfill_orgs import run_organization_backfill
+from pipeline.backfill_orgs import (
+    capture_organization_backfill_after_eligibility,
+    run_organization_backfill_workload,
+)
 from pipeline.table_worker import select_catalog_ids_for_table_extraction
 from pipeline.topic_worker import run_topic_hydration_backfill, select_catalog_ids_for_topic_hydration
 
@@ -120,9 +123,10 @@ def main(argv=None):
                 )
         run_callable_step(
             "Backfill Organizations",
-            run_organization_backfill,
+            run_organization_backfill_workload,
             component="pipeline-batch",
         )
+        capture_organization_backfill_after_eligibility()
         with db_session() as session:
             topic_catalog_ids = select_catalog_ids_for_topic_hydration(session)
         if capture_eligibility:
