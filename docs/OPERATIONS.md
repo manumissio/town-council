@@ -1566,6 +1566,8 @@ Artifacts:
   - workload identity, profile env, baseline-valid flag, and pre-run provider counters
 - `experiments/results/profiling/<run_id>/spans.jsonl`
   - append-only orchestrator and task timing spans
+  - task spans include the Celery `task_id`, a per-attempt `execution_id`, the
+    `retry_ordinal`, and optional broker `redelivered` metadata
 - `experiments/results/profiling/<run_id>/summary.json`
   - ranked bottleneck summary
 - `experiments/results/profiling/<run_id>/top_bottlenecks.md`
@@ -1583,6 +1585,8 @@ What is measured:
 Interpretation rules:
 - treat missing queue timestamps or missing provider telemetry as reduced confidence, not as zero cost
 - queue wait and execution time are intentionally separated so backlog is not mistaken for slow model/runtime execution
+- interpret retry ordinal and broker redelivery independently: one task
+  attempt may be retried, redelivered, both, or neither
 - `baseline-valid` requires a pinned manifest and stable workload conditions; `triage` is diagnostic only
 - profiling artifacts are observational and should not be used as a source of business truth
 - `result.json` is the primary contract for elapsed-time totals; if totals are incomplete or derived from fallback spans, the analyzer should mark the run `reduced-confidence`

@@ -60,6 +60,10 @@ def test_task_failure_clears_timing_context(monkeypatch):
     metrics._TASK_START[task_id] = 5.0
     metrics._TASK_CONTEXT[task_id] = metrics.TaskProfileContext(
         task_name="pipeline.tasks.generate_summary_task",
+        task_id=task_id,
+        execution_id="00000000-0000-0000-0000-000000000001",
+        retry_ordinal=0,
+        redelivered=None,
         queue="celery",
         queue_wait_s=None,
         queued_at=None,

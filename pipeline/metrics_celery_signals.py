@@ -1,7 +1,8 @@
 from __future__ import annotations
 
-from collections.abc import Callable, MutableMapping
+from collections.abc import Callable, Mapping, MutableMapping
 from types import ModuleType
+from uuid import uuid4
 
 from pipeline.metrics_profile_events import TaskProfileContext, catalog_id_from_request, component_for_queue
 
@@ -49,12 +50,16 @@ def task_prerun(
     task_start[task_id_value] = time_module.perf_counter()
     request = getattr(task, "request", None)
     headers = getattr(request, "headers", None) or {}
-    delivery = getattr(request, "delivery_info", None) or {}
+    delivery = _delivery_info(request)
     task_name = str(getattr(task, "name", "unknown"))
     queue = str(delivery.get("routing_key") or delivery.get("queue") or "celery")
     queue_wait_s = _record_queue_wait_from_headers(headers, task_name, queue, time_module, record_queue_wait)
     task_context[task_id_value] = TaskProfileContext(
         task_name=task_name,
+        task_id=task_id_value,
+        execution_id=str(uuid4()),
+        retry_ordinal=_retry_ordinal(request),
+        redelivered=_redelivered(delivery),
         queue=queue,
         queue_wait_s=queue_wait_s,
         queued_at=headers.get("tc_queued_at"),
@@ -157,6 +162,25 @@ def _record_queue_wait_from_headers(
     queue_wait_s = max(0.0, time_module.time() - queued_at)
     record_queue_wait(task_name, queue, queue_wait_s)
     return queue_wait_s
+
+
+def _delivery_info(request: object) -> Mapping[str, object]:
+    delivery_info = getattr(request, "delivery_info", None)
+    if isinstance(delivery_info, Mapping):
+        return delivery_info
+    return {}
+
+
+def _retry_ordinal(request: object) -> int:
+    retries = getattr(request, "retries", 0)
+    if isinstance(retries, int) and not isinstance(retries, bool) and retries >= 0:
+        return retries
+    return 0
+
+
+def _redelivered(delivery_info: Mapping[str, object]) -> bool | None:
+    redelivered = delivery_info.get("redelivered")
+    return redelivered if isinstance(redelivered, bool) else None
 
 
 def _record_task_span(

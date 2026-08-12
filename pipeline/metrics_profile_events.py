@@ -8,6 +8,10 @@ from types import ModuleType
 @dataclass(slots=True)
 class TaskProfileContext:
     task_name: str
+    task_id: str
+    execution_id: str
+    retry_ordinal: int
+    redelivered: bool | None
     queue: str
     queue_wait_s: float | None
     queued_at: object
@@ -68,6 +72,10 @@ def write_task_profile_event(
                 "component": component_for_queue(context.queue),
                 "catalog_id": context.catalog_id,
                 "task_name": task_name,
+                "task_id": context.task_id,
+                "execution_id": context.execution_id,
+                "retry_ordinal": context.retry_ordinal,
+                "redelivered": context.redelivered,
                 "queue": context.queue,
                 "queued_at": context.queued_at,
                 "queue_wait_s": context.queue_wait_s,
