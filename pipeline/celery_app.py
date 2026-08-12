@@ -3,6 +3,8 @@ import os
 from celery import Celery
 from kombu import Queue
 
+from pipeline import metrics as _worker_metrics  # noqa: F401 - importing registers shared Celery signals
+
 
 app = Celery("tasks")
 app.conf.broker_url = os.getenv("CELERY_BROKER_URL", "redis://redis:6379/0")

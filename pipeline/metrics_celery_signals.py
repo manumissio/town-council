@@ -4,7 +4,12 @@ from collections.abc import Callable, Mapping, MutableMapping
 from types import ModuleType
 from uuid import uuid4
 
-from pipeline.metrics_profile_events import TaskProfileContext, catalog_id_from_request, component_for_queue
+from pipeline.metrics_profile_events import (
+    TaskProfileContext,
+    append_task_dispatch_event,
+    catalog_id_from_request,
+    component_for_queue,
+)
 
 RecordQueueWait = Callable[[str, str, float], None]
 RecordTaskDuration = Callable[[str, str, float], None]
@@ -17,22 +22,49 @@ WriteProfileEvent = Callable[[TaskProfileContext, str, str, float, str | None], 
 def before_task_publish(
     headers: MutableMapping[str, object] | None,
     *,
+    sender: object = None,
+    body: object = None,
+    routing_key: object = None,
     profiling_module: ModuleType,
     time_module: ModuleType,
 ) -> None:
     if headers is None:
         return
-    if headers.get("tc_queued_at") is None:
-        headers["tc_queued_at"] = time_module.time()
+    headers["tc_queued_at"] = time_module.time()
     run_id = profiling_module.current_run_id()
-    if not run_id:
-        return
-    headers.setdefault("tc_profile_run_id", run_id)
-    headers.setdefault("tc_profile_mode", profiling_module.current_mode())
-    artifact_dir = profiling_module.os.getenv(profiling_module.PROFILE_ARTIFACT_DIR_ENV, "")
-    if artifact_dir:
-        headers.setdefault("tc_profile_artifact_dir", artifact_dir)
-    headers.setdefault("tc_profile_baseline_valid", "1" if profiling_module.baseline_valid() else "0")
+    if run_id:
+        headers.setdefault("tc_profile_run_id", run_id)
+        headers.setdefault("tc_profile_mode", profiling_module.current_mode())
+        artifact_dir = profiling_module.current_artifact_dir()
+        if artifact_dir is not None:
+            headers.setdefault("tc_profile_artifact_dir", str(artifact_dir))
+        headers.setdefault("tc_profile_baseline_valid", "1" if profiling_module.baseline_valid() else "0")
+    append_task_dispatch_event(
+        boundary="before",
+        sender=sender,
+        body=body,
+        headers=headers,
+        routing_key=routing_key,
+        profiling_module=profiling_module,
+    )
+
+
+def after_task_publish(
+    headers: Mapping[str, object] | None,
+    *,
+    sender: object = None,
+    body: object = None,
+    routing_key: object = None,
+    profiling_module: ModuleType,
+) -> None:
+    append_task_dispatch_event(
+        boundary="after",
+        sender=sender,
+        body=body,
+        headers=headers,
+        routing_key=routing_key,
+        profiling_module=profiling_module,
+    )
 
 
 def task_prerun(
@@ -42,6 +74,7 @@ def task_prerun(
     task_start: MutableMapping[str, float],
     task_context: MutableMapping[str, TaskProfileContext],
     time_module: ModuleType,
+    profiling_module: ModuleType,
     record_queue_wait: RecordQueueWait,
 ) -> TaskProfileContext | None:
     if not task_id or task is None:
@@ -78,6 +111,7 @@ def task_prerun(
         artifact_dir=_optional_str(headers.get("tc_profile_artifact_dir")),
         baseline_valid=_optional_str(headers.get("tc_profile_baseline_valid")),
         catalog_id=catalog_id_from_request(request),
+        observer_at_start=profiling_module.observer_seconds(),
     )
     task_context[task_id_value] = context
     return context
@@ -105,7 +139,12 @@ def task_postrun(
         return
     status = "success" if str(state or "").lower() in ("success", "succeeded") else "unknown"
     task_name = str(getattr(task, "name", "unknown"))
-    duration_s = time_module.perf_counter() - start
+    duration_s = _task_duration_seconds(
+        start,
+        context,
+        time_module=time_module,
+        profiling_module=profiling_module,
+    )
     _record_task_span(
         context,
         task_name=task_name,
@@ -146,7 +185,12 @@ def task_failure(
         context,
         task_name=task_name,
         status="failure",
-        duration_s=time_module.perf_counter() - start,
+        duration_s=_task_duration_seconds(
+            start,
+            context,
+            time_module=time_module,
+            profiling_module=profiling_module,
+        ),
         profiling_module=profiling_module,
         record_task_duration=record_task_duration,
         record_phase_duration=record_phase_duration,
@@ -158,6 +202,21 @@ def task_failure(
 def task_retry(request: object, *, record_task_retry: RecordTaskRetry) -> None:
     task_name = getattr(getattr(request, "task", None), "name", None) or getattr(request, "task_name", None) or "unknown"
     record_task_retry(str(task_name))
+
+
+def _task_duration_seconds(
+    started_perf: float,
+    context: TaskProfileContext | None,
+    *,
+    time_module: ModuleType,
+    profiling_module: ModuleType,
+) -> float:
+    if context is None:
+        return max(0.0, time_module.perf_counter() - started_perf)
+    return profiling_module.workload_duration_seconds(
+        started_perf,
+        context.observer_at_start,
+    )
 
 
 def _record_queue_wait_from_headers(

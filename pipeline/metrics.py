@@ -130,8 +130,38 @@ def _start_metrics_server(**_kwargs: object) -> None:
 
 
 @signals.before_task_publish.connect
-def _before_task_publish(headers: dict[str, object] | None = None, **_kwargs: object) -> None:
-    metrics_celery_signals.before_task_publish(headers, profiling_module=profiling, time_module=time)
+def _before_task_publish(
+    sender: object = None,
+    body: object = None,
+    headers: dict[str, object] | None = None,
+    routing_key: object = None,
+    **_kwargs: object,
+) -> None:
+    metrics_celery_signals.before_task_publish(
+        headers,
+        sender=sender,
+        body=body,
+        routing_key=routing_key,
+        profiling_module=profiling,
+        time_module=time,
+    )
+
+
+@signals.after_task_publish.connect
+def _after_task_publish(
+    sender: object = None,
+    body: object = None,
+    headers: dict[str, object] | None = None,
+    routing_key: object = None,
+    **_kwargs: object,
+) -> None:
+    metrics_celery_signals.after_task_publish(
+        headers,
+        sender=sender,
+        body=body,
+        routing_key=routing_key,
+        profiling_module=profiling,
+    )
 
 
 @signals.task_prerun.connect
@@ -143,6 +173,7 @@ def _task_prerun(task_id: object = None, task: object = None, **_kwargs: object)
         task_context=_TASK_CONTEXT,
         time_module=time,
         record_queue_wait=record_task_queue_wait,
+        profiling_module=profiling,
     )
     if context is not None:
         write_task_start_profile_event(context, profiling_module=profiling)

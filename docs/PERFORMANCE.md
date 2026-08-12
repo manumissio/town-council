@@ -137,6 +137,19 @@ timestamp. An unmatched `task_start` row marks an unfinished attempt and
 reduces report confidence. An unknown retry ordinal also reduces confidence
 rather than being reported as an initial attempt.
 
+Celery `task_dispatch` rows record producer-side publish boundaries. A
+`before` row means the producer attempted the broker publish. A matching
+`after` row with the same `task_id` and `retry_ordinal` means Celery's publish
+call returned. When that pair repeats, match rows in event order. A missing
+`after` row is incomplete dispatch evidence, not task failure. Dispatch rows
+include the task name, queue, retry ordinal, and catalog ID when available; they
+also record the current publication timestamp. Each publish refreshes that
+timestamp, including retries. Dispatch rows never represent task execution or
+completion. Use `task_span` rows for worker-attempt outcomes.
+
+The analyzer reduces confidence when dispatch boundaries are unpaired or a
+retry attempt has no matching dispatch evidence.
+
 Confidence model:
 - `baseline-valid`
   - pinned manifest

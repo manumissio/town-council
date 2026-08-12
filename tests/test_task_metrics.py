@@ -72,6 +72,7 @@ def test_task_failure_clears_timing_context(monkeypatch):
         artifact_dir=None,
         baseline_valid=None,
         catalog_id=123,
+        observer_at_start=0.0,
     )
     monkeypatch.setattr(metrics.time, "perf_counter", lambda: 7.0)
 
