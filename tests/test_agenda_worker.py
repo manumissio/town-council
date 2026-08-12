@@ -65,9 +65,9 @@ def test_agenda_segmentation_logic(db_session, mocker):
 
 
 def test_run_agenda_segmentation_backfill_uses_maintenance_metrics(mocker):
-    selector = mocker.patch(
+    mocker.patch(
         "pipeline.agenda_worker.select_catalog_ids_for_agenda_segmentation",
-        return_value=[101, 102, 103],
+        side_effect=[[101, 102, 103]],
     )
 
     @contextmanager
@@ -107,13 +107,12 @@ def test_run_agenda_segmentation_backfill_uses_maintenance_metrics(mocker):
     assert counts["heuristic_complete"] == 1
     assert counts["llm_timeout_then_fallback"] == 2
     assert segment_spy.call_count == 3
-    selector.assert_called_once()
 
 
 def test_agenda_backfill_records_before_and_after_eligibility(monkeypatch, mocker, tmp_path: Path):
     monkeypatch.setenv(profiling.PROFILE_RUN_ID_ENV, "profile_run")
     monkeypatch.setenv(profiling.PROFILE_ARTIFACT_DIR_ENV, str(tmp_path))
-    selector = mocker.patch(
+    mocker.patch(
         "pipeline.agenda_worker.select_catalog_ids_for_agenda_segmentation",
         side_effect=[[31, 32], [32]],
     )
@@ -147,15 +146,14 @@ def test_agenda_backfill_records_before_and_after_eligibility(monkeypatch, mocke
         ("after", [32]),
     ]
     assert counts["selected"] == 2
-    assert selector.call_count == 2
 
 
 def test_agenda_backfill_records_paired_empty_eligibility(monkeypatch, mocker, tmp_path: Path):
     monkeypatch.setenv(profiling.PROFILE_RUN_ID_ENV, "profile_run")
     monkeypatch.setenv(profiling.PROFILE_ARTIFACT_DIR_ENV, str(tmp_path))
-    selector = mocker.patch(
+    mocker.patch(
         "pipeline.agenda_worker.select_catalog_ids_for_agenda_segmentation",
-        return_value=[],
+        side_effect=[[]],
     )
 
     @contextmanager
@@ -172,15 +170,14 @@ def test_agenda_backfill_records_paired_empty_eligibility(monkeypatch, mocker, t
         ("after", []),
     ]
     assert counts["selected"] == 0
-    selector.assert_called_once()
 
 
 def test_agenda_backfill_omits_after_eligibility_when_work_fails(monkeypatch, mocker, tmp_path: Path):
     monkeypatch.setenv(profiling.PROFILE_RUN_ID_ENV, "profile_run")
     monkeypatch.setenv(profiling.PROFILE_ARTIFACT_DIR_ENV, str(tmp_path))
-    selector = mocker.patch(
+    mocker.patch(
         "pipeline.agenda_worker.select_catalog_ids_for_agenda_segmentation",
-        return_value=[31],
+        side_effect=[[31]],
     )
 
     @contextmanager
@@ -208,13 +205,12 @@ def test_agenda_backfill_omits_after_eligibility_when_work_fails(monkeypatch, mo
 
     rows = [json.loads(line) for line in (tmp_path / "spans.jsonl").read_text(encoding="utf-8").splitlines()]
     assert [row["boundary"] for row in rows] == ["before"]
-    selector.assert_called_once()
 
 
 def test_agenda_backfill_propagates_after_selector_failure(monkeypatch, mocker, tmp_path: Path):
     monkeypatch.setenv(profiling.PROFILE_RUN_ID_ENV, "profile_run")
     monkeypatch.setenv(profiling.PROFILE_ARTIFACT_DIR_ENV, str(tmp_path))
-    selector = mocker.patch(
+    mocker.patch(
         "pipeline.agenda_worker.select_catalog_ids_for_agenda_segmentation",
         side_effect=[[31], RuntimeError("selector failed")],
     )
@@ -244,4 +240,3 @@ def test_agenda_backfill_propagates_after_selector_failure(monkeypatch, mocker, 
 
     rows = [json.loads(line) for line in (tmp_path / "spans.jsonl").read_text(encoding="utf-8").splitlines()]
     assert [row["boundary"] for row in rows] == ["before"]
-    assert selector.call_count == 2
