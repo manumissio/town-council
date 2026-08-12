@@ -41,6 +41,107 @@ def test_rank_bottlenecks_prefers_longest_leaf_phase(tmp_path: Path):
     assert summary["top_bottlenecks"][0]["classification"] in {"queueing", "inference/provider"}
 
 
+def test_rank_bottlenecks_reduces_confidence_for_unfinished_task_attempt(tmp_path: Path):
+    run_dir = tmp_path / "profile_run"
+    run_dir.mkdir()
+    (run_dir / "run_manifest.json").write_text(
+        json.dumps({"run_id": "profile_run", "mode": "baseline", "include_batch": False}),
+        encoding="utf-8",
+    )
+    (run_dir / "result.json").write_text(
+        json.dumps({"include_batch": False, "totals": {"combined_elapsed_seconds": 4.0}}),
+        encoding="utf-8",
+    )
+    (run_dir / "day_summary.json").write_text(
+        json.dumps({"provider_metrics_present": True}),
+        encoding="utf-8",
+    )
+    (run_dir / "spans.jsonl").write_text(
+        "\n".join(
+            [
+                json.dumps(
+                    {
+                        "event_type": "span",
+                        "phase": "pipeline_total",
+                        "duration_s": 4.0,
+                        "outcome": "success",
+                        "metadata": {"observer_overhead_s": 0.1},
+                    }
+                ),
+                json.dumps(
+                    {
+                        "event_type": "task_start",
+                        "phase": "summarize",
+                        "execution_id": "unfinished-attempt",
+                        "retry_ordinal": 0,
+                    }
+                ),
+            ]
+        ),
+        encoding="utf-8",
+    )
+
+    summary = mod.rank_bottlenecks(run_dir)
+
+    assert summary["confidence_reasons"] == ["unfinished_task_attempt"]
+    assert summary["confidence"] == "reduced-confidence:unfinished_task_attempt"
+
+
+def test_rank_bottlenecks_reduces_confidence_for_unknown_retry_ordinal(tmp_path: Path):
+    run_dir = tmp_path / "profile_run"
+    run_dir.mkdir()
+    (run_dir / "run_manifest.json").write_text(
+        json.dumps({"run_id": "profile_run", "mode": "baseline", "include_batch": False}),
+        encoding="utf-8",
+    )
+    (run_dir / "result.json").write_text(
+        json.dumps({"include_batch": False, "totals": {"combined_elapsed_seconds": 4.0}}),
+        encoding="utf-8",
+    )
+    (run_dir / "day_summary.json").write_text(
+        json.dumps({"provider_metrics_present": True}),
+        encoding="utf-8",
+    )
+    (run_dir / "spans.jsonl").write_text(
+        "\n".join(
+            [
+                json.dumps(
+                    {
+                        "event_type": "span",
+                        "phase": "pipeline_total",
+                        "duration_s": 4.0,
+                        "outcome": "success",
+                        "metadata": {"observer_overhead_s": 0.1},
+                    }
+                ),
+                json.dumps(
+                    {
+                        "event_type": "task_start",
+                        "phase": "summarize",
+                        "execution_id": "completed-attempt",
+                        "retry_ordinal": None,
+                    }
+                ),
+                json.dumps(
+                    {
+                        "event_type": "task_span",
+                        "phase": "summarize",
+                        "execution_id": "completed-attempt",
+                        "retry_ordinal": None,
+                        "duration_s": 1.0,
+                    }
+                ),
+            ]
+        ),
+        encoding="utf-8",
+    )
+
+    summary = mod.rank_bottlenecks(run_dir)
+
+    assert summary["confidence_reasons"] == ["unknown_task_retry_ordinal"]
+    assert summary["confidence"] == "reduced-confidence:unknown_task_retry_ordinal"
+
+
 def test_rank_bottlenecks_ignores_phase_eligibility_events(tmp_path: Path):
     run_dir = tmp_path / "profile_run"
     run_dir.mkdir()

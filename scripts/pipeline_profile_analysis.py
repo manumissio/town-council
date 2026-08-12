@@ -174,6 +174,34 @@ def _aggregate_phase_rows(spans: list[dict[str, Any]]) -> dict[str, dict[str, An
     return totals
 
 
+def _unfinished_task_attempts(spans: list[dict[str, Any]]) -> set[str]:
+    started_attempts = {
+        str(row.get("execution_id"))
+        for row in spans
+        if row.get("event_type") == "task_start" and row.get("execution_id")
+    }
+    finished_attempts = {
+        str(row.get("execution_id"))
+        for row in spans
+        if row.get("event_type") == "task_span" and row.get("execution_id")
+    }
+    return started_attempts - finished_attempts
+
+
+def _task_evidence_confidence_reasons(spans: list[dict[str, Any]]) -> list[str]:
+    confidence_reasons: list[str] = []
+    if _unfinished_task_attempts(spans):
+        confidence_reasons.append("unfinished_task_attempt")
+    if any(
+        row.get("event_type") in {"task_start", "task_span"}
+        and "retry_ordinal" in row
+        and row.get("retry_ordinal") is None
+        for row in spans
+    ):
+        confidence_reasons.append("unknown_task_retry_ordinal")
+    return confidence_reasons
+
+
 def _total_span_duration(spans: list[dict[str, Any]], phase: str) -> float:
     return next(
         (
@@ -291,6 +319,7 @@ def rank_bottlenecks(run_dir: Path) -> dict[str, Any]:
         confidence_reasons.append("no_spans")
     if not provider_metrics_present:
         confidence_reasons.append(provider_metrics_reason)
+    confidence_reasons.extend(_task_evidence_confidence_reasons(spans))
     confidence_reasons.extend(include_batch_confidence_reasons)
     confidence_reasons.extend(total_confidence_reasons)
     if total_elapsed_s > 0 and ranked and float(cast(Any, ranked[0].get("contribution_pct")) or 0.0) > 100.0:

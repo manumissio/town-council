@@ -43,9 +43,9 @@ def task_prerun(
     task_context: MutableMapping[str, TaskProfileContext],
     time_module: ModuleType,
     record_queue_wait: RecordQueueWait,
-) -> None:
+) -> TaskProfileContext | None:
     if not task_id or task is None:
-        return
+        return None
     task_id_value = str(task_id)
     task_start[task_id_value] = time_module.perf_counter()
     request = getattr(task, "request", None)
@@ -53,13 +53,23 @@ def task_prerun(
     delivery = _delivery_info(request)
     task_name = str(getattr(task, "name", "unknown"))
     queue = str(delivery.get("routing_key") or delivery.get("queue") or "celery")
-    queue_wait_s = _record_queue_wait_from_headers(headers, task_name, queue, time_module, record_queue_wait)
-    task_context[task_id_value] = TaskProfileContext(
+    retry_ordinal = _retry_ordinal(request)
+    redelivered = _redelivered(delivery)
+    queue_wait_s = _queue_wait_for_attempt(
+        headers,
+        task_name,
+        queue,
+        retry_ordinal=retry_ordinal,
+        redelivered=redelivered,
+        time_module=time_module,
+        record_queue_wait=record_queue_wait,
+    )
+    context = TaskProfileContext(
         task_name=task_name,
         task_id=task_id_value,
         execution_id=str(uuid4()),
-        retry_ordinal=_retry_ordinal(request),
-        redelivered=_redelivered(delivery),
+        retry_ordinal=retry_ordinal,
+        redelivered=redelivered,
         queue=queue,
         queue_wait_s=queue_wait_s,
         queued_at=headers.get("tc_queued_at"),
@@ -69,6 +79,8 @@ def task_prerun(
         baseline_valid=_optional_str(headers.get("tc_profile_baseline_valid")),
         catalog_id=catalog_id_from_request(request),
     )
+    task_context[task_id_value] = context
+    return context
 
 
 def task_postrun(
@@ -171,16 +183,31 @@ def _delivery_info(request: object) -> Mapping[str, object]:
     return {}
 
 
-def _retry_ordinal(request: object) -> int:
-    retries = getattr(request, "retries", 0)
+def _retry_ordinal(request: object) -> int | None:
+    retries = getattr(request, "retries", None)
     if isinstance(retries, int) and not isinstance(retries, bool) and retries >= 0:
         return retries
-    return 0
+    return None
 
 
 def _redelivered(delivery_info: Mapping[str, object]) -> bool | None:
     redelivered = delivery_info.get("redelivered")
     return redelivered if isinstance(redelivered, bool) else None
+
+
+def _queue_wait_for_attempt(
+    headers: object,
+    task_name: str,
+    queue: str,
+    *,
+    retry_ordinal: int | None,
+    redelivered: bool | None,
+    time_module: ModuleType,
+    record_queue_wait: RecordQueueWait,
+) -> float | None:
+    if retry_ordinal != 0 or redelivered is not False:
+        return None
+    return _record_queue_wait_from_headers(headers, task_name, queue, time_module, record_queue_wait)
 
 
 def _record_task_span(

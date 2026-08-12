@@ -122,15 +122,20 @@ about workload state. Post-phase selection runs after the measured callable
 closes, and the bottleneck analyzer excludes eligibility rows from occurrence
 counts, components, and duration totals.
 
-Celery `task_span` rows identify both the logical task and the worker attempt:
+Celery `task_start` and `task_span` rows identify both the logical task and the
+worker attempt:
 
 - `task_id` correlates attempts for the same Celery task;
 - `execution_id` is unique to each worker attempt;
-- `retry_ordinal` records Celery's retry count for that attempt;
+- `retry_ordinal` records Celery's retry count when valid metadata is available;
 - `redelivered` records broker redelivery when that metadata is available.
 
 Retry and redelivery are independent observations. Neither field changes the
-task outcome, run validity, or promotion status.
+task outcome, run validity, or promotion status. Queue wait is omitted for
+retries and redeliveries when their message only carries an inherited publish
+timestamp. An unmatched `task_start` row marks an unfinished attempt and
+reduces report confidence. An unknown retry ordinal also reduces confidence
+rather than being reported as an initial attempt.
 
 Confidence model:
 - `baseline-valid`
