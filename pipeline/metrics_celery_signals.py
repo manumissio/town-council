@@ -74,6 +74,7 @@ def task_prerun(
     task_start: MutableMapping[str, float],
     task_context: MutableMapping[str, TaskProfileContext],
     time_module: ModuleType,
+    profiling_module: ModuleType,
     record_queue_wait: RecordQueueWait,
 ) -> TaskProfileContext | None:
     if not task_id or task is None:
@@ -110,6 +111,7 @@ def task_prerun(
         artifact_dir=_optional_str(headers.get("tc_profile_artifact_dir")),
         baseline_valid=_optional_str(headers.get("tc_profile_baseline_valid")),
         catalog_id=catalog_id_from_request(request),
+        observer_at_start=profiling_module.observer_seconds(),
     )
     task_context[task_id_value] = context
     return context
@@ -137,7 +139,12 @@ def task_postrun(
         return
     status = "success" if str(state or "").lower() in ("success", "succeeded") else "unknown"
     task_name = str(getattr(task, "name", "unknown"))
-    duration_s = time_module.perf_counter() - start
+    duration_s = _task_duration_seconds(
+        start,
+        context,
+        time_module=time_module,
+        profiling_module=profiling_module,
+    )
     _record_task_span(
         context,
         task_name=task_name,
@@ -178,7 +185,12 @@ def task_failure(
         context,
         task_name=task_name,
         status="failure",
-        duration_s=time_module.perf_counter() - start,
+        duration_s=_task_duration_seconds(
+            start,
+            context,
+            time_module=time_module,
+            profiling_module=profiling_module,
+        ),
         profiling_module=profiling_module,
         record_task_duration=record_task_duration,
         record_phase_duration=record_phase_duration,
@@ -190,6 +202,21 @@ def task_failure(
 def task_retry(request: object, *, record_task_retry: RecordTaskRetry) -> None:
     task_name = getattr(getattr(request, "task", None), "name", None) or getattr(request, "task_name", None) or "unknown"
     record_task_retry(str(task_name))
+
+
+def _task_duration_seconds(
+    started_perf: float,
+    context: TaskProfileContext | None,
+    *,
+    time_module: ModuleType,
+    profiling_module: ModuleType,
+) -> float:
+    if context is None:
+        return max(0.0, time_module.perf_counter() - started_perf)
+    return profiling_module.workload_duration_seconds(
+        started_perf,
+        context.observer_at_start,
+    )
 
 
 def _record_queue_wait_from_headers(

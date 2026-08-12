@@ -25,6 +25,7 @@ class TaskProfileContext:
     artifact_dir: str | None
     baseline_valid: str | None
     catalog_id: int | None
+    observer_at_start: float
 
 
 @dataclass(frozen=True, slots=True)
@@ -168,11 +169,12 @@ def write_task_start_profile_event(
     *,
     profiling_module: ModuleType,
 ) -> None:
-    profile_event = _task_profile_event(context, context.task_name, profiling_module)
-    if profile_event is None:
-        return
-    profile_event["event_type"] = "task_start"
-    _append_task_profile_event(context, profile_event, profiling_module)
+    with profiling_module.profile_observer():
+        profile_event = _task_profile_event(context, context.task_name, profiling_module)
+        if profile_event is None:
+            return
+        profile_event["event_type"] = "task_start"
+        _append_task_profile_event(context, profile_event, profiling_module)
 
 
 def _task_profile_event(

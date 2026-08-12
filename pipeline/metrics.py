@@ -173,6 +173,7 @@ def _task_prerun(task_id: object = None, task: object = None, **_kwargs: object)
         task_context=_TASK_CONTEXT,
         time_module=time,
         record_queue_wait=record_task_queue_wait,
+        profiling_module=profiling,
     )
     if context is not None:
         write_task_start_profile_event(context, profiling_module=profiling)

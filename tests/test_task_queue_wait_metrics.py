@@ -135,6 +135,53 @@ def test_task_spans_distinguish_retry_and_redelivery_attempts(monkeypatch, tmp_p
     assert [task_span["queue_wait_s"] for task_span in task_spans] == [1.0, None, None, None]
 
 
+@pytest.mark.parametrize("attempt_outcome", ["success", "retry", "failure"])
+def test_profile_observer_time_is_excluded_from_task_span(monkeypatch, tmp_path, attempt_outcome):
+    artifact_dir = tmp_path / "profile"
+    monkeypatch.setenv(profiling.PROFILE_RUN_ID_ENV, "retry_observer_run")
+    monkeypatch.setenv(profiling.PROFILE_ARTIFACT_DIR_ENV, str(artifact_dir))
+    _FakeTask.request.headers = {
+        "id": "retry-observer-task",
+        "task": "pipeline.tasks.generate_summary_task",
+        "retries": 1,
+        "tc_profile_run_id": "retry_observer_run",
+        "tc_profile_mode": "triage",
+        "tc_profile_artifact_dir": str(artifact_dir),
+        "tc_profile_baseline_valid": "0",
+    }
+    _FakeTask.request.retries = 1
+    _FakeTask.request.delivery_info = {"routing_key": "celery", "redelivered": False}
+    clock = {"now": 10.0}
+    monkeypatch.setattr(metrics.time, "perf_counter", lambda: clock["now"])
+    append_jsonl = profiling.append_jsonl
+
+    def append_with_profile_delay(path, profile_event):
+        if profile_event.get("event_type") in {"task_dispatch", "task_start"}:
+            clock["now"] += 2.0
+        append_jsonl(path, profile_event)
+
+    monkeypatch.setattr(profiling, "append_jsonl", append_with_profile_delay)
+
+    metrics._task_prerun(task_id="retry-observer-task", task=_FakeTask())
+    if attempt_outcome == "retry":
+        clock["now"] = 13.0
+        metrics._before_task_publish(headers=_FakeTask.request.headers)
+        clock["now"] = 17.0
+        metrics._task_postrun(task_id="retry-observer-task", task=_FakeTask(), state="RETRY")
+    elif attempt_outcome == "failure":
+        clock["now"] = 15.0
+        metrics._task_failure(
+            task_id="retry-observer-task",
+            exception=RuntimeError("boom"),
+            sender=_FakeTask(),
+        )
+    else:
+        clock["now"] = 15.0
+        metrics._task_postrun(task_id="retry-observer-task", task=_FakeTask(), state="SUCCESS")
+
+    assert _task_spans(artifact_dir)[0]["duration_s"] == 3.0
+
+
 def test_task_span_preserves_unknown_optional_delivery_metadata(monkeypatch, tmp_path):
     artifact_dir = tmp_path / "profile"
     _FakeTask.request.headers = {
