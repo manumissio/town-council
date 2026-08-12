@@ -4,7 +4,12 @@ from collections.abc import Callable, Mapping, MutableMapping
 from types import ModuleType
 from uuid import uuid4
 
-from pipeline.metrics_profile_events import TaskProfileContext, catalog_id_from_request, component_for_queue
+from pipeline.metrics_profile_events import (
+    TaskProfileContext,
+    append_task_dispatch_event,
+    catalog_id_from_request,
+    component_for_queue,
+)
 
 RecordQueueWait = Callable[[str, str, float], None]
 RecordTaskDuration = Callable[[str, str, float], None]
@@ -17,6 +22,9 @@ WriteProfileEvent = Callable[[TaskProfileContext, str, str, float, str | None], 
 def before_task_publish(
     headers: MutableMapping[str, object] | None,
     *,
+    sender: object = None,
+    body: object = None,
+    routing_key: object = None,
     profiling_module: ModuleType,
     time_module: ModuleType,
 ) -> None:
@@ -25,14 +33,39 @@ def before_task_publish(
     if headers.get("tc_queued_at") is None:
         headers["tc_queued_at"] = time_module.time()
     run_id = profiling_module.current_run_id()
-    if not run_id:
-        return
-    headers.setdefault("tc_profile_run_id", run_id)
-    headers.setdefault("tc_profile_mode", profiling_module.current_mode())
-    artifact_dir = profiling_module.os.getenv(profiling_module.PROFILE_ARTIFACT_DIR_ENV, "")
-    if artifact_dir:
-        headers.setdefault("tc_profile_artifact_dir", artifact_dir)
-    headers.setdefault("tc_profile_baseline_valid", "1" if profiling_module.baseline_valid() else "0")
+    if run_id:
+        headers.setdefault("tc_profile_run_id", run_id)
+        headers.setdefault("tc_profile_mode", profiling_module.current_mode())
+        artifact_dir = profiling_module.current_artifact_dir()
+        if artifact_dir is not None:
+            headers.setdefault("tc_profile_artifact_dir", str(artifact_dir))
+        headers.setdefault("tc_profile_baseline_valid", "1" if profiling_module.baseline_valid() else "0")
+    append_task_dispatch_event(
+        boundary="before",
+        sender=sender,
+        body=body,
+        headers=headers,
+        routing_key=routing_key,
+        profiling_module=profiling_module,
+    )
+
+
+def after_task_publish(
+    headers: Mapping[str, object] | None,
+    *,
+    sender: object = None,
+    body: object = None,
+    routing_key: object = None,
+    profiling_module: ModuleType,
+) -> None:
+    append_task_dispatch_event(
+        boundary="after",
+        sender=sender,
+        body=body,
+        headers=headers,
+        routing_key=routing_key,
+        profiling_module=profiling_module,
+    )
 
 
 def task_prerun(
