@@ -147,6 +147,9 @@ also record the current publication timestamp. Each publish refreshes that
 timestamp, including retries. Dispatch rows never represent task execution or
 completion. Use `task_span` rows for worker-attempt outcomes.
 
+The analyzer reduces confidence when dispatch boundaries are unpaired or a
+retry attempt has no matching dispatch evidence.
+
 Confidence model:
 - `baseline-valid`
   - pinned manifest

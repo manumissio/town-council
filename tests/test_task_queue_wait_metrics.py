@@ -1,4 +1,6 @@
 import json
+import subprocess
+import sys
 from uuid import UUID
 
 from celery import Celery
@@ -435,3 +437,52 @@ def test_task_dispatch_and_task_span_remain_distinct_profile_events(monkeypatch,
         "task_start",
         "task_span",
     ]
+
+
+@pytest.mark.parametrize("worker_module", ["pipeline.enrichment_tasks", "pipeline.semantic_tasks"])
+def test_worker_entrypoints_register_dispatch_evidence(worker_module, tmp_path):
+    artifact_dir = tmp_path / worker_module.rsplit(".", 1)[-1]
+    worker_script = f"""
+import importlib
+import os
+
+os.environ['TC_PROFILE_RUN_ID'] = 'worker-entrypoint-run'
+os.environ['TC_PROFILE_ARTIFACT_DIR'] = {str(artifact_dir)!r}
+worker = importlib.import_module({worker_module!r})
+worker.app.conf.broker_url = 'memory://'
+worker.app.send_task('pipeline.tasks.generate_summary_task', args=(123,), ignore_result=True)
+"""
+
+    worker_process = subprocess.run(
+        [sys.executable, "-c", worker_script],
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+
+    assert worker_process.returncode == 0, worker_process.stderr
+    assert [dispatch["boundary"] for dispatch in _task_dispatches(artifact_dir)] == [
+        "before",
+        "after",
+    ]
+
+
+def test_dispatch_writes_count_as_profile_observer_overhead(monkeypatch, tmp_path):
+    artifact_dir = tmp_path / "profile"
+    monkeypatch.setenv(profiling.PROFILE_RUN_ID_ENV, "dispatch-observer-run")
+    monkeypatch.setenv(profiling.PROFILE_ARTIFACT_DIR_ENV, str(artifact_dir))
+    headers: dict[str, object] = {
+        "id": "dispatch-observer-task",
+        "task": "pipeline.tasks.generate_summary_task",
+    }
+
+    with profiling.profile_span(phase="summarize", component="pipeline"):
+        metrics._before_task_publish(headers=headers)
+        metrics._after_task_publish(headers=headers)
+
+    profile_events = [
+        json.loads(line)
+        for line in (artifact_dir / "spans.jsonl").read_text(encoding="utf-8").splitlines()
+    ]
+    span = next(profile_event for profile_event in profile_events if profile_event["event_type"] == "span")
+    assert span["metadata"]["observer_overhead_s"] > 0.0

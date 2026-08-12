@@ -89,23 +89,24 @@ def append_task_dispatch_event(
     task_name = str(sender or _publish_field(headers, body, "task") or "unknown")
     retries = _publish_field(headers, body, "retries")
     retry_ordinal = retries if isinstance(retries, int) and not isinstance(retries, bool) and retries >= 0 else None
-    profiling_module.append_jsonl(
-        profile_context.artifact_dir / "spans.jsonl",
-        {
-            "run_id": profile_context.run_id,
-            "mode": profile_context.mode,
-            "baseline_valid": profile_context.baseline_valid,
-            "timestamp": profiling_module.utc_now_iso(),
-            "event_type": "task_dispatch",
-            "boundary": boundary,
-            "task_id": task_id,
-            "task_name": task_name,
-            "queue": str(routing_key or "celery"),
-            "queued_at": _publish_field(headers, body, "tc_queued_at"),
-            "retry_ordinal": retry_ordinal,
-            "catalog_id": catalog_id_from_publish_body(body),
-        }
-    )
+    with profiling_module.profile_observer():
+        profiling_module.append_jsonl(
+            profile_context.artifact_dir / "spans.jsonl",
+            {
+                "run_id": profile_context.run_id,
+                "mode": profile_context.mode,
+                "baseline_valid": profile_context.baseline_valid,
+                "timestamp": profiling_module.utc_now_iso(),
+                "event_type": "task_dispatch",
+                "boundary": boundary,
+                "task_id": task_id,
+                "task_name": task_name,
+                "queue": str(routing_key or "celery"),
+                "queued_at": _publish_field(headers, body, "tc_queued_at"),
+                "retry_ordinal": retry_ordinal,
+                "catalog_id": catalog_id_from_publish_body(body),
+            },
+        )
 
 
 def _dispatch_profile_context(

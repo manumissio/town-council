@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import re
+from collections import Counter
 from pathlib import Path
 from typing import Any, Mapping, cast
 
@@ -199,6 +200,37 @@ def _task_evidence_confidence_reasons(spans: list[dict[str, Any]]) -> list[str]:
         for row in spans
     ):
         confidence_reasons.append("unknown_task_retry_ordinal")
+    dispatch_counts = Counter(
+        (
+            str(row.get("task_id")),
+            row.get("retry_ordinal"),
+            str(row.get("boundary")),
+        )
+        for row in spans
+        if row.get("event_type") == "task_dispatch" and row.get("task_id")
+    )
+    dispatch_attempts = {(task_id, retry_ordinal) for task_id, retry_ordinal, _boundary in dispatch_counts}
+    if any(
+        dispatch_counts[(task_id, retry_ordinal, "before")]
+        != dispatch_counts[(task_id, retry_ordinal, "after")]
+        for task_id, retry_ordinal in dispatch_attempts
+    ):
+        confidence_reasons.append("unmatched_task_dispatch")
+    completed_dispatches = {
+        (task_id, retry_ordinal)
+        for task_id, retry_ordinal in dispatch_attempts
+        if dispatch_counts[(task_id, retry_ordinal, "before")] > 0
+        and dispatch_counts[(task_id, retry_ordinal, "before")]
+        == dispatch_counts[(task_id, retry_ordinal, "after")]
+    }
+    if any(
+        row.get("event_type") in {"task_start", "task_span"}
+        and isinstance(row.get("retry_ordinal"), int)
+        and row.get("retry_ordinal", 0) > 0
+        and (str(row.get("task_id")), row.get("retry_ordinal")) not in completed_dispatches
+        for row in spans
+    ):
+        confidence_reasons.append("missing_retry_dispatch")
     return confidence_reasons
 
 

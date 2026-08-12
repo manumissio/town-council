@@ -1598,6 +1598,8 @@ Interpretation rules:
   inherited timestamps on retries and redeliveries are not treated as queue time
 - interpret `task_dispatch` and `task_span` separately: dispatch rows describe
   producer-side broker publication, while task spans describe worker execution
+- unmatched dispatch rows or retry attempts without dispatch evidence reduce
+  report confidence
 - `baseline-valid` requires a pinned manifest and stable workload conditions; `triage` is diagnostic only
 - profiling artifacts are observational and should not be used as a source of business truth
 - `result.json` is the primary contract for elapsed-time totals; if totals are incomplete or derived from fallback spans, the analyzer should mark the run `reduced-confidence`
