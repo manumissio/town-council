@@ -6,7 +6,6 @@ from pathlib import Path
 from typing import Any, Mapping, cast
 
 from scripts.operator_profile_reports import AGENDA_SUMMARY_SUBPHASE_KEYS
-from scripts.operator_profile_reports import load_expected_baseline
 from scripts.operator_prometheus import parse_metrics as _parse_metrics
 from scripts.operator_prometheus import sum_metric as _sum_metric
 
@@ -316,7 +315,3 @@ def rank_bottlenecks(run_dir: Path) -> dict[str, Any]:
         "summary_hydration_backfill": summary_hydration_counts,
         "summarize_subphase_timings_ms": _extract_summary_subphase_timings(summary_hydration_counts),
     }
-
-
-def _load_expected_baseline(path: Path) -> dict[str, Any]:
-    return load_expected_baseline(path, _load_json)

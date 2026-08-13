@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 from pathlib import Path
 from typing import Any
 
@@ -8,7 +9,7 @@ from scripts.operator_profile_reports import TOTAL_ELAPSED_TOLERANCE_PCT
 from scripts.operator_profile_reports import compare_exact_metric as _compare_exact_metric
 from scripts.operator_profile_reports import compare_percentage_metric as _compare_percentage_metric
 from scripts.operator_profile_reports import compare_timing_metric as _compare_timing_metric
-from scripts.pipeline_profile_analysis import _load_expected_baseline
+from scripts.operator_profile_reports import load_expected_baseline
 from scripts.pipeline_profile_analysis import _load_json
 from scripts.pipeline_profile_analysis import _load_latest_counter_line
 from scripts.pipeline_profile_analysis import rank_bottlenecks
@@ -205,9 +206,31 @@ def _append_expected_counter_checks(
             checks.append(_compare_exact_metric(f"{counter_name}.{key}", expected_value, actual_counter_values.get(key)))
 
 
+def _append_expected_profile_checks(
+    checks: list[dict[str, Any]],
+    run_manifest: dict[str, Any],
+    expected: dict[str, Any],
+) -> None:
+    run_profile = run_manifest.get("profile") or {}
+    expected_profile = expected.get("runtime_profile") or {}
+    if not expected_profile:
+        return
+    for profile_key, expected_value in sorted(expected_profile.items()):
+        checks.append(
+            _compare_exact_metric(
+                f"profile.{profile_key}",
+                expected_value,
+                run_profile.get(profile_key),
+            )
+        )
+
+
 def compare_against_expected_baseline(run_dir: Path, summary: dict[str, Any], expected_path: Path) -> dict[str, Any]:
-    tracked_expected_baseline_bytes(expected_path, Path(__file__).resolve().parents[1])
-    expected = _load_expected_baseline(expected_path)
+    expected_bytes = tracked_expected_baseline_bytes(expected_path, Path(__file__).resolve().parents[1])
+    expected = load_expected_baseline(
+        expected_path,
+        lambda _path: json.loads(expected_bytes.decode("utf-8")),
+    )
     comparison: dict[str, Any] = {
         "expected_baseline": str(expected_path),
         "manifest_name": expected.get("manifest_name"),
@@ -237,5 +260,6 @@ def compare_against_expected_baseline(run_dir: Path, summary: dict[str, Any], ex
         )
     ]
     _append_expected_phase_checks(checks, summary, expected)
+    _append_expected_profile_checks(checks, run_manifest, expected)
     _append_expected_counter_checks(checks, run_dir, expected)
     return _finish_comparison(comparison, checks)

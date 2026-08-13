@@ -43,8 +43,9 @@ Do:
   inference, fuzzy matching, and source-document mentions are not roster
   authority.
 - Omit meeting `people_metadata` until event-to-governing-body identity is
-  independently authoritative. Do not start City Coverage Expansion until a
-  valid `baseline_representative_v2` expected-baseline PR has merged.
+  independently authoritative. City Coverage Expansion requires the checked-in
+  `baseline_representative_v2` expectation to remain tied to baseline-valid,
+  reproduced evidence.
 
 Don't:
 - Do not silently fall back from remote to local inference.

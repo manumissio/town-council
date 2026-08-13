@@ -140,8 +140,8 @@ Goal: confirm the system is ready to resume city expansion without compounding
 runtime or data-quality failures.
 
 Exit criteria:
-- the `baseline_representative_v2` expected-baseline PR contains a valid,
-  reproducible post-roster-gate run and has merged;
+- the checked-in `baseline_representative_v2` expectation references valid,
+  reproducible post-roster-gate evidence;
 - rollout registry and onboarding status identify the next city wave;
 - crawl and derived-state quality gates are measurable for the wave;
 - queue/API/search behavior remains within the documented conservative-profile
@@ -158,7 +158,8 @@ hardcoded roadmap lists.
 
 Start criteria:
 - roster-gated person governance remains enforced;
-- a valid `baseline_representative_v2` expected-baseline PR has merged.
+- the checked-in `baseline_representative_v2` expectation remains tied to
+  baseline-valid, reproduced evidence.
 
 Quality gates stay outcome-based:
 - crawl success is high enough for repeatable ingestion;

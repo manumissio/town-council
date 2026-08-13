@@ -318,7 +318,8 @@ docker compose start \
   semantic-worker nlp tables topics
 ```
 
-Post-change baseline capture remains quarantined pending evidence-integrity activation. A diagnostic may be used for investigation only:
+Evidence-integrity validation is active. Use diagnostic mode for investigation;
+it keeps the resulting evidence non-comparable:
 
 ```bash
 PYTHONPATH=. .venv/bin/python scripts/profile_pipeline.py \
@@ -327,9 +328,9 @@ PYTHONPATH=. .venv/bin/python scripts/profile_pipeline.py \
   --diagnostic
 ```
 
-No v1-to-v2 comparison is allowed. City Coverage Expansion stays blocked until
-promotion-grade capture is restored, a v2 baseline-valid run is reproduced,
-and its expected-baseline PR merges.
+No v1-to-v2 comparison is allowed. City Coverage Expansion requires the
+checked-in v2 expectation to remain tied to baseline-valid, reproduced
+evidence.
 
 **v) Rollback.** This governance transition is roll-forward in production.
 Keep a roster-gated build running with people publication disabled until

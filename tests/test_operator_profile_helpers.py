@@ -341,6 +341,34 @@ def test_profile_report_helpers_validate_baseline_contract(tmp_path: Path):
     assert reports.compare_timing_metric("elapsed_seconds", 10.0, 13.0, 20.0)["status"] == "fail"
 
 
+@pytest.mark.parametrize("runtime_profile", [{}, [], "conservative"])
+def test_profile_report_helpers_reject_invalid_runtime_profile(
+    tmp_path: Path,
+    runtime_profile: object,
+):
+    baseline = tmp_path / "invalid_runtime_profile.json"
+    baseline.write_text(
+        json.dumps(
+            {
+                "manifest_name": "baseline_demo",
+                "manifest_sha256": "a" * 64,
+                "baseline_valid": True,
+                "elapsed_seconds": 12.0,
+                "runtime_profile": runtime_profile,
+                "top_phases": [],
+                "stable_counters": {},
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    with pytest.raises(ValueError, match="runtime_profile must be a non-empty object"):
+        reports.load_expected_baseline(
+            baseline,
+            lambda path: json.loads(path.read_text(encoding="utf-8")),
+        )
+
+
 @pytest.mark.parametrize("baseline_valid", [False, "false", 1, None])
 def test_profile_report_helpers_reject_invalid_expected_baseline_validity(
     tmp_path: Path,
