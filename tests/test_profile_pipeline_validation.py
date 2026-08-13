@@ -181,6 +181,30 @@ def test_consumed_manifest_cannot_be_baseline_valid(tmp_path: Path) -> None:
     assert "initial_workload_missing" in validation.reasons
 
 
+def test_negative_initial_eligibility_cannot_be_baseline_valid(tmp_path: Path) -> None:
+    _write_valid_artifacts(tmp_path)
+    profile_events = [
+        json.loads(profile_event)
+        for profile_event in (tmp_path / "spans.jsonl").read_text(encoding="utf-8").splitlines()
+    ]
+    before_event = next(
+        profile_event
+        for profile_event in profile_events
+        if profile_event.get("event_type") == "phase_eligibility"
+        and profile_event.get("boundary") == "before"
+    )
+    before_event.update({"eligible_ids": [], "eligible_count": -1})
+    (tmp_path / "spans.jsonl").write_text(
+        "".join(f"{json.dumps(profile_event)}\n" for profile_event in profile_events),
+        encoding="utf-8",
+    )
+
+    validation = validate_profile_artifacts(tmp_path, expected_run_id=RUN_ID, include_batch=True)
+
+    assert not validation.valid
+    assert "phase_eligibility_invalid:extract_parallel:catalog" in validation.reasons
+
+
 @pytest.mark.parametrize(
     ("mutation", "expected_reason"),
     [
