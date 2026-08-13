@@ -1,3 +1,5 @@
+from datetime import datetime, timezone
+
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 
@@ -21,6 +23,10 @@ def test_purge_clears_catalog_derived_fields_and_agenda_items():
         content="Some extracted text",
         content_hash="content_hash",
         agenda_items_hash="agenda_hash",
+        agenda_segmentation_status="complete",
+        agenda_segmentation_attempted_at=datetime.now(timezone.utc),
+        agenda_segmentation_item_count=1,
+        agenda_segmentation_error="old error",
         summary="summary",
         summary_source_hash="content_hash",
         summary_extractive="extractive",
@@ -52,6 +58,10 @@ def test_purge_clears_catalog_derived_fields_and_agenda_items():
     assert refreshed.tables is None
     assert refreshed.content_hash is None
     assert refreshed.agenda_items_hash is None
+    assert refreshed.agenda_segmentation_status is None
+    assert refreshed.agenda_segmentation_attempted_at is None
+    assert refreshed.agenda_segmentation_item_count is None
+    assert refreshed.agenda_segmentation_error is None
     assert refreshed.entities_source_hash is None
     assert refreshed.summary_source_hash is None
     assert refreshed.topics_source_hash is None
