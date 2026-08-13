@@ -561,6 +561,19 @@ def test_semantic_dependencies_live_outside_worker_runtime():
         assert package in semantic
 
 
+def test_semantic_worker_runtime_installs_metrics_client():
+    semantic_requirement_names = _requirement_names(Path("semantic_service/requirements.txt"))
+    dockerfile = Path("Dockerfile").read_text(encoding="utf-8")
+    compose = Path("docker-compose.yml").read_text(encoding="utf-8")
+
+    assert "prometheus-client" in semantic_requirement_names
+    assert "-r /app/semantic_service/requirements.txt" in dockerfile
+    assert "FROM python-runtime-base AS python-semantic" in dockerfile
+    semantic_worker = compose.split("  semantic-worker:", 1)[1].split("\n  nlp:", 1)[0]
+    assert "image: town-council-python-semantic" in semantic_worker
+    assert "celery -A pipeline.semantic_tasks worker" in semantic_worker
+
+
 def test_worker_live_and_batch_requirements_split_table_stack_only():
     core = Path("pipeline/requirements.txt").read_text(encoding="utf-8")
     batch = Path("pipeline/requirements-batch.txt").read_text(encoding="utf-8")
