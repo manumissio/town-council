@@ -4,7 +4,9 @@ from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import Session, sessionmaker
 
 from pipeline.cli_logging import configure_cli_logging
+from pipeline.config_processing import load_processing_config
 from pipeline.models import Event, EventStage, Place, db_connect
+from pipeline.run_pipeline_onboarding import onboarding_ocd_division_id, parse_onboarding_started_at
 from pipeline.utils import generate_ocd_id
 
 LOGGER_NAME = "promote-stage"
@@ -18,12 +20,37 @@ def _configure_cli_logging() -> None:
     configure_cli_logging(LOGGER_FORMAT)
 
 
+def _staged_events_for_current_scope(session: Session) -> list[EventStage]:
+    processing_config = load_processing_config()
+    staged_events = session.query(EventStage)
+    if not processing_config.pipeline_onboarding_city:
+        return staged_events.all()
+
+    staged_events = staged_events.filter(
+        EventStage.ocd_division_id
+        == onboarding_ocd_division_id(processing_config.pipeline_onboarding_city)
+    )
+    onboarding_started_at = parse_onboarding_started_at(
+        processing_config.pipeline_onboarding_started_at_utc,
+        logger=logger,
+    )
+    if onboarding_started_at is None:
+        raise ValueError(
+            "PIPELINE_ONBOARDING_STARTED_AT_UTC must be a valid UTC timestamp "
+            "when PIPELINE_ONBOARDING_CITY is set"
+        )
+    staged_events = staged_events.filter(
+        EventStage.scraped_datetime >= onboarding_started_at
+    )
+    return staged_events.all()
+
+
 def _promote_staged_events(session: Session) -> tuple[list[int], int, int]:
     promoted_count = 0
     skipped_count = 0
     promoted_ids: list[int] = []
 
-    for staged_event in session.query(EventStage).all():
+    for staged_event in _staged_events_for_current_scope(session):
         place = (
             session.query(Place)
             .filter(Place.ocd_division_id == staged_event.ocd_division_id)
