@@ -189,8 +189,8 @@ Interpretation rule:
   historical evidence for the retired document-derived person pipeline; they
   are non-comparable with roster-gated runs
 - `baseline_representative_v2` is the current representative catalog manifest;
-  its checked-in expectation comes from baseline-valid run
-  `pipeline_profile_baseline_20260813_180916`
+  its expected baseline remains pending a separate PR with valid reproduced
+  post-transition evidence
 - compare policy:
   - timings use percentage tolerances to absorb normal host variance
   - stable counters from `commands.log` are compared exactly
@@ -402,9 +402,8 @@ Soak confidence signals:
   - non-comparable with roster-gated pipeline runs
 - `baseline_representative_v2`:
   - current representative workload without document-derived person work
-  - checked-in expectation references baseline-valid run
-    `pipeline_profile_baseline_20260813_180916`
-  - future comparisons must match its tracked manifest identity
+  - expected baseline pending a separate valid, reproduced evidence PR
+  - City Coverage Expansion remains blocked until that PR merges
 - `baseline-valid` runs:
   - consistent local baseline conditions across the soak window
   - `run_manifest.json` present for each day
