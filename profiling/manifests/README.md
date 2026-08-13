@@ -40,4 +40,8 @@ Baseline lifecycle:
   `false`.
 - synthetic replay and selected-record reset remain retired; baseline evidence
   must come from observed execution against plain-text manifests
+- terminal validation rejects all-zero initial eligibility, malformed eligibility
+  identifiers, and count mismatches; a successful no-op run is not baseline-valid
+- reproduce a capture from the same independently restored full database snapshot
+  or equivalent fresh pending state, not by rerunning a consumed manifest
 - City Coverage Expansion and baseline promotion remain blocked until v2 produces a baseline-valid capture and a separate expected-baseline PR is reviewed and merged.

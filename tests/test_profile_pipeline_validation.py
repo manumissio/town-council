@@ -181,7 +181,21 @@ def test_consumed_manifest_cannot_be_baseline_valid(tmp_path: Path) -> None:
     assert "initial_workload_missing" in validation.reasons
 
 
-def test_negative_initial_eligibility_cannot_be_baseline_valid(tmp_path: Path) -> None:
+@pytest.mark.parametrize(
+    ("boundary", "eligible_ids", "eligible_count"),
+    [
+        ("before", [], -1),
+        ("before", [], 1),
+        ("after", [], -1),
+        ("after", [2, 2], 2),
+    ],
+)
+def test_malformed_eligibility_cannot_be_baseline_valid(
+    tmp_path: Path,
+    boundary: str,
+    eligible_ids: list[int],
+    eligible_count: int,
+) -> None:
     _write_valid_artifacts(tmp_path)
     profile_events = [
         json.loads(profile_event)
@@ -191,9 +205,9 @@ def test_negative_initial_eligibility_cannot_be_baseline_valid(tmp_path: Path) -
         profile_event
         for profile_event in profile_events
         if profile_event.get("event_type") == "phase_eligibility"
-        and profile_event.get("boundary") == "before"
+        and profile_event.get("boundary") == boundary
     )
-    before_event.update({"eligible_ids": [], "eligible_count": -1})
+    before_event.update({"eligible_ids": eligible_ids, "eligible_count": eligible_count})
     (tmp_path / "spans.jsonl").write_text(
         "".join(f"{json.dumps(profile_event)}\n" for profile_event in profile_events),
         encoding="utf-8",

@@ -249,12 +249,11 @@ def _phase_evidence(
         initial_workload_count += before_count
         reasons.update(before_reasons)
         after_row = next(row for row in matching_rows if row.get("boundary") == "after")
-        eligible_count = after_row.get("eligible_count")
-        if not isinstance(eligible_count, int) or isinstance(eligible_count, bool):
-            reasons.add(f"phase_eligibility_invalid:{phase}:{subject}")
-        elif eligible_count > 0 and phase == "extract_parallel":
+        after_count, after_reasons = _recorded_eligibility_evidence(after_row, phase, subject)
+        reasons.update(after_reasons)
+        if after_count > 0 and phase == "extract_parallel":
             warnings.add("extraction_remainder_nonzero")
-        elif eligible_count > 0 and phase in GATING_PHASES:
+        elif after_count > 0 and phase in GATING_PHASES:
             reasons.add(f"phase_remainder_nonzero:{phase}:{subject}")
     if initial_workload_count == 0:
         reasons.add("initial_workload_missing")
@@ -278,10 +277,20 @@ def _recorded_eligibility_evidence(
     subject: str,
 ) -> tuple[int, set[str]]:
     eligible_count = profile_event.get("eligible_count")
+    eligible_ids = profile_event.get("eligible_ids")
     if (
         not isinstance(eligible_count, int)
         or isinstance(eligible_count, bool)
         or eligible_count < 0
+        or not isinstance(eligible_ids, list)
+        or any(
+            not isinstance(eligible_id, int)
+            or isinstance(eligible_id, bool)
+            or eligible_id <= 0
+            for eligible_id in eligible_ids
+        )
+        or eligible_ids != sorted(set(eligible_ids))
+        or eligible_count != len(eligible_ids)
     ):
         return 0, {f"phase_eligibility_invalid:{phase}:{subject}"}
     return eligible_count, set()
