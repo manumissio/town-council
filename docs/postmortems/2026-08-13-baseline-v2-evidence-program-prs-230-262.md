@@ -342,10 +342,11 @@ git log --first-parent --reverse --format='%h|%ad|%s' \
   --date=iso-strict '14aaff8^..3146624'
 git diff --shortstat '14aaff8^..3146624'
 git diff --name-only '14aaff8^..3146624' | sort -u | wc -l
-rg -n 'snapshot_a3|snapshot_b' .
+git ls-tree -r --name-only 3146624 -- \
+  experiments/results/profiling/pipeline_profile_baseline_v2_snapshot_a3_20260813 \
+  experiments/results/profiling/pipeline_profile_baseline_v2_snapshot_b_20260813
 ```
 
 The first three commands reproduce the 21-merge, 101-path program scope and
-the first-parent diff. The final command demonstrates the raw-artifact
-retention limitation: the checkout contains references to the two runs, not
-their complete capture directories.
+the first-parent diff. The final command returns no paths, demonstrating that
+the analyzed commit tracks no files from either complete capture directory.
