@@ -10,15 +10,15 @@ import subprocess
 import time
 from typing import Any, Callable
 
-from pipeline.profile_manifest import load_manifest_package, sidecar_path_for_manifest, validate_manifest_package
 from scripts.profile_pipeline_commands import build_profile_commands, profile_env
 from scripts.profile_pipeline_results import write_result_manifest, write_run_manifest
 
 
 BASELINE_QUARANTINE_MESSAGE = (
     "promotion-grade baseline execution is quarantined pending evidence-integrity activation; "
-    "use --diagnostic or --dry-run-prepare"
+    "use --diagnostic"
 )
+RETIRED_REPLAY_MESSAGE = "synthetic replay packages are retired; use a text-only fresh-work diagnostic manifest"
 
 
 @dataclass(frozen=True)
@@ -29,10 +29,7 @@ class ProfilePipelineDeps:
     load_manifest_catalog_ids: Callable[[Path], list[int]]
     path_for_profile_env: Callable[[Path], str]
     provider_counters_before_run: Callable[[], dict[str, float] | None]
-    prepare_manifest_package_via_docker: Callable[[str], dict]
-    run_backfill_catalog_hashes_via_docker: Callable[..., None]
     run_command: Callable[..., None]
-    run_db_migrate_via_docker: Callable[..., None]
     select_triage_catalog_ids_via_docker: Callable[..., dict]
     segment_status_from_log: Callable[[Path], dict]
     subprocess_module: Any
@@ -43,21 +40,20 @@ class ProfilePipelineDeps:
 
 
 def require_non_promotional_baseline(args: Any) -> None:
-    if args.mode == "baseline" and not args.diagnostic and not args.dry_run_prepare:
+    if args.mode == "baseline" and not args.diagnostic:
         raise SystemExit(BASELINE_QUARANTINE_MESSAGE)
 
 
-def _catalog_ids_for_args(args: Any, deps: ProfilePipelineDeps) -> tuple[list[int], dict | None, Path | None]:
+def _catalog_ids_for_args(args: Any, deps: ProfilePipelineDeps) -> list[int]:
     manifest_path = Path(args.manifest) if args.manifest else None
     if args.mode != "baseline":
         selection = deps.select_triage_catalog_ids_via_docker(limit=max(1, int(args.limit)), city=args.city)
-        return [int(cid) for cid in selection.get("catalog_ids") or []], None, manifest_path
+        return [int(cid) for cid in selection.get("catalog_ids") or []]
     assert manifest_path is not None
+    if manifest_path.with_suffix(".json").exists():
+        raise SystemExit(RETIRED_REPLAY_MESSAGE)
     catalog_ids = deps.load_manifest_catalog_ids(manifest_path)
-    manifest_package = load_manifest_package(manifest_path)
-    if manifest_package is not None:
-        validate_manifest_package(catalog_ids, manifest_package)
-    return catalog_ids, manifest_package, manifest_path
+    return catalog_ids
 
 
 def _run_post_processors(args: Any, deps: ProfilePipelineDeps, run_id: str, output_root: Path) -> None:
@@ -106,8 +102,6 @@ def run_profile(args: Any, deps: ProfilePipelineDeps) -> int:
         raise SystemExit("--manifest is required for baseline mode")
     if args.diagnostic and args.mode != "baseline":
         raise SystemExit("--diagnostic is only supported for baseline mode")
-    if args.dry_run_prepare and args.mode != "baseline":
-        raise SystemExit("--dry-run-prepare is only supported for baseline mode")
     baseline_valid = args.mode == "baseline" and not args.diagnostic
     run_id = args.run_id or f"pipeline_profile_{args.mode}_{datetime.now(timezone.utc).strftime('%Y%m%d_%H%M%S')}"
     output_root = Path(args.output_dir)
@@ -117,37 +111,22 @@ def run_profile(args: Any, deps: ProfilePipelineDeps) -> int:
     if run_dir.exists():
         raise SystemExit(f"run directory already exists: {run_dir}")
 
-    catalog_ids, manifest_package, _manifest_path = _catalog_ids_for_args(args, deps)
+    catalog_ids = _catalog_ids_for_args(args, deps)
     if not catalog_ids:
         raise SystemExit("no catalog ids selected for profiling")
-    if args.dry_run_prepare and manifest_package is None:
-        raise SystemExit("--dry-run-prepare requires a manifest package sidecar (.json)")
 
     run_dir.mkdir(parents=True, exist_ok=False)
     try:
         manifest_copy = run_dir / "catalog_manifest.txt"
         deps.write_catalog_manifest(manifest_copy, catalog_ids)
-        if manifest_package is not None:
-            deps.write_json(sidecar_path_for_manifest(manifest_copy), manifest_package)
         manifest_rel = deps.path_for_profile_env(manifest_copy)
         command_log = run_dir / "commands.log"
-        preparation_check = (
-            deps.prepare_manifest_package_via_docker(manifest_rel, dry_run=True)
-            if manifest_package is not None
-            else None
-        )
     except (OSError, RuntimeError, ValueError, subprocess.CalledProcessError):
         shutil.rmtree(run_dir)
         raise
-    if args.dry_run_prepare:
-        print(json.dumps(preparation_check, indent=2, sort_keys=True))
-        return 0
     provider_counters_before_run = deps.provider_counters_before_run()
-    if manifest_package is not None:
-        deps.run_db_migrate_via_docker(log_path=command_log)
-        deps.run_backfill_catalog_hashes_via_docker(manifest_rel=manifest_rel, log_path=command_log)
 
-    run_manifest = write_run_manifest(
+    write_run_manifest(
         write_json=deps.write_json,
         utc_now_iso=deps.utc_now_iso,
         run_dir=run_dir,
@@ -158,7 +137,6 @@ def run_profile(args: Any, deps: ProfilePipelineDeps) -> int:
         include_batch=not args.skip_batch,
         catalog_ids=catalog_ids,
         provider_counters_before_run=provider_counters_before_run,
-        manifest_package=manifest_package,
     )
     artifact_dir_rel = deps.path_for_profile_env(run_dir)
     env = profile_env(
@@ -183,9 +161,6 @@ def run_profile(args: Any, deps: ProfilePipelineDeps) -> int:
     error_message = None
     command_segments: list[dict] = []
     try:
-        if manifest_package is not None:
-            run_manifest["preconditioning"] = deps.prepare_manifest_package_via_docker(manifest_rel, dry_run=False)
-            deps.write_json(run_dir / "run_manifest.json", run_manifest)
         for command in commands:
             segment_started = time.perf_counter()
             segment_name = "pipeline-batch" if "run_batch_enrichment.py" in command else "pipeline"

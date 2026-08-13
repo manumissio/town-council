@@ -6,10 +6,7 @@ Format:
 - one catalog ID per line
 - blank lines are ignored
 - `#` starts an inline comment
-- optional sidecar: `<name>.json`
-  - controlled preconditioning contract for the matching `.txt` manifest
-  - used only by baseline profiling runs
-  - should contain only workload-scoped resets for derived or rebuildable fields
+- IDs must be positive and unique
 
 Example:
 ```text
@@ -20,10 +17,8 @@ Example:
 Rules:
 - use stable catalog sets when you want before/after comparisons
 - if the workload changes materially, treat the run as diagnostic instead of baseline-valid
-- extraction strata pin archived source bytes by SHA-256; dry-run and live preparation fail before mutation when a source is unavailable or changed
-- source archives must remain unchanged between preparation and extraction; immutable snapshots or extraction-time revalidation are not yet enforced
-- run `python scripts/build_profile_manifest.py --name <name>` first if you want to inspect candidate coverage before writing a manifest package
-- use `python scripts/profile_pipeline.py --mode baseline --manifest profiling/manifests/<name>.txt --dry-run-prepare` to inspect sidecar resets without mutating the workload
+- use only fresh pending work for new diagnostic captures
+- the profiler rejects sibling `.json` files because synthetic replay packages are retired
 
 Fresh-work trace:
 - write the temporary catalog list under `experiments/results/` after the
@@ -34,10 +29,7 @@ Fresh-work trace:
 - run the profiler with `--diagnostic` and without `--skip-batch`
 - treat the resulting artifacts as exploratory and non-comparable
 
-The fresh-work trace does not use this directory's sidecar preconditioning
-workflow.
-
 Baseline lifecycle:
-- `baseline_representative_v1` is immutable historical evidence. Its schema includes the retired document-derived people phase, so active preparation rejects it as non-comparable.
-- `baseline_representative_v2` is the active capture candidate. It uses a distinct 30-catalog workload regenerated from a fresh local corpus, excludes the retired phase, and assigns eight catalogs to entity enrichment.
+- `baseline_representative_v1` is immutable historical evidence. Its schema includes the retired document-derived people phase, so it is non-comparable with roster-gated runs.
+- `baseline_representative_v2` is the active capture candidate. It uses a distinct catalog workload regenerated from a fresh local corpus and excludes the retired people phase.
 - City Coverage Expansion and baseline promotion remain blocked until v2 produces a baseline-valid capture and a separate expected-baseline PR is reviewed and merged.

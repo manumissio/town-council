@@ -95,7 +95,7 @@ def test_profile_result_writer_preserves_result_manifest_keys(monkeypatch, tmp_p
     assert payload["baseline_valid"] is False
 
 
-def test_profile_run_manifest_writer_preserves_manifest_package_and_profile_env(monkeypatch, tmp_path: Path):
+def test_profile_run_manifest_writer_preserves_profile_env(monkeypatch, tmp_path: Path):
     monkeypatch.setenv("LOCAL_AI_BACKEND", "http")
     monkeypatch.delenv("WORKER_POOL", raising=False)
     written = {}
@@ -115,12 +115,6 @@ def test_profile_run_manifest_writer_preserves_manifest_package_and_profile_env(
         include_batch=True,
         catalog_ids=[101, 102],
         provider_counters_before_run={"requests": 3.0},
-        manifest_package={
-            "schema_version": 1,
-            "manifest_name": "baseline-manifest",
-            "strata": {"segment": [101], "summary": [102]},
-            "expected_phase_coverage": {"segment": 1, "summary": 1},
-        },
     )
 
     assert written["path"] == tmp_path / "run_manifest.json"
@@ -129,12 +123,7 @@ def test_profile_run_manifest_writer_preserves_manifest_package_and_profile_env(
     assert run_manifest["catalog_count"] == 2
     assert run_manifest["include_batch"] is True
     assert run_manifest["profile"] == {"LOCAL_AI_BACKEND": "http"}
-    assert run_manifest["manifest_package"] == {
-        "schema_version": 1,
-        "manifest_name": "baseline-manifest",
-        "phase_selected_counts": {"segment": 1, "summary": 1},
-        "expected_phase_coverage": {"segment": 1, "summary": 1},
-    }
+    assert "manifest_package" not in run_manifest
 
 
 def test_profile_command_helpers_preserve_env_and_docker_command(monkeypatch):
@@ -252,11 +241,36 @@ def test_worker_metrics_reports_aggregated_strategy_errors(monkeypatch):
     assert "worker_registry[attempt=2] empty_output" in err
 
 
-def test_profile_manifest_loader_deduplicates_and_ignores_comments(tmp_path: Path):
+def test_profile_manifest_loader_preserves_unique_ids_and_ignores_comments(tmp_path: Path):
     manifest = tmp_path / "catalog_manifest.txt"
-    manifest.write_text("11\n12 # keep first\n\n11\n", encoding="utf-8")
+    manifest.write_text("11\n12 # keep second\n\n", encoding="utf-8")
 
     assert artifacts.load_manifest_catalog_ids(manifest) == [11, 12]
+
+
+def test_profile_manifest_loader_rejects_duplicate_ids(tmp_path: Path):
+    manifest = tmp_path / "catalog_manifest.txt"
+    manifest.write_text("11\n12\n11\n", encoding="utf-8")
+
+    with pytest.raises(ValueError, match="duplicate catalog ID: 11"):
+        artifacts.load_manifest_catalog_ids(manifest)
+
+
+@pytest.mark.parametrize("catalog_id", [0, -1])
+def test_profile_manifest_loader_rejects_nonpositive_ids(tmp_path: Path, catalog_id: int):
+    manifest = tmp_path / "manifest.txt"
+    manifest.write_text(f"{catalog_id}\n", encoding="utf-8")
+
+    with pytest.raises(ValueError, match=f"catalog ID must be positive: {catalog_id}"):
+        artifacts.load_manifest_catalog_ids(manifest)
+
+
+def test_profile_manifest_loader_rejects_malformed_ids(tmp_path: Path):
+    manifest = tmp_path / "manifest.txt"
+    manifest.write_text("not-an-id\n", encoding="utf-8")
+
+    with pytest.raises(ValueError, match="invalid catalog ID: not-an-id"):
+        artifacts.load_manifest_catalog_ids(manifest)
 
 
 def test_profile_metric_helpers_preserve_canonical_run_delta_policy():

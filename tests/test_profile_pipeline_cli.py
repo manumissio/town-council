@@ -89,10 +89,8 @@ def test_profile_pipeline_quarantines_bare_baseline_before_artifact_creation(
     assert not output_dir.exists()
 
 
-@pytest.mark.parametrize("allowed_argument", ["--diagnostic", "--dry-run-prepare"])
-def test_profile_pipeline_quarantine_allows_non_promotional_baseline_paths(
+def test_profile_pipeline_quarantine_allows_diagnostic_baseline(
     tmp_path: Path,
-    allowed_argument: str,
 ):
     output_dir = tmp_path / "profiles"
     completed = _run_profile_cli(
@@ -102,7 +100,7 @@ def test_profile_pipeline_quarantine_allows_non_promotional_baseline_paths(
         str(tmp_path / "missing.txt"),
         "--output-dir",
         str(output_dir),
-        allowed_argument,
+        "--diagnostic",
     )
 
     assert completed.returncode != 0
@@ -114,29 +112,7 @@ def test_profile_pipeline_quarantine_allows_non_promotional_baseline_paths(
 def test_profile_pipeline_diagnostic_baseline_is_non_promotional(monkeypatch, tmp_path: Path):
     manifest_path = tmp_path / "baseline_demo.txt"
     manifest_path.write_text("21\n", encoding="utf-8")
-    manifest_path.with_suffix(".json").write_text(
-        json.dumps(
-            {
-                "schema_version": 3,
-                "manifest_name": "baseline_demo",
-                "catalog_ids": [21],
-                "strata": {"extract": [21], "segment": [], "summary": [], "entity": [], "org": []},
-                "extract_source_sha256": {"21": "a" * 64},
-                "expected_phase_coverage": {"extract": 1, "segment": 0, "summary": 0, "entity": 0, "org": 0},
-            }
-        ),
-        encoding="utf-8",
-    )
     monkeypatch.setattr(mod, "_provider_counters_before_run", lambda: None)
-    monkeypatch.setattr(
-        mod,
-        "_prepare_manifest_package_via_docker",
-        lambda manifest_rel, dry_run: {
-            "dry_run": dry_run,
-            "report": {"catalog_count": 1},
-            "applied": {"cleared_summary_catalogs": 0},
-        },
-    )
     commands = []
 
     def _fake_run(command, **kwargs):
@@ -161,62 +137,35 @@ def test_profile_pipeline_diagnostic_baseline_is_non_promotional(monkeypatch, tm
     run_manifest = json.loads((run_dirs[0] / "run_manifest.json").read_text(encoding="utf-8"))
     result_manifest = json.loads((run_dirs[0] / "result.json").read_text(encoding="utf-8"))
     profile_commands = [command for command, _ in commands if "run_pipeline.py" in command or "run_batch_enrichment.py" in command]
-    hash_backfill_commands = [command for command, _ in commands if "pipeline/backfill_catalog_hashes.py" in command]
 
     assert exit_code == 0
     assert run_manifest["baseline_valid"] is False
     assert result_manifest["baseline_valid"] is False
     assert [command[-1] for command in profile_commands] == ["run_pipeline.py", "run_batch_enrichment.py"]
     assert all("TC_PROFILE_BASELINE_VALID=0" in command for command in profile_commands)
-    assert len(hash_backfill_commands) == 1
-    assert any(
-        value.startswith("TC_PROFILE_CATALOG_MANIFEST=") and value.endswith("/catalog_manifest.txt")
-        for value in hash_backfill_commands[0]
+    assert not any("db_migrate.py" in command or "backfill_catalog_hashes.py" in command for command, _ in commands)
+
+
+def test_profile_pipeline_rejects_retired_dry_run_prepare_flag(tmp_path: Path):
+    completed = _run_profile_cli(
+        "--mode",
+        "baseline",
+        "--manifest",
+        str(tmp_path / "baseline_demo.txt"),
+        "--diagnostic",
+        "--dry-run-prepare",
     )
 
+    assert completed.returncode == 2
+    assert "unrecognized arguments: --dry-run-prepare" in completed.stderr
 
-def test_profile_pipeline_dry_run_prepare_requires_manifest_package(monkeypatch, tmp_path: Path):
+
+def test_profile_pipeline_rejects_sidecar_before_run_directory(tmp_path: Path):
     manifest_path = tmp_path / "baseline_demo.txt"
     manifest_path.write_text("21\n22\n", encoding="utf-8")
+    manifest_path.with_suffix(".json").write_text("{}\n", encoding="utf-8")
 
-    try:
-        mod.main(["--mode", "baseline", "--manifest", str(manifest_path), "--output-dir", str(tmp_path), "--dry-run-prepare"])
-    except SystemExit as exc:
-        assert "requires a manifest package sidecar" in str(exc)
-    else:
-        raise AssertionError("expected SystemExit")
-
-
-@pytest.mark.parametrize(
-    "manifest_package",
-    [
-        {
-            "schema_version": 1,
-            "manifest_name": "baseline_demo",
-            "catalog_ids": [21, 22],
-        },
-        {
-            "schema_version": 3,
-            "manifest_name": "baseline_demo",
-            "catalog_ids": [21, 22],
-            "strata": {"extract": [21], "segment": [22], "summary": [], "entity": [], "org": []},
-            "extract_source_sha256": {},
-            "expected_phase_coverage": {"extract": 1, "segment": 1, "summary": 0, "entity": 0, "org": 0},
-        },
-    ],
-)
-def test_profile_pipeline_rejects_invalid_manifest_package_without_run_directory(
-    tmp_path: Path,
-    manifest_package: dict,
-):
-    manifest_path = tmp_path / "baseline_demo.txt"
-    manifest_path.write_text("21\n22\n", encoding="utf-8")
-    manifest_path.with_suffix(".json").write_text(
-        json.dumps(manifest_package),
-        encoding="utf-8",
-    )
-
-    with pytest.raises(ValueError):
+    with pytest.raises(SystemExit, match="synthetic replay packages are retired"):
         mod.main(
             [
                 "--mode",
@@ -226,10 +175,10 @@ def test_profile_pipeline_rejects_invalid_manifest_package_without_run_directory
                 "--output-dir",
                 str(tmp_path),
                 "--run-id",
-                "invalid-package",
+                "retired-sidecar",
                 "--skip-batch",
                 "--diagnostic",
             ]
         )
 
-    assert not (tmp_path / "invalid-package").exists()
+    assert not (tmp_path / "retired-sidecar").exists()

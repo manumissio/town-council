@@ -1,6 +1,6 @@
 # Performance
 
-Last updated: 2026-08-12
+Last updated: 2026-08-13
 
 This page describes how to interpret and reproduce performance evidence for local Docker runs.
 For operational troubleshooting and sorting diagnostics, use `docs/OPERATIONS.md`.
@@ -71,9 +71,6 @@ Use the profiling harness when the question is "what is actually slow on the cri
 Commands:
 ```bash
 PYTHONPATH=. .venv/bin/python scripts/profile_pipeline.py --mode triage
-PYTHONPATH=. .venv/bin/python scripts/build_profile_manifest.py --name <name>
-PYTHONPATH=. .venv/bin/python scripts/build_profile_manifest.py --name <name> --write
-PYTHONPATH=. .venv/bin/python scripts/profile_pipeline.py --mode baseline --manifest profiling/manifests/<name>.txt --dry-run-prepare
 PYTHONPATH=. .venv/bin/python scripts/profile_pipeline.py --mode baseline --manifest profiling/manifests/<name>.txt --diagnostic
 PYTHONPATH=. .venv/bin/python scripts/analyze_pipeline_profile.py --run-id <run_id>
 PYTHONPATH=. .venv/bin/python scripts/analyze_pipeline_profile.py --run-id <run_id> --compare-to profiling/baselines/<name>.json
@@ -179,15 +176,13 @@ Interpretation rule:
 - use historical baseline-valid runs for longitudinal comparison; new promotion-grade captures remain quarantined
 - if the analyzer reports `reduced-confidence`, inspect `result.json` and run-quality notes before using the ranking to prioritize work
 - selected-manifest profiling runs are workload-only by default, so unrelated global prelude work such as staged promotion and downloader retries should not appear in the ranked bottlenecks
-- if a baseline manifest has a `.json` sidecar, the harness applies controlled preconditioning to only the selected workload before the run so the baseline still contains real pending work
-- use `--dry-run-prepare` to inspect that preconditioning plan before mutating the selected workload
 - use `--diagnostic` when a pinned baseline manifest is needed for investigation but the resulting evidence must remain non-comparable and `baseline_valid=false`
-- do not attach a sidecar to the fresh-work trace manifest; sidecars invoke the separate preconditioning workflow
+- do not attach a sidecar to a profiling manifest; the harness rejects retired synthetic replay packages before creating run artifacts
 - use `--compare-to` to analyze existing baseline-valid evidence; diagnostic captures remain non-comparable
 - `baseline_representative_v1` and its checked-in expectation are immutable
   historical evidence for the retired document-derived person pipeline; they
   are non-comparable with roster-gated runs
-- `baseline_representative_v2` is the current representative workload package;
+- `baseline_representative_v2` is the current representative catalog manifest;
   its expected baseline remains pending a separate PR with valid reproduced
   post-transition evidence
 - compare policy:
@@ -219,7 +214,7 @@ Baseline compare report:
 - The default batch topic path now hydrates only missing/stale catalogs through the single-catalog topic task instead of sweeping every content-bearing catalog.
 - The default batch table path now preflights eligibility and skips the heavy Camelot subprocess on zero-work runs.
 - The earlier `download` ranking in triage profiling was a workload-fidelity artifact; workload-only profiling now excludes unrelated staged URL work from selected-manifest runs.
-- The near-no-op triage run that followed those fixes was still useful as a fidelity check, but not as a promotion-grade benchmark; representative baseline evidence now comes from a pinned manifest package plus controlled preconditioning.
+- The near-no-op triage run that followed those fixes was still useful as a fidelity check, but not as a promotion-grade benchmark. Current diagnostic evidence uses fresh pending work selected by a pinned text manifest.
 - The next baseline optimization pass moved agenda and summary maintenance onto backlog-specific routing instead of the full interactive defaults:
   - agenda segmentation now runs heuristic-first in maintenance mode with a shorter maintenance timeout
   - summary hydration now uses a shorter maintenance timeout and deterministic fallback on provider timeout/unavailable failures
@@ -256,7 +251,7 @@ Baseline compare report:
 - The next summary-freshness pass made agenda summary hydration stale-aware via structured-input hashing:
   - `Catalog.agenda_items_hash` now fingerprints the normalized `AgendaItem` payload that deterministic agenda summaries actually depend on
   - deterministic agenda summaries now store `summary_source_hash = agenda_items_hash` instead of `content_hash`, except empty-segmented agendas whose deterministic fallback summary stays keyed to `content_hash`
-  - the profiling harness now runs `pipeline/backfill_catalog_hashes.py` before baseline preconditioning so legacy agenda summaries are measured in steady state instead of one-time migration churn
+  - the profiling harness included a one-time hash repair so legacy agenda summaries were measured in steady state instead of one-time migration churn
 - On the same `baseline_representative_v1` manifest, the rollout-skewed first run (`pipeline_profile_baseline_20260403_003945`) selected `21` agenda summaries because old rows were missing the new agenda hash metadata, but the steady-state baseline after backfill (`pipeline_profile_baseline_20260403_004122`) returned to `selected=12`.
 - In the steady-state run, `summary_hydration_backfill` reported `selected=12 complete=12 changed_catalogs=12 agenda_deterministic_complete=12 llm_complete=0 deterministic_fallback_complete=0 reindexed=12 reindex_failed=0 embed_enqueued=12 embed_dispatch_failed=0`.
 - After that change, the leading measured phases remained:

@@ -107,7 +107,7 @@ Use this when you want end-to-end evidence before tuning runtime behavior.
 
 Fast diagnostic run:
 ```bash
-python scripts/profile_pipeline.py --mode triage
+PYTHONPATH=. .venv/bin/python scripts/profile_pipeline.py --mode triage
 ```
 
 Notes:
@@ -120,7 +120,7 @@ Fresh-work diagnostic run:
 MANIFEST=experiments/results/baseline_v2_fresh_pending.txt
 test -s "$MANIFEST"
 test ! -e "${MANIFEST%.txt}.json"
-python scripts/profile_pipeline.py --mode baseline --manifest "$MANIFEST" --diagnostic
+PYTHONPATH=. .venv/bin/python scripts/profile_pipeline.py --mode baseline --manifest "$MANIFEST" --diagnostic
 ```
 
 Use this only after a fresh crawl, promotion, and scoped download have created
@@ -130,20 +130,9 @@ pass `--skip-batch`; the resulting evidence remains non-comparable.
 
 Promotion-grade baseline capture is temporarily quarantined while evidence-integrity checks are completed.
 
-Baseline manifest package workflow:
-```bash
-python scripts/build_profile_manifest.py --name <name>
-python scripts/build_profile_manifest.py --name <name> --write
-python scripts/profile_pipeline.py --mode baseline --manifest profiling/manifests/<name>.txt --dry-run-prepare
-python scripts/profile_pipeline.py --mode baseline --manifest profiling/manifests/<name>.txt --diagnostic
-```
-
-This package workflow reconditions selected completed records. It is not the
-fresh-work trace path above.
-
 Analyze an existing profiling run:
 ```bash
-python scripts/analyze_pipeline_profile.py --run-id <run_id>
+PYTHONPATH=. .venv/bin/python scripts/analyze_pipeline_profile.py --run-id <run_id>
 ```
 
 Artifacts land under `experiments/results/profiling/<run_id>/` and include:
@@ -155,8 +144,7 @@ Artifacts land under `experiments/results/profiling/<run_id>/` and include:
 Interpretation:
 - `triage` runs are diagnostic and optimized for speed.
 - Baseline-valid runs use a pinned manifest and are the only profiling runs that should be compared directly over time; diagnostic baseline runs remain non-comparable.
-- baseline manifests can include a checked-in `.json` sidecar that applies the separate preconditioning workflow to selected catalog IDs before the run starts.
-- `--dry-run-prepare` shows the exact preconditioning plan without mutating the workload.
+- baseline diagnostics accept text manifests only and reject sibling `.json` replay packages before creating run artifacts.
 - queue wait is tracked separately from task execution so the report can distinguish worker backlog from slow execution.
 - default core and batch pipeline runs now keep search fresh with targeted per-catalog reindex hooks; use the manual reindex command below only when you changed indexing logic or need a repair rebuild.
 - default snapshot backfills now run in-process on the hot path, so zero-work summary, agenda, entity, and organization phases do not pay Python subprocess startup tax.

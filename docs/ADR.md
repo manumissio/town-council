@@ -8,6 +8,33 @@ Use each entry to record:
 - the affected boundary or contract
 - links to the canonical docs that carry the ongoing operational or architecture detail
 
+## 2026-08-13: Retire synthetic profiling replay packages
+
+- Status: Accepted
+- Decision:
+  - Profiling accepts plain-text catalog manifests only.
+  - New diagnostic captures use fresh pending work. A sibling JSON replay
+    package is rejected before a run directory is created.
+  - The profile-manifest module family, package builder, checked-in replay
+    sidecars, and selected-record reset workflow are deleted.
+- Why:
+  - The replay contract could not pin every mutable input or prevent writes
+    between preparation and execution, so it could not produce trustworthy
+    reproducible evidence.
+  - Removing the unsafe path is smaller and clearer than adding more controls
+    around a synthetic workload.
+- Supersedes:
+  - The 2026-05-05 profile manifest packaging decision.
+  - The profile-manifest compatibility clause in the 2026-05-03 batch
+    pipeline orchestration decision.
+- Affected boundaries:
+  - Promotion-grade baseline capture remains quarantined.
+  - Historical expected baselines and plain-text catalog manifests remain.
+- Canonical references:
+  - [docs/PERFORMANCE.md](PERFORMANCE.md)
+  - [docs/OPERATIONS.md](OPERATIONS.md)
+  - [Profiling manifests](../profiling/manifests/README.md)
+
 ## 2026-08-02: Retire Meilisearch SDK compatibility helpers
 
 - Status: Accepted
@@ -573,22 +600,14 @@ Use each entry to record:
 
 ## 2026-05-05: Split profile manifest packaging behind patch-safe facade
 
-- Status: Accepted
+- Status: Superseded on 2026-08-13
 - Decision:
-  - `pipeline/profile_manifest.py` remains the compatibility facade for profiling manifest imports and tests.
-  - Manifest constants and typed payload aliases move behind `pipeline/profile_manifest_contracts.py`.
-  - Manifest sidecar I/O and validation move behind `pipeline/profile_manifest_io.py`.
-  - Extract, segmentation, summary, entity, and organization candidate queries move behind `pipeline/profile_manifest_candidates.py`.
-  - People reset safety and people candidate loading move behind `pipeline/profile_manifest_people.py`.
-  - Quota normalization, ordered dedupe, shortage validation, and package assembly move behind `pipeline/profile_manifest_builder.py`.
-  - Dry-run reporting and selected workload preconditioning move behind `pipeline/profile_manifest_preconditioning.py`.
+  - Profiling manifest packaging was split behind a compatibility facade.
 - Why:
-  - `pipeline/profile_manifest.py` mixed JSON sidecar handling, quota selection, SQLAlchemy candidate queries, controlled reset mutation, and safety policy in one large operator module.
-  - Existing scripts and tests import or patch `pipeline.profile_manifest`, so the facade must keep resolving patched `db_session` and candidate helpers.
+  - The original operator module mixed sidecar handling, candidate queries,
+    selected-record mutation, and safety policy.
 - Affected boundaries:
-  - `scripts/build_profile_manifest.py` and `scripts/profile_pipeline.py` keep their imports from `pipeline.profile_manifest`.
-  - Manifest JSON shape, baseline profiling CLI behavior, preconditioning safety scope, and selected-workload mutation semantics stay unchanged.
-  - Guardrails track the profile manifest module family under the 300-line cleanup target and strict typed/formatter scope.
+  - This historical boundary was deleted by the 2026-08-13 decision above.
 - Canonical references:
   - [docs/PERFORMANCE.md](PERFORMANCE.md)
   - [docs/OPERATIONS.md](OPERATIONS.md)
@@ -1448,7 +1467,7 @@ Use each entry to record:
   - Splitting implementation behind the facade reduces review risk without changing CLI commands, env vars, batch policy, extraction behavior, or telemetry names.
 - Affected boundaries:
   - `pipeline/run_pipeline.py` owns compatibility wrappers and high-level stage order.
-  - `pipeline/run_batch_enrichment.py`, `pipeline/backfill_entities.py`, `pipeline/profile_manifest.py`, and `scripts/profile_pipeline.py` keep their existing imports.
+  - `pipeline/run_batch_enrichment.py`, `pipeline/backfill_entities.py`, and `scripts/profile_pipeline.py` keep their existing imports.
   - Guardrails track the new batch pipeline module family under the 300-line cleanup target.
 - Canonical references:
   - [ARCHITECTURE.md](../ARCHITECTURE.md)
