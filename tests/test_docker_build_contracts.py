@@ -21,7 +21,7 @@ ACTIVE_REQUIREMENT_PATHS = (
 SHARED_EXACT_CONSTRAINTS = {
     "beautifulsoup4": "4.15.0",
     "celery": "5.6.3",
-    "fastapi": "0.115.8",
+    "fastapi": "0.141.1",
     "httpx": "0.28.1",
     "meilisearch": "0.43.0",
     "prometheus-client": "0.26.0",
