@@ -1,0 +1,97 @@
+{
+  "baseline_valid": true,
+  "manifest_sha256": "18a5693432ba8d67474682f567be210a5e4181a3dfc5878fd4846bf296ac4f46",
+  "elapsed_seconds": 89.898,
+  "manifest_name": "baseline_representative_v2",
+  "reference_run_id": "pipeline_profile_baseline_v2_snapshot_a3_20260813",
+  "runtime_profile": {
+    "LOCAL_AI_BACKEND": "http",
+    "LOCAL_AI_HTTP_API": "ollama",
+    "LOCAL_AI_HTTP_MODEL": "gemma-3-270m-custom",
+    "LOCAL_AI_HTTP_PROFILE": "conservative",
+    "OLLAMA_NUM_PARALLEL": "1",
+    "SEMANTIC_BACKEND": "faiss",
+    "SEMANTIC_ENABLED": "false",
+    "WORKER_CONCURRENCY": "3",
+    "WORKER_POOL": "prefork"
+  },
+  "stable_counters": {
+    "agenda_segmentation_backfill": {
+      "complete": 30,
+      "empty": 0,
+      "failed": 0,
+      "heuristic_complete": 30,
+      "llm_timeout_then_fallback": 0,
+      "llm_attempted": 0,
+      "llm_skipped_heuristic_first": 30,
+      "other": 0,
+      "selected": 30,
+      "timeout_fallbacks": 0,
+      "empty_response_fallbacks": 0
+    },
+    "entity_backfill": {
+      "changed_catalogs": 30,
+      "candidate_slice_fallback_prefix": 6,
+      "chunks": 2,
+      "complete": 30,
+      "execution_mode": "process_pool",
+      "freshness_advanced": 30,
+      "ner_processed": 30,
+      "ner_skipped_low_signal": 0,
+      "selected": 30
+    },
+    "summary_hydration_backfill": {
+      "agenda_deterministic_complete": 30,
+      "changed_catalogs": 30,
+      "blocked_low_signal": 0,
+      "blocked_ungrounded": 0,
+      "cached": 0,
+      "complete": 30,
+      "deterministic_fallback_complete": 0,
+      "embed_dispatch_failed": 0,
+      "embed_enqueued": 30,
+      "error": 0,
+      "llm_complete": 0,
+      "not_generated_yet": 0,
+      "other": 0,
+      "reindex_failed": 0,
+      "reindexed": 30,
+      "selected": 30,
+      "stale": 0
+    },
+    "table_extraction_preflight": {
+      "selected": 0
+    },
+    "targeted_reindex_summary": {
+      "considered": 31,
+      "failed": 0,
+      "reindexed": 31
+    },
+    "topic_hydration_backfill": {
+      "blocked_low_signal": 0,
+      "cached": 0,
+      "complete": 30,
+      "error": 0,
+      "other": 0,
+      "selected": 30,
+      "stale": 0
+    },
+    "topic_modeling_preflight": {
+      "selected": 30
+    }
+  },
+  "top_phases": [
+    {
+      "duration_s": 53.572,
+      "phase": "segment_agenda"
+    },
+    {
+      "duration_s": 12.993,
+      "phase": "topic_modeling"
+    },
+    {
+      "duration_s": 10.413,
+      "phase": "summarize"
+    }
+  ]
+}

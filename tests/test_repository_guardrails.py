@@ -4863,8 +4863,9 @@ def test_g4_roster_gated_policy_is_aligned() -> None:
     assert "status: complete and verified" in t_gov_2a_entry
     assert "baseline_representative_v2" in g4_entry
     assert (
-        "a valid `baseline_representative_v2` expected-baseline PR has merged"
-        in city_coverage_plan
+        "checked-in `baseline_representative_v2` expectation remains tied to "
+        "baseline-valid, reproduced evidence"
+        in " ".join(city_coverage_plan.split())
     )
     assert _remediation_task_states(remediation_ledger, "T-GOV-2") == ["Complete"]
     assert _remediation_task_states(remediation_ledger, "T-GOV-2A") == ["Complete"]

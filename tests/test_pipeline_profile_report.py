@@ -4,6 +4,8 @@ from pathlib import Path
 
 import pytest
 
+from scripts import pipeline_profile_compare
+
 
 spec = importlib.util.spec_from_file_location("analyze_pipeline_profile", Path("scripts/analyze_pipeline_profile.py"))
 mod = importlib.util.module_from_spec(spec)
@@ -838,7 +840,15 @@ def test_rank_bottlenecks_preserves_provider_and_partial_total_confidence_reason
     )
 
 
-def _write_compare_fixture(run_dir: Path, *, elapsed_seconds: float = 9.473, summarize_duration: float = 3.601, selected: int = 12, confidence_provider: bool = True):
+def _write_compare_fixture(
+    run_dir: Path,
+    *,
+    elapsed_seconds: float = 9.473,
+    summarize_duration: float = 3.601,
+    selected: int = 12,
+    confidence_provider: bool = True,
+    runtime_profile: dict[str, str] | None = None,
+):
     manifest_sha256 = "9867bea1aa140317d4a84ebb3670fbacd76b37bf163e4e66963e8d15cfcfa17b"
     (run_dir / "run_manifest.json").write_text(
         json.dumps(
@@ -850,6 +860,7 @@ def _write_compare_fixture(run_dir: Path, *, elapsed_seconds: float = 9.473, sum
                 "include_batch": False,
                 "source_manifest_name": "baseline_representative_v1",
                 "source_manifest_sha256": manifest_sha256,
+                "profile": runtime_profile or {},
             }
         ),
         encoding="utf-8",
@@ -943,6 +954,61 @@ def test_compare_against_expected_baseline_fails_for_counter_drift(tmp_path: Pat
     assert comparison["status"] == "fail"
     assert any(
         check["metric"] == "summary_hydration_backfill.selected" and check["status"] == "fail"
+        for check in comparison["checks"]
+    )
+
+
+def test_compare_against_expected_baseline_fails_for_runtime_profile_drift(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+):
+    run_dir = tmp_path / "profile_run_runtime_drift"
+    run_dir.mkdir()
+    expected_runtime_profile = {
+        "LOCAL_AI_BACKEND": "http",
+        "LOCAL_AI_HTTP_API": "ollama",
+        "LOCAL_AI_HTTP_MODEL": "gemma-3-270m-custom",
+        "LOCAL_AI_HTTP_PROFILE": "conservative",
+        "WORKER_CONCURRENCY": "3",
+        "WORKER_POOL": "prefork",
+        "OLLAMA_NUM_PARALLEL": "1",
+        "SEMANTIC_BACKEND": "faiss",
+        "SEMANTIC_ENABLED": "false",
+    }
+    _write_compare_fixture(
+        run_dir,
+        runtime_profile={**expected_runtime_profile, "LOCAL_AI_HTTP_PROFILE": "balanced"},
+    )
+    expected_baseline = tmp_path / "baseline.json"
+    expected_baseline.write_text(
+        json.dumps(
+            {
+                "manifest_name": "baseline_representative_v1",
+                "manifest_sha256": "9867bea1aa140317d4a84ebb3670fbacd76b37bf163e4e66963e8d15cfcfa17b",
+                "baseline_valid": True,
+                "elapsed_seconds": 9.473,
+                "runtime_profile": expected_runtime_profile,
+                "top_phases": [],
+                "stable_counters": {},
+            }
+        ),
+        encoding="utf-8",
+    )
+    monkeypatch.setattr(
+        pipeline_profile_compare,
+        "tracked_expected_baseline_bytes",
+        lambda _path, _root: expected_baseline.read_bytes(),
+    )
+
+    comparison = mod.compare_against_expected_baseline(
+        run_dir,
+        mod.rank_bottlenecks(run_dir),
+        expected_baseline,
+    )
+
+    assert comparison["status"] == "fail"
+    assert any(
+        check["metric"] == "profile.LOCAL_AI_HTTP_PROFILE" and check["status"] == "fail"
         for check in comparison["checks"]
     )
 

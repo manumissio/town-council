@@ -47,6 +47,11 @@ def load_expected_baseline(path: Path, load_json: Callable[[Path], dict[str, Any
         raise ValueError("baseline expectation baseline_valid must be true")
     if not isinstance(payload.get("top_phases"), list):
         raise ValueError("baseline expectation top_phases must be a list")
+    runtime_profile = payload.get("runtime_profile")
+    if runtime_profile is not None and (
+        not isinstance(runtime_profile, dict) or not runtime_profile
+    ):
+        raise ValueError("baseline expectation runtime_profile must be a non-empty object")
     if not isinstance(payload.get("stable_counters"), dict):
         raise ValueError("baseline expectation stable_counters must be an object")
     return payload

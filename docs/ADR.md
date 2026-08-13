@@ -30,8 +30,8 @@ Use each entry to record:
   - Synthetic replay packages and selected-record reset workflows remain
     retired. Evidence comes from observed execution against plain-text
     manifests, not reconstructed database state.
-  - `baseline_representative_v2` remains a capture candidate. Its expected
-    baseline is still pending a separate reviewed evidence PR.
+  - `baseline_representative_v2` becomes comparable only through a separately
+    reviewed expectation derived from baseline-valid terminal evidence.
 - Supersedes:
   - The temporary promotion-grade capture block in the replay-retirement
     decision below. Baseline capture is now available only through
@@ -143,10 +143,11 @@ Use each entry to record:
   - `baseline_representative_v1` is immutable historical evidence and is
     non-comparable with the roster-gated pipeline.
   - `baseline_representative_v2` is a distinct workload contract regenerated
-    from a fresh local corpus. Its expected baseline remains pending a separate
-    PR with valid reproduced evidence.
-  - City Coverage Expansion remains blocked until that expected-baseline PR
-    merges.
+    from a fresh local corpus. Its checked-in expectation references two
+    baseline-valid captures with the same initial eligibility and stable
+    counters.
+  - City Coverage Expansion requires that expected-baseline contract to remain
+    checked in and tied to baseline-valid evidence.
 - Affected boundaries:
   - This decision governs person creation, people metadata, profiles,
     memberships, vote attribution, correction, and derived-data retention.

@@ -102,8 +102,8 @@ remains in force; where this plan is stricter, this plan wins for these tasks.
   inventory comparison fixes.
 - **v3.83:** Marks T-GOV-2A complete after roster-gated persistence,
   fail-closed publication, legacy remediation, migration, and baseline-v2
-  workload verification. City Coverage Expansion remains blocked until the
-  separate expected-baseline PR merges.
+  workload verification. City Coverage Expansion requires the checked-in v2
+  expectation to remain tied to baseline-valid, reproduced evidence.
 - **v3.82:** Activates T-GOV-2A with exact ownership for authoritative
   OfficeRecords ingestion, Alembic remediation, fail-closed API/index
   behavior, deletion of document-derived person linking, and the approved
@@ -536,8 +536,8 @@ remains in force; where this plan is stricter, this plan wins for these tasks.
   person entities or people-facing derived records. Title inference, fuzzy
   matching, and source-document mentions are not roster authority. T-GOV-2
   records the decision; T-GOV-2A implements and remediates it. City Coverage
-  Expansion remains blocked until a valid `baseline_representative_v2`
-  expected-baseline PR merges.
+  Expansion requires the checked-in `baseline_representative_v2` expectation
+  to remain tied to baseline-valid, reproduced evidence.
 - G5 migration_tooling: **Approved 2026-07-24.** Adopt Alembic through
   T-PLAT-1 after T-TIME-1 and T-TIME-2. Freeze the readable `migrate_v*`
   chain after the baseline; author all later schema changes as Alembic
@@ -2212,8 +2212,8 @@ files (GED-5 grant).
   approved Full person-data plan.
 - accept: Runtime behavior and existing derived data conform to the accepted G4
   policy; correction and reindexing are repeatable; City Coverage Expansion
-  remains blocked until a baseline-valid v2 capture is reproduced and its
-  expected-baseline PR merges.
+  requires the checked-in v2 expectation to remain tied to baseline-valid,
+  reproduced evidence.
 
 ### T-GOV-3: Redesign the guardrail regime
 - priority: P2
@@ -2382,8 +2382,9 @@ Phase 3: agent-plat [T-PLAT-1 after T-TIME-1 and T-TIME-2, T-PLAT-1A
          T-PLAT-2D alert #121 and T-PLAT-2E Meilisearch migration complete]
          || agent-gov [T-GOV-2 policy and T-GOV-2A runtime enforcement
          complete; T-GOV-3A/B and T-GOV-5 complete]
-After:   Remediation implementation is complete. City Coverage Expansion awaits
-         the valid v2 expected-baseline PR.
+After:   Remediation implementation is complete. City Coverage Expansion
+         requires the checked-in v2 expectation to remain tied to
+         baseline-valid, reproduced evidence.
 ```
 
 Merge policy: one task = one PR, except operator-approved T-TIME-1 +
