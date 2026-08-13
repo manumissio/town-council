@@ -967,13 +967,22 @@ def test_compare_against_expected_baseline_fails_for_runtime_profile_drift(
     expected_runtime_profile = {
         "LOCAL_AI_BACKEND": "http",
         "LOCAL_AI_HTTP_API": "ollama",
+        "LOCAL_AI_HTTP_MAX_RETRIES": "1",
         "LOCAL_AI_HTTP_MODEL": "gemma-3-270m-custom",
         "LOCAL_AI_HTTP_PROFILE": "conservative",
+        "LOCAL_AI_HTTP_TIMEOUT_SECONDS": "60",
+        "LOCAL_AI_HTTP_TIMEOUT_SEGMENT_SECONDS": "60",
+        "LOCAL_AI_HTTP_TIMEOUT_SUMMARY_SECONDS": "60",
+        "LOCAL_AI_HTTP_TIMEOUT_TOPICS_SECONDS": "60",
         "WORKER_CONCURRENCY": "3",
         "WORKER_POOL": "prefork",
         "OLLAMA_NUM_PARALLEL": "1",
         "SEMANTIC_BACKEND": "faiss",
+        "SEMANTIC_CONTENT_MAX_CHARS": "4000",
         "SEMANTIC_ENABLED": "false",
+        "SEMANTIC_MODEL_NAME": "all-MiniLM-L6-v2",
+        "SEMANTIC_WORKER_PROCESS_COMMAND": "celery -A pipeline.semantic_tasks worker",
+        "WORKER_PROCESS_COMMAND": "celery -A pipeline.tasks worker",
     }
     _write_compare_fixture(
         run_dir,
