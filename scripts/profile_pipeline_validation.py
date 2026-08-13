@@ -245,9 +245,7 @@ def _phase_evidence(
             reasons.add(f"phase_eligibility_incomplete:{phase}:{subject}")
             continue
         before_row = next(row for row in matching_rows if row.get("boundary") == "before")
-        before_count = before_row.get("eligible_count")
-        if isinstance(before_count, int) and not isinstance(before_count, bool):
-            initial_workload_count += before_count
+        initial_workload_count += _recorded_eligible_count(before_row)
         after_row = next(row for row in matching_rows if row.get("boundary") == "after")
         eligible_count = after_row.get("eligible_count")
         if not isinstance(eligible_count, int) or isinstance(eligible_count, bool):
@@ -270,6 +268,13 @@ def _phase_evidence(
         elif phase_spans[0].get("outcome") != "success":
             reasons.add(f"phase_span_failed:{phase}")
     return reasons, warnings
+
+
+def _recorded_eligible_count(profile_event: dict[str, Any]) -> int:
+    eligible_count = profile_event.get("eligible_count")
+    if isinstance(eligible_count, int) and not isinstance(eligible_count, bool):
+        return eligible_count
+    return 0
 
 
 def _counter_failure_reasons(commands_log: Path) -> set[str]:
