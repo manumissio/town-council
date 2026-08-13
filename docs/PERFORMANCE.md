@@ -114,10 +114,12 @@ What the profiler attributes:
 - provider evidence correlation via existing `tc_provider_*` metrics
 
 `spans.jsonl` also records `phase_eligibility` rows for synchronous backlog
-phases. Each successful phase has a `before` and `after` row with the sorted
-catalog IDs selected by that phase's existing eligibility query. Successful
-zero-work phases record two empty rows. A missing `after` row means the phase
-or its post-phase eligibility query did not complete. These rows are evidence
+phases. Each successful phase has a `before` and `after` row with sorted IDs
+from its existing eligibility query. Most phases use catalog IDs; organization
+backfill records place IDs for missing base organizations and event IDs for
+missing or incorrect organization links. Successful zero-work phases record
+paired empty rows for every subject. A missing `after` row means the phase or
+its post-phase eligibility query did not complete. These rows are evidence
 about workload state. Post-phase selection runs after the measured callable
 closes, and the bottleneck analyzer excludes eligibility rows from occurrence
 counts, components, and duration totals.

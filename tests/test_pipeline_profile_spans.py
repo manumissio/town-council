@@ -103,6 +103,23 @@ def test_phase_eligibility_writes_normalized_catalog_ids(monkeypatch, tmp_path: 
     ]
 
 
+@pytest.mark.parametrize("subject", ["place", "event"])
+def test_phase_eligibility_preserves_non_catalog_subjects(monkeypatch, tmp_path: Path, subject: str):
+    monkeypatch.setenv(profiling.PROFILE_RUN_ID_ENV, "profile_run")
+    monkeypatch.setenv(profiling.PROFILE_ARTIFACT_DIR_ENV, str(tmp_path))
+
+    profiling.append_phase_eligibility(
+        phase="org_backfill",
+        boundary="before",
+        subject=subject,
+        eligible_ids=[3, 2, 3],
+    )
+
+    row = json.loads((tmp_path / "spans.jsonl").read_text(encoding="utf-8"))
+    assert row["subject"] == subject
+    assert row["eligible_ids"] == [2, 3]
+
+
 def test_selected_catalog_ids_accept_comments_and_duplicates(monkeypatch, tmp_path: Path):
     manifest_path = tmp_path / "selected_catalogs.txt"
     manifest_path.write_text("11\n12 # retained\n11\n", encoding="utf-8")

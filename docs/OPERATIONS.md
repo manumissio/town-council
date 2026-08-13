@@ -897,12 +897,14 @@ find experiments/results/maintenance -maxdepth 4 -type f | sort
   - stable workload-shape counters from `commands.log`
 - Counter drift is treated more strictly than timing drift; reduced-confidence runs are reported as non-comparable rather than clean passes.
 - Inspect `phase_eligibility` rows in `spans.jsonl` when checking whether a
-  synchronous backlog phase reduced its eligible catalog set. Successful
-  phases record paired `before` and `after` rows, including paired empty rows
-  for zero-work phases. A missing `after` row is incomplete evidence, not a
-  zero remainder. These rows do not change timing rankings or baseline-validity
-  status. Post-phase eligibility selection runs after the measured phase closes
-  so evidence collection does not inflate that phase's duration.
+  synchronous backlog phase reduced its eligible set. Most phases identify
+  catalogs; organization backfill identifies place and event obligations.
+  Successful phases record paired `before` and `after` rows, including paired
+  empty rows for zero-work phases. A missing `after` row is incomplete
+  evidence, not a zero remainder. These rows do not change timing rankings or
+  baseline-validity status. Post-phase eligibility selection runs after the
+  measured phase closes so evidence collection does not inflate that phase's
+  duration.
 - Inspect freshly downloaded pending work as a non-promotional diagnostic:
 ```bash
 MANIFEST=experiments/results/baseline_v2_fresh_pending.txt

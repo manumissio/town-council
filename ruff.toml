@@ -62,7 +62,6 @@ extend-immutable-calls = ["fastapi.Depends", "fastapi.Query", "fastapi.Path", "f
 "pipeline/agenda_worker.py" = ["BLE001"]
 "pipeline/backfill_catalog_hashes.py" = ["C901"]
 "pipeline/backfill_entities.py" = ["C901"]
-"pipeline/backfill_orgs.py" = ["C901"]
 "pipeline/check_faiss_runtime.py" = ["BLE001"]
 "pipeline/city_coverage_audit.py" = ["DTZ011"]
 "pipeline/city_coverage_windows.py" = ["DTZ011"]

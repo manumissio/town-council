@@ -12,7 +12,8 @@ from sqlalchemy.exc import SQLAlchemyError
 from pipeline import run_pipeline
 from pipeline import run_batch_enrichment
 from pipeline import profiling
-from pipeline.models import Base, Catalog, Document, Event, Place, UrlStage, UrlStageHist
+from pipeline import backfill_orgs
+from pipeline.models import Base, Catalog, Document, Event, Organization, Place, UrlStage, UrlStageHist
 from pipeline import run_pipeline_steps
 
 
@@ -490,8 +491,12 @@ def test_run_batch_enrichment_runs_heavy_steps_in_expected_order(mocker):
         side_effect=[[2, 3]],
     )
     org_spy = mocker.patch(
-        "pipeline.run_batch_enrichment.run_organization_backfill",
+        "pipeline.run_batch_enrichment.run_organization_backfill_workload",
         return_value={"selected": 1, "linked": 1, "reindexed": 1, "failed_reindex": 0},
+    )
+    mocker.patch(
+        "pipeline.run_batch_enrichment.capture_organization_backfill_after_eligibility",
+        side_effect=lambda: calls.append("org-after"),
     )
     topic_backfill_spy = mocker.patch(
         "pipeline.run_batch_enrichment.run_topic_hydration_backfill",
@@ -512,6 +517,7 @@ def test_run_batch_enrichment_runs_heavy_steps_in_expected_order(mocker):
         "entity-after",
         ("Table Extraction", ("python", "table_worker.py")),
         ("Backfill Organizations", "pipeline-batch"),
+        "org-after",
         ("Topic Modeling", "topic_modeling"),
     ]
     entity_spy.assert_called_once_with()
@@ -541,9 +547,10 @@ def test_batch_entity_after_eligibility_is_outside_phase_span(
         side_effect=_empty_entity_workload,
     )
     mocker.patch(
-        "pipeline.run_batch_enrichment.run_organization_backfill",
+        "pipeline.run_batch_enrichment.run_organization_backfill_workload",
         return_value={"selected": 0, "linked": 0, "reindexed": 0, "failed_reindex": 0},
     )
+    mocker.patch("pipeline.run_batch_enrichment.capture_organization_backfill_after_eligibility")
     mocker.patch("pipeline.run_batch_enrichment.db_session")
     mocker.patch(
         "pipeline.run_batch_enrichment.select_catalog_ids_for_table_extraction",
@@ -566,6 +573,79 @@ def test_batch_entity_after_eligibility_is_outside_phase_span(
         ("span", None),
         ("phase_eligibility", "after"),
     ]
+
+
+def test_organization_after_eligibility_is_outside_phase_span(
+    monkeypatch,
+    mocker,
+    tmp_path: Path,
+):
+    engine = create_engine("sqlite:///:memory:")
+    Base.metadata.create_all(engine)
+    session = sessionmaker(bind=engine)()
+    place = Place(name="Test City", state="CA", ocd_division_id="ocd-division/test")
+    session.add(place)
+    session.commit()
+    session.close()
+    monkeypatch.setenv(profiling.PROFILE_RUN_ID_ENV, "profile_run")
+    monkeypatch.setenv(profiling.PROFILE_ARTIFACT_DIR_ENV, str(tmp_path))
+    mocker.patch("pipeline.backfill_orgs.db_connect", return_value=engine)
+
+    run_pipeline.run_callable_step(
+        "Backfill Organizations",
+        backfill_orgs.run_organization_backfill_workload,
+        component="pipeline-batch",
+    )
+    backfill_orgs.capture_organization_backfill_after_eligibility()
+
+    rows = _profile_rows(tmp_path)
+    assert [
+        (row["event_type"], row.get("subject"), row.get("boundary"))
+        for row in rows
+        if row.get("phase") == "org_backfill"
+    ] == [
+        ("phase_eligibility", "place", "before"),
+        ("phase_eligibility", "event", "before"),
+        ("span", None, None),
+        ("phase_eligibility", "place", "after"),
+        ("phase_eligibility", "event", "after"),
+    ]
+    engine.dispose()
+
+
+def test_organization_after_database_failure_preserves_successful_workload_span(
+    monkeypatch,
+    mocker,
+    tmp_path: Path,
+):
+    engine = create_engine("sqlite:///:memory:")
+    Base.metadata.create_all(engine)
+    session = sessionmaker(bind=engine)()
+    place = Place(name="Test City", state="CA", ocd_division_id="ocd-division/test")
+    session.add(place)
+    session.commit()
+    session.close()
+    monkeypatch.setenv(profiling.PROFILE_RUN_ID_ENV, "profile_run")
+    monkeypatch.setenv(profiling.PROFILE_ARTIFACT_DIR_ENV, str(tmp_path))
+    mocker.patch("pipeline.backfill_orgs.db_connect", return_value=engine)
+
+    run_pipeline.run_callable_step(
+        "Backfill Organizations",
+        backfill_orgs.run_organization_backfill_workload,
+        component="pipeline-batch",
+    )
+    engine.dispose()
+
+    with pytest.raises(SQLAlchemyError):
+        backfill_orgs.capture_organization_backfill_after_eligibility()
+
+    rows = _profile_rows(tmp_path)
+    assert [(row["event_type"], row.get("boundary"), row.get("outcome")) for row in rows] == [
+        ("phase_eligibility", "before", None),
+        ("phase_eligibility", "before", None),
+        ("span", None, "success"),
+    ]
+    engine.dispose()
 
 
 def test_run_batch_callable_step_records_failure_context_before_exit(
@@ -616,9 +696,10 @@ def test_run_batch_enrichment_skips_noop_topic_and_table_steps(mocker):
         side_effect=[[]],
     )
     org_spy = mocker.patch(
-        "pipeline.run_batch_enrichment.run_organization_backfill",
+        "pipeline.run_batch_enrichment.run_organization_backfill_workload",
         return_value={"selected": 0, "linked": 0, "reindexed": 0, "failed_reindex": 0},
     )
+    mocker.patch("pipeline.run_batch_enrichment.capture_organization_backfill_after_eligibility")
     topic_backfill_spy = mocker.patch("pipeline.run_batch_enrichment.run_topic_hydration_backfill")
     run_batch_enrichment.main()
 
@@ -644,9 +725,10 @@ def _patch_batch_non_target_steps(mocker) -> None:
     )
     mocker.patch("pipeline.run_batch_enrichment.capture_entity_backfill_after_eligibility")
     mocker.patch(
-        "pipeline.run_batch_enrichment.run_organization_backfill",
+        "pipeline.run_batch_enrichment.run_organization_backfill_workload",
         return_value={"selected": 0, "linked": 0, "reindexed": 0, "failed_reindex": 0},
     )
+    mocker.patch("pipeline.run_batch_enrichment.capture_organization_backfill_after_eligibility")
     mocker.patch("pipeline.run_batch_enrichment.db_session")
 
 
