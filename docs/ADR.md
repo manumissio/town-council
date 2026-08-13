@@ -8,6 +8,39 @@ Use each entry to record:
 - the affected boundary or contract
 - links to the canonical docs that carry the ongoing operational or architecture detail
 
+## 2026-08-13: Derive profiler baseline validity from terminal evidence
+
+- Status: Accepted
+- Decision:
+  - `run_manifest.json` is the sole mutable authority for a profiling run's
+    `baseline_valid` status.
+  - Every profiling run starts with `baseline_valid=false`. A non-diagnostic
+    baseline run may change to `true` only after its terminal artifacts verify
+    the tracked manifest identity, completed core and batch work, phase
+    eligibility, task execution, provider telemetry, and search evidence.
+  - Diagnostic runs remain `baseline_valid=false` regardless of their outcome.
+  - Comparisons require a tracked plain-text manifest whose identity matches the
+    run evidence and the checked-in expected baseline contract.
+- Why:
+  - Selecting baseline mode describes operator intent; it does not prove that
+    the requested work completed or that the resulting evidence is comparable.
+  - One mutable authority prevents intermediate artifacts from disagreeing
+    about whether a run is valid.
+- Preserves:
+  - Synthetic replay packages and selected-record reset workflows remain
+    retired. Evidence comes from observed execution against plain-text
+    manifests, not reconstructed database state.
+  - `baseline_representative_v2` remains a capture candidate. Its expected
+    baseline is still pending a separate reviewed evidence PR.
+- Supersedes:
+  - The temporary promotion-grade capture block in the replay-retirement
+    decision below. Baseline capture is now available only through
+    evidence-derived terminal validation.
+- Canonical references:
+  - [docs/PERFORMANCE.md](PERFORMANCE.md)
+  - [docs/OPERATIONS.md](OPERATIONS.md)
+  - [Profiling manifests](../profiling/manifests/README.md)
+
 ## 2026-08-13: Retire synthetic profiling replay packages
 
 - Status: Accepted
@@ -28,7 +61,8 @@ Use each entry to record:
   - The profile-manifest compatibility clause in the 2026-05-03 batch
     pipeline orchestration decision.
 - Affected boundaries:
-  - Promotion-grade baseline capture remains quarantined.
+  - Promotion-grade baseline capture is governed by the evidence-derived
+    validity decision above.
   - Historical expected baselines and plain-text catalog manifests remain.
 - Canonical references:
   - [docs/PERFORMANCE.md](PERFORMANCE.md)

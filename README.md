@@ -128,7 +128,9 @@ new pending catalogs, and stop before `run_pipeline.py`. The profiler disables
 startup purge and clears onboarding filters inside its Docker commands. Do not
 pass `--skip-batch`; the resulting evidence remains non-comparable.
 
-Promotion-grade baseline capture is temporarily quarantined while evidence-integrity checks are completed.
+Promotion-grade baseline capture uses only a tracked manifest and starts as
+invalid. The terminal `run_manifest.json` becomes baseline-valid only after
+the profiler verifies completed work, runtime identity, and required evidence.
 
 Analyze an existing profiling run:
 ```bash

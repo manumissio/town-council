@@ -901,10 +901,10 @@ find experiments/results/maintenance -maxdepth 4 -type f | sort
   catalogs; organization backfill identifies place and event obligations.
   Successful phases record paired `before` and `after` rows, including paired
   empty rows for zero-work phases. A missing `after` row is incomplete
-  evidence, not a zero remainder. These rows do not change timing rankings or
-  baseline-validity status. Post-phase eligibility selection runs after the
-  measured phase closes so evidence collection does not inflate that phase's
-  duration.
+  evidence, not a zero remainder. These rows participate in terminal baseline
+  validation but do not change timing rankings. Post-phase eligibility
+  selection runs after the measured phase closes so evidence collection does
+  not inflate that phase's duration.
 - Inspect freshly downloaded pending work as a non-promotional diagnostic:
 ```bash
 MANIFEST=experiments/results/baseline_v2_fresh_pending.txt
@@ -922,9 +922,8 @@ sibling JSON sidecar and do not pass `--skip-batch`. The profiler disables
 startup purge and clears onboarding filters in the container commands. The
 result remains exploratory and non-comparable.
 
-Promotion-grade baseline capture is quarantined. Do not compare v1 with v2.
-City Coverage Expansion remains blocked until a valid, reproduced v2
-expected-baseline PR merges.
+Do not compare v1 with v2. City Coverage Expansion remains blocked until a
+valid, reproduced v2 expected-baseline PR merges.
 
 ### Maintenance salvage helper for flaky Laserfiche agenda PDFs
 - `scripts/repair_san_mateo_laserfiche_backlog.py` now distinguishes generated-PDF transport failures from permanent failures.
@@ -1543,11 +1542,16 @@ Commands:
 ```bash
 cd "$REPO_ROOT"
 PYTHONPATH=. .venv/bin/python scripts/profile_pipeline.py --mode triage
+PYTHONPATH=. .venv/bin/python scripts/profile_pipeline.py --mode baseline --manifest profiling/manifests/<name>.txt
 PYTHONPATH=. .venv/bin/python scripts/profile_pipeline.py --mode baseline --manifest profiling/manifests/<name>.txt --diagnostic
 PYTHONPATH=. .venv/bin/python scripts/analyze_pipeline_profile.py --run-id <run_id>
 ```
 
-Promotion-grade baseline capture is quarantined until evidence-integrity activation. Diagnostic captures are useful for investigation but are not comparable evidence.
+`run_manifest.json` is the profiler's sole mutable validity authority. It starts
+with `baseline_valid=false` and changes to `true` only after a
+non-diagnostic baseline run has verified terminal artifacts and tracked
+manifest identity. Diagnostic captures always remain `false` and are not
+comparable evidence.
 
 The fresh-work trace uses a temporary plain-text manifest under
 `experiments/results/`, verifies that no sibling `.json` sidecar exists, and
@@ -1561,7 +1565,8 @@ Runtime note:
 
 Artifacts:
 - `experiments/results/profiling/<run_id>/run_manifest.json`
-  - workload identity, profile env, baseline-valid flag, and pre-run provider counters
+  - tracked workload identity, profile env, the authoritative baseline-valid
+    flag, and pre-run provider counters
 - `experiments/results/profiling/<run_id>/spans.jsonl`
   - append-only orchestrator, dispatch, and task timing evidence
   - `task_start` rows mark worker-attempt starts; an unmatched start lowers
@@ -1598,7 +1603,9 @@ Interpretation rules:
   producer-side broker publication, while task spans describe worker execution
 - unmatched dispatch rows or retry attempts without dispatch evidence reduce
   report confidence
-- `baseline-valid` requires a pinned manifest and stable workload conditions; `triage` is diagnostic only
+- `baseline-valid` requires a tracked manifest identity, stable workload
+  conditions, and verified terminal artifacts; `triage` and `--diagnostic`
+  runs remain false
 - profiling artifacts are observational and should not be used as a source of business truth
 - `result.json` is the primary contract for elapsed-time totals; if totals are incomplete or derived from fallback spans, the analyzer should mark the run `reduced-confidence`
 - zero-work summary/agenda/entity/org/people backlog phases should now be nearly free because the default orchestration invokes their callable runners directly instead of spawning Python subprocesses
@@ -1613,6 +1620,8 @@ Manifest guidance:
 - keep baseline manifests checked in under `profiling/manifests/`
 - use plain-text catalog lists only; duplicate or nonpositive IDs fail before a run starts
 - use stable catalog sets when you want longitudinal comparisons
+- compare only when the run and checked-in expectation identify the same
+  tracked manifest contract
 - if cache/artifact state differs materially between runs, treat the comparison as diagnostic only
 
 ### Automated daily soak harness (current local baseline host: M5 Pro)
@@ -2144,9 +2153,11 @@ The scorer now preserves arm identity from `run_config.json`:
 - `experiments/results/ab_score_<control>_<treatment>.json`
 - `experiments/results/ab_report_v1.md`
 
-4) Paired promotion-grade pipeline profiles are temporarily unavailable.
+4) Run paired promotion-grade pipeline profiles only with tracked manifests.
 
-Do not substitute diagnostic captures for the former pass/fail procedure: pairwise comparison rejects non-baseline-valid arms. Resume this step only after evidence-integrity activation restores baseline capture.
+Do not substitute diagnostic captures for the pass/fail procedure: pairwise
+comparison rejects non-baseline-valid arms. Each arm must finish with terminal
+`run_manifest.json` evidence showing `baseline_valid=true`.
 
 Default is `false` for staged rollout.
 
