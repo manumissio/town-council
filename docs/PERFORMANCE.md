@@ -71,12 +71,17 @@ Use the profiling harness when the question is "what is actually slow on the cri
 Commands:
 ```bash
 PYTHONPATH=. .venv/bin/python scripts/profile_pipeline.py --mode triage
+PYTHONPATH=. .venv/bin/python scripts/profile_pipeline.py --mode baseline --manifest profiling/manifests/<name>.txt
 PYTHONPATH=. .venv/bin/python scripts/profile_pipeline.py --mode baseline --manifest profiling/manifests/<name>.txt --diagnostic
 PYTHONPATH=. .venv/bin/python scripts/analyze_pipeline_profile.py --run-id <run_id>
 PYTHONPATH=. .venv/bin/python scripts/analyze_pipeline_profile.py --run-id <run_id> --compare-to profiling/baselines/<name>.json
 ```
 
-Promotion-grade baseline capture is quarantined until workload completion and comparison evidence are bound to the run. Diagnostic captures remain non-comparable.
+`run_manifest.json` is the sole mutable authority for profiler validity. Every
+run starts with `baseline_valid=false`. A non-diagnostic baseline run changes
+to `true` only after terminal artifacts verify the tracked manifest identity,
+completed work, and required runtime evidence. Diagnostic captures remain
+`false` and non-comparable.
 
 For the fresh-work trace, use a temporary manifest with no sidecar after the
 crawl, promotion, and scoped downloader have finished, but before
@@ -117,9 +122,10 @@ backfill records place IDs for missing base organizations and event IDs for
 missing or incorrect organization links. Successful zero-work phases record
 paired empty rows for every subject. A missing `after` row means the phase or
 its post-phase eligibility query did not complete. These rows are evidence
-about workload state. Post-phase selection runs after the measured callable
-closes, and the bottleneck analyzer excludes eligibility rows from occurrence
-counts, components, and duration totals.
+about workload completion and participate in terminal baseline validation.
+Post-phase selection runs after the measured callable closes, and the
+bottleneck analyzer excludes eligibility rows from occurrence counts,
+components, and duration totals.
 
 Celery `task_start` and `task_span` rows identify both the logical task and the
 worker attempt:
@@ -173,12 +179,12 @@ Ranking model:
 
 Interpretation rule:
 - do not compare `triage` runs to baseline runs as if they were equivalent evidence
-- use historical baseline-valid runs for longitudinal comparison; new promotion-grade captures remain quarantined
+- use only runs whose terminal `run_manifest.json` records `baseline_valid=true` for longitudinal comparison
 - if the analyzer reports `reduced-confidence`, inspect `result.json` and run-quality notes before using the ranking to prioritize work
 - selected-manifest profiling runs are workload-only by default, so unrelated global prelude work such as staged promotion and downloader retries should not appear in the ranked bottlenecks
 - use `--diagnostic` when a pinned baseline manifest is needed for investigation but the resulting evidence must remain non-comparable and `baseline_valid=false`
 - do not attach a sidecar to a profiling manifest; the harness rejects retired synthetic replay packages before creating run artifacts
-- use `--compare-to` to analyze existing baseline-valid evidence; diagnostic captures remain non-comparable
+- use `--compare-to` only with checked-in expectations whose tracked manifest identity matches the run; diagnostic captures remain non-comparable
 - `baseline_representative_v1` and its checked-in expectation are immutable
   historical evidence for the retired document-derived person pipeline; they
   are non-comparable with roster-gated runs
@@ -195,7 +201,6 @@ Baseline compare report:
 - `status=fail` means the report's `Failed Checks` section is the priority list; inspect the first failed reason, then compare expected, actual, delta, and tolerance values before changing code.
 - `status=non_comparable` means the run is diagnostic only. Fix the listed confidence or baseline-validity reason before using the run for regression or promotion decisions.
 - `Failed Checks` lists timing regressions, missing artifacts, and workload-shape drift separately enough for an engineer to reproduce the failing condition without reading the JSON payload.
-- Reports do not emit a recapture command while promotion-grade baseline execution is quarantined.
 
 ### Latest runtime optimization note
 

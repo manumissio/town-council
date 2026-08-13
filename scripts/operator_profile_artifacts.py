@@ -40,7 +40,9 @@ def write_catalog_manifest(path: Path, catalog_ids: list[int]) -> None:
 
 def write_json(path: Path, payload: dict) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(json_dump(payload), encoding="utf-8")
+    temporary_path = path.with_suffix(f"{path.suffix}.tmp")
+    temporary_path.write_text(json_dump(payload), encoding="utf-8")
+    temporary_path.replace(path)
 
 
 def path_for_profile_env(path: Path, repo_root: Path) -> str:
@@ -56,7 +58,6 @@ def build_result_payload(
     *,
     run_id: str,
     status: str,
-    baseline_valid: bool,
     started_at: str,
     finished_at: str,
     elapsed_seconds: float,
@@ -71,7 +72,6 @@ def build_result_payload(
     return {
         "run_id": run_id,
         "status": status,
-        "baseline_valid": baseline_valid,
         "started_at": started_at,
         "finished_at": finished_at,
         "elapsed_seconds": round(float(elapsed_seconds), 3),

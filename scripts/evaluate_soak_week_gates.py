@@ -57,7 +57,7 @@ def evaluate_soak_window(root: Path, *, window_days: int, search_baseline_ms: fl
 def _record_soak_day(evidence: SoakEvidence, row: dict[str, Any]) -> None:
     day = row["data"]
     run_deltas = _provider_run_deltas(day)
-    baseline_valid = day.get("baseline_valid") is True
+    baseline_valid = row["baseline_valid"] is True
     if not baseline_valid:
         evidence.non_baseline_days += 1
     if run_deltas["present"] and baseline_valid:
@@ -164,7 +164,7 @@ def _day_payload(
         "run_id": row["run_id"],
         "date": datetime.fromtimestamp(row["ts"]).strftime("%Y-%m-%d"),
         "status": day.get("status"),
-        "baseline_valid": day.get("baseline_valid") is True,
+        "baseline_valid": row["baseline_valid"] is True,
         "extract_failures": extract_failures,
         "segment_failures": safe_int(day.get("segment_failures")),
         "summarize_failures": safe_int(day.get("summarize_failures")),

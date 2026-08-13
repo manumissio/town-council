@@ -3,13 +3,21 @@ import subprocess
 from pathlib import Path
 
 
-def _write_day(root: Path, run_id: str, ts: int, **overrides) -> None:
+def _write_day(
+    root: Path,
+    run_id: str,
+    ts: int,
+    *,
+    baseline_valid: bool = True,
+    run_manifest_text: str | None = None,
+    day_summary_baseline_valid: bool | None = None,
+    **overrides,
+) -> None:
     run_dir = root / run_id
     run_dir.mkdir(parents=True, exist_ok=True)
     payload = {
         "run_id": run_id,
         "timestamp_epoch_s": ts,
-        "baseline_valid": True,
         "status": "complete",
         "gating_failures": 0,
         "extract_failures": 0,
@@ -31,7 +39,13 @@ def _write_day(root: Path, run_id: str, ts: int, **overrides) -> None:
         "metrics_sources": {"worker_metrics_available": True, "api_metrics_available": True},
     }
     payload.update(overrides)
+    if day_summary_baseline_valid is not None:
+        payload["baseline_valid"] = day_summary_baseline_valid
     (run_dir / "day_summary.json").write_text(json.dumps(payload, indent=2), encoding="utf-8")
+    if run_manifest_text is None:
+        run_manifest_text = json.dumps({"baseline_valid": baseline_valid})
+    if run_manifest_text:
+        (run_dir / "run_manifest.json").write_text(run_manifest_text, encoding="utf-8")
 
 
 def test_timeout_rate_gate_is_inconclusive_when_no_provider_request_deltas(tmp_path):
@@ -136,3 +150,67 @@ def test_diagnostic_days_do_not_count_as_promotion_grade_baseline_artifacts(tmp_
     assert out["overall_status"] == "INCONCLUSIVE"
     assert out["overall_pass"] is False
     assert "baseline_contaminated" in out["evidence_quality_reasons"]
+
+
+def test_missing_run_manifest_fails_closed_despite_stale_day_summary_flag(tmp_path):
+    root = tmp_path / "soak"
+    for i in range(7):
+        _write_day(
+            root,
+            f"missing_manifest_day_{i}",
+            1_700_003_000 + i,
+            run_manifest_text="",
+            baseline_valid=True,
+            day_summary_baseline_valid=True,
+            provider_requests_delta_run=50.0,
+            provider_timeouts_delta_run=0.0,
+            provider_retries_delta_run=0.0,
+        )
+
+    subprocess.run(
+        [
+            ".venv/bin/python",
+            "scripts/evaluate_soak_week.py",
+            "--input-dir",
+            str(root),
+            "--window-days",
+            "7",
+        ],
+        check=True,
+    )
+
+    out = json.loads((root / "soak_eval_7d.json").read_text(encoding="utf-8"))
+    assert out["baseline_artifact_days"] == 0
+    assert out["baseline_valid"] is False
+    assert out["per_day"][0]["baseline_valid"] is False
+
+
+def test_malformed_run_manifest_fails_closed(tmp_path):
+    root = tmp_path / "soak"
+    for i in range(7):
+        _write_day(
+            root,
+            f"malformed_manifest_day_{i}",
+            1_700_004_000 + i,
+            run_manifest_text="{not-json",
+            provider_requests_delta_run=50.0,
+            provider_timeouts_delta_run=0.0,
+            provider_retries_delta_run=0.0,
+        )
+
+    subprocess.run(
+        [
+            ".venv/bin/python",
+            "scripts/evaluate_soak_week.py",
+            "--input-dir",
+            str(root),
+            "--window-days",
+            "7",
+        ],
+        check=True,
+    )
+
+    out = json.loads((root / "soak_eval_7d.json").read_text(encoding="utf-8"))
+    assert out["baseline_artifact_days"] == 0
+    assert out["baseline_valid"] is False
+    assert out["per_day"][0]["baseline_valid"] is False

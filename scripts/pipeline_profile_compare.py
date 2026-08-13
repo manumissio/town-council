@@ -12,6 +12,7 @@ from scripts.pipeline_profile_analysis import _load_expected_baseline
 from scripts.pipeline_profile_analysis import _load_json
 from scripts.pipeline_profile_analysis import _load_latest_counter_line
 from scripts.pipeline_profile_analysis import rank_bottlenecks
+from scripts.profile_pipeline_runtime import tracked_expected_baseline_bytes
 
 
 PAIRWISE_CONTROLLED_PROFILE_KEYS = (
@@ -133,7 +134,7 @@ def compare_profile_runs(control_run_dir: Path, treatment_run_dir: Path) -> dict
         control_day,
         treatment_day,
     )
-    if not control_summary.get("baseline_valid") or not treatment_summary.get("baseline_valid"):
+    if control_manifest.get("baseline_valid") is not True or treatment_manifest.get("baseline_valid") is not True:
         return _mark_non_comparable(comparison, "baseline_invalid")
     if str(control_summary.get("confidence") or "").startswith("reduced-confidence"):
         return _mark_non_comparable(comparison, "control_confidence_reduced")
@@ -205,6 +206,7 @@ def _append_expected_counter_checks(
 
 
 def compare_against_expected_baseline(run_dir: Path, summary: dict[str, Any], expected_path: Path) -> dict[str, Any]:
+    tracked_expected_baseline_bytes(expected_path, Path(__file__).resolve().parents[1])
     expected = _load_expected_baseline(expected_path)
     comparison: dict[str, Any] = {
         "expected_baseline": str(expected_path),
@@ -214,8 +216,16 @@ def compare_against_expected_baseline(run_dir: Path, summary: dict[str, Any], ex
         "comparable": True,
         "checks": [],
     }
-    if not summary.get("baseline_valid"):
+    run_manifest = _load_json(run_dir / "run_manifest.json")
+    if run_manifest.get("baseline_valid") is not True:
         return _mark_non_comparable(comparison, "baseline_invalid")
+    source_manifest_name = run_manifest.get("source_manifest_name")
+    source_manifest_sha256 = run_manifest.get("source_manifest_sha256")
+    if (
+        source_manifest_name != expected.get("manifest_name")
+        or source_manifest_sha256 != expected.get("manifest_sha256")
+    ):
+        return _mark_non_comparable(comparison, "manifest_mismatch")
     if str(summary.get("confidence") or "").startswith("reduced-confidence"):
         return _mark_non_comparable(comparison, "confidence_reduced")
     checks: list[dict[str, Any]] = [

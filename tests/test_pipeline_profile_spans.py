@@ -10,7 +10,6 @@ def test_profile_span_writes_jsonl_event(monkeypatch, tmp_path: Path):
     monkeypatch.setenv(profiling.PROFILE_RUN_ID_ENV, "profile_run")
     monkeypatch.setenv(profiling.PROFILE_MODE_ENV, "triage")
     monkeypatch.setenv(profiling.PROFILE_ARTIFACT_DIR_ENV, str(tmp_path))
-    monkeypatch.setenv(profiling.PROFILE_BASELINE_VALID_ENV, "0")
 
     with profiling.profile_span(phase="download", component="subprocess", metadata={"command": ["python", "downloader.py"]}):
         pass
@@ -21,6 +20,7 @@ def test_profile_span_writes_jsonl_event(monkeypatch, tmp_path: Path):
     assert rows[0]["phase"] == "download"
     assert rows[0]["component"] == "subprocess"
     assert rows[0]["event_type"] == "span"
+    assert "baseline_valid" not in rows[0]
 
 
 def test_profile_span_excludes_nested_observer_work(monkeypatch, tmp_path: Path):
@@ -77,7 +77,6 @@ def test_phase_eligibility_writes_normalized_catalog_ids(monkeypatch, tmp_path: 
     monkeypatch.setenv(profiling.PROFILE_RUN_ID_ENV, "profile_run")
     monkeypatch.setenv(profiling.PROFILE_MODE_ENV, "baseline")
     monkeypatch.setenv(profiling.PROFILE_ARTIFACT_DIR_ENV, str(tmp_path))
-    monkeypatch.setenv(profiling.PROFILE_BASELINE_VALID_ENV, "0")
 
     profiling.append_phase_eligibility(
         phase="summarize",
@@ -89,7 +88,6 @@ def test_phase_eligibility_writes_normalized_catalog_ids(monkeypatch, tmp_path: 
     rows = [json.loads(line) for line in (tmp_path / "spans.jsonl").read_text(encoding="utf-8").splitlines()]
     assert rows == [
         {
-            "baseline_valid": False,
             "boundary": "before",
             "eligible_count": 3,
             "eligible_ids": [11, 12, 13],

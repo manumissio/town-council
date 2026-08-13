@@ -14,7 +14,6 @@ from typing import Any, Iterator, Literal, Protocol, Sequence, TypeVar
 PROFILE_RUN_ID_ENV = "TC_PROFILE_RUN_ID"
 PROFILE_MODE_ENV = "TC_PROFILE_MODE"
 PROFILE_ARTIFACT_DIR_ENV = "TC_PROFILE_ARTIFACT_DIR"
-PROFILE_BASELINE_VALID_ENV = "TC_PROFILE_BASELINE_VALID"
 PROFILE_CATALOG_MANIFEST_ENV = "TC_PROFILE_CATALOG_MANIFEST"
 PROFILE_WORKLOAD_ONLY_ENV = "TC_PROFILE_WORKLOAD_ONLY"
 
@@ -72,10 +71,6 @@ def current_run_id() -> str | None:
 def current_mode() -> str:
     value = str(os.getenv(PROFILE_MODE_ENV, "") or "").strip().lower()
     return value if value in {"triage", "baseline"} else "triage"
-
-
-def baseline_valid() -> bool:
-    return str(os.getenv(PROFILE_BASELINE_VALID_ENV, "") or "").strip().lower() in {"1", "true", "yes"}
 
 
 def workload_only_profile() -> bool:
@@ -148,7 +143,6 @@ def append_profile_event(payload: dict[str, Any]) -> None:
     body = {
         "run_id": run_id,
         "mode": current_mode(),
-        "baseline_valid": baseline_valid(),
         "timestamp": utc_now_iso(),
         **payload,
     }

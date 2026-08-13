@@ -99,6 +99,7 @@ def main() -> int:
     day_summary_path = run_dir / "day_summary.json"
     if day_summary_path.exists():
         day_summary = json.loads(day_summary_path.read_text(encoding="utf-8"))
+    day_summary.pop("baseline_valid", None)
 
     day_summary.update(
         {
@@ -117,7 +118,6 @@ def main() -> int:
             "provider_metrics_present": provider_metrics_present,
             "provider_metrics_reason": provider_metrics_reason,
             "run_manifest_present": bool(manifest),
-            "baseline_valid": manifest.get("baseline_valid") is True,
             "run_profile": manifest.get("profile") if isinstance(manifest.get("profile"), dict) else None,
             "catalog_ids": manifest.get("catalog_ids") if isinstance(manifest.get("catalog_ids"), list) else None,
             "catalog_count": manifest.get("catalog_count"),

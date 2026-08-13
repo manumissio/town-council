@@ -23,7 +23,6 @@ class TaskProfileContext:
     run_id: str | None
     mode: str | None
     artifact_dir: str | None
-    baseline_valid: str | None
     catalog_id: int | None
     observer_at_start: float
 
@@ -33,7 +32,6 @@ class DispatchProfileContext:
     run_id: str
     mode: str
     artifact_dir: Path
-    baseline_valid: bool
 
 
 def catalog_id_from_request(request: object) -> int | None:
@@ -96,7 +94,6 @@ def append_task_dispatch_event(
             {
                 "run_id": profile_context.run_id,
                 "mode": profile_context.mode,
-                "baseline_valid": profile_context.baseline_valid,
                 "timestamp": profiling_module.utc_now_iso(),
                 "event_type": "task_dispatch",
                 "boundary": boundary,
@@ -121,14 +118,10 @@ def _dispatch_profile_context(
     if not run_id or not artifact_dir:
         return None
     mode = str(_publish_field(headers, body, "tc_profile_mode") or "triage")
-    baseline_value = str(
-        _publish_field(headers, body, "tc_profile_baseline_valid") or "0"
-    ).lower()
     return DispatchProfileContext(
         run_id=run_id,
         mode=mode,
         artifact_dir=Path(artifact_dir),
-        baseline_valid=baseline_value in {"1", "true", "yes"},
     )
 
 
@@ -210,7 +203,6 @@ def _append_task_profile_event(
         {
             "run_id": str(context.run_id),
             "mode": str(context.mode or "triage"),
-            "baseline_valid": str(context.baseline_valid or "0").lower() in {"1", "true", "yes"},
             "timestamp": profiling_module.utc_now_iso(),
             **profile_event,
         },

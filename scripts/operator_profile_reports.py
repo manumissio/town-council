@@ -19,8 +19,8 @@ AGENDA_SUMMARY_SUBPHASE_KEYS = (
     AGENDA_SUMMARY_REINDEX_MS,
     AGENDA_SUMMARY_EMBED_DISPATCH_MS,
 )
-BASELINE_QUARANTINE_NOTE = (
-    "Promotion-grade baseline recapture is quarantined pending evidence-integrity activation."
+BASELINE_CAPTURE_NOTE = (
+    "Baseline validity comes from the terminal evidence recorded in run_manifest.json."
 )
 NON_COMPARABLE_REASON_TEXT = {
     "baseline_invalid": "Run is not baseline-valid, so timing and counter checks are diagnostic only.",
@@ -32,7 +32,14 @@ def load_expected_baseline(path: Path, load_json: Callable[[Path], dict[str, Any
     payload = load_json(path)
     if not payload:
         raise ValueError(f"baseline expectation missing or invalid: {path}")
-    required = {"manifest_name", "baseline_valid", "elapsed_seconds", "top_phases", "stable_counters"}
+    required = {
+        "manifest_name",
+        "manifest_sha256",
+        "baseline_valid",
+        "elapsed_seconds",
+        "top_phases",
+        "stable_counters",
+    }
     missing = sorted(required.difference(payload))
     if missing:
         raise ValueError(f"baseline expectation missing required keys: {', '.join(missing)}")
@@ -95,7 +102,6 @@ def render_report(summary: dict[str, Any]) -> str:
         f"# Pipeline Profile: {summary.get('run_id')}",
         "",
         f"- mode: `{summary.get('mode')}`",
-        f"- baseline_valid: `{summary.get('baseline_valid')}`",
         f"- catalog_count: `{summary.get('catalog_count')}`",
         f"- elapsed_seconds: `{summary.get('elapsed_seconds')}`",
         f"- confidence: `{summary.get('confidence')}`",
@@ -150,7 +156,7 @@ def render_compare_report(summary: dict[str, Any], comparison: dict[str, Any]) -
             *_render_check_lines(checks),
             "",
             "## Baseline Capture",
-            BASELINE_QUARANTINE_NOTE,
+            BASELINE_CAPTURE_NOTE,
         ]
     )
     return "\n".join(lines) + "\n"
