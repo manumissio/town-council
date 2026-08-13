@@ -1,8 +1,8 @@
 from __future__ import annotations
 
-from sqlalchemy import and_, func, or_
+from sqlalchemy import func, or_
 
-from pipeline.models import AgendaItem, Catalog, Document, Event
+from pipeline.models import Catalog, Document, Event
 from scripts.segment_city_contracts import SegmentSelectionServices
 
 
@@ -24,7 +24,6 @@ def catalog_ids_for_city(
             session.query(Catalog.id)
             .join(Document, Catalog.id == Document.catalog_id)
             .join(Event, Document.event_id == Event.id)
-            .outerjoin(AgendaItem, Catalog.id == AgendaItem.catalog_id)
             .filter(
                 Document.category.in_(("agenda", "agenda_html")),
                 Catalog.content.is_not(None),
@@ -34,10 +33,6 @@ def catalog_ids_for_city(
                 or_(
                     Catalog.agenda_segmentation_status == None,
                     Catalog.agenda_segmentation_status == "failed",
-                    and_(
-                        Catalog.agenda_segmentation_status == "complete",
-                        AgendaItem.page_number == None,
-                    ),
                 ),
             )
             .distinct()

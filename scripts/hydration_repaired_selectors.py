@@ -3,7 +3,7 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any
 
-from sqlalchemy import and_, or_
+from sqlalchemy import or_
 
 from pipeline.models import AgendaItem, Catalog, Document, Event
 
@@ -87,7 +87,6 @@ def select_segment_catalog_ids(
             session.query(Catalog.id)
             .join(Document, Document.catalog_id == Catalog.id)
             .join(Event, Document.event_id == Event.id)
-            .outerjoin(AgendaItem, AgendaItem.catalog_id == Catalog.id)
             .filter(
                 Event.source.in_(sorted(source_aliases_for_city(city))),
                 Document.category == "agenda",
@@ -97,10 +96,6 @@ def select_segment_catalog_ids(
                 or_(
                     Catalog.agenda_segmentation_status.is_(None),
                     Catalog.agenda_segmentation_status == "failed",
-                    and_(
-                        Catalog.agenda_segmentation_status == "complete",
-                        AgendaItem.page_number.is_(None),
-                    ),
                 ),
             )
             .distinct()

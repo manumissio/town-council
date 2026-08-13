@@ -187,16 +187,26 @@ def test_catalog_ids_for_city_respects_priority_limit_and_resume(city_db):
         location="/tmp/empty.pdf",
         status="empty",
     )
+    complete_catalog = _add_catalog(
+        session,
+        empty_event,
+        place,
+        location="/tmp/complete.pdf",
+        status="complete",
+        page_number=None,
+    )
     _add_catalog(session, sibling_event, place, location="/tmp/reference.html", content="")
     plain_catalog_id = plain_catalog.id
     html_catalog_id = html_catalog.id
     sibling_pdf_catalog_id = sibling_pdf_catalog.id
     html_doc_catalog_id = html_doc_catalog.id
+    complete_catalog_id = complete_catalog.id
     session.commit()
     session.close()
 
     selected = mod._catalog_ids_for_city("berkeley")
     assert selected == [plain_catalog_id, html_catalog_id, sibling_pdf_catalog_id, html_doc_catalog_id]
+    assert complete_catalog_id not in selected
 
     prioritized = mod._prioritized_catalog_ids("berkeley", selected)
     assert prioritized == [html_catalog_id, html_doc_catalog_id, sibling_pdf_catalog_id, plain_catalog_id]
