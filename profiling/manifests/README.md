@@ -33,11 +33,11 @@ Fresh-work trace:
 
 Baseline lifecycle:
 - `baseline_representative_v1` is immutable historical evidence. Its schema includes the retired document-derived people phase, so it is non-comparable with roster-gated runs.
-- `baseline_representative_v2` is the active capture candidate. It uses a distinct catalog workload regenerated from a fresh local corpus and excludes the retired people phase.
+- `baseline_representative_v2` is the active post-roster-gate baseline. It uses a distinct catalog workload regenerated from a fresh local corpus and excludes the retired people phase.
 - `run_manifest.json` is the sole mutable profiler validity authority. Every
   run starts with `baseline_valid=false`; only verified terminal artifacts from
   a non-diagnostic baseline run can change it to `true`. Diagnostic runs remain
   `false`.
 - synthetic replay and selected-record reset remain retired; baseline evidence
   must come from observed execution against plain-text manifests
-- City Coverage Expansion and baseline promotion remain blocked until v2 produces a baseline-valid capture and a separate expected-baseline PR is reviewed and merged.
+- The v2 expectation is valid only for runs whose tracked manifest identity matches the checked-in contract.
