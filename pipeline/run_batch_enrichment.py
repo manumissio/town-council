@@ -31,6 +31,7 @@ from pipeline.topic_worker import run_topic_hydration_backfill, select_catalog_i
 LOGGER_NAME = "pipeline-batch"
 LOGGER_FORMAT = "%(asctime)s - %(name)s - %(levelname)s - %(message)s"
 STEP_FAILURE_EXIT_CODE = 1
+NO_ELIGIBLE_CATALOGS_REASON = "no_eligible_catalogs"
 
 logger = logging.getLogger(LOGGER_NAME)
 
@@ -113,7 +114,12 @@ def main(argv=None):
                         eligible_ids=remaining_table_catalog_ids,
                     )
         else:
-            logger.info("Step: Table Extraction skipped=1 reason=no_eligible_catalogs")
+            with profile_span(
+                phase="table_extraction",
+                component="pipeline-batch",
+                metadata={"skipped": True, "reason": NO_ELIGIBLE_CATALOGS_REASON},
+            ):
+                logger.info("Step: Table Extraction skipped=1 reason=no_eligible_catalogs")
             if capture_eligibility:
                 append_phase_eligibility(
                     phase="table_extraction",
@@ -154,7 +160,12 @@ def main(argv=None):
                         eligible_ids=remaining_topic_catalog_ids,
                     )
         else:
-            logger.info("Step: Topic Modeling skipped=1 reason=no_eligible_catalogs")
+            with profile_span(
+                phase="topic_modeling",
+                component="pipeline-batch",
+                metadata={"skipped": True, "reason": NO_ELIGIBLE_CATALOGS_REASON},
+            ):
+                logger.info("Step: Topic Modeling skipped=1 reason=no_eligible_catalogs")
             if capture_eligibility:
                 append_phase_eligibility(
                     phase="topic_modeling",

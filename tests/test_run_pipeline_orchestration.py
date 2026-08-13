@@ -787,6 +787,18 @@ def test_batch_enrichment_records_paired_empty_eligibility(monkeypatch, mocker, 
         ("topic_modeling", "before", []),
         ("topic_modeling", "after", []),
     ]
+    skipped_spans = [
+        row
+        for row in _profile_rows(tmp_path)
+        if row["event_type"] == "span" and row["phase"] in {"table_extraction", "topic_modeling"}
+    ]
+    assert [(row["phase"], row["outcome"]) for row in skipped_spans] == [
+        ("table_extraction", "success"),
+        ("topic_modeling", "success"),
+    ]
+    assert all(row["duration_s"] >= 0 for row in skipped_spans)
+    assert all(row["metadata"]["skipped"] is True for row in skipped_spans)
+    assert all(row["metadata"]["reason"] == "no_eligible_catalogs" for row in skipped_spans)
 
 
 def test_table_eligibility_omits_after_when_work_fails(monkeypatch, mocker, tmp_path: Path):

@@ -475,6 +475,31 @@ def test_segment_task_keeps_page_number_in_results(mocker, db_session, shared_en
     assert persisted_item.page_number == 7
 
 
+def test_segment_task_marks_whitespace_only_items_empty(mocker, db_session, shared_engine):
+    catalog = _seed_agenda_catalog(db_session, catalog_id=6)
+    _patch_task_session(mocker, shared_engine)
+    _patch_agenda_provider(mocker)
+    search_client = _patch_meilisearch_client(mocker)
+    mocker.patch(
+        "pipeline.task_agenda_segmentation.agenda_resolver.resolve_agenda_items",
+        return_value={
+            "items": [{"order": 1, "title": "  \n  "}],
+            "source_used": "llm",
+            "quality_score": 50,
+        },
+    )
+
+    segmentation_result = tasks.segment_agenda_task.run(6)
+
+    assert segmentation_result["status"] == "empty"
+    assert segmentation_result["item_count"] == 0
+    db_session.refresh(catalog)
+    assert catalog.agenda_segmentation_status == "empty"
+    assert catalog.agenda_segmentation_item_count == 0
+    assert db_session.query(AgendaItem).filter_by(catalog_id=6).count() == 0
+    search_client.index.return_value.delete_documents.assert_called_once()
+
+
 def test_segment_task_reindexes_catalog_after_success(mocker, db_session, shared_engine):
     _seed_agenda_catalog(db_session, catalog_id=2)
     _patch_task_session(mocker, shared_engine)

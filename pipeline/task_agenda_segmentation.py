@@ -183,6 +183,7 @@ def run_segment_agenda_task_family(
         created_items = agenda_service.persist_agenda_items(db, catalog_id, doc.event_id, items_data)
         items_to_return = _agenda_items_payload(created_items, resolved["source_used"])
         item_count = len(items_to_return)
+    if item_count:
         vote_extraction = run_post_segmentation_vote_extraction(
             db,
             local_ai=local_ai,
@@ -197,11 +198,6 @@ def run_segment_agenda_task_family(
             error_message=None,
         )
         db.commit()
-        try:
-            indexer.reindex_catalog(catalog_id)
-        except REINDEX_FAILURE_EXCEPTIONS as reindex_error:
-            # Agenda items are already persisted, so targeted reindex remains best-effort.
-            logger.warning("agenda_segmentation.reindex_failed catalog_id=%s error=%s", catalog_id, reindex_error)
     else:
         record_agenda_segmentation_status(
             catalog,
@@ -211,10 +207,15 @@ def run_segment_agenda_task_family(
         )
         db.commit()
         vote_extraction = _vote_extraction_skipped_payload()
+    try:
+        indexer.reindex_catalog(catalog_id)
+    except REINDEX_FAILURE_EXCEPTIONS as reindex_error:
+        # Agenda state is already persisted, so targeted reindex remains best-effort.
+        logger.warning("agenda_segmentation.reindex_failed catalog_id=%s error=%s", catalog_id, reindex_error)
 
     logger.info("Segmentation complete: %s items found (source=%s)", item_count, resolved["source_used"])
     return {
-        "status": "complete",
+        "status": SEGMENTATION_COMPLETE_STATUS if item_count else SEGMENTATION_EMPTY_STATUS,
         "item_count": item_count,
         "items": items_to_return,
         "source_used": resolved["source_used"],

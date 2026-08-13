@@ -114,9 +114,12 @@ def segment_document_agenda(catalog_id):
 
             if items_data:
                 # Rebuild rows so reruns remain idempotent and source quality can improve.
-                persist_agenda_items(session, catalog.id, doc.event_id, items_data)
+                created_items = persist_agenda_items(session, catalog.id, doc.event_id, items_data)
+            else:
+                created_items = []
+            if created_items:
                 catalog.agenda_segmentation_status = "complete"
-                catalog.agenda_segmentation_item_count = len(items_data)
+                catalog.agenda_segmentation_item_count = len(created_items)
                 catalog.agenda_segmentation_attempted_at = datetime.now(timezone.utc)
                 catalog.agenda_segmentation_error = None
             else:
@@ -141,7 +144,7 @@ def segment_document_agenda(catalog_id):
             # - OperationalError: Database connection lost during AI processing
             # Why is AI processing mentioned? extract_agenda() can take 10-30 seconds,
             # plenty of time for connections to timeout or other issues to occur.
-            # Note: The context manager (db_session) automatically rolls back on exception
+            session.rollback()
             try:
                 catalog = session.get(Catalog, catalog_id)
                 if catalog:
@@ -159,7 +162,6 @@ def segment_document_agenda(catalog_id):
                     catalog_error,
                 )
             logger.error("agenda_segmentation.failed catalog_id=%s error=%s", catalog_id, e)
-            # The context manager will automatically rollback on exception
 
 def segment_agendas():
     """

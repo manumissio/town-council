@@ -14,6 +14,7 @@ from pipeline.summary_freshness import compute_agenda_items_hash
 
 
 AGENDA_ITEM_ENTITY_TYPE: Final = "agendaitem"
+AGENDA_ITEM_TITLE_MAX_CHARS: Final = 1000
 
 
 class OcdIdGenerator(Protocol):
@@ -49,9 +50,10 @@ def persist_agenda_items(
 
     created_items: list[AgendaItemRecord] = []
     for agenda_item_payload in items_data or ():
-        title = agenda_item_payload.get("title")
+        title = " ".join((agenda_item_payload.get("title") or "").split())
         if not title:
             continue
+        title = title[:AGENDA_ITEM_TITLE_MAX_CHARS]
 
         agenda_item = build_agenda_item_record(
             ocd_id=_generate_agenda_item_ocd_id(),
