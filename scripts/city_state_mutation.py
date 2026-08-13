@@ -5,7 +5,7 @@ from dataclasses import dataclass
 from sqlalchemy import func
 from sqlalchemy.orm import Session, selectinload
 
-from pipeline.models import Catalog, DataIssue, Document, Event
+from pipeline.models import AgendaItem, Catalog, DataIssue, Document, Event
 
 
 @dataclass(frozen=True)
@@ -128,6 +128,37 @@ def delete_event_graph(
         )
 
     if mutation.event_ids:
+        surviving_catalog_ids = sorted(
+            set(mutation.catalog_ids) - set(mutation.unreferenced_catalog_ids)
+        )
+        affected_catalog_ids = (
+            [
+                int(row[0])
+                for row in session.query(AgendaItem.catalog_id)
+                .filter(
+                    AgendaItem.event_id.in_(mutation.event_ids),
+                    AgendaItem.catalog_id.in_(surviving_catalog_ids),
+                )
+                .distinct()
+                .all()
+            ]
+            if surviving_catalog_ids
+            else []
+        )
+        if affected_catalog_ids:
+            session.query(Catalog).filter(Catalog.id.in_(affected_catalog_ids)).update(
+                {
+                    Catalog.agenda_items_hash: None,
+                    Catalog.agenda_segmentation_status: None,
+                    Catalog.agenda_segmentation_attempted_at: None,
+                    Catalog.agenda_segmentation_item_count: None,
+                    Catalog.agenda_segmentation_error: None,
+                    Catalog.summary: None,
+                    Catalog.summary_extractive: None,
+                    Catalog.summary_source_hash: None,
+                },
+                synchronize_session=False,
+            )
         events = (
             session.query(Event)
             .options(selectinload(Event.documents))
