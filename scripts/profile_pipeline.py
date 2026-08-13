@@ -87,63 +87,6 @@ def _run_json_command(command: list[str], *, cwd: Path) -> dict:
     raise RuntimeError(f"expected JSON object in stdout for command: {' '.join(command)}")
 
 
-def _prepare_manifest_package_via_docker(manifest_rel: str, *, dry_run: bool) -> dict:
-    statement = (
-        "import json; "
-        "from pathlib import Path; "
-        "from pipeline.profile_manifest import apply_preconditioning, load_manifest_package; "
-        f"manifest_path=Path({manifest_rel!r}); "
-        "package=load_manifest_package(manifest_path); "
-        "assert package is not None, 'manifest package missing'; "
-        f"print(json.dumps(apply_preconditioning(package, dry_run={str(bool(dry_run))}), sort_keys=True))"
-    )
-    command = [
-        "docker",
-        "compose",
-        "exec",
-        "-T",
-        "-w",
-        "/app",
-        TRIAGE_SELECTOR_SERVICE,
-        "python",
-        "-c",
-        statement,
-    ]
-    return _run_json_command(command, cwd=REPO_ROOT)
-
-
-def _run_db_migrate_via_docker(*, log_path: Path) -> None:
-    command = [
-        "docker",
-        "compose",
-        "exec",
-        "-T",
-        "-w",
-        "/app/pipeline",
-        TRIAGE_SELECTOR_SERVICE,
-        "python",
-        "db_migrate.py",
-    ]
-    _run_command(command, env=os.environ.copy(), cwd=REPO_ROOT, log_path=log_path)
-
-
-def _run_backfill_catalog_hashes_via_docker(*, manifest_rel: str, log_path: Path) -> None:
-    command = [
-        "docker",
-        "compose",
-        "exec",
-        "-T",
-        "-e",
-        f"TC_PROFILE_CATALOG_MANIFEST={manifest_rel}",
-        "-w",
-        "/app",
-        TRIAGE_SELECTOR_SERVICE,
-        "python",
-        "pipeline/backfill_catalog_hashes.py",
-    ]
-    _run_command(command, env=os.environ.copy(), cwd=REPO_ROOT, log_path=log_path)
-
-
 def _select_triage_catalog_ids_via_docker(limit: int, city: str | None) -> dict:
     selector = (
         "import json; "
@@ -174,7 +117,6 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser.add_argument("--city", default=None)
     parser.add_argument("--api-url", default="http://localhost:8000")
     parser.add_argument("--skip-batch", action="store_true")
-    parser.add_argument("--dry-run-prepare", action="store_true")
     parser.add_argument(
         "--diagnostic",
         action="store_true",
@@ -192,10 +134,7 @@ def _deps() -> ProfilePipelineDeps:
         load_manifest_catalog_ids=_load_manifest_catalog_ids,
         path_for_profile_env=_path_for_profile_env,
         provider_counters_before_run=_provider_counters_before_run,
-        prepare_manifest_package_via_docker=_prepare_manifest_package_via_docker,
-        run_backfill_catalog_hashes_via_docker=_run_backfill_catalog_hashes_via_docker,
         run_command=_run_command,
-        run_db_migrate_via_docker=_run_db_migrate_via_docker,
         select_triage_catalog_ids_via_docker=_select_triage_catalog_ids_via_docker,
         segment_status_from_log=_segment_status_from_log,
         subprocess_module=subprocess,

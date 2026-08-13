@@ -1,6 +1,6 @@
 # Operations Runbook
 
-Last updated: 2026-08-12
+Last updated: 2026-08-13
 
 ## Core workflow
 
@@ -1542,26 +1542,22 @@ Modes:
 Commands:
 ```bash
 cd "$REPO_ROOT"
-python scripts/profile_pipeline.py --mode triage
-python scripts/build_profile_manifest.py --name <name>
-python scripts/build_profile_manifest.py --name <name> --write
-python scripts/profile_pipeline.py --mode baseline --manifest profiling/manifests/<name>.txt --dry-run-prepare
-python scripts/profile_pipeline.py --mode baseline --manifest profiling/manifests/<name>.txt --diagnostic
-python scripts/analyze_pipeline_profile.py --run-id <run_id>
+PYTHONPATH=. .venv/bin/python scripts/profile_pipeline.py --mode triage
+PYTHONPATH=. .venv/bin/python scripts/profile_pipeline.py --mode baseline --manifest profiling/manifests/<name>.txt --diagnostic
+PYTHONPATH=. .venv/bin/python scripts/analyze_pipeline_profile.py --run-id <run_id>
 ```
 
 Promotion-grade baseline capture is quarantined until evidence-integrity activation. Diagnostic captures are useful for investigation but are not comparable evidence.
 
 The fresh-work trace uses a temporary plain-text manifest under
 `experiments/results/`, verifies that no sibling `.json` sidecar exists, and
-runs both core and batch processing. Checked-in sidecars use the separate
-preconditioning workflow and must not be used for that trace.
+runs both core and batch processing. The harness rejects retired synthetic
+replay sidecars before creating run artifacts.
 
 Runtime note:
 - `triage` manifest selection is resolved inside the running Docker stack so it uses the same database/runtime context as the live pipeline.
 - `baseline` manifest parsing remains file-only and can run from the host.
 - selected-manifest profiling runs are workload-only by default, so they intentionally skip unrelated global prelude work such as staged promotion and downloader processing.
-- baseline runs may also load a checked-in manifest sidecar at `profiling/manifests/<name>.json` to reset only the selected workload back into a representative pending-work state before profiling starts.
 
 Artifacts:
 - `experiments/results/profiling/<run_id>/run_manifest.json`
@@ -1613,15 +1609,9 @@ Interpretation rules:
   - `agenda_segmentation_backfill ... llm_skipped_heuristic_first=... heuristic_complete=... timeout_fallbacks=...`
   - `summary_hydration_backfill ... changed_catalogs=... agenda_deterministic_complete=... llm_complete=... deterministic_fallback_complete=... reindexed=... reindex_failed=... embed_enqueued=...`
 
-Manifest package guidance:
-- keep baseline manifests checked in under `profiling/manifests/`
-- use the `.txt` file as the pinned catalog list and the optional `.json` sidecar as the controlled preconditioning contract
-- run `python scripts/build_profile_manifest.py --name <name>` first to inspect candidate counts before writing a package
-- run `python scripts/profile_pipeline.py --mode baseline --manifest profiling/manifests/<name>.txt --dry-run-prepare` before a manifest-driven diagnostic when a sidecar is present
-- sidecar preconditioning is intentionally scoped to derived or rebuildable fields on the selected workload only; if a candidate is not safe to reset, the builder should reject it instead of broadening the mutation scope
-
 Manifest guidance:
 - keep baseline manifests checked in under `profiling/manifests/`
+- use plain-text catalog lists only; duplicate or nonpositive IDs fail before a run starts
 - use stable catalog sets when you want longitudinal comparisons
 - if cache/artifact state differs materially between runs, treat the comparison as diagnostic only
 

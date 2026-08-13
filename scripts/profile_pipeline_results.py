@@ -8,15 +8,6 @@ from typing import Any, Callable
 from scripts.operator_profile_artifacts import build_result_payload
 
 
-def _manifest_package_summary(manifest_package: dict) -> dict[str, Any]:
-    return {
-        "schema_version": int(manifest_package.get("schema_version") or 0),
-        "manifest_name": manifest_package.get("manifest_name"),
-        "phase_selected_counts": {key: len(value) for key, value in (manifest_package.get("strata") or {}).items()},
-        "expected_phase_coverage": dict(manifest_package.get("expected_phase_coverage") or {}),
-    }
-
-
 def write_run_manifest(
     *,
     write_json: Callable[[Path, dict], None],
@@ -29,7 +20,6 @@ def write_run_manifest(
     include_batch: bool,
     catalog_ids: list[int],
     provider_counters_before_run: dict[str, float] | None,
-    manifest_package: dict | None,
 ) -> dict[str, Any]:
     run_manifest: dict[str, Any] = {
         "run_id": run_id,
@@ -56,8 +46,6 @@ def write_run_manifest(
         },
         "provider_counters_before_run": provider_counters_before_run,
     }
-    if manifest_package is not None:
-        run_manifest["manifest_package"] = _manifest_package_summary(manifest_package)
     write_json(run_dir / "run_manifest.json", run_manifest)
     return run_manifest
 

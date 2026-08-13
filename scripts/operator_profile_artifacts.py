@@ -20,9 +20,14 @@ def load_manifest_catalog_ids(path: Path) -> list[int]:
         line = raw_line.split("#", 1)[0].strip()
         if not line:
             continue
-        cid = int(line)
+        try:
+            cid = int(line)
+        except ValueError as exc:
+            raise ValueError(f"invalid catalog ID: {line}") from exc
+        if cid <= 0:
+            raise ValueError(f"catalog ID must be positive: {cid}")
         if cid in seen:
-            continue
+            raise ValueError(f"duplicate catalog ID: {cid}")
         seen.add(cid)
         out.append(cid)
     return out
