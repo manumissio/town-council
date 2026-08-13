@@ -1,6 +1,7 @@
 import importlib
 import sys
 import os
+from datetime import UTC, datetime
 from pathlib import Path
 import pytest
 from sqlalchemy import create_engine, event
@@ -104,6 +105,76 @@ def test_promotion_keeps_blocked_rows_in_event_stage(db_session, mocker):
     remaining = db_session.query(EventStage).all()
     assert len(remaining) == 1
     assert remaining[0].name == "Blocked Meeting"
+
+
+def test_promotion_honors_onboarding_city_and_start_time(db_session, mocker, monkeypatch):
+    cupertino_division = "ocd-division/country:us/state:ca/place:cupertino"
+    berkeley_division = "ocd-division/country:us/state:ca/place:berkeley"
+    db_session.add_all(
+        [
+            Place(name="Cupertino", ocd_division_id=cupertino_division, state="CA"),
+            Place(name="Berkeley", ocd_division_id=berkeley_division, state="CA"),
+            EventStage(
+                name="Fresh Cupertino Meeting",
+                ocd_division_id=cupertino_division,
+                scraped_datetime=datetime(2026, 8, 13, 13, 25, tzinfo=UTC),
+            ),
+            EventStage(
+                name="Old Cupertino Meeting",
+                ocd_division_id=cupertino_division,
+                scraped_datetime=datetime(2026, 8, 12, 13, 25, tzinfo=UTC),
+            ),
+            EventStage(
+                name="Fresh Berkeley Meeting",
+                ocd_division_id=berkeley_division,
+                scraped_datetime=datetime(2026, 8, 13, 13, 25, tzinfo=UTC),
+            ),
+        ]
+    )
+    db_session.commit()
+    mocker.patch("pipeline.promote_stage.db_connect", return_value=db_session.get_bind())
+    monkeypatch.setenv("PIPELINE_ONBOARDING_CITY", "cupertino")
+    monkeypatch.setenv("PIPELINE_ONBOARDING_STARTED_AT_UTC", "2026-08-13T13:20:40Z")
+
+    promote_stage()
+
+    assert [event.name for event in db_session.query(Event).all()] == ["Fresh Cupertino Meeting"]
+    assert {event.name for event in db_session.query(EventStage).all()} == {
+        "Old Cupertino Meeting",
+        "Fresh Berkeley Meeting",
+    }
+
+
+@pytest.mark.parametrize("onboarding_started_at", ["", "invalid"])
+def test_promotion_with_invalid_onboarding_start_fails_before_mutation(
+    db_session,
+    mocker,
+    monkeypatch,
+    onboarding_started_at,
+):
+    cupertino_division = "ocd-division/country:us/state:ca/place:cupertino"
+    berkeley_division = "ocd-division/country:us/state:ca/place:berkeley"
+    db_session.add_all(
+        [
+            Place(name="Cupertino", ocd_division_id=cupertino_division, state="CA"),
+            Place(name="Berkeley", ocd_division_id=berkeley_division, state="CA"),
+            EventStage(name="Cupertino Meeting", ocd_division_id=cupertino_division),
+            EventStage(name="Berkeley Meeting", ocd_division_id=berkeley_division),
+        ]
+    )
+    db_session.commit()
+    mocker.patch("pipeline.promote_stage.db_connect", return_value=db_session.get_bind())
+    monkeypatch.setenv("PIPELINE_ONBOARDING_CITY", "cupertino")
+    monkeypatch.setenv("PIPELINE_ONBOARDING_STARTED_AT_UTC", onboarding_started_at)
+
+    with pytest.raises(ValueError, match="PIPELINE_ONBOARDING_STARTED_AT_UTC"):
+        promote_stage()
+
+    assert db_session.query(Event).count() == 0
+    assert {event.name for event in db_session.query(EventStage).all()} == {
+        "Cupertino Meeting",
+        "Berkeley Meeting",
+    }
 
 
 def test_promotion_fails_on_unmigrated_schema(mocker, caplog):
