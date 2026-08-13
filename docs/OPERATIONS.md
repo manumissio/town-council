@@ -890,8 +890,7 @@ find experiments/results/maintenance -maxdepth 4 -type f | sort
   retired document-derived person pipeline. It is non-comparable with current
   runs and must not be used as a regression or promotion gate.
 - Use `baseline_representative_v2` for post-roster-gate captures. Its checked-in
-  expectation references baseline-valid run
-  `pipeline_profile_baseline_20260813_180916`.
+  expected baseline is pending a separate evidence PR.
 - The compare flow guards:
   - total elapsed time
   - top bottleneck phase durations
@@ -923,8 +922,8 @@ sibling JSON sidecar and do not pass `--skip-batch`. The profiler disables
 startup purge and clears onboarding filters in the container commands. The
 result remains exploratory and non-comparable.
 
-Do not compare v1 with v2. City Coverage Expansion requires a checked-in v2
-expectation derived from baseline-valid, reproduced evidence.
+Do not compare v1 with v2. City Coverage Expansion remains blocked until a
+valid, reproduced v2 expected-baseline PR merges.
 
 ### Maintenance salvage helper for flaky Laserfiche agenda PDFs
 - `scripts/repair_san_mateo_laserfiche_backlog.py` now distinguishes generated-PDF transport failures from permanent failures.
