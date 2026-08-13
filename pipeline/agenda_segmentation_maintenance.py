@@ -161,9 +161,12 @@ def persist_segmented_agenda(
     items_data: list[dict[str, Any]],
 ) -> str:
     if items_data:
-        persist_agenda_items(session, catalog.id, doc.event_id, items_data)
+        created_items = persist_agenda_items(session, catalog.id, doc.event_id, items_data)
+    else:
+        created_items = []
+    if created_items:
         catalog.agenda_segmentation_status = "complete"
-        catalog.agenda_segmentation_item_count = len(items_data)
+        catalog.agenda_segmentation_item_count = len(created_items)
         catalog.agenda_segmentation_attempted_at = datetime.now(timezone.utc)
         catalog.agenda_segmentation_error = None
         session.commit()
@@ -247,6 +250,7 @@ def segment_catalog_with_mode(
                 source_used=resolved.get("source_used"),
             )
         except SQLAlchemyError as exc:
+            session.rollback()
             try:
                 catalog = session.get(Catalog, catalog_id)
                 if catalog:

@@ -6,6 +6,7 @@ from unittest.mock import MagicMock
 import sys
 
 sys.modules["llama_cpp"] = MagicMock()
+from pipeline import agenda_worker
 from pipeline.agenda_worker import run_agenda_segmentation_backfill, segment_document_agenda
 from pipeline import profiling
 from pipeline.models import Place, Event, Document, Catalog, AgendaItem
@@ -62,6 +63,93 @@ def test_agenda_segmentation_logic(db_session, mocker):
     assert items[1].title == "Budget 2026"
     assert items[1].event_id == event.id
     reindex_spy.assert_called_once_with(catalog.id)
+
+
+def test_segment_document_persists_failed_status_after_transaction_error(db_session, mocker):
+    place = Place(name="Failure City", state="CA", ocd_division_id="ocd-failure-city")
+    db_session.add(place)
+    db_session.flush()
+    event = Event(name="Failure Meeting", place_id=place.id, ocd_division_id=place.ocd_division_id)
+    db_session.add(event)
+    db_session.flush()
+    catalog = Catalog(
+        url_hash="agenda-transaction-error",
+        content="Agenda Item 1: Housing Update",
+        url="https://example.com/agenda-transaction-error",
+    )
+    db_session.add(catalog)
+    db_session.flush()
+    db_session.add(Document(event_id=event.id, catalog_id=catalog.id, place_id=place.id, category="agenda"))
+    duplicate_ocd_id = "ocd-agenda-item/legacy-duplicate"
+    db_session.add(
+        AgendaItem(
+            ocd_id=duplicate_ocd_id,
+            catalog_id=catalog.id,
+            event_id=event.id,
+            title="Existing item",
+        )
+    )
+    db_session.commit()
+
+    def poison_agenda_transaction(session, _catalog, _document, _local_ai):
+        session.add(
+            AgendaItem(
+                ocd_id=duplicate_ocd_id,
+                catalog_id=catalog.id,
+                event_id=event.id,
+                title="Duplicate item",
+            )
+        )
+        session.flush()
+        raise AssertionError("duplicate agenda item must fail")
+
+    @contextmanager
+    def session_factory():
+        yield db_session
+
+    mocker.patch.object(agenda_worker, "db_session", session_factory)
+    mocker.patch.object(agenda_worker, "resolve_agenda_items", side_effect=poison_agenda_transaction)
+    mocker.patch.object(agenda_worker, "LocalAI", return_value=MagicMock())
+
+    segment_document_agenda(catalog.id)
+
+    db_session.expire_all()
+    refreshed = db_session.get(Catalog, catalog.id)
+    assert refreshed.agenda_segmentation_status == "failed"
+    assert refreshed.agenda_segmentation_error
+
+
+def test_segment_document_counts_only_persisted_items(db_session, mocker):
+    place = Place(name="Mixed City", state="CA", ocd_division_id="ocd-mixed-city")
+    db_session.add(place)
+    db_session.flush()
+    event = Event(name="Mixed Meeting", place_id=place.id, ocd_division_id=place.ocd_division_id)
+    db_session.add(event)
+    db_session.flush()
+    catalog = Catalog(url_hash="agenda-mixed-titles", content="Agenda", url="https://example.com/mixed")
+    db_session.add(catalog)
+    db_session.flush()
+    db_session.add(Document(event_id=event.id, catalog_id=catalog.id, place_id=place.id, category="agenda"))
+    db_session.commit()
+    mocker.patch.object(agenda_worker, "LocalAI", return_value=MagicMock())
+    mocker.patch.object(agenda_worker, "reindex_catalog")
+    mocker.patch.object(
+        agenda_worker,
+        "resolve_agenda_items",
+        return_value={
+            "items": [{"order": 1, "title": "  "}, {"order": 2, "title": "Kept Item"}],
+            "source_used": "llm",
+            "quality_score": 50,
+        },
+    )
+
+    segment_document_agenda(catalog.id)
+
+    db_session.expire_all()
+    refreshed = db_session.get(Catalog, catalog.id)
+    assert refreshed.agenda_segmentation_status == "complete"
+    assert refreshed.agenda_segmentation_item_count == 1
+    assert [row.title for row in db_session.query(AgendaItem).filter_by(catalog_id=catalog.id).all()] == ["Kept Item"]
 
 
 def test_run_agenda_segmentation_backfill_uses_maintenance_metrics(mocker):

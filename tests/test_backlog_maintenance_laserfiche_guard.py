@@ -1,4 +1,5 @@
 import sys
+from contextlib import contextmanager
 from types import SimpleNamespace
 from unittest.mock import MagicMock
 
@@ -116,6 +117,82 @@ def test_segment_catalog_marks_laserfiche_error_content_failed(db_session):
     assert refreshed.agenda_segmentation_status == "failed"
     assert refreshed.agenda_segmentation_error == "laserfiche_error_page_detected"
     assert refreshed.agenda_segmentation_item_count == 0
+
+
+def test_segment_catalog_persists_failed_status_after_transaction_error(db_session, mocker):
+    catalog, event = _seed_catalog(
+        db_session,
+        content="Agenda Item 1: Housing Update",
+        url="https://example.com/agenda-transaction-error",
+        location="/tmp/agenda-transaction-error.html",
+    )
+    duplicate_ocd_id = "ocd-agenda-item/duplicate"
+    db_session.add(
+        AgendaItem(
+            ocd_id=duplicate_ocd_id,
+            catalog_id=catalog.id,
+            event_id=event.id,
+            title="Existing item",
+        )
+    )
+    db_session.commit()
+
+    def poison_agenda_transaction(session, _catalog, _document, _local_ai):
+        session.add(
+            AgendaItem(
+                ocd_id=duplicate_ocd_id,
+                catalog_id=catalog.id,
+                event_id=event.id,
+                title="Duplicate item",
+            )
+        )
+        session.flush()
+        raise AssertionError("duplicate agenda item must fail")
+
+    @contextmanager
+    def session_factory():
+        yield db_session
+
+    mocker.patch.object(
+        agenda_segmentation_maintenance,
+        "resolve_agenda_items",
+        side_effect=poison_agenda_transaction,
+    )
+
+    segmentation_result = agenda_segmentation_maintenance.segment_catalog_with_mode(
+        catalog.id,
+        session_factory=session_factory,
+    )
+
+    assert segmentation_result["status"] == "failed"
+    db_session.expire_all()
+    refreshed = db_session.get(Catalog, catalog.id)
+    assert refreshed.agenda_segmentation_status == "failed"
+    assert refreshed.agenda_segmentation_error
+
+
+def test_segment_catalog_marks_whitespace_only_items_empty(db_session, mocker):
+    catalog, _event = _seed_catalog(
+        db_session,
+        content="Agenda Item 1",
+        url="https://example.com/agenda-empty-title",
+        location="/tmp/agenda-empty-title.html",
+    )
+    mocker.patch.object(
+        agenda_segmentation_maintenance,
+        "resolve_agenda_items",
+        return_value={"items": [{"order": 1, "title": "  \n  "}], "source_used": "llm"},
+    )
+    mocker.patch.object(agenda_segmentation_maintenance.llm_mod, "LocalAI", return_value=MagicMock())
+
+    segmentation_result = agenda_segmentation_maintenance.segment_catalog_with_mode(catalog.id)
+
+    assert segmentation_result["status"] == "empty"
+    db_session.expire_all()
+    refreshed = db_session.get(Catalog, catalog.id)
+    assert refreshed.agenda_segmentation_status == "empty"
+    assert refreshed.agenda_segmentation_item_count == 0
+    assert db_session.query(AgendaItem).filter_by(catalog_id=catalog.id).count() == 0
 
 
 def test_agenda_summary_rejects_laserfiche_error_content(db_session):

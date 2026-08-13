@@ -14,7 +14,7 @@ from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 
 from pipeline.run_pipeline import process_document_chunk
-from pipeline.agenda_service import persist_agenda_items
+from pipeline.agenda_service import AGENDA_ITEM_TITLE_MAX_CHARS, persist_agenda_items
 from pipeline.agenda_summary_batch import build_deterministic_agenda_summary_payloads
 from pipeline.agenda_summary_contracts import (
     AGENDA_SUMMARY_BUNDLE_BUILD_MS,
@@ -851,6 +851,36 @@ def test_persist_agenda_items_updates_catalog_agenda_items_hash(batching_db):
 
     refreshed = db.get(Catalog, agenda_catalog.id)
     assert refreshed.agenda_items_hash == compute_agenda_items_hash(items)
+
+
+def test_persist_agenda_items_normalizes_and_bounds_stored_titles(batching_db):
+    db, event, place = batching_db
+    agenda_catalog = _add_catalog(
+        db,
+        event,
+        place,
+        category="agenda",
+        content="agenda text",
+        segmentation_status="complete",
+    )
+    exact_title = "A" * AGENDA_ITEM_TITLE_MAX_CHARS
+    oversized_title = f"  {'B' * AGENDA_ITEM_TITLE_MAX_CHARS}  extra  "
+
+    created_items = persist_agenda_items(
+        db,
+        agenda_catalog.id,
+        event.id,
+        [
+            {"order": 1, "title": exact_title},
+            {"order": 2, "title": oversized_title},
+        ],
+    )
+    db.commit()
+
+    stored_titles = [agenda_item.title for agenda_item in created_items]
+    assert stored_titles == [exact_title, "B" * AGENDA_ITEM_TITLE_MAX_CHARS]
+    assert AgendaItem.__table__.c.title.type.length == AGENDA_ITEM_TITLE_MAX_CHARS
+    assert db.get(Catalog, agenda_catalog.id).agenda_items_hash == compute_agenda_items_hash(created_items)
 
 
 def test_persist_agenda_items_skips_rows_without_titles(batching_db):
