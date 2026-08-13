@@ -26,7 +26,7 @@ SHARED_EXACT_CONSTRAINTS = {
     "meilisearch": "0.43.0",
     "prometheus-client": "0.26.0",
     "psycopg2-binary": "2.9.10",
-    "rapidfuzz": "3.14.3",
+    "rapidfuzz": "3.14.5",
     "redis": "5.0.1",
     "sqlalchemy": "2.0.38",
     "uvicorn": "0.34.0",
