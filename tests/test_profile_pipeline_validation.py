@@ -160,6 +160,27 @@ def test_complete_terminal_evidence_is_valid(tmp_path: Path) -> None:
     assert validation.warnings == ()
 
 
+def test_consumed_manifest_cannot_be_baseline_valid(tmp_path: Path) -> None:
+    _write_valid_artifacts(tmp_path)
+    profile_events = [
+        json.loads(profile_event)
+        for profile_event in (tmp_path / "spans.jsonl").read_text(encoding="utf-8").splitlines()
+    ]
+    for profile_event in profile_events:
+        if profile_event.get("event_type") != "phase_eligibility":
+            continue
+        profile_event.update({"eligible_ids": [], "eligible_count": 0})
+    (tmp_path / "spans.jsonl").write_text(
+        "".join(f"{json.dumps(profile_event)}\n" for profile_event in profile_events),
+        encoding="utf-8",
+    )
+
+    validation = validate_profile_artifacts(tmp_path, expected_run_id=RUN_ID, include_batch=True)
+
+    assert not validation.valid
+    assert "initial_workload_missing" in validation.reasons
+
+
 @pytest.mark.parametrize(
     ("mutation", "expected_reason"),
     [

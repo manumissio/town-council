@@ -230,6 +230,7 @@ def _phase_evidence(
 ) -> tuple[set[str], set[str]]:
     reasons: set[str] = set()
     warnings: set[str] = set()
+    initial_workload_count = 0
     required_eligibility = CORE_ELIGIBILITY + (BATCH_ELIGIBILITY if include_batch else ())
     for phase, subject in required_eligibility:
         matching_rows = [
@@ -243,6 +244,10 @@ def _phase_evidence(
         if boundaries != Counter({"before": 1, "after": 1}):
             reasons.add(f"phase_eligibility_incomplete:{phase}:{subject}")
             continue
+        before_row = next(row for row in matching_rows if row.get("boundary") == "before")
+        before_count = before_row.get("eligible_count")
+        if isinstance(before_count, int) and not isinstance(before_count, bool):
+            initial_workload_count += before_count
         after_row = next(row for row in matching_rows if row.get("boundary") == "after")
         eligible_count = after_row.get("eligible_count")
         if not isinstance(eligible_count, int) or isinstance(eligible_count, bool):
@@ -251,6 +256,8 @@ def _phase_evidence(
             warnings.add("extraction_remainder_nonzero")
         elif eligible_count > 0 and phase in GATING_PHASES:
             reasons.add(f"phase_remainder_nonzero:{phase}:{subject}")
+    if initial_workload_count == 0:
+        reasons.add("initial_workload_missing")
     required_spans = CORE_SPANS + (BATCH_SPANS if include_batch else ())
     for phase in required_spans:
         phase_spans = [
