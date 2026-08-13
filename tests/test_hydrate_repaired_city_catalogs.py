@@ -109,6 +109,42 @@ def _install_summary_boundaries(mocker):
     return provider_lookup, enqueued_catalog_ids
 
 
+def test_segment_selector_excludes_complete_catalog_without_page_metadata(db_session, mocker):
+    place, event = _seed_city_event(db_session, "san_mateo")
+    pending_catalog = _add_agenda_catalog(
+        db_session,
+        place,
+        event,
+        slug="pending-agenda",
+        content="Agenda text",
+        add_agenda_item=False,
+    )
+    complete_catalog = _add_agenda_catalog(
+        db_session,
+        place,
+        event,
+        slug="complete-agenda",
+        content="Agenda text",
+    )
+    complete_catalog.agenda_segmentation_status = "complete"
+    complete_catalog.agenda_items[0].page_number = None
+    db_session.commit()
+
+    @contextmanager
+    def current_session():
+        yield db_session
+
+    mocker.patch.object(mod, "db_session", current_session)
+
+    selected = mod._select_segment_catalog_ids(
+        "san_mateo",
+        limit=None,
+        resume_after_id=None,
+    )
+
+    assert selected == [pending_catalog.id]
+
+
 def test_hydrate_repaired_city_catalogs_emits_stage_progress(
     db_session,
     mocker,

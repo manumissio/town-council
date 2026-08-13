@@ -12,7 +12,7 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import sessionmaker
 
 import pipeline.db_session as db_session_module
-from pipeline.models import Base, Catalog, DataIssue, Document, Event, EventStage, Place, UrlStage, UrlStageHist
+from pipeline.models import AgendaItem, Base, Catalog, DataIssue, Document, Event, EventStage, Place, UrlStage, UrlStageHist
 from scripts.reset_city_verification_state import reset_city_verification_state
 
 
@@ -121,7 +121,18 @@ def test_reset_city_verification_state_deletes_only_events_in_window_and_unrefer
         session.add_all([old_event, new_event])
         session.flush()
 
-        preserved_catalog = Catalog(url_hash="preserved", location="/tmp/preserved.pdf")
+        preserved_catalog = Catalog(
+            url_hash="preserved",
+            location="/tmp/preserved.pdf",
+            agenda_items_hash="agenda-hash",
+            agenda_segmentation_status="complete",
+            agenda_segmentation_attempted_at=within_window,
+            agenda_segmentation_item_count=1,
+            agenda_segmentation_error="old error",
+            summary="Old summary",
+            summary_extractive="Old extractive summary",
+            summary_source_hash="agenda-hash",
+        )
         exclusive_catalog = Catalog(url_hash="exclusive", location="/tmp/exclusive.pdf")
         session.add_all([preserved_catalog, exclusive_catalog])
         session.flush()
@@ -138,6 +149,12 @@ def test_reset_city_verification_state_deletes_only_events_in_window_and_unrefer
             [
                 DataIssue(event_id=old_event.id, issue_type="preserved_issue"),
                 DataIssue(event_id=new_event.id, issue_type="deleted_issue"),
+                AgendaItem(
+                    event_id=new_event.id,
+                    catalog_id=preserved_catalog.id,
+                    order=1,
+                    title="Deleted shared agenda item",
+                ),
             ]
         )
         session.commit()
@@ -167,6 +184,15 @@ def test_reset_city_verification_state_deletes_only_events_in_window_and_unrefer
         remaining_issue = session.query(DataIssue).one()
         assert remaining_event.ocd_id == "old-event"
         assert remaining_catalog.url_hash == "preserved"
+        assert remaining_catalog.agenda_items_hash is None
+        assert remaining_catalog.agenda_segmentation_status is None
+        assert remaining_catalog.agenda_segmentation_attempted_at is None
+        assert remaining_catalog.agenda_segmentation_item_count is None
+        assert remaining_catalog.agenda_segmentation_error is None
+        assert remaining_catalog.summary is None
+        assert remaining_catalog.summary_extractive is None
+        assert remaining_catalog.summary_source_hash is None
+        assert session.query(AgendaItem).count() == 0
         assert remaining_issue.issue_type == "preserved_issue"
 
 
@@ -245,33 +271,74 @@ def test_reset_city_verification_state_rolls_back_live_deletes_on_late_failure(t
             source_url="https://example.com/rollback",
             name="Rollback meeting",
         )
-        catalog = Catalog(url_hash="rollback", location="/tmp/rollback.pdf")
-        session.add_all([event, catalog])
+        preserved_event = Event(
+            ocd_id="preserved-event",
+            ocd_division_id=place.ocd_division_id,
+            place_id=place.id,
+            scraped_datetime=since - timedelta(days=1),
+            record_date=date(2026, 4, 3),
+            source="fremont",
+            source_url="https://example.com/preserved",
+            name="Preserved meeting",
+        )
+        catalog = Catalog(
+            url_hash="rollback",
+            location="/tmp/rollback.pdf",
+            agenda_items_hash="rollback-agenda-hash",
+            agenda_segmentation_status="complete",
+            agenda_segmentation_attempted_at=since,
+            agenda_segmentation_item_count=1,
+            summary="Rollback summary",
+            summary_source_hash="rollback-agenda-hash",
+        )
+        session.add_all([event, preserved_event, catalog])
         session.flush()
-        session.add(
-            Document(
-                place_id=place.id,
-                event_id=event.id,
-                catalog_id=catalog.id,
-                url_hash="rollback",
-            )
+        session.add_all(
+            [
+                Document(
+                    place_id=place.id,
+                    event_id=event.id,
+                    catalog_id=catalog.id,
+                    url_hash="rollback",
+                ),
+                Document(
+                    place_id=place.id,
+                    event_id=preserved_event.id,
+                    catalog_id=catalog.id,
+                    url_hash="rollback-preserved",
+                ),
+                AgendaItem(
+                    event_id=event.id,
+                    catalog_id=catalog.id,
+                    order=1,
+                    title="Rollback agenda item",
+                ),
+            ]
         )
         session.add(DataIssue(event_id=event.id, issue_type="rollback_issue"))
         session.commit()
         session.execute(
             text(
-                "CREATE TRIGGER abort_catalog_delete "
-                "BEFORE DELETE ON catalog "
-                "BEGIN SELECT RAISE(ABORT, 'catalog delete blocked'); END"
+                "CREATE TRIGGER abort_event_delete "
+                "BEFORE DELETE ON event "
+                "WHEN OLD.ocd_id = 'rollback-event' "
+                "BEGIN SELECT RAISE(ABORT, 'event delete blocked'); END"
             )
         )
         session.commit()
 
-    with pytest.raises(IntegrityError, match="catalog delete blocked"):
+    with pytest.raises(IntegrityError, match="event delete blocked"):
         reset_city_verification_state("fremont", since.strftime("%Y-%m-%dT%H:%M:%SZ"))
 
     with Session() as session:
-        assert session.query(Event).count() == 1
-        assert session.query(Document).count() == 1
+        assert session.query(Event).count() == 2
+        assert session.query(Document).count() == 2
         assert session.query(Catalog).count() == 1
+        catalog = session.query(Catalog).one()
+        assert catalog.agenda_items_hash == "rollback-agenda-hash"
+        assert catalog.agenda_segmentation_status == "complete"
+        assert catalog.agenda_segmentation_item_count == 1
+        assert catalog.summary == "Rollback summary"
+        assert catalog.summary_source_hash == "rollback-agenda-hash"
+        assert session.query(AgendaItem).count() == 1
         assert session.query(DataIssue).count() == 1

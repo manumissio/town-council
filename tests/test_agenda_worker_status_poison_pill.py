@@ -5,9 +5,7 @@ import pytest
 
 sys.modules["llama_cpp"] = MagicMock()
 
-from sqlalchemy import and_, or_
-
-from pipeline.agenda_worker import segment_document_agenda
+from pipeline.agenda_worker import segment_document_agenda, select_catalog_ids_for_agenda_segmentation
 from pipeline.models import AgendaItem, Catalog, Document, Event, Place
 
 
@@ -56,7 +54,7 @@ def test_segment_document_agenda_sets_empty_status_when_no_items(db_session, moc
     reindex_spy.assert_called_once_with(catalog.id)
 
 
-def test_agenda_worker_selection_excludes_empty_status(db_session):
+def test_agenda_worker_selection_excludes_empty_and_complete_statuses(db_session):
     place, event, _, catalog_empty = _build_minimal_meeting(db_session)
     catalog_empty.agenda_segmentation_status = "empty"
     db_session.commit()
@@ -69,32 +67,48 @@ def test_agenda_worker_selection_excludes_empty_status(db_session):
     )
     db_session.add(catalog_todo)
     db_session.flush()
-    doc2 = Document(event_id=event.id, catalog_id=catalog_todo.id, place_id=place.id)
+    doc2 = Document(
+        event_id=event.id,
+        catalog_id=catalog_todo.id,
+        place_id=place.id,
+        category="agenda",
+    )
     db_session.add(doc2)
     db_session.commit()
 
-    to_process = (
-        db_session.query(Catalog)
-        .join(Document, Catalog.id == Document.catalog_id)
-        .outerjoin(AgendaItem, Catalog.id == AgendaItem.catalog_id)
-        .filter(
-            Catalog.content != None,
-            Catalog.content != "",
-            or_(
-                Catalog.agenda_segmentation_status == None,
-                Catalog.agenda_segmentation_status == "failed",
-                and_(
-                    Catalog.agenda_segmentation_status == "complete",
-                    AgendaItem.page_number == None,
-                ),
-            ),
-        )
-        .all()
+    catalog_complete = Catalog(
+        filename="complete.pdf",
+        url_hash="complete_hash",
+        content="Agenda text",
+        url="http://test.com/complete.pdf",
+        agenda_segmentation_status="complete",
     )
+    db_session.add(catalog_complete)
+    db_session.flush()
+    db_session.add(
+        Document(
+            event_id=event.id,
+            catalog_id=catalog_complete.id,
+            place_id=place.id,
+            category="agenda",
+        )
+    )
+    db_session.add(
+        AgendaItem(
+            catalog_id=catalog_complete.id,
+            event_id=event.id,
+            order=1,
+            title="Item without page metadata",
+            page_number=None,
+        )
+    )
+    db_session.commit()
 
-    ids = {c.id for c in to_process}
-    assert catalog_empty.id not in ids
-    assert catalog_todo.id in ids
+    selected = select_catalog_ids_for_agenda_segmentation(db_session)
+
+    assert catalog_empty.id not in selected
+    assert catalog_complete.id not in selected
+    assert catalog_todo.id in selected
 
 
 def test_segment_document_agenda_marks_single_item_staff_report_failed(db_session, mocker):

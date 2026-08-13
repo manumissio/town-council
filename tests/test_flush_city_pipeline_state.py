@@ -10,7 +10,7 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import sessionmaker
 
 import pipeline.db_session as db_session_module
-from pipeline.models import Base, Catalog, DataIssue, Document, Event, EventStage, Place, UrlStage, UrlStageHist
+from pipeline.models import AgendaItem, Base, Catalog, DataIssue, Document, Event, EventStage, Place, UrlStage, UrlStageHist
 from scripts.flush_city_pipeline_state import flush_city_pipeline_state
 
 
@@ -149,14 +149,38 @@ def test_flush_city_pipeline_state_apply_deletes_city_scoped_stage_and_live_rows
             source_url="https://example.com/other-event",
             name="Other meeting",
         )
-        shared_catalog = Catalog(url_hash="shared", location="/tmp/shared.pdf")
+        shared_catalog = Catalog(
+            url_hash="shared",
+            location="/tmp/shared.pdf",
+            agenda_items_hash="shared-agenda-hash",
+            agenda_segmentation_status="complete",
+            agenda_segmentation_attempted_at=TEST_SCRAPED_AT,
+            agenda_segmentation_item_count=1,
+            agenda_segmentation_error="old error",
+            summary="Shared summary",
+            summary_extractive="Shared extractive summary",
+            summary_source_hash="shared-agenda-hash",
+        )
+        unaffected_shared_catalog = Catalog(
+            url_hash="unaffected-shared",
+            location="/tmp/unaffected-shared.pdf",
+            agenda_items_hash="unaffected-agenda-hash",
+            agenda_segmentation_status="complete",
+            agenda_segmentation_attempted_at=TEST_SCRAPED_AT,
+            agenda_segmentation_item_count=1,
+            summary="Unaffected summary",
+            summary_extractive="Unaffected extractive summary",
+            summary_source_hash="unaffected-agenda-hash",
+        )
         target_only_catalog = Catalog(url_hash="target-only", location="/tmp/target.pdf")
-        session.add_all([target_event, other_event, shared_catalog, target_only_catalog])
+        session.add_all([target_event, other_event, shared_catalog, unaffected_shared_catalog, target_only_catalog])
         session.flush()
         session.add_all(
             [
                 Document(place_id=target_place.id, event_id=target_event.id, catalog_id=shared_catalog.id, url_hash="shared"),
                 Document(place_id=other_place.id, event_id=other_event.id, catalog_id=shared_catalog.id, url_hash="shared"),
+                Document(place_id=target_place.id, event_id=target_event.id, catalog_id=unaffected_shared_catalog.id, url_hash="unaffected-shared-target"),
+                Document(place_id=other_place.id, event_id=other_event.id, catalog_id=unaffected_shared_catalog.id, url_hash="unaffected-shared-other"),
                 Document(place_id=target_place.id, event_id=target_event.id, catalog_id=target_only_catalog.id, url_hash="target-only"),
                 Document(place_id=target_place.id, event_id=target_event.id, catalog_id=None, url_hash="catalogless"),
             ]
@@ -165,6 +189,12 @@ def test_flush_city_pipeline_state_apply_deletes_city_scoped_stage_and_live_rows
             [
                 DataIssue(event_id=target_event.id, issue_type="broken_link"),
                 DataIssue(event_id=other_event.id, issue_type="other_city_issue"),
+                AgendaItem(
+                    event_id=target_event.id,
+                    catalog_id=shared_catalog.id,
+                    order=1,
+                    title="Shared agenda item",
+                ),
             ]
         )
         session.commit()
@@ -176,9 +206,9 @@ def test_flush_city_pipeline_state_apply_deletes_city_scoped_stage_and_live_rows
     assert result["deleted_url_stage_count"] == 1
     assert result["deleted_url_stage_hist_count"] == 1
     assert result["deleted_event_count"] == 1
-    assert result["deleted_document_count"] == 3
+    assert result["deleted_document_count"] == 4
     assert result["deleted_catalog_count"] == 1
-    assert result["catalog_reference_count"] == 2
+    assert result["catalog_reference_count"] == 3
     assert result["deleted_data_issue_count"] == 1
     assert result["remaining_event_count"] == 0
     assert result["remaining_document_count"] == 0
@@ -200,9 +230,26 @@ def test_flush_city_pipeline_state_apply_deletes_city_scoped_stage_and_live_rows
         assert session.query(UrlStage).count() == 1
         assert session.query(UrlStageHist).count() == 1
         assert session.query(Event).count() == 1
-        assert session.query(Document).count() == 1
-        assert session.query(Catalog).count() == 1
-        assert session.query(Catalog).one().url_hash == "shared"
+        assert session.query(Document).count() == 2
+        assert session.query(Catalog).count() == 2
+        affected_catalog = session.query(Catalog).filter_by(url_hash="shared").one()
+        assert affected_catalog.agenda_items_hash is None
+        assert affected_catalog.agenda_segmentation_status is None
+        assert affected_catalog.agenda_segmentation_attempted_at is None
+        assert affected_catalog.agenda_segmentation_item_count is None
+        assert affected_catalog.agenda_segmentation_error is None
+        assert affected_catalog.summary is None
+        assert affected_catalog.summary_extractive is None
+        assert affected_catalog.summary_source_hash is None
+        unaffected_catalog = session.query(Catalog).filter_by(url_hash="unaffected-shared").one()
+        assert unaffected_catalog.agenda_items_hash == "unaffected-agenda-hash"
+        assert unaffected_catalog.agenda_segmentation_status == "complete"
+        assert unaffected_catalog.agenda_segmentation_attempted_at == TEST_SCRAPED_AT.replace(tzinfo=None)
+        assert unaffected_catalog.agenda_segmentation_item_count == 1
+        assert unaffected_catalog.summary == "Unaffected summary"
+        assert unaffected_catalog.summary_extractive == "Unaffected extractive summary"
+        assert unaffected_catalog.summary_source_hash == "unaffected-agenda-hash"
+        assert session.query(AgendaItem).count() == 0
         assert session.query(DataIssue).count() == 1
         assert session.query(DataIssue).one().issue_type == "other_city_issue"
 

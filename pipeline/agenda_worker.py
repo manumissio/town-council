@@ -1,7 +1,7 @@
 from datetime import datetime, timezone
 import logging
 
-from sqlalchemy import and_, or_
+from sqlalchemy import or_
 from sqlalchemy.exc import SQLAlchemyError
 
 from pipeline.models import Catalog, AgendaItem, Document
@@ -27,8 +27,8 @@ def select_catalog_ids_for_agenda_segmentation(session, limit: int | None = None
     """
     Return hydrated agenda catalogs that still need segmentation work.
 
-    Empty terminal states are intentionally excluded so batch backfills do not
-    churn forever on catalogs that produced no substantive agenda items.
+    Complete and empty terminal states stay excluded so batch backfills do not
+    churn on work that already reached a recorded outcome.
     """
     query = (
         session.query(Catalog.id)
@@ -41,10 +41,6 @@ def select_catalog_ids_for_agenda_segmentation(session, limit: int | None = None
             or_(
                 Catalog.agenda_segmentation_status == None,
                 Catalog.agenda_segmentation_status == "failed",
-                and_(
-                    Catalog.agenda_segmentation_status == "complete",
-                    AgendaItem.page_number == None,
-                ),
             ),
         )
         .distinct()
@@ -181,7 +177,7 @@ def segment_agendas():
 
     What documents get processed?
     - Documents with content (not empty)
-    - Documents without agenda items OR with incomplete items (no page numbers)
+    - Documents with pending or failed agenda segmentation status
     - Limited to a batch size to keep processing times reasonable
     """
     # Use context manager for automatic session cleanup

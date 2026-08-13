@@ -1160,10 +1160,10 @@ docker compose start api worker frontend monitor
 - `scripts/segment_city_corpus.py` now bounds per-catalog agenda segmentation instead of letting one stuck catalog hang the whole city run indefinitely.
 - The timeout is controlled by `CITY_SEGMENTATION_TIMEOUT_SECONDS` and defaults to `120`.
 - `--segment-mode maintenance` reuses the same heuristic-first agenda parsing path as `scripts/hydrate_repaired_city_catalogs.py`, so city-wide backlog runs can skip LLM-first extraction when the extracted agenda text is already structured enough for the deterministic parser.
-- Maintenance mode keeps existing terminal states unchanged:
+- Maintenance mode keeps successful terminal states unchanged:
   - `complete`
   - `empty`
-  - `failed`
+- `failed` remains retryable so a later run can recover from transient failures.
 - Watch these counters when the goal is shrinking `agenda_missing_summary_without_items` instead of only processing repaired rows:
   - `llm_attempted`
   - `llm_skipped_heuristic_first`

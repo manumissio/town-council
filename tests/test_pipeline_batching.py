@@ -883,7 +883,7 @@ def test_persist_agenda_items_skips_rows_without_titles(batching_db):
     assert refreshed.agenda_items_hash == compute_agenda_items_hash(created_items)
 
 
-def test_select_catalog_ids_for_agenda_segmentation_excludes_empty_terminal_state(batching_db):
+def test_select_catalog_ids_for_agenda_segmentation_excludes_terminal_states(batching_db):
     db, event, place = batching_db
     pending_catalog = _add_catalog(db, event, place, category="agenda", content="agenda text", segmentation_status=None)
     failed_catalog = _add_catalog(
@@ -902,7 +902,7 @@ def test_select_catalog_ids_for_agenda_segmentation_excludes_empty_terminal_stat
 
     assert pending_catalog.id in selected
     assert failed_catalog.id in selected
-    assert complete_catalog.id in selected
+    assert complete_catalog.id not in selected
     assert empty_catalog.id not in selected
 
 
