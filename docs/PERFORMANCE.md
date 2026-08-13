@@ -191,6 +191,11 @@ Interpretation rule:
 - `baseline_representative_v2` is the current representative catalog manifest;
   its expected baseline remains pending a separate PR with valid reproduced
   post-transition evidence
+- a baseline-valid capture must begin with observed eligible work; an all-zero
+  rerun is invalid even when every phase exits successfully
+- paired captures must begin from the same independently restored full database
+  snapshot or equivalent fresh pending state; do not recreate work by resetting
+  selected records
 - compare policy:
   - timings use percentage tolerances to absorb normal host variance
   - stable counters from `commands.log` are compared exactly
