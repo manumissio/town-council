@@ -16,7 +16,6 @@ def test_profile_artifact_helpers_preserve_result_payload_shape(tmp_path: Path):
     payload = artifacts.build_result_payload(
         run_id="profile_run",
         status="completed",
-        baseline_valid=True,
         started_at="2026-04-01T00:00:00+00:00",
         finished_at="2026-04-01T00:01:00+00:00",
         elapsed_seconds=60.1234,
@@ -39,7 +38,7 @@ def test_profile_artifact_helpers_preserve_result_payload_shape(tmp_path: Path):
         "combined_elapsed_seconds": 20.237,
     }
     assert persisted["profile"]["workload_only"] is True
-    assert persisted["baseline_valid"] is True
+    assert "baseline_valid" not in persisted
     assert out.read_text(encoding="utf-8").endswith("\n")
 
 
@@ -59,7 +58,6 @@ def test_profile_result_writer_preserves_result_manifest_keys(monkeypatch, tmp_p
         run_dir=tmp_path,
         run_id="profile_run",
         status="completed",
-        baseline_valid=False,
         started_at="2026-04-01T00:00:00+00:00",
         started=10.0,
         include_batch=False,
@@ -73,7 +71,6 @@ def test_profile_result_writer_preserves_result_manifest_keys(monkeypatch, tmp_p
     payload = written["payload"]
     assert written["path"] == tmp_path / "result.json"
     assert sorted(payload) == [
-        "baseline_valid",
         "elapsed_seconds",
         "error",
         "finished_at",
@@ -92,7 +89,7 @@ def test_profile_result_writer_preserves_result_manifest_keys(monkeypatch, tmp_p
         "combined_elapsed_seconds": 12.346,
     }
     assert payload["profile"]["workload_only"] is True
-    assert payload["baseline_valid"] is False
+    assert "baseline_valid" not in payload
 
 
 def test_profile_run_manifest_writer_preserves_profile_env(monkeypatch, tmp_path: Path):
@@ -110,19 +107,28 @@ def test_profile_run_manifest_writer_preserves_profile_env(monkeypatch, tmp_path
         run_dir=tmp_path,
         run_id="profile_run",
         mode="baseline",
-        baseline_valid=True,
         city="san_mateo",
         include_batch=True,
         catalog_ids=[101, 102],
         provider_counters_before_run={"requests": 3.0},
+        profile={"LOCAL_AI_BACKEND": "http"},
+        source_manifest="profiling/manifests/baseline_demo.txt",
+        source_manifest_bytes=b"101\n102\n",
+        git_commit="abc123",
+        tracked_tree_clean=True,
     )
 
     assert written["path"] == tmp_path / "run_manifest.json"
     assert written["payload"] == run_manifest
-    assert run_manifest["baseline_valid"] is True
+    assert run_manifest["baseline_valid"] is False
+    assert run_manifest["baseline_validation_reasons"] == ["run_incomplete"]
     assert run_manifest["catalog_count"] == 2
     assert run_manifest["include_batch"] is True
     assert run_manifest["profile"] == {"LOCAL_AI_BACKEND": "http"}
+    assert run_manifest["source_manifest"] == "profiling/manifests/baseline_demo.txt"
+    assert run_manifest["source_manifest_name"] == "baseline_demo"
+    assert run_manifest["git_commit"] == "abc123"
+    assert run_manifest["tracked_tree_clean"] is True
     assert "manifest_package" not in run_manifest
 
 
@@ -134,7 +140,6 @@ def test_profile_command_helpers_preserve_env_and_docker_command(monkeypatch):
         run_id="profile_run",
         mode="baseline",
         artifact_dir="experiments/results/profile_run",
-        baseline_valid=True,
         manifest_path="experiments/results/profile_run/catalog_manifest.txt",
     )
     commands = pipeline_commands.build_profile_commands(
@@ -144,15 +149,14 @@ def test_profile_command_helpers_preserve_env_and_docker_command(monkeypatch):
         run_id="profile_run",
         artifact_dir_rel="experiments/results/profile_run",
         manifest_rel="experiments/results/profile_run/catalog_manifest.txt",
-        baseline_valid=True,
     )
 
     assert env["UNRELATED_OPERATOR_SETTING"] == "kept"
-    assert env["TC_PROFILE_BASELINE_VALID"] == "1"
+    assert "TC_PROFILE_BASELINE_VALID" not in env
     assert env["TC_PROFILE_WORKLOAD_ONLY"] == "1"
     assert [command[-1] for command in commands] == ["run_pipeline.py", "run_batch_enrichment.py"]
     assert commands[0][:4] == ["docker", "compose", "exec", "-T"]
-    assert "TC_PROFILE_BASELINE_VALID=1" in commands[0]
+    assert all(not value.startswith("TC_PROFILE_BASELINE_VALID=") for value in commands[0])
     expected_isolation_env = (
         "STARTUP_PURGE_DERIVED=false",
         "PIPELINE_ONBOARDING_CITY=",
@@ -295,12 +299,30 @@ def test_profile_metric_helpers_preserve_canonical_run_delta_policy():
     }
 
 
+def test_profile_metric_helpers_reject_provider_counter_reset():
+    deltas = metrics.provider_run_deltas_from_manifest(
+        {
+            "provider_counters_before_run": {
+                "provider_requests_total": 10.0,
+                "provider_timeouts_total": 2.0,
+                "provider_retries_total": 1.0,
+            }
+        },
+        provider_requests_total=1.0,
+        provider_timeouts_total=0.0,
+        provider_retries_total=0.0,
+    )
+
+    assert all(value is None for value in deltas.values())
+
+
 def test_profile_report_helpers_validate_baseline_contract(tmp_path: Path):
     baseline = tmp_path / "baseline.json"
     baseline.write_text(
         json.dumps(
             {
                 "manifest_name": "baseline_demo",
+                "manifest_sha256": "a" * 64,
                 "baseline_valid": True,
                 "elapsed_seconds": 12.0,
                 "top_phases": [],
@@ -329,6 +351,7 @@ def test_profile_report_helpers_reject_invalid_expected_baseline_validity(
         json.dumps(
             {
                 "manifest_name": "baseline_demo",
+                "manifest_sha256": "a" * 64,
                 "baseline_valid": baseline_valid,
                 "elapsed_seconds": 12.0,
                 "top_phases": [],

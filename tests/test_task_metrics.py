@@ -70,7 +70,6 @@ def test_task_failure_clears_timing_context(monkeypatch):
         run_id=None,
         mode=None,
         artifact_dir=None,
-        baseline_valid=None,
         catalog_id=123,
         observer_at_start=0.0,
     )

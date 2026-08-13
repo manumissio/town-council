@@ -38,7 +38,6 @@ def before_task_publish(
         artifact_dir = profiling_module.current_artifact_dir()
         if artifact_dir is not None:
             headers.setdefault("tc_profile_artifact_dir", str(artifact_dir))
-        headers.setdefault("tc_profile_baseline_valid", "1" if profiling_module.baseline_valid() else "0")
     append_task_dispatch_event(
         boundary="before",
         sender=sender,
@@ -109,7 +108,6 @@ def task_prerun(
         run_id=_optional_str(headers.get("tc_profile_run_id")),
         mode=_optional_str(headers.get("tc_profile_mode")),
         artifact_dir=_optional_str(headers.get("tc_profile_artifact_dir")),
-        baseline_valid=_optional_str(headers.get("tc_profile_baseline_valid")),
         catalog_id=catalog_id_from_request(request),
         observer_at_start=profiling_module.observer_seconds(),
     )

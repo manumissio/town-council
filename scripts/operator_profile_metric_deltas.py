@@ -46,9 +46,15 @@ def provider_run_deltas_from_manifest(
     if baseline_requests is None or baseline_timeouts is None or baseline_retries is None:
         return _empty_provider_deltas()
 
-    requests = max(0.0, float(provider_requests_total - baseline_requests))
-    timeouts = max(0.0, float(provider_timeouts_total - baseline_timeouts))
-    retries = max(0.0, float(provider_retries_total - baseline_retries))
+    if (
+        provider_requests_total < baseline_requests
+        or provider_timeouts_total < baseline_timeouts
+        or provider_retries_total < baseline_retries
+    ):
+        return _empty_provider_deltas()
+    requests = float(provider_requests_total - baseline_requests)
+    timeouts = float(provider_timeouts_total - baseline_timeouts)
+    retries = float(provider_retries_total - baseline_retries)
     timeout_rate = float(timeouts / requests) if requests > 0 else None
     return {
         "provider_requests_delta_run": requests,

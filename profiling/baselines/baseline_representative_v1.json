@@ -1,5 +1,6 @@
 {
   "baseline_valid": true,
+  "manifest_sha256": "9867bea1aa140317d4a84ebb3670fbacd76b37bf163e4e66963e8d15cfcfa17b",
   "elapsed_seconds": 9.473,
   "manifest_name": "baseline_representative_v1",
   "reference_run_id": "pipeline_profile_baseline_20260403_004122",

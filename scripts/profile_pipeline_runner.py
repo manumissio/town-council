@@ -7,18 +7,26 @@ import os
 from pathlib import Path
 import shutil
 import subprocess
+import sys
 import time
 from typing import Any, Callable
 
 from scripts.profile_pipeline_commands import build_profile_commands, profile_env
 from scripts.profile_pipeline_results import write_result_manifest, write_run_manifest
+from scripts.profile_pipeline_runtime import capture_runtime_profile
+from scripts.profile_pipeline_runtime import git_commit
+from scripts.profile_pipeline_runtime import tracked_manifest_bytes
+from scripts.profile_pipeline_runtime import tracked_tree_clean
+from scripts.profile_pipeline_validation import BaselineValidation
+from scripts.profile_pipeline_validation import load_profile_events
+from scripts.profile_pipeline_validation import task_evidence_reasons
+from scripts.profile_pipeline_validation import validate_profile_artifacts
 
 
-BASELINE_QUARANTINE_MESSAGE = (
-    "promotion-grade baseline execution is quarantined pending evidence-integrity activation; "
-    "use --diagnostic"
-)
 RETIRED_REPLAY_MESSAGE = "synthetic replay packages are retired; use a text-only fresh-work diagnostic manifest"
+TASK_SETTLE_TIMEOUT_SECONDS = 900.0
+TASK_QUIET_SECONDS = 1.0
+TASK_POLL_SECONDS = 0.2
 
 
 @dataclass(frozen=True)
@@ -37,11 +45,6 @@ class ProfilePipelineDeps:
     utc_now_iso: Callable[[], str]
     write_catalog_manifest: Callable[[Path, list[int]], None]
     write_json: Callable[[Path, dict], None]
-
-
-def require_non_promotional_baseline(args: Any) -> None:
-    if args.mode == "baseline" and not args.diagnostic:
-        raise SystemExit(BASELINE_QUARANTINE_MESSAGE)
 
 
 def _catalog_ids_for_args(args: Any, deps: ProfilePipelineDeps) -> list[int]:
@@ -96,13 +99,96 @@ def _run_post_processors(args: Any, deps: ProfilePipelineDeps, run_id: str, outp
         )
 
 
+def _wait_for_terminal_tasks(run_dir: Path) -> None:
+    deadline = time.monotonic() + TASK_SETTLE_TIMEOUT_SECONDS
+    quiet_started: float | None = None
+    previous_size = -1
+    terminal = False
+    events_path = run_dir / "spans.jsonl"
+    while time.monotonic() < deadline:
+        current_size = events_path.stat().st_size if events_path.exists() else 0
+        if current_size != previous_size:
+            profile_events, error = load_profile_events(events_path)
+            pending_reasons = set(task_evidence_reasons(profile_events, require_terminal_dispatches=True))
+            pending_reasons.discard("task_terminal_failed")
+            terminal = error is None and not pending_reasons
+            quiet_started = None
+        elif terminal:
+            quiet_started = quiet_started or time.monotonic()
+            if time.monotonic() - quiet_started >= TASK_QUIET_SECONDS:
+                return
+        else:
+            quiet_started = None
+        previous_size = current_size
+        time.sleep(TASK_POLL_SECONDS)
+    raise RuntimeError("profile task evidence did not reach terminal closure")
+
+
+def _finalize_run_manifest(
+    deps: ProfilePipelineDeps,
+    run_dir: Path,
+    validation: BaselineValidation,
+    *,
+    diagnostic: bool,
+) -> None:
+    manifest_path = run_dir / "run_manifest.json"
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    validation_reasons = list(validation.reasons)
+    if diagnostic:
+        validation_reasons.insert(0, "diagnostic_run")
+    manifest.update(
+        {
+            "baseline_valid": validation.valid and not diagnostic,
+            "baseline_validation_reasons": validation_reasons,
+            "baseline_validation_warnings": list(validation.warnings),
+            "finished_at": deps.utc_now_iso(),
+        }
+    )
+    deps.write_json(manifest_path, manifest)
+
+
+def _runtime_profile_unchanged(repo_root: Path, expected_profile: dict[str, str]) -> bool:
+    return capture_runtime_profile(repo_root) == expected_profile
+
+
+def _record_invalid_manifest(
+    deps: ProfilePipelineDeps,
+    run_dir: Path,
+    error_message: str,
+) -> None:
+    manifest_path = run_dir / "run_manifest.json"
+    if not manifest_path.exists():
+        return
+    try:
+        manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError) as manifest_error:
+        print(f"unable to record invalid profile manifest: {manifest_error}", file=sys.stderr)
+        return
+    validation_reasons = [
+        str(reason)
+        for reason in manifest.get("baseline_validation_reasons", [])
+        if str(reason).strip() and reason != "run_incomplete"
+    ]
+    validation_reasons.extend(["run_failed", error_message])
+    manifest.update(
+        {
+            "baseline_valid": False,
+            "baseline_validation_reasons": list(dict.fromkeys(validation_reasons)),
+            "finished_at": deps.utc_now_iso(),
+        }
+    )
+    deps.write_json(manifest_path, manifest)
+
+
 def run_profile(args: Any, deps: ProfilePipelineDeps) -> int:
-    require_non_promotional_baseline(args)
     if args.mode == "baseline" and not args.manifest:
         raise SystemExit("--manifest is required for baseline mode")
     if args.diagnostic and args.mode != "baseline":
         raise SystemExit("--diagnostic is only supported for baseline mode")
-    baseline_valid = args.mode == "baseline" and not args.diagnostic
+    if args.mode == "baseline" and not args.diagnostic and args.skip_batch:
+        raise SystemExit("baseline profiling requires batch enrichment")
+    if args.mode == "baseline" and not args.diagnostic and args.compare_to:
+        raise SystemExit("run expected-baseline comparison after capture finalization")
     run_id = args.run_id or f"pipeline_profile_{args.mode}_{datetime.now(timezone.utc).strftime('%Y%m%d_%H%M%S')}"
     output_root = Path(args.output_dir)
     if not output_root.is_absolute():
@@ -114,6 +200,19 @@ def run_profile(args: Any, deps: ProfilePipelineDeps) -> int:
     catalog_ids = _catalog_ids_for_args(args, deps)
     if not catalog_ids:
         raise SystemExit("no catalog ids selected for profiling")
+
+    source_manifest = Path(args.manifest) if args.manifest else None
+    source_manifest_name: str | None = None
+    source_manifest_bytes = b""
+    if source_manifest is not None and not args.diagnostic:
+        source_manifest_name, source_manifest_bytes = tracked_manifest_bytes(source_manifest, deps.repo_root)
+    elif source_manifest is not None:
+        source_manifest_bytes = source_manifest.read_bytes()
+    runtime_profile = capture_runtime_profile(deps.repo_root) if args.mode == "baseline" else {}
+    initial_commit = git_commit(deps.repo_root)
+    initial_tree_clean = tracked_tree_clean(deps.repo_root)
+    if args.mode == "baseline" and not args.diagnostic and not initial_tree_clean:
+        raise SystemExit("baseline profiling requires a clean tracked tree")
 
     run_dir.mkdir(parents=True, exist_ok=False)
     try:
@@ -132,18 +231,21 @@ def run_profile(args: Any, deps: ProfilePipelineDeps) -> int:
         run_dir=run_dir,
         run_id=run_id,
         mode=args.mode,
-        baseline_valid=baseline_valid,
         city=args.city,
         include_batch=not args.skip_batch,
         catalog_ids=catalog_ids,
         provider_counters_before_run=provider_counters_before_run,
+        profile=runtime_profile,
+        source_manifest=source_manifest_name or (str(source_manifest) if source_manifest else None),
+        source_manifest_bytes=source_manifest_bytes,
+        git_commit=initial_commit,
+        tracked_tree_clean=initial_tree_clean,
     )
     artifact_dir_rel = deps.path_for_profile_env(run_dir)
     env = profile_env(
         run_id=run_id,
         mode=args.mode,
         artifact_dir=artifact_dir_rel,
-        baseline_valid=baseline_valid,
         manifest_path=manifest_rel,
     )
     commands = build_profile_commands(
@@ -153,7 +255,6 @@ def run_profile(args: Any, deps: ProfilePipelineDeps) -> int:
         run_id=run_id,
         artifact_dir_rel=artifact_dir_rel,
         manifest_rel=manifest_rel,
-        baseline_valid=baseline_valid,
     )
     started = time.perf_counter()
     started_at = deps.utc_now_iso()
@@ -177,8 +278,7 @@ def run_profile(args: Any, deps: ProfilePipelineDeps) -> int:
             deps,
             run_dir,
             run_id,
-            status="commands_completed",
-            baseline_valid=baseline_valid,
+            status="completed",
             started_at=started_at,
             started=started,
             include_batch=not args.skip_batch,
@@ -186,10 +286,29 @@ def run_profile(args: Any, deps: ProfilePipelineDeps) -> int:
             command_log=command_log,
             error_message=None,
         )
+        _wait_for_terminal_tasks(run_dir)
         _run_post_processors(args, deps, run_id, output_root)
+        if git_commit(deps.repo_root) != initial_commit or not tracked_tree_clean(deps.repo_root):
+            raise RuntimeError("tracked source changed during profile run")
+        if args.mode == "baseline" and not _runtime_profile_unchanged(deps.repo_root, runtime_profile):
+            raise RuntimeError("runtime profile changed during profile run")
+        if source_manifest is not None and not args.diagnostic:
+            current_name, current_bytes = tracked_manifest_bytes(source_manifest, deps.repo_root)
+            if current_name != source_manifest_name or current_bytes != source_manifest_bytes:
+                raise RuntimeError("baseline manifest changed during profile run")
+        if args.mode == "baseline":
+            validation = validate_profile_artifacts(
+                run_dir,
+                expected_run_id=run_id,
+                include_batch=not args.skip_batch,
+            )
+            _finalize_run_manifest(deps, run_dir, validation, diagnostic=args.diagnostic)
+            if not args.diagnostic and not validation.valid:
+                raise RuntimeError(f"baseline evidence invalid: {', '.join(validation.reasons)}")
         status = "completed"
+        print(json.dumps({"run_id": run_id, "run_dir": str(run_dir), "status": status}, indent=2))
         return 0
-    except (subprocess.CalledProcessError, OSError) as exc:
+    except (subprocess.CalledProcessError, OSError, RuntimeError, ValueError, json.JSONDecodeError) as exc:
         error_message = f"{exc.__class__.__name__}: {exc}"
         if isinstance(exc, subprocess.CalledProcessError):
             attempted = "pipeline-batch" if "run_batch_enrichment.py" in (exc.cmd or []) else "pipeline"
@@ -197,14 +316,11 @@ def run_profile(args: Any, deps: ProfilePipelineDeps) -> int:
                 command_segments.append(
                     {"name": attempted, "command": exc.cmd, "status": "failed", "elapsed_seconds": 0.0}
                 )
-        raise
-    finally:
         _write_result(
             deps,
             run_dir,
             run_id,
             status=status,
-            baseline_valid=baseline_valid,
             started_at=started_at,
             started=started,
             include_batch=not args.skip_batch,
@@ -212,7 +328,9 @@ def run_profile(args: Any, deps: ProfilePipelineDeps) -> int:
             command_log=command_log,
             error_message=error_message,
         )
+        _record_invalid_manifest(deps, run_dir, error_message)
         print(json.dumps({"run_id": run_id, "run_dir": str(run_dir), "status": status}, indent=2))
+        raise
 
 
 def _write_result(
@@ -221,7 +339,6 @@ def _write_result(
     run_id: str,
     *,
     status: str,
-    baseline_valid: bool,
     started_at: str,
     started: float,
     include_batch: bool,
@@ -236,7 +353,6 @@ def _write_result(
         run_dir=run_dir,
         run_id=run_id,
         status=status,
-        baseline_valid=baseline_valid,
         started_at=started_at,
         started=started,
         include_batch=include_batch,

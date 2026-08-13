@@ -38,7 +38,7 @@ def test_rank_bottlenecks_prefers_longest_leaf_phase(tmp_path: Path):
 
     summary = mod.rank_bottlenecks(run_dir)
 
-    assert summary["baseline_valid"] is False
+    assert "baseline_valid" not in summary
     assert summary["top_bottlenecks"][0]["phase"] == "summarize"
     assert summary["top_bottlenecks"][0]["classification"] in {"queueing", "inference/provider"}
 
@@ -452,7 +452,7 @@ def test_render_report_includes_summarize_subphase_timings_when_present():
         }
     )
 
-    assert "- baseline_valid: `False`" in report
+    assert "baseline_valid" not in report
     assert "## Summarize Subphase Timings (ms)" in report
     assert "`agenda_summary_render_ms`: `20`" in report
 
@@ -839,8 +839,19 @@ def test_rank_bottlenecks_preserves_provider_and_partial_total_confidence_reason
 
 
 def _write_compare_fixture(run_dir: Path, *, elapsed_seconds: float = 9.473, summarize_duration: float = 3.601, selected: int = 12, confidence_provider: bool = True):
+    manifest_sha256 = "9867bea1aa140317d4a84ebb3670fbacd76b37bf163e4e66963e8d15cfcfa17b"
     (run_dir / "run_manifest.json").write_text(
-        json.dumps({"run_id": run_dir.name, "mode": "baseline", "catalog_count": 30, "baseline_valid": True, "include_batch": False}),
+        json.dumps(
+            {
+                "run_id": run_dir.name,
+                "mode": "baseline",
+                "catalog_count": 30,
+                "baseline_valid": True,
+                "include_batch": False,
+                "source_manifest_name": "baseline_representative_v1",
+                "source_manifest_sha256": manifest_sha256,
+            }
+        ),
         encoding="utf-8",
     )
     (run_dir / "result.json").write_text(
@@ -936,6 +947,24 @@ def test_compare_against_expected_baseline_fails_for_counter_drift(tmp_path: Pat
     )
 
 
+def test_compare_against_expected_baseline_rejects_missing_manifest_provenance(tmp_path: Path):
+    run_dir = tmp_path / "profile_run_missing_provenance"
+    run_dir.mkdir()
+    _write_compare_fixture(run_dir)
+    run_manifest = json.loads((run_dir / "run_manifest.json").read_text(encoding="utf-8"))
+    run_manifest.pop("source_manifest_sha256")
+    (run_dir / "run_manifest.json").write_text(json.dumps(run_manifest), encoding="utf-8")
+
+    comparison = mod.compare_against_expected_baseline(
+        run_dir,
+        mod.rank_bottlenecks(run_dir),
+        Path("profiling/baselines/baseline_representative_v1.json"),
+    )
+
+    assert comparison["status"] == "non_comparable"
+    assert comparison["reason"] == "manifest_mismatch"
+
+
 def test_render_compare_report_explains_failed_elapsed_phase_and_counter_checks():
     report = mod.render_compare_report(
         {"run_id": "profile_run_slow"},
@@ -986,7 +1015,7 @@ def test_render_compare_report_explains_failed_elapsed_phase_and_counter_checks(
     assert "tolerance=`25.0% / 0.9`" in report
     assert "`summary_hydration_backfill.selected`" in report
     assert "reason=`workload_shape_drift`" in report
-    assert "Promotion-grade baseline recapture is quarantined" in report
+    assert "terminal evidence recorded in run_manifest.json" in report
     assert "## Reproduce" not in report
     assert "scripts/profile_pipeline.py" not in report
     assert "scripts/analyze_pipeline_profile.py" not in report
@@ -1029,7 +1058,7 @@ def test_render_compare_report_handles_empty_checks_without_crashing():
 
     assert "- status: `pass`" in report
     assert "No checks were evaluated." in report
-    assert "Promotion-grade baseline recapture is quarantined" in report
+    assert "terminal evidence recorded in run_manifest.json" in report
     assert "## Reproduce" not in report
 
 

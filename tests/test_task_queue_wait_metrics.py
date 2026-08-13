@@ -48,7 +48,6 @@ def test_queue_wait_metric_and_task_context_are_recorded(monkeypatch, tmp_path):
         "tc_profile_run_id": "run_1",
         "tc_profile_mode": "triage",
         "tc_profile_artifact_dir": str(tmp_path / "profile"),
-        "tc_profile_baseline_valid": "0",
     }
     monkeypatch.setattr(metrics.time, "time", lambda: 3.5)
     monkeypatch.setattr(metrics.time, "perf_counter", lambda: 10.0)
@@ -75,12 +74,11 @@ def test_task_prerun_handles_missing_or_invalid_queue_timestamp(monkeypatch):
     metrics._TASK_CONTEXT.pop("bad-queued-at", None)
 
 
-def test_diagnostic_validity_propagates_from_publish_header_to_task_span(monkeypatch, tmp_path):
+def test_task_profile_events_omit_run_validity(monkeypatch, tmp_path):
     artifact_dir = tmp_path / "profile"
     monkeypatch.setenv(profiling.PROFILE_RUN_ID_ENV, "diagnostic_run")
     monkeypatch.setenv(profiling.PROFILE_MODE_ENV, "baseline")
     monkeypatch.setenv(profiling.PROFILE_ARTIFACT_DIR_ENV, str(artifact_dir))
-    monkeypatch.setenv(profiling.PROFILE_BASELINE_VALID_ENV, "0")
     monkeypatch.setattr(metrics.time, "time", lambda: 1.0)
     monkeypatch.setattr(metrics.time, "perf_counter", lambda: 2.0)
 
@@ -96,9 +94,9 @@ def test_diagnostic_validity_propagates_from_publish_header_to_task_span(monkeyp
         json.loads(line)
         for line in (artifact_dir / "spans.jsonl").read_text(encoding="utf-8").splitlines()
     ]
-    assert headers["tc_profile_baseline_valid"] == "0"
+    assert "tc_profile_baseline_valid" not in headers
     assert task_spans[-1]["event_type"] == "task_span"
-    assert task_spans[-1]["baseline_valid"] is False
+    assert all("baseline_valid" not in profile_event for profile_event in task_spans)
 
 
 def test_task_spans_distinguish_retry_and_redelivery_attempts(monkeypatch, tmp_path):
@@ -106,7 +104,6 @@ def test_task_spans_distinguish_retry_and_redelivery_attempts(monkeypatch, tmp_p
     monkeypatch.setenv(profiling.PROFILE_RUN_ID_ENV, "task_attempt_run")
     monkeypatch.setenv(profiling.PROFILE_MODE_ENV, "baseline")
     monkeypatch.setenv(profiling.PROFILE_ARTIFACT_DIR_ENV, str(artifact_dir))
-    monkeypatch.setenv(profiling.PROFILE_BASELINE_VALID_ENV, "0")
     monkeypatch.setattr(metrics.time, "time", lambda: 1.0)
 
     headers: dict[str, object] = {}
@@ -147,7 +144,6 @@ def test_profile_observer_time_is_excluded_from_task_span(monkeypatch, tmp_path,
         "tc_profile_run_id": "retry_observer_run",
         "tc_profile_mode": "triage",
         "tc_profile_artifact_dir": str(artifact_dir),
-        "tc_profile_baseline_valid": "0",
     }
     _FakeTask.request.retries = 1
     _FakeTask.request.delivery_info = {"routing_key": "celery", "redelivered": False}
@@ -188,7 +184,6 @@ def test_task_span_preserves_unknown_optional_delivery_metadata(monkeypatch, tmp
         "tc_profile_run_id": "invalid_metadata_run",
         "tc_profile_mode": "triage",
         "tc_profile_artifact_dir": str(artifact_dir),
-        "tc_profile_baseline_valid": "0",
     }
     _FakeTask.request.retries = -1
     _FakeTask.request.delivery_info = {"routing_key": "celery"}
@@ -210,7 +205,6 @@ def test_task_span_omits_queue_wait_when_redelivery_metadata_is_unknown(monkeypa
         "tc_profile_run_id": "unknown_redelivery_run",
         "tc_profile_mode": "triage",
         "tc_profile_artifact_dir": str(artifact_dir),
-        "tc_profile_baseline_valid": "0",
         "tc_queued_at": "1.0",
     }
     _FakeTask.request.retries = 0
@@ -234,7 +228,6 @@ def test_task_attempt_emits_start_before_matching_finish(monkeypatch, tmp_path):
         "tc_profile_run_id": "task_lifecycle_run",
         "tc_profile_mode": "baseline",
         "tc_profile_artifact_dir": str(artifact_dir),
-        "tc_profile_baseline_valid": "0",
         "tc_queued_at": "1.0",
     }
     _FakeTask.request.retries = 0
@@ -264,7 +257,6 @@ def test_failed_task_span_keeps_attempt_identity_without_postrun_duplicate(monke
         "tc_profile_run_id": "failed_task_run",
         "tc_profile_mode": "triage",
         "tc_profile_artifact_dir": str(artifact_dir),
-        "tc_profile_baseline_valid": "0",
     }
     _FakeTask.request.retries = 2
     _FakeTask.request.delivery_info = {"routing_key": "celery", "redelivered": False}
@@ -294,7 +286,6 @@ def test_task_publish_records_paired_dispatch_boundaries(monkeypatch, tmp_path):
     monkeypatch.setenv(profiling.PROFILE_RUN_ID_ENV, "dispatch_run")
     monkeypatch.setenv(profiling.PROFILE_MODE_ENV, "baseline")
     monkeypatch.setenv(profiling.PROFILE_ARTIFACT_DIR_ENV, str(artifact_dir))
-    monkeypatch.setenv(profiling.PROFILE_BASELINE_VALID_ENV, "0")
     celery_app = _memory_broker_app("profile-dispatch-success")
 
     dispatch_result = celery_app.send_task(
@@ -311,7 +302,7 @@ def test_task_publish_records_paired_dispatch_boundaries(monkeypatch, tmp_path):
         assert dispatch["queue"] == "enrichment"
         assert dispatch["retry_ordinal"] == 0
         assert dispatch["catalog_id"] == 456
-        assert dispatch["baseline_valid"] is False
+        assert "baseline_valid" not in dispatch
         assert "duration_s" not in dispatch
         assert "outcome" not in dispatch
 
@@ -381,7 +372,6 @@ def test_task_retry_records_dispatch_from_inherited_profile_headers(monkeypatch,
         profiling.PROFILE_RUN_ID_ENV,
         profiling.PROFILE_MODE_ENV,
         profiling.PROFILE_ARTIFACT_DIR_ENV,
-        profiling.PROFILE_BASELINE_VALID_ENV,
     ):
         monkeypatch.delenv(profile_env, raising=False)
     celery_app = _memory_broker_app("profile-dispatch-retry")
@@ -395,7 +385,6 @@ def test_task_retry_records_dispatch_from_inherited_profile_headers(monkeypatch,
         "tc_profile_run_id": "retry-dispatch-run",
         "tc_profile_mode": "baseline",
         "tc_profile_artifact_dir": str(artifact_dir),
-        "tc_profile_baseline_valid": "0",
         "tc_queued_at": 1.0,
     }
     profile_retry_probe.push_request(
@@ -419,7 +408,7 @@ def test_task_retry_records_dispatch_from_inherited_profile_headers(monkeypatch,
     assert {dispatch["retry_ordinal"] for dispatch in dispatches} == {2}
     assert {dispatch["catalog_id"] for dispatch in dispatches} == {321}
     assert {dispatch["queued_at"] for dispatch in dispatches} == {9.0}
-    assert all(dispatch["baseline_valid"] is False for dispatch in dispatches)
+    assert all("baseline_valid" not in dispatch for dispatch in dispatches)
 
 
 def test_task_publish_uses_safe_defaults_for_optional_dispatch_metadata(monkeypatch, tmp_path):

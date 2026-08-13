@@ -6,6 +6,7 @@ from statistics import median
 
 from scripts.operator_numeric import safe_float
 from scripts.operator_numeric import safe_int
+from scripts.operator_profile_metrics import load_run_manifest
 
 
 GATE_PASS = "PASS"
@@ -17,12 +18,14 @@ def load_days(root: Path) -> list[dict]:
     rows: list[dict] = []
     for path in root.glob("*/day_summary.json"):
         data = json.loads(path.read_text(encoding="utf-8"))
+        run_manifest = load_run_manifest(path.parent)
         ts = int(data.get("timestamp_epoch_s") or int(path.stat().st_mtime))
         rows.append(
             {
                 "run_id": str(data.get("run_id") or path.parent.name),
                 "ts": ts,
                 "data": data,
+                "baseline_valid": run_manifest.get("baseline_valid") is True,
             }
         )
     rows.sort(key=lambda r: r["ts"])
