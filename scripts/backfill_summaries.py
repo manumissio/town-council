@@ -19,6 +19,17 @@ def main() -> int:
     parser.add_argument("--run-id", type=_safe_run_id, default=None)
     parser.add_argument("--output-dir", default="experiments/results/maintenance")
     parser.add_argument("--progress-every", type=_positive_int, default=25)
+    parser.add_argument(
+        "--summary-timeout-seconds",
+        type=_positive_int,
+        default=None,
+        dest="summary_timeout_seconds",
+    )
+    parser.add_argument(
+        "--summary-fallback-mode",
+        choices=("none", "deterministic"),
+        default="none",
+    )
     parser.add_argument("--json", action="store_true", help="Emit machine-readable JSON only")
     args = parser.parse_args()
 
@@ -32,6 +43,8 @@ def main() -> int:
                 "force": args.force,
                 "limit": args.limit,
                 "progress_every": args.progress_every,
+                "summary_timeout_seconds": args.summary_timeout_seconds,
+                "summary_fallback_mode": args.summary_fallback_mode,
                 "json": args.json,
             },
         },
@@ -75,6 +88,8 @@ def main() -> int:
             force=args.force,
             limit=args.limit,
             city=args.city,
+            summary_timeout_seconds=args.summary_timeout_seconds,
+            summary_fallback_mode=args.summary_fallback_mode,
             progress_callback=_status_callback,
             progress_every=max(1, args.progress_every),
         )
