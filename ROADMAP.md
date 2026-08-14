@@ -78,12 +78,24 @@ rather than browser-visible API keys. The local UI can load protected content,
 status, agenda rows, and derived action results through the same-origin proxy
 pattern.
 
-### Sunnyvale Recovery Path
+### Sunnyvale Recovery And Finalization
 
 Sunnyvale crawling now uses the Legistar Web API template and recovers missing
 agenda/minutes links from meeting detail pages when API rows are partial. Summary
-backfill and empty-agenda fallback behavior are implemented; final completion
-evidence belongs in the active Sunnyvale finalization item below.
+backfill and empty-agenda fallback behavior are implemented.
+
+Finalization evidence captured on `2026-08-14` against commit `f6a7a6c` records
+a fresh crawl, full extraction and segmentation recovery, zero unresolved summary
+backlog, and a successful search rebuild. The 12-month audit reports content and
+summaries for all `279` agenda catalogs. The complete city corpus contains `5,169`
+content-bearing catalogs with `5,169` summaries. No failed or timed-out agenda
+segmentation remains.
+
+The minutes backlog completed with explicit provenance: `1,851` summaries use
+the deterministic `provider_timeout` fallback and `5` retain earlier summaries
+without deterministic-fallback provenance. This closes the city-specific
+recovery work without changing model, baseline, or city-expansion policy.
+Detailed evidence is recorded in `docs/city-onboarding-status.md`.
 
 ### Roster-Gated Person Governance
 
@@ -95,19 +107,6 @@ removed while event-to-body linkage remains heuristic; roster-backed people
 APIs remain available.
 
 ## Active
-
-### Sunnyvale Finalization
-
-Goal: finish and record Sunnyvale coverage evidence after the Legistar API
-recovery and summary backfill work.
-
-Exit criteria:
-- remaining Sunnyvale agenda/minutes summary gaps are resolved or explicitly
-  documented with reason codes;
-- crawl, extraction, segmentation, summary, and search evidence is recorded in
-  the city rollout notes or registry;
-- any residual failures are classified as data/source limitations, not silent
-  pipeline gaps.
 
 ### Inference Decoupling & Throughput Stabilization
 
