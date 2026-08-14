@@ -21,13 +21,13 @@ ACTIVE_REQUIREMENT_PATHS = (
 SHARED_EXACT_CONSTRAINTS = {
     "beautifulsoup4": "4.15.0",
     "celery": "5.6.3",
-    "fastapi": "0.115.8",
+    "fastapi": "0.141.1",
     "httpx": "0.28.1",
     "meilisearch": "0.43.0",
     "prometheus-client": "0.26.0",
-    "psycopg2-binary": "2.9.10",
-    "rapidfuzz": "3.14.3",
-    "redis": "5.0.1",
+    "psycopg2-binary": "2.9.12",
+    "rapidfuzz": "3.14.5",
+    "redis": "8.1.0",
     "sqlalchemy": "2.0.38",
     "uvicorn": "0.34.0",
 }
@@ -603,7 +603,7 @@ def test_batch_pdf_parser_uses_patched_pypdf():
     ]
 
     assert pypdf_requirement_paths == [batch_requirements_path]
-    assert batch_pypdf_requirements == ["pypdf==6.14.2"]
+    assert batch_pypdf_requirements == ["pypdf==6.15.0"]
 
 
 def test_bootstrap_and_runbook_use_semantic_image_for_semantic_artifacts():
