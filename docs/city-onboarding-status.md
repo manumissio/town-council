@@ -1,6 +1,6 @@
 # City Onboarding Status
 
-Document reviewed: 2026-08-02
+Document reviewed: 2026-08-14
 
 This sheet tracks rollout readiness and quality gates per city.
 Machine-readable rollout status and roster authorization live in
@@ -14,7 +14,7 @@ rollout fields with provider and spider evidence; it is not a complete registry 
 | fremont | existing | yes | no | pending | - |
 | hayward | existing | yes | yes | pass | 2026-03-15 |
 | san_mateo | existing | yes | yes | pass | 2026-03-14 |
-| sunnyvale | existing | yes | yes | pass | 2026-03-15 |
+| sunnyvale | existing | yes | yes | pass | 2026-08-14 |
 | san_leandro | existing | yes | yes | pass | 2026-04-04 |
 | mtn_view | existing | yes | no | pending | - |
 | moraga | existing | yes | no | pending | - |
@@ -56,8 +56,19 @@ Activation workflow note:
 Current rollout interpretation:
 - San Mateo remains `enabled=yes` on the strength of its latest fresh-evidence passing run.
 - Hayward is now back to `enabled=yes` after proving the stable delta no-op confirmation path in a fresh paired wave-1 run.
-- Sunnyvale is now promoted in `city_metadata/city_rollout_registry.csv` after the passing first-time rerun `city_wave1_sunnyvale_20260315_113626`.
+- Sunnyvale remains `enabled=yes`; finalization evidence from `2026-08-14` clears the historical extraction, segmentation, summary, and search backlog.
 - San Leandro is now promoted in `city_metadata/city_rollout_registry.csv` after the passing first-time rerun `city_wave1_san_leandro_20260404_161435`.
+
+Sunnyvale finalization evidence (`2026-08-14`):
+- Analyzed commit: `f6a7a6c62d1f94598f8b21eb4ce2d9db8f7d08cb`.
+- Operator artifact directory: `experiments/results/city_onboarding/sunnyvale_finalization_20260814T131305Z`.
+- Crawl evidence: the spider finished normally with `2,661` staged events and `5,168` staged document URLs. Its `29` HTTP 410 meeting-detail responses are classified as `source_detail_gone`; the `2` HTTP 404 responses came from missing `robots.txt` files and are classified as `source_robots_missing`.
+- Segmentation evidence: the resumed pass ended with `2,825` complete, `24` empty, `0` failed, and `0` timed out; a final selection check found no pending Sunnyvale agenda catalog.
+- A final readable agenda PDF that had no stored content was repaired through `hydrate_repaired_city_catalogs.py`: extraction, heuristic segmentation, deterministic agenda summary, and reindex all completed. This removed the last silent pipeline gap.
+- Summary evidence: all `5,169` content-bearing catalogs have summaries, with no unresolved agenda or minutes backlog. Of the `1,856` minutes summaries, `1,851` carry deterministic `provider_timeout` fallback provenance and `5` retain earlier summaries without deterministic-fallback provenance.
+- Coverage evidence: all `279` agenda catalogs in the 12-month audit have non-empty content and summaries; no month is flagged as suspicious.
+- Search evidence: a full Meilisearch rebuild indexed `53,165` records. The scoped `zoning` smoke returned `20` hits, all with `city=ca_sunnyvale`.
+- Gate result: `pass`. The local `exit_gate.json` records `17` passing checks, including normal crawl completion and classification of the source-side HTTP residuals, with no unresolved pipeline failure.
 
 Latest wave-1 confirmation:
 - `city_wave1_hayward_sanmateo_20260314_213301`
