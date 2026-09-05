@@ -2,7 +2,9 @@
 
 Date: 2026-09-05
 
-Code reviewed at commit: `3de41d89075af1eb599f877c7b1a10bf60371a81`
+Reviewed code snapshot: [a429b8d40ee5d7ad9ca4c011880d786a7d893044](https://github.com/manumissio/town-council/commit/a429b8d40ee5d7ad9ca4c011880d786a7d893044).
+This published commit has identical file contents to the pre-merge checkout
+used for the review.
 
 We have agreed on the product direction. Test representative documents before
 deciding how to build it.
