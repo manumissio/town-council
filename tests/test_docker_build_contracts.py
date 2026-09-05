@@ -29,7 +29,7 @@ SHARED_EXACT_CONSTRAINTS = {
     "rapidfuzz": "3.14.5",
     "redis": "8.1.0",
     "sqlalchemy": "2.0.38",
-    "uvicorn": "0.34.0",
+    "uvicorn": "0.52.3",
 }
 
 
