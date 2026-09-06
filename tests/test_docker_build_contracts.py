@@ -603,7 +603,7 @@ def test_batch_pdf_parser_uses_patched_pypdf():
     ]
 
     assert pypdf_requirement_paths == [batch_requirements_path]
-    assert batch_pypdf_requirements == ["pypdf==6.15.0"]
+    assert batch_pypdf_requirements == ["pypdf==6.16.1"]
 
 
 def test_bootstrap_and_runbook_use_semantic_image_for_semantic_artifacts():
