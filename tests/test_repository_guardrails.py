@@ -21,6 +21,7 @@ import yaml
 ROOT = Path(__file__).resolve().parents[1]
 RUFF_CLEAN_EXIT = 0
 RUFF_VIOLATION_EXIT = 1
+FRONTEND_NODE_VERSION = "24.20.0"
 GITHUB_EXPRESSION_OPEN = "${{"
 TEST_EXECUTABLE_MODE = 0o755
 CPU_DEPENDENCY_AUDIT_ENV = (
@@ -1630,7 +1631,7 @@ def test_frontend_workflow_installs_locked_dependencies_before_tests():
 
     assert "uses: actions/checkout@v7" in workflow_text
     assert "uses: actions/setup-node@v7" in workflow_text
-    assert 'node-version: "20"' in workflow_text
+    assert f'node-version: "{FRONTEND_NODE_VERSION}"' in workflow_text
     assert 'cache: "npm"' in workflow_text
     assert "cache-dependency-path: frontend/package-lock.json" in workflow_text
     assert "working-directory: frontend" in workflow_text
@@ -1638,6 +1639,33 @@ def test_frontend_workflow_installs_locked_dependencies_before_tests():
     assert "continue-on-error:" not in workflow_text
     assert all("if" not in workflow_step for workflow_step in frontend_steps)
     assert "strategy:" not in workflow_text
+
+
+def test_frontend_build_surfaces_use_supported_node_runtime() -> None:
+    frontend_root = ROOT / "frontend"
+    package_manifest = json.loads((frontend_root / "package.json").read_text())
+    package_lock = json.loads((frontend_root / "package-lock.json").read_text())
+    expected_engines = {"node": f"^{FRONTEND_NODE_VERSION}"}
+    assert package_manifest.get("engines") == expected_engines
+    assert package_lock["packages"][""].get("engines") == expected_engines
+
+    dockerfile = (frontend_root / "Dockerfile").read_text()
+    node_stages = re.findall(r"^FROM (node:\S+) AS (\S+)$", dockerfile, re.MULTILINE)
+    assert node_stages == [
+        (f"node:{FRONTEND_NODE_VERSION}-alpine", stage)
+        for stage in ("deps", "builder", "runner")
+    ]
+
+    pages_workflow = yaml.load(
+        (ROOT / ".github/workflows/pages-demo.yml").read_text(),
+        Loader=yaml.BaseLoader,
+    )
+    pages_node_versions = [
+        step["with"]["node-version"]
+        for step in pages_workflow["jobs"]["build"]["steps"]
+        if step.get("uses", "").startswith("actions/setup-node@")
+    ]
+    assert pages_node_versions == [FRONTEND_NODE_VERSION]
 
 
 def test_active_workflows_use_setup_node_v7() -> None:

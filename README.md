@@ -324,6 +324,10 @@ The Pages site is a static product demo powered by local JSON fixtures.
 - No write actions (summarize/segment/topics/extract/report)
 - Intended for walkthroughs, not live production data
 
+For local frontend work, use the Node.js version range declared in
+[`frontend/package.json`](frontend/package.json). CI, demo builds, and the
+frontend Docker image use a matching tested release.
+
 Local demo build:
 ```bash
 cd frontend

@@ -16,6 +16,8 @@ const securityHeaders = [
 ];
 
 const nextConfig = {
+  // Let Node resolve jsdom's stylesheet beside its installed package during prerendering.
+  serverExternalPackages: ["isomorphic-dompurify"],
   // Keep Docker production behavior unchanged; only use static export for Pages demo builds.
   output: staticExport ? "export" : "standalone",
   basePath: staticExport ? pagesBasePath : "",
