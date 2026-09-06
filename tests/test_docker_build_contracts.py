@@ -28,7 +28,7 @@ SHARED_EXACT_CONSTRAINTS = {
     "psycopg2-binary": "2.9.12",
     "rapidfuzz": "3.14.5",
     "redis": "8.1.0",
-    "sqlalchemy": "2.0.38",
+    "sqlalchemy": "2.0.52",
     "uvicorn": "0.34.0",
 }
 
@@ -603,7 +603,7 @@ def test_batch_pdf_parser_uses_patched_pypdf():
     ]
 
     assert pypdf_requirement_paths == [batch_requirements_path]
-    assert batch_pypdf_requirements == ["pypdf==6.15.0"]
+    assert batch_pypdf_requirements == ["pypdf==6.16.1"]
 
 
 def test_bootstrap_and_runbook_use_semantic_image_for_semantic_artifacts():
