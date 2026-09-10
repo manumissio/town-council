@@ -23,7 +23,7 @@
     "@radix-ui/react-tooltip": "^1.2.16",
     "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.1",
-    "isomorphic-dompurify": "^3.3.0",
+    "isomorphic-dompurify": "^4.1.0",
     "lucide-react": "^0.577.0",
     "next": "16.3.3",
     "react": "18.2.0",
