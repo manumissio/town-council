@@ -3,8 +3,8 @@ import assert from "node:assert/strict";
 import fs from "node:fs";
 import path from "node:path";
 
-const NEXT_VERSION = "16.3.3";
-const PATCHED_SHARP_VERSION = "0.35.3";
+const NEXT_VERSION = "16.3.5";
+const PATCHED_SHARP_VERSION = "0.35.4";
 const ROOT_DEPENDENCY_SECTIONS = [
   "dependencies",
   "devDependencies",
@@ -33,7 +33,7 @@ test("keeps Sharp transitive and pins the patched Next.js child", () => {
   );
 });
 
-test("locks patched Sharp without changing Next.js", () => {
+test("locks patched Sharp with the approved Next.js version", () => {
   assert.equal(packageLock.packages["node_modules/next"].version, NEXT_VERSION);
   assert.equal(
     packageLock.packages["node_modules/sharp"].version,
