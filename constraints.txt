@@ -6,7 +6,7 @@ meilisearch==0.43.0
 pip-audit==2.10.1
 prometheus-client==0.26.0
 psycopg2-binary==2.9.12
-rapidfuzz==3.14.5
+rapidfuzz==3.14.6
 redis==8.1.0
 sqlalchemy==2.0.52
-uvicorn==0.52.3
+uvicorn==0.52.4

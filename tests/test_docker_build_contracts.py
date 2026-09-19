@@ -26,10 +26,10 @@ SHARED_EXACT_CONSTRAINTS = {
     "meilisearch": "0.43.0",
     "prometheus-client": "0.26.0",
     "psycopg2-binary": "2.9.12",
-    "rapidfuzz": "3.14.5",
+    "rapidfuzz": "3.14.6",
     "redis": "8.1.0",
     "sqlalchemy": "2.0.52",
-    "uvicorn": "0.52.3",
+    "uvicorn": "0.52.4",
 }
 
 
@@ -556,7 +556,7 @@ def test_semantic_dependencies_live_outside_worker_runtime():
     runtime = Path("pipeline/requirements.txt").read_text(encoding="utf-8")
     semantic = Path("semantic_service/requirements.txt").read_text(encoding="utf-8")
 
-    for package in ("sentence-transformers==3.3.0", "faiss-cpu==1.10.0"):
+    for package in ("sentence-transformers==6.0.1", "faiss-cpu==1.15.0"):
         assert package not in runtime
         assert package in semantic
 
