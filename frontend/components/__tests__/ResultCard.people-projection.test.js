@@ -7,10 +7,9 @@ import path from "node:path";
 
 import { JSDOM } from "jsdom";
 import nextSwc from "next/dist/build/swc/index.js";
-import React from "react";
+import React, { act } from "react";
 import { createRoot } from "react-dom/client";
 import { renderToStaticMarkup } from "react-dom/server";
-import { act } from "react-dom/test-utils";
 
 const require = createRequire(import.meta.url);
 const COMPONENT_INTERACTION_TIMEOUT_MS = 2_000;
