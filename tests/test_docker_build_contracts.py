@@ -25,11 +25,11 @@ SHARED_EXACT_CONSTRAINTS = {
     "httpx": "0.28.1",
     "meilisearch": "0.43.0",
     "prometheus-client": "0.26.0",
-    "psycopg2-binary": "2.9.12",
+    "psycopg2-binary": "2.9.13",
     "rapidfuzz": "3.14.6",
     "redis": "8.1.0",
-    "sqlalchemy": "2.0.52",
-    "uvicorn": "0.52.4",
+    "sqlalchemy": "2.0.54",
+    "uvicorn": "0.53.0",
 }
 
 
@@ -519,7 +519,7 @@ def test_worker_runtime_requirements_exclude_development_tooling():
 
     for package in (
         "pytest==9.1.1",
-        "pytest-mock==3.12.0",
+        "pytest-mock==3.15.1",
         "pytest-benchmark==5.1.0",
         "locust==2.33.0",
     ):
@@ -548,7 +548,7 @@ def test_coverage_tooling_is_development_only():
             for requirement_directive in runtime_requirement_directives
         )
 
-    assert "coverage==7.13.3" in development_requirements
+    assert "coverage==7.16.1" in development_requirements
     assert "pytest-cov==7.1.0" in development_requirements
 
 
