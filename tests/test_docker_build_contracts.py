@@ -29,7 +29,7 @@ SHARED_EXACT_CONSTRAINTS = {
     "rapidfuzz": "3.14.6",
     "redis": "8.1.0",
     "sqlalchemy": "2.0.54",
-    "uvicorn": "0.53.0",
+    "uvicorn": "0.54.0",
 }
 
 
@@ -519,8 +519,8 @@ def test_worker_runtime_requirements_exclude_development_tooling():
 
     for package in (
         "pytest==9.1.1",
-        "pytest-mock==3.15.1",
-        "pytest-benchmark==5.1.0",
+        "pytest-mock==3.16.0",
+        "pytest-benchmark==5.3.0",
         "locust==2.33.0",
     ):
         assert package not in runtime
@@ -548,7 +548,7 @@ def test_coverage_tooling_is_development_only():
             for requirement_directive in runtime_requirement_directives
         )
 
-    assert "coverage==7.16.1" in development_requirements
+    assert "coverage==7.16.2" in development_requirements
     assert "pytest-cov==7.1.0" in development_requirements
 
 
@@ -603,7 +603,7 @@ def test_batch_pdf_parser_uses_patched_pypdf():
     ]
 
     assert pypdf_requirement_paths == [batch_requirements_path]
-    assert batch_pypdf_requirements == ["pypdf==6.16.1"]
+    assert batch_pypdf_requirements == ["pypdf==6.19.0"]
 
 
 def test_bootstrap_and_runbook_use_semantic_image_for_semantic_artifacts():
