@@ -149,8 +149,9 @@ authorization expose source records but no people-facing data.
 - `votes`: runs vote extraction/update logic over agenda items.
 
 When segmentation uses the text fallback, item numbers and source record IDs
-help keep titles together within their source paragraph. Record IDs remain in
-descriptions without joining separate paragraphs. Numbered descriptions retain
+help keep titles together within their source paragraph. Only title-associated
+IDs anchor items before a numbered block; body-field mentions do not. Record IDs
+remain in descriptions without joining separate paragraphs. Numbered descriptions retain
 source text, not a generic section label. Cancellation text does not suppress an
 entire document: the text fallback cannot establish which meeting a notice
 belongs to. Cancellation notices can still produce noise, and the fallback does

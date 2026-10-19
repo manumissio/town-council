@@ -26,6 +26,7 @@ from pipeline.agenda_extraction_numbered import (
 from pipeline.agenda_extraction_paragraphs import (
     candidate_paragraphs,
     paragraph_description,
+    paragraph_has_record_anchor,
     paragraph_progress,
     paragraph_title,
     reject_paragraph_title,
@@ -152,7 +153,7 @@ class AgendaExtractionContext:
         if not numbered_lines:
             return False
         prefix = candidate_paragraphs(page_content[: numbered_lines[0].start()])
-        anchored = [paragraph for paragraph in prefix if RECORD_ID_PATTERN.search(paragraph)]
+        anchored = [paragraph for paragraph in prefix if paragraph_has_record_anchor(paragraph)]
         self._consume_paragraph_fallback(anchored, page_number)
         self._consume_numbered_lines(numbered_lines, page_content, page_number, page_has_speaker_context(page_content))
         return True

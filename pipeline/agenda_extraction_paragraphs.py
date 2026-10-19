@@ -36,6 +36,17 @@ def _attach_record_id(paragraph: str, record_id: str) -> str:
     return f"{normalize_spaces(title)}{body}\n{record_id}"
 
 
+def paragraph_has_record_anchor(paragraph: str) -> bool:
+    first_line, *body_lines = paragraph.splitlines()
+    field = ITEM_FIELD_PATTERN.match(first_line)
+    if field and field.group(1).lower() != "subject":
+        return False
+    # A body-field mention is not evidence that the paragraph is an item title.
+    return bool(RECORD_ID_PATTERN.search(first_line)) or any(
+        RECORD_ID_PATTERN.fullmatch(line.strip()) for line in body_lines
+    )
+
+
 def paragraph_title(paragraph: str) -> str:
     lines = paragraph.split("\n")
     return _PARAGRAPH_TITLE_PREFIX_RE.sub("", lines[0].strip()) if lines else ""
