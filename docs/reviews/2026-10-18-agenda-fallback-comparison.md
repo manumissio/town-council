@@ -16,7 +16,7 @@ too many false items to present as a dependable account of a meeting.
 | Uncertain items, counted separately | 14 | 8 |
 | Missed business units, out of 96 | 78 | 48 |
 | Previously covered units lost | — | 0 |
-| Median extraction time per document, fresh replay | 3.6 ms | 4.6 ms |
+| Median extraction time per document, fresh replay | 3.6 ms | 4.5 ms |
 | Model/API calls and inference cost | 0 / $0 | 0 / $0 |
 
 Mountain View coverage rises from 4 to 25 of 31 reference units; Sunnyvale
@@ -84,6 +84,10 @@ The 96-unit reference is AI-reviewed, not human gold. It includes substantive
 public-comment and presentation topics as well as formal agenda business.
 The fixes do not resolve blank-line fragments, cancellation classification,
 all minutes coverage, generic paragraph noise, or source reading-order problems.
+Plain numeric actions under an explicit recommendation can remain ambiguous:
+the fallback preserves their existing nested interpretation rather than
+assuming every changed number starts independent business. Title recovery also
+stays on the matching line when an earlier item or field owns the same paragraph.
 Structured Legistar/HTML paths and live UI
 behavior were not evaluated here. Do not infer complete meeting coverage.
 

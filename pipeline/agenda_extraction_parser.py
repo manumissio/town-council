@@ -33,9 +33,12 @@ def normalize_numbered_layout(page_content: str) -> str:
 
 def _source_title_start(page_content: str, position: int) -> int:
     # Explicit item and field boundaries outrank visual title wrapping.
+    matched_line_start = position
     for line in reversed(page_content[:position].splitlines(keepends=True)):
-        if not line.strip() or NUMBERED_LINE_PATTERN.match(line.strip()) or ITEM_FIELD_PATTERN.match(line):
+        if not line.strip():
             break
+        if NUMBERED_LINE_PATTERN.match(line.strip()) or ITEM_FIELD_PATTERN.match(line):
+            return matched_line_start
         position -= len(line)
     return position
 

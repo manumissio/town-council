@@ -79,3 +79,20 @@ def test_title_before_decimal_marker_preserves_nonbreaking_space_indentation() -
     assert [agenda_item["title"] for agenda_item in agenda_items] == [
         "Discussion and Prioritization of Issues to Study for Potential Amendments to the Sunnyvale City Charter"
     ]
+
+
+@pytest.mark.parametrize("first_item,expected_first_title", [
+    ("First agenda item title\n5.1\nRecommendation:\nReceive the report.", "First agenda item title"),
+    ("1. First agenda item title.\nReceive the report.", "First agenda item title."),
+])
+def test_prior_item_body_is_not_part_of_a_later_bare_marker_title(first_item: str, expected_first_title: str) -> None:
+    agenda_items = run_agenda_extraction_pipeline(
+        text=f"{first_item}\nSecond agenda item title\n5.2\nRecommendation: Receive the next report.",
+        raw_provider_content=None,
+        mode="balanced",
+        logger=logging.getLogger(__name__),
+    )
+
+    assert [agenda_item["title"] for agenda_item in agenda_items] == [
+        expected_first_title, "Second agenda item title"
+    ]
