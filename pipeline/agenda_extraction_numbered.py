@@ -11,6 +11,9 @@ from pipeline.agenda_text_heuristics import looks_like_agenda_segmentation_boile
 TOP_LEVEL_NUMERIC_RE = re.compile(r"\d{1,2}(?:\.\d+)?")
 VOTE_RE = re.compile(r"(?im)\bVote:\s*([^\n\r]+)")
 _RECOMMENDATION_SUBITEM_RE = re.compile(r"(\d{1,2})\.?[A-Za-z]")
+_SECTION_TITLE_RE = re.compile(
+    r"(?i)(?:(?:new|unfinished|old|general)\s+business|consent\s+calendar|public\s+hearings?(?:/general\s+business)?)"
+)
 
 
 def is_numbered_business_marker(marker: str) -> bool:
@@ -35,7 +38,7 @@ def is_section_container(index: int, numbered_lines: list[re.Match[str]], page_c
     current, following = numbered_lines[index : index + 2]
     marker = current.group(1).rstrip(".):")
     next_marker = following.group(1).rstrip(".):")
-    if not marker.isdigit() or not current.group(2).strip().isupper():
+    if not marker.isdigit() or not _SECTION_TITLE_RE.fullmatch(current.group(2).strip()):
         return False
     if ITEM_FIELD_PATTERN.search(page_content[current.end() : following.start()]):
         return False

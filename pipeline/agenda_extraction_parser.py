@@ -23,7 +23,21 @@ _TITLE_BEFORE_DECIMAL_RE = re.compile(
 
 
 def normalize_numbered_layout(page_content: str) -> str:
-    return _TITLE_BEFORE_DECIMAL_RE.sub(lambda match: f"{match[2]}. {match[1].strip()}\n", page_content)
+    normalized = page_content
+    for match in reversed(list(_TITLE_BEFORE_DECIMAL_RE.finditer(page_content))):
+        title_start = _source_title_start(page_content, match.start())
+        title = " ".join(page_content[title_start:match.start(2)].split())
+        normalized = f"{normalized[:title_start]}{match[2]}. {title}\n{normalized[match.end():]}"
+    return normalized
+
+
+def _source_title_start(page_content: str, position: int) -> int:
+    # Explicit item and field boundaries outrank visual title wrapping.
+    for line in reversed(page_content[:position].splitlines(keepends=True)):
+        if not line.strip() or NUMBERED_LINE_PATTERN.match(line.strip()) or ITEM_FIELD_PATTERN.match(line):
+            break
+        position -= len(line)
+    return position
 
 
 _ITEM_HEADER_RE = re.compile(r"(?im)^\s*ITEM\s+(?P<order>\d+)\s*:\s*")

@@ -11,12 +11,12 @@ too many false items to present as a dependable account of a meeting.
 
 | Measure | Original | After fixes |
 | --- | ---: | ---: |
-| Candidates | 241 | 225 |
-| False items: source noise or fragments | 203 | 167 |
+| Candidates | 241 | 231 |
+| False items: source noise or fragments | 203 | 173 |
 | Uncertain items, counted separately | 14 | 8 |
 | Missed business units, out of 96 | 78 | 48 |
 | Previously covered units lost | — | 0 |
-| Median extraction time per document, fresh replay | 3.6 ms | 4.5 ms |
+| Median extraction time per document, fresh replay | 3.6 ms | 4.6 ms |
 | Model/API calls and inference cost | 0 / $0 | 0 / $0 |
 
 Mountain View coverage rises from 4 to 25 of 31 reference units; Sunnyvale
@@ -32,10 +32,11 @@ before, including two newly visible city mastheads. This remains unresolved.
   paragraph and distinguish formal business from names and addresses. Internal
   title line breaks are normalized; separate paragraphs are never joined.
   Recognized titles printed before item numbers are normalized locally,
-  without changing stored source text.
+  preserving their complete source paragraph without changing stored text.
 - Record-backed content before the first numbered item remains eligible.
   IDs mentioned only in body fields do not make those fields into item titles.
   Parent context distinguishes recommendation children from sibling items.
+  Uppercase business is not treated as a section solely because of its casing.
 - Descriptions retain bounded source text. Cancellation text inside an
   attachment does not suppress business elsewhere in a live document.
 - Tika requests XHTML, preserving real pages, paragraphs, list entries,
@@ -60,8 +61,9 @@ small timings are observational, not a performance gate. Inference cost excludes
 AI-review compute and machine operating costs.
 
 Unchanged evidence retains its sealed original label or its earlier independent
-blind judgments. Three new passages received two further blind reviews, which
-agree. The bundle records this review chain. Text, page, result, document, and
+blind judgments. Six passages added by the final section-boundary correction
+received two further blind reviews, which agree. The bundle also retains the
+earlier reviews. Text, page, result, document, and
 reference must match before a judgment is reused; row order is not part of this
 semantic-correctness metric.
 
@@ -70,6 +72,11 @@ classification. The flattened text does not reliably identify paragraph
 continuations or the primary meeting. Those heuristics were removed rather
 than extended with more guesses; the final figures above replace the earlier,
 more optimistic interim figures.
+
+Restricting section detection to known whole titles preserves uppercase business
+but exposes six more generic headings than the preceding revision. Both blind
+reviewers classify these as noise. The final count includes them; unknown
+headings are not silently discarded based on typography alone.
 
 The 96-unit reference is AI-reviewed, not human gold. It includes substantive
 public-comment and presentation topics as well as formal agenda business.
@@ -103,8 +110,8 @@ labels = evidence["final_labels"]
 covered = {unit for label in labels for unit in label["covered_unit_ids"]}
 units = {unit["unit_id"] for document in evidence["original_reference"]["reference"]["documents"]
          for unit in document["business_units"]}
-assert sum(label["label"] == "noise" for label in labels) == 167
+assert sum(label["label"] == "noise" for label in labels) == 173
 assert len(units - covered) == 48
-print("PASS: 24-document replay; 167 false items; 48 missed reference units")
+print("PASS: 24-document replay; 173 false items; 48 missed reference units")
 PY
 ```
