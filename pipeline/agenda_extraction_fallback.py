@@ -22,6 +22,7 @@ from pipeline.agenda_extraction_numbered import (
     is_section_sibling,
     numbered_item_title,
     numbered_title_is_noise,
+    starts_new_numbered_section,
 )
 from pipeline.agenda_extraction_paragraphs import (
     candidate_paragraphs,
@@ -195,6 +196,8 @@ class AgendaExtractionContext:
 
     def _skip_numbered_line(self, match: re.Match[str], page_content: str, speaker_context: bool) -> bool:
         marker = match.group(1).rstrip(".):")
+        if starts_new_numbered_section(marker, self.parse_state.active_parent_marker):
+            self.parse_state.clear_parent()
         title = numbered_item_title(match)
         record_anchored = RECORD_ID_PATTERN.match(match.group(2)) is not None
         sibling = is_section_sibling(marker, self.parse_state.active_parent_marker)

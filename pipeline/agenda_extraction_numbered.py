@@ -26,6 +26,12 @@ def is_section_sibling(marker: str, parent_marker: str | None) -> bool:
     return bool(current and parent and current[1] == parent[1])
 
 
+def starts_new_numbered_section(marker: str, parent_marker: str | None) -> bool:
+    current = _RECOMMENDATION_SUBITEM_RE.fullmatch(marker)
+    parent = re.match(r"\d+", parent_marker or "")
+    return bool(current and parent and current[1] != parent[0])
+
+
 def numbered_item_title(match: re.Match[str]) -> str:
     title = match.group(2).strip()
     record_id = RECORD_ID_PATTERN.match(title)
