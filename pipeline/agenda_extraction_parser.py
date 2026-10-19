@@ -17,8 +17,6 @@ RECORD_ID_PATTERN = re.compile(r"\b\d{2}-\d{3,}(?:\.[A-Z])?\b")
 ITEM_FIELD_PATTERN = re.compile(
     r"(?im)^\s*(from|recommendation|recommended action|financial implications|contact|vote|result|action|subject)\s*:"
 )
-_CANCELLATION_HEADER_RE = re.compile(r"(?im)^\s*(?:notice of cancellation|cancellation notice)(?: - final)?\s*$")
-_MEETING_CANCELED_RE = re.compile(r"(?im)^\s*meeting cancel(?:l)?ed\s*$")
 _TITLE_BEFORE_DECIMAL_RE = re.compile(
     r"(?m)^([^\n]+)\n\s*(\d{1,2}\.\d+)\s*\n(?=\s*(?:Recommendation|Recommended Action):)"
 )
@@ -26,14 +24,6 @@ _TITLE_BEFORE_DECIMAL_RE = re.compile(
 
 def normalize_numbered_layout(page_content: str) -> str:
     return _TITLE_BEFORE_DECIMAL_RE.sub(lambda match: f"{match[2]}. {match[1].strip()}\n", page_content)
-
-
-def is_cancellation_notice(text: str) -> bool:
-    return bool(
-        _CANCELLATION_HEADER_RE.search(text)
-        and _MEETING_CANCELED_RE.search(text)
-        and not NUMBERED_LINE_PATTERN.search(text)
-    )
 
 
 _ITEM_HEADER_RE = re.compile(r"(?im)^\s*ITEM\s+(?P<order>\d+)\s*:\s*")

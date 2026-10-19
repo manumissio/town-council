@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import re
 
-from pipeline.agenda_extraction_noise import is_noise_title
 from pipeline.agenda_extraction_parser import ITEM_FIELD_PATTERN, RECORD_ID_PATTERN, iter_fallback_paragraphs
 from pipeline.agenda_text_normalization import normalize_spaces
 
@@ -12,27 +11,29 @@ _PARAGRAPH_TITLE_BLOCKERS = ("page", "packet", "continuing")
 
 
 def candidate_paragraphs(page_content: str) -> list[str]:
+    source_paragraphs = iter_fallback_paragraphs(page_content)
     paragraphs: list[str] = []
-    for paragraph in iter_fallback_paragraphs(page_content):
-        if RECORD_ID_PATTERN.fullmatch(paragraph.strip()):
-            # A trailing source record ID anchors a title split across PDF lines.
-            title_lines: list[str] = []
-            while paragraphs and _can_join_record_title(paragraphs[-1]):
-                title_lines.append(paragraphs.pop())
-            if title_lines:
-                paragraphs.append(normalize_spaces(" ".join(reversed(title_lines))))
-        paragraphs.append(paragraph)
-    return [paragraph for paragraph in paragraphs if 10 < len(paragraph.strip()) < 1000]
+    for index, paragraph in enumerate(source_paragraphs):
+        record_id = RECORD_ID_PATTERN.fullmatch(paragraph.strip())
+        if record_id and index and _eligible_paragraph(source_paragraphs[index - 1]):
+            paragraphs[-1] = _attach_record_id(paragraphs[-1], paragraph.strip())
+        elif not record_id and _eligible_paragraph(paragraph):
+            paragraphs.append(paragraph)
+    return paragraphs
 
 
-def _can_join_record_title(paragraph: str) -> bool:
-    return not (
-        paragraph.isupper()
-        or paragraph.endswith((".", "!", "?", ":"))
-        or ITEM_FIELD_PATTERN.match(paragraph)
-        or RECORD_ID_PATTERN.fullmatch(paragraph.strip())
-        or is_noise_title(paragraph)
-    )
+def _eligible_paragraph(paragraph: str) -> bool:
+    return 10 < len(paragraph.strip()) < 1000 and not RECORD_ID_PATTERN.fullmatch(paragraph.strip())
+
+
+def _attach_record_id(paragraph: str, record_id: str) -> str:
+    # The source paragraph is a boundary; a later ID cannot justify crossing it.
+    field = ITEM_FIELD_PATTERN.search(paragraph)
+    if field and not paragraph[:field.start()].strip():
+        return f"{paragraph}\n{record_id}"
+    title = paragraph[:field.start()] if field else paragraph
+    body = f"\n{paragraph[field.start():]}" if field else ""
+    return f"{normalize_spaces(title)}{body}\n{record_id}"
 
 
 def paragraph_title(paragraph: str) -> str:

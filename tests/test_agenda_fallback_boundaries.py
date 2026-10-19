@@ -54,13 +54,13 @@ def test_wrapped_numbered_title_keeps_all_lines_but_not_recommendation() -> None
     assert len(agenda_items) == 2
 
 
-def test_record_id_keeps_blank_line_wrapped_title_as_one_item() -> None:
+def test_record_id_keeps_wrapped_lines_within_one_source_paragraph() -> None:
     source = (
         "[PAGE 1]\nPUBLIC HEARING/GENERAL BUSINESS\n\n"
-        "Discussion and Prioritization of Issues to Study for Potential\n\n"
+        "Discussion and Prioritization of Issues to Study for Potential\n"
         "Amendments to the Sunnyvale City Charter\n\n25-03822\n\n"
         "Recommendation: This item is for discussion; staff makes no recommendation.\n\n"
-        "Discussion of Subcommittee Assignments, Next Steps and\n\nDeliverables\n\n25-03843\n"
+        "Discussion of Subcommittee Assignments, Next Steps and\nDeliverables\n\n25-03843\n"
     )
 
     titles = [agenda_item["title"] for agenda_item in extract(source)]
@@ -75,26 +75,13 @@ def test_unmarked_business_is_not_lost_when_another_title_has_a_record_id() -> N
     source = (
         "[PAGE 1]\nRegional Transit Agreement Update\n\n"
         "Recommendation: Receive the transit report.\n\n"
-        "Discussion of Subcommittee Assignments, Next Steps and\n\nDeliverables\n\n25-03843\n"
+        "Discussion of Subcommittee Assignments, Next Steps and\nDeliverables\n\n25-03843\n"
     )
 
     titles = [agenda_item["title"] for agenda_item in extract(source)]
 
     assert "Regional Transit Agreement Update" in titles
     assert "Discussion of Subcommittee Assignments, Next Steps and Deliverables" in titles
-
-
-@pytest.mark.parametrize("spelling", ["CANCELED", "CANCELLED"])
-@pytest.mark.parametrize("notice_header", ["Cancellation Notice - Final", "Notice of Cancellation"])
-def test_whole_meeting_cancellation_notice_has_no_items(spelling: str, notice_header: str) -> None:
-    source = (
-        f"[PAGE 1]\nCity of Sunnyvale\n\n{notice_header}\n\nMEETING {spelling}\n\n"
-        "The next meeting will be held on September 10.\n"
-    )
-    provider_output = "1: Approve the public works contract (Page 1) - Approve the contract."
-
-    assert extract(source) == []
-    assert extract(source, provider_output) == []
 
 
 def test_individual_item_cancellation_does_not_hide_other_business() -> None:
@@ -266,3 +253,44 @@ def test_anchored_prefix_and_numbered_items_share_the_document_budget() -> None:
 
     assert len(agenda_items) == AGENDA_FALLBACK_MAX_ITEMS_PER_DOC
     assert not any("annual budget amendment" in str(agenda_item["title"]) for agenda_item in agenda_items)
+
+
+def test_standalone_record_id_keeps_its_prefix_business_before_numbered_items() -> None:
+    titles = [str(agenda_item["title"]) for agenda_item in extract(
+        "[PAGE 1]\nRegional Transit Agreement Update\n\n25-03843\n\n"
+        "1. Approve the public works contract\nRecommendation: Approve the contract.\n"
+    )]
+
+    assert "Regional Transit Agreement Update" in titles
+    assert "Approve the public works contract" in titles
+
+
+def test_source_record_id_does_not_swallow_a_masthead_or_other_business() -> None:
+    titles = [str(agenda_item["title"]) for agenda_item in extract(
+        "[PAGE 1]\nCity of Sunnyvale\n\nRegional Transit Agreement Update\n\n"
+        "Approve the public works contract\n\n25-03843\n"
+    )]
+
+    assert "Regional Transit Agreement Update" in titles
+    assert "Approve the public works contract" in titles
+    assert all(not ("Sunnyvale" in title and "contract" in title) for title in titles)
+
+
+@pytest.mark.parametrize("provider_output", [None, "1: Regional Transit Agreement Update (Page 1) - Approve the regional transit agreement."])
+def test_attached_cancellation_notice_does_not_suppress_live_provider_business(provider_output: str | None) -> None:
+    source = (
+        "[PAGE 1]\nRegional Transit Agreement Update\nRecommendation: Approve the agreement.\n\n"
+        "[PAGE 2]\nSubcommittee attachment\nNotice of Cancellation\nMEETING CANCELED\n"
+    )
+    assert any("Regional Transit Agreement" in str(agenda_item["title"])
+               for agenda_item in extract(source, provider_output))
+
+
+def test_record_ids_without_a_preceding_paragraph_are_not_agenda_items() -> None:
+    assert extract("[PAGE 1]\n\n25-1234567890\n\n25-1234567891\n") == []
+
+
+def test_record_id_preserves_a_field_led_title() -> None:
+    agenda_items = extract("[PAGE 1]\nSubject: Regional Transit Agreement Update\n\n25-03843\n\n"
+                           "1. Approve the public works contract\nRecommendation: Approve the contract.")
+    assert any("Regional Transit Agreement" in str(agenda_item["title"]) for agenda_item in agenda_items)

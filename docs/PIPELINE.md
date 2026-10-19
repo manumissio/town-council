@@ -149,11 +149,12 @@ authorization expose source records but no people-facing data.
 - `votes`: runs vote extraction/update logic over agenda items.
 
 When segmentation uses the text fallback, item numbers and source record IDs
-help keep wrapped titles together. Numbered descriptions retain source text,
-not a generic section label. A document explicitly headed as a whole-meeting
-cancellation notice produces no agenda items; a mention of a canceled hearing
-does not suppress the rest of a meeting. This fallback does not guarantee a
-complete account of business in minutes or public comments.
+help keep titles together within their source paragraph. Record IDs remain in
+descriptions without joining separate paragraphs. Numbered descriptions retain
+source text, not a generic section label. Cancellation text does not suppress an
+entire document: the text fallback cannot establish which meeting a notice
+belongs to. Cancellation notices can still produce noise, and the fallback does
+not guarantee a complete account of business in minutes or public comments.
 
 `pipeline/tasks.py` owns default-queue task identities, retries, and sessions;
 `pipeline/enrichment_tasks.py` owns topic generation on the enrichment queue;

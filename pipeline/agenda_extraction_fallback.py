@@ -39,7 +39,6 @@ from pipeline.agenda_extraction_parser import (
     AgendaItemPayload,
     NUMBERED_LINE_PATTERN,
     RECORD_ID_PATTERN,
-    is_cancellation_notice,
     normalize_numbered_layout,
     parse_llm_agenda_items,
     reconstruct_llm_agenda_content,
@@ -87,7 +86,7 @@ class AgendaExtractionContext:
                 if self._should_stop_fallback(stop_after_page):
                     break
                 continue
-            self._consume_paragraph_fallback(page_content, page_number)
+            self._consume_paragraph_fallback(candidate_paragraphs(page_content), page_number)
             if self._should_stop_fallback(stop_after_page):
                 break
 
@@ -153,7 +152,7 @@ class AgendaExtractionContext:
         if not numbered_lines:
             return False
         prefix = candidate_paragraphs(page_content[: numbered_lines[0].start()])
-        anchored = "\n\n".join(paragraph for paragraph in prefix if RECORD_ID_PATTERN.search(paragraph))
+        anchored = [paragraph for paragraph in prefix if RECORD_ID_PATTERN.search(paragraph)]
         self._consume_paragraph_fallback(anchored, page_number)
         self._consume_numbered_lines(numbered_lines, page_content, page_number, page_has_speaker_context(page_content))
         return True
@@ -236,10 +235,10 @@ class AgendaExtractionContext:
         if len(self.items) > before_count and is_numbered_business_marker(marker):
             self.parse_state.remember_parent(clean_title, page_number, marker)
 
-    def _consume_paragraph_fallback(self, page_content: str, page_number: int) -> None:
+    def _consume_paragraph_fallback(self, paragraphs: list[str], page_number: int) -> None:
         added_from_paragraphs = 0
         consecutive_rejects = 0
-        for paragraph in candidate_paragraphs(page_content):
+        for paragraph in paragraphs:
             if self._stop_paragraph_fallback(added_from_paragraphs):
                 break
             title = paragraph_title(paragraph)
@@ -282,8 +281,6 @@ def run_agenda_extraction_pipeline(
     mode: str,
     logger: logging.Logger,
 ) -> list[AgendaItemPayload]:
-    if is_cancellation_notice(text):
-        return []
     context = AgendaExtractionContext(mode=mode, logger=logger)
     if raw_provider_content:
         context.accept_provider_output(raw_provider_content)
