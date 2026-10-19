@@ -30,7 +30,7 @@ def split_text_by_page_markers(raw_text: str) -> list[tuple[int, str]]:
     chunks: list[tuple[int, str]] = []
     for index, (start_position, page_number) in enumerate(markers):
         end_position = markers[index + 1][0] if index + 1 < len(markers) else len(raw_text)
-        chunk = raw_text[start_position:end_position].strip()
+        chunk = _PAGE_MARKER_RE.sub("", raw_text[start_position:end_position], count=1).strip()
         if chunk:
             chunks.append((page_number, chunk))
     return chunks or [(1, raw_text)]

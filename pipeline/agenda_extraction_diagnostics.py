@@ -3,6 +3,8 @@ from __future__ import annotations
 import logging
 from dataclasses import dataclass
 
+from pipeline.agenda_text_normalization import normalize_spaces
+
 
 _EXTRACTION_COUNTERS_LOG = (
     "agenda_segmentation.counters mode=%s accepted_items_final=%s rejected_procedural=%s "
@@ -34,9 +36,23 @@ class AgendaExtractionStats:
 class AgendaParseState:
     active_parent_item: str | None = None
     active_parent_page: int | None = None
+    active_parent_marker: str | None = None
     parent_context_confidence: float = 0.0
     seen_top_level_items: int = 0
     person_heavy_numbered_list: bool = False
+
+    def clear_parent(self) -> None:
+        self.active_parent_item = None
+        self.active_parent_page = None
+        self.active_parent_marker = None
+        self.parent_context_confidence = 0.0
+
+    def remember_parent(self, title: str, page_number: int, marker: str) -> None:
+        self.active_parent_item = normalize_spaces(title)
+        self.active_parent_page = page_number
+        self.active_parent_marker = marker
+        self.parent_context_confidence = 1.0
+        self.seen_top_level_items += 1
 
     def item_context(self) -> dict[str, object]:
         return {

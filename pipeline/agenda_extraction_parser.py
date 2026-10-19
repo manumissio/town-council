@@ -7,6 +7,42 @@ from pipeline.config import LLM_AGENDA_MAX_TEXT
 
 AgendaItemPayload = dict[str, object]
 
+# Title wrapping and item discovery must agree on where the next item starts.
+NUMBERED_LINE_PATTERN = re.compile(
+    r"(?m)^[ \t]*(?:item[ \t]*)?#?[ \t]*"
+    r"(\d{1,2}(?:\.\d+|\.?[A-Za-z])[\.\):]?|\d{1,2}[\.\):]|[A-Z][\.\):]|[IVXLC]+[\.\):]"
+    r"|\d{1,2}(?=[ \t]+\d{2}-\d{3,}\b))\s+(.{6,400})$"
+)
+RECORD_ID_PATTERN = re.compile(r"\b\d{2}-\d{3,}(?:\.[A-Z])?\b")
+ITEM_FIELD_PATTERN = re.compile(
+    r"(?im)^\s*(from|recommendation|recommended action|financial implications|contact|vote|result|action|subject)\s*:"
+)
+_TITLE_BEFORE_DECIMAL_RE = re.compile(
+    r"(?m)^([^\n]+)\n\s*(\d{1,2}\.\d+)\s*\n(?=\s*(?:Recommendation|Recommended Action):)"
+)
+
+
+def normalize_numbered_layout(page_content: str) -> str:
+    normalized = page_content
+    for match in reversed(list(_TITLE_BEFORE_DECIMAL_RE.finditer(page_content))):
+        title_start = _source_title_start(page_content, match.start())
+        title = " ".join(page_content[title_start:match.start(2)].split())
+        normalized = f"{normalized[:title_start]}{match[2]}. {title}\n{normalized[match.end():]}"
+    return normalized
+
+
+def _source_title_start(page_content: str, position: int) -> int:
+    # Explicit item and field boundaries outrank visual title wrapping.
+    matched_line_start = position
+    for line in reversed(page_content[:position].splitlines(keepends=True)):
+        if not line.strip():
+            break
+        if NUMBERED_LINE_PATTERN.match(line.strip()) or ITEM_FIELD_PATTERN.match(line):
+            return matched_line_start
+        position -= len(line)
+    return position
+
+
 _ITEM_HEADER_RE = re.compile(r"(?im)^\s*ITEM\s+(?P<order>\d+)\s*:\s*")
 _FALLBACK_PARAGRAPH_BOUNDARY_RE = re.compile(
     r"(?i)^\s*("

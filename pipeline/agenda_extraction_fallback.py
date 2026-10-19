@@ -15,15 +15,19 @@ from pipeline.agenda_extraction_noise import (
     merge_wrapped_title_lines,
 )
 from pipeline.agenda_extraction_numbered import (
-    NUMBERED_LINE_PATTERN,
-    TOP_LEVEL_NUMERIC_RE,
     VOTE_RE,
     is_contextual_subitem,
+    is_numbered_business_marker,
+    is_section_container,
+    is_section_sibling,
+    numbered_item_title,
     numbered_title_is_noise,
+    starts_new_numbered_section,
 )
 from pipeline.agenda_extraction_paragraphs import (
     candidate_paragraphs,
     paragraph_description,
+    paragraph_has_record_anchor,
     paragraph_progress,
     paragraph_title,
     reject_paragraph_title,
@@ -35,6 +39,9 @@ from pipeline.agenda_extraction_pages import (
 )
 from pipeline.agenda_extraction_parser import (
     AgendaItemPayload,
+    NUMBERED_LINE_PATTERN,
+    RECORD_ID_PATTERN,
+    normalize_numbered_layout,
     parse_llm_agenda_items,
     reconstruct_llm_agenda_content,
 )
@@ -81,7 +88,7 @@ class AgendaExtractionContext:
                 if self._should_stop_fallback(stop_after_page):
                     break
                 continue
-            self._consume_paragraph_fallback(page_content, page_number)
+            self._consume_paragraph_fallback(candidate_paragraphs(page_content), page_number)
             if self._should_stop_fallback(stop_after_page):
                 break
 
@@ -139,12 +146,16 @@ class AgendaExtractionContext:
             self.stats.context_carryover_pages += 1
 
     def _consume_page_numbered_lines(self, page_content: str, page_number: int) -> bool:
+        page_content = normalize_numbered_layout(page_content)
         numbered_lines = list(NUMBERED_LINE_PATTERN.finditer(page_content))
         if not numbered_lines:
             return False
         numbered_lines = self._filter_noise_numbered_block(numbered_lines, page_number)
         if not numbered_lines:
             return False
+        prefix = candidate_paragraphs(page_content[: numbered_lines[0].start()])
+        anchored = [paragraph for paragraph in prefix if paragraph_has_record_anchor(paragraph)]
+        self._consume_paragraph_fallback(anchored, page_number)
         self._consume_numbered_lines(numbered_lines, page_content, page_number, page_has_speaker_context(page_content))
         return True
 
@@ -157,7 +168,7 @@ class AgendaExtractionContext:
         self.parse_state.person_heavy_numbered_list = len(numbered_lines) >= 5 and (
             person_like_count / len(numbered_lines)
         ) >= 0.5
-        noise_like_count = sum(1 for match in numbered_lines if self._numbered_title_is_noise(match.group(2).strip()))
+        noise_like_count = sum(1 for match in numbered_lines if numbered_title_is_noise(match.group(2).strip()))
         if len(numbered_lines) >= 4 and (noise_like_count / len(numbered_lines)) >= 0.5:
             self.logger.debug(
                 "agenda_segmentation.skip_numbered_block",
@@ -174,19 +185,30 @@ class AgendaExtractionContext:
         speaker_context: bool,
     ) -> None:
         for index, match in enumerate(numbered_lines):
+            if len(self.items) >= AGENDA_FALLBACK_MAX_ITEMS_PER_DOC:
+                break
+            if is_section_container(index, numbered_lines, page_content):
+                self.parse_state.clear_parent()
+                continue
             if self._skip_numbered_line(match, page_content, speaker_context):
                 continue
             self._add_numbered_line_item(index, match, numbered_lines, page_content, page_number)
-            if len(self.items) >= AGENDA_FALLBACK_MAX_ITEMS_PER_DOC:
-                break
 
     def _skip_numbered_line(self, match: re.Match[str], page_content: str, speaker_context: bool) -> bool:
-        marker = (match.group(1) or "").strip()
-        title = match.group(2).strip()
-        if self._is_contextual_subitem(marker, page_content, match.start()):
+        marker = match.group(1).rstrip(".):")
+        if starts_new_numbered_section(marker, self.parse_state.active_parent_marker):
+            self.parse_state.clear_parent()
+        title = numbered_item_title(match)
+        record_anchored = RECORD_ID_PATTERN.match(match.group(2)) is not None
+        sibling = is_section_sibling(marker, self.parse_state.active_parent_marker)
+        if not record_anchored and not sibling and is_contextual_subitem(
+            marker, page_content, match.start(), active_parent_item=self.parse_state.active_parent_item
+        ):
             self.stats.rejected_nested_subitem += 1
             return True
-        if is_probable_person_name(title) and (speaker_context or self.parse_state.person_heavy_numbered_list):
+        if not record_anchored and is_probable_person_name(title) and (
+            speaker_context or self.parse_state.person_heavy_numbered_list
+        ):
             return True
         return is_procedural_noise_title(title) or is_contact_or_letterhead_noise(title, "")
 
@@ -198,7 +220,7 @@ class AgendaExtractionContext:
         page_content: str,
         page_number: int,
     ) -> None:
-        marker = (match.group(1) or "").strip()
+        marker = match.group(1).rstrip(".):")
         title = match.group(2).strip()
         block_start = match.end()
         block_end = numbered_lines[index + 1].start() if index + 1 < len(numbered_lines) else len(page_content)
@@ -210,17 +232,17 @@ class AgendaExtractionContext:
             len(self.items) + 1,
             clean_title,
             page_number,
-            f"Agenda section {marker}",
+            paragraph_description(block_text.strip()),
             result=vote_match.group(1) if vote_match else "",
             context=self.parse_state.item_context(),
         )
-        if len(self.items) > before_count and TOP_LEVEL_NUMERIC_RE.fullmatch(marker):
-            self._remember_parent_item(clean_title, page_number)
+        if len(self.items) > before_count and is_numbered_business_marker(marker):
+            self.parse_state.remember_parent(clean_title, page_number, marker)
 
-    def _consume_paragraph_fallback(self, page_content: str, page_number: int) -> None:
+    def _consume_paragraph_fallback(self, paragraphs: list[str], page_number: int) -> None:
         added_from_paragraphs = 0
         consecutive_rejects = 0
-        for paragraph in candidate_paragraphs(page_content):
+        for paragraph in paragraphs:
             if self._stop_paragraph_fallback(added_from_paragraphs):
                 break
             title = paragraph_title(paragraph)
@@ -245,23 +267,6 @@ class AgendaExtractionContext:
             )
             if consecutive_rejects >= AGENDA_FALLBACK_MAX_CONSECUTIVE_REJECTS_PER_PAGE:
                 break
-
-    def _numbered_title_is_noise(self, title: str) -> bool:
-        return numbered_title_is_noise(title)
-
-    def _is_contextual_subitem(self, marker: str, page_content: str, position: int) -> bool:
-        return is_contextual_subitem(
-            marker,
-            page_content,
-            position,
-            active_parent_item=self.parse_state.active_parent_item,
-        )
-
-    def _remember_parent_item(self, title: str, page_number: int) -> None:
-        self.parse_state.active_parent_item = normalize_spaces(title)
-        self.parse_state.active_parent_page = page_number
-        self.parse_state.parent_context_confidence = 1.0
-        self.parse_state.seen_top_level_items += 1
 
     def _should_stop_fallback(self, stop_after_page: bool) -> bool:
         return len(self.items) >= AGENDA_FALLBACK_MAX_ITEMS_PER_DOC or stop_after_page

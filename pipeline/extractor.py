@@ -1,4 +1,5 @@
 import logging
+from html import unescape
 import os
 import re
 import time
@@ -39,7 +40,12 @@ def inject_page_markers(pages: list[str], mode: str) -> str:
     - formfeed: pages[0] => [PAGE 1]
     """
     def _strip_tags(value: str) -> str:
-        return re.sub(r"<[^>]+>", "", value or "")
+        paragraphs = re.sub(
+            r"</(?:p|div|tr|li|h[1-6]|dt|dd|blockquote|pre)>|<br\s*/?>",
+            "\n\n", value or "", flags=re.IGNORECASE,
+        )
+        cells = re.sub(r"</(?:td|th)>", " ", paragraphs, flags=re.IGNORECASE)
+        return unescape(re.sub(r"<[^>]+>", "", cells))
 
     if not pages:
         return ""
@@ -143,6 +149,8 @@ def extract_text(file_path, *, ocr_fallback_enabled=None, min_chars_threshold=No
                 parsed = parser.from_file(
                     file_path,
                     serverEndpoint=TIKA_SERVER_ENDPOINT,
+                    # The endpoint selection, not the Accept header, preserves PDF pages.
+                    xmlContent=True,
                     headers=headers,
                     requestOptions={"timeout": TIKA_TIMEOUT_SECONDS},
                 )
