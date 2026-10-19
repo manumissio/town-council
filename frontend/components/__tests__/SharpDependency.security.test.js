@@ -3,8 +3,8 @@ import assert from "node:assert/strict";
 import fs from "node:fs";
 import path from "node:path";
 
-const NEXT_VERSION = "16.3.5";
-const PATCHED_SHARP_VERSION = "0.35.4";
+const NEXT_VERSION = "16.3.8";
+const PATCHED_SHARP_VERSION = "0.35.5";
 const ROOT_DEPENDENCY_SECTIONS = [
   "dependencies",
   "devDependencies",
