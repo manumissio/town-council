@@ -16,7 +16,7 @@ too many false items to present as a dependable account of a meeting.
 | Uncertain items, counted separately | 14 | 8 |
 | Missed business units, out of 96 | 78 | 48 |
 | Previously covered units lost | — | 0 |
-| Median extraction time per document, fresh replay | 3.6 ms | 4.6 ms |
+| Median extraction time per document, fresh replay | 3.6 ms | 4.7 ms |
 | Model/API calls and inference cost | 0 / $0 | 0 / $0 |
 
 Mountain View coverage rises from 4 to 25 of 31 reference units; Sunnyvale
@@ -34,7 +34,8 @@ before, including two newly visible city mastheads. This remains unresolved.
   Recognized titles printed before item numbers are normalized locally,
   preserving their complete source paragraph without changing stored text.
 - Record-backed content before the first numbered item remains eligible.
-  IDs mentioned only in body fields do not make those fields into item titles.
+  Anchor detection and title rendering use the same boundary, including IDs on
+  wrapped title lines. IDs in body fields do not make those fields into titles.
   Parent context distinguishes recommendation children from sibling items.
   Uppercase business is not treated as a section solely because of its casing.
 - Descriptions retain bounded source text. Cancellation text inside an

@@ -28,27 +28,37 @@ def _eligible_paragraph(paragraph: str) -> bool:
 
 def _attach_record_id(paragraph: str, record_id: str) -> str:
     # The source paragraph is a boundary; a later ID cannot justify crossing it.
-    field = ITEM_FIELD_PATTERN.search(paragraph)
-    if field and not paragraph[:field.start()].strip():
+    title_end = _paragraph_title_end(paragraph)
+    if not paragraph[:title_end].strip():
         return f"{paragraph}\n{record_id}"
-    title = paragraph[:field.start()] if field else paragraph
-    body = f"\n{paragraph[field.start():]}" if field else ""
+    title = paragraph[:title_end]
+    body = f"\n{paragraph[title_end:]}" if title_end < len(paragraph) else ""
     return f"{normalize_spaces(title)}{body}\n{record_id}"
 
 
 def paragraph_has_record_anchor(paragraph: str) -> bool:
-    first_line, *body_lines = paragraph.splitlines()
-    field = ITEM_FIELD_PATTERN.match(first_line)
-    if field and field.group(1).lower() != "subject":
+    title_end = _paragraph_title_end(paragraph)
+    if not paragraph[:title_end].strip():
         return False
     # A body-field mention is not evidence that the paragraph is an item title.
-    return bool(RECORD_ID_PATTERN.search(first_line)) or any(
-        RECORD_ID_PATTERN.fullmatch(line.strip()) for line in body_lines
+    return bool(RECORD_ID_PATTERN.search(paragraph[:title_end])) or any(
+        RECORD_ID_PATTERN.fullmatch(line.strip()) for line in paragraph[title_end:].splitlines()
     )
 
 
+def _paragraph_title_end(paragraph: str) -> int:
+    leading_field = ITEM_FIELD_PATTERN.match(paragraph)
+    start = leading_field.end() if leading_field and leading_field.group(1).lower() == "subject" else 0
+    body_field = ITEM_FIELD_PATTERN.search(paragraph, start)
+    return body_field.start() if body_field else len(paragraph)
+
+
 def paragraph_title(paragraph: str) -> str:
-    lines = paragraph.split("\n")
+    title_text = paragraph[:_paragraph_title_end(paragraph)]
+    if paragraph_has_record_anchor(paragraph):
+        title_lines = [line for line in title_text.splitlines() if not RECORD_ID_PATTERN.fullmatch(line.strip())]
+        return _PARAGRAPH_TITLE_PREFIX_RE.sub("", normalize_spaces(" ".join(title_lines)))
+    lines = paragraph.splitlines()
     return _PARAGRAPH_TITLE_PREFIX_RE.sub("", lines[0].strip()) if lines else ""
 
 
