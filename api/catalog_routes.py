@@ -19,13 +19,6 @@ DOCUMENT_NOT_FOUND_DETAIL = "Document not found"
 PAGE_MARKER_PREFIX = "[PAGE "
 VALID_AGENDA_SEGMENTATION_STATUSES = {None, "complete", "empty", "failed"}
 AGENDA_ITEM_CANONICAL_SOURCE = "catalog_agenda_items"
-AGENDA_ITEM_SEGMENTATION_SOURCE = "llm"
-
-
-def _agenda_item_source(catalog: Catalog) -> str:
-    if getattr(catalog, "agenda_segmentation_status", None) == "complete":
-        return AGENDA_ITEM_SEGMENTATION_SOURCE
-    return AGENDA_ITEM_CANONICAL_SOURCE
 
 
 def _agenda_item_payload(item: AgendaItem, *, source: str) -> dict[str, Any]:
@@ -121,10 +114,9 @@ def build_catalog_router(
             .order_by(AgendaItem.order)
             .all()
         )
-        agenda_item_source = _agenda_item_source(catalog)
         return {
             "catalog_id": catalog_id,
-            "items": [_agenda_item_payload(item, source=agenda_item_source) for item in agenda_items],
+            "items": [_agenda_item_payload(item, source=AGENDA_ITEM_CANONICAL_SOURCE) for item in agenda_items],
         }
 
     @router.get("/catalog/{catalog_id}/derived_status", dependencies=[Depends(verify_api_key_dependency)])

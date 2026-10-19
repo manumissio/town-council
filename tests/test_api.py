@@ -955,7 +955,8 @@ def test_catalog_agenda_items_returns_ordered_minimal_payload():
         del app.dependency_overrides[get_db]
 
 
-def test_catalog_agenda_items_preserves_segmentation_source_for_disclaimer():
+@pytest.mark.parametrize("segmentation_status", [None, "complete", "empty", "failed"])
+def test_catalog_agenda_items_does_not_infer_method_from_segmentation_status(segmentation_status):
     from api.main import get_db
 
     agenda_item = MagicMock(
@@ -969,7 +970,7 @@ def test_catalog_agenda_items_preserves_segmentation_source_for_disclaimer():
         votes=None,
     )
     db = MagicMock()
-    db.get.return_value = MagicMock(id=909, agenda_segmentation_status="complete")
+    db.get.return_value = MagicMock(id=909, agenda_segmentation_status=segmentation_status)
     db.query.return_value.filter.return_value.order_by.return_value.all.return_value = [agenda_item]
 
     def _mock_get_db():
@@ -979,7 +980,7 @@ def test_catalog_agenda_items_preserves_segmentation_source_for_disclaimer():
     try:
         resp = client.get("/catalog/909/agenda_items", headers={"X-API-Key": VALID_KEY})
         assert resp.status_code == 200
-        assert resp.json()["items"][0]["source"] == "llm"
+        assert resp.json()["items"][0]["source"] == "catalog_agenda_items"
     finally:
         del app.dependency_overrides[get_db]
 
