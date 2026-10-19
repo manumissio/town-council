@@ -24,6 +24,13 @@ PROCEDURAL_EXACT_TITLES = {
     "approval of the minutes",
     "approval of agenda",
     "approval of the agenda",
+    "meeting canceled",
+    "notice of cancellation",
+    "cancellation notice",
+    "cancellation notice - final",
+    "salute to the flag",
+    "public hearings/general business",
+    "public participation options",
 }
 
 PROCEDURAL_ANCHORED_PATTERNS = (
@@ -31,6 +38,7 @@ PROCEDURAL_ANCHORED_PATTERNS = (
     r"^ceremonial matters$",
     r"^presentations?$",
     r"^announcements?$",
+    r"^translation link:\s*https?://\S+$",
 )
 
 TREND_NOISE_TOPICS = {
