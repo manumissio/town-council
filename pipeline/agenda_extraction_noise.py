@@ -10,15 +10,10 @@ from pipeline.agenda_text_heuristics import (
     normalize_spaces,
 )
 from pipeline.config import AGENDA_MIN_TITLE_CHARS
+from pipeline.agenda_extraction_parser import ITEM_FIELD_PATTERN, NUMBERED_LINE_PATTERN, RECORD_ID_PATTERN
 from pipeline.utils import is_likely_human_name
 
 
-_WRAPPED_TITLE_BOUNDARY_RE = re.compile(
-    r"(?i)^\s*(from|recommendation|recommended action|financial implications|contact|vote|result|action|subject)\s*:"
-)
-_WRAPPED_TITLE_LIST_ITEM_RE = re.compile(
-    r"^\s*(?:item\s*)?#?\s*(\d{1,2}(?:\.\d+)?|[A-Z]|[IVXLC]+)[\.\):]\s+"
-)
 _DATE_LINE_RE = re.compile(r"^[A-Za-z]+,\s+[A-Za-z]+\s+\d{1,2},\s+\d{4}$")
 _TIME_RE = re.compile(r"\b\d{1,2}:\d{2}\s*(?:a\.m\.|p\.m\.|am|pm)\b")
 _ADDRESS_RE = re.compile(r"\b\d{2,6}\s+[A-Za-z].*(street|st|avenue|ave|road|rd|blvd|boulevard)\b")
@@ -86,19 +81,26 @@ def is_probable_person_name(value: str) -> bool:
 
 def merge_wrapped_title_lines(base_title: str, block_text: str) -> str:
     title = normalize_spaces(base_title)
+    record_id = RECORD_ID_PATTERN.match(title)
+    if record_id:
+        title = title[record_id.end() :].strip()
     if not block_text:
         return title
 
+    title_boundary = ITEM_FIELD_PATTERN.search(block_text)
+    anchored = record_id is not None or bool(
+        title_boundary and title_boundary.group(1).lower() in ("recommendation", "recommended action")
+    )
     added = 0
     for raw_line in (block_text or "").splitlines():
         line = raw_line.strip()
         if not line:
-            if added > 0:
+            if added > 0 and not anchored:
                 break
             continue
-        if _WRAPPED_TITLE_BOUNDARY_RE.match(line) or _WRAPPED_TITLE_LIST_ITEM_RE.match(line):
+        if ITEM_FIELD_PATTERN.match(line) or NUMBERED_LINE_PATTERN.match(line) or RECORD_ID_PATTERN.fullmatch(line):
             break
-        if len(line) < 3:
+        if len(line) < 3 or title.endswith((".", "!", "?")):
             break
         title = normalize_spaces(f"{title} {line}")
         added += 1

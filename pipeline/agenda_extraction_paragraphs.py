@@ -2,7 +2,9 @@ from __future__ import annotations
 
 import re
 
-from pipeline.agenda_extraction_parser import iter_fallback_paragraphs
+from pipeline.agenda_extraction_noise import is_noise_title
+from pipeline.agenda_extraction_parser import ITEM_FIELD_PATTERN, RECORD_ID_PATTERN, iter_fallback_paragraphs
+from pipeline.agenda_text_normalization import normalize_spaces
 
 
 _PARAGRAPH_TITLE_PREFIX_RE = re.compile(r"^\s*\d+(?:\.\d+)?[\.\):]?\s*")
@@ -10,7 +12,27 @@ _PARAGRAPH_TITLE_BLOCKERS = ("page", "packet", "continuing")
 
 
 def candidate_paragraphs(page_content: str) -> list[str]:
-    return [paragraph for paragraph in iter_fallback_paragraphs(page_content) if 10 < len(paragraph.strip()) < 1000]
+    paragraphs: list[str] = []
+    for paragraph in iter_fallback_paragraphs(page_content):
+        if RECORD_ID_PATTERN.fullmatch(paragraph.strip()):
+            # A trailing source record ID anchors a title split across PDF lines.
+            title_lines: list[str] = []
+            while paragraphs and _can_join_record_title(paragraphs[-1]):
+                title_lines.append(paragraphs.pop())
+            if title_lines:
+                paragraphs.append(normalize_spaces(" ".join(reversed(title_lines))))
+        paragraphs.append(paragraph)
+    return [paragraph for paragraph in paragraphs if 10 < len(paragraph.strip()) < 1000]
+
+
+def _can_join_record_title(paragraph: str) -> bool:
+    return not (
+        paragraph.isupper()
+        or paragraph.endswith((".", "!", "?", ":"))
+        or ITEM_FIELD_PATTERN.match(paragraph)
+        or RECORD_ID_PATTERN.fullmatch(paragraph.strip())
+        or is_noise_title(paragraph)
+    )
 
 
 def paragraph_title(paragraph: str) -> str:

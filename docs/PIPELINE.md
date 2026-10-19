@@ -1,6 +1,6 @@
 # Town Council Pipeline Guide
 
-Last updated: 2026-08-02
+Last updated: 2026-10-18
 
 ## 1) Purpose and Boundaries
 
@@ -57,6 +57,10 @@ Why this exists:
 
 ### Stage B: Parallel document processing
 `run_parallel_processing()` finds records needing extraction or extraction-state repair and processes them in chunked parallel workers.
+
+Tika extraction requests XHTML so real page boundaries survive conversion to
+`[PAGE N]` markers. Paragraph breaks and escaped source characters are preserved
+when markup is removed. Existing stored text is not rewritten automatically.
 
 Per-record behavior in `process_document_chunk()`:
 - extract text when needed
@@ -143,6 +147,13 @@ authorization expose source records but no people-facing data.
 - `summarize`: writes summary outputs and source-hash linkage.
 - `topics`: writes topic outputs and source-hash linkage.
 - `votes`: runs vote extraction/update logic over agenda items.
+
+When segmentation uses the text fallback, item numbers and source record IDs
+help keep wrapped titles together. Numbered descriptions retain source text,
+not a generic section label. A document explicitly headed as a whole-meeting
+cancellation notice produces no agenda items; a mention of a canceled hearing
+does not suppress the rest of a meeting. This fallback does not guarantee a
+complete account of business in minutes or public comments.
 
 `pipeline/tasks.py` owns default-queue task identities, retries, and sessions;
 `pipeline/enrichment_tasks.py` owns topic generation on the enrichment queue;
