@@ -1,6 +1,6 @@
 # Town Council Pipeline Guide
 
-Last updated: 2026-10-18
+Last updated: 2026-10-19
 
 ## 1) Purpose and Boundaries
 
@@ -147,6 +147,18 @@ authorization expose source records but no people-facing data.
 - `summarize`: writes summary outputs and source-hash linkage.
 - `topics`: writes topic outputs and source-hash linkage.
 - `votes`: runs vote extraction/update logic over agenda items.
+
+Agenda cleanup excludes exact notice and procedural headings without declaring
+the whole meeting canceled. Legistar matters retain their source IDs even when
+their titles resemble scaffolding or contain street addresses. A source ID is
+not, by itself, proof of the extraction method or a verified source page.
+
+Stored agenda responses use a neutral catalog source label: segmentation
+completion does not establish whether rows came from Legistar, HTML, or AI.
+The UI keeps a verification warning and the original document link, but omits
+item-level page links until their relationship to the physical source is
+established. Existing stored text and page numbers are not rewritten by this
+display correction.
 
 When segmentation uses the text fallback, item numbers and source record IDs
 help keep titles together within their source paragraph. Only title-associated
