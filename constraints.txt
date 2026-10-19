@@ -8,5 +8,5 @@ prometheus-client==0.26.0
 psycopg2-binary==2.9.13
 rapidfuzz==3.14.6
 redis==8.1.0
-sqlalchemy==2.0.54
+sqlalchemy==2.1.4
 uvicorn==0.54.0
