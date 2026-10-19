@@ -1,9 +1,12 @@
 import json
+import logging
 from pathlib import Path
 
+import pytest
 from pytest_mock import MockerFixture
 
 from pipeline import extractor
+from pipeline.agenda_extraction_fallback import run_agenda_extraction_pipeline
 
 
 def test_extraction_preserves_real_pages_from_tika_xhtml(mocker: MockerFixture, tmp_path: Path) -> None:
@@ -43,3 +46,21 @@ def test_xhtml_entities_are_decoded_without_stripping_escaped_source_text() -> N
 
     assert "Water & Sewer Contract" in extracted
     assert "Cost < $250,000; use <existing> funds." in extracted
+
+
+@pytest.mark.parametrize("markup", [
+    "<ul><li>1. Approve contract</li><li>2. Adopt budget</li></ul>",
+    "<table><tr><td>1.</td><td>Approve contract</td></tr><tr><td>2.</td><td>Adopt budget</td></tr></table>",
+    "<table><tr><th>1.</th><td>Approve contract</td></tr><tr><th>2.</th><td>Adopt budget</td></tr></table>",
+    "<h2>1. Approve contract</h2><h2>2. Adopt budget</h2>",
+])
+def test_xhtml_item_boundaries_survive_into_agenda_extraction(markup: str) -> None:
+    extracted = extractor.inject_page_markers([markup], mode="formfeed")
+    agenda_items = run_agenda_extraction_pipeline(
+        text=extracted,
+        raw_provider_content=None,
+        mode="balanced",
+        logger=logging.getLogger(__name__),
+    )
+
+    assert [agenda_item["title"] for agenda_item in agenda_items] == ["Approve contract", "Adopt budget"]

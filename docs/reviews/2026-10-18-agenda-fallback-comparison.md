@@ -16,7 +16,7 @@ too many false items to present as a dependable account of a meeting.
 | Uncertain items, counted separately | 14 | 8 |
 | Missed business units, out of 96 | 78 | 48 |
 | Previously covered units lost | — | 0 |
-| Median extraction time per document, fresh replay | 3.6 ms | 4.6 ms |
+| Median extraction time per document, fresh replay | 3.6 ms | 4.5 ms |
 | Model/API calls and inference cost | 0 / $0 | 0 / $0 |
 
 Mountain View coverage rises from 4 to 25 of 31 reference units; Sunnyvale
@@ -34,10 +34,12 @@ before, including two newly visible city mastheads. This remains unresolved.
   Recognized titles printed before item numbers are normalized locally,
   without changing stored source text.
 - Record-backed content before the first numbered item remains eligible.
+  IDs mentioned only in body fields do not make those fields into item titles.
   Parent context distinguishes recommendation children from sibling items.
 - Descriptions retain bounded source text. Cancellation text inside an
   attachment does not suppress business elsewhere in a live document.
-- Tika requests XHTML, preserving real pages, paragraphs, and decoded text.
+- Tika requests XHTML, preserving real pages, paragraphs, list entries,
+  table-cell spacing, and decoded text.
   The sample uses its original stored text; no PDF was re-extracted for scoring.
 
 Model configuration, item limits, existing acceptance thresholds, and soak

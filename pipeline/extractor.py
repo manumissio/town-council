@@ -40,8 +40,12 @@ def inject_page_markers(pages: list[str], mode: str) -> str:
     - formfeed: pages[0] => [PAGE 1]
     """
     def _strip_tags(value: str) -> str:
-        paragraphs = re.sub(r"</(?:p|div|tr)>|<br\s*/?>", "\n\n", value or "", flags=re.IGNORECASE)
-        return unescape(re.sub(r"<[^>]+>", "", paragraphs))
+        paragraphs = re.sub(
+            r"</(?:p|div|tr|li|h[1-6]|dt|dd|blockquote|pre)>|<br\s*/?>",
+            "\n\n", value or "", flags=re.IGNORECASE,
+        )
+        cells = re.sub(r"</(?:td|th)>", " ", paragraphs, flags=re.IGNORECASE)
+        return unescape(re.sub(r"<[^>]+>", "", cells))
 
     if not pages:
         return ""
