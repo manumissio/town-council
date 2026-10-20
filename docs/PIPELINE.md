@@ -153,7 +153,7 @@ acceptance, without changing whole-page parser selection. A single-page source
 with both a standalone cancellation-notice heading and a meeting-canceled
 heading yields no agenda items, even if a provider or unrelated structured
 source suggests business. Numbered items, record anchors, body fields, separate
-live agenda headings, and multipage packets make this conservative check
+live agenda headings, non-first page markers, and multipage packets make this conservative check
 abstain. Cancellation mentions alone do not cancel a live agenda.
 
 Confirmed cancellation results replace old agenda rows and update their hash in
@@ -161,7 +161,9 @@ the task, worker, and maintenance paths. Empty or whitespace-only proposals on
 other sources with existing rows raise an inconclusive-extraction error before
 deleting rows or changing their hash. The existing task wrapper may record that
 failed attempt and retry; it does not mark the catalog empty or remove its old
-business. New catalogs without stored rows can still record an empty result.
+business. Normal and maintenance backfills record the failure for that catalog
+and continue to the next selected record. New catalogs without stored rows can
+still record an empty result.
 Other Legistar matters retain their source IDs even when their
 titles resemble scaffolding or contain street addresses. A source ID is not,
 by itself, proof of the correct meeting, extraction method, or source page.

@@ -182,7 +182,7 @@ meeting notices and checks the source text alongside the displayed result.
 
 All 21 newly removed candidates were already independently labeled noise.
 Remaining candidate payloads reuse their existing labels by identity. No new
-semantic labels were invented. Median fallback time was 4.2 ms in the final replay; it
+semantic labels were invented. Median fallback time was 3.6 ms in the final replay; it
 made no inference calls and incurred no inference API cost. These are still
 fallback-only scores, not complete-resolver scores or human gold labels.
 
@@ -279,3 +279,39 @@ The complete coverage command passed 2,079 tests with 20 skipped and 84.68%
 coverage against the unchanged 71% floor. Ruff, scoped formatter, Mypy, and
 docs-link/profile-alignment checks passed. Fresh CI and independent review are
 required before merging it.
+
+## Complete-Source Evidence and Batch Continuation
+
+Fresh review identified two more boundary gaps. Counting page markers was not
+enough: a lone `Page 2` or `[PAGE 2]` still proves that the source is incomplete.
+Cancellation recognition now abstains if any recognized page number is not 1,
+while retaining the raw multiple-marker check for blank attachments.
+
+The preservation error also escaped the normal and maintenance backfill
+entrypoints. Both now handle that specific error through their existing
+rollback and per-catalog failure paths. Stored rows and hash survive, failed
+attempt metadata is recorded, and later selected catalogs still run. The
+batch loop and Celery retry behavior are unchanged.
+
+Tests-first evidence was 14 failures and 32 passes: eight page-marker cases,
+two updated direct-worker cases, and four actual-workload continuation cases.
+After the repair, all 46 cancellation tests passed. The workload tests use the
+real selector, resolver, persistence, and loop, with database, inference, and
+search boundaries controlled. In both modes they check an inconclusive first
+record, a later cancellation, and later genuine business, including persisted
+rows/hash and aggregate failed/empty/complete outcomes.
+
+The same frozen 24-document replay retains 199 candidates, 141 false items,
+and 48 missed business units, with no previously covered business lost. This
+follow-up changes neither model settings nor item limits. A read-only audit
+confirmed 228 stored items and all 82 unaffected matter associations. Playwright
+reopened all 24 records after restarting the local API: the four cancellation
+sources show zero cards and neutral empty wording, with original source links
+and no guessed page anchors. The catalog 3034 mismatch remains deferred.
+
+Final checks passed: 193 focused tests, 153 API/orchestration/frontend-contract
+tests, Ruff, scoped formatter, Mypy, docs links, and independent code review.
+The complete coverage command passed 2,091 tests with 20 skipped and 84.71%
+coverage against the unchanged 71% floor. The reviewer independently reproduced
+the prior code's 14 failures and passed 200 focused checks. Fresh PR CI and
+current-head review are still required before merging.

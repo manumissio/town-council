@@ -117,6 +117,23 @@ def test_unreadable_attachment_does_not_cancel_the_packet(
     assert any(agenda["title"] == BUSINESS_TITLE for agenda in agenda_items)
 
 
+@pytest.mark.parametrize("page_marker", ["[PAGE 2]", "Page 2", "[PAGE 0]", "Page 0"])
+@pytest.mark.parametrize("entrypoint", ["provider", "resolver"])
+def test_nonfirst_page_marker_cannot_confirm_a_cancellation(
+    page_marker: str, entrypoint: str, legistar_http: None,
+) -> None:
+    source = f"{page_marker}\nCANCELLATION NOTICE\nMEETING CANCELED\nThe next meeting will be announced."
+    if entrypoint == "resolver":
+        agenda_items = resolve_source(source)["items"]
+    else:
+        agenda_items = run_agenda_extraction_pipeline(
+            text=source, raw_provider_content=INVENTED_PROVIDER_BUSINESS,
+            mode="balanced", logger=logging.getLogger(__name__),
+        )
+
+    assert any(agenda["title"] == BUSINESS_TITLE for agenda in agenda_items)
+
+
 @pytest.fixture
 def stored_agenda(db_session: Session) -> tuple[Catalog, Document]:
     place = Place(name="Test City", state="CA", ocd_division_id="cancellation-test")
@@ -129,6 +146,23 @@ def stored_agenda(db_session: Session) -> tuple[Catalog, Document]:
     db_session.add(AgendaItem(event_id=event.id, catalog_id=catalog.id, title="City of Test City"))
     db_session.commit()
     return catalog, document
+
+
+@pytest.fixture
+def backfill_catalogs(db_session: Session, stored_agenda: tuple[Catalog, Document]) -> tuple[Catalog, Catalog, Catalog]:
+    catalog, document = stored_agenda
+    catalog.content = "No agenda"
+    catalog.agenda_segmentation_status = "failed"
+    original = db_session.query(AgendaItem).filter_by(catalog_id=catalog.id).one()
+    original.title = "Approve the bridge contract"
+    cancellation = Catalog(content=f"{NOTICE_HEADER}The next meeting will be announced.", url_hash="batch-notice")
+    business = Catalog(content="Council business: Approve the annual park improvement budget.", url_hash="batch-business")
+    db_session.add_all([
+        Document(catalog=cancellation, event_id=document.event_id, place_id=document.place_id, category="agenda"),
+        Document(catalog=business, event_id=document.event_id, place_id=document.place_id, category="agenda"),
+    ])
+    db_session.commit()
+    return catalog, cancellation, business
 
 
 @pytest.mark.parametrize("entrypoint", ["task", "task_wrapper", "worker", "maintenance"])
@@ -186,7 +220,8 @@ def test_inconclusive_empty_extraction_preserves_existing_business(
     search_client.wait_for_task.return_value = SimpleNamespace(status="succeeded", error=None)
     monkeypatch.setattr(indexer.meilisearch, "Client", lambda *_args, **_kwargs: search_client)
 
-    with pytest.raises(RuntimeError, match="inconclusive"):
+    expectation = nullcontext() if entrypoint == "worker" else pytest.raises(RuntimeError, match="inconclusive")
+    with expectation:
         if entrypoint == "task":
             run_segment_agenda_task_family(db_session, catalog.id, local_ai=local_ai)
         elif entrypoint == "task_wrapper":
@@ -206,9 +241,42 @@ def test_inconclusive_empty_extraction_preserves_existing_business(
     retained = db_session.query(AgendaItem).filter_by(catalog_id=catalog.id).one()
     assert (retained.id, retained.title) == (original_id, "Approve the bridge contract")
     assert catalog.agenda_items_hash == "stale-hash"
-    if entrypoint == "task_wrapper":
+    if entrypoint in {"task_wrapper", "worker"}:
         assert catalog.agenda_segmentation_status == "failed"
         assert catalog.agenda_segmentation_item_count == 0
     else:
         assert catalog.agenda_segmentation_status == "complete"
         assert catalog.agenda_segmentation_item_count == 1
+
+
+@pytest.mark.parametrize("segment_mode", ["normal", "maintenance"])
+@pytest.mark.parametrize("proposed_items", [[], [{"title": " \n\t "}]])
+def test_backfill_continues_after_inconclusive_extraction(
+    db_session: Session, monkeypatch: pytest.MonkeyPatch, backfill_catalogs: tuple[Catalog, Catalog, Catalog],
+    segment_mode: str, proposed_items: list[dict[str, object]],
+) -> None:
+    catalog, cancellation, business = backfill_catalogs
+    original = db_session.query(AgendaItem).filter_by(catalog_id=catalog.id).one()
+    original_id = original.id
+    local_ai = Mock(spec=AgendaExtractor)
+    local_ai.extract_agenda.side_effect = lambda source: proposed_items if source == "No agenda" else [{"title": BUSINESS_TITLE}]
+    monkeypatch.setattr(agenda_worker, "LocalAI", lambda: local_ai)
+    monkeypatch.setattr(llm, "LocalAI", lambda: local_ai)
+    search_client = MagicMock()
+    search_client.index.return_value.delete_documents.return_value = SimpleNamespace(task_uid=41)
+    search_client.wait_for_task.return_value = SimpleNamespace(status="succeeded", error=None)
+    monkeypatch.setattr(indexer.meilisearch, "Client", lambda *_args, **_kwargs: search_client)
+
+    counts = agenda_worker.run_agenda_segmentation_workload(segment_mode=segment_mode)
+
+    assert (counts["selected"], counts["failed"], counts["empty"], counts["complete"]) == (3, 1, 1, 1)
+    db_session.expire_all()
+    retained = db_session.query(AgendaItem).filter_by(catalog_id=catalog.id).one()
+    assert (retained.id, retained.title) == (original_id, "Approve the bridge contract")
+    assert catalog.agenda_items_hash == "stale-hash"
+    assert catalog.agenda_segmentation_status == "failed"
+    assert "inconclusive" in catalog.agenda_segmentation_error
+    assert db_session.query(AgendaItem).filter_by(catalog_id=cancellation.id).all() == []
+    assert cancellation.agenda_segmentation_status == "empty"
+    assert db_session.query(AgendaItem).filter_by(catalog_id=business.id).one().title == BUSINESS_TITLE
+    assert business.agenda_segmentation_status == "complete"
