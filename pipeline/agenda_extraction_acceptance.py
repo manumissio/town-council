@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from pipeline.agenda_extraction_diagnostics import AgendaExtractionStats
 from pipeline.agenda_extraction_noise import is_noise_title
+from pipeline.lexicon import is_agenda_notice_title
 from pipeline.agenda_text_heuristics import (
     is_contact_or_letterhead_noise,
     is_procedural_noise_title,
@@ -28,7 +29,7 @@ def accept_agenda_item(
     if is_tabular_fragment(title, description, context):
         stats.rejected_tabular_fragment += 1
         return False
-    if looks_like_agenda_segmentation_boilerplate(title):
+    if is_agenda_notice_title(title) or looks_like_agenda_segmentation_boilerplate(title):
         stats.rejected_notice_fragment += 1
         return False
     if is_noise_title(title):

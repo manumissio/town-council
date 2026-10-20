@@ -24,6 +24,17 @@ PROCEDURAL_EXACT_TITLES = {
     "approval of the minutes",
     "approval of agenda",
     "approval of the agenda",
+}
+
+PROCEDURAL_ANCHORED_PATTERNS = (
+    r"^public comment(?:\s+period)?$",
+    r"^ceremonial matters$",
+    r"^presentations?$",
+    r"^announcements?$",
+)
+
+# Candidate exclusions must not influence whole-page parser selection.
+AGENDA_NOTICE_EXACT_TITLES = {
     "meeting canceled",
     "notice of cancellation",
     "cancellation notice",
@@ -32,14 +43,7 @@ PROCEDURAL_EXACT_TITLES = {
     "public hearings/general business",
     "public participation options",
 }
-
-PROCEDURAL_ANCHORED_PATTERNS = (
-    r"^public comment(?:\s+period)?$",
-    r"^ceremonial matters$",
-    r"^presentations?$",
-    r"^announcements?$",
-    r"^translation link:\s*https?://\S+$",
-)
+AGENDA_TRANSLATION_LINK_PATTERN = re.compile(r"^translation link:\s*https?://\S+$")
 
 TREND_NOISE_TOPICS = {
     "roll call",
@@ -157,6 +161,11 @@ def is_procedural_title(title: str, reject_enabled: bool = True) -> bool:
     if normalized in PROCEDURAL_EXACT_TITLES:
         return True
     return any(re.match(pattern, normalized) for pattern in PROCEDURAL_ANCHORED_PATTERNS)
+
+
+def is_agenda_notice_title(title: str) -> bool:
+    normalized = normalize_title_key(title)
+    return normalized in AGENDA_NOTICE_EXACT_TITLES or bool(AGENDA_TRANSLATION_LINK_PATTERN.fullmatch(normalized))
 
 
 def is_contact_or_letterhead_noise(title: str, desc: str = "") -> bool:
