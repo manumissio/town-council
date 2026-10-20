@@ -14,7 +14,7 @@ from pipeline.backlog_maintenance import (
 )
 from pipeline.laserfiche_error_pages import classify_catalog_bad_content
 from pipeline.llm import LocalAI
-from pipeline.agenda_service import persist_agenda_items
+from pipeline.agenda_service import persist_agenda_items, require_confirmed_agenda_replacement
 from pipeline.agenda_resolver import has_viable_structured_agenda_source, resolve_agenda_items
 from pipeline.indexer import reindex_catalog
 from pipeline.profiling import append_phase_eligibility, apply_catalog_id_scope, profile_observer, profiling_enabled
@@ -112,7 +112,8 @@ def segment_document_agenda(catalog_id):
                 resolved.get("legistar_accepted"),
             )
 
-            # Successful empty extraction must replace old rows, just like a populated result.
+            # Confirmed notices clear rows; inconclusive extraction must preserve stored business.
+            require_confirmed_agenda_replacement(catalog, items_data)
             created_items = persist_agenda_items(session, catalog.id, doc.event_id, items_data)
             if created_items:
                 catalog.agenda_segmentation_status = "complete"

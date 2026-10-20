@@ -12,7 +12,7 @@ from sqlalchemy.exc import SQLAlchemyError
 from pipeline import llm as llm_mod
 from pipeline import http_inference_provider as http_inference_provider_mod
 from pipeline.agenda_resolver import has_viable_structured_agenda_source, resolve_agenda_items
-from pipeline.agenda_service import persist_agenda_items
+from pipeline.agenda_service import persist_agenda_items, require_confirmed_agenda_replacement
 from pipeline.db_session import db_session
 from pipeline.laserfiche_error_pages import classify_catalog_bad_content
 from pipeline.models import Catalog, Document
@@ -160,6 +160,7 @@ def persist_segmented_agenda(
     doc: Document,
     items_data: list[dict[str, Any]],
 ) -> str:
+    require_confirmed_agenda_replacement(catalog, items_data)
     created_items = persist_agenda_items(session, catalog.id, doc.event_id, items_data)
     if created_items:
         catalog.agenda_segmentation_status = "complete"

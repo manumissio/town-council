@@ -182,7 +182,7 @@ meeting notices and checks the source text alongside the displayed result.
 
 All 21 newly removed candidates were already independently labeled noise.
 Remaining candidate payloads reuse their existing labels by identity. No new
-semantic labels were invented. Median fallback time was 4.8 ms in the final replay; it
+semantic labels were invented. Median fallback time was 4.2 ms in the final replay; it
 made no inference calls and incurred no inference API cost. These are still
 fallback-only scores, not complete-resolver scores or human gold labels.
 
@@ -249,3 +249,33 @@ all failed before the repair. The provider fixture was corrected to the actual
 prompt-continuation format without changing its expected business title. The
 final focused extraction suite passed 72 tests, and the same-sample payloads
 and quality counts remained unchanged. Fresh CI is required for this follow-up.
+
+## Preserving Business After Inconclusive Extraction
+
+A later review found that always persisting an empty proposal could delete
+valid older items after a provider failure or low-signal extraction. An empty
+proposal alone does not prove that a document has no business.
+
+All three writers now validate replacement before calling persistence. When
+stored items exist, an empty or whitespace-title-only proposal raises a specific
+error unless the source is a confirmed cancellation-only notice. Stored rows
+and their agenda hash survive. The existing Celery wrapper can still record a
+failed attempt and retry; its status is not frozen at the previous success.
+Catalogs without stored items can still record an empty result. The generic
+persistence function remains an explicit replacement operation.
+
+Eight regression cases failed before the guard was added: empty and blank-title
+proposals through the task family, real Celery task wrapper, worker, and
+maintenance entrypoints. Positive tests also confirm those entrypoints can
+clear confirmed cancellations. The focused extraction, persistence, docs-link,
+and profile-alignment command above passed 116 tests after this correction.
+
+A fresh frozen replay retained the same 199 candidates, 141 false items, and
+48 missed business units. The guard changes write safety, not those candidates.
+The live backfill was not repeated unnecessarily: a read-only audit checks the
+existing corrected state, while the public-entrypoint tests exercise the new
+guard. No frontend code or displayed agenda content changed in this follow-up.
+The complete coverage command passed 2,079 tests with 20 skipped and 84.68%
+coverage against the unchanged 71% floor. Ruff, scoped formatter, Mypy, and
+docs-link/profile-alignment checks passed. Fresh CI and independent review are
+required before merging it.

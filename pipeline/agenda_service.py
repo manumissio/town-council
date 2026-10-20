@@ -3,7 +3,9 @@ from __future__ import annotations
 from importlib import import_module
 from typing import Final, Protocol, Sequence, TypedDict
 
+from pipeline.agenda_extraction_pages import is_cancellation_only_notice
 from pipeline.agenda_verification_model_access import (
+    AgendaCatalogRecord,
     AgendaItemRecord,
     AgendaVerificationSession,
     build_agenda_item_record,
@@ -15,6 +17,13 @@ from pipeline.summary_freshness import compute_agenda_items_hash
 
 AGENDA_ITEM_ENTITY_TYPE: Final = "agendaitem"
 AGENDA_ITEM_TITLE_MAX_CHARS: Final = 1000
+INCONCLUSIVE_AGENDA_REPLACEMENT_ERROR: Final = (
+    "Empty agenda extraction is inconclusive; existing agenda items were preserved."
+)
+
+
+class AgendaReplacementInconclusiveError(RuntimeError):
+    """An empty proposal is not evidence for deleting previously stored business."""
 
 
 class OcdIdGenerator(Protocol):
@@ -29,6 +38,16 @@ class AgendaItemPayload(TypedDict, total=False):
     result: str | None
     page_number: int | None
     legistar_matter_id: int | None
+
+
+def require_confirmed_agenda_replacement(
+    catalog: AgendaCatalogRecord,
+    items_data: Sequence[AgendaItemPayload] | None,
+) -> None:
+    if any((agenda.get("title") or "").strip() for agenda in items_data or ()) or not catalog.agenda_items:
+        return
+    if not is_cancellation_only_notice(catalog.content or ""):
+        raise AgendaReplacementInconclusiveError(INCONCLUSIVE_AGENDA_REPLACEMENT_ERROR)
 
 
 def _generate_agenda_item_ocd_id() -> str:

@@ -156,9 +156,13 @@ source suggests business. Numbered items, record anchors, body fields, separate
 live agenda headings, and multipage packets make this conservative check
 abstain. Cancellation mentions alone do not cancel a live agenda.
 
-Successful empty results replace old agenda rows and update their hash in the
-task, worker, and maintenance paths. Failed extraction does not trigger empty
-replacement. Other Legistar matters retain their source IDs even when their
+Confirmed cancellation results replace old agenda rows and update their hash in
+the task, worker, and maintenance paths. Empty or whitespace-only proposals on
+other sources with existing rows raise an inconclusive-extraction error before
+deleting rows or changing their hash. The existing task wrapper may record that
+failed attempt and retry; it does not mark the catalog empty or remove its old
+business. New catalogs without stored rows can still record an empty result.
+Other Legistar matters retain their source IDs even when their
 titles resemble scaffolding or contain street addresses. A source ID is not,
 by itself, proof of the correct meeting, extraction method, or source page.
 

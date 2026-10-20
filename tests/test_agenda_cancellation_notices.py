@@ -15,7 +15,7 @@ from sqlalchemy.orm import Session
 from pipeline.agenda_extraction_fallback import run_agenda_extraction_pipeline
 from pipeline.agenda_resolver import resolve_agenda_items
 from pipeline.agenda_resolver_contracts import AgendaExtractor
-from pipeline import agenda_segmentation_maintenance, agenda_worker, indexer
+from pipeline import agenda_segmentation_maintenance, agenda_worker, indexer, llm, task_runtime, tasks
 from pipeline.models import AgendaItem, Catalog, Document, Event, Place
 from pipeline.task_agenda_segmentation import run_segment_agenda_task_family
 
@@ -117,10 +117,8 @@ def test_unreadable_attachment_does_not_cancel_the_packet(
     assert any(agenda["title"] == BUSINESS_TITLE for agenda in agenda_items)
 
 
-@pytest.mark.parametrize("entrypoint", ["task", "worker", "maintenance"])
-def test_empty_cancellation_clears_previously_stored_rows(
-    db_session: Session, monkeypatch: pytest.MonkeyPatch, entrypoint: str,
-) -> None:
+@pytest.fixture
+def stored_agenda(db_session: Session) -> tuple[Catalog, Document]:
     place = Place(name="Test City", state="CA", ocd_division_id="cancellation-test")
     event = Event(name="Council meeting", place=place)
     catalog = Catalog(content=f"{NOTICE_HEADER}The next meeting will be announced.",
@@ -130,6 +128,14 @@ def test_empty_cancellation_clears_previously_stored_rows(
     db_session.flush()
     db_session.add(AgendaItem(event_id=event.id, catalog_id=catalog.id, title="City of Test City"))
     db_session.commit()
+    return catalog, document
+
+
+@pytest.mark.parametrize("entrypoint", ["task", "task_wrapper", "worker", "maintenance"])
+def test_empty_cancellation_clears_previously_stored_rows(
+    db_session: Session, monkeypatch: pytest.MonkeyPatch, entrypoint: str, stored_agenda: tuple[Catalog, Document],
+) -> None:
+    catalog, document = stored_agenda
     search_client = MagicMock()
     search_client.index.return_value.delete_documents.return_value = SimpleNamespace(task_uid=41)
     search_client.wait_for_task.return_value = SimpleNamespace(status="succeeded", error=None)
@@ -139,6 +145,10 @@ def test_empty_cancellation_clears_previously_stored_rows(
 
     if entrypoint == "task":
         run_segment_agenda_task_family(db_session, catalog.id, local_ai=local_ai)
+    elif entrypoint == "task_wrapper":
+        monkeypatch.setattr(task_runtime, "task_session", lambda: Session(db_session.get_bind()))
+        monkeypatch.setattr(llm, "LocalAI", lambda: local_ai)
+        tasks.segment_agenda_task.run(catalog.id)
     elif entrypoint == "worker":
         monkeypatch.setattr(agenda_worker, "db_session", lambda: nullcontext(db_session))
         agenda_worker.segment_document_agenda(catalog.id)
@@ -153,3 +163,52 @@ def test_empty_cancellation_clears_previously_stored_rows(
     assert catalog.agenda_segmentation_status == "empty"
     assert catalog.agenda_segmentation_item_count == 0
     assert catalog.agenda_items_hash != "stale-hash"
+
+
+@pytest.mark.parametrize("proposed_items", [[], [{"title": " \n\t "}]])
+@pytest.mark.parametrize("entrypoint", ["task", "task_wrapper", "worker", "maintenance"])
+def test_inconclusive_empty_extraction_preserves_existing_business(
+    db_session: Session, monkeypatch: pytest.MonkeyPatch, entrypoint: str,
+    stored_agenda: tuple[Catalog, Document], proposed_items: list[dict[str, object]],
+) -> None:
+    catalog, document = stored_agenda
+    catalog.content = "No agenda"
+    catalog.agenda_segmentation_status = "complete"
+    catalog.agenda_segmentation_item_count = 1
+    existing = db_session.query(AgendaItem).filter_by(catalog_id=catalog.id).one()
+    existing.title = "Approve the bridge contract"
+    db_session.commit()
+    original_id = existing.id
+    local_ai = Mock(spec=AgendaExtractor)
+    local_ai.extract_agenda.return_value = proposed_items
+    search_client = MagicMock()
+    search_client.index.return_value.delete_documents.return_value = SimpleNamespace(task_uid=41)
+    search_client.wait_for_task.return_value = SimpleNamespace(status="succeeded", error=None)
+    monkeypatch.setattr(indexer.meilisearch, "Client", lambda *_args, **_kwargs: search_client)
+
+    with pytest.raises(RuntimeError, match="inconclusive"):
+        if entrypoint == "task":
+            run_segment_agenda_task_family(db_session, catalog.id, local_ai=local_ai)
+        elif entrypoint == "task_wrapper":
+            monkeypatch.setattr(task_runtime, "task_session", lambda: Session(db_session.get_bind()))
+            monkeypatch.setattr(llm, "LocalAI", lambda: local_ai)
+            tasks.segment_agenda_task.run(catalog.id)
+        elif entrypoint == "worker":
+            monkeypatch.setattr(agenda_worker, "db_session", lambda: nullcontext(db_session))
+            monkeypatch.setattr(agenda_worker, "LocalAI", lambda: local_ai)
+            agenda_worker.segment_document_agenda(catalog.id)
+        else:
+            agenda_segmentation_maintenance.persist_segmented_agenda(
+                db_session, catalog=catalog, doc=document, items_data=proposed_items,
+            )
+
+    db_session.refresh(catalog)
+    retained = db_session.query(AgendaItem).filter_by(catalog_id=catalog.id).one()
+    assert (retained.id, retained.title) == (original_id, "Approve the bridge contract")
+    assert catalog.agenda_items_hash == "stale-hash"
+    if entrypoint == "task_wrapper":
+        assert catalog.agenda_segmentation_status == "failed"
+        assert catalog.agenda_segmentation_item_count == 0
+    else:
+        assert catalog.agenda_segmentation_status == "complete"
+        assert catalog.agenda_segmentation_item_count == 1
