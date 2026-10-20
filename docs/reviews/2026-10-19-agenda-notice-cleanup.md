@@ -7,6 +7,10 @@ This is diagnostic evidence, not a promotion baseline or user acceptance.
 
 ## Frozen Text Replay
 
+The sections through PR Review Correction describe the initial candidate-only
+cleanup. The later Cancellation-Only Correction supersedes its cancellation
+limitation and reports the final replay and live state.
+
 | Measure | Before | After |
 | --- | ---: | ---: |
 | Candidate items | 231 | 220 |
@@ -137,3 +141,100 @@ credentials, a fresh dependency-checked snapshot, and a read-only resolver
 preview. Do not substitute an arbitrary `--limit 24` backlog selection.
 
 Authoritative PR CI and rollback execution are not verified by this local run.
+
+## PR Review Correction
+
+Review found that adding these headings to the shared procedural list could
+change whole-page parser selection. On a numbered page with two notice rows,
+that switch lost an unrelated long business title. The new regression
+`test_notice_cleanup_preserves_long_numbered_business` reproduced the loss
+before the repair and passed afterward.
+
+The new exclusions now apply only when accepting individual candidates and
+filtering Legistar rows. The shared procedural list and parser thresholds are
+unchanged from the base commit. A fresh replay of the same 24 documents produced
+all 220 candidate payloads unchanged, including order and configuration. Median
+fallback time rounded to 4.7 ms again. The quality counts above therefore stay
+unchanged. The bundle's `review_followup` records the repaired source hashes;
+the original hashes and browser observations remain historical evidence of the
+initial implementation. Live database writes and browser checks were not
+repeated for this repair; API and frontend production code did not change.
+
+Two other review findings concerned test coupling. The Legistar regression now
+uses the public resolver with outbound HTTP responses substituted at the
+transport boundary. The agenda warning remains covered by rendered PDF and
+HTML interactions; its redundant source-expression assertion was removed.
+
+## Cancellation-Only Correction
+
+The initial cleanup left false items on cancellation notices. Matching rendered
+titles to stored rows did not establish that those rows were useful or correct.
+The revised acceptance test requires no agenda items for the actual canceled
+meeting notices and checks the source text alongside the displayed result.
+
+| Same frozen fallback sample | Initial PR | Cancellation correction |
+| --- | ---: | ---: |
+| Candidate items | 220 | 199 |
+| False items | 162 | 141 |
+| Uncertain items | 8 | 8 |
+| Missed business units, out of 96 | 48 | 48 |
+| Previously covered business units lost | 0 | 0 |
+
+All 21 newly removed candidates were already independently labeled noise.
+Remaining candidate payloads reuse their existing labels by identity. No new
+semantic labels were invented. Median fallback time was 4.9 ms; this replay
+made no inference calls and incurred no inference API cost. These are still
+fallback-only scores, not complete-resolver scores or human gold labels.
+
+The normal resolver rerun produced 228 stored items, down from 251. Catalogs
+6530, 6961, 8733, and 8769 now have zero rows and recorded empty status. The
+operator approved clearing catalog 6961's nine wrong rows, including matter
+links 10840, 10837, 10844, and 11856: its source cancels a Zoning Administrator
+hearing, while those rows described Arts Commission business. All 82 matter
+associations on unaffected records survived. Selected source/document fields
+and the outside-agenda digest remained unchanged. Targeted indexing succeeded.
+
+Playwright reopened all 24 records, read their Full Text, and inspected the
+Structured Agenda. The four notice sources visibly announce cancellation and
+display zero agenda cards with neutral empty-result wording. All original
+source URLs remained available; no guessed page anchors or false AI-generation
+labels appeared. For other records, a source quote was checked in Full Text,
+and all displayed titles were recorded for content inspection, not accepted as
+correct merely because they matched the API.
+
+That inspection confirms an important remaining defect: catalog 3034's source
+describes City Council board/commission vacancy interviews, but its agenda
+shows unrelated Planning Commission material. The general Legistar
+meeting-matching repair remains deferred. Noise and missed business elsewhere
+also remain; this correction does not make the full agenda feature dependable.
+
+Tests reproduced false cancellation items, unrelated structured-source
+override, stale rows in all three successful-empty persistence paths, and
+misleading empty UI copy before their respective fixes. Mixed agendas, attached
+notices, provider output, long numbered business, and cancellation mentions are
+covered through public behavior. The new resolver import exposed an existing
+`int(object)` type error in parsed-order deduplication; converting the parser's
+numeric order through text fixed typing without a suppression or policy change.
+
+The bundle's `cancellation_followup` preserves the final replay, source hashes,
+browser observations, and the explicit 6961 exception. Earlier bundle fields
+remain historical evidence rather than being relabeled as the final run.
+Rollback execution remains unverified.
+
+Final local checks passed:
+
+```bash
+PYTHONPATH=. .venv/bin/pytest -q tests/test_agenda_cancellation_notices.py tests/test_agenda_notice_cleanup.py tests/test_agenda_fallback_boundaries.py tests/test_async_flow.py tests/test_agenda_worker_status_poison_pill.py tests/test_backlog_maintenance_laserfiche_guard.py
+./.venv/bin/ruff check .
+./.venv/bin/mypy
+COMPOSE_DISABLE_ENV_FILE=1 PYTHONPATH=. .venv/bin/python -m pytest -q --cov --cov-config=.coveragerc --cov-report=term-missing:skip-covered tests/
+PYTHONPATH=. .venv/bin/pytest -q tests/test_docs_links.py tests/test_env_example_profile_alignment.py
+git diff --check
+```
+
+The focused run passed 97 tests; the coverage run passed 2,066 tests with 20
+skipped and 84.65% coverage against the unchanged 71% floor. The isolated
+frontend suite passed 44 tests and its build passed. Independent review approved
+the production and test corrections. An initial local frontend image build used
+the wrong build context and failed; rerunning with the correct isolated context
+passed, with current static assets included. No tracked Dockerfile changed.

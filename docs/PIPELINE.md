@@ -148,10 +148,19 @@ authorization expose source records but no people-facing data.
 - `topics`: writes topic outputs and source-hash linkage.
 - `votes`: runs vote extraction/update logic over agenda items.
 
-Agenda cleanup excludes exact notice and procedural headings without declaring
-the whole meeting canceled. Legistar matters retain their source IDs even when
-their titles resemble scaffolding or contain street addresses. A source ID is
-not, by itself, proof of the extraction method or a verified source page.
+Agenda cleanup excludes exact notice and procedural headings at candidate
+acceptance, without changing whole-page parser selection. A single-page source
+with both a standalone cancellation-notice heading and a meeting-canceled
+heading yields no agenda items, even if a provider or unrelated structured
+source suggests business. Numbered items, record anchors, body fields, separate
+live agenda headings, and multipage packets make this conservative check
+abstain. Cancellation mentions alone do not cancel a live agenda.
+
+Successful empty results replace old agenda rows and update their hash in the
+task, worker, and maintenance paths. Failed extraction does not trigger empty
+replacement. Other Legistar matters retain their source IDs even when their
+titles resemble scaffolding or contain street addresses. A source ID is not,
+by itself, proof of the correct meeting, extraction method, or source page.
 
 Stored agenda responses use a neutral catalog source label: segmentation
 completion does not establish whether rows came from Legistar, HTML, or AI.
