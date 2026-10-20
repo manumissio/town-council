@@ -68,9 +68,14 @@ def resolve_agenda_items(
     if is_cancellation_only_notice(catalog.content or ""):
         logger.info("agenda_resolver.cancellation_only catalog_location=%s", catalog.location)
         return _resolved_payload(
-            items=[], source_used=CANCELLATION_NOTICE_SOURCE, quality_score=0,
-            confidence="medium", llm_fallback_invoked=False,
-            legistar_items=[], filtered_legistar_items=[], legistar_accepted=False,
+            items=[],
+            source_used=CANCELLATION_NOTICE_SOURCE,
+            quality_score=0,
+            confidence="medium",
+            llm_fallback_invoked=False,
+            legistar_items=[],
+            filtered_legistar_items=[],
+            legistar_accepted=False,
         )
     html_items = html_loader(session, catalog, doc)
     legistar_client, event_date = _legistar_event_context(doc)

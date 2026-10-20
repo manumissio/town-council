@@ -22,7 +22,7 @@ from pipeline.task_agenda_segmentation import run_segment_agenda_task_family
 
 SAMPLE_PATH = Path(__file__).resolve().parents[1] / "experiments/results/agenda_boundary_2026_10_18.json.gz"
 CANCELLATION_CATALOG_IDS = (6530, 6961, 8733, 8769)
-INVENTED_PROVIDER_BUSINESS = "1: Approve the annual park improvement budget (Page 1) - Adopt the budget."
+INVENTED_PROVIDER_BUSINESS = "Approve the annual park improvement budget (Page 1) - Adopt the budget."
 NOTICE_HEADER = "[PAGE 1]\nCANCELLATION NOTICE\nMEETING CANCELED\n"
 BUSINESS_TITLE = "Approve the annual park improvement budget"
 
@@ -98,6 +98,23 @@ def test_mixed_or_ambiguous_cancellation_keeps_business(source: str, legistar_ht
     resolved = resolve_source(source)
     assert resolved["source_used"] == "legistar"
     assert any(agenda["title"] == BUSINESS_TITLE for agenda in resolved["items"])
+
+
+@pytest.mark.parametrize("empty_attachment", ["", " \n\t"])
+@pytest.mark.parametrize("entrypoint", ["provider", "resolver"])
+def test_unreadable_attachment_does_not_cancel_the_packet(
+    empty_attachment: str, entrypoint: str, legistar_http: None,
+) -> None:
+    source = f"{NOTICE_HEADER}The next meeting will be announced.\n[PAGE 2]\n{empty_attachment}"
+    if entrypoint == "resolver":
+        agenda_items = resolve_source(source)["items"]
+    else:
+        agenda_items = run_agenda_extraction_pipeline(
+            text=source, raw_provider_content=INVENTED_PROVIDER_BUSINESS,
+            mode="balanced", logger=logging.getLogger(__name__),
+        )
+
+    assert any(agenda["title"] == BUSINESS_TITLE for agenda in agenda_items)
 
 
 @pytest.mark.parametrize("entrypoint", ["task", "worker", "maintenance"])

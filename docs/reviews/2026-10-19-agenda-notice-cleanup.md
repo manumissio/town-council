@@ -182,7 +182,7 @@ meeting notices and checks the source text alongside the displayed result.
 
 All 21 newly removed candidates were already independently labeled noise.
 Remaining candidate payloads reuse their existing labels by identity. No new
-semantic labels were invented. Median fallback time was 4.9 ms; this replay
+semantic labels were invented. Median fallback time was 4.8 ms in the final replay; it
 made no inference calls and incurred no inference API cost. These are still
 fallback-only scores, not complete-resolver scores or human gold labels.
 
@@ -238,3 +238,14 @@ frontend suite passed 44 tests and its build passed. Independent review approved
 the production and test corrections. An initial local frontend image build used
 the wrong build context and failed; rerunning with the correct isolated context
 passed, with current static assets included. No tracked Dockerfile changed.
+
+The first corrective CI run failed the scoped Ruff formatter on the new resolver
+payload layout. Formatting that file resolved the failure without changing
+behavior. A later review found that page splitting dropped blank attachment
+pages before the cancellation check counted them. The check now counts source
+boundaries before empty text is removed. Four regression cases cover empty and
+whitespace-only attachment pages through provider and public resolver output;
+all failed before the repair. The provider fixture was corrected to the actual
+prompt-continuation format without changing its expected business title. The
+final focused extraction suite passed 72 tests, and the same-sample payloads
+and quality counts remained unchanged. Fresh CI is required for this follow-up.

@@ -27,9 +27,8 @@ _NOTICE_AGENDA_MASTHEADS = {"notice and agenda", "notice and agenda - final"}
 
 
 def is_cancellation_only_notice(raw_text: str) -> bool:
-    pages = split_text_by_page_markers(raw_text)
-    # A notice in a packet must not cancel the other documents or their business.
-    if len(pages) != 1:
+    # Empty/OCR-less attachments still make a packet; text chunks discard them.
+    if len(_PAGE_MARKER_RE.findall(raw_text)) > 1 or len(_page_markers(raw_text)) > 1:
         return False
     page_content = raw_text
     headings = {normalize_spaces(line).casefold() for line in page_content.splitlines() if line.strip()}
