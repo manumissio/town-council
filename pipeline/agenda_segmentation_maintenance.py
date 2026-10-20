@@ -160,10 +160,7 @@ def persist_segmented_agenda(
     doc: Document,
     items_data: list[dict[str, Any]],
 ) -> str:
-    if items_data:
-        created_items = persist_agenda_items(session, catalog.id, doc.event_id, items_data)
-    else:
-        created_items = []
+    created_items = persist_agenda_items(session, catalog.id, doc.event_id, items_data)
     if created_items:
         catalog.agenda_segmentation_status = "complete"
         catalog.agenda_segmentation_item_count = len(created_items)

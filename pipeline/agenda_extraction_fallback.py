@@ -33,6 +33,7 @@ from pipeline.agenda_extraction_paragraphs import (
     reject_paragraph_title,
 )
 from pipeline.agenda_extraction_pages import (
+    is_cancellation_only_notice,
     page_has_speaker_context,
     split_text_by_page_markers,
     truncate_page_after_end_marker,
@@ -285,6 +286,8 @@ def run_agenda_extraction_pipeline(
     mode: str,
     logger: logging.Logger,
 ) -> list[AgendaItemPayload]:
+    if is_cancellation_only_notice(text):
+        return []
     context = AgendaExtractionContext(mode=mode, logger=logger)
     if raw_provider_content:
         context.accept_provider_output(raw_provider_content)

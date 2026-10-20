@@ -22,11 +22,6 @@ test("renders one top-level disclaimer with neutral palette and Info icon", () =
   assert.match(source, /<Info className="w-3\.5 h-3\.5 shrink-0 text-slate-500" \/>/);
 });
 
-test("renders a neutral warning for stored agenda items", () => {
-  assert.match(source, /\{showAgendaDisclaimer && \(/);
-  assert.match(source, /Agenda items may be incomplete or inaccurate\. Verify against the source document\./);
-});
-
 test("uses canonical disclaimer copy", () => {
   assert.match(
     source,

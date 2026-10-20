@@ -112,11 +112,8 @@ def segment_document_agenda(catalog_id):
                 resolved.get("legistar_accepted"),
             )
 
-            if items_data:
-                # Rebuild rows so reruns remain idempotent and source quality can improve.
-                created_items = persist_agenda_items(session, catalog.id, doc.event_id, items_data)
-            else:
-                created_items = []
+            # Successful empty extraction must replace old rows, just like a populated result.
+            created_items = persist_agenda_items(session, catalog.id, doc.event_id, items_data)
             if created_items:
                 catalog.agenda_segmentation_status = "complete"
                 catalog.agenda_segmentation_item_count = len(created_items)

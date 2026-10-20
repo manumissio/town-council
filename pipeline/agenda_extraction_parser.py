@@ -192,7 +192,7 @@ def _dedupe_llm_items(items: list[AgendaItemPayload]) -> list[AgendaItemPayload]
     seen: set[tuple[int, str]] = set()
     deduped: list[AgendaItemPayload] = []
     for agenda_item in items:
-        key = (int(agenda_item["order"]), str(agenda_item["title"]).lower())
+        key = (int(str(agenda_item["order"])), str(agenda_item["title"]).lower())
         if key in seen:
             continue
         seen.add(key)

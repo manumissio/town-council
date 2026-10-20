@@ -933,7 +933,7 @@ export default function ResultCard({ hit, onTopicClick }) {
                         </h4>
                         <p className="text-indigo-600/60 text-xs mb-6 max-w-[240px] text-center">
                           {agendaItems && agendaItems.length === 0 
-                            ? "The AI was unable to find specific agenda items in this document." 
+                            ? "No agenda items were found in this document."
                             : "Use AI to split this document into individual, searchable agenda items."}
                         </p>
                         <button 
