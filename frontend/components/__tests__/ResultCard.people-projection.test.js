@@ -349,6 +349,47 @@ for (const [segmentationStatus, expectedLabel] of [[null, "not been segmented ye
   });
 }
 
+test("agenda read retry restores saved items without starting segmentation", async testContext => {
+  const ResultCard = compileResultCard(testContext);
+  const { restoreDom } = installDom();
+  const savedAgendaResponse = createDeferred();
+  const mutationRequests = [];
+  let agendaReadFailed = false;
+  testContext.mock.method(globalThis, "fetch", async (requestUrl, requestOptions = {}) => {
+    const url = String(requestUrl);
+    if (requestOptions.method && requestOptions.method !== "GET") mutationRequests.push(url);
+    if (url.includes("derived_status")) return jsonResponse({ agenda_segmentation_status: "completed" });
+    if (url.includes("agenda_items")) {
+      if (!agendaReadFailed) {
+        agendaReadFailed = true;
+        return { ok: false, status: 503, statusText: "Service Unavailable", async json() { return {}; } };
+      }
+      return savedAgendaResponse.promise;
+    }
+    return jsonResponse({ content: "Synthetic source text" });
+  });
+  const container = document.getElementById("root");
+  const root = createRoot(container);
+  testContext.after(async () => { await act(async () => root.unmount()); restoreDom(); });
+  await act(async () => root.render(React.createElement(ResultCard, { hit: TEST_MEETING_HIT })));
+  await act(async () => { container.querySelector('button[title="Expand Document Text"]').click(); await flushAsyncWork(); });
+  await act(async () => { findButton(container, "Structured Agenda").click(); await flushAsyncWork(); });
+  assert.match(container.textContent, /Agenda items unavailable/);
+  const retryRead = findButton(container, "Retry loading agenda");
+  assert.ok(retryRead, "a failed read offers a read-only retry");
+  assert.ok(!findButton(container, "Segment Agenda Items"), "a failed read does not offer segmentation");
+  await act(async () => { retryRead.click(); await flushAsyncWork(); });
+  assert.ok(!findButton(container, "Segment Agenda Items"), "a pending read retry does not offer segmentation");
+  assert.equal(findButton(container, "Retry loading agenda")?.disabled, true);
+  await act(async () => {
+    savedAgendaResponse.resolve(jsonResponse({ items: [{ id: 7, title: "Approve park improvements", description: "Review the park proposal", source: "catalog_agenda_items" }] }));
+    await flushAsyncWork();
+  });
+  assert.match(container.textContent, /Approve park improvements/);
+  assert.doesNotMatch(container.textContent, /Agenda items unavailable/);
+  assert.deepEqual(mutationRequests, []);
+});
+
 test("freshness is not factual verification and cached summary survives refresh failure", async testContext => {
   const ResultCard = compileResultCard(testContext);
   const { restoreDom } = installDom();

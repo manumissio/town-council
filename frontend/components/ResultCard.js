@@ -967,11 +967,19 @@ export default function ResultCard({ hit, onTopicClick }) {
                             : agendaConfirmedEmpty ? "No items found" : derivedStatus?.has_content === false ? "Text not extracted" : "Agenda status unknown"}
                         </h4>
                         <p className="text-indigo-600/60 text-xs mb-6 max-w-[240px] text-center">
-                          {agendaNotGeneratedYet ? "This document has not been segmented yet. No conclusion about its business items is available." : agendaLoadError ? "Retry loading the stored agenda items." : derivedStatus?.agenda_segmentation_status === "failed" ? "The last attempt failed. Any previously saved items remain available." : agendaConfirmedEmpty
+                          {agendaLoadError ? "Retry loading the stored agenda items." : agendaNotGeneratedYet ? "This document has not been segmented yet. No conclusion about its business items is available." : derivedStatus?.agenda_segmentation_status === "failed" ? "The last attempt failed. Any previously saved items remain available." : agendaConfirmedEmpty
                             ? "No agenda items were found in this document."
                             : "The available status does not establish whether this document has agenda items. Load its text and retry the status check."}
                         </p>
-                        <button 
+                        {agendaLoadError || isLoadingAgendaItems ? (
+                          <button
+                            onClick={() => fetchAgendaItems()}
+                            disabled={isLoadingAgendaItems}
+                            className="px-6 py-2.5 bg-indigo-600 text-white text-xs font-bold rounded-xl shadow-lg shadow-indigo-200 hover:bg-indigo-700 transition-all active:scale-95 disabled:opacity-50 disabled:cursor-not-allowed"
+                          >
+                            Retry loading agenda
+                          </button>
+                        ) : <button
                           onClick={handleGenerateAgenda}
                           disabled={!canMutate || isSegmenting}
                           className="px-6 py-2.5 bg-indigo-600 text-white text-xs font-bold rounded-xl shadow-lg shadow-indigo-200 hover:bg-indigo-700 transition-all active:scale-95 disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2"
@@ -981,7 +989,7 @@ export default function ResultCard({ hit, onTopicClick }) {
                           ) : (
                             <><Sparkles className="w-3.5 h-3.5" /> {agendaItems && agendaItems.length === 0 ? "Retry Segmentation" : "Segment Agenda Items"}</>
                           )}
-                        </button>
+                        </button>}
                       </div>
                     )}
                   </div>

@@ -419,3 +419,23 @@ No tracked file was deleted, moved, or renamed. Existing live data, model
 settings, item limits, secrets, dependency pins, and baseline policy were not
 modified. Review and local tests establish the changed UI/read contracts, not
 extraction accuracy, external-source uptime, or actual inference availability.
+
+### PR review correction: agenda read retry
+
+A failed agenda read now offers **Retry loading agenda**, using the existing
+read endpoint instead of starting segmentation. Read errors take precedence
+over unattempted-state help text. Existing text and status retry controls
+already retry their reads and were left unchanged.
+
+Tests-first evidence: the new rendered-card regression failed because the read
+retry was absent. After the fix, it restored a saved agenda item after an HTTP
+503 and observed no mutation request. Independent review also reproduced a
+pending-read gap: clearing the error exposed segmentation during the retry.
+The deferred-response regression failed first, then verified that the retry
+stays read-only and disabled until the saved items arrive.
+
+PASS: `docker run --rm -v "$PWD/frontend:/src:ro" -v "$PWD/.cache/agenda-quality-20261019/frontend/node_modules:/src/node_modules:ro" -w /src node:24.20.0-alpine npm test`
+— 68 passed.
+
+PASS: `PYTHONPATH=. .venv/bin/pytest -q tests/test_frontend_pages_config.py tests/test_resultcard_agenda_status_refresh.py tests/test_search_sort_ui_guardrails.py tests/test_semantic_search_ui_guardrails.py`
+— 12 passed.
