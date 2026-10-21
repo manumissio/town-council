@@ -235,6 +235,142 @@ const agendaScenarios = [
   },
 ];
 
+for (const summaryScenario of [
+  { name: "stale", summary: "Saved summary", status: { summary_is_stale: true }, expected: "Stale" },
+  { name: "partial", summary: "Summary covers first 2 of 5 agenda items", status: {}, expected: "Partial (2/5 items)" },
+  { name: "blocked", summary: null, status: { summary_blocked_reason: "Insufficient source text" }, expected: "Summary blocked" },
+]) {
+  test(`summary tab explains ${summaryScenario.name} content`, async testContext => {
+    const ResultCard = compileResultCard(testContext);
+    const { restoreDom } = installDom();
+    testContext.mock.method(globalThis, "fetch", async requestUrl => jsonResponse(
+      String(requestUrl).includes("derived_status") ? summaryScenario.status : { content: "Synthetic source" },
+    ));
+    const container = document.getElementById("root");
+    const root = createRoot(container);
+    testContext.after(async () => { await act(async () => root.unmount()); restoreDom(); });
+    await act(async () => root.render(React.createElement(ResultCard, { hit: { ...TEST_MEETING_HIT, summary: summaryScenario.summary } })));
+    await act(async () => { container.querySelector('button[title="Expand Document Text"]').click(); await flushAsyncWork(); });
+    await act(async () => findButton(container, "AI Summary").click());
+    assert.ok(container.textContent.includes(summaryScenario.expected));
+  });
+}
+
+test("pending summary task displays processing and disables generation", async testContext => {
+  const ResultCard = compileResultCard(testContext);
+  const { restoreDom } = installDom();
+  testContext.mock.method(globalThis, "fetch", async requestUrl => {
+    const url = String(requestUrl);
+    if (url.startsWith("/api/summarize/")) return jsonResponse({ task_id: "pending-summary" });
+    if (url.includes("/tasks/")) return jsonResponse({ status: "pending" });
+    if (url.includes("derived_status")) return jsonResponse({ summary_not_generated_yet: true });
+    return jsonResponse({ content: "Synthetic source" });
+  });
+  const container = document.getElementById("root");
+  const root = createRoot(container);
+  testContext.after(async () => { await act(async () => root.unmount()); restoreDom(); });
+  await act(async () => root.render(React.createElement(ResultCard, { hit: TEST_MEETING_HIT })));
+  await act(async () => { container.querySelector('button[title="Expand Document Text"]').click(); await flushAsyncWork(); });
+  await act(async () => findButton(container, "AI Summary").click());
+  await act(async () => { findButton(container, "Generate Local Summary").click(); await flushAsyncWork(); });
+  assert.match(container.textContent, /Reading/);
+  assert.equal(findButton(container, "Reading...").disabled, true);
+});
+
+test("missing sample summary explains that generation is unavailable", async testContext => {
+  const previousDemoMode = process.env.NEXT_PUBLIC_DEMO_MODE;
+  process.env.NEXT_PUBLIC_DEMO_MODE = "true";
+  const ResultCard = compileResultCard(testContext);
+  if (previousDemoMode === undefined) delete process.env.NEXT_PUBLIC_DEMO_MODE;
+  else process.env.NEXT_PUBLIC_DEMO_MODE = previousDemoMode;
+  const { restoreDom } = installDom();
+  testContext.mock.method(globalThis, "fetch", async requestUrl => {
+    assert.match(String(requestUrl), /^\.\/demo\//);
+    return jsonResponse(String(requestUrl).includes("derived_status")
+      ? { summary_not_generated_yet: true } : { content: "" });
+  });
+  const container = document.getElementById("root");
+  const root = createRoot(container);
+  testContext.after(async () => { await act(async () => root.unmount()); restoreDom(); });
+  await act(async () => root.render(React.createElement(ResultCard, { hit: TEST_MEETING_HIT })));
+  await act(async () => { container.querySelector('button[title="Expand Document Text"]').click(); await flushAsyncWork(); });
+  await act(async () => findButton(container, "AI Summary").click());
+  assert.match(container.textContent, /Missing summary is intentional in this sample/);
+  assert.equal(findButton(container, "Generate Local Summary").disabled, true);
+  assert.equal(container.querySelector('a[title="Open source document"]'), null);
+});
+
+test("unmount before enqueue completes cannot start polling", async testContext => {
+  const ResultCard = compileResultCard(testContext);
+  const { restoreDom } = installDom();
+  const enqueue = createDeferred();
+  const unexpectedRequests = [];
+  testContext.mock.method(globalThis, "fetch", async requestUrl => {
+    const url = String(requestUrl);
+    if (url.startsWith("/api/summarize/")) return enqueue.promise;
+    if (url.includes("derived_status")) return jsonResponse({ has_content: true });
+    if (url.includes("/content")) return jsonResponse({ content: "Synthetic source" });
+    unexpectedRequests.push(url);
+    return jsonResponse({ status: "complete", result: {} });
+  });
+  const container = document.getElementById("root");
+  const root = createRoot(container);
+  testContext.after(restoreDom);
+  await act(async () => root.render(React.createElement(ResultCard, { hit: { ...TEST_MEETING_HIT, summary: "Saved summary" } })));
+  await act(async () => { container.querySelector('button[title="Expand Document Text"]').click(); await flushAsyncWork(); });
+  await act(async () => findButton(container, "AI Summary").click());
+  await act(async () => container.querySelector('button[title^="Regenerate the cached summary"]').click());
+  await act(async () => root.unmount());
+  await act(async () => { enqueue.resolve(jsonResponse({ task_id: "late-enqueue" })); await flushAsyncWork(); });
+  assert.deepEqual(unexpectedRequests, []);
+});
+
+for (const [segmentationStatus, expectedLabel] of [[null, "not been segmented yet"], ["failed", "Segmentation failed"], ["empty", "No items found"], ["unknown", "Agenda status unknown"]]) {
+  test(`empty agenda rows explain ${segmentationStatus ?? "unattempted"} state`, async testContext => {
+    const ResultCard = compileResultCard(testContext);
+    const { dom, restoreDom } = installDom();
+    testContext.mock.method(globalThis, "fetch", async requestUrl => {
+      if (String(requestUrl).includes("derived_status")) return jsonResponse({
+        agenda_not_generated_yet: segmentationStatus === null,
+        agenda_segmentation_status: segmentationStatus,
+        agenda_is_empty: segmentationStatus === "empty",
+      });
+      return jsonResponse({ content: "Synthetic source text", items: [] });
+    });
+    const container = document.getElementById("root");
+    const root = createRoot(container);
+    testContext.after(async () => { await act(async () => root.unmount()); restoreDom(); });
+    await act(async () => root.render(React.createElement(ResultCard, { hit: { ...TEST_MEETING_HIT, agenda_items: [] } })));
+    await act(async () => { container.querySelector('button[title="Expand Document Text"]').click(); await flushAsyncWork(); });
+    await act(async () => findButton(container, "Structured Agenda").click());
+    assert.ok(container.textContent.includes(expectedLabel));
+    if (segmentationStatus !== "empty") assert.doesNotMatch(container.textContent, /No agenda items were found/);
+    dom.window.document.body.focus();
+  });
+}
+
+test("freshness is not factual verification and cached summary survives refresh failure", async testContext => {
+  const ResultCard = compileResultCard(testContext);
+  const { restoreDom } = installDom();
+  testContext.mock.method(globalThis, "fetch", async requestUrl => {
+    if (String(requestUrl).startsWith("/api/summarize/")) return { ok: false, status: 503, json: async () => ({ detail: "provider unavailable" }) };
+    if (String(requestUrl).includes("derived_status")) return jsonResponse({ summary_is_stale: false });
+    return jsonResponse({ content: "Synthetic source" });
+  });
+  const container = document.getElementById("root");
+  const root = createRoot(container);
+  testContext.after(async () => { await act(async () => root.unmount()); restoreDom(); });
+  await act(async () => root.render(React.createElement(ResultCard, { hit: { ...TEST_MEETING_HIT, summary: "Saved synthetic summary" } })));
+  await act(async () => { container.querySelector('button[title="Expand Document Text"]').click(); await flushAsyncWork(); });
+  await act(async () => findButton(container, "AI Summary").click());
+  assert.match(container.textContent, /Freshness unknown/);
+  assert.doesNotMatch(container.textContent, /Grounded/);
+  const regenerate = container.querySelector('button[title^="Regenerate the cached summary"]');
+  await act(async () => { regenerate.click(); await flushAsyncWork(); });
+  assert.match(container.textContent, /Saved synthetic summary/);
+  assert.match(container.textContent, /provider unavailable/);
+});
+
 for (const [sourceUrl, emptyAgenda] of [
   ["https://example.org/agenda.pdf", false], ["https://example.org/agenda.html", false],
   ["https://example.org/cancellation.pdf", true],
@@ -250,6 +386,7 @@ for (const [sourceUrl, emptyAgenda] of [
       const url = String(requestUrl);
       if (url.includes("/derived_status")) return jsonResponse({
         agenda_segmentation_status: emptyAgenda ? "empty" : "complete", agenda_not_generated_yet: false,
+        agenda_is_empty: emptyAgenda,
       });
       if (url.includes("/agenda_items")) return jsonResponse({ items: agendaItems });
       if (url.includes("/content")) return jsonResponse({ content: "Street improvement contract" });

@@ -2,7 +2,7 @@ from pathlib import Path
 
 
 def test_home_page_search_includes_sort_param():
-    source = Path("frontend/app/page.js").read_text(encoding="utf-8")
+    source = Path("frontend/state/use-record-search.js").read_text(encoding="utf-8")
     assert "&sort=${encodeURIComponent(sortMode)}" in source
 
 
@@ -15,4 +15,6 @@ def test_search_hub_renders_sort_pill():
 def test_home_page_surfaces_search_errors():
     source = Path("frontend/app/page.js").read_text(encoding="utf-8")
     assert "searchError" in source
-    assert "Search failed (" in source
+    assert "Retry search" in source
+    search_source = Path("frontend/state/use-record-search.js").read_text(encoding="utf-8")
+    assert "Search failed:" in search_source

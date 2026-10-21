@@ -16,6 +16,7 @@ def test_result_card_uses_demo_mode_mutation_guard():
 
 def test_home_page_enables_demo_mode_banner_and_static_routing():
     source = Path("frontend/app/page.js").read_text(encoding="utf-8")
-    assert "Demo Mode (Static)" in source
-    assert 'fetch(buildApiUrl("/search"))' in source
+    assert "Synthetic sample · Read-only" in source
+    search_source = Path("frontend/state/use-record-search.js").read_text(encoding="utf-8")
+    assert 'isDemoMode() ? samplePage(payload.hits, criteria, offset)' in search_source
     assert 'fetch(buildApiUrl("/metadata")' in source

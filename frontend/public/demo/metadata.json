@@ -1,4 +1,9 @@
 {
   "cities": ["CA_BERKELEY", "CA_CUPERTINO"],
-  "organizations": ["City Council", "Environmental Review Committee", "Audit Committee"]
+  "city_options": [
+    {"value": "CA_BERKELEY", "label": "Berkeley"},
+    {"value": "CA_CUPERTINO", "label": "Cupertino"}
+  ],
+  "organizations": ["Audit Committee", "City Council", "Environmental Review Committee", "Finance Committee", "Housing Advisory Commission", "Parks and Recreation Commission", "Planning Commission", "Transportation Commission"],
+  "meeting_types": ["Closed", "Other", "Regular", "Special"]
 }
