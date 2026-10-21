@@ -1,6 +1,6 @@
 # Town Council Pipeline Guide
 
-Last updated: 2026-10-18
+Last updated: 2026-10-20
 
 ## 1) Purpose and Boundaries
 
@@ -147,6 +147,40 @@ authorization expose source records but no people-facing data.
 - `summarize`: writes summary outputs and source-hash linkage.
 - `topics`: writes topic outputs and source-hash linkage.
 - `votes`: runs vote extraction/update logic over agenda items.
+
+Agenda cleanup excludes exact notice and procedural headings at candidate
+acceptance, without changing whole-page parser selection. A single-page source
+with both a standalone cancellation-notice heading and a meeting-canceled
+heading yields no agenda items, even if a provider or unrelated structured
+source suggests business. Numbered items, record anchors, body fields, separate
+live agenda headings, non-first page markers, and recognized multipage evidence
+make this conservative check abstain. Printed page totals also count: `Page 1
+of 2` is not a complete notice even if the other page has no extracted text.
+This check does not validate unsupported pagination formats or an unmarked
+partial source. Cancellation mentions alone do not cancel a live agenda;
+standalone canceled/cancelled headings are excluded only as candidates.
+
+Confirmed cancellation results replace old agenda rows and update their hash in
+the task, worker, and maintenance paths. Empty or whitespace-only proposals on
+other sources with existing rows raise an inconclusive-extraction error before
+deleting rows or changing their hash. The existing task wrapper may record that
+failed attempt and retry; it does not mark the catalog empty or remove its old
+business. Normal and maintenance backfills record the failure for that catalog
+and continue to the next selected record. New catalogs without stored rows can
+still record an empty result.
+The API's `agenda_items_count` counts current stored rows for that catalog.
+`agenda_segmentation_item_count` remains recorded attempt metadata; a failed
+attempt can report zero there while older business remains available.
+Other Legistar matters retain their source IDs even when their
+titles resemble scaffolding or contain street addresses. A source ID is not,
+by itself, proof of the correct meeting, extraction method, or source page.
+
+Stored agenda responses use a neutral catalog source label: segmentation
+completion does not establish whether rows came from Legistar, HTML, or AI.
+The UI keeps a verification warning and the original document link, but omits
+item-level page links until their relationship to the physical source is
+established. Existing stored text and page numbers are not rewritten by this
+display correction.
 
 When segmentation uses the text fallback, item numbers and source record IDs
 help keep titles together within their source paragraph. Only title-associated

@@ -4,6 +4,7 @@ from datetime import date
 import logging
 
 from pipeline.agenda_crosscheck import merge_ai_with_eagenda
+from pipeline.agenda_extraction_pages import is_cancellation_only_notice
 from pipeline.agenda_resolver_contracts import (
     AgendaExtractor,
     AgendaItemRecord,
@@ -22,6 +23,7 @@ from pipeline.agenda_resolver_contracts import (
 
 HTML_ACCEPTANCE_MIN_ITEMS = 2
 HTML_ACCEPTANCE_MIN_SCORE = 55
+CANCELLATION_NOTICE_SOURCE = "cancellation_notice"
 
 
 def has_viable_structured_agenda_source(
@@ -63,6 +65,18 @@ def resolve_agenda_items(
     Resolve agenda items in priority order:
     Legistar -> HTML -> LLM.
     """
+    if is_cancellation_only_notice(catalog.content or ""):
+        logger.info("agenda_resolver.cancellation_only catalog_location=%s", catalog.location)
+        return _resolved_payload(
+            items=[],
+            source_used=CANCELLATION_NOTICE_SOURCE,
+            quality_score=0,
+            confidence="medium",
+            llm_fallback_invoked=False,
+            legistar_items=[],
+            filtered_legistar_items=[],
+            legistar_accepted=False,
+        )
     html_items = html_loader(session, catalog, doc)
     legistar_client, event_date = _legistar_event_context(doc)
     legistar_items = legistar_fetcher(legistar_client, event_date)

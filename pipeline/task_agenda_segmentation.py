@@ -177,12 +177,10 @@ def run_segment_agenda_task_family(
     resolved = agenda_resolver.resolve_agenda_items(db, catalog, doc, local_ai)
     items_data = resolved["items"]
 
-    item_count = 0
-    items_to_return = []
-    if items_data:
-        created_items = agenda_service.persist_agenda_items(db, catalog_id, doc.event_id, items_data)
-        items_to_return = _agenda_items_payload(created_items, resolved["source_used"])
-        item_count = len(items_to_return)
+    agenda_service.require_confirmed_agenda_replacement(catalog, items_data)
+    created_items = agenda_service.persist_agenda_items(db, catalog_id, doc.event_id, items_data)
+    items_to_return = _agenda_items_payload(created_items, resolved["source_used"])
+    item_count = len(items_to_return)
     if item_count:
         vote_extraction = run_post_segmentation_vote_extraction(
             db,

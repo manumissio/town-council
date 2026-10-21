@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from importlib import import_module
-from typing import Any, Callable, NamedTuple, Protocol
+from typing import Any, Callable, NamedTuple, Protocol, Sequence
 
 from sqlalchemy.engine import Connection, Engine
 
@@ -9,6 +9,8 @@ from sqlalchemy.engine import Connection, Engine
 class AgendaCatalogRecord(Protocol):
     agenda_items_hash: str | None
     location: str | None
+    content: str | None
+    agenda_items: Sequence[AgendaItemRecord]
 
 
 class AgendaItemRecord(Protocol):

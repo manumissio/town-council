@@ -235,6 +235,55 @@ const agendaScenarios = [
   },
 ];
 
+for (const [sourceUrl, emptyAgenda] of [
+  ["https://example.org/agenda.pdf", false], ["https://example.org/agenda.html", false],
+  ["https://example.org/cancellation.pdf", true],
+]) {
+  test(`agenda labels and source links stay honest for ${sourceUrl}`, async (testContext) => {
+    const ResultCard = compileResultCard(testContext);
+    const { dom, restoreDom } = installDom();
+    const agendaItems = emptyAgenda ? [] : [{
+      title: "Approve the street improvement contract", order: 1,
+      page_number: 1, source: "catalog_agenda_items",
+    }];
+    testContext.mock.method(globalThis, "fetch", async (requestUrl) => {
+      const url = String(requestUrl);
+      if (url.includes("/derived_status")) return jsonResponse({
+        agenda_segmentation_status: emptyAgenda ? "empty" : "complete", agenda_not_generated_yet: false,
+      });
+      if (url.includes("/agenda_items")) return jsonResponse({ items: agendaItems });
+      if (url.includes("/content")) return jsonResponse({ content: "Street improvement contract" });
+      throw new Error(`Unexpected request: ${url}`);
+    });
+    const container = dom.window.document.getElementById("root");
+    const root = createRoot(container);
+    testContext.after(async () => {
+      await act(async () => root.unmount());
+      restoreDom();
+    });
+    await act(async () => root.render(React.createElement(ResultCard, {
+      hit: { ...TEST_MEETING_HIT, url: sourceUrl, agenda_items: agendaItems },
+    })));
+    await act(async () => {
+      container.querySelector('button[title="Expand Document Text"]').click();
+      await flushAsyncWork();
+    });
+    await act(async () => findButton(container, "Structured Agenda").click());
+
+    if (emptyAgenda) {
+      assert.equal(container.querySelectorAll("h5").length, 0);
+      assert.match(container.textContent, /No agenda items were found in this document\./);
+      assert.doesNotMatch(container.textContent, /Not generated yet|The AI was unable/i);
+    } else {
+      assert.match(container.textContent, /Approve the street improvement contract/);
+      assert.match(container.textContent, /Agenda items may be incomplete or inaccurate/);
+    }
+    assert.doesNotMatch(container.textContent, /Local AI|AI-generated content/i);
+    assert.equal(container.querySelector('a[title="Open source document"]').href, sourceUrl);
+    assert.equal(container.querySelectorAll('a[href*="#page="]').length, 0);
+  });
+}
+
 for (const agendaScenario of agendaScenarios) {
   test(agendaScenario.name, { timeout: COMPONENT_INTERACTION_TIMEOUT_MS }, async (testContext) => {
     const ResultCard = compileResultCard(testContext);

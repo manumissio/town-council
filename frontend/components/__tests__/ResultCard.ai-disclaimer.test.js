@@ -13,9 +13,6 @@ test("defines contextual AI disclaimer booleans", () => {
   );
   assert.match(source, /const hasTopicsPayload = Boolean\(topics && topics\.length > 0\);/);
   assert.match(source, /const showAiDisclaimer = viewMode === "summary" && \(hasSummaryPayload \|\| hasTopicsPayload\);/);
-  assert.match(source, /const hasAiDerivedAgendaPayload = Boolean\(/);
-  assert.match(source, /source\.includes\("llm"\) \|\| source\.includes\("fallback"\)/);
-  assert.match(source, /const showAgendaAiDisclaimer = viewMode === "agenda" && hasAiDerivedAgendaPayload;/);
 });
 
 test("renders one top-level disclaimer with neutral palette and Info icon", () => {
@@ -23,10 +20,6 @@ test("renders one top-level disclaimer with neutral palette and Info icon", () =
   assert.match(source, /border-slate-200 bg-slate-50/);
   assert.match(source, /text-slate-600/);
   assert.match(source, /<Info className="w-3\.5 h-3\.5 shrink-0 text-slate-500" \/>/);
-});
-
-test("renders agenda disclaimer conditionally for AI-derived agenda items", () => {
-  assert.match(source, /\{showAgendaAiDisclaimer && \(/);
 });
 
 test("uses canonical disclaimer copy", () => {

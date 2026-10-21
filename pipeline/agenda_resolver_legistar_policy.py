@@ -4,7 +4,7 @@ import re
 
 from pipeline.agenda_resolver_contracts import AgendaItemRecord
 from pipeline.agenda_resolver_quality import _normalize_title
-from pipeline.lexicon import is_contact_or_letterhead_noise, is_procedural_title
+from pipeline.lexicon import is_agenda_notice_title, is_contact_or_letterhead_noise, is_procedural_title
 
 
 _LEGISTAR_PROCEDURAL_PATTERNS = [
@@ -59,8 +59,11 @@ def _filter_legistar_items(items: list[AgendaItemRecord]) -> list[AgendaItemReco
         if not title:
             continue
         lowered = title.lower()
-        if lowered.startswith("subject:"):
+        # Source-backed matters may legitimately contain addresses or wrapper-like titles.
+        if item.get("legistar_matter_id") or lowered.startswith("subject:"):
             filtered.append({**item, "title": title})
+            continue
+        if is_agenda_notice_title(title) or is_procedural_title(title):
             continue
         if any(pattern.match(title) for pattern in _LEGISTAR_PROCEDURAL_PATTERNS):
             continue

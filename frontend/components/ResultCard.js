@@ -20,6 +20,7 @@ import textFormatter from "../lib/textFormatter";
 
 const { renderFormattedExtractedText } = textFormatter;
 const AI_DISCLAIMER_TEXT = "AI-generated content may be incomplete or inaccurate. Verify against source documents.";
+const AGENDA_DISCLAIMER_TEXT = "Agenda items may be incomplete or inaccurate. Verify against the source document.";
 
 /**
  * ResultCard Component
@@ -92,14 +93,7 @@ export default function ResultCard({ hit, onTopicClick }) {
   const hasSummaryPayload = Boolean((summary && summary.trim()) || (hit.summary_extractive && hit.summary_extractive.trim()));
   const hasTopicsPayload = Boolean(topics && topics.length > 0);
   const showAiDisclaimer = viewMode === "summary" && (hasSummaryPayload || hasTopicsPayload);
-  const hasAiDerivedAgendaPayload = Boolean(
-    agendaItems &&
-      agendaItems.some((item) => {
-        const source = ((item && item.source) || "").toString().toLowerCase();
-        return source.includes("llm") || source.includes("fallback");
-      })
-  );
-  const showAgendaAiDisclaimer = viewMode === "agenda" && hasAiDerivedAgendaPayload;
+  const showAgendaDisclaimer = viewMode === "agenda" && Boolean(agendaItems && agendaItems.length > 0);
   const addPollStop = (stopFn) => {
     if (typeof stopFn === "function") {
       activePollStopsRef.current.push(stopFn);
@@ -520,7 +514,7 @@ export default function ResultCard({ hit, onTopicClick }) {
               target="_blank" 
               rel="noopener noreferrer"
               className="p-2.5 bg-gray-50 text-gray-400 hover:bg-blue-50 hover:text-blue-600 rounded-xl transition-all border border-transparent hover:border-blue-100"
-              title="Open Original PDF"
+              title="Open source document"
             >
               <ExternalLink className="w-5 h-5" />
             </a>
@@ -635,7 +629,7 @@ export default function ResultCard({ hit, onTopicClick }) {
                 </button>
               </div>
 	              <span className="hidden sm:block px-4 text-[10px] font-bold text-gray-400 uppercase tracking-widest">
-	                {demoMode ? "Demo Mode" : (viewMode === "text" ? "Extracted Text" : "Local AI")}
+	                {demoMode ? "Demo Mode" : (viewMode === "text" ? "Extracted Text" : (viewMode === "agenda" ? "Agenda items" : "Local AI"))}
 	              </span>
             </div>
 
@@ -891,11 +885,11 @@ export default function ResultCard({ hit, onTopicClick }) {
                         Loading structured agenda...
                       </div>
                     )}
-                    {showAgendaAiDisclaimer && (
+                    {showAgendaDisclaimer && (
                       <div className="rounded-xl border border-slate-200 bg-slate-50 px-3 py-2">
                         <p className="text-[12px] text-slate-600 flex items-center gap-2">
                           <Info className="w-3.5 h-3.5 shrink-0 text-slate-500" />
-                          <span>{AI_DISCLAIMER_TEXT}</span>
+                          <span>{AGENDA_DISCLAIMER_TEXT}</span>
                         </p>
                       </div>
                     )}
@@ -908,16 +902,6 @@ export default function ResultCard({ hit, onTopicClick }) {
                               <div className="flex-1 space-y-1">
                                 <div className="flex justify-between items-start">
                                   <h5 className="font-bold text-gray-900 text-sm leading-tight">{item.title}</h5>
-                                  {item.page_number && (
-                                    <a 
-                                      href={`${hit.url}#page=${item.page_number}`}
-                                      target="_blank"
-                                      rel="noopener noreferrer"
-                                      className="text-[10px] font-bold text-indigo-600 bg-indigo-50 px-2 py-0.5 rounded flex items-center gap-1 hover:bg-indigo-600 hover:text-white transition-all shadow-sm"
-                                    >
-                                      <FileText className="w-2.5 h-2.5" /> Page {item.page_number}
-                                    </a>
-                                  )}
                                 </div>
                                 <p className="text-xs text-gray-600 leading-relaxed">{item.description}</p>
                                 {item.result && (
@@ -949,7 +933,7 @@ export default function ResultCard({ hit, onTopicClick }) {
                         </h4>
                         <p className="text-indigo-600/60 text-xs mb-6 max-w-[240px] text-center">
                           {agendaItems && agendaItems.length === 0 
-                            ? "The AI was unable to find specific agenda items in this document." 
+                            ? "No agenda items were found in this document."
                             : "Use AI to split this document into individual, searchable agenda items."}
                         </p>
                         <button 

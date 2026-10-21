@@ -14,7 +14,11 @@ from pipeline.backlog_maintenance import (
 )
 from pipeline.laserfiche_error_pages import classify_catalog_bad_content
 from pipeline.llm import LocalAI
-from pipeline.agenda_service import persist_agenda_items
+from pipeline.agenda_service import (
+    AgendaReplacementInconclusiveError,
+    persist_agenda_items,
+    require_confirmed_agenda_replacement,
+)
 from pipeline.agenda_resolver import has_viable_structured_agenda_source, resolve_agenda_items
 from pipeline.indexer import reindex_catalog
 from pipeline.profiling import append_phase_eligibility, apply_catalog_id_scope, profile_observer, profiling_enabled
@@ -112,11 +116,9 @@ def segment_document_agenda(catalog_id):
                 resolved.get("legistar_accepted"),
             )
 
-            if items_data:
-                # Rebuild rows so reruns remain idempotent and source quality can improve.
-                created_items = persist_agenda_items(session, catalog.id, doc.event_id, items_data)
-            else:
-                created_items = []
+            # Confirmed notices clear rows; inconclusive extraction must preserve stored business.
+            require_confirmed_agenda_replacement(catalog, items_data)
+            created_items = persist_agenda_items(session, catalog.id, doc.event_id, items_data)
             if created_items:
                 catalog.agenda_segmentation_status = "complete"
                 catalog.agenda_segmentation_item_count = len(created_items)
@@ -137,13 +139,8 @@ def segment_document_agenda(catalog_id):
                 reindex_catalog(catalog.id)
             except Exception:
                 logger.warning("agenda_segmentation.reindex_failed catalog_id=%s", catalog.id)
-        except SQLAlchemyError as e:
-            # Database errors during agenda segmentation: What can fail?
-            # - IntegrityError: Duplicate agenda items (race condition with another worker)
-            # - DataError: AI extracted content that's too large for database fields
-            # - OperationalError: Database connection lost during AI processing
-            # Why is AI processing mentioned? extract_agenda() can take 10-30 seconds,
-            # plenty of time for connections to timeout or other issues to occur.
+        except (SQLAlchemyError, AgendaReplacementInconclusiveError) as e:
+            # Record this catalog's failure without losing stored business or stopping the batch.
             session.rollback()
             try:
                 catalog = session.get(Catalog, catalog_id)

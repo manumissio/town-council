@@ -4,6 +4,7 @@ import re
 
 from pipeline.agenda_extraction_diagnostics import AgendaExtractionStats
 from pipeline.agenda_extraction_noise import is_noise_title, is_probable_person_name
+from pipeline.agenda_extraction_parser import ITEM_FIELD_PATTERN, NUMBERED_LINE_PATTERN, RECORD_ID_PATTERN
 from pipeline.agenda_text_heuristics import (
     is_contact_or_letterhead_noise,
     is_procedural_noise_title,
@@ -16,10 +17,34 @@ from pipeline.agenda_text_heuristics import (
 
 _PAGE_MARKER_RE = re.compile(r"\[PAGE\s+(\d+)\]", flags=re.IGNORECASE)
 _INLINE_PAGE_HEADER_RE = re.compile(r"(?im)^.*\bPage\s+(\d+)\s*$")
+_PAGE_TOTAL_RE = re.compile(r"\bPage\s+(\d+)\s+of\s+(\d+)\b", flags=re.IGNORECASE)
 _NUMBERED_AGENDA_ITEM_AFTER_END_RE = re.compile(
     r"(?m)^\s*(?:item\s*)?#?\s*\d{1,2}(?:\.\d+)?[\.\):]\s+(.{6,400})$"
 )
 _LEGAL_TAIL_TITLE_RE = re.compile(r"\b(government code|notice was posted|ada accommodations?|accommodation)\b")
+_CANCELLATION_NOTICE_HEADINGS = {"notice of cancellation", "cancellation notice", "cancellation notice - final"}
+_CANCELED_MEETING_HEADINGS = {"meeting canceled", "meeting cancelled"}
+_NOTICE_AGENDA_MASTHEADS = {"notice and agenda", "notice and agenda - final"}
+
+
+def is_cancellation_only_notice(raw_text: str) -> bool:
+    # Empty/OCR-less attachments still make a packet; text chunks discard them.
+    page_markers = _page_markers(raw_text)
+    if (
+        len(_PAGE_MARKER_RE.findall(raw_text)) > 1
+        or len(page_markers) > 1
+        or any(page_number != 1 for _, page_number in page_markers)
+        or any(int(page_number) != 1 or int(total) != 1 for page_number, total in _PAGE_TOTAL_RE.findall(raw_text))
+    ):
+        return False
+    page_content = raw_text
+    headings = {normalize_spaces(line).casefold() for line in page_content.splitlines() if line.strip()}
+    if not headings.intersection(_CANCELLATION_NOTICE_HEADINGS) or not headings.intersection(_CANCELED_MEETING_HEADINGS):
+        return False
+    if any(pattern.search(page_content) for pattern in (NUMBERED_LINE_PATTERN, RECORD_ID_PATTERN, ITEM_FIELD_PATTERN)):
+        return False
+    # An explicit live agenda is stronger evidence than the cancellation attachment.
+    return not any(re.search(r"\bagenda\b", heading) and heading not in _NOTICE_AGENDA_MASTHEADS for heading in headings)
 
 
 def split_text_by_page_markers(raw_text: str) -> list[tuple[int, str]]:
