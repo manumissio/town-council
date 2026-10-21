@@ -1,5 +1,5 @@
 from time import monotonic
-from typing import Any, Optional
+from typing import Any, Optional, TypedDict
 
 from fastapi import APIRouter, HTTPException, Query
 from meilisearch.errors import MeilisearchCommunicationError, MeilisearchError, MeilisearchTimeoutError
@@ -10,9 +10,20 @@ from api.search_read_params import SEARCH_LIMIT_DEFAULT, SEARCH_LIMIT_MAX, build
 from api.search_semantic_routes import search_documents_semantic
 
 SEARCH_METADATA_CACHE_SECONDS = 3600
-EMPTY_SEARCH_METADATA = {"cities": [], "organizations": [], "meeting_types": []}
 
-MetadataPayload = dict[str, list[str]]
+
+class CityOption(TypedDict):
+    value: str
+    label: str
+
+
+class MetadataPayload(TypedDict):
+    cities: list[str]
+    city_options: list[CityOption]
+    organizations: list[str]
+    meeting_types: list[str]
+
+
 MetadataCacheEntry = tuple[float, MetadataPayload]
 
 _metadata_cache_entry: MetadataCacheEntry | None = None
@@ -20,9 +31,14 @@ _metadata_cache_entry: MetadataCacheEntry | None = None
 router = APIRouter()
 
 
+@router.get("/search/capabilities")
+def get_search_capabilities() -> dict[str, bool]:
+    return {"semantic_enabled": support_core.SEMANTIC_ENABLED}
+
+
 @router.get("/search")
 def search_documents(
-    q: str = Query(..., min_length=1, description="The search query (e.g., 'zoning')"),
+    q: str = Query("", description="Search text; omit to browse recent meetings"),
     semantic: bool = Query(False, description="Enable semantic rerank (hybrid lexical + vector)"),
     city: Optional[str] = Query(None),
     include_agenda_items: bool = Query(False, description="Include individual agenda items in search hits"),
@@ -48,6 +64,10 @@ def search_documents(
             limit=limit,
             offset=offset,
         )
+
+    if not q.strip():
+        q = ""
+        sort = "newest" if not sort or sort.strip().lower() == "relevance" else sort
 
     try:
         index = support_core.client.index(support_core.DOCUMENT_INDEX_NAME)
@@ -98,9 +118,13 @@ def _load_search_metadata() -> MetadataPayload:
 
         return {
             "cities": cities,
+            "city_options": [
+                {"value": city, "label": city.removeprefix("ca_").replace("_", " ").title()}
+                for city in sorted(facets.get("city", {}))
+            ],
             "organizations": orgs,
             "meeting_types": meeting_types,
         }
     except (MeilisearchCommunicationError, MeilisearchTimeoutError, MeilisearchError, RuntimeError, ValueError) as exc:
         support_core.logger.error("Metadata retrieval failed: %s", exc)
-        return EMPTY_SEARCH_METADATA
+        raise HTTPException(status_code=503, detail="Search filters are unavailable. Retry shortly.") from exc
