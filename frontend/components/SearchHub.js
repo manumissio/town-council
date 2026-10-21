@@ -8,7 +8,7 @@ import { useSearchState } from "../state/search-state";
  * It uses a single, massive, horizontal bar where filters are integrated
  * as minimal segments without excessive labels or complex dropdowns.
  */
-export default function SearchHub({ availableCities, availableOrgs, isSearching, resetApp }) {
+export default function SearchHub({ availableCities, availableOrgs, meetingTypes = [], semanticEnabled = false, isSearching, resetApp }) {
   const {
     query, setQuery,
     cityFilter, setCityFilter,
@@ -21,14 +21,14 @@ export default function SearchHub({ availableCities, availableOrgs, isSearching,
   const cycleSortMode = () => {
     const current = (sortMode || "newest").toLowerCase();
     if (current === "newest") return setSortMode("oldest");
-    if (current === "oldest") return setSortMode("relevance");
+    if (current === "oldest" && query.trim()) return setSortMode("relevance");
     return setSortMode("newest");
   };
 
   const sortLabel = (() => {
     const current = (sortMode || "newest").toLowerCase();
     if (current === "oldest") return "Sort: Oldest";
-    if (current === "relevance") return "Sort: Relevance";
+    if (current === "relevance" && query.trim()) return "Sort: Relevance";
     return "Sort: Newest";
   })();
 
@@ -46,6 +46,7 @@ export default function SearchHub({ availableCities, availableOrgs, isSearching,
             </div>
             <input
               type="search"
+              aria-label="Search meeting records"
               autoFocus
               className="w-full py-8 pl-20 pr-4 text-xl font-bold tracking-tight text-gray-900 bg-transparent border-none focus:ring-0 placeholder:text-gray-300"
               placeholder="Search meeting records..."
@@ -59,12 +60,13 @@ export default function SearchHub({ availableCities, availableOrgs, isSearching,
           {/* 2. Municipality Segment */}
           <div className="flex-1 min-w-0 px-6 py-4 lg:py-0 flex items-center hover:bg-gray-50/80 transition-colors cursor-pointer border-t border-gray-50 lg:border-none relative">
             <select 
+              aria-label="Municipality"
               value={cityFilter}
               onChange={(e) => setCityFilter(e.target.value)}
               className="bg-transparent border-none p-0 pr-8 text-[13px] font-black uppercase tracking-widest text-gray-500 focus:ring-0 cursor-pointer appearance-none w-full"
             >
               <option value="">Everywhere</option>
-              {availableCities.map(c => <option key={c} value={c}>{c}</option>)}
+              {availableCities.map(city => <option key={city.value} value={city.value}>{city.label}</option>)}
             </select>
             <ChevronDown className="absolute right-6 w-4 h-4 text-gray-300 pointer-events-none" />
           </div>
@@ -74,6 +76,7 @@ export default function SearchHub({ availableCities, availableOrgs, isSearching,
           {/* 3. Organization Segment */}
           <div className="flex-1 min-w-0 px-6 py-4 lg:py-0 flex items-center hover:bg-gray-50/80 transition-colors cursor-pointer border-t border-gray-50 lg:border-none relative">
             <select 
+              aria-label="Governing body"
               value={orgFilter}
               onChange={(e) => setOrgFilter(e.target.value)}
               className="bg-transparent border-none p-0 pr-8 text-[13px] font-black uppercase tracking-widest text-gray-500 focus:ring-0 cursor-pointer appearance-none w-full"
@@ -89,12 +92,13 @@ export default function SearchHub({ availableCities, availableOrgs, isSearching,
           {/* 4. Category Segment */}
           <div className="flex-1 min-w-0 px-6 py-4 lg:py-0 flex items-center hover:bg-gray-50/80 transition-colors cursor-pointer border-t border-gray-50 lg:border-none relative">
             <select 
+              aria-label="Meeting type"
               value={meetingTypeFilter}
               onChange={(e) => setMeetingTypeFilter(e.target.value)}
               className="bg-transparent border-none p-0 pr-8 text-[13px] font-black uppercase tracking-widest text-gray-500 focus:ring-0 cursor-pointer appearance-none w-full"
             >
               <option value="">All Types</option>
-              {["Regular", "Special", "Closed", "Other"].map(type => (
+              {meetingTypes.map(type => (
                 <option key={type} value={type}>{type}</option>
               ))}
             </select>
@@ -107,6 +111,7 @@ export default function SearchHub({ availableCities, availableOrgs, isSearching,
               onClick={resetApp}
               className="lg:border-l border-gray-100 px-8 py-5 lg:py-0 bg-white hover:bg-red-50 text-red-400 hover:text-red-600 transition-colors flex items-center justify-center group/reset shrink-0"
               title="Reset all filters"
+              aria-label="Reset all filters"
             >
               <X className="w-6 h-6 group-hover/reset:rotate-90 transition-all duration-300" />
             </button>
@@ -123,19 +128,22 @@ export default function SearchHub({ availableCities, availableOrgs, isSearching,
         <div className="mt-10 flex flex-wrap justify-center gap-3 items-center">
           <button
             type="button"
+            disabled={!semanticEnabled && searchMode !== "semantic"}
+            aria-pressed={searchMode === "semantic"}
             onClick={() => setSearchMode(searchMode === "semantic" ? "keyword" : "semantic")}
             className={`px-5 py-2.5 border text-[11px] font-black uppercase tracking-widest rounded-full transition-all ${
               searchMode === "semantic"
                 ? "bg-indigo-600 text-white border-indigo-600 shadow-sm"
                 : "bg-white text-gray-500 border-gray-200 hover:border-indigo-400 hover:text-indigo-600"
             }`}
-            title="Semantic mode uses vector similarity instead of keyword matching."
+            title={semanticEnabled ? "Switch keyword or semantic search." : "Semantic search is not available in this environment."}
           >
             {searchMode === "semantic" ? "Mode: Semantic" : "Mode: Keyword"}
           </button>
           <button
             type="button"
             onClick={() => setIncludeAgendaItems(!includeAgendaItems)}
+            aria-pressed={includeAgendaItems}
             className={`px-5 py-2.5 border text-[11px] font-black uppercase tracking-widest rounded-full transition-all ${
               includeAgendaItems
                 ? "bg-blue-600 text-white border-blue-600 shadow-sm"

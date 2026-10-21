@@ -186,13 +186,35 @@ Using the development overlay for the full stack also enables `STARTUP_PURGE_DER
 ## Search Behavior (Meetings vs Agenda Items)
 Search results default to **meeting records only**. This avoids confusing “agenda item” hits that look like separate meetings.
 
+The local app opens with recent indexed meetings, newest first, twenty at a time.
+You can browse without typing or narrow the list using municipality, governing
+body, and meeting-type filters. Reset returns to recent meetings. Live result
+counts are estimates from the search index, not an audited corpus count.
+
+While connecting, the app shows a loading message. A connection failure offers
+retry and setup help; it does not mean your corpus is empty. An empty index shows
+ingestion guidance. Starting services alone does not crawl or index records.
+An empty filtered search instead offers reset. Semantic search is optional:
+the control is unavailable when not configured, requires a query when enabled,
+and reports service failures rather than silently switching to keyword search.
+
+Full Text, AI Summary, and Structured Agenda describe stored content and its
+processing state. “Not generated yet” does not mean no business exists.
+Freshness labels describe source versions, not factual accuracy. Supported
+generation actions use the server proxy and may take time; failures retain
+cached content. Verify derived content against the original document.
+
+For invented, read-only examples without a local corpus, follow the separate
+[sample-preview instructions](docs/OPERATIONS.md#local-demo-preview). Samples
+never activate automatically when the backend is unavailable.
+
 If you want agenda items to appear as separate search hits, toggle **Agenda Items: On** in the UI (it sets `include_agenda_items=true` on `/search`).
 
 ## Sorting Search Results
 The UI defaults to **Newest** first (date descending). Use the **Sort** pill to cycle:
 - Newest
 - Oldest
-- Relevance
+- Relevance (only with a query; blank browsing uses date ordering)
 
 If sorting appears to have no effect, see the runbook section in [`docs/OPERATIONS.md`](docs/OPERATIONS.md) ("Diagnosing date sorting").
 

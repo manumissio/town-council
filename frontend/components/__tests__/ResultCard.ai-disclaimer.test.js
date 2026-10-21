@@ -28,3 +28,15 @@ test("uses canonical disclaimer copy", () => {
     /const AI_DISCLAIMER_TEXT = "AI-generated content may be incomplete or inaccurate\. Verify against source documents\.";/,
   );
 });
+
+test("freshness never claims that a summary is factually verified", () => {
+  assert.doesNotMatch(source, /summaryGrounded|>\s*Grounded\s*</);
+  assert.match(source, /Freshness unknown/);
+  assert.doesNotMatch(source, /Matches current source version/);
+});
+
+test("unattempted and failed segmentation do not claim no business exists", () => {
+  assert.match(source, /Agenda items unavailable/);
+  assert.match(source, /Segmentation failed/);
+  assert.match(source, /This document has not been segmented yet/);
+});

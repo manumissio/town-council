@@ -87,8 +87,8 @@ def test_static_export_build_wrapper_restores_api_routes(tmp_path):
 
 
 def test_home_page_uses_explicit_offset_search_flow():
-    source = Path("frontend/app/page.js").read_text(encoding="utf-8")
-    assert "offsetToUse = 0" in source
-    assert "append = false" in source
-    assert "performSearch({ offsetToUse: 0, append: false })" in source
-    assert "const handleLoadMore = () => {" in source
+    source = Path("frontend/state/use-record-search.js").read_text(encoding="utf-8")
+    assert "request.offset + PAGE_SIZE : 0" in source
+    assert "loadPage(request, false)" in source
+    assert "loadPage(activeSearch.current, true)" in source
+    assert "request.busy" in source

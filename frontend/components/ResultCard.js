@@ -30,6 +30,12 @@ const AGENDA_DISCLAIMER_TEXT = "Agenda items may be incomplete or inaccurate. Ve
  */
 export default function ResultCard({ hit, onTopicClick }) {
   const activePollStopsRef = useRef([]);
+  const recordLifetimeRef = useRef(null);
+  useEffect(() => {
+    const controller = new AbortController();
+    recordLifetimeRef.current = controller;
+    return () => controller.abort();
+  }, []);
   const [isExpanded, setIsExpanded] = useState(false);
   const [viewMode, setViewMode] = useState("text"); // 'text', 'summary', 'agenda'
   
@@ -61,6 +67,7 @@ export default function ResultCard({ hit, onTopicClick }) {
   const [reportActionError, setReportActionError] = useState(null);
   const demoMode = isDemoMode();
   const canMutate = !demoMode;
+  const sourceUrl = !demoMode && /^https?:\/\//i.test(hit.url || "") ? hit.url : null;
 
   // Readability is a display concern only: keep DB content raw, format in UI.
   const fullTextSource = useMemo(() => {
@@ -89,7 +96,7 @@ export default function ResultCard({ hit, onTopicClick }) {
   const summaryIsDeepBrief = /\bwhy this matters:\b/i.test(summary || "") && /\bdecision\/action requested:\b/i.test(summary || "");
   const summaryPartialMatch = (summary || "").match(/first\s+(\d+)\s+of\s+(\d+)\s+agenda items/i);
   const summaryPartialLabel = summaryPartialMatch ? `Partial (${summaryPartialMatch[1]}/${summaryPartialMatch[2]} items)` : null;
-  const summaryGrounded = Boolean(summary && !effectiveSummaryBlockReason && !summaryIsStale);
+  const agendaConfirmedEmpty = derivedStatus?.agenda_is_empty === true && !derivedStatusLoadError;
   const hasSummaryPayload = Boolean((summary && summary.trim()) || (hit.summary_extractive && hit.summary_extractive.trim()));
   const hasTopicsPayload = Boolean(topics && topics.length > 0);
   const showAiDisclaimer = viewMode === "summary" && (hasSummaryPayload || hasTopicsPayload);
@@ -149,14 +156,18 @@ export default function ResultCard({ hit, onTopicClick }) {
   // show "stale" badges after a re-extraction.
   useEffect(() => {
     if (!isExpanded || !hit.catalog_id) return;
-    fetchDerivedStatus();
+    const controller = new AbortController();
+    fetchDerivedStatus(controller.signal);
+    return () => controller.abort();
   }, [isExpanded, hit.catalog_id]);
 
   // Full Text should come from the DB, not from the search index.
   // Meilisearch results can be stale after startup purge or indexing changes.
   useEffect(() => {
     if (!isExpanded || !hit.catalog_id) return;
-    fetchCanonicalContent();
+    const controller = new AbortController();
+    fetchCanonicalContent(controller.signal);
+    return () => controller.abort();
   }, [isExpanded, hit.catalog_id]);
 
   useEffect(() => {
@@ -169,8 +180,8 @@ export default function ResultCard({ hit, onTopicClick }) {
       for (const stop of activePollStopsRef.current) {
         try {
           stop();
-        } catch {
-          // Best-effort cleanup only.
+        } catch (error) {
+          console.error("Unable to stop record task polling", error);
         }
       }
       activePollStopsRef.current = [];
@@ -178,6 +189,7 @@ export default function ResultCard({ hit, onTopicClick }) {
   }, []);
 
   const fetchDerivedStatus = async (signal) => {
+    signal ??= recordLifetimeRef.current?.signal;
     if (!hit.catalog_id || signal?.aborted) return;
     setDerivedStatusLoadError(null);
     try {
@@ -196,6 +208,7 @@ export default function ResultCard({ hit, onTopicClick }) {
   };
 
   const fetchCanonicalContent = async (signal) => {
+    signal ??= recordLifetimeRef.current?.signal;
     if (!hit.catalog_id || signal?.aborted) return;
     setIsLoadingCanonicalText(true);
     setCanonicalTextLoadError(null);
@@ -219,6 +232,7 @@ export default function ResultCard({ hit, onTopicClick }) {
   };
 
   const fetchAgendaItems = async (signal) => {
+    signal ??= recordLifetimeRef.current?.signal;
     if (!hit.catalog_id || demoMode || signal?.aborted) return;
     setIsLoadingAgendaItems(true);
     setAgendaLoadError(null);
@@ -259,6 +273,7 @@ export default function ResultCard({ hit, onTopicClick }) {
 
   const handleGenerateSummary = async ({ force = false } = {}) => {
     if (!hit.catalog_id || demoMode) return;
+    const signal = recordLifetimeRef.current?.signal;
     
     setIsGenerating(true);
     setSummaryActionError(null);
@@ -268,9 +283,11 @@ export default function ResultCard({ hit, onTopicClick }) {
 
       const res = await fetch(url.pathname + url.search, {
         method: "POST",
+        signal,
         headers: getApiHeaders()
       });
       const data = await readJsonResponse(res, "Generate summary");
+      if (signal?.aborted) return;
       
       if ((data.status === 'cached' || data.status === 'stale') && data.summary) {
         setSummary(data.summary);
@@ -301,6 +318,7 @@ export default function ResultCard({ hit, onTopicClick }) {
         setIsGenerating(false);
       }
     } catch (err) {
+      if (signal?.aborted) return;
       console.error("AI Generation failed", err);
       setSummaryActionError(err instanceof Error ? err.message : "Summary generation failed.");
       setIsGenerating(false);
@@ -309,6 +327,7 @@ export default function ResultCard({ hit, onTopicClick }) {
 
   const handleGenerateTopics = async ({ force = false } = {}) => {
     if (!hit.catalog_id || demoMode) return;
+    const signal = recordLifetimeRef.current?.signal;
     setIsTaggingTopics(true);
     setTopicsActionError(null);
     try {
@@ -317,9 +336,11 @@ export default function ResultCard({ hit, onTopicClick }) {
 
       const res = await fetch(url.pathname + url.search, {
         method: "POST",
+        signal,
         headers: getApiHeaders(),
       });
       const data = await readJsonResponse(res, "Generate topics");
+      if (signal?.aborted) return;
 
       if ((data.status === "cached" || data.status === "stale") && data.topics) {
         setTopics(data.topics || []);
@@ -354,6 +375,7 @@ export default function ResultCard({ hit, onTopicClick }) {
         setIsTaggingTopics(false);
       }
     } catch (err) {
+      if (signal?.aborted) return;
       console.error("Topic generation failed", err);
       setTopicsActionError(err instanceof Error ? err.message : "Topic generation failed.");
       setIsTaggingTopics(false);
@@ -362,6 +384,7 @@ export default function ResultCard({ hit, onTopicClick }) {
 
   const handleGenerateAgenda = async ({ force = false } = {}) => {
     if (!hit.catalog_id || demoMode) return;
+    const signal = recordLifetimeRef.current?.signal;
     
     setIsSegmenting(true);
     setAgendaActionError(null);
@@ -371,9 +394,11 @@ export default function ResultCard({ hit, onTopicClick }) {
 
       const res = await fetch(url.pathname + url.search, {
         method: "POST",
+        signal,
         headers: getApiHeaders()
       });
       const data = await readJsonResponse(res, "Segment agenda");
+      if (signal?.aborted) return;
       
       if (data.status === 'cached' && data.items) {
         setAgendaItems(data.items);
@@ -398,6 +423,7 @@ export default function ResultCard({ hit, onTopicClick }) {
         setIsSegmenting(false);
       }
     } catch (err) {
+      if (signal?.aborted) return;
       console.error("Agenda segmentation failed", err);
       setAgendaActionError(err instanceof Error ? err.message : "Agenda segmentation failed.");
       setIsSegmenting(false);
@@ -406,6 +432,7 @@ export default function ResultCard({ hit, onTopicClick }) {
 
   const handleReextractText = async ({ ocrFallback = true } = {}) => {
     if (!hit.catalog_id || demoMode) return;
+    const signal = recordLifetimeRef.current?.signal;
     setIsExtracting(true);
     setExtractActionError(null);
     try {
@@ -415,9 +442,11 @@ export default function ResultCard({ hit, onTopicClick }) {
 
       const res = await fetch(url.pathname + url.search, {
         method: "POST",
+        signal,
         headers: getApiHeaders(),
       });
       const data = await readJsonResponse(res, "Re-extract text");
+      if (signal?.aborted) return;
       if (data.status === "cached") {
         // Pull fresh text from the DB endpoint even when cached so the UI refreshes.
         await fetchCanonicalContent();
@@ -445,6 +474,7 @@ export default function ResultCard({ hit, onTopicClick }) {
 
       setIsExtracting(false);
     } catch (err) {
+      if (signal?.aborted) return;
       console.error("Re-extraction failed", err);
       setExtractActionError(err instanceof Error ? err.message : "Re-extraction failed.");
       setIsExtracting(false);
@@ -509,15 +539,15 @@ export default function ResultCard({ hit, onTopicClick }) {
             >
               <Flag className="w-5 h-5" />
             </button>
-            <a 
-              href={hit.url} 
+            {sourceUrl ? <a
+              href={sourceUrl}
               target="_blank" 
               rel="noopener noreferrer"
               className="p-2.5 bg-gray-50 text-gray-400 hover:bg-blue-50 hover:text-blue-600 rounded-xl transition-all border border-transparent hover:border-blue-100"
               title="Open source document"
             >
               <ExternalLink className="w-5 h-5" />
-            </a>
+            </a> : <span className="text-xs text-gray-500">{demoMode ? "Synthetic source; no original PDF" : "Source link unavailable"}</span>}
             <button 
               onClick={() => setIsExpanded(!isExpanded)}
               className={`p-2.5 rounded-xl transition-all border ${isExpanded ? 'bg-blue-600 text-white border-blue-600 shadow-lg shadow-blue-200' : 'bg-gray-50 text-gray-400 hover:bg-gray-100 hover:text-gray-600 border-transparent'}`}
@@ -644,6 +674,7 @@ export default function ResultCard({ hit, onTopicClick }) {
               {derivedStatusLoadError && (
                 <div className="mb-4 rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-[12px] text-amber-800">
                   {derivedStatusLoadError}
+                  <button className="underline ml-2" onClick={() => fetchDerivedStatus()}>Retry status</button>
                 </div>
               )}
               {viewMode === "summary" ? (
@@ -669,15 +700,15 @@ export default function ResultCard({ hit, onTopicClick }) {
 		                    {summary ? (
 		                        <div className="space-y-4">
 		                        <div className="flex items-center gap-2">
-		                          <span className="bg-purple-100 text-purple-700 text-[9px] font-black uppercase px-1.5 py-0.5 rounded shadow-sm">Gemma 3 270M</span>
+		                          <span className="bg-purple-100 text-purple-700 text-[9px] font-black uppercase px-1.5 py-0.5 rounded shadow-sm">Saved summary</span>
 		                          {summaryIsStale && (
 		                            <span className="bg-amber-100 text-amber-800 text-[9px] font-black uppercase px-1.5 py-0.5 rounded shadow-sm" title="The extracted text changed after this summary was generated.">
 		                              Stale
 		                            </span>
 		                          )}
-                              {summaryGrounded && (
+                              {!summaryIsStale && (
                                 <span className="bg-green-100 text-green-700 text-[9px] font-black uppercase px-1.5 py-0.5 rounded shadow-sm">
-                                  Grounded
+                                  Freshness unknown
                                 </span>
                               )}
                               {summaryIsDeepBrief && (
@@ -766,7 +797,7 @@ export default function ResultCard({ hit, onTopicClick }) {
                           {summaryNotGeneratedYet ? "Not generated yet" : "No summary yet"}
                         </h4>
                         <p className="text-purple-600/60 text-xs mb-6 max-w-[240px] text-center">
-                          Generate an executive summary using local AI.
+                          {demoMode ? "Missing summary is intentional in this sample. Generation is unavailable in the read-only preview." : "Generate an executive summary using local AI."}
                         </p>
 	                        <button 
 	                          onClick={() => handleGenerateSummary()}
@@ -904,6 +935,10 @@ export default function ResultCard({ hit, onTopicClick }) {
                                   <h5 className="font-bold text-gray-900 text-sm leading-tight">{item.title}</h5>
                                 </div>
                                 <p className="text-xs text-gray-600 leading-relaxed">{item.description}</p>
+                                <p className="text-xs text-gray-500">{demoMode ? "Synthetic sample item" : item.source === "catalog_agenda_items" ? "Saved agenda item; verify against the source" : "Derived agenda item; verify against the source"}</p>
+                                {sourceUrl && Number.isInteger(item.page_number) && item.page_number > 0
+                                  ? <span className="text-xs text-gray-500">Source page {item.page_number}; open the source document to verify.</span>
+                                  : <span className="text-xs text-gray-500">{demoMode ? "No original source page in this sample" : "Source page unavailable"}</span>}
                                 {item.result && (
                                   <p className="text-xs text-emerald-700 font-semibold">Vote: {item.result}</p>
                                 )}
@@ -927,16 +962,24 @@ export default function ResultCard({ hit, onTopicClick }) {
                           <TableIcon className="w-6 h-6 text-indigo-600" />
                         </div>
                         <h4 className="font-bold text-indigo-900 mb-1">
-                          {agendaNotGeneratedYet
+                          {agendaLoadError ? "Agenda items unavailable" : derivedStatus?.agenda_segmentation_status === "failed" ? "Segmentation failed" : agendaNotGeneratedYet
                             ? "Not generated yet"
-                            : (agendaItems && agendaItems.length === 0 ? "No items found" : "Agenda not segmented")}
+                            : agendaConfirmedEmpty ? "No items found" : derivedStatus?.has_content === false ? "Text not extracted" : "Agenda status unknown"}
                         </h4>
                         <p className="text-indigo-600/60 text-xs mb-6 max-w-[240px] text-center">
-                          {agendaItems && agendaItems.length === 0 
+                          {agendaLoadError ? "Retry loading the stored agenda items." : agendaNotGeneratedYet ? "This document has not been segmented yet. No conclusion about its business items is available." : derivedStatus?.agenda_segmentation_status === "failed" ? "The last attempt failed. Any previously saved items remain available." : agendaConfirmedEmpty
                             ? "No agenda items were found in this document."
-                            : "Use AI to split this document into individual, searchable agenda items."}
+                            : "The available status does not establish whether this document has agenda items. Load its text and retry the status check."}
                         </p>
-                        <button 
+                        {agendaLoadError || isLoadingAgendaItems ? (
+                          <button
+                            onClick={() => fetchAgendaItems()}
+                            disabled={isLoadingAgendaItems}
+                            className="px-6 py-2.5 bg-indigo-600 text-white text-xs font-bold rounded-xl shadow-lg shadow-indigo-200 hover:bg-indigo-700 transition-all active:scale-95 disabled:opacity-50 disabled:cursor-not-allowed"
+                          >
+                            Retry loading agenda
+                          </button>
+                        ) : <button
                           onClick={handleGenerateAgenda}
                           disabled={!canMutate || isSegmenting}
                           className="px-6 py-2.5 bg-indigo-600 text-white text-xs font-bold rounded-xl shadow-lg shadow-indigo-200 hover:bg-indigo-700 transition-all active:scale-95 disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2"
@@ -946,7 +989,7 @@ export default function ResultCard({ hit, onTopicClick }) {
                           ) : (
                             <><Sparkles className="w-3.5 h-3.5" /> {agendaItems && agendaItems.length === 0 ? "Retry Segmentation" : "Segment Agenda Items"}</>
                           )}
-                        </button>
+                        </button>}
                       </div>
                     )}
                   </div>
@@ -966,6 +1009,7 @@ export default function ResultCard({ hit, onTopicClick }) {
                       {canonicalTextLoadError && (
                         <div className="mb-4 text-[12px] text-amber-800 bg-amber-50 border border-amber-200 rounded-xl px-3 py-2">
                           {canonicalTextLoadError}{" "}
+                          <button className="underline" onClick={() => fetchCanonicalContent()}>Retry text</button>{" "}
                           {canonicalTextFetchFailed && typeof hit.content === "string" && hit.content.length > 0
                             ? "Showing search snippet instead."
                             : null}
@@ -993,7 +1037,7 @@ export default function ResultCard({ hit, onTopicClick }) {
                       {typeof extractedTextOverride === "string" ? (
                         extractedTextOverride.trim() === "" ? (
                           <p className="text-[13px] text-gray-500 italic">
-                            Not extracted yet. Use <span className="font-semibold">Re-extract text</span> to load the canonical document text.
+                            {demoMode ? "This synthetic example has no extracted text. Re-extraction is unavailable in the sample preview." : <>Not extracted yet. Use <span className="font-semibold">Re-extract text</span> to load the canonical document text.</>}
                           </p>
                         ) : (
                           <div
@@ -1021,7 +1065,7 @@ export default function ResultCard({ hit, onTopicClick }) {
 	                      <p className="whitespace-pre-line leading-relaxed text-[14px]">{hit.content}</p>
 	                    ) : (
                         <p className="text-[13px] text-gray-500 italic">
-                          Not extracted yet. Use <span className="font-semibold">Re-extract text</span> to load the canonical document text.
+                          {demoMode ? "This synthetic example has no extracted text. Re-extraction is unavailable in the sample preview." : <>Not extracted yet. Use <span className="font-semibold">Re-extract text</span> to load the canonical document text.</>}
                         </p>
                       )}
 	                  </div>

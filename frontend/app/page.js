@@ -1,12 +1,13 @@
 "use client";
 
-import { useState, useEffect, useCallback } from "react";
-import { Database, Github, Info, Loader2, Search as SearchIcon } from "lucide-react";
+import { useState, useEffect } from "react";
+import { Database, Github, Info, Loader2 } from "lucide-react";
 
 import SearchHub from "../components/SearchHub";
 import ResultCard from "../components/ResultCard";
 import { TooltipProvider } from "@/components/ui/tooltip";
-import { buildApiUrl, getApiHeaders, isDemoMode } from "../lib/api";
+import { buildApiUrl, getApiHeaders, isDemoMode, readJsonResponse } from "../lib/api";
+import { useRecordSearch } from "../state/use-record-search";
 import { SearchStateProvider, useSearchState } from "../state/search-state";
 
 function HomeContent() {
@@ -26,200 +27,52 @@ function HomeContent() {
     sortMode,
     setSortMode,
   } = useSearchState();
-  // Search State
-  const [results, setResults] = useState([]);
-  const [totalHits, setTotalHits] = useState(0); 
-  const [offset, setOffset] = useState(0);
-  const [hasMore, setHasMore] = useState(false);
-  const [loading, setLoading] = useState(false);
-  const [isSearching, setIsSearching] = useState(false);
-  const [searchError, setSearchError] = useState("");
-  
-  // Metadata State
+  const demoMode = isDemoMode();
+  const { results, totalHits, hasMore, status, error: searchError, retry, loadMore: handleLoadMore } = useRecordSearch({
+    query, cityFilter, orgFilter, meetingTypeFilter, includeAgendaItems, searchMode,
+    sortMode: !query.trim() && sortMode === "relevance" ? "newest" : sortMode,
+  });
+  const loading = status === "loading";
+  const isSearching = loading;
   const [availableCities, setAvailableCities] = useState([]);
   const [availableOrgs, setAvailableOrgs] = useState([]);
+  const [meetingTypes, setMeetingTypes] = useState([]);
+  const [metadataError, setMetadataError] = useState("");
+  const [metadataVersion, setMetadataVersion] = useState(0);
+  const [semanticEnabled, setSemanticEnabled] = useState(false);
+  const [capabilityError, setCapabilityError] = useState("");
 
-  const demoMode = isDemoMode();
-
-  /**
-   * The heart of the search UI.
-   * It talks to our FastAPI backend and handles both new searches 
-   * and "Load More" requests.
-   */
-  const performSearch = useCallback(async ({ offsetToUse = 0, append = false } = {}) => {
-    // In static demo mode, show all fixture records when the query is empty.
-    // In live API mode, keep the existing behavior that requires a query string.
-    if (!query.trim() && !demoMode) {
-      if (!append) {
-        setResults([]);
-        setTotalHits(0);
-        setOffset(0);
-        setHasMore(false);
-      }
-      setSearchError("");
-      return;
-    }
-    
-    setLoading(true);
-    if (!append) setIsSearching(true);
-
-    try {
-      setSearchError("");
-      const currentOffset = offsetToUse;
-
-      if (demoMode) {
-        const res = await fetch(buildApiUrl("/search"));
-        if (!res.ok) {
-          let detail = res.statusText || "Unknown error";
-          try {
-            const payload = await res.json();
-            detail = payload?.detail || detail;
-          } catch (e) {
-            // ignore JSON parsing errors in demo mode
-          }
-          setSearchError(`Search failed (${res.status}): ${detail}`);
-          return;
-        }
-        const data = await res.json();
-        const allHits = data.hits || [];
-        const normalizedQuery = query.trim().toLowerCase();
-        const normalizedCity = (cityFilter || "").toLowerCase();
-        const normalizedOrg = (orgFilter || "").toLowerCase();
-        const normalizedMeetingType = (meetingTypeFilter || "").toLowerCase();
-
-        const filteredHits = allHits.filter((hit) => {
-          if (!includeAgendaItems && hit.result_type === "agenda_item") return false;
-          const haystack = [
-            hit.event_name,
-            hit.title,
-            hit.content,
-            hit.summary,
-            ...(hit.topics || []),
-          ]
-            .filter(Boolean)
-            .join(" ")
-            .toLowerCase();
-
-          if (normalizedQuery && !haystack.includes(normalizedQuery)) return false;
-          if (normalizedCity && normalizedCity !== "all" && (hit.city || "").toLowerCase() !== normalizedCity) return false;
-          if (
-            normalizedMeetingType &&
-            normalizedMeetingType !== "all" &&
-            (hit.meeting_category || "").toLowerCase() !== normalizedMeetingType
-          ) {
-            return false;
-          }
-          if (normalizedOrg && normalizedOrg !== "all" && (hit.organization || "").toLowerCase() !== normalizedOrg) return false;
-          return true;
-        });
-
-        const sortedHits = (() => {
-          if (searchMode === "semantic") return filteredHits;
-          if (sortMode === "relevance") return filteredHits;
-          const dir = sortMode === "oldest" ? 1 : -1;
-          const parseDate = (value) => {
-            const s = (value || "").toString().trim();
-            const t = Date.parse(s);
-            return Number.isFinite(t) ? t : 0;
-          };
-          return [...filteredHits].sort((a, b) => dir * (parseDate(a.date) - parseDate(b.date)));
-        })();
-
-        const pagedHits = sortedHits.slice(currentOffset, currentOffset + 20);
-        setResults((prev) => (append ? [...prev, ...pagedHits] : pagedHits));
-        setTotalHits(sortedHits.length);
-        setOffset(currentOffset);
-        setHasMore(currentOffset + 20 < sortedHits.length);
-        return;
-      }
-      
-      // Semantic mode intentionally uses a separate endpoint so keyword behavior stays stable.
-      const semanticMode = searchMode === "semantic";
-      const basePath = semanticMode ? "/search/semantic" : "/search";
-      // Build the URL with our search query and any active filters
-      let url = buildApiUrl(`${basePath}?q=${encodeURIComponent(query)}&limit=20&offset=${currentOffset}`);
-      
-      if (cityFilter && cityFilter !== "all") url += `&city=${encodeURIComponent(cityFilter)}`;
-      if (includeAgendaItems) url += `&include_agenda_items=true`;
-      if (!semanticMode) {
-        url += `&sort=${encodeURIComponent(sortMode)}`;
-      }
-      if (meetingTypeFilter && meetingTypeFilter !== "all") url += `&meeting_type=${encodeURIComponent(meetingTypeFilter)}`;
-      if (orgFilter && orgFilter !== "all") url += `&org=${encodeURIComponent(orgFilter)}`;
-
-      const res = await fetch(url, {
-        headers: getApiHeaders({ useAuth: true })
-      });
-      if (!res.ok) {
-        let detail = res.statusText || "Unknown error";
-        try {
-          const payload = await res.json();
-          detail = payload?.detail || detail;
-        } catch (e) {
-          // ignore JSON parsing errors
-        }
-        setSearchError(`Search failed (${res.status}): ${detail}`);
-        return;
-      }
-
-      const data = await res.json();
-      
-      const newHits = data.hits || [];
-      
-      // Update results: append if loading more, otherwise replace
-      setResults(prev => append ? [...prev, ...newHits] : newHits);
-      setTotalHits(data.estimatedTotalHits || 0);
-      setOffset(currentOffset);
-      setHasMore(newHits.length === 20); 
-    } catch (error) {
-      console.error("Search failed:", error);
-      setSearchError("Search failed: network error");
-    } finally {
-      setLoading(false);
-      setIsSearching(false);
-    }
-  }, [query, cityFilter, includeAgendaItems, searchMode, sortMode, meetingTypeFilter, orgFilter, demoMode]);
-
-  // Debouncing: Prevents searching on EVERY single keypress (waits 400ms)
   useEffect(() => {
-    const delayDebounceFn = setTimeout(() => {
-      performSearch({ offsetToUse: 0, append: false });
-    }, 400);
-
-    return () => clearTimeout(delayDebounceFn);
-  }, [query, cityFilter, includeAgendaItems, searchMode, sortMode, meetingTypeFilter, orgFilter, performSearch]);
-
-  const handleLoadMore = () => {
-    const nextOffset = offset + 20;
-    performSearch({ offsetToUse: nextOffset, append: true });
-  };
-
-  // Initial Load: Fetch valid filter options from the search engine
-  useEffect(() => {
-    fetch(buildApiUrl("/metadata"), {
-      headers: getApiHeaders({ useAuth: true })
-    })
-      .then(res => res.json())
-      .then(data => {
-        setAvailableCities(data.cities || []);
-        setAvailableOrgs(data.organizations || []);
+    const controller = new AbortController();
+    setMetadataError("");
+    fetch(buildApiUrl("/metadata"), { headers: getApiHeaders(), signal: controller.signal })
+      .then(response => readJsonResponse(response, "Load filters"))
+      .then(metadata => {
+        if (controller.signal.aborted) return;
+        setAvailableCities(metadata.city_options || (metadata.cities || []).map(city => ({ value: city, label: city })));
+        setAvailableOrgs(metadata.organizations || []);
+        setMeetingTypes(metadata.meeting_types || []);
       })
-      .catch(err => console.error("Metadata fetch failed", err));
-  }, []);
+      .catch(error => { if (!controller.signal.aborted) setMetadataError(error.message); });
+    if (!demoMode) {
+      setCapabilityError("");
+      fetch(buildApiUrl("/search/capabilities"), { signal: controller.signal })
+        .then(response => readJsonResponse(response, "Load search capabilities"))
+        .then(capabilities => { if (!controller.signal.aborted) setSemanticEnabled(capabilities.semantic_enabled === true); })
+        .catch(error => { if (!controller.signal.aborted) { setSemanticEnabled(false); setCapabilityError(error.message); } });
+    }
+    return () => controller.abort();
+  }, [metadataVersion, demoMode]);
 
-  // Function to reset the application to its initial state
   const resetApp = () => {
     setQuery("");
-    setResults([]);
     setCityFilter("");
     setMeetingTypeFilter("");
     setOrgFilter("");
     setIncludeAgendaItems(false);
     setSearchMode("keyword");
     setSortMode("newest");
-    setOffset(0);
-    setHasMore(false);
-    setSearchError("");
+    retry();
   };
 
   return (
@@ -229,14 +82,14 @@ function HomeContent() {
         <header className="bg-white border-b border-gray-200 sticky top-0 z-30 shadow-sm">
           <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-4 flex items-center justify-between">
             <div className="flex items-center gap-8">
-              <div className="flex items-center gap-2 cursor-pointer group" onClick={resetApp}>
+              <button className="flex items-center gap-2 cursor-pointer group" onClick={resetApp} aria-label="Return to recent meetings">
                 <div className="bg-blue-600 p-1.5 rounded-lg shadow-sm group-hover:bg-blue-700 transition-colors">
                   <Database className="w-5 h-5 text-white" />
                 </div>
                 <h1 className="text-lg font-bold text-gray-900 tracking-tight">
                   Town Council <span className="text-blue-600 font-medium">Insight</span>
                 </h1>
-              </div>
+              </button>
               
               <nav className="hidden md:flex items-center gap-6">
                 <button onClick={resetApp} className="text-sm font-semibold text-blue-600 border-b-2 border-blue-600 pb-1">Search</button>
@@ -247,7 +100,7 @@ function HomeContent() {
             </div>
             {demoMode && (
               <span className="text-[10px] font-black uppercase tracking-widest bg-amber-100 text-amber-800 px-3 py-1.5 rounded-full border border-amber-200">
-                Demo Mode (Static)
+                Synthetic sample · Read-only
               </span>
             )}
           </div>
@@ -257,15 +110,27 @@ function HomeContent() {
           {/* Hero / Search Unit */}
           <SearchHub 
             availableCities={availableCities} availableOrgs={availableOrgs}
+            meetingTypes={meetingTypes} semanticEnabled={semanticEnabled}
             isSearching={isSearching} resetApp={resetApp}
           />
+          {(metadataError || capabilityError) && <div role="alert" className="max-w-6xl mx-auto px-4 mt-4">
+            <p>{metadataError || capabilityError}</p>
+            <button className="underline" onClick={() => setMetadataVersion(version => version + 1)}>Retry filters and capabilities</button>
+          </div>}
+          <p className="max-w-6xl mx-auto px-4 mt-4 text-sm text-gray-600">
+            {demoMode ? "Synthetic, read-only sample. Keyword matching only; this preview does not simulate semantic ranking." : semanticEnabled ? "Semantic search is configured. Keyword mode browses local records." : "Semantic search is unavailable or disabled. Keyword search remains available."}
+            {!query.trim() && " Browse by date; relevance needs a search query."}
+          </p>
+          {demoMode && <p className="max-w-6xl mx-auto px-4 mt-2 text-sm text-amber-800">These are invented examples, not evidence of extraction accuracy. <a className="underline" href="https://github.com/manumissio/town-council/blob/master/docs/OPERATIONS.md#local-demo-preview">Return to local records with a separate live build.</a></p>}
           {/* Product decision (temporary):
              We are pausing Topic Momentum/Civic Signals to reduce first-screen ambiguity.
              Keep the initial interaction focused on search input and result cards. */}
           {searchError && (
             <div className="max-w-6xl mx-auto px-4 mt-4">
               <div className="rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900">
-                {searchError}
+                <p role="alert">{searchError}</p>
+                <button onClick={retry} className="underline font-bold mt-2">Retry search</button>
+                {" · "}<a className="underline" href="https://github.com/manumissio/town-council/blob/master/docs/OPERATIONS.md#1-start-stack">Setup help</a>
               </div>
             </div>
           )}
@@ -274,10 +139,10 @@ function HomeContent() {
             <div className="space-y-8">
               
               {/* Results Metadata Bar */}
-              {query && !loading && (
+              {status === "ready" && (
                 <div className="flex items-center justify-between mb-2">
                   <div className="flex items-center gap-2 text-sm font-bold text-gray-400 uppercase tracking-widest">
-                    <Database className="w-4 h-4" /> Found {totalHits} relevant records
+                    <Database className="w-4 h-4" /> {demoMode ? "Sample records:" : "Estimated matching records:"} {totalHits}
                   </div>
                   <div className="flex gap-2">
                     {cityFilter && cityFilter !== "all" && <span className="text-[10px] font-bold bg-blue-50 text-blue-600 px-2 py-1 rounded uppercase">{cityFilter}</span>}
@@ -298,7 +163,15 @@ function HomeContent() {
                 ))}
 
                 {/* Empty State / 0 Results */}
-                {query && !loading && results.length === 0 && (
+                {loading && <p role="status">{results.length ? "Loading more records…" : "Connecting to meeting records…"}</p>}
+                {status === "query-required" && <p role="status">Enter a query to use semantic search.</p>}
+                {status === "empty" && <div role="status" className="rounded-xl border bg-white p-8 space-y-3">
+                  <h2 className="text-xl font-bold">No records indexed yet</h2>
+                  <p>Starting the app does not collect meeting records. Ingest and index records to browse them here.</p>
+                  <a className="underline" href="https://github.com/manumissio/town-council/blob/master/README.md#quickstart">Read the setup and ingestion steps</a>
+                  <p>Prefer a walkthrough? Use the separate <a className="underline" href="https://github.com/manumissio/town-council/blob/master/docs/OPERATIONS.md#local-demo-preview">synthetic sample preview</a>.</p>
+                </div>}
+                {status === "no-matches" && (
                   <div className="text-center py-24 bg-white border border-gray-100 rounded-[3rem] shadow-sm">
                     <div className="max-w-sm mx-auto space-y-6">
                       <div className="text-5xl bg-gray-50 w-20 h-20 rounded-full flex items-center justify-center mx-auto mb-4">🔍</div>

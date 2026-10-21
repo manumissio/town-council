@@ -34,14 +34,15 @@ export function isDemoMode() {
 
 function getDemoPath(path) {
   const cleanPath = path.startsWith("/") ? path : `/${path}`;
-  if (cleanPath.startsWith("/search")) return "/demo/search.json";
-  if (cleanPath.startsWith("/metadata")) return "/demo/metadata.json";
-  if (cleanPath.startsWith("/catalog/batch")) return "/demo/catalog_batch.json";
+  const routePath = cleanPath.split("?", 1)[0];
+  if (routePath === "/search") return "/demo/search.json";
+  if (routePath === "/metadata") return "/demo/metadata.json";
+  if (routePath === "/catalog/batch") return "/demo/catalog_batch.json";
 
-  const catalogStatusMatch = cleanPath.match(/^\/catalog\/(\d+)\/derived_status/);
+  const catalogStatusMatch = routePath.match(/^\/catalog\/(\d+)\/derived_status$/);
   if (catalogStatusMatch) return `/demo/catalog_${catalogStatusMatch[1]}_derived_status.json`;
 
-  const catalogContentMatch = cleanPath.match(/^\/catalog\/(\d+)\/content/);
+  const catalogContentMatch = routePath.match(/^\/catalog\/(\d+)\/content$/);
   if (catalogContentMatch) return `/demo/catalog_${catalogContentMatch[1]}_content.json`;
 
   return null;
@@ -53,6 +54,7 @@ export function buildApiUrl(path) {
     const demoPath = getDemoPath(path);
     // Use relative fixture paths so static demo works at both "/" and "/<repo>".
     if (demoPath) return `.${demoPath}`;
+    throw new Error("This action is not available in the sample preview.");
   }
   return `${API_BASE_URL}${path}`;
 }
@@ -62,6 +64,7 @@ export function buildProtectedCatalogApiUrl(path) {
   if (DEMO_MODE) {
     const demoPath = getDemoPath(cleanPath);
     if (demoPath) return `.${demoPath}`;
+    throw new Error("This action is not available in the sample preview.");
   }
   return `/api${cleanPath}`;
 }

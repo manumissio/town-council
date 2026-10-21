@@ -1,6 +1,6 @@
 # Operations Runbook
 
-Last updated: 2026-08-13
+Last updated: 2026-10-21
 
 ## Core workflow
 
@@ -82,6 +82,13 @@ image and fails unless Caddy replaces it with the direct client address.
 What it does *not* do:
 - scrape any city data (no crawler runs)
 - process/index documents (no `run_pipeline.py`)
+
+The default UI browses indexed meeting records, newest first, twenty per page.
+It distinguishes connecting, unavailable (with retry), a successfully checked
+empty index (with ingestion guidance), and no matches for a query or filter.
+Use the ingestion workflow below for real records; do not enable startup purge
+to repair an empty screen. Reset restores recent browsing. Disabled semantic
+search is explained in the UI; an enabled but failing service reports an error.
 
 ### Database migrations and backups
 
@@ -1242,11 +1249,44 @@ curl -X POST "http://localhost:8000/extract/<CATALOG_ID>?force=true" \
 The Pages build is demo-only and uses fixtures from `frontend/public/demo`.
 
 ### Local demo preview
+
+This is a separate build, not a runtime switch. Use the Node version declared
+in `frontend/package.json` and lockfile-installed dependencies. Do not build
+live and sample mode concurrently in the same directory. These commands serve
+the export at its configured `/town-council/` base path without another package:
+
 ```bash
 cd frontend
-NEXT_PUBLIC_DEMO_MODE=true STATIC_EXPORT=true npm run build
-npx serve out
+NEXT_PUBLIC_DEMO_MODE=true STATIC_EXPORT=true npm run build -- --webpack
+mkdir -p ../.cache/sample-preview/town-council
+cp -R out/. ../.cache/sample-preview/town-council/
+python3 -m http.server 13001 --bind 127.0.0.1 --directory ../.cache/sample-preview
 ```
+
+Open `http://localhost:13001/town-council/`. The persistent synthetic/read-only
+label distinguishes invented fixtures from local records. The preview uses
+keyword matching, not semantic retrieval. It cannot generate content or contact
+the backend for unsupported reads. Missing/stale examples are intentional;
+fictional source PDFs are not available. Polished examples are not evidence of
+extraction accuracy; see the [agenda comparison](reviews/2026-10-18-agenda-fallback-comparison.md).
+
+To return, stop the preview server. Open the Docker app at
+`http://localhost:3000`. If running Next.js directly, unset both flags, rebuild,
+and start a live server; changing flags on an already built sample is not enough:
+
+```bash
+unset NEXT_PUBLIC_DEMO_MODE STATIC_EXPORT
+npm run build -- --webpack
+npm start
+```
+
+The browser API origin is selected by `NEXT_PUBLIC_API_URL` during the build
+(local default `http://localhost:8000`). Protected content and actions use
+same-origin `/api/` routes; their server target is `INTERNAL_API_BASE_URL`
+(Compose default `http://api:8000`). The browser never receives `API_AUTH_KEY`.
+Choose the existing `ALLOWED_ORIGINS` configuration to match a custom frontend
+origin rather than disabling CORS. Separate preview builds do not modify local
+records, models, or indexes.
 
 ### CI deploy workflow
 - Workflow file: `.github/workflows/pages-demo.yml`

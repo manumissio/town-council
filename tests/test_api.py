@@ -42,7 +42,6 @@ DUBLIN_METADATA_FACETS = {
         "meeting_category": {"Special": 5},
     }
 }
-EMPTY_METADATA = {"cities": [], "organizations": [], "meeting_types": []}
 METADATA_TEST_EPOCHS = count(start=monotonic() + 10_000.0, step=10_000.0)
 
 
@@ -145,6 +144,7 @@ def test_metadata_endpoint_uses_snapshot_until_expiry(
     assert first_response.status_code == 200
     assert first_response.json() == {
         "cities": ["Berkeley", "Dublin"],
+        "city_options": [{"value": "ca_berkeley", "label": "Berkeley"}, {"value": "ca_dublin", "label": "Dublin"}],
         "organizations": ["City Council", "Planning Commission"],
         "meeting_types": ["Regular", "Special"],
     }
@@ -152,7 +152,7 @@ def test_metadata_endpoint_uses_snapshot_until_expiry(
     assert second_response.json()["cities"] == expected_cities
 
 
-def test_metadata_endpoint_caches_failure_payload_until_expiry(
+def test_metadata_endpoint_reports_failure_and_allows_immediate_retry(
     metadata_cache_runtime: tuple[list[float], MagicMock],
 ) -> None:
     metadata_time, metadata_index = metadata_cache_runtime
@@ -162,9 +162,26 @@ def test_metadata_endpoint_caches_failure_payload_until_expiry(
     metadata_time[0] += 3599.0
     cached_response = client.get("/metadata", headers={"X-API-Key": VALID_KEY})
 
-    assert failed_response.status_code == 200
-    assert failed_response.json() == EMPTY_METADATA
-    assert cached_response.json() == EMPTY_METADATA
+    assert failed_response.status_code == 503
+    assert "unavailable" in failed_response.json()["detail"].lower()
+    assert cached_response.status_code == 200
+    assert cached_response.json()["cities"] == ["Berkeley", "Dublin"]
+
+
+def test_metadata_preserves_city_identifiers(metadata_cache_runtime):
+    response = client.get("/metadata")
+    assert response.json()["city_options"] == [
+        {"value": "ca_berkeley", "label": "Berkeley"},
+        {"value": "ca_dublin", "label": "Dublin"},
+    ]
+
+
+@pytest.mark.parametrize("semantic_enabled", [True, False])
+def test_search_capabilities_reports_configuration_without_provider_probe(mocker, semantic_enabled):
+    mocker.patch("api.search.support_core.SEMANTIC_ENABLED", semantic_enabled)
+    response = client.get("/search/capabilities")
+    assert response.status_code == 200
+    assert response.json() == {"semantic_enabled": semantic_enabled}
 
 
 def test_search_endpoint_params(mocker):
@@ -189,6 +206,28 @@ def test_search_endpoint_params(mocker):
     assert 'meeting_category = "Regular"' in search_params['filter']
     assert 'result_type = "meeting"' in search_params['filter']
     assert "sort" not in search_params
+
+
+@pytest.mark.parametrize("query", ["/search", "/search?q=", "/search?q=%20%20&city=ca_berkeley"])
+def test_lexical_browse_reads_recent_meetings(mocker, query):
+    search_index = mocker.Mock()
+    search_index.search.return_value = {"hits": [{"id": "meeting_1"}], "estimatedTotalHits": 1}
+    mocker.patch("api.search.support_core.client.index", return_value=search_index)
+
+    response = client.get(query)
+
+    assert response.status_code == 200
+    assert response.json()["hits"] == [{"id": "meeting_1"}]
+    search_query, search_params = search_index.search.call_args.args
+    assert search_query == ""
+    assert search_params["sort"] == ["date:desc"]
+    assert search_params["limit"] == 20
+    assert 'result_type = "meeting"' in search_params["filter"]
+
+
+@pytest.mark.parametrize("query", ["/search?semantic=true", "/search?semantic=true&q=%20", "/search/semantic?q=%20"])
+def test_semantic_browse_requires_meaningful_query(query):
+    assert client.get(query).status_code == 422
 
 
 def test_search_semantic_flag_delegates_to_semantic_service(mocker):

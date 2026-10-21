@@ -22,6 +22,8 @@ def search_documents_semantic(
     limit: int = Query(SEMANTIC_SEARCH_LIMIT_DEFAULT, ge=1, le=SEMANTIC_SEARCH_LIMIT_MAX),
     offset: int = Query(0, ge=0),
 ) -> dict[str, Any]:
+    if not q.strip():
+        raise HTTPException(status_code=422, detail="Enter a query for semantic search.")
     if not support_core.SEMANTIC_ENABLED:
         raise HTTPException(status_code=503, detail=support_core.SEMANTIC_DISABLED_DETAIL)
     return semantic_support._semantic_service_get_json(
