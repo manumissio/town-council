@@ -17,6 +17,7 @@ from pipeline.models import AgendaItem, Base, Catalog, Document, Event, Place
 
 @pytest.mark.parametrize("notice", [
     "MEETING CANCELED",
+    "MEETING CANCELLED",
     "NOTICE OF CANCELLATION",
     "Cancellation Notice",
     "Cancellation Notice - Final",
@@ -39,6 +40,7 @@ def test_notice_rows_do_not_become_items_beside_live_business(notice: str) -> No
 @pytest.mark.parametrize("title", [
     "Receive the subcommittee cancellation notice",
     "Discuss the canceled hearing and approve the replacement contract",
+    "Discuss the cancelled hearing and approve the replacement contract",
     "Approve translation services for public meetings",
 ])
 def test_business_mentions_of_notice_words_remain(title: str) -> None:
@@ -81,7 +83,7 @@ def test_legistar_cleanup_removes_only_unbacked_wrapper_rows(monkeypatch: pytest
         {"title": "Review the zoning amendment"},
     ]
     wrappers = [{"title": title} for title in (
-        "SALUTE TO THE FLAG", "PUBLIC HEARINGS/GENERAL BUSINESS", "MEETING CANCELED",
+        "SALUTE TO THE FLAG", "PUBLIC HEARINGS/GENERAL BUSINESS", "MEETING CANCELED", "MEETING CANCELLED",
         "Public Participation Options", "Translation Link: https://example.org/translation",
     )]
 

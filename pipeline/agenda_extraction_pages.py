@@ -17,6 +17,7 @@ from pipeline.agenda_text_heuristics import (
 
 _PAGE_MARKER_RE = re.compile(r"\[PAGE\s+(\d+)\]", flags=re.IGNORECASE)
 _INLINE_PAGE_HEADER_RE = re.compile(r"(?im)^.*\bPage\s+(\d+)\s*$")
+_PAGE_TOTAL_RE = re.compile(r"\bPage\s+(\d+)\s+of\s+(\d+)\b", flags=re.IGNORECASE)
 _NUMBERED_AGENDA_ITEM_AFTER_END_RE = re.compile(
     r"(?m)^\s*(?:item\s*)?#?\s*\d{1,2}(?:\.\d+)?[\.\):]\s+(.{6,400})$"
 )
@@ -33,6 +34,7 @@ def is_cancellation_only_notice(raw_text: str) -> bool:
         len(_PAGE_MARKER_RE.findall(raw_text)) > 1
         or len(page_markers) > 1
         or any(page_number != 1 for _, page_number in page_markers)
+        or any(int(page_number) != 1 or int(total) != 1 for page_number, total in _PAGE_TOTAL_RE.findall(raw_text))
     ):
         return False
     page_content = raw_text

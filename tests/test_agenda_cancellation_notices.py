@@ -35,11 +35,12 @@ def cancellation_text(request: pytest.FixtureRequest) -> str:
 
 
 @pytest.mark.parametrize("provider_output", [None, INVENTED_PROVIDER_BUSINESS])
+@pytest.mark.parametrize("page_footer", ["", "Page 1 of 1"])
 def test_cancellation_only_source_produces_no_agenda_items(
-    cancellation_text: str, provider_output: str | None,
+    cancellation_text: str, provider_output: str | None, page_footer: str,
 ) -> None:
     agenda_items = run_agenda_extraction_pipeline(
-        text=cancellation_text,
+        text=f"{cancellation_text}\n{page_footer}",
         raw_provider_content=provider_output,
         mode="balanced",
         logger=logging.getLogger(__name__),
@@ -117,9 +118,11 @@ def test_unreadable_attachment_does_not_cancel_the_packet(
     assert any(agenda["title"] == BUSINESS_TITLE for agenda in agenda_items)
 
 
-@pytest.mark.parametrize("page_marker", ["[PAGE 2]", "Page 2", "[PAGE 0]", "Page 0"])
+@pytest.mark.parametrize("page_marker", [
+    "[PAGE 2]", "Page 2", "[PAGE 0]", "Page 0", "Page 1 of 2", "PAGE 2 OF 2", "Page 1 of 0", "Page 2 of 1",
+])
 @pytest.mark.parametrize("entrypoint", ["provider", "resolver"])
-def test_nonfirst_page_marker_cannot_confirm_a_cancellation(
+def test_incomplete_page_evidence_cannot_confirm_a_cancellation(
     page_marker: str, entrypoint: str, legistar_http: None,
 ) -> None:
     source = f"{page_marker}\nCANCELLATION NOTICE\nMEETING CANCELED\nThe next meeting will be announced."
@@ -201,12 +204,13 @@ def test_empty_cancellation_clears_previously_stored_rows(
 
 @pytest.mark.parametrize("proposed_items", [[], [{"title": " \n\t "}]])
 @pytest.mark.parametrize("entrypoint", ["task", "task_wrapper", "worker", "maintenance"])
+@pytest.mark.parametrize("source", ["No agenda", f"{NOTICE_HEADER}The next meeting will be announced.\nPage 1 of 2"])
 def test_inconclusive_empty_extraction_preserves_existing_business(
     db_session: Session, monkeypatch: pytest.MonkeyPatch, entrypoint: str,
-    stored_agenda: tuple[Catalog, Document], proposed_items: list[dict[str, object]],
+    stored_agenda: tuple[Catalog, Document], proposed_items: list[dict[str, object]], source: str,
 ) -> None:
     catalog, document = stored_agenda
-    catalog.content = "No agenda"
+    catalog.content = source
     catalog.agenda_segmentation_status = "complete"
     catalog.agenda_segmentation_item_count = 1
     existing = db_session.query(AgendaItem).filter_by(catalog_id=catalog.id).one()

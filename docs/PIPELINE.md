@@ -1,6 +1,6 @@
 # Town Council Pipeline Guide
 
-Last updated: 2026-10-19
+Last updated: 2026-10-20
 
 ## 1) Purpose and Boundaries
 
@@ -153,8 +153,12 @@ acceptance, without changing whole-page parser selection. A single-page source
 with both a standalone cancellation-notice heading and a meeting-canceled
 heading yields no agenda items, even if a provider or unrelated structured
 source suggests business. Numbered items, record anchors, body fields, separate
-live agenda headings, non-first page markers, and multipage packets make this conservative check
-abstain. Cancellation mentions alone do not cancel a live agenda.
+live agenda headings, non-first page markers, and recognized multipage evidence
+make this conservative check abstain. Printed page totals also count: `Page 1
+of 2` is not a complete notice even if the other page has no extracted text.
+This check does not validate unsupported pagination formats or an unmarked
+partial source. Cancellation mentions alone do not cancel a live agenda;
+standalone canceled/cancelled headings are excluded only as candidates.
 
 Confirmed cancellation results replace old agenda rows and update their hash in
 the task, worker, and maintenance paths. Empty or whitespace-only proposals on

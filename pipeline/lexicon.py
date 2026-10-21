@@ -36,6 +36,7 @@ PROCEDURAL_ANCHORED_PATTERNS = (
 # Candidate exclusions must not influence whole-page parser selection.
 AGENDA_NOTICE_EXACT_TITLES = {
     "meeting canceled",
+    "meeting cancelled",
     "notice of cancellation",
     "cancellation notice",
     "cancellation notice - final",

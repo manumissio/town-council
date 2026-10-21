@@ -182,7 +182,7 @@ meeting notices and checks the source text alongside the displayed result.
 
 All 21 newly removed candidates were already independently labeled noise.
 Remaining candidate payloads reuse their existing labels by identity. No new
-semantic labels were invented. Median fallback time was 3.6 ms in the final replay; it
+semantic labels were invented. Median fallback time was 4.4 ms in the final replay; it
 made no inference calls and incurred no inference API cost. These are still
 fallback-only scores, not complete-resolver scores or human gold labels.
 
@@ -315,3 +315,43 @@ The complete coverage command passed 2,091 tests with 20 skipped and 84.71%
 coverage against the unchanged 71% floor. The reviewer independently reproduced
 the prior code's 14 failures and passed 200 focused checks. Fresh PR CI and
 current-head review are still required before merging.
+
+## Declared Page Totals and Cancellation Spelling
+
+Review identified a further supported-page gap: `Page 1 of 2` was not counted
+by the existing inline page-marker parser. The cancellation check now inspects
+declared current/total page numbers separately and abstains unless both are 1.
+It does not change page splitting. Explicit single-page totals remain eligible;
+zero or contradictory numeric declarations cannot confirm a cancellation.
+Unsupported pagination formats and unmarked partial sources remain a limit,
+not a claim that every incomplete packet can be detected.
+
+The candidate-only exclusions now also recognize `MEETING CANCELLED`. Public
+extraction and Legistar resolver tests retain live business while removing
+unbacked headings. Business titles that mention canceled or cancelled hearings
+remain. No shared procedural rule, model setting, item limit, or source field
+changed.
+
+Tests-first evidence was 18 failures and 66 passes. After the repair, all 84
+focused cancellation/notice checks passed, including empty and blank-title
+proposals on a source declaring two pages through the task family, real Celery
+wrapper, worker, and maintenance persistence entrypoint. Existing rows and
+their hash survive; prior batch-continuation tests remain in the suite. The
+positive single-page path is tested separately from incomplete-page rejection.
+
+The frozen 24-document replay still has 199 candidates, 141 false items,
+48 missed business units, and no previously covered business lost. The live
+read-only audit confirms 228 items and all 82 unaffected matter associations.
+Playwright reopened all 24 sources and agenda panels after restarting the API:
+the four notices still display zero cards, neutral empty wording, and original
+source links. The catalog 3034 mismatch remains explicitly deferred.
+
+The complete coverage command passed 2,117 tests with 20 skipped and 84.71%
+coverage against the unchanged 71% floor. The focused matrix passed 219 tests;
+the API/orchestration/frontend-contract matrix passed 153. Ruff, scoped
+formatter, Mypy, and docs-link/profile checks passed. Independent review approved
+the final diff and reproduced the 18 failures using prior production modules.
+An extra formatter probe targeting files outside the configured scope reported
+formatting differences; it was not an applicable gate, and no unrelated
+formatting sweep was made. Fresh current-head CI and PR review must pass before
+merging this follow-up.
