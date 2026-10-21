@@ -1,4 +1,8 @@
 import pytest
+from collections.abc import Iterator
+from sqlalchemy import create_engine
+from sqlalchemy.orm import Session
+from sqlalchemy.pool import StaticPool
 from pytest_mock import MockerFixture
 from fastapi.testclient import TestClient
 from fastapi import HTTPException
@@ -985,6 +989,76 @@ def test_catalog_agenda_items_does_not_infer_method_from_segmentation_status(seg
         del app.dependency_overrides[get_db]
 
 
+@pytest.fixture
+def catalog_count_database(monkeypatch: pytest.MonkeyPatch) -> Iterator[Session]:
+    from api.main import get_db
+    from pipeline.models import Base
+
+    engine = create_engine("sqlite://", connect_args={"check_same_thread": False}, poolclass=StaticPool)
+    Base.metadata.create_all(engine)
+
+    def get_count_test_database() -> Iterator[Session]:
+        with Session(engine) as request_session:
+            yield request_session
+
+    monkeypatch.setitem(app.dependency_overrides, get_db, get_count_test_database)
+    try:
+        with Session(engine) as session:
+            yield session
+    finally:
+        engine.dispose()
+
+
+@pytest.mark.parametrize("segmentation_status,attempt_count,row_count", [
+    ("failed", 0, 2),
+    ("failed", 5, 0),
+    ("complete", 5, 2),
+    ("empty", 0, 0),
+    (None, None, 0),
+    ("failed", None, 2),
+])
+def test_derived_status_counts_stored_rows_instead_of_attempt_metadata(
+    catalog_count_database: Session,
+    segmentation_status: str | None, attempt_count: int | None, row_count: int,
+) -> None:
+    from pipeline.models import AgendaItem, Catalog, Document, Event, Place
+
+    db_session = catalog_count_database
+    attempted_at = datetime(2026, 1, 1, 12, tzinfo=UTC)
+    place = Place(name="Count Test City", state="CA", ocd_division_id="count-test-city")
+    event = Event(name="Council meeting", place=place)
+    catalog = Catalog(content="Council business and budget decisions.", url_hash="count-test",
+                      agenda_segmentation_status=segmentation_status, agenda_segmentation_item_count=attempt_count,
+                      agenda_segmentation_attempted_at=attempted_at, agenda_segmentation_error="Prior attempt detail",
+                      agenda_items_hash="prior-agenda-hash")
+    unrelated = Catalog(url_hash="unrelated-count-test")
+    db_session.add_all([Document(catalog=catalog, event=event, place=place, category="agenda"), unrelated])
+    db_session.flush()
+    db_session.add_all([
+        AgendaItem(catalog_id=catalog.id, event_id=event.id, title=f"Approve public works contract {position}")
+        for position in range(row_count)
+    ])
+    db_session.add(AgendaItem(catalog_id=unrelated.id, event_id=event.id, title="Unrelated council business"))
+    db_session.commit()
+    original_rows = [(agenda.id, agenda.title) for agenda in catalog.agenda_items]
+    stored_attempted_at = catalog.agenda_segmentation_attempted_at
+
+    status_response = client.get(f"/catalog/{catalog.id}/derived_status", headers={"X-API-Key": VALID_KEY})
+    items_response = client.get(f"/catalog/{catalog.id}/agenda_items", headers={"X-API-Key": VALID_KEY})
+
+    assert status_response.status_code == items_response.status_code == 200
+    assert status_response.json()["agenda_items_count"] == row_count
+    assert len(items_response.json()["items"]) == row_count
+    assert status_response.json()["agenda_segmentation_item_count"] == attempt_count
+    assert status_response.json()["agenda_segmentation_status"] == segmentation_status
+    assert status_response.json()["agenda_segmentation_attempted_at"] == stored_attempted_at.isoformat()
+    assert status_response.json()["agenda_segmentation_error"] == "Prior attempt detail"
+    db_session.refresh(catalog)
+    assert [(agenda.id, agenda.title) for agenda in catalog.agenda_items] == original_rows
+    assert catalog.agenda_items_hash == "prior-agenda-hash"
+    assert catalog.agenda_segmentation_attempted_at == stored_attempted_at
+
+
 def test_derived_status_exposes_not_generated_flags():
     from api.main import get_db
 
@@ -1054,6 +1128,7 @@ def test_derived_status_marks_agenda_summary_stale_from_structured_items():
             query.filter_by.return_value.order_by.return_value.all.return_value = [
                 MagicMock(order=1, title="Item 1", description="Desc", classification="Agenda", result="", page_number=1)
             ]
+            query.filter.return_value.count.return_value = 1
         return query
 
     db.query.side_effect = _query_side_effect
@@ -1067,6 +1142,7 @@ def test_derived_status_marks_agenda_summary_stale_from_structured_items():
         assert resp.status_code == 200
         payload = resp.json()
         assert payload["summary_is_stale"] is True
+        assert payload["agenda_items_count"] == 1
         assert payload["agenda_segmentation_attempted_at"] == "2026-07-25T12:45:00+00:00"
     finally:
         del app.dependency_overrides[get_db]
@@ -1099,6 +1175,7 @@ def test_derived_status_marks_empty_agenda_fallback_summary_fresh():
             query.filter_by.return_value.first.return_value = MagicMock(category="agenda")
         elif model is AgendaItem:
             query.filter_by.return_value.order_by.return_value.all.return_value = []
+            query.filter.return_value.count.return_value = 0
         return query
 
     db.query.side_effect = _query_side_effect
@@ -1114,6 +1191,7 @@ def test_derived_status_marks_empty_agenda_fallback_summary_fresh():
         assert payload["summary_is_stale"] is False
         assert payload["summary_not_generated_yet"] is False
         assert payload["agenda_is_empty"] is True
+        assert payload["agenda_items_count"] == 0
         assert "agenda_segmentation_attempted_at" in payload
         assert payload["agenda_segmentation_attempted_at"] is None
     finally:

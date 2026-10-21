@@ -168,6 +168,9 @@ failed attempt and retry; it does not mark the catalog empty or remove its old
 business. Normal and maintenance backfills record the failure for that catalog
 and continue to the next selected record. New catalogs without stored rows can
 still record an empty result.
+The API's `agenda_items_count` counts current stored rows for that catalog.
+`agenda_segmentation_item_count` remains recorded attempt metadata; a failed
+attempt can report zero there while older business remains available.
 Other Legistar matters retain their source IDs even when their
 titles resemble scaffolding or contain street addresses. A source ID is not,
 by itself, proof of the correct meeting, extraction method, or source page.

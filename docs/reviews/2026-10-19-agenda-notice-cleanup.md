@@ -355,3 +355,41 @@ An extra formatter probe targeting files outside the configured scope reported
 formatting differences; it was not an applicable gate, and no unrelated
 formatting sweep was made. Fresh current-head CI and PR review must pass before
 merging this follow-up.
+
+## Current Item Counts Versus Attempt Metadata
+
+Review found that a preserved agenda could still be reported as having zero
+items: the derived-status API preferred a failed attempt's recorded count over
+the actual rows. That confused last-attempt metadata with current stored
+business. The API now always uses its existing catalog-filtered database count
+query for `agenda_items_count`. Attempt count, status, timestamp, error, stored
+rows, and hash remain unchanged. No writer, retry, model, or item-limit change
+is needed.
+
+The real-HTTP regression uses synthetic SQLite records. Its first setup crossed
+SQLite's thread boundary; the final fixture follows the repository's isolated
+StaticPool/check_same_thread pattern with request-local sessions and serialized
+requests. SQLite's stored timestamp representation is compared before and after
+the request, rather than assuming that SQLite preserves a timezone suffix.
+SQLAlchemy 2.0 documentation was checked through Context7 for this test setup.
+
+With that fixture, three stale-count cases failed before implementation and
+three controls passed. After deleting the shortcut, all six pass. They cover
+failed attempts retaining business, stale overcounts, zero rows, missing
+metadata, complete/empty/unattempted statuses, and unrelated-catalog exclusion.
+Counts agree with the actual agenda-items endpoint, while stored rows/hash and
+attempt metadata are unchanged. Two existing database mocks now supply the
+counts represented by their fixtures and assert those response values.
+
+The API/query suite passed 69 checks; the focused agenda/orchestration/docs
+matrix passed 219. Full coverage passed 2,123 tests with 20 skipped and 84.71%
+coverage against the unchanged 71% floor. Ruff, configured formatter, Mypy, and
+docs/profile checks passed.
+
+After restarting the local API, Playwright read both endpoints for the same 24
+catalogs. Every status count matched its returned agenda rows, totaling 228
+items. The read-only audit still confirms all 82 unaffected matter associations.
+This follow-up does not change extraction, so the prior candidate replay is not
+relabelled as a new extraction run. It adds one COUNT execution where integer
+metadata previously bypassed it; no API performance improvement is claimed.
+Independent review and fresh current-head PR checks remain required before merge.

@@ -154,11 +154,8 @@ def build_catalog_router(
         if agenda_segmentation_status not in VALID_AGENDA_SEGMENTATION_STATUSES:
             agenda_segmentation_status = None
 
-        # Prefer the catalog-level count if present; otherwise derive it from the current rows.
-        if isinstance(agenda_segmentation_item_count, int):
-            agenda_items_count = agenda_segmentation_item_count
-        else:
-            agenda_items_count = db.query(AgendaItem).filter(AgendaItem.catalog_id == catalog_id).count()
+        # Failed attempts can retain business; attempt metadata is not a current row count.
+        agenda_items_count = db.query(AgendaItem).filter(AgendaItem.catalog_id == catalog_id).count()
         quality = analyze_source_text(catalog.content or "")
         summary_blocked_reason = None
         topics_blocked_reason = None
