@@ -7,7 +7,7 @@ pytest-cov==7.1.0
 coverage==7.16.2
 pytest-mock==3.16.0
 pytest-benchmark==5.3.0
-locust==2.33.0
+locust==2.46.7
 PyYAML==6.0.3
 ruff==0.15.9
 pre-commit==4.5.1
