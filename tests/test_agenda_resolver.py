@@ -65,6 +65,7 @@ def _doc_with_place(legistar_client="berkeley"):
     return SimpleNamespace(
         event_id=1,
         event=SimpleNamespace(
+            source_url="https://example.org/meeting",
             record_date=date(2026, 2, 8),
             place=SimpleNamespace(legistar_client=legistar_client),
         ),

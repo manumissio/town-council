@@ -41,8 +41,8 @@ def has_viable_structured_agenda_source(
     if len(html_items) >= HTML_ACCEPTANCE_MIN_ITEMS and quality_scorer(html_items) >= HTML_ACCEPTANCE_MIN_SCORE:
         return True
 
-    legistar_client, event_date = _legistar_event_context(doc)
-    legistar_items = legistar_fetcher(legistar_client, event_date)
+    legistar_client, event_date, source_url = _legistar_event_context(doc)
+    legistar_items = legistar_fetcher(legistar_client, event_date, event_source_url=source_url)
     filtered_legistar_items = legistar_filter(legistar_items)
     return legistar_acceptance_checker(filtered_legistar_items)
 
@@ -78,8 +78,8 @@ def resolve_agenda_items(
             legistar_accepted=False,
         )
     html_items = html_loader(session, catalog, doc)
-    legistar_client, event_date = _legistar_event_context(doc)
-    legistar_items = legistar_fetcher(legistar_client, event_date)
+    legistar_client, event_date, source_url = _legistar_event_context(doc)
+    legistar_items = legistar_fetcher(legistar_client, event_date, event_source_url=source_url)
     filtered_legistar_items = legistar_filter(legistar_items)
     filtered_legistar_score = quality_scorer(filtered_legistar_items) if filtered_legistar_items else 0
     legistar_accepted = legistar_acceptance_checker(filtered_legistar_items)
@@ -140,10 +140,10 @@ def resolve_agenda_items(
     )
 
 
-def _legistar_event_context(doc: DocumentLike | None) -> tuple[str | None, date | None]:
+def _legistar_event_context(doc: DocumentLike | None) -> tuple[str | None, date | None, str | None]:
     if doc and doc.event and doc.event.place:
-        return doc.event.place.legistar_client, doc.event.record_date
-    return None, None
+        return doc.event.place.legistar_client, doc.event.record_date, doc.event.source_url
+    return None, None, None
 
 
 def _resolved_payload(

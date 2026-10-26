@@ -484,15 +484,15 @@ export default function ResultCard({ hit, onTopicClick }) {
   return (
     <div className={`group bg-white border rounded-2xl shadow-sm hover:shadow-md transition-all duration-200 overflow-hidden text-left ${isAgendaItem ? 'border-blue-100 ring-1 ring-blue-50/50' : 'border-gray-200'}`}>
       <div className="p-6">
-        <div className="flex justify-between items-start mb-4">
-          <div className="space-y-1.5">
+        <div className="flex flex-col gap-3 sm:flex-row sm:justify-between items-start mb-4">
+          <div className="min-w-0 flex-1 space-y-1.5">
             <div className="flex items-center gap-2 mb-1">
                {isAgendaItem && (
                  <span className="bg-blue-600 text-white text-[9px] font-black uppercase tracking-tighter px-1.5 py-0.5 rounded flex items-center gap-1 shadow-sm">
                    <Sparkles className="w-2.5 h-2.5" /> Agenda Item
                  </span>
                )}
-               <h2 className="text-xl font-bold text-gray-900 group-hover:text-blue-600 transition-colors leading-tight cursor-pointer" onClick={() => setIsExpanded(!isExpanded)}>
+               <h2 className="min-w-0 break-words text-xl font-bold text-gray-900 group-hover:text-blue-600 transition-colors leading-tight cursor-pointer" onClick={() => setIsExpanded(!isExpanded)}>
                 {/* For agenda items, prefer the raw title. Meilisearch highlighting injects <em> tags into _formatted.title,
                     and rendering that as plain text looks broken (the snippet already highlights the match). */}
                 {isAgendaItem ? (hit.title || "Untitled Agenda Item") : (hit.event_name || "Untitled Meeting")}
@@ -518,8 +518,8 @@ export default function ResultCard({ hit, onTopicClick }) {
                 <Calendar className="w-4 h-4 text-gray-400" /> {hit.date ? new Date(hit.date).toLocaleDateString(undefined, { dateStyle: 'long' }) : "Unknown Date"}
               </span>
               {!isAgendaItem && (
-                <span className="inline-flex items-center gap-1.5 opacity-75">
-                  <FileText className="w-4 h-4 text-gray-400" /> {hit.filename}
+                <span className="inline-flex min-w-0 items-center gap-1.5 opacity-75">
+                  <FileText className="w-4 h-4 shrink-0 text-gray-400" /> <span className="break-all">{hit.filename}</span>
                 </span>
               )}
               {!isAgendaItem && Boolean(hit.content_truncated) && (
@@ -530,7 +530,7 @@ export default function ResultCard({ hit, onTopicClick }) {
             </div>
           </div>
           
-          <div className="flex gap-2">
+          <div className="flex shrink-0 gap-2 self-end sm:self-auto">
             <button 
               onClick={() => setIsReporting(!isReporting)}
               disabled={!canMutate}

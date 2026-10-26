@@ -25,6 +25,7 @@ class PlaceLike(Protocol):
 
 
 class EventLike(Protocol):
+    source_url: str | None
     record_date: date | None
     place: PlaceLike | None
     documents: Sequence[Document] | None
@@ -50,7 +51,18 @@ HtmlAgendaLoader: TypeAlias = Callable[
     [AgendaResolverSession, CatalogLike, DocumentLike | None],
     list[AgendaItemRecord],
 ]
-LegistarAgendaFetcher: TypeAlias = Callable[[str | None, date | None], list[AgendaItemRecord]]
+
+
+class LegistarAgendaFetcher(Protocol):
+    def __call__(
+        self,
+        legistar_client: str | None,
+        event_date: date | None,
+        *,
+        event_source_url: str | None,
+    ) -> list[AgendaItemRecord]: ...
+
+
 LegistarFilter: TypeAlias = Callable[[list[AgendaItemRecord]], list[AgendaItemRecord]]
 LegistarAcceptanceChecker: TypeAlias = Callable[[list[AgendaItemRecord]], bool]
 PageNumberEnricher: TypeAlias = Callable[

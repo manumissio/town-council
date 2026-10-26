@@ -27,6 +27,7 @@ PROCEDURAL_EXACT_TITLES = {
 }
 
 PROCEDURAL_ANCHORED_PATTERNS = (
+    r"^adjourn(?: special meeting| regular meeting)?$",
     r"^public comment(?:\s+period)?$",
     r"^ceremonial matters$",
     r"^presentations?$",
@@ -43,8 +44,28 @@ AGENDA_NOTICE_EXACT_TITLES = {
     "salute to the flag",
     "public hearings/general business",
     "public participation options",
+    "notice to the public",
+    "legal notices",
+    "language access and translation",
+    "in person public comment",
+    "online participation",
+    "online public comment",
+    "written public comment",
+    "public review of items",
+    "study session",
+    "upcoming meetings",
+    "page break",
+    "non-agenda items and comments",
+    "staff comments",
+    "accessibility/americans with disabilities act (ada) notice",
 }
 AGENDA_TRANSLATION_LINK_PATTERN = re.compile(r"^translation link:\s*https?://\S+$")
+AGENDA_INSTRUCTION_PATTERN = re.compile(
+    r"^(?:planning (?:a presentation for|to provide materials to) .+\?|"
+    r"administrative zoning hearing review process(?: the zoning administrator is the approval body\b.*)?|"
+    r"special notice\s*[-:]\s*reference: americans with disabilities act(?:,\s*\d{4})?)$"
+)
+AGENDA_POLICY_ACTION_PATTERN = re.compile(r"^(?:approve|adopt|amend)\b.+\bpolic(?:y|ies)\b", re.IGNORECASE)
 
 TREND_NOISE_TOPICS = {
     "roll call",
@@ -166,7 +187,13 @@ def is_procedural_title(title: str, reject_enabled: bool = True) -> bool:
 
 def is_agenda_notice_title(title: str) -> bool:
     normalized = normalize_title_key(title)
-    return normalized in AGENDA_NOTICE_EXACT_TITLES or bool(AGENDA_TRANSLATION_LINK_PATTERN.fullmatch(normalized))
+    return normalized in AGENDA_NOTICE_EXACT_TITLES or bool(
+        AGENDA_TRANSLATION_LINK_PATTERN.fullmatch(normalized) or AGENDA_INSTRUCTION_PATTERN.fullmatch(normalized)
+    )
+
+
+def is_agenda_policy_business_title(title: str) -> bool:
+    return bool(AGENDA_POLICY_ACTION_PATTERN.match(title.strip()))
 
 
 def is_contact_or_letterhead_noise(title: str, desc: str = "") -> bool:

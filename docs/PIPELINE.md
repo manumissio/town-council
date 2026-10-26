@@ -1,6 +1,6 @@
 # Town Council Pipeline Guide
 
-Last updated: 2026-10-20
+Last updated: 2026-10-26
 
 ## 1) Purpose and Boundaries
 
@@ -171,6 +171,12 @@ still record an empty result.
 The API's `agenda_items_count` counts current stored rows for that catalog.
 `agenda_segmentation_item_count` remains recorded attempt metadata; a failed
 attempt can report zero there while older business remains available.
+Legistar candidates must match the stored event's source URL to exactly one
+returned `EventInSiteURL`. A shared date is not enough to identify a meeting.
+Missing or ambiguous identity uses the existing source-content fallback;
+structured-source item thresholds are unchanged. Participation and notice
+headings are excluded without rejecting business merely for discussing public
+records, accessibility, or participation policy.
 Other Legistar matters retain their source IDs even when their
 titles resemble scaffolding or contain street addresses. A source ID is not,
 by itself, proof of the correct meeting, extraction method, or source page.
@@ -183,9 +189,31 @@ established. Existing stored text and page numbers are not rewritten by this
 display correction.
 
 When segmentation uses the text fallback, item numbers and source record IDs
+identify business boundaries. Mastheads and introduced attendance, quorum, and
+applicant lists are document context, not separate agenda items. A later
+independent paragraph or explicit business boundary remains eligible.
+List-introduction detection keeps the first source-line boundary: an applicant
+or quorum introduction in the narrative does not discard an otherwise eligible
+title. The introduction still sets context for filtering subsequent list rows.
+Lowercase continuation lines remain part of the introduction, not separate titles.
+Clocks are preserved before title formatting; a time within business text does not
+make it a schedule heading.
+Schedule checks reuse the governing-body label matcher after removing a leading
+time. Applicant-list checks require name-style casing as well as the existing
+name check; mixed-case business prose is not discarded as a person's name.
+The existing composite end check recognizes
+"NOTICE TO THE PUBLIC" as a legal-tail heading, without treating adjournment
+alone as terminal. Exact OCR-spacing duplicates use the existing document
+deduper; its fuzzy threshold and winner selection are unchanged.
+
+Item numbers and source record IDs
 help keep titles together within their source paragraph. Only title-associated
 IDs anchor items before a numbered block; body-field mentions do not. Record IDs
-remain in descriptions without joining separate paragraphs. Numbered descriptions retain
+are removed as complete leading identifiers, not partial list numbers. A title
+with a source record ID is not rejected solely for resembling a person's name;
+notice and other content checks still apply. Body-field-only paragraphs do not
+become titles. Record IDs remain in descriptions without joining separate
+paragraphs. Numbered descriptions retain
 source text, not a generic section label. Cancellation text does not suppress an
 entire document: the text fallback cannot establish which meeting a notice
 belongs to. Cancellation notices can still produce noise, and the fallback does

@@ -5,6 +5,30 @@ import pytest
 from pipeline.agenda_extraction_fallback import run_agenda_extraction_pipeline
 
 
+@pytest.mark.parametrize(("paragraph", "expected_title"), [
+    ("21-0115 Board and Commission Interviews", "Board and Commission Interviews"),
+    ("Board and Commission Interviews 21-0115", "Board and Commission Interviews 21-0115"),
+    ("Board and Commission Interviews\n\n21-0115", "Board and Commission Interviews"),
+])
+def test_source_record_anchor_retains_business_that_resembles_a_person_name(paragraph: str, expected_title: str) -> None:
+    agenda_items = run_agenda_extraction_pipeline(
+        text=f"[PAGE 1]\n{paragraph}\n\nAnnual budget report",
+        raw_provider_content=None, mode="balanced", logger=logging.getLogger(__name__),
+    )
+    assert [agenda["title"] for agenda in agenda_items] == [
+        expected_title, "Annual budget report",
+    ]
+    assert "21-0115" in agenda_items[0]["description"]
+
+
+def test_body_record_mention_does_not_override_person_name_rejection() -> None:
+    agenda_items = run_agenda_extraction_pipeline(
+        text="[PAGE 1]\nJohn Smith\nRecommendation: Refer to record 21-0115.\n\nAnnual budget report",
+        raw_provider_content=None, mode="balanced", logger=logging.getLogger(__name__),
+    )
+    assert [agenda["title"] for agenda in agenda_items] == ["Annual budget report"]
+
+
 @pytest.mark.parametrize("field", ["Recommendation", "Recommended Action", "From", "Contact", "Vote", "Result", "Action", "Financial Implications"])
 def test_body_field_record_mentions_do_not_become_prefix_items(field: str) -> None:
     agenda_items = run_agenda_extraction_pipeline(

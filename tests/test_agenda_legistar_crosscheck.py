@@ -6,6 +6,9 @@ from pipeline import agenda_legistar
 from pipeline.agenda_legistar import fetch_legistar_agenda_items
 
 
+MEETING_SOURCE = "https://example.org/meeting"
+
+
 class _FakeResponse:
     def __init__(self, payload, status_code=200, text=""):
         self._payload = payload
@@ -35,7 +38,7 @@ class _FakeSession:
 
 def test_fetch_legistar_agenda_items_normalizes_payload():
     session = _FakeSession([
-        _FakeResponse([{"EventId": 123}]),
+        _FakeResponse([{"EventId": 123, "EventInSiteURL": MEETING_SOURCE}]),
         _FakeResponse([
             {"EventItemTitle": "Budget Amendment", "EventItemAgendaNumber": "1", "EventItemMatterId": 11},
             {"EventItemMatterName": "Public Employee Appointment", "EventItemAgendaNumber": "2", "EventItemMatterId": 12},
@@ -46,6 +49,7 @@ def test_fetch_legistar_agenda_items_normalizes_payload():
         legistar_client="berkeley",
         event_date=date(2026, 2, 8),
         http=session,
+        event_source_url=MEETING_SOURCE,
     )
 
     assert len(items) == 2
@@ -74,11 +78,13 @@ def test_fetch_legistar_agenda_items_memoizes_known_tenant_capability_miss():
         legistar_client="sanleandro",
         event_date=date(2026, 3, 10),
         http=session,
+        event_source_url=MEETING_SOURCE,
     )
     second = fetch_legistar_agenda_items(
         legistar_client="sanleandro",
         event_date=date(2026, 3, 11),
         http=session,
+        event_source_url=MEETING_SOURCE,
     )
 
     assert first == []
@@ -91,24 +97,26 @@ def test_fetch_legistar_agenda_items_memoizes_known_tenant_capability_miss():
 def test_fetch_legistar_agenda_items_memoizes_known_event_items_capability_miss():
     agenda_legistar._LEGISTAR_EVENT_ITEMS_CAPABILITY_CACHE.clear()
     session = _FakeSession([
-        _FakeResponse([{"EventId": 123}]),
+        _FakeResponse([{"EventId": 123, "EventInSiteURL": MEETING_SOURCE}]),
         _FakeResponse(
             {"Message": "'Agenda Draft Status' or 'Agenda Status Not Vievable By The Public' is not setup in settings. Value should be greater than 0."},
             status_code=400,
             text="'Agenda Draft Status' or 'Agenda Status Not Vievable By The Public' is not setup in settings. Value should be greater than 0.",
         ),
-        _FakeResponse([{"EventId": 124}]),
+        _FakeResponse([{"EventId": 124, "EventInSiteURL": MEETING_SOURCE}]),
     ])
 
     first = fetch_legistar_agenda_items(
         legistar_client="sanleandro",
         event_date=date(2026, 3, 10),
         http=session,
+        event_source_url=MEETING_SOURCE,
     )
     second = fetch_legistar_agenda_items(
         legistar_client="sanleandro",
         event_date=date(2026, 3, 11),
         http=session,
+        event_source_url=MEETING_SOURCE,
     )
 
     assert first == []
@@ -121,9 +129,9 @@ def test_fetch_legistar_agenda_items_memoizes_known_event_items_capability_miss(
 def test_fetch_legistar_agenda_items_does_not_memoize_generic_http_400():
     agenda_legistar._LEGISTAR_EVENT_ITEMS_CAPABILITY_CACHE.clear()
     session = _FakeSession([
-        _FakeResponse([{"EventId": 123}]),
+        _FakeResponse([{"EventId": 123, "EventInSiteURL": MEETING_SOURCE}]),
         _FakeResponse({"Message": "Bad Request"}, status_code=400, text="Bad Request"),
-        _FakeResponse([{"EventId": 123}]),
+        _FakeResponse([{"EventId": 123, "EventInSiteURL": MEETING_SOURCE}]),
         _FakeResponse({"Message": "Bad Request"}, status_code=400, text="Bad Request"),
     ])
 
@@ -131,11 +139,13 @@ def test_fetch_legistar_agenda_items_does_not_memoize_generic_http_400():
         legistar_client="berkeley",
         event_date=date(2026, 2, 8),
         http=session,
+        event_source_url=MEETING_SOURCE,
     )
     second = fetch_legistar_agenda_items(
         legistar_client="berkeley",
         event_date=date(2026, 2, 9),
         http=session,
+        event_source_url=MEETING_SOURCE,
     )
 
     assert first == []
@@ -148,13 +158,13 @@ def test_fetch_legistar_agenda_items_expires_capability_cache(monkeypatch):
     agenda_legistar._LEGISTAR_EVENT_ITEMS_CAPABILITY_CACHE.clear()
     monkeypatch.setattr(agenda_legistar, "LEGISTAR_EVENT_ITEMS_CAPABILITY_TTL_SECONDS", 60)
     session = _FakeSession([
-        _FakeResponse([{"EventId": 123}]),
+        _FakeResponse([{"EventId": 123, "EventInSiteURL": MEETING_SOURCE}]),
         _FakeResponse(
             {"Message": "'Agenda Draft Status' or 'Agenda Status Not Vievable By The Public' is not setup in settings. Value should be greater than 0."},
             status_code=400,
             text="'Agenda Draft Status' or 'Agenda Status Not Vievable By The Public' is not setup in settings. Value should be greater than 0.",
         ),
-        _FakeResponse([{"EventId": 124}]),
+        _FakeResponse([{"EventId": 124, "EventInSiteURL": MEETING_SOURCE}]),
         _FakeResponse([]),
     ])
     times = iter([100.0, 5000.0, 5000.0])
@@ -164,11 +174,13 @@ def test_fetch_legistar_agenda_items_expires_capability_cache(monkeypatch):
         legistar_client="sanleandro",
         event_date=date(2026, 3, 10),
         http=session,
+        event_source_url=MEETING_SOURCE,
     )
     second = fetch_legistar_agenda_items(
         legistar_client="sanleandro",
         event_date=date(2026, 3, 11),
         http=session,
+        event_source_url=MEETING_SOURCE,
     )
 
     assert first == []

@@ -34,6 +34,8 @@ class AgendaExtractionStats:
 
 @dataclass(slots=True)
 class AgendaParseState:
+    paragraph_header_active: bool = False
+    paragraph_list_context: str | None = None
     active_parent_item: str | None = None
     active_parent_page: int | None = None
     active_parent_marker: str | None = None

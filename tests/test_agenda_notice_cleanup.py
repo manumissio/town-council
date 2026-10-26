@@ -9,9 +9,11 @@ from sqlalchemy import create_engine
 from sqlalchemy.orm import Session
 
 from pipeline.agenda_extraction_fallback import run_agenda_extraction_pipeline
+from pipeline.agenda_crosscheck import parse_eagenda_items_from_html
 from pipeline.agenda_resolver import resolve_agenda_items
 from pipeline.agenda_resolver_contracts import AgendaExtractor
 from pipeline.agenda_service import persist_agenda_items
+from pipeline.agenda_summary_inputs import build_agenda_summary_input_bundle
 from pipeline.models import AgendaItem, Base, Catalog, Document, Event, Place
 
 
@@ -23,6 +25,24 @@ from pipeline.models import AgendaItem, Base, Catalog, Document, Event, Place
     "Cancellation Notice - Final",
     "SALUTE TO THE FLAG",
     "PUBLIC HEARINGS/GENERAL BUSINESS",
+    "NOTICE TO THE PUBLIC",
+    "LEGAL NOTICES",
+    "Language Access and Translation",
+    "Online participation:",
+    "Written public comment:",
+    "Public review of items:",
+    "Planning to provide materials to the Committee?",
+    "Study Session",
+    "Upcoming Meetings",
+    "page break",
+    "NON-AGENDA ITEMS AND COMMENTS",
+    "-Staff Comments",
+    "Accessibility/Americans with Disabilities Act (ADA) Notice",
+    "SPECIAL NOTICE- Reference: Americans with Disabilities Act, 1990",
+    "This category provides an opportunity for members of the public to address the",
+    "This is a notice that a community meeting will be held on Wednesday, May 27, 2020 at",
+    "Members of the public may comment before Council adopts the public participation policy",
+    "To approve public comments, please contact the clerk",
 ])
 def test_notice_rows_do_not_become_items_beside_live_business(notice: str) -> None:
     agenda_items = run_agenda_extraction_pipeline(
@@ -42,6 +62,12 @@ def test_notice_rows_do_not_become_items_beside_live_business(notice: str) -> No
     "Discuss the canceled hearing and approve the replacement contract",
     "Discuss the cancelled hearing and approve the replacement contract",
     "Approve translation services for public meetings",
+    "Approve accessibility accommodation policy",
+    "Amend public participation policy",
+    "Adopt public records policy",
+    "Administrative Zoning Hearing Review Process Amendments",
+    "Approve auxiliary aids policy",
+    "Amend public comment portion policy",
 ])
 def test_business_mentions_of_notice_words_remain(title: str) -> None:
     agenda_items = run_agenda_extraction_pipeline(
@@ -81,14 +107,21 @@ def test_legistar_cleanup_removes_only_unbacked_wrapper_rows(monkeypatch: pytest
         {"title": "Receive the annual traffic report"},
         {"title": "Approve the park improvement budget"},
         {"title": "Review the zoning amendment"},
+        {"title": "Adopt public records policy"},
+        {"title": "Approve accessibility accommodation policy"},
+        {"title": "Amend public participation policy"},
     ]
     wrappers = [{"title": title} for title in (
         "SALUTE TO THE FLAG", "PUBLIC HEARINGS/GENERAL BUSINESS", "MEETING CANCELED", "MEETING CANCELLED",
         "Public Participation Options", "Translation Link: https://example.org/translation",
+        "NOTICE TO THE PUBLIC", "LEGAL NOTICES", "Online participation:",
+        "Planning to provide materials to the Committee?", "6 P.M. SPECIAL COUNCIL MEETING",
+        "Study Session", "Upcoming Meetings", "page break", "NON-AGENDA ITEMS AND COMMENTS",
+        "-Staff Comments", "Accessibility/Americans with Disabilities Act (ADA) Notice",
     )]
 
     def legistar_response(_session: requests.Session, url: str, **_kwargs: object) -> requests.Response:
-        payload = [{"EventId": 42}]
+        payload = [{"EventId": 42, "EventInSiteURL": "https://example.org/meeting"}]
         if url.endswith("/EventItems"):
             payload = [{
                 "EventItemTitle": agenda["title"],
@@ -101,7 +134,7 @@ def test_legistar_cleanup_removes_only_unbacked_wrapper_rows(monkeypatch: pytest
 
     monkeypatch.setattr(requests.Session, "get", legistar_response)
     catalog = Catalog(content="", location="meeting.pdf")
-    event = Event(record_date=date(2026, 10, 19), place=Place(legistar_client="notice-cleanup-test"))
+    event = Event(record_date=date(2026, 10, 19), source_url="https://example.org/meeting", place=Place(legistar_client="notice-cleanup-test"))
     document = Document(event=event, catalog=catalog)
     local_ai = Mock(spec=AgendaExtractor)
     local_ai.extract_agenda.return_value = []
@@ -113,6 +146,27 @@ def test_legistar_cleanup_removes_only_unbacked_wrapper_rows(monkeypatch: pytest
     assert [agenda["legistar_matter_id"] for agenda in resolved["items"]] == [
         agenda.get("legistar_matter_id") for agenda in business
     ]
+
+
+def test_html_notice_filter_keeps_policy_business() -> None:
+    agenda = parse_eagenda_items_from_html(
+        "<p>1. NOTICE TO THE PUBLIC</p><p>2. Online participation:</p>"
+        "<p>3. Adopt public records policy</p>"
+        "<p>4. Approve accessibility accommodation policy</p>"
+        "<p>5. Administrative Zoning Hearing Review Process Amendments</p>"
+    )
+    assert [record["title"] for record in agenda] == [
+        "Adopt public records policy", "Approve accessibility accommodation policy",
+        "Administrative Zoning Hearing Review Process Amendments",
+    ]
+
+
+def test_accessibility_notice_alone_is_not_ready_for_a_business_summary() -> None:
+    bundle = build_agenda_summary_input_bundle(
+        catalog=Catalog(content="source"), document=Document(),
+        agenda_items=[AgendaItem(title="SPECIAL NOTICE- Reference: Americans with Disabilities Act, 1990")],
+    )
+    assert bundle["status"] != "ready"
 
 
 def test_empty_replacement_removes_old_rows_and_updates_agenda_hash() -> None:
