@@ -5,7 +5,7 @@ import re
 from pipeline.agenda_extraction_diagnostics import AgendaParseState
 from pipeline.agenda_extraction_noise import is_noise_title, is_probable_person_name
 from pipeline.agenda_extraction_parser import ITEM_FIELD_PATTERN, RECORD_ID_PATTERN, iter_fallback_paragraphs
-from pipeline.agenda_text_normalization import normalize_spaces
+from pipeline.agenda_text_normalization import first_alpha_char, normalize_spaces
 
 
 _PARAGRAPH_TITLE_PREFIX_RE = re.compile(r"^\s*\d+(?:\.\d+)?[\.)]\s+")
@@ -46,7 +46,7 @@ def paragraph_is_document_furniture(paragraph: str, following: str, parse_state:
     if parse_state.paragraph_header_active and _is_header_metadata(title, normalize_spaces(following)):
         return True
     parse_state.paragraph_header_active = False
-    return _paragraph_is_list_material(title, parse_state)
+    return _paragraph_is_list_material(paragraph, parse_state)
 
 
 def _is_header_metadata(title: str, following: str) -> bool:
@@ -71,16 +71,23 @@ def _is_header_schedule(title: str) -> bool:
     )
 
 
-def _paragraph_is_list_material(title: str, parse_state: AgendaParseState) -> bool:
+def _paragraph_is_list_material(paragraph: str, parse_state: AgendaParseState) -> bool:
+    title = normalize_spaces(paragraph)
+    # A list in the narrative sets context without erasing a preceding title.
+    first_line_end = len(normalize_spaces(paragraph.splitlines()[0]))
+    continuation_start = first_alpha_char(paragraph.partition("\n")[2])
+    wrapped_intro = continuation_start is not None and continuation_start.islower()
     if title.lower() == "roll call" or re.match(r"(?i)^present:\s*\d", title):
         parse_state.paragraph_list_context = "attendance"
         return True
-    if _APPLICANT_INTRO_RE.search(title):
+    applicant_intro = _APPLICANT_INTRO_RE.search(title)
+    if applicant_intro:
         parse_state.paragraph_list_context = "applicants"
-        return True
-    if _QUORUM_INTRO_RE.search(title):
+        return applicant_intro.start() < first_line_end or wrapped_intro
+    quorum_intro = _QUORUM_INTRO_RE.search(title)
+    if quorum_intro:
         parse_state.paragraph_list_context = "quorum"
-        return True
+        return quorum_intro.start() < first_line_end or wrapped_intro
     if parse_state.paragraph_list_context and _is_list_entry(title, parse_state.paragraph_list_context):
         return True
     parse_state.paragraph_list_context = None

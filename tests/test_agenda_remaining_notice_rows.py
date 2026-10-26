@@ -49,6 +49,54 @@ def test_named_business_outside_list_context_is_not_an_attendance_row() -> None:
     assert [entry["title"] for entry in agenda] == ["City Council Budget Report", "Annual budget report"]
 
 
+@pytest.mark.parametrize(("topic", "introduction", "list_entry"), [
+    (
+        "Commission appointment report",
+        "Council interviewed the following applicants for vacancies.",
+        "Jane Smith - Planning Commission",
+    ),
+    (
+        "Commission appointment report",
+        "Council interviewed the following\napplicants for vacancies.",
+        "Jane Smith - Planning Commission",
+    ),
+    (
+        "Community meeting report",
+        "A quorum of the following meeting bodies may attend:",
+        "Planning Commission",
+    ),
+])
+def test_business_title_before_list_narrative_survives(
+    topic: str, introduction: str, list_entry: str,
+) -> None:
+    agenda = run_agenda_extraction_pipeline(
+        text=f"[PAGE 1]\n{topic}\n{introduction}\n\n{list_entry}\n\nAnnual budget report",
+        raw_provider_content=None, mode="balanced", logger=logging.getLogger(__name__),
+    )
+    assert [entry["title"] for entry in agenda] == [topic, "Annual budget report"]
+    assert agenda[0]["description"] == " ".join(f"{topic}\n{introduction}".split())
+
+
+@pytest.mark.parametrize(("introduction", "list_entry"), [
+    (
+        "Council members\ninterviewed the following applicants for vacancies.",
+        "Jane Smith - Planning Commission",
+    ),
+    (
+        "Members are advised that a\nquorum of the following meeting bodies may attend:",
+        "Planning Commission",
+    ),
+])
+def test_wrapped_list_introductions_do_not_become_business(
+    introduction: str, list_entry: str,
+) -> None:
+    agenda = run_agenda_extraction_pipeline(
+        text=f"[PAGE 1]\n{introduction}\n\n{list_entry}\n\nAnnual budget report",
+        raw_provider_content=None, mode="balanced", logger=logging.getLogger(__name__),
+    )
+    assert [entry["title"] for entry in agenda] == ["Annual budget report"]
+
+
 def test_applicant_details_cross_page_but_do_not_swallow_a_new_unanchored_topic() -> None:
     agenda = run_agenda_extraction_pipeline(
         text=("[PAGE 1]\n21-0115 Board and Commission Interviews\n\n"

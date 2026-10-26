@@ -191,8 +191,12 @@ display correction.
 When segmentation uses the text fallback, item numbers and source record IDs
 identify business boundaries. Mastheads and introduced attendance, quorum, and
 applicant lists are document context, not separate agenda items. A later
-independent paragraph or explicit business boundary remains eligible. Clocks
-are preserved before title formatting; a time within business text does not
+independent paragraph or explicit business boundary remains eligible.
+List-introduction detection keeps the first source-line boundary: an applicant
+or quorum introduction in the narrative does not discard an otherwise eligible
+title. The introduction still sets context for filtering subsequent list rows.
+Lowercase continuation lines remain part of the introduction, not separate titles.
+Clocks are preserved before title formatting; a time within business text does not
 make it a schedule heading.
 Schedule checks reuse the governing-body label matcher after removing a leading
 time. Applicant-list checks require name-style casing as well as the existing
