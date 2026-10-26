@@ -52,7 +52,7 @@ def test_cancellation_only_source_produces_no_agenda_items(
 @pytest.fixture
 def legistar_http(monkeypatch: pytest.MonkeyPatch) -> None:
     def response_for_url(_session: requests.Session, url: str, **_kwargs: object) -> requests.Response:
-        payload = [{"EventId": 42}]
+        payload = [{"EventId": 42, "EventInSiteURL": "https://example.org/meeting"}]
         if url.endswith("/EventItems"):
             payload = [{"EventItemTitle": title, "EventItemMatterId": matter_id} for matter_id, title in (
                 (10840, BUSINESS_TITLE), (10837, "Review transportation funding"), (10844, "Adopt the zoning amendment"),
@@ -67,7 +67,7 @@ def legistar_http(monkeypatch: pytest.MonkeyPatch) -> None:
 
 def resolve_source(source: str) -> dict[str, object]:
     catalog = Catalog(content=source, location="meeting.pdf")
-    event = Event(place=Place(legistar_client="cancellation-regression"), record_date=date(2026, 10, 19))
+    event = Event(place=Place(legistar_client="cancellation-regression"), record_date=date(2026, 10, 19), source_url="https://example.org/meeting")
     document = Document(catalog=catalog, event=event)
     local_ai = Mock(spec=AgendaExtractor)
     local_ai.extract_agenda.return_value = [{"title": BUSINESS_TITLE}]

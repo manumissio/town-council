@@ -119,17 +119,27 @@ def _set_cached_legistar_capability(legistar_client: str, supported: bool) -> No
     )
 
 
+def _matching_event_id(events: list[object], source_url: str) -> int | None:
+    matches = [event for event in events if isinstance(event, dict) and event.get("EventInSiteURL") == source_url]
+    if len(matches) != 1:
+        return None
+    event_id = matches[0].get("EventId")
+    return event_id if isinstance(event_id, int) and not isinstance(event_id, bool) and event_id > 0 else None
+
+
 def fetch_legistar_agenda_items(
     legistar_client: str | None,
     event_date: date | None,
     timeout: float = LEGISTAR_DEFAULT_TIMEOUT_SECONDS,
     max_items: int = LEGISTAR_DEFAULT_MAX_ITEMS,
     http: requests.Session | None = None,
+    *,
+    event_source_url: str | None = None,
 ) -> list[LegistarAgendaItem]:
     """
-    Fetch normalized agenda items from Legistar for one city/date.
+    Fetch normalized agenda items only for the identified source meeting.
     """
-    if not legistar_client or not event_date:
+    if not legistar_client or not event_date or not event_source_url:
         return []
 
     session = http or build_legistar_session()
@@ -170,11 +180,9 @@ def fetch_legistar_agenda_items(
         if not events_payload:
             return []
 
-        first_event = events_payload[0]
-        if not isinstance(first_event, dict):
-            return []
-        event_id = first_event.get("EventId")
-        if not event_id:
+        # A date can contain several governing bodies; never borrow the first event.
+        event_id = _matching_event_id(events_payload, event_source_url)
+        if event_id is None:
             return []
 
         # Step 2: get item rows and normalize to our schema.
