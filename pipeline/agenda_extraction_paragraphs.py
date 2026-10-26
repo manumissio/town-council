@@ -2,12 +2,105 @@ from __future__ import annotations
 
 import re
 
+from pipeline.agenda_extraction_diagnostics import AgendaParseState
+from pipeline.agenda_extraction_noise import is_noise_title, is_probable_person_name
 from pipeline.agenda_extraction_parser import ITEM_FIELD_PATTERN, RECORD_ID_PATTERN, iter_fallback_paragraphs
 from pipeline.agenda_text_normalization import normalize_spaces
 
 
-_PARAGRAPH_TITLE_PREFIX_RE = re.compile(r"^\s*\d+(?:\.\d+)?[\.\):]?\s*")
+_PARAGRAPH_TITLE_PREFIX_RE = re.compile(r"^\s*\d+(?:\.\d+)?[\.)]\s+")
 _PARAGRAPH_TITLE_BLOCKERS = ("page", "packet", "continuing")
+_DOCUMENT_HEADER_RE = re.compile(
+    r"^(?:meeting minutes|notice and agenda(?: - final)?|[a-z]+ \d{1,2}, \d{4}.*meeting minutes)$", re.IGNORECASE,
+)
+_BODY_LABEL_RE = re.compile(r"^(?:(?:city|town|county) council|.+ (?:commission|committee|board))$", re.IGNORECASE)
+_HEADER_CLOCK_RE = re.compile(r"^\d{1,2}(?::\d{2})?\s*(?:a\.?m\.?|p\.?m\.?)\s*", re.IGNORECASE)
+_HEADER_MEETING_RE = re.compile(
+    r"^(?:telepresence meeting:|(?:special|regular) (?:council )?meeting\b)", re.IGNORECASE,
+)
+_PLACE_HEADER_RE = re.compile(r"^(?:city|town|county) of .+$", re.IGNORECASE)
+_PAGE_FURNITURE_RE = re.compile(r"^page\s+\d+", re.IGNORECASE)
+_APPLICANT_INTRO_RE = re.compile(r"\binterviewed the following applicants\b", re.IGNORECASE)
+_APPLICANT_AFFILIATION_RE = re.compile(r"\b(?:commission|board|committee)\b", re.IGNORECASE)
+_QUORUM_INTRO_RE = re.compile(r"\bquorum\b.*\bfollowing (?:meeting )?bodies\b", re.IGNORECASE)
+_AFFILIATION_CONTINUATION_RE = re.compile(
+    r"^(?:(?:[a-z]+\s+)*(?:commission|board|committee)\s*)?\(categor(?:y|ies)\b", re.IGNORECASE,
+)
+_RECESS_NOTE_RE = re.compile(r"^(?:council|commission|board) took a recess\b", re.IGNORECASE)
+_BUSINESS_BODY_FIELDS = frozenset({"subject", "recommendation", "recommended action"})
+
+
+def paragraph_is_document_furniture(paragraph: str, following: str, parse_state: AgendaParseState) -> bool:
+    title = normalize_spaces(paragraph)
+    if paragraph_has_record_anchor(paragraph) or any(
+        match[1].lower() in _BUSINESS_BODY_FIELDS for match in ITEM_FIELD_PATTERN.finditer(paragraph)
+    ):
+        parse_state.paragraph_header_active = False
+        parse_state.paragraph_list_context = None
+        return False
+    if _DOCUMENT_HEADER_RE.fullmatch(title):
+        parse_state.paragraph_header_active = True
+        return True
+    if _PAGE_FURNITURE_RE.match(title):
+        return True
+    if parse_state.paragraph_header_active and _is_header_metadata(title, normalize_spaces(following)):
+        return True
+    parse_state.paragraph_header_active = False
+    return _paragraph_is_list_material(title, parse_state)
+
+
+def _is_header_metadata(title: str, following: str) -> bool:
+    if _BODY_LABEL_RE.fullmatch(title) or _is_header_schedule(title):
+        return True
+    if title.lower() == "city council: community meeting notice":
+        return True
+    return bool(_PLACE_HEADER_RE.fullmatch(title) and (
+        _DOCUMENT_HEADER_RE.fullmatch(following) or _BODY_LABEL_RE.fullmatch(following)
+        or _is_header_schedule(following)
+    ))
+
+
+def _is_header_schedule(title: str) -> bool:
+    meeting_label = _HEADER_CLOCK_RE.sub("", title).lower()
+    if _HEADER_MEETING_RE.match(meeting_label):
+        return True
+    # Validate the whole body label, not a substring of timed business.
+    governing_body = meeting_label.removeprefix("special ").removeprefix("regular ").removesuffix(" meeting")
+    return meeting_label.endswith(" meeting") and bool(
+        governing_body == "council" or _BODY_LABEL_RE.fullmatch(governing_body)
+    )
+
+
+def _paragraph_is_list_material(title: str, parse_state: AgendaParseState) -> bool:
+    if title.lower() == "roll call" or re.match(r"(?i)^present:\s*\d", title):
+        parse_state.paragraph_list_context = "attendance"
+        return True
+    if _APPLICANT_INTRO_RE.search(title):
+        parse_state.paragraph_list_context = "applicants"
+        return True
+    if _QUORUM_INTRO_RE.search(title):
+        parse_state.paragraph_list_context = "quorum"
+        return True
+    if parse_state.paragraph_list_context and _is_list_entry(title, parse_state.paragraph_list_context):
+        return True
+    parse_state.paragraph_list_context = None
+    return title.lower() == "no speakers."
+
+
+def _is_list_entry(title: str, list_context: str) -> bool:
+    if is_noise_title(title) or _RECESS_NOTE_RE.match(title) or _AFFILIATION_CONTINUATION_RE.match(title):
+        return True
+    if list_context == "applicants" and re.match(r"(?i)^(?:commission|board|committee)\s*,", title):
+        return True
+    if list_context == "quorum":
+        return bool(_BODY_LABEL_RE.fullmatch(title))
+    person_title, separator, affiliation = title.partition(" - ")
+    # A separator alone does not make a business title an applicant affiliation.
+    if separator and not _APPLICANT_AFFILIATION_RE.search(affiliation):
+        return False
+    person_title = re.sub(r"\([^)]*\)", "", person_title).strip()
+    # Mixed-case prose is not enough evidence to discard an independent topic.
+    return person_title.istitle() and is_probable_person_name(person_title)
 
 
 def candidate_paragraphs(page_content: str) -> list[str]:
@@ -55,9 +148,15 @@ def _paragraph_title_end(paragraph: str) -> int:
 
 def paragraph_title(paragraph: str) -> str:
     title_text = paragraph[:_paragraph_title_end(paragraph)]
+    if not title_text.strip():
+        return ""
     if paragraph_has_record_anchor(paragraph):
         title_lines = [line for line in title_text.splitlines() if not RECORD_ID_PATTERN.fullmatch(line.strip())]
-        return _PARAGRAPH_TITLE_PREFIX_RE.sub("", normalize_spaces(" ".join(title_lines)))
+        title = normalize_spaces(" ".join(title_lines))
+        record_id = RECORD_ID_PATTERN.match(title)
+        if record_id:
+            return title[record_id.end():].strip()
+        return _PARAGRAPH_TITLE_PREFIX_RE.sub("", title)
     lines = paragraph.splitlines()
     return _PARAGRAPH_TITLE_PREFIX_RE.sub("", lines[0].strip()) if lines else ""
 

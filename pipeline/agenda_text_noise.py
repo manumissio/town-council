@@ -10,6 +10,7 @@ from pipeline.agenda_text_noise_patterns import (
 from pipeline.agenda_text_normalization import first_alpha_char, normalize_spaces
 from pipeline.config import AGENDA_PROCEDURAL_REJECT_ENABLED
 from pipeline.lexicon import (
+    is_agenda_policy_business_title,
     is_contact_or_letterhead_noise as lexicon_is_contact_or_letterhead_noise,
     is_procedural_title as lexicon_is_procedural_title,
 )
@@ -117,6 +118,9 @@ def looks_like_agenda_segmentation_boilerplate(line: str) -> bool:
     Return True when a line is probably boilerplate that should not become an agenda item.
     """
     if not line:
+        return False
+    # Acting on a policy is business even when its subject is participation or access.
+    if is_agenda_policy_business_title(line):
         return False
 
     lowered = (line or "").strip().lower()

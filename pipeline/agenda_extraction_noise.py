@@ -10,12 +10,12 @@ from pipeline.agenda_text_heuristics import (
     normalize_spaces,
 )
 from pipeline.config import AGENDA_MIN_TITLE_CHARS
+from pipeline.lexicon import is_agenda_policy_business_title
 from pipeline.agenda_extraction_parser import ITEM_FIELD_PATTERN, NUMBERED_LINE_PATTERN, RECORD_ID_PATTERN
 from pipeline.utils import is_likely_human_name
 
 
 _DATE_LINE_RE = re.compile(r"^[A-Za-z]+,\s+[A-Za-z]+\s+\d{1,2},\s+\d{4}$")
-_TIME_RE = re.compile(r"\b\d{1,2}:\d{2}\s*(?:a\.m\.|p\.m\.|am|pm)\b")
 _ADDRESS_RE = re.compile(r"\b\d{2,6}\s+[A-Za-z].*(street|st|avenue|ave|road|rd|blvd|boulevard)\b")
 _IP_ADDRESS_RE = re.compile(r"\b\d{1,3}(?:\.\d{1,3}){3}\b")
 _ACCESSIBILITY_RE = re.compile(r"\b(disability[- ]related|accommodation\(s\)|auxiliary aids|interpreters?)\b")
@@ -124,7 +124,7 @@ def _looks_like_link_or_endpoint_noise(lowered: str) -> bool:
 def _looks_like_meeting_notice_noise(title: str, lowered: str) -> bool:
     if _DATE_LINE_RE.match(title):
         return True
-    if _TIME_RE.search(lowered) or _ADDRESS_RE.search(lowered):
+    if _ADDRESS_RE.search(lowered):
         return True
     if "mayor" in lowered or "councilmembers" in lowered:
         return True
@@ -134,6 +134,8 @@ def _looks_like_meeting_notice_noise(title: str, lowered: str) -> bool:
 
 
 def _looks_like_legal_notice_noise(lowered: str) -> bool:
+    if is_agenda_policy_business_title(lowered):
+        return False
     if looks_like_agenda_segmentation_boilerplate(lowered):
         return True
     if _ACCESSIBILITY_RE.search(lowered) or _BROWN_ACT_RE.search(lowered):

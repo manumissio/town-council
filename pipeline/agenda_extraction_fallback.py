@@ -28,6 +28,7 @@ from pipeline.agenda_extraction_paragraphs import (
     candidate_paragraphs,
     paragraph_description,
     paragraph_has_record_anchor,
+    paragraph_is_document_furniture,
     paragraph_progress,
     paragraph_title,
     reject_paragraph_title,
@@ -185,6 +186,8 @@ class AgendaExtractionContext:
         page_number: int,
         speaker_context: bool,
     ) -> None:
+        self.parse_state.paragraph_list_context = None
+        self.parse_state.paragraph_header_active = False
         for index, match in enumerate(numbered_lines):
             if len(self.items) >= AGENDA_FALLBACK_MAX_ITEMS_PER_DOC:
                 break
@@ -243,11 +246,16 @@ class AgendaExtractionContext:
     def _consume_paragraph_fallback(self, paragraphs: list[str], page_number: int) -> None:
         added_from_paragraphs = 0
         consecutive_rejects = 0
-        for paragraph in paragraphs:
+        for index, paragraph in enumerate(paragraphs):
             if self._stop_paragraph_fallback(added_from_paragraphs):
                 break
+            following = paragraphs[index + 1] if index + 1 < len(paragraphs) else ""
+            # Known furniture is not a failed attempt to recover business.
+            if paragraph_is_document_furniture(paragraph, following, self.parse_state):
+                continue
             title = paragraph_title(paragraph)
-            if reject_paragraph_title(title) or is_probable_person_name(title):
+            record_anchored = paragraph_has_record_anchor(paragraph)
+            if reject_paragraph_title(title) or (not record_anchored and is_probable_person_name(title)):
                 consecutive_rejects += 1
                 if consecutive_rejects >= AGENDA_FALLBACK_MAX_CONSECUTIVE_REJECTS_PER_PAGE:
                     break

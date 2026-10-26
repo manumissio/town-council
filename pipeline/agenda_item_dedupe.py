@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from typing import SupportsInt
+import re
 
 from rapidfuzz import fuzz
 
@@ -48,8 +49,11 @@ def _group_duplicate_agenda_items(
 
 
 def _matching_group_index(groups: list[list[tuple[int, AgendaItemPayload]]], title_key: str) -> int | None:
+    compact_key = re.sub(r"\W+", "", title_key)
     for group_index, group in enumerate(groups):
         reference_key = normalized_title_key(group[0][1].get("title", ""))
+        if compact_key and compact_key == re.sub(r"\W+", "", reference_key):
+            return group_index
         if fuzz.token_sort_ratio(title_key, reference_key) >= AGENDA_TOC_DEDUP_FUZZ:
             return group_index
     return None

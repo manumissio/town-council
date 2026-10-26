@@ -16,6 +16,7 @@ ATTENDANCE_BOILERPLATE_FRAGMENTS = (
     "conference room",
     "virtual meeting",
     "meeting will be held",
+    "the meeting was conducted telephonically",
     "public comment",
     "public participation",
     "speakers will be",

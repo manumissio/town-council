@@ -7,6 +7,8 @@ from typing import Final
 
 from bs4 import BeautifulSoup
 
+from pipeline.lexicon import is_agenda_notice_title
+
 AgendaItemRecord = dict[str, object]
 MAX_PARSED_EAGENDA_ITEMS: Final = 40
 
@@ -60,7 +62,7 @@ def parse_eagenda_items_from_html(raw_html: str | None) -> list[AgendaItemRecord
         title = _normalize(match.group(2))
         title_key = title.lower()
 
-        if title_key in seen_titles:
+        if title_key in seen_titles or is_agenda_notice_title(title):
             continue
         seen_titles.add(title_key)
 

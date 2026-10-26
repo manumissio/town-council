@@ -44,7 +44,8 @@ def should_stop_after_marker(current_line: str, lookahead_window: str) -> bool:
     Composite end-of-agenda detector.
     """
     line = normalize_spaces(current_line).lower()
-    window = (lookahead_window or "").lower()
+    # Equivalent headings are one signal, not two independent legal-tail clues.
+    window = (lookahead_window or "").lower().replace("notice to the public", "public notice")
     if not line:
         return False
 
