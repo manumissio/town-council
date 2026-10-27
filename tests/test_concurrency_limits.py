@@ -35,14 +35,16 @@ def test_batch_limit_protection():
 
 def test_catalog_batch_returns_meeting_summary_shape():
     db = MagicMock()
-    catalog = MagicMock(id=7, filename="packet.pdf")
-    event = MagicMock()
+    catalog = MagicMock(id=7, filename="packet.pdf", summary="Saved budget summary",
+                        topics=["Budget"], related_ids=[8])
+    document = MagicMock(url="https://example.org/packet.pdf")
+    event = MagicMock(id=19)
     event.name = "Council Meeting"
     event.record_date.isoformat.return_value = "2026-04-17"
     place = MagicMock(display_name="Springfield", name="springfield")
     query = db.query.return_value
     query.join.return_value.join.return_value.join.return_value.filter.return_value.all.return_value = [
-        (catalog, MagicMock(), event, place)
+        (catalog, document, event, place)
     ]
     app.dependency_overrides[get_db] = lambda: db
 
@@ -53,10 +55,15 @@ def test_catalog_batch_returns_meeting_summary_shape():
         assert response.json() == [
             {
                 "id": 7,
+                "event_id": 19,
                 "filename": "packet.pdf",
                 "title": "Council Meeting",
                 "date": "2026-04-17",
                 "city": "Springfield",
+                "url": "https://example.org/packet.pdf",
+                "summary": "Saved budget summary",
+                "topics": ["Budget"],
+                "related_ids": [8],
             }
         ]
     finally:

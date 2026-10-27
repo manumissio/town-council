@@ -64,14 +64,19 @@ def build_catalog_router(
         )
 
         catalog_summaries = []
-        for catalog, _doc, event, place in records:
+        for catalog, document, event, place in records:
             catalog_summaries.append(
                 {
                     "id": catalog.id,
+                    "event_id": event.id,
                     "filename": catalog.filename,
                     "title": event.name,
                     "date": event.record_date.isoformat() if event.record_date else None,
                     "city": place.display_name or place.name,
+                    "url": document.url,
+                    "summary": catalog.summary,
+                    "topics": catalog.topics,
+                    "related_ids": catalog.related_ids,
                 }
             )
         return catalog_summaries

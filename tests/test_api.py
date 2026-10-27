@@ -6,8 +6,9 @@ from sqlalchemy.pool import StaticPool
 from pytest_mock import MockerFixture
 from fastapi.testclient import TestClient
 from fastapi import HTTPException
-from datetime import UTC, datetime
+from datetime import UTC, date, datetime
 from itertools import count
+from http import HTTPStatus
 import sys
 import os
 from time import monotonic
@@ -1046,6 +1047,35 @@ def catalog_count_database(monkeypatch: pytest.MonkeyPatch) -> Iterator[Session]
             yield session
     finally:
         engine.dispose()
+
+
+def test_catalog_batch_returns_canonical_related_record(catalog_count_database: Session) -> None:
+    from pipeline.models import Catalog, Document, Event, Place
+
+    place = Place(name="related-city", display_name="Related City", state="CA", ocd_division_id="related-city")
+    event = Event(id=73, name="Related budget hearing", place=place, record_date=date(2026, 1, 1))
+    catalog = Catalog(id=42, filename="related.pdf", url_hash="related-record",
+                      summary="Saved related business", topics=["Budget"], related_ids=[41])
+    document = Document(event=event, place=place, catalog=catalog, url="https://example.org/related.pdf")
+    catalog_count_database.add(document)
+    catalog_count_database.commit()
+
+    response = client.get("/catalog/batch", params={"ids": 42})
+
+    assert response.status_code == HTTPStatus.OK
+    assert response.json() == [{
+        "id": 42,
+        "event_id": 73,
+        "filename": "related.pdf",
+        "title": "Related budget hearing",
+        "date": "2026-01-01",
+        "city": "Related City",
+        "url": "https://example.org/related.pdf",
+        "summary": "Saved related business",
+        "topics": ["Budget"],
+        "related_ids": [41],
+    }]
+    assert client.get("/catalog/batch", params={"ids": 999}).json() == []
 
 
 @pytest.mark.parametrize("segmentation_status,attempt_count,row_count", [
