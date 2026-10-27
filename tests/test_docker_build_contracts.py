@@ -21,7 +21,7 @@ ACTIVE_REQUIREMENT_PATHS = (
 SHARED_EXACT_CONSTRAINTS = {
     "beautifulsoup4": "4.15.0",
     "celery": "5.6.3",
-    "fastapi": "0.141.1",
+    "fastapi": "0.149.0",
     "httpx": "0.28.1",
     "meilisearch": "0.43.0",
     "prometheus-client": "0.26.0",
@@ -519,7 +519,7 @@ def test_worker_runtime_requirements_exclude_development_tooling():
 
     for package in (
         "pytest==9.1.1",
-        "pytest-mock==3.16.0",
+        "pytest-mock==3.17.0",
         "pytest-benchmark==5.3.0",
         "locust==2.33.0",
     ):
@@ -603,7 +603,7 @@ def test_batch_pdf_parser_uses_patched_pypdf():
     ]
 
     assert pypdf_requirement_paths == [batch_requirements_path]
-    assert batch_pypdf_requirements == ["pypdf==6.19.0"]
+    assert batch_pypdf_requirements == ["pypdf==6.21.2"]
 
 
 def test_bootstrap_and_runbook_use_semantic_image_for_semantic_artifacts():
