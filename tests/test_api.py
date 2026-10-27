@@ -6,14 +6,17 @@ from sqlalchemy.pool import StaticPool
 from pytest_mock import MockerFixture
 from fastapi.testclient import TestClient
 from fastapi import HTTPException
-from datetime import UTC, datetime
+from datetime import UTC, date, datetime
 from itertools import count
+from http import HTTPStatus
+from json import dumps
+from requests import Response
 import sys
 import os
 from time import monotonic
 from unittest.mock import MagicMock
 from kombu.exceptions import OperationalError
-from meilisearch.errors import MeilisearchCommunicationError, MeilisearchError, MeilisearchTimeoutError
+from meilisearch.errors import MeilisearchApiError, MeilisearchCommunicationError, MeilisearchError, MeilisearchTimeoutError
 from meilisearch.models.index import IndexStats
 
 # Add the project root to the path so we can import from api/main.py
@@ -43,6 +46,13 @@ DUBLIN_METADATA_FACETS = {
     }
 }
 METADATA_TEST_EPOCHS = count(start=monotonic() + 10_000.0, step=10_000.0)
+
+
+def _meilisearch_api_failure(error_code: str, status_code: int) -> MeilisearchApiError:
+    search_response = Response()
+    search_response.status_code = status_code
+    search_response._content = dumps({"message": "Search setup response", "code": error_code}).encode()
+    return MeilisearchApiError("Search setup response", search_response)
 
 
 @pytest.fixture
@@ -384,6 +394,50 @@ def test_search_generic_meilisearch_error_returns_500(mocker):
 
     assert response.status_code == 500
     assert response.json()["detail"] == "Internal search engine error"
+
+
+@pytest.mark.parametrize("query", ["", "housing"])
+def test_search_missing_index_returns_no_indexed_records(mocker: MockerFixture, query: str) -> None:
+    search_index = mocker.Mock()
+    search_index.search.side_effect = _meilisearch_api_failure("index_not_found", HTTPStatus.NOT_FOUND)
+    mocker.patch("api.search.support_core.client.index", return_value=search_index)
+
+    response = client.get("/search", params={"q": query})
+
+    assert response.status_code == HTTPStatus.OK
+    assert response.json()["hits"] == []
+    assert response.json()["estimatedTotalHits"] == 0
+
+
+def test_metadata_missing_index_does_not_hide_first_ingestion(
+    metadata_cache_runtime: tuple[list[float], MagicMock],
+) -> None:
+    _metadata_time, search_index = metadata_cache_runtime
+    search_index.search.side_effect = [
+        _meilisearch_api_failure("index_not_found", HTTPStatus.NOT_FOUND),
+        BERKELEY_METADATA_FACETS,
+    ]
+
+    empty_response = client.get("/metadata")
+    populated_response = client.get("/metadata")
+
+    assert empty_response.status_code == HTTPStatus.OK
+    assert empty_response.json() == {"cities": [], "city_options": [], "organizations": [], "meeting_types": []}
+    assert populated_response.status_code == HTTPStatus.OK
+    assert {city["value"] for city in populated_response.json()["city_options"]} == {"ca_berkeley", "ca_dublin"}
+
+
+@pytest.mark.parametrize("error_code", ["invalid_api_key", "invalid_search_filter"])
+def test_other_search_api_errors_are_not_empty_corpus(mocker: MockerFixture, error_code: str) -> None:
+    search_index = mocker.Mock()
+    search_index.search.side_effect = _meilisearch_api_failure(error_code, HTTPStatus.FORBIDDEN)
+    mocker.patch("api.search.support_core.client.index", return_value=search_index)
+
+    response = client.get("/search")
+
+    assert response.status_code == HTTPStatus.INTERNAL_SERVER_ERROR
+    assert "hits" not in response.json()
+
 
 def test_search_injection_protection(mocker):
     """
@@ -1046,6 +1100,35 @@ def catalog_count_database(monkeypatch: pytest.MonkeyPatch) -> Iterator[Session]
             yield session
     finally:
         engine.dispose()
+
+
+def test_catalog_batch_returns_canonical_related_record(catalog_count_database: Session) -> None:
+    from pipeline.models import Catalog, Document, Event, Place
+
+    place = Place(name="related-city", display_name="Related City", state="CA", ocd_division_id="related-city")
+    event = Event(id=73, name="Related budget hearing", place=place, record_date=date(2026, 1, 1))
+    catalog = Catalog(id=42, filename="related.pdf", url_hash="related-record",
+                      summary="Saved related business", topics=["Budget"], related_ids=[41])
+    document = Document(event=event, place=place, catalog=catalog, url="https://example.org/related.pdf")
+    catalog_count_database.add(document)
+    catalog_count_database.commit()
+
+    response = client.get("/catalog/batch", params={"ids": 42})
+
+    assert response.status_code == HTTPStatus.OK
+    assert response.json() == [{
+        "id": 42,
+        "event_id": 73,
+        "filename": "related.pdf",
+        "title": "Related budget hearing",
+        "date": "2026-01-01",
+        "city": "Related City",
+        "url": "https://example.org/related.pdf",
+        "summary": "Saved related business",
+        "topics": ["Budget"],
+        "related_ids": [41],
+    }]
+    assert client.get("/catalog/batch", params={"ids": 999}).json() == []
 
 
 @pytest.mark.parametrize("segmentation_status,attempt_count,row_count", [

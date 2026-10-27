@@ -1,6 +1,6 @@
 # Operations Runbook
 
-Last updated: 2026-10-21
+Last updated: 2026-10-27
 
 ## Core workflow
 
@@ -17,7 +17,7 @@ cd "$REPO_ROOT"
 ### 1) Start stack
 ```bash
 test -f .env || cp .env.example .env
-bash ./scripts/dev_up.sh
+STARTUP_PURGE_DERIVED=false bash ./scripts/dev_up.sh
 ```
 
 After upgrading a stack created before T-SEC-1, recreate the affected services
@@ -38,6 +38,8 @@ docker compose -f docker-compose.yml -f docker-compose.dev.yml up -d \
 ```
 
 Using the development overlay for the full stack also enables `STARTUP_PURGE_DERIVED=true`.
+The explicit `STARTUP_PURGE_DERIVED=false` override above disables that cleanup
+and preserves saved text and derived records when restarting an existing stack.
 
 M5 Pro MLX opt-in path:
 ```bash

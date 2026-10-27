@@ -14,6 +14,11 @@ import { renderToStaticMarkup } from "react-dom/server";
 const require = createRequire(import.meta.url);
 const COMPONENT_INTERACTION_TIMEOUT_MS = 2_000;
 const frontendModulePaths = [
+  "app/page.js",
+  "components/SearchHub.js",
+  "components/ui/tooltip.jsx",
+  "state/search-state.js",
+  "state/use-record-search.js",
   "components/ResultCard.js",
   "components/DataTable.js",
   "components/LineageTimeline.js",
@@ -24,7 +29,7 @@ const frontendModulePaths = [
   "lib/utils.js",
 ];
 const externalDependencies = [
-  "clsx", "isomorphic-dompurify", "lucide-react", "react", "react-dom", "tailwind-merge",
+  "clsx", "isomorphic-dompurify", "lucide-react", "react", "react-dom", "tailwind-merge", "@radix-ui/react-tooltip",
 ];
 const TEST_MEETING_HIT = {
   catalog_id: 42,
@@ -56,7 +61,7 @@ function configureModuleResolution(artifactRoot) {
   linkModule(path.join(artifactRoot, "lib"), path.join(artifactModules, "@/lib"));
 }
 
-function compileResultCard(testContext) {
+function compileResultCard(testContext, entryPath = "components/ResultCard.js") {
   const artifactRoot = fs.mkdtempSync(path.join(os.tmpdir(), "tc-result-card-render-"));
   testContext.after(() => fs.rmSync(artifactRoot, { recursive: true, force: true }));
   configureModuleResolution(artifactRoot);
@@ -78,7 +83,7 @@ function compileResultCard(testContext) {
     fs.mkdirSync(path.dirname(compiledModulePath), { recursive: true });
     fs.writeFileSync(compiledModulePath, compiledModule.code, "utf8");
   }
-  return require(path.join(artifactRoot, "components/ResultCard.js")).default;
+  return require(path.join(artifactRoot, entryPath)).default;
 }
 
 function createDeferred() {
@@ -93,6 +98,9 @@ function installDom() {
   const dom = new JSDOM('<!doctype html><html><body><div id="root"></div></body></html>', {
     url: "http://localhost/",
   });
+  // React was imported before this DOM, so its legacy input-event bridge is active.
+  dom.window.HTMLElement.prototype.attachEvent = () => {};
+  dom.window.HTMLElement.prototype.detachEvent = () => {};
   const browserGlobalNames = ["window", "document", "navigator", "HTMLElement", "Node", "Event"];
   const previousDescriptors = new Map(
     browserGlobalNames.map((globalName) => [
@@ -138,6 +146,228 @@ function findButton(container, label) {
     (button) => button.textContent.trim() === label,
   );
 }
+
+async function mountRelatedRecord(testContext, relatedReplies) {
+  const ResultCard = compileResultCard(testContext);
+  const { dom, restoreDom } = installDom();
+  testContext.mock.method(globalThis, "fetch", async (requestUrl) => {
+    const url = String(requestUrl);
+    if (url.includes("/catalog/batch?")) {
+      const reply = relatedReplies.shift();
+      if (reply instanceof Error) throw reply;
+      return reply;
+    }
+    if (url.includes("/catalog/42/content")) return jsonResponse({ content: "Meeting source text" });
+    if (url.includes("/catalog/42/derived_status")) return jsonResponse({});
+    throw new Error(`Unexpected request: ${url}`);
+  });
+  function NavigationProbe() {
+    const [selected, setSelected] = React.useState(null);
+    return React.createElement(React.Fragment, null,
+      React.createElement("output", null, selected ? `${selected.id}: ${selected.title}` : "No related record selected"),
+      React.createElement(ResultCard, { hit: { ...TEST_MEETING_HIT, related_ids: [43] }, onRelatedMeetingClick: setSelected }),
+    );
+  }
+  const container = dom.window.document.getElementById("root");
+  const root = createRoot(container);
+  testContext.after(async () => {
+    await act(async () => root.unmount());
+    restoreDom();
+  });
+  await act(async () => root.render(React.createElement(NavigationProbe)));
+  await act(async () => {
+    container.querySelector('button[title="Expand Document Text"]').click();
+    await flushAsyncWork();
+  });
+  return container;
+}
+
+test("View selects the exact related record for its parent", async (testContext) => {
+  const related = { id: 43, title: "Other business", date: "2026-01-01", city: "Other City" };
+  const container = await mountRelatedRecord(testContext, [jsonResponse([related])]);
+
+  await act(async () => findButton(container, "View").click());
+
+  assert.equal(container.querySelector("output").textContent, "43: Other business");
+});
+
+test("related record read failure explains the error and retry recovers", async (testContext) => {
+  const related = { id: 43, title: "Related hearing", date: "2026-01-01", city: "Other City" };
+  const container = await mountRelatedRecord(testContext, [
+    new TypeError("Related service unavailable"),
+    jsonResponse([related]),
+  ]);
+
+  assert.ok(container.textContent.includes("Related service unavailable"));
+  await act(async () => {
+    findButton(container, "Retry related meetings").click();
+    await flushAsyncWork();
+  });
+  assert.ok(container.textContent.includes("Related hearing"));
+  await act(async () => findButton(container, "View").click());
+  assert.equal(container.querySelector("output").textContent, "43: Related hearing");
+});
+
+test("a collapsed related read cannot replace the reopened record list", async (testContext) => {
+  const oldRead = createDeferred();
+  const reopenedRead = createDeferred();
+  const container = await mountRelatedRecord(testContext, [oldRead.promise, reopenedRead.promise]);
+  await act(async () => container.querySelector('button[title="Collapse Document"]').click());
+  await act(async () => {
+    container.querySelector('button[title="Expand Document Text"]').click();
+    await flushAsyncWork();
+    oldRead.resolve(jsonResponse([{ id: 43, title: "Obsolete related hearing" }]));
+    await flushAsyncWork();
+  });
+  assert.equal(container.textContent.includes("Obsolete related hearing"), false);
+  assert.equal(findButton(container, "View"), undefined);
+  await act(async () => {
+    reopenedRead.resolve(jsonResponse([{ id: 44, title: "Current related hearing" }]));
+    await flushAsyncWork();
+  });
+  assert.ok(container.textContent.includes("Current related hearing"));
+  assert.ok(findButton(container, "View"));
+});
+
+for (const scenario of [
+  { name: "HTTP failure", reply: { ok: false, status: 503, statusText: "Service Unavailable", json: async () => ({ detail: "Related service unavailable" }) }, message: "Related service unavailable" },
+  { name: "unreadable payload", reply: jsonResponse({ meetings: [] }), message: "Related meetings response is unreadable." },
+  { name: "missing record identity", reply: jsonResponse([{ title: "Unknown record" }]), message: "Related meetings response is unreadable." },
+  { name: "empty batch", reply: jsonResponse([]), message: "No related meetings are available." },
+]) {
+  test(`related meetings explain ${scenario.name} without a View action`, async (testContext) => {
+    const container = await mountRelatedRecord(testContext, [scenario.reply]);
+    assert.ok(container.textContent.includes(scenario.message));
+    assert.equal(findButton(container, "View"), undefined);
+  });
+}
+
+test("a selected related record opens its canonical content immediately", async (testContext) => {
+  const ResultCard = compileResultCard(testContext);
+  const { dom, restoreDom } = installDom();
+  testContext.mock.method(globalThis, "fetch", async requestUrl => {
+    if (String(requestUrl).includes("/content")) return jsonResponse({ content: "Canonical related hearing text" });
+    if (String(requestUrl).includes("/derived_status")) return jsonResponse({});
+    throw new Error(`Unexpected request: ${requestUrl}`);
+  });
+  const container = dom.window.document.getElementById("root");
+  const root = createRoot(container);
+  testContext.after(async () => {
+    await act(async () => root.unmount());
+    restoreDom();
+  });
+  await act(async () => {
+    root.render(React.createElement(ResultCard, { hit: TEST_MEETING_HIT, initiallyExpanded: true }));
+    await flushAsyncWork();
+  });
+  assert.ok(container.textContent.includes("Canonical related hearing text"));
+});
+
+test("home opens the batch record with separate catalog and event ownership, then returns to search", async (testContext) => {
+  const Home = compileResultCard(testContext, "app/page.js");
+  const { dom, restoreDom } = installDom();
+  const related = {
+    id: 43, event_id: 91, title: "Related budget hearing", filename: "related.pdf",
+    date: "2026-01-01", city: "Other City", url: "https://example.org/related.pdf",
+    summary: "Saved related budget business", topics: ["Budget"], related_ids: [],
+  };
+  let reportedEvent;
+  testContext.mock.method(globalThis, "fetch", async (requestUrl, options) => {
+    const url = String(requestUrl);
+    if (url.endsWith("/metadata")) return jsonResponse({ cities: ["Test City"] });
+    if (url.endsWith("/search/capabilities")) return jsonResponse({ semantic_enabled: false });
+    if (url.includes("/search?")) return jsonResponse({ hits: [{ ...TEST_MEETING_HIT, related_ids: [43] }], estimatedTotalHits: 1 });
+    if (url.includes("/catalog/batch?")) return jsonResponse([related]);
+    if (url.includes("/catalog/42/content")) return jsonResponse({ content: "Original meeting source text" });
+    if (url.includes("/catalog/43/content")) return jsonResponse({ content: "Canonical related budget source" });
+    if (/\/catalog\/(42|43)\/derived_status$/.test(url)) return jsonResponse({});
+    if (url === "/api/report-issue") {
+      reportedEvent = JSON.parse(options.body).event_id;
+      return jsonResponse({ detail: "Recorded" });
+    }
+    throw new Error(`Unexpected request: ${url}`);
+  });
+  const container = dom.window.document.getElementById("root");
+  const root = createRoot(container);
+  testContext.after(async () => { await act(async () => root.unmount()); restoreDom(); });
+  await act(async () => root.render(React.createElement(Home)));
+  await act(async () => { await new Promise(resolve => setTimeout(resolve, 450)); });
+  await act(async () => {
+    container.querySelector('button[title="Expand Document Text"]').click();
+    await flushAsyncWork();
+  });
+  const view = container.querySelector('button[aria-label="View related meeting: Related budget hearing"]');
+  assert.ok(view, "Home must wire the existing related View action");
+  await act(async () => { view.click(); await flushAsyncWork(); });
+  assert.ok(container.textContent.includes("Canonical related budget source"));
+  assert.equal(container.querySelector("h2").textContent, related.title);
+  assert.equal(container.querySelector('a[title="Open source document"]').href, related.url);
+  assert.equal(container.querySelector('input[type="search"]'), null);
+  assert.equal(container.textContent.includes("Estimated matching records:"), false);
+  await act(async () => container.querySelector('button[title="Report Data Error"]').click());
+  await act(async () => { findButton(container, "Wrong City").click(); await flushAsyncWork(); });
+  assert.equal(reportedEvent, related.event_id);
+  await act(async () => { await new Promise(resolve => setTimeout(resolve, 3100)); });
+  await act(async () => { findButton(container, "Back to search results").click(); await flushAsyncWork(); });
+  assert.ok(container.querySelector('input[type="search"]'));
+  assert.ok(container.textContent.includes(TEST_MEETING_HIT.event_name));
+  assert.equal(container.textContent.includes("Related budget hearing"), false);
+});
+
+test("meeting cards preserve calendar dates across viewer timezones", (testContext) => {
+  const ResultCard = compileResultCard(testContext);
+  const calendarDates = [
+    ["2021-05-10", "May 10, 2021"],
+    ["2020-05-27", "May 27, 2020"],
+    ["2026-01-01", "January 1, 2026"],
+    ["2024-02-29", "February 29, 2024"],
+    [null, "Unknown Date"],
+  ];
+
+  for (const [date, displayedDate] of calendarDates) {
+    const markup = renderToStaticMarkup(
+      React.createElement(ResultCard, { hit: { ...TEST_MEETING_HIT, date } }),
+    );
+    assert.ok(markup.includes(displayedDate), `Expected calendar date: ${displayedDate}`);
+  }
+});
+
+test("related meetings preserve their calendar dates across viewer timezones", async (testContext) => {
+  const ResultCard = compileResultCard(testContext);
+  const { dom, restoreDom } = installDom();
+  const relatedMeetings = [
+    { id: 43, title: "Related hearing", date: "2021-05-10", city: "Test City" },
+    { id: 44, title: "Related workshop", date: "2020-05-27", city: "Test City" },
+    { id: 45, title: "New year meeting", date: "2026-01-01", city: "Test City" },
+    { id: 46, title: "Leap day meeting", date: "2024-02-29", city: "Test City" },
+  ];
+  testContext.mock.method(globalThis, "fetch", async (requestUrl) => {
+    const url = String(requestUrl);
+    if (url.includes("/catalog/batch?")) return jsonResponse(relatedMeetings);
+    if (url.includes("/catalog/42/content")) return jsonResponse({ content: "Meeting source text" });
+    if (url.includes("/catalog/42/derived_status")) return jsonResponse({});
+    throw new Error(`Unexpected request: ${url}`);
+  });
+  const container = dom.window.document.getElementById("root");
+  const root = createRoot(container);
+  testContext.after(async () => {
+    await act(async () => root.unmount());
+    restoreDom();
+  });
+  await act(async () => {
+    root.render(React.createElement(ResultCard, {
+      hit: { ...TEST_MEETING_HIT, related_ids: relatedMeetings.map(meeting => meeting.id) },
+    }));
+  });
+  await act(async () => {
+    container.querySelector('button[title="Expand Document Text"]').click();
+    await flushAsyncWork();
+  });
+
+  for (const displayedDate of ["May 10, 2021", "May 27, 2020", "Jan 1, 2026", "Feb 29, 2024"]) {
+    assert.ok(container.textContent.includes(displayedDate), `Expected related date: ${displayedDate}`);
+  }
+});
 
 test("people projection does not render meeting-card affordances", (testContext) => {
   const ResultCard = compileResultCard(testContext);

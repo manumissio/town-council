@@ -21,6 +21,7 @@ import textFormatter from "../lib/textFormatter";
 const { renderFormattedExtractedText } = textFormatter;
 const AI_DISCLAIMER_TEXT = "AI-generated content may be incomplete or inaccurate. Verify against source documents.";
 const AGENDA_DISCLAIMER_TEXT = "Agenda items may be incomplete or inaccurate. Verify against the source document.";
+const RELATED_RECORD_RESPONSE_ERROR = "Related meetings response is unreadable.";
 
 /**
  * ResultCard Component
@@ -28,7 +29,7 @@ const AGENDA_DISCLAIMER_TEXT = "Agenda items may be incomplete or inaccurate. Ve
  * DESIGN: Uses a tabbed interface for Full Text, AI Summary, and Structured Agenda.
  * All AI features are "On-Demand" to minimize API costs and respect rate limits.
  */
-export default function ResultCard({ hit, onTopicClick }) {
+export default function ResultCard({ hit, onTopicClick, onRelatedMeetingClick, initiallyExpanded = false }) {
   const activePollStopsRef = useRef([]);
   const recordLifetimeRef = useRef(null);
   useEffect(() => {
@@ -36,7 +37,7 @@ export default function ResultCard({ hit, onTopicClick }) {
     recordLifetimeRef.current = controller;
     return () => controller.abort();
   }, []);
-  const [isExpanded, setIsExpanded] = useState(false);
+  const [isExpanded, setIsExpanded] = useState(initiallyExpanded);
   const [viewMode, setViewMode] = useState("text"); // 'text', 'summary', 'agenda'
   
   const [summary, setSummary] = useState(hit.summary);
@@ -47,6 +48,8 @@ export default function ResultCard({ hit, onTopicClick }) {
   const [isLoadingAgendaItems, setIsLoadingAgendaItems] = useState(false);
   const [agendaLoadError, setAgendaLoadError] = useState(null);
   const [relatedMeetings, setRelatedMeetings] = useState(null);
+  const [relatedLoadError, setRelatedLoadError] = useState(null);
+  const [relatedRetryVersion, setRelatedRetryVersion] = useState(0);
   const [isGenerating, setIsGenerating] = useState(false);
   const [isTaggingTopics, setIsTaggingTopics] = useState(false);
   const [isSegmenting, setIsSegmenting] = useState(false);
@@ -147,10 +150,11 @@ export default function ResultCard({ hit, onTopicClick }) {
 
   // Fetch related meetings when expanded
   useEffect(() => {
-    if (isExpanded && hit.related_ids && hit.related_ids.length > 0 && !relatedMeetings) {
-      fetchRelatedMeetings();
-    }
-  }, [isExpanded, hit.related_ids]);
+    if (!isExpanded || !hit.related_ids?.length || relatedMeetings !== null) return;
+    const controller = new AbortController();
+    void fetchRelatedMeetings(controller.signal);
+    return () => controller.abort();
+  }, [isExpanded, hit.related_ids, relatedMeetings, relatedRetryVersion]);
 
   // Fetch derived staleness status (summary/topics) when expanded so the UI can
   // show "stale" badges after a re-extraction.
@@ -253,21 +257,25 @@ export default function ResultCard({ hit, onTopicClick }) {
     }
   };
 
-  const fetchRelatedMeetings = async () => {
+  const fetchRelatedMeetings = async (signal) => {
     setIsLoadingRelated(true);
+    setRelatedLoadError(null);
     try {
       const params = new URLSearchParams();
       hit.related_ids.forEach(id => params.append('ids', id));
       
       const res = await fetch(buildApiUrl(`/catalog/batch?${params.toString()}`), {
-        headers: getApiHeaders({ useAuth: canMutate })
+        headers: getApiHeaders({ useAuth: canMutate }), signal,
       });
-      const data = await res.json();
-      setRelatedMeetings(data);
+      const meetings = await readJsonResponse(res, "Load related meetings");
+      if (!Array.isArray(meetings) || !meetings.every(meeting => meeting && Number.isInteger(meeting.id) && meeting.id > 0 && typeof meeting.title === "string")) {
+        throw new Error(RELATED_RECORD_RESPONSE_ERROR);
+      }
+      if (!signal.aborted) setRelatedMeetings(meetings);
     } catch (err) {
-      console.error("Failed to fetch related meetings", err);
+      if (!signal.aborted) setRelatedLoadError(err instanceof Error ? err.message : RELATED_RECORD_RESPONSE_ERROR);
     } finally {
-      setIsLoadingRelated(false);
+      if (!signal.aborted) setIsLoadingRelated(false);
     }
   };
 
@@ -515,7 +523,7 @@ export default function ResultCard({ hit, onTopicClick }) {
                 </>
               )}
               <span className="inline-flex items-center gap-1.5">
-                <Calendar className="w-4 h-4 text-gray-400" /> {hit.date ? new Date(hit.date).toLocaleDateString(undefined, { dateStyle: 'long' }) : "Unknown Date"}
+                <Calendar className="w-4 h-4 text-gray-400" /> {hit.date ? new Date(hit.date).toLocaleDateString(undefined, { dateStyle: 'long', timeZone: 'UTC' }) : "Unknown Date"}
               </span>
               {!isAgendaItem && (
                 <span className="inline-flex min-w-0 items-center gap-1.5 opacity-75">
@@ -1095,17 +1103,28 @@ export default function ResultCard({ hit, onTopicClick }) {
                   <div className="flex items-center gap-2 text-xs text-gray-400 italic">
                     <Loader2 className="w-3 h-3 animate-spin" /> Finding similar meetings...
                   </div>
+                ) : relatedLoadError ? (
+                  <div role="alert" className="text-xs text-amber-800">
+                    <p>{relatedLoadError}</p>
+                    <button className="underline" onClick={() => setRelatedRetryVersion(version => version + 1)}>Retry related meetings</button>
+                  </div>
+                ) : relatedMeetings?.length === 0 ? (
+                  <p className="text-xs text-gray-500">No related meetings are available.</p>
                 ) : relatedMeetings && (
                   <div className="grid gap-3">
                     {relatedMeetings.map((related) => (
                       <div key={related.id} className="flex items-center justify-between p-3 bg-gray-50/50 hover:bg-blue-50/50 rounded-xl border border-gray-100 transition-colors group/rel">
                         <div className="flex flex-col gap-0.5">
                           <span className="text-[13px] font-bold text-gray-800 group-hover/rel:text-blue-700 transition-colors">{related.title}</span>
-                          <span className="text-[11px] text-gray-500 font-medium">{related.city} • {new Date(related.date).toLocaleDateString(undefined, { dateStyle: 'medium' })}</span>
+                          <span className="text-[11px] text-gray-500 font-medium">{related.city} • {new Date(related.date).toLocaleDateString(undefined, { dateStyle: 'medium', timeZone: 'UTC' })}</span>
                         </div>
-                        <button className="text-[10px] font-black uppercase text-blue-600 opacity-0 group-hover/rel:opacity-100 transition-opacity flex items-center gap-1">
+                        {onRelatedMeetingClick && <button
+                          onClick={() => onRelatedMeetingClick(related)}
+                          aria-label={`View related meeting: ${related.title}`}
+                          className="text-[10px] font-black uppercase text-blue-600 flex items-center gap-1"
+                        >
                           View <ChevronDown className="w-3 h-3 -rotate-90" />
-                        </button>
+                        </button>}
                       </div>
                     ))}
                   </div>
