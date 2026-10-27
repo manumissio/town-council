@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { Database, Github, Info, Loader2 } from "lucide-react";
 
 import SearchHub from "../components/SearchHub";
@@ -41,6 +41,25 @@ function HomeContent() {
   const [metadataVersion, setMetadataVersion] = useState(0);
   const [semanticEnabled, setSemanticEnabled] = useState(false);
   const [capabilityError, setCapabilityError] = useState("");
+  const [selectedRecord, setSelectedRecord] = useState(null);
+  const selectedRecordRef = useRef(null);
+
+  useEffect(() => {
+    if (selectedRecord) selectedRecordRef.current?.focus();
+  }, [selectedRecord]);
+
+  const openRelatedMeeting = (related) => {
+    setSelectedRecord({
+      ...related,
+      catalog_id: related.id,
+      event_name: related.title,
+    });
+  };
+
+  const searchTopic = (topic) => {
+    setSelectedRecord(null);
+    setQuery(topic);
+  };
 
   useEffect(() => {
     const controller = new AbortController();
@@ -65,6 +84,7 @@ function HomeContent() {
   }, [metadataVersion, demoMode]);
 
   const resetApp = () => {
+    setSelectedRecord(null);
     setQuery("");
     setCityFilter("");
     setMeetingTypeFilter("");
@@ -107,6 +127,18 @@ function HomeContent() {
         </header>
 
         <main className="flex-1">
+          {selectedRecord ? (
+            <section ref={selectedRecordRef} tabIndex={-1} aria-label="Related meeting" className="max-w-5xl mx-auto px-4 py-12 space-y-6">
+              <button className="text-sm font-semibold text-blue-600 underline" onClick={() => setSelectedRecord(null)}>Back to search results</button>
+              <ResultCard
+                key={selectedRecord.catalog_id}
+                hit={selectedRecord}
+                initiallyExpanded
+                onTopicClick={searchTopic}
+                onRelatedMeetingClick={openRelatedMeeting}
+              />
+            </section>
+          ) : <>
           {/* Hero / Search Unit */}
           <SearchHub 
             availableCities={availableCities} availableOrgs={availableOrgs}
@@ -158,7 +190,8 @@ function HomeContent() {
                   <ResultCard 
                     key={hit.id} 
                     hit={hit} 
-                    onTopicClick={(topic) => setQuery(topic)}
+                    onTopicClick={searchTopic}
+                    onRelatedMeetingClick={openRelatedMeeting}
                   />
                 ))}
 
@@ -208,6 +241,7 @@ function HomeContent() {
               </div>
             </div>
           </div>
+          </>}
         </main>
 
         <footer className="bg-white border-t border-gray-200 py-12 mt-12">
