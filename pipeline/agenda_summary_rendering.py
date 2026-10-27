@@ -1,7 +1,12 @@
 import re
 
 from pipeline.agenda_summary_items import coerce_agenda_summary_item
-from pipeline.agenda_summary_scaffold import AgendaSummaryScaffold, build_agenda_summary_scaffold
+from pipeline.agenda_summary_scaffold import (
+    REQUESTED_ACTION_SOURCE_NOTICE,
+    SOURCE_EXTRACT_NOTICE,
+    AgendaSummaryScaffold,
+    build_agenda_summary_scaffold,
+)
 from pipeline.text_generation import (
     normalize_bullets_to_dash,
     strip_llm_acknowledgements,
@@ -55,9 +60,7 @@ def ensure_single_item_decision_section(text: str, scaffold: AgendaSummaryScaffo
     if DECISION_ACTION_HEADER_RE.search(value):
         return value
 
-    actions = scaffold.get("top_actions", [])
-    default_line = actions[0] if actions else "The agenda focuses on one primary action item."
-    block = f"Decision/action requested:\n- {default_line}\n"
+    block = f"Decision/action requested:\n- {REQUESTED_ACTION_SOURCE_NOTICE}\n"
     if TOP_ACTIONS_HEADER_RE.search(value):
         return TOP_ACTIONS_HEADER_RE.sub(block + "Top actions:", value, count=1)
     return value + "\n" + block
@@ -89,14 +92,14 @@ def _render_scaffold_summary(scaffold: AgendaSummaryScaffold, max_bullets: int) 
     output_lines = [
         f"BLUF: {scaffold.get('bluf_seed', 'Agenda summary unavailable.')}",
         "Why this matters:",
-        f"- {scaffold.get('why_this_matters', 'This agenda includes planned council actions.')}",
+        f"- {scaffold.get('why_this_matters', SOURCE_EXTRACT_NOTICE)}",
         "Top actions:",
     ]
     output_lines.extend(f"- {item}" for item in shown) if shown else output_lines.append(
-        "- No substantive actions were retained after filtering."
+        "- No items were retained after filtering."
     )
     if scaffold.get("single_item_mode"):
-        output_lines.extend(["Decision/action requested:", f"- {(shown[0] if shown else 'The agenda focuses on one primary action item.')}"])
+        output_lines.extend(["Decision/action requested:", f"- {REQUESTED_ACTION_SOURCE_NOTICE}"])
 
     impacts = scaffold.get("potential_impacts", {})
     output_lines.extend(
