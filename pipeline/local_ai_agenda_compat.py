@@ -3,6 +3,15 @@ from __future__ import annotations
 from collections.abc import Sequence
 from typing import Any
 
+from pipeline.agenda_summary_items import agenda_items_source_text, coerce_agenda_summary_item
+from pipeline.agenda_summary_scaffold import (
+    IMPACT_NOT_ASSESSED,
+    SOURCE_EXTRACT_NOTICE,
+    build_extracted_item_count_text,
+    build_extracted_item_unknowns,
+    extract_money_snippets,
+)
+
 
 def agenda_items_summary_is_too_short(text: str) -> bool:
     """
@@ -43,34 +52,25 @@ def deterministic_agenda_items_summary(
         page_suffix = f" (p.{page_number})" if page_number else ""
         action_lines.append(f"{title}{page_suffix}" if not description else f"{title}{page_suffix}: {description}")
 
-    output_lines = [f"BLUF: Agenda includes {total_items} substantive item{'s' if total_items != 1 else ''}."]
+    structured_items = [coerce_agenda_summary_item(item, idx=index) for index, item in enumerate(items or [])]
+    money_refs = extract_money_snippets(agenda_items_source_text(structured_items))
+    output_lines = [f"BLUF: {build_extracted_item_count_text(total_items, money_refs)}"]
     output_lines.append("Why this matters:")
-    output_lines.append(
-        "- The agenda indicates upcoming decisions with potential fiscal, policy, or procedural effects."
-    )
+    output_lines.append(f"- {SOURCE_EXTRACT_NOTICE}")
     output_lines.append("Top actions:")
     if action_lines:
         output_lines.extend(f"- {action}" for action in action_lines)
     else:
-        output_lines.append("- No substantive actions were retained after filtering.")
+        output_lines.append("- No items were retained after filtering.")
     overflow_count = max(total_items - len(action_lines), 0)
     if overflow_count:
         output_lines.append(f"- (+{overflow_count} more)")
     output_lines.append("Potential impacts:")
-    output_lines.append("- Budget: Potential fiscal impact is not clearly stated in the agenda text.")
-    output_lines.append(
-        "- Policy: Potential policy or regulatory implications are not fully specified in the agenda text."
-    )
-    output_lines.append(
-        "- Process: The agenda indicates scheduled consideration; final outcomes are not yet available."
-    )
+    output_lines.append(f"- Budget: {IMPACT_NOT_ASSESSED}")
+    output_lines.append(f"- Policy: {IMPACT_NOT_ASSESSED}")
+    output_lines.append(f"- Process: {IMPACT_NOT_ASSESSED}")
     output_lines.append("Unknowns:")
-    if truncation_meta and (truncation_meta.get("items_truncated") or 0) > 0:
-        output_lines.append(
-            f"- Summary generated from first {truncation_meta.get('items_included', 0)} of "
-            f"{truncation_meta.get('items_total', 0)} agenda items due to context limits."
-        )
-    else:
-        output_lines.append("- Specific dollar amounts are not clearly disclosed across the listed items.")
-    output_lines.append("- Vote outcomes are not provided in agenda-stage records.")
+    output_lines.extend(
+        f"- {unknown}" for unknown in build_extracted_item_unknowns(structured_items, money_refs, truncation_meta)
+    )
     return "\n".join(output_lines).strip()

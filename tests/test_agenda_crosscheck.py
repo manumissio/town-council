@@ -21,7 +21,7 @@ def test_parse_eagenda_items_from_html_extracts_numbered_sections():
     assert items[1]["title"] == "Budget Amendment for FY 2026"
 
 
-def test_merge_ai_with_eagenda_prefers_structured_html_when_rich():
+def test_merge_ai_with_eagenda_does_not_replace_fallback_by_count():
     ai_items = [
         {"order": 1, "title": "Special Closed Meeting 10/03/11"},
         {"order": 2, "title": "state of emergency continues ..."},
@@ -33,8 +33,21 @@ def test_merge_ai_with_eagenda_prefers_structured_html_when_rich():
     ]
 
     merged = merge_ai_with_eagenda(ai_items, eagenda_items)
-    assert len(merged) == 3
-    assert merged[0]["title"] == "Public Employee Appointments"
+    assert [item["title"] for item in merged] == [
+        "Special Closed Meeting 10/03/11",
+        "state of emergency continues ...",
+        "Public Employee Appointments",
+        "Budget Amendment for FY 2026",
+        "Director of Police Accountability",
+    ]
+
+
+def test_merge_ai_with_eagenda_retains_partial_items_without_duplicate_titles():
+    merged = merge_ai_with_eagenda(
+        [{"title": "Approve Housing Plan"}],
+        [{"title": "approve housing plan"}, {"title": "Fund Park Renovations"}],
+    )
+    assert [item["title"] for item in merged] == ["Approve Housing Plan", "Fund Park Renovations"]
 
 
 def test_extract_text_lines_strips_script_style_and_noscript_content():

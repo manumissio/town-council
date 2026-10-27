@@ -105,15 +105,12 @@ def merge_ai_with_eagenda(
     eagenda_items: list[AgendaItemRecord] | None,
 ) -> list[AgendaItemRecord]:
     """
-    Merge strategy:
-    - If eAgenda parsed at least 3 items, treat it as authoritative.
-    - Otherwise, keep AI items and append non-duplicate eAgenda items.
+    Retain fallback items and append non-duplicate, caller-qualified HTML items.
+
+    The resolver owns source acceptance; a merge must not reverse its decision.
     """
     ai_items = ai_items or []
     eagenda_items = eagenda_items or []
-
-    if len(eagenda_items) >= 3:
-        return eagenda_items
 
     merged: list[AgendaItemRecord] = []
     seen_titles = set()

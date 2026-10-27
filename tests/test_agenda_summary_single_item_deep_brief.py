@@ -1,3 +1,18 @@
+def test_single_item_fallback_does_not_present_webinar_title_as_requested_action():
+    from pipeline.agenda_summary_rendering import deterministic_agenda_items_summary
+
+    title = "Less Traffic, Better Places: How Do We Get There?"
+    summary = deterministic_agenda_items_summary(
+        [{"title": title, "description": "Webinar registration and a sustainability presentation."}],
+        max_bullets=25, truncation_meta=None, profile="decision_brief",
+        min_item_desc_chars=20, single_item_mode="deep_brief",
+    )
+    decision_section = summary.split("Decision/action requested:", 1)[1].split("Potential impacts:", 1)[0]
+    assert title in summary
+    assert title not in decision_section
+    assert "source" in decision_section.lower()
+
+
 def test_single_item_summary_includes_decision_action_section(monkeypatch):
     from pipeline.llm import LocalAI
 

@@ -12,9 +12,9 @@ MONEY_SNIPPET_RE = re.compile(
     r"\$\s?\d[\d,]*(?:\.\d{2})?(?:\s*(?:million|billion|thousand|m|k))?",
     flags=re.IGNORECASE,
 )
-BUDGET_SIGNAL_WORDS = ("budget", "fund", "appropriation", "contract", "grant", "cost")
-POLICY_SIGNAL_WORDS = ("ordinance", "resolution", "zoning", "amendment", "permit", "policy")
-PROCESS_SIGNAL_WORDS = ("hearing", "appeal", "review", "consider", "adopt", "approve")
+SOURCE_EXTRACT_NOTICE = "This is an extract of the listed items, not a decision or impact assessment."
+IMPACT_NOT_ASSESSED = "Not assessed by this extract. Check the source."
+REQUESTED_ACTION_SOURCE_NOTICE = "Check the source text for any requested action."
 
 
 def extract_money_snippets(text: str) -> list[str]:
@@ -38,8 +38,8 @@ def _combined_item_text(items: list[AgendaSummaryItem]) -> str:
     ).strip()
 
 
-def _bluf_seed(total_items: int, money_refs: list[str]) -> str:
-    bluf = f"Agenda includes {total_items} substantive item{'s' if total_items != 1 else ''}."
+def build_extracted_item_count_text(total_items: int, money_refs: list[str]) -> str:
+    bluf = f"Extracted {total_items} item{'s' if total_items != 1 else ''} from the document."
     if money_refs:
         bluf += f" Mentioned monetary figures include {', '.join(money_refs[:2])}."
     return bluf.strip()
@@ -63,55 +63,39 @@ def _top_action_lines(
     return top_actions[:max_bullets]
 
 
-def _potential_impacts(combined_text: str, money_refs: list[str]) -> PotentialImpacts:
-    potential_impacts = {
-        "budget": "Potential fiscal impact is not clearly stated in the agenda text.",
-        "policy": "Potential policy or regulatory implications are not fully specified in the agenda text.",
-        "process": "The agenda indicates scheduled consideration; final outcomes are not yet available.",
+def _potential_impacts() -> PotentialImpacts:
+    # Keywords in a title do not establish consequences or a requested decision.
+    return {
+        "budget": IMPACT_NOT_ASSESSED,
+        "policy": IMPACT_NOT_ASSESSED,
+        "process": IMPACT_NOT_ASSESSED,
     }
-    lowered = combined_text.lower()
-    if money_refs or any(word in lowered for word in BUDGET_SIGNAL_WORDS):
-        potential_impacts["budget"] = "Budget/funding considerations appear likely based on the agenda language."
-    if any(word in lowered for word in POLICY_SIGNAL_WORDS):
-        potential_impacts["policy"] = "Policy/regulatory changes may be considered based on listed agenda items."
-    if any(word in lowered for word in PROCESS_SIGNAL_WORDS):
-        potential_impacts["process"] = "The meeting is positioned for formal review/consideration actions."
-    return potential_impacts
 
 
-def _unknowns(
+def build_extracted_item_unknowns(
     items: list[AgendaSummaryItem],
     money_refs: list[str],
     truncation_meta: dict[str, int] | None,
 ) -> list[str]:
     unknowns = []
     if not money_refs:
-        unknowns.append("Specific dollar amounts are not clearly disclosed across the listed items.")
+        unknowns.append("No monetary amount was supplied in the extracted item fields.")
     if not any(normalize_spaces(item.get("result", "")) for item in items):
-        unknowns.append("Vote outcomes are not provided in agenda-stage records.")
+        unknowns.append("No result was supplied in the extracted item fields.")
     if truncation_meta and (truncation_meta.get("items_truncated") or 0) > 0:
         unknowns.append(
             f"Summary generated from first {truncation_meta.get('items_included', 0)} of "
             f"{truncation_meta.get('items_total', 0)} agenda items due to context limits."
         )
-    return unknowns or ["Some details remain unspecified in agenda-stage text."]
+    return unknowns or ["Read the source for context beyond these item fields."]
 
 
 def _why_this_matters(*, profile: str, single_item_mode: bool, titles: list[str]) -> str:
     if single_item_mode and titles:
-        return (
-            f"The meeting appears centered on a single high-priority decision: {titles[0]}. "
-            "This can concentrate policy attention and public scrutiny on one action item."
-        )
+        return f"One item was extracted. {SOURCE_EXTRACT_NOTICE}"
     if profile == "risk_first":
-        return (
-            "The agenda suggests decisions with potential downstream risk and compliance impacts. "
-            "Focus on where action language is specific and where details remain undefined."
-        )
-    return (
-        "The agenda indicates upcoming decisions with potential fiscal, policy, or procedural effects. "
-        "Residents should focus on listed action items and stated recommendations."
-    )
+        return f"{SOURCE_EXTRACT_NOTICE} Risks have not been assessed."
+    return SOURCE_EXTRACT_NOTICE
 
 
 def build_agenda_summary_scaffold(
@@ -129,7 +113,7 @@ def build_agenda_summary_scaffold(
     money_refs = extract_money_snippets(combined_text)
     is_single_item_mode = bool(total_items == 1 and single_item_mode == "deep_brief")
     return {
-        "bluf_seed": _bluf_seed(total_items, money_refs),
+        "bluf_seed": build_extracted_item_count_text(total_items, money_refs),
         "why_this_matters": _why_this_matters(
             profile=profile,
             single_item_mode=is_single_item_mode,
@@ -140,7 +124,7 @@ def build_agenda_summary_scaffold(
             max_bullets=max_bullets,
             min_item_desc_chars=min_item_desc_chars,
         ),
-        "potential_impacts": _potential_impacts(combined_text, money_refs),
-        "unknowns": _unknowns(items, money_refs, truncation_meta),
+        "potential_impacts": _potential_impacts(),
+        "unknowns": build_extracted_item_unknowns(items, money_refs, truncation_meta),
         "single_item_mode": is_single_item_mode,
     }

@@ -1,6 +1,6 @@
 # Town Council Pipeline Guide
 
-Last updated: 2026-10-26
+Last updated: 2026-10-27
 
 ## 1) Purpose and Boundaries
 
@@ -177,6 +177,10 @@ Missing or ambiguous identity uses the existing source-content fallback;
 structured-source item thresholds are unchanged. Participation and notice
 headings are excluded without rejecting business merely for discussing public
 records, accessibility, or participation policy.
+Source acceptance belongs to the resolver. HTML that fails its quality check
+cannot become authoritative later just because several headings were parsed.
+A quality-qualified partial HTML source may still supplement fallback items;
+the existing portal-noise filter and title deduplication apply to that supplement.
 Other Legistar matters retain their source IDs even when their
 titles resemble scaffolding or contain street addresses. A source ID is not,
 by itself, proof of the correct meeting, extraction method, or source page.
@@ -187,6 +191,15 @@ The UI keeps a verification warning and the original document link, but omits
 item-level page links until their relationship to the physical source is
 established. Existing stored text and page numbers are not rewritten by this
 display correction.
+
+The mixed text-extraction branch reports `source_used=text_fallback` in task
+results. It may contain model output, heuristic recovery, or qualified HTML
+supplements. `llm_fallback_invoked` records an attempted extraction path, not
+proof that model generation succeeded. Deterministic summaries retain extracted
+titles and descriptions without inferring priority, decisions, or impacts from
+item counts or keywords. Missing extracted fields are not evidence that the
+source document omits those facts. Interactive and maintenance summaries share
+this wording while retaining their existing output limits.
 
 When segmentation uses the text fallback, item numbers and source record IDs
 identify business boundaries. Mastheads and introduced attendance, quorum, and

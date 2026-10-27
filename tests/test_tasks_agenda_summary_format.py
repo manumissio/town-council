@@ -300,6 +300,9 @@ def test_maintenance_agenda_summary_is_deterministic_and_runs_side_effects(
 
     assert summary_result["status"] == "complete"
     assert summary_result["completion_mode"] == "agenda_deterministic"
+    assert "upcoming decisions" not in summary_result["summary"]
+    assert "scheduled consideration" not in summary_result["summary"]
+    assert "Extracted" in summary_result["summary"]
     db_session.expire_all()
     refreshed = db_session.get(Catalog, catalog.id)
     assert refreshed.summary.startswith("BLUF:")

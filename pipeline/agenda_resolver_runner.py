@@ -24,6 +24,7 @@ from pipeline.agenda_resolver_contracts import (
 HTML_ACCEPTANCE_MIN_ITEMS = 2
 HTML_ACCEPTANCE_MIN_SCORE = 55
 CANCELLATION_NOTICE_SOURCE = "cancellation_notice"
+TEXT_FALLBACK_SOURCE = "text_fallback"
 
 
 def has_viable_structured_agenda_source(
@@ -78,6 +79,7 @@ def resolve_agenda_items(
             legistar_accepted=False,
         )
     html_items = html_loader(session, catalog, doc)
+    html_quality_score = quality_scorer(html_items) if html_items else 0
     legistar_client, event_date, source_url = _legistar_event_context(doc)
     legistar_items = legistar_fetcher(legistar_client, event_date, event_source_url=source_url)
     filtered_legistar_items = legistar_filter(legistar_items)
@@ -106,11 +108,11 @@ def resolve_agenda_items(
             legistar_accepted=True,
         )
 
-    if len(html_items) >= HTML_ACCEPTANCE_MIN_ITEMS and quality_scorer(html_items) >= HTML_ACCEPTANCE_MIN_SCORE:
+    if len(html_items) >= HTML_ACCEPTANCE_MIN_ITEMS and html_quality_score >= HTML_ACCEPTANCE_MIN_SCORE:
         return _resolved_payload(
             items=html_items,
             source_used="html",
-            quality_score=quality_scorer(html_items),
+            quality_score=html_quality_score,
             confidence="medium",
             llm_fallback_invoked=False,
             legistar_items=legistar_items,
@@ -118,21 +120,24 @@ def resolve_agenda_items(
             legistar_accepted=False,
         )
 
-    llm_items = local_ai.extract_agenda(catalog.content) if catalog and catalog.content else []
-    merged = merge_ai_with_eagenda(llm_items, html_items)
-    quality_score = quality_scorer(merged)
+    text_items = local_ai.extract_agenda(catalog.content) if catalog and catalog.content else []
+    # A valid partial source may supplement business, but rejected HTML cannot override it.
+    supplemental_html_items = legistar_filter(html_items) if html_quality_score >= HTML_ACCEPTANCE_MIN_SCORE else []
+    resolved_items = merge_ai_with_eagenda(text_items, supplemental_html_items)
+    quality_score = quality_scorer(resolved_items)
     logger.debug(
-        "agenda_resolver_fallback source=llm catalog_location=%s html_candidates=%s merged_items=%s quality_score=%s",
+        "agenda_resolver_fallback source=%s catalog_location=%s html_candidates=%s merged_items=%s quality_score=%s",
+        TEXT_FALLBACK_SOURCE,
         getattr(catalog, "location", None),
         len(html_items),
-        len(merged),
+        len(resolved_items),
         quality_score,
     )
     return _resolved_payload(
-        items=merged,
-        source_used="llm",
+        items=resolved_items,
+        source_used=TEXT_FALLBACK_SOURCE,
         quality_score=quality_score,
-        confidence="medium" if merged else "low",
+        confidence="medium" if resolved_items else "low",
         llm_fallback_invoked=True,
         legistar_items=legistar_items,
         filtered_legistar_items=filtered_legistar_items,

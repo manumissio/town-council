@@ -11,6 +11,76 @@ from pipeline.agenda_extraction_fallback import run_agenda_extraction_pipeline
 FROZEN_SAMPLE = Path("experiments/results/agenda_boundary_2026_10_18.json.gz")
 
 
+@pytest.mark.parametrize("header", [
+    "City of Example\n\nMeeting Minutes\n\nCity Council",
+    "City Council: Community Meeting Notice\n\nCity of Example\n\nNotice and Agenda",
+])
+def test_opening_metadata_before_document_label_is_not_business(header: str) -> None:
+    agenda = run_agenda_extraction_pipeline(
+        text=f"[PAGE 1]\n{header}\n\nAnnual budget report\nRecommendation: Receive it.",
+        raw_provider_content=None, mode="balanced", logger=logging.getLogger(__name__),
+    )
+
+    assert [entry["title"] for entry in agenda] == ["Annual budget report"]
+
+
+@pytest.mark.parametrize("topic", [
+    "City of Example infrastructure investment plan",
+    "City Council Budget Report",
+    "7:00 PM Transit service expansion",
+    "Appoint members to the Library Board",
+    "Report from the Planning Commission",
+])
+@pytest.mark.parametrize("body", ["", "\nRecommendation: Receive it."])
+@pytest.mark.parametrize("notice", ["", "City Council: Community Meeting Notice\n\n"])
+def test_opening_business_is_not_treated_as_a_document_header(topic: str, body: str, notice: str) -> None:
+    agenda = run_agenda_extraction_pipeline(
+        text=f"[PAGE 1]\n{notice}{topic}{body}\n\nAnnual budget report",
+        raw_provider_content=None, mode="balanced", logger=logging.getLogger(__name__),
+    )
+
+    assert [entry["title"] for entry in agenda] == [topic, "Annual budget report"]
+
+
+@pytest.mark.parametrize("title", ["City of Example", "City Council: Community Meeting Notice"])
+@pytest.mark.parametrize("record_anchor", ["", "25-0131\n"])
+def test_body_backed_item_is_not_removed_by_header_evidence(title: str, record_anchor: str) -> None:
+    agenda = run_agenda_extraction_pipeline(
+        text=(f"[PAGE 1]\n{title}\n{record_anchor}Recommendation: Adopt the infrastructure plan."
+              "\n\nMeeting Minutes\n\nAnnual budget report"),
+        raw_provider_content=None, mode="balanced", logger=logging.getLogger(__name__),
+    )
+
+    assert [entry["title"] for entry in agenda] == [title, "Annual budget report"]
+    assert "Adopt the infrastructure plan" in agenda[0]["description"]
+
+
+@pytest.mark.parametrize("intervening", ["Budget", "Unrelated source detail " * 50])
+def test_filtered_paragraphs_do_not_create_header_adjacency(intervening: str) -> None:
+    topic = "City of Example infrastructure investment plan"
+    agenda = run_agenda_extraction_pipeline(
+        text=f"[PAGE 1]\n{topic}\n\n{intervening}\n\nMeeting Minutes\n\nAnnual budget report",
+        raw_provider_content=None, mode="balanced", logger=logging.getLogger(__name__),
+    )
+
+    assert [entry["title"] for entry in agenda] == [topic, "Annual budget report"]
+
+
+@pytest.mark.parametrize("introduction, list_entry", [
+    ("A quorum of the following meeting bodies may attend:", "Planning Commission"),
+    ("Council interviewed the following applicants for vacancies.", "Jane Smith - Planning Commission"),
+])
+def test_notice_does_not_carry_list_context_into_independent_business(introduction: str, list_entry: str) -> None:
+    topic = "Report from the Planning Commission"
+    agenda = run_agenda_extraction_pipeline(
+        text=(f"[PAGE 1]\n{introduction}\n\n{list_entry}\n\n"
+              f"City Council: Community Meeting Notice\n\n{topic}\n\nAnnual budget report"),
+        raw_provider_content=None, mode="balanced", logger=logging.getLogger(__name__),
+    )
+
+    assert [entry["title"] for entry in agenda] == [topic, "Annual budget report"]
+
+
 @pytest.mark.parametrize(("catalog_id", "expected_title"), [
     (3034, "Board and Commission Interviews"),
     (6655, '"Less Traffic, Better Places: How Do We Get There?"'),
