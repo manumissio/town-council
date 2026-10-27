@@ -28,6 +28,7 @@ _AFFILIATION_CONTINUATION_RE = re.compile(
 )
 _RECESS_NOTE_RE = re.compile(r"^(?:council|commission|board) took a recess\b", re.IGNORECASE)
 _BUSINESS_BODY_FIELDS = frozenset({"subject", "recommendation", "recommended action"})
+_COMMUNITY_NOTICE_TITLE = "city council: community meeting notice"
 
 
 def paragraph_is_document_furniture(paragraph: str, following: str, parse_state: AgendaParseState) -> bool:
@@ -38,6 +39,10 @@ def paragraph_is_document_furniture(paragraph: str, following: str, parse_state:
         parse_state.paragraph_header_active = False
         parse_state.paragraph_list_context = None
         return False
+    # A notice ends the preceding list without making the next topic header metadata.
+    if title.lower() == _COMMUNITY_NOTICE_TITLE:
+        parse_state.paragraph_list_context = None
+        return True
     if _DOCUMENT_HEADER_RE.fullmatch(title):
         parse_state.paragraph_header_active = True
         return True
@@ -51,8 +56,6 @@ def paragraph_is_document_furniture(paragraph: str, following: str, parse_state:
 
 def _is_header_metadata(title: str, following: str) -> bool:
     if _BODY_LABEL_RE.fullmatch(title) or _is_header_schedule(title):
-        return True
-    if title.lower() == "city council: community meeting notice":
         return True
     return bool(_PLACE_HEADER_RE.fullmatch(title) and (
         _DOCUMENT_HEADER_RE.fullmatch(following) or _BODY_LABEL_RE.fullmatch(following)
@@ -114,6 +117,15 @@ def candidate_paragraphs(page_content: str) -> list[str]:
     source_paragraphs = iter_fallback_paragraphs(page_content)
     paragraphs: list[str] = []
     for index, paragraph in enumerate(source_paragraphs):
+        following = source_paragraphs[index + 1] if index + 1 < len(source_paragraphs) else ""
+        # Check source neighbours before filtering can make distant headings adjacent.
+        if (
+            _PLACE_HEADER_RE.fullmatch(normalize_spaces(paragraph))
+            and _DOCUMENT_HEADER_RE.fullmatch(normalize_spaces(following))
+            and not paragraph_has_record_anchor(paragraph)
+            and not ITEM_FIELD_PATTERN.search(paragraph)
+        ):
+            continue
         record_id = RECORD_ID_PATTERN.fullmatch(paragraph.strip())
         if record_id and index and _eligible_paragraph(source_paragraphs[index - 1]):
             paragraphs[-1] = _attach_record_id(paragraphs[-1], paragraph.strip())
