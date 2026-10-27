@@ -31,7 +31,7 @@ This project ingests agendas/minutes, extracts text, indexes search content, and
 ### 2) Start stack and initialize DB
 ```bash
 test -f .env || cp .env.example .env
-bash ./scripts/dev_up.sh
+STARTUP_PURGE_DERIVED=false bash ./scripts/dev_up.sh
 ```
 
 What `scripts/dev_up.sh` does:
@@ -40,6 +40,9 @@ What `scripts/dev_up.sh` does:
 - bootstraps the shared local model volume
 - starts the remaining Docker Compose stack (with `--build`)
 - runs a small smoke check (`/health`)
+
+The explicit override preserves saved text and derived records on restart.
+Without it, the development overlay enables startup cleanup.
 
 Local development may use the fake Meilisearch reader fallback. Any reachable
 deployment must configure a scoped read `MEILI_SEARCH_KEY` for the API and

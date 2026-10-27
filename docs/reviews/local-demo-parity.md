@@ -1,6 +1,141 @@
 # Local App and Sample Preview
 
-Last updated: 2026-10-21
+Last updated: 2026-10-27
+
+## Current Goal and Planning Requirement
+
+The active goal includes the notice/date fixes, related-record navigation, and
+preservation-safe clean-start checks. The operator-supplied **Town Council
+Planning Templates**, provided on 2026-10-27, govern planning for this goal.
+The current cross-cutting work uses the Full template and its independent
+review requirements. This does not replace `AGENTS.md` or introduce a new
+tracked planning framework. Implementation and the bounded local verification
+are complete. Final independent review returned APPROVE with no actionable
+findings. This report records local verification; subsequent PR checks and
+delivery state are recorded on GitHub, not inferred from these results.
+
+The second plan review stopped implementation on a record-identity contract
+gap. The operator approved the correction and one extra focused review on
+October 27. That fresh review returned APPROVE against base
+`48a4507f31a1624e95483d66efd94c0643710f42`. The batch route now returns the
+authoritative event ID separately from the catalog ID. The page maps the
+catalog ID and meeting heading explicitly, opens canonical saved content,
+and preserves the original search when returning. Tests use unequal IDs and
+verify issue-report ownership, not just a card that looks correct.
+
+### Current Verification
+
+- PASS: `./.venv/bin/ruff check .`.
+- PASS: `./.venv/bin/mypy` — 64 configured source files.
+- PASS: complete frontend `npm test` in the existing locked Node24 Docker
+  environment: 79 tests, including a delayed related read after collapse.
+- PASS: `COMPOSE_DISABLE_ENV_FILE=1 PYTHONPATH=. .venv/bin/pytest -q`:
+  2,201 passed, 20 skipped. The old batch-response fixture was updated within
+  its approved scope, retaining the complete response assertion.
+- PASS: API/search, frontend-contract, docs-link and environment/profile
+  checks together: 102 tests. Startup-purge tests: 8 tests.
+- PASS: Playwright inspected all 24 documents at desktop and 390px mobile:
+  48 inspections, 176 retained agenda rows per layout, exact saved fields,
+  matching provenance labels, calendar dates, and source URLs. All 24 external
+  sources returned HTTP 200 during this run. No mutation requests occurred.
+- PASS: the isolated healthy empty index shows ingestion guidance, not an
+  outage or invented sample records, at both widths. Creating the index makes
+  metadata available without waiting for the empty response to expire.
+- PASS: 25 disposable synthetic records exercise pagination, related-record
+  selection, chained selection, canonical text/agenda reads, source URLs,
+  keyboard focus, and Back preserving query and municipality. No live
+  relation was created. The same records survive an API/frontend restart.
+- PASS: live and sample frontend builds use existing locked dependencies
+  without network access. The sample export renders ten synthetic records at
+  both widths with no backend or mutation traffic.
+- PASS: final independent review reran the complete Python and frontend suites,
+  Ruff, Mypy, focused checks, startup-purge tests, docs links and diff validation.
+  Its recorded verdict is APPROVE, with no actionable within-scope or
+  scope-expansion finding. The review record and exact command output are in
+  `.cache/brief-closure-20261027/reviewer-review.md`, `reviewer-python.log` and
+  `reviewer-frontend.log`. Browser claims were independently checked against
+  saved artifacts; the reviewer did not claim a second browser run.
+
+The first full-suite rerun failed because a documentation edit removed the
+existing purge warning; restoring that warning fixed the failure. An optional
+check initially named a nonexistent startup test file (exit 4, no tests ran);
+the three actual startup-purge test files were then located and passed.
+Neither failure was classified as a flake or hidden by weakening a test.
+
+Live data has not changed in this phase. The actual model-download/bootstrap
+path and real inference/semantic execution remain NOT RUN, as required by the
+brief's no-download verification boundary. At the local verification handoff,
+CI, commit, push and deployment were NOT RUN. These local results do not claim
+extraction completeness or future external-source availability.
+
+The current 24-document preview is at `http://localhost:13000`, disposable
+seeded navigation at `http://localhost:13010`, and the separate sample at
+`http://localhost:13020/town-council/`. These isolated previews are not a
+deployment to the original stack. The original API/frontend were not restarted
+in this phase.
+
+Reviewed change set:
+
+- `README.md`
+- `api/catalog_routes.py`
+- `api/search_read_meilisearch.py`
+- `api/search_read_routes.py`
+- `docs/reviews/local-demo-parity.md`
+- `docs/OPERATIONS.md`
+- `frontend/app/page.js`
+- `frontend/components/ResultCard.js`
+- `frontend/components/__tests__/ResultCard.people-projection.test.js`
+- `tests/test_api.py`
+- `tests/test_concurrency_limits.py`
+
+### Reproduce the Remaining-Brief Checks
+
+Private runtime configurations and corpus exports stay under ignored
+`.cache/brief-closure-20261027/`; do not commit them. Logs use these exact
+commands from the repository root:
+
+```bash
+./.venv/bin/ruff check .
+./.venv/bin/mypy
+PYTHONPATH=. .venv/bin/pytest -q tests/test_api.py tests/test_query_builder_filters.py tests/test_query_builder_parity_search_vs_trends.py tests/test_frontend_pages_config.py tests/test_resultcard_agenda_status_refresh.py tests/test_search_sort_ui_guardrails.py tests/test_semantic_search_ui_guardrails.py tests/test_docs_links.py tests/test_env_example_profile_alignment.py
+PYTHONPATH=. .venv/bin/pytest -q tests/test_startup_purge_gating.py tests/test_startup_purge_locking.py tests/test_startup_purge.py
+COMPOSE_DISABLE_ENV_FILE=1 PYTHONPATH=. .venv/bin/pytest -q
+docker run --rm --network none -e TZ=America/New_York -v "$PWD/frontend:/src:ro" -v "$PWD/.cache/agenda-quality-20261019/frontend/node_modules:/src/node_modules:ro" -w /src node:24.20.0-alpine npm test
+node .cache/brief-closure-20261027/browser-clean.cjs empty
+node .cache/brief-closure-20261027/browser-clean.cjs seeded
+node .cache/brief-closure-20261027/browser-24.cjs
+node .cache/brief-closure-20261027/browser-sample.cjs
+git diff --check
+```
+
+Run the empty-index browser check before restoring the disposable index, then
+run the seeded check. Their private configurations isolate ports, networks,
+database and search storage from the live stack. The 24-document preview is a
+separate existing disposable copy; its before/after database fingerprints match.
+Screenshots and browser observations are in `playwright-clean/` and
+`playwright-24/` beneath that scratch directory. Full Python/frontend output is
+in `pytest-final.log` and `frontend-final.log`.
+
+The isolated migration command is
+`.venv/bin/python .cache/brief-closure-20261027/migrate-clean.py.txt`.
+It invokes the canonical migration entrypoint and schema-parity check against
+the disposable database only. Initial migration and repeat execution passed;
+the final revision is `0002_roster_gated_people`. Whole-table fingerprints
+before and after migration/restart match, including stored text and agenda rows.
+
+Live-mode builds ran sequentially with `NEXT_PUBLIC_DEMO_MODE=false`,
+`STATIC_EXPORT=false` and the corresponding isolated API origin. The separate
+sample build used `NEXT_PUBLIC_DEMO_MODE=true STATIC_EXPORT=true`. Each ran
+`npm run build -- --webpack` in the cached Node24 Docker image with
+`--network none` and read-only locked dependencies. Output is in
+`build-clean.log`, `build-24.log`, and `build-sample.log`. The sample build
+restored its runtime API directory after export.
+
+For normal use, README and the runbook now show
+`STARTUP_PURGE_DERIVED=false bash ./scripts/dev_up.sh`. This preserves derived
+records without changing the development overlay's default. The full script
+still bootstraps models; it was not run against live data or claimed verified
+by the smaller offline runtime checks.
 
 ## Scope and Checkpoints
 
@@ -12,10 +147,15 @@ delivery. The local demo parity brief defines T0–T6.
 - T0: baseline and gap matrix — complete
 - T1: local first launch and browsing — complete locally
 - T2: search and capability behavior — complete locally
-- T3: record tabs and recovery — complete locally; actual inference not run
+- T3: record tabs and recovery — related navigation verified with disposable records; actual inference remains unverified
 - T4: optional sample preview — complete locally
-- T5: setup documentation — complete for tested paths; full bootstrap not run
-- T6: final verification and handoff — complete locally; limits recorded below
+- T5: setup documentation — preservation-safe command and isolated empty/indexed/restart paths verified; full model bootstrap not run
+- T6: bounded local checks and independent review pass; CI and deployment not run
+
+The original checks below are historical evidence, not proof that all current
+acceptance criteria are closed. The follow-up section records newer checks and
+remaining work. Correctly displaying saved rows does not prove those rows are
+substantive agenda business.
 
 ## T0: Baseline
 
@@ -338,6 +478,180 @@ zero fictional source links. Both desktop and 390px screenshots were inspected;
 the mobile document width was 390px and keyboard Tab reached Municipality.
 The wrapper restored its scratch `app/api` directory and left no backup;
 tracked `frontend/app/api` is unchanged.
+
+## Notice and Calendar-Date Follow-up
+
+The user requested tests-first fixes, unchanged model settings and item limits,
+and the same 24 documents checked in Playwright before live-data changes.
+
+### Dates: Local Fix and Review
+
+`ResultCard.js` interpreted calendar-date strings as instants and displayed
+them in the viewer's timezone. The main card and related-meeting date formats
+now explicitly use UTC. Stored dates are unchanged. No date library or shared
+formatting layer was added.
+
+Both new rendered-component tests failed in `America/New_York` before their
+respective fixes. They now cover the two reported dates, New Year's Day, leap
+day, and the main card's missing-date message. Independent plan and code
+reviews approved this date-only correction.
+
+From the repository root, the component command was:
+
+```sh
+docker run --rm -e TZ=America/New_York -e LANG=en_US.UTF-8 \
+  -v "$PWD/frontend:/src:ro" \
+  -v "$PWD/.cache/agenda-quality-20261019/frontend/node_modules:/src/node_modules:ro" \
+  -w /src node:24.20.0-alpine \
+  node --test components/__tests__/ResultCard.people-projection.test.js
+```
+
+- PASS: component suite, 21 tests. The independent reviewer also ran the
+  complete component file with `TZ=UTC` and `TZ=Pacific/Auckland`: 21 passed each.
+- PASS: the same Docker environment with `npm test`: 70 frontend tests.
+- PASS: `PYTHONPATH=. .venv/bin/pytest -q tests/test_frontend_pages_config.py tests/test_resultcard_agenda_status_refresh.py tests/test_search_sort_ui_guardrails.py tests/test_semantic_search_ui_guardrails.py tests/test_docs_links.py`: 14 passed.
+- FAIL: initial `COMPOSE_DISABLE_ENV_FILE=1 PYTHONPATH=. .venv/bin/pytest -q`:
+  1 failed, 2,194 passed, 20 skipped. Coverage discovery included the ignored
+  archived build checkout. The archive was moved outside the repository and
+  the scratch snapshot script was given a non-Python suffix; policy and tests
+  were not weakened.
+- PASS: the same complete-suite command after scratch cleanup:
+  2,195 passed, 20 skipped.
+
+### Notices: Review Before Removal
+
+Existing notice filtering already covers the flagged title patterns. Another
+production filter is not needed for this cleanup. Independent source review
+approved 29 exact notice rows across eight catalogs, including administrative
+instructions missed by the initial title-only candidate scan. Study-session
+and staff/proceedings rows with substantive or distinct proceedings context
+were excluded from removal.
+
+The proposed cleanup deletes only reviewed row IDs. It preserves surviving
+IDs, ordering, matter links, votes, descriptions, source text, and segmentation
+attempt metadata. The existing agenda hash is recomputed; cleanup is not
+recorded as a new extraction attempt.
+
+PASS: six disposable SQLite safety tests, run with
+`PYTHONPATH=. .venv/bin/python .cache/notice-dates-20261026/test_prune.py.txt`.
+They cover exact removal and restoration, source and row changes, protected
+matter links and embeddings, and refusal to restore over later edits. The
+initial tests-first invocation failed because the operator script did not yet
+exist. Fixture setup then required the existing mandatory place/catalog fields
+before the six tests could execute successfully.
+
+A separate disposable Postgres database was restored from a read-only live
+dump. Its isolated API/search/frontend share no live volumes or network.
+PASS: remove the 29 rows, commit, restore exactly, commit, and repeat the
+same removal. All 14 table fingerprints differ from live only in the agenda
+rows and affected catalog hashes. This is a rehearsal, not a live correction.
+
+### Browser Check Before Live Changes
+
+PASS: `node .cache/notice-dates-20261026/browser-check.cjs` against the isolated
+API, database, search service, and production-built frontend. No response
+fixtures were substituted. Evidence is under
+`.cache/notice-dates-20261026/playwright-before-live/`.
+
+- All 24 documents checked at desktop and 390px mobile widths: 48 checks.
+- All 176 retained rows per layout match reviewed IDs and saved fields;
+  descriptions and neutral provenance labels render. All 96 reference quotes
+  remain present in Full Text per layout. This does not certify extraction of
+  every business topic.
+- All calendar dates match the API's calendar day. Screenshots confirm May 10
+  for 3034 and May 27 for 6655, with their retained substantive items.
+- All 24 original source URLs returned HTTP 200. Mobile source clicks for
+  3034 and 6655 opened the expected documents. No guessed PDF page links.
+- Cancellation records 6530, 6961, 8733, and 8769 display zero items.
+- Card controls remain within their cards in both layouts; no attempted
+  local mutation requests occurred.
+
+### Live Application and Recheck
+
+Independent operational review initially blocked the cleanup because
+serializable reads alone do not exclude concurrent writers. Before any live
+write, the driver was corrected to take write-excluding locks on the reviewed
+tables before its first data read. A five-second acquisition timeout aborts
+rather than waiting indefinitely. The real disposable-Postgres test failed
+before this helper existed, then passed: a concurrent writer was blocked during
+maintenance and could proceed after release. Its changes were rolled back.
+The independent reviewer reran this test and the six SQLite tests, then approved
+the corrected driver.
+
+PASS: `docker exec -i tc-notice-preview-api-1 python - < .cache/notice-dates-20261026/test_lock.py.txt`.
+
+The reviewed live driver then removed exactly the 29 approved rows. Before
+commit it required the original snapshot, the already host-backed-up rehearsal
+result, and all 14 expected table fingerprints to match. Fresh post-commit and
+post-browser fingerprints also matched. Only the reviewed agenda deletions and
+eight catalog hashes changed; the other twelve tables are identical. No source
+or surviving agenda row was rewritten. Targeted search synchronization used the
+existing `reindex_catalog` path for only the eight affected catalogs and waited
+for indexing to finish.
+
+Commands and results:
+
+```sh
+# The exact reviewed code and private inputs were copied to the container first.
+docker exec -i town-council-api-1 python - < .cache/notice-dates-20261026/apply-live.py.txt
+# PASS: exact cleanup and all-table equality before commit.
+
+docker exec --env-file .cache/agenda-source-quality-20261021/operator.env \
+  -i town-council-api-1 python - < .cache/notice-dates-20261026/index-live.py.txt
+# PASS: eight targeted catalog refreshes; no whole-index rebuild.
+
+diff -u .cache/notice-dates-20261026/disposable-expected-tables.txt \
+  .cache/notice-dates-20261026/live-after-browser-tables.txt
+# PASS: no differences across all 14 tables.
+```
+
+Only the frontend container was replaced for the date fix. Its image reuses the
+previous runtime base and locked production build output, with no new package
+installation. The image revision label identifies a reviewed working-tree patch,
+not a merged revision. An initial image assembly failed because the normal
+source-build ignore file excludes `.next`; the successful build used a separate
+context containing only standalone/static output. The failed image was never
+deployed. API and other live services were not restarted.
+
+Full API/frontend environment fingerprints remained equal before and after
+deployment, as did every pipeline configuration-file hash. Model settings,
+item limits, the three-item acceptance floor, auth, and network exposure were
+not changed.
+
+PASS: `node .cache/notice-dates-20261026/browser-live.cjs` against the actual
+local app after cleanup and deployment. This repeated the same 48 desktop/mobile
+checks, 176 retained rows per layout, 96 Full Text reference quotes per layout,
+24 successful source URLs, source clicks, neutral labels, cancellation emptiness,
+and calendar dates. No local mutation requests were attempted. Live screenshots
+for desktop 3034 and mobile 6655 were also visually inspected.
+
+Evidence is under `.cache/notice-dates-20261026/playwright-live/`. Private row
+backups and the original database dump remain in the ignored restricted scratch
+directory. Exact row restoration was tested on the disposable database; it
+refuses to overwrite later edits. Frontend rollback selects the previous image.
+Neither live rollback was exercised.
+
+### Earlier Brief Audit Before the Navigation Follow-Up
+
+At this earlier checkpoint, notice/date work was verified, but exposed related
+navigation and clean-start checks remained open. The current verification at
+the top of this report supersedes those two deficits. Complete extraction of
+every business topic, actual inference/semantic execution, and physical PDF
+page mappings are still not claimed. No push or PR was made for this follow-up.
+
+That read-only audit found 8,940 catalogs and zero nonempty `related_ids` values.
+The dormant View button had no handler at that point. Later verification uses
+clearly synthetic relations only in the disposable database, rather than
+altering live records to make the feature appear.
+
+PASS: `bash -n scripts/dev_up.sh scripts/bootstrap_local_models.sh scripts/setup_ollama_270m.sh`.
+PASS: `COMPOSE_DISABLE_ENV_FILE=1 docker compose --env-file .env.example -f docker-compose.yml -f docker-compose.dev.yml config --quiet`.
+These validate syntax/configuration, not a successful cold startup. Inspection
+of that resolved configuration shows startup purge enabled for API, worker, and
+pipeline; the documented startup script also invokes model-download commands.
+Neither was executed during that audit. The subsequent preservation-safe
+checks and their model-bootstrap limits are recorded at the top of this report.
+No startup, navigation, model, or default-policy change was made by that audit.
 
 Sample preview commands tested with the isolated output:
 
