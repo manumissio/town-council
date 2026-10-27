@@ -2,10 +2,10 @@ from time import monotonic
 from typing import Any, Optional, TypedDict
 
 from fastapi import APIRouter, HTTPException, Query
-from meilisearch.errors import MeilisearchCommunicationError, MeilisearchError, MeilisearchTimeoutError
+from meilisearch.errors import MeilisearchApiError, MeilisearchCommunicationError, MeilisearchError, MeilisearchTimeoutError
 
 from api.search import support_core
-from api.search_read_meilisearch import run_lexical_search
+from api.search_read_meilisearch import INDEX_NOT_FOUND_CODE, run_lexical_search
 from api.search_read_params import SEARCH_LIMIT_DEFAULT, SEARCH_LIMIT_MAX, build_lexical_search_params, validate_search_date_range
 from api.search_semantic_routes import search_documents_semantic
 
@@ -102,7 +102,9 @@ def get_metadata() -> MetadataPayload:
         return cache_entry[1]
 
     metadata_payload = _load_search_metadata()
-    _metadata_cache_entry = (monotonic() + SEARCH_METADATA_CACHE_SECONDS, metadata_payload)
+    # First ingestion must become visible without waiting for an empty cache to expire.
+    if any(metadata_payload.values()):
+        _metadata_cache_entry = (monotonic() + SEARCH_METADATA_CACHE_SECONDS, metadata_payload)
     return metadata_payload
 
 
@@ -126,5 +128,7 @@ def _load_search_metadata() -> MetadataPayload:
             "meeting_types": meeting_types,
         }
     except (MeilisearchCommunicationError, MeilisearchTimeoutError, MeilisearchError, RuntimeError, ValueError) as exc:
+        if isinstance(exc, MeilisearchApiError) and exc.code == INDEX_NOT_FOUND_CODE:
+            return {"cities": [], "city_options": [], "organizations": [], "meeting_types": []}
         support_core.logger.error("Metadata retrieval failed: %s", exc)
         raise HTTPException(status_code=503, detail="Search filters are unavailable. Retry shortly.") from exc
