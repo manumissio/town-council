@@ -8,6 +8,83 @@ import pytest
 from pipeline import agenda_resolver
 
 
+def _resolve_html_source(tmp_path: Path, html: str, fallback_items: list[dict[str, object]]) -> dict[str, object]:
+    html_path = tmp_path / "agenda.html"
+    html_path.write_text(html, encoding="utf-8")
+    catalog = SimpleNamespace(content="[PAGE 1]\nMeeting business", location=str(html_path))
+    document = SimpleNamespace(
+        event_id=1,
+        event=SimpleNamespace(source_url=None, record_date=None, place=None, documents=[]),
+    )
+    extractor = SimpleNamespace(extract_agenda=lambda content: fallback_items)
+    return agenda_resolver.resolve_agenda_items(None, catalog, document, extractor)
+
+
+@pytest.mark.parametrize("html", [
+    "<p>1. Call to Order</p><p>2. Roll Call</p><p>3. Adjournment</p>",
+    "<p>1. Call to Order</p>",
+    "",
+])
+def test_resolver_keeps_business_when_html_fails_quality(tmp_path: Path, html: str):
+    business = [{"title": "Approve Housing Plan"}, {"title": "Fund Park Renovations"}]
+    resolved = _resolve_html_source(tmp_path, html, business)
+    assert resolved["items"] == business
+
+
+def test_resolver_retains_high_quality_single_html_supplement(tmp_path: Path):
+    resolved = _resolve_html_source(
+        tmp_path,
+        "<p>1. Fund Park Renovations</p>",
+        [{"title": "Approve Housing Plan"}],
+    )
+    assert [item["title"] for item in resolved["items"]] == ["Approve Housing Plan", "Fund Park Renovations"]
+
+
+@pytest.mark.parametrize(("first_title", "accepted"), [
+    ("Review webcast budget", True),
+    ("Review webcast and virtual attendance budget", False),
+])
+def test_resolver_keeps_html_quality_boundary(tmp_path: Path, first_title: str, accepted: bool):
+    from pipeline.agenda_crosscheck import parse_eagenda_items_from_html
+    from pipeline.agenda_resolver_quality import agenda_quality_score
+
+    html = f"<p>1. {first_title}</p><p>2. Adopt zoning amendment</p><p>3. Fund park renovations</p>"
+    if accepted:
+        assert agenda_quality_score(parse_eagenda_items_from_html(html)) == 55
+    fallback = [{"title": "Fallback business"}]
+    resolved = _resolve_html_source(tmp_path, html, fallback)
+    if accepted:
+        assert resolved["source_used"] == "html"
+        assert [item["title"] for item in resolved["items"]] == [
+            first_title, "Adopt zoning amendment", "Fund park renovations",
+        ]
+    else:
+        assert resolved["items"] == fallback
+
+
+def test_resolver_text_fallback_label_does_not_certify_model_success(tmp_path: Path):
+    resolved = _resolve_html_source(tmp_path, "", [{"title": "Recovered business"}])
+    assert resolved["source_used"] == "text_fallback"
+    assert resolved["llm_fallback_invoked"] is True
+
+
+def test_resolver_still_accepts_two_high_quality_html_items(tmp_path: Path):
+    resolved = _resolve_html_source(
+        tmp_path, "<p>1. Approve Housing Plan</p><p>2. Fund Park Renovations</p>",
+        [{"title": "Fallback business"}],
+    )
+    assert resolved["source_used"] == "html"
+    assert [item["title"] for item in resolved["items"]] == ["Approve Housing Plan", "Fund Park Renovations"]
+
+
+@pytest.mark.parametrize(("item_count", "accepted"), [(2, False), (3, True)])
+def test_legistar_substantive_item_floor_is_unchanged(item_count: int, accepted: bool):
+    from pipeline.agenda_resolver_legistar_policy import _legistar_items_are_acceptable
+
+    business = [{"title": f"Approve public works contract {index}"} for index in range(item_count)]
+    assert _legistar_items_are_acceptable(business) is accepted
+
+
 def test_agenda_resolver_facade_exports_current_contract():
     expected_names = [
         "AgendaItemRecord",
@@ -231,7 +308,7 @@ def test_resolver_falls_back_to_html_then_llm(mocker):
         return_value=[{"title": "header", "page_number": 1}],
     )
     resolved_llm = agenda_resolver.resolve_agenda_items(mock_session, catalog, doc, local_ai)
-    assert resolved_llm["source_used"] == "llm"
+    assert resolved_llm["source_used"] == "text_fallback"
     local_ai.extract_agenda.assert_called_once_with("text")
     assert resolved_llm["llm_fallback_invoked"] is True
 
@@ -255,7 +332,7 @@ def test_resolver_rejects_legistar_procedural_only_payload(mocker):
     )
 
     resolved = agenda_resolver.resolve_agenda_items(mock_session, catalog, doc, local_ai)
-    assert resolved["source_used"] == "llm"
+    assert resolved["source_used"] == "text_fallback"
     assert resolved["legistar_accepted"] is False
     local_ai.extract_agenda.assert_called_once_with("text")
 
@@ -341,6 +418,6 @@ def test_resolver_rejects_legistar_when_only_subject_rows_do_not_reach_acceptanc
     )
 
     resolved = agenda_resolver.resolve_agenda_items(mock_session, catalog, doc, local_ai)
-    assert resolved["source_used"] == "llm"
+    assert resolved["source_used"] == "text_fallback"
     assert resolved["legistar_accepted"] is False
     local_ai.extract_agenda.assert_called_once_with("text")

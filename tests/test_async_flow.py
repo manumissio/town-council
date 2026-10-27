@@ -470,7 +470,7 @@ def test_segment_task_keeps_page_number_in_results(mocker, db_session, shared_en
     assert segmentation_result["status"] == "complete"
     assert segmentation_result["item_count"] == 1
     assert segmentation_result["items"][0]["page_number"] == 7
-    assert segmentation_result["source_used"] == "llm"
+    assert segmentation_result["source_used"] == "text_fallback"
     persisted_item = db_session.query(AgendaItem).filter_by(catalog_id=1).one()
     assert persisted_item.page_number == 7
 
