@@ -139,6 +139,61 @@ function findButton(container, label) {
   );
 }
 
+test("meeting cards preserve calendar dates across viewer timezones", (testContext) => {
+  const ResultCard = compileResultCard(testContext);
+  const calendarDates = [
+    ["2021-05-10", "May 10, 2021"],
+    ["2020-05-27", "May 27, 2020"],
+    ["2026-01-01", "January 1, 2026"],
+    ["2024-02-29", "February 29, 2024"],
+    [null, "Unknown Date"],
+  ];
+
+  for (const [date, displayedDate] of calendarDates) {
+    const markup = renderToStaticMarkup(
+      React.createElement(ResultCard, { hit: { ...TEST_MEETING_HIT, date } }),
+    );
+    assert.ok(markup.includes(displayedDate), `Expected calendar date: ${displayedDate}`);
+  }
+});
+
+test("related meetings preserve their calendar dates across viewer timezones", async (testContext) => {
+  const ResultCard = compileResultCard(testContext);
+  const { dom, restoreDom } = installDom();
+  const relatedMeetings = [
+    { id: 43, title: "Related hearing", date: "2021-05-10", city: "Test City" },
+    { id: 44, title: "Related workshop", date: "2020-05-27", city: "Test City" },
+    { id: 45, title: "New year meeting", date: "2026-01-01", city: "Test City" },
+    { id: 46, title: "Leap day meeting", date: "2024-02-29", city: "Test City" },
+  ];
+  testContext.mock.method(globalThis, "fetch", async (requestUrl) => {
+    const url = String(requestUrl);
+    if (url.includes("/catalog/batch?")) return jsonResponse(relatedMeetings);
+    if (url.includes("/catalog/42/content")) return jsonResponse({ content: "Meeting source text" });
+    if (url.includes("/catalog/42/derived_status")) return jsonResponse({});
+    throw new Error(`Unexpected request: ${url}`);
+  });
+  const container = dom.window.document.getElementById("root");
+  const root = createRoot(container);
+  testContext.after(async () => {
+    await act(async () => root.unmount());
+    restoreDom();
+  });
+  await act(async () => {
+    root.render(React.createElement(ResultCard, {
+      hit: { ...TEST_MEETING_HIT, related_ids: relatedMeetings.map(meeting => meeting.id) },
+    }));
+  });
+  await act(async () => {
+    container.querySelector('button[title="Expand Document Text"]').click();
+    await flushAsyncWork();
+  });
+
+  for (const displayedDate of ["May 10, 2021", "May 27, 2020", "Jan 1, 2026", "Feb 29, 2024"]) {
+    assert.ok(container.textContent.includes(displayedDate), `Expected related date: ${displayedDate}`);
+  }
+});
+
 test("people projection does not render meeting-card affordances", (testContext) => {
   const ResultCard = compileResultCard(testContext);
   const hit = {

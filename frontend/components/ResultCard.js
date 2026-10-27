@@ -515,7 +515,7 @@ export default function ResultCard({ hit, onTopicClick }) {
                 </>
               )}
               <span className="inline-flex items-center gap-1.5">
-                <Calendar className="w-4 h-4 text-gray-400" /> {hit.date ? new Date(hit.date).toLocaleDateString(undefined, { dateStyle: 'long' }) : "Unknown Date"}
+                <Calendar className="w-4 h-4 text-gray-400" /> {hit.date ? new Date(hit.date).toLocaleDateString(undefined, { dateStyle: 'long', timeZone: 'UTC' }) : "Unknown Date"}
               </span>
               {!isAgendaItem && (
                 <span className="inline-flex min-w-0 items-center gap-1.5 opacity-75">
@@ -1101,7 +1101,7 @@ export default function ResultCard({ hit, onTopicClick }) {
                       <div key={related.id} className="flex items-center justify-between p-3 bg-gray-50/50 hover:bg-blue-50/50 rounded-xl border border-gray-100 transition-colors group/rel">
                         <div className="flex flex-col gap-0.5">
                           <span className="text-[13px] font-bold text-gray-800 group-hover/rel:text-blue-700 transition-colors">{related.title}</span>
-                          <span className="text-[11px] text-gray-500 font-medium">{related.city} • {new Date(related.date).toLocaleDateString(undefined, { dateStyle: 'medium' })}</span>
+                          <span className="text-[11px] text-gray-500 font-medium">{related.city} • {new Date(related.date).toLocaleDateString(undefined, { dateStyle: 'medium', timeZone: 'UTC' })}</span>
                         </div>
                         <button className="text-[10px] font-black uppercase text-blue-600 opacity-0 group-hover/rel:opacity-100 transition-opacity flex items-center gap-1">
                           View <ChevronDown className="w-3 h-3 -rotate-90" />
