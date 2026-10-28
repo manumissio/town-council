@@ -227,16 +227,16 @@ separately adjudicated; it should not be counted as another implemented fix.
 
 ## Actionable Follow-Ups
 
-These are recommendations, not newly approved implementation tasks or assigned
-deadlines. Roles identify who should own the next bounded change.
+These are recommendations, not newly approved implementation tasks, owner
+assignments, or deadlines.
 
-| Priority / responsible role | Next action | Evidence required to close it |
+| When | Next action | Evidence required to close it |
 | --- | --- | --- |
-| First / extractor maintainer | Address the two late #327 title-boundary P2s together. Write failing public-extraction cases for anchored paragraph breaks and abbreviation continuations before the simplest shared-boundary repair. | Both source-backed titles are exact; descriptions stay descriptions; neighboring items and existing budget tests pass. No model, limit, or floor change. |
-| Next / agenda feature maintainer | Use a small source-grounded acceptance checklist for the complete resolver, not just fallback. Include canceled meetings, mixed packets, real business beside notices, and meeting identity. | Expected-versus-actual content, false items, missed business, uncertainty, and source locations are reported separately; another reviewer checks the source. Reuse the existing sample before proposing new tooling. |
-| On replacement changes / pipeline and API maintainers | Reuse the connected regression cases instead of adding another empty-state framework. | Confirmed empty clears; inconclusive empty preserves rows/hash; failed attempt remains visible; later records run; API count equals stored rows. |
-| Before restoring precise page or method claims / feature maintainer | Require evidence for the claimed physical page and actual producer. Keep neutral labels and original links until then. | The displayed claim can be traced to the source/record, including negative cases. This report does not propose enabling those claims. |
-| Every merge / delivery owner | Recheck findings after the final head review, not after an earlier all-clear. | Each actionable finding has a disposition against the head being merged; late findings block merge until fixed or explicitly adjudicated. |
+| First | Address the two late #327 title-boundary P2s together. Write failing public-extraction cases for anchored paragraph breaks and abbreviation continuations before the simplest shared-boundary repair. | Both source-backed titles are exact; descriptions stay descriptions; neighboring items and existing budget tests pass. No model, limit, or floor change. |
+| Next | Use a small source-grounded acceptance checklist for the complete resolver, not just fallback. Include canceled meetings, mixed packets, real business beside notices, and meeting identity. | Expected-versus-actual content, false items, missed business, uncertainty, and source locations are reported separately; another reviewer checks the source. Reuse the existing sample before proposing new tooling. |
+| On replacement changes | Reuse the connected regression cases instead of adding another empty-state framework. | Confirmed empty clears; inconclusive empty preserves rows/hash; failed attempt remains visible; later records run; API count equals stored rows. |
+| Before restoring precise page or method claims | Require evidence for the claimed physical page and actual producer. Keep neutral labels and original links until then. | The displayed claim can be traced to the source/record, including negative cases. This report does not propose enabling those claims. |
+| Every merge | Recheck findings after the final head review, not after an earlier all-clear. | Each actionable finding has a disposition against the head being merged; late findings block merge until fixed or explicitly adjudicated. |
 
 Existing regression homes include
 [`test_agenda_cancellation_notices.py`](../../tests/test_agenda_cancellation_notices.py),
